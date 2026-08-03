@@ -4,11 +4,9 @@ VALUES ($1, $2, $3, $4)
 RETURNING id, org_id, type, label, description, created_at, updated_at;
 
 -- name: ListTakenDeviceSetLabels :many
--- Which of the candidate labels are already live in the org for this type.
--- Backs bulk create's per-row duplicate check: uk_device_collection_org_type_label
--- spans (org_id, type, label), so a site- or building-scoped list of racks can
--- never answer "is this label free?" — the collision may be a rack the caller
--- has no reason to have loaded.
+-- Which candidate labels are already live in the org for this type. Backs bulk
+-- create's duplicate check: uk_device_collection_org_type_label spans
+-- (org_id, type, label), so a site/building-scoped rack list can't answer it.
 SELECT label
 FROM device_set
 WHERE org_id = sqlc.arg('org_id')

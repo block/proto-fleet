@@ -471,10 +471,8 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	return &pb.CreateCollectionResponse{Collection: txResult.collection, AddedCount: int32(txResult.addedCount)}, nil
 }
 
-// NewRackParams is one row of a bulk rack create. It carries the whole rack
-// description rather than only a label: whether the batch happens to share
-// one geometry is the form's business. Placement is the exception and lives
-// on CreateRacksParams, since a batch is created into one place.
+// NewRackParams is one row of a bulk rack create. Placement is not here — it
+// lives on CreateRacksParams, since a batch lands in one place.
 type NewRackParams struct {
 	Label       string
 	Rows        int32
@@ -499,11 +497,9 @@ type RackCreateErrorReason int
 
 const (
 	RackCreateErrorReasonUnspecified RackCreateErrorReason = iota
-	// RackCreateDuplicateLabelInBatch: two rows of the request share a label.
 	RackCreateDuplicateLabelInBatch
-	// RackCreateDuplicateLabelInOrg: a live rack anywhere in the org already
-	// holds the label. Not scoped to the target site or building — see
-	// CollectionStore.ListTakenLabels.
+	// RackCreateDuplicateLabelInOrg: label taken by a live rack anywhere in
+	// the org, not just the target site/building — see ListTakenLabels.
 	RackCreateDuplicateLabelInOrg
 )
 
@@ -514,39 +510,30 @@ type PerRackCreateError struct {
 	Reason RackCreateErrorReason
 }
 
-// maxBulkCreateRacks caps one bulk-create batch. Mirrors the buf.validate
-// max_items on CreateRacksRequest.racks — a typo guard, not a capacity limit;
-// the building grid enforces the real one.
+// maxBulkCreateRacks caps one bulk-create batch, mirroring the buf.validate
+// max_items — a typo guard, not a capacity limit.
 const maxBulkCreateRacks = 500
 
-// errBulkRackCreateRejected is an internal sentinel that rolls the batch back
-// when label collisions are found inside the transaction. The offending rows
-// travel in a closure variable; this error only signals "roll everything
-// back". Deliberately NOT a FleetError so errors.Is still matches after the
+// errBulkRackCreateRejected rolls the batch back when label collisions are
+// found inside the tx; the offending rows travel in a closure variable.
+// Deliberately NOT a FleetError so errors.Is still matches after the
 // transactor wraps it.
 var errBulkRackCreateRejected = errors.New("bulk rack create rejected")
 
-// CreateRacks inserts every rack in the batch at one placement in a SINGLE
-// transaction. Either all of them exist afterwards or none does — a partial
-// batch would leave the operator reconciling which half of their list got
-// created.
+// CreateRacks inserts the whole batch at one placement in a SINGLE
+// transaction: all racks exist afterward or none do.
 //
-// Label collisions are reported per row rather than as one opaque
-// AlreadyExists, so the bulk form can mark the offending preview lines. Two
-// sources are checked: duplicates within the batch (pure request math, before
-// the tx opens) and duplicates against the racks already live in the ORG (read
-// inside the tx, after the placement rows are locked, so a concurrent create
-// can't slip in between the check and the inserts). Org-wide is the right
-// scope because uk_device_collection_org_type_label is — a client holding one
-// building's rack list cannot pre-check this.
+// Label collisions are reported per row so the form can mark offending lines.
+// Two sources: duplicates within the batch (request math, before the tx) and
+// against live racks in the ORG (read inside the tx, after the placement rows
+// are locked, so a concurrent create can't slip in). Org-wide because
+// uk_device_collection_org_type_label is.
 //
-// Racks land unplaced in the target building's grid; choosing aisle/position
-// is a separate step. Members are never seeded: N racks at once has no
-// sensible way to say which miner belongs to which rack.
+// Members are never seeded: N racks at once has no way to say which miner
+// belongs to which rack.
 func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]*pb.DeviceCollection, []PerRackCreateError, error) {
-	// Read up front, not after the commit: the activity rows only need
-	// attribution, and failing to resolve the session once the racks exist
-	// would report an error for a write that happened.
+	// Resolve attribution up front: failing after the racks exist would
+	// report an error for a write that happened.
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -558,9 +545,8 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 		return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks exceed the %d-row limit", maxBulkCreateRacks)
 	}
 
-	// Trim first so " A" and "A " can't both insert and then read back as the
-	// same label. The trimmed value is what gets stored, and what the
-	// duplicate checks compare.
+	// Trim first so " A" and "A " can't insert then read back as the same
+	// label. The trimmed value is stored and compared.
 	labels := make([]string, len(params.Racks))
 	for i, r := range params.Racks {
 		labels[i] = strings.TrimSpace(r.Label)
@@ -572,18 +558,16 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 		}
 	}
 
-	// Batch duplicates are pure request math, but do NOT return here: a label
-	// can be both repeated in the batch and already taken in the org, and
-	// reporting one source at a time makes the operator submit again to find
-	// the rest. Merged with the org-wide check below.
+	// Don't return on batch dupes alone: a label can be both repeated here and
+	// taken in the org, and reporting one source at a time makes the operator
+	// resubmit to find the rest. Merged with the org check below.
 	batchDupes := duplicateLabelsInBatch(labels)
 
-	// Placement travels through the same struct SaveRack resolves, so the
-	// site-from-building derivation and lock ordering stay in one place.
+	// Same struct SaveRack resolves, so site-from-building derivation and lock
+	// ordering stay in one place.
 	placement := &pb.RackInfo{SiteId: params.SiteID, BuildingId: params.BuildingID}
 
-	// Captured from the committed attempt: RunInTxWithResult may retry the
-	// closure, so reset at the top of each attempt.
+	// RunInTxWithResult may retry the closure, so reset at each attempt.
 	var rejected []PerRackCreateError
 	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
 		rejected = nil
@@ -593,8 +577,7 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 			return nil, err
 		}
 		if buildingID != nil {
-			// Every rack in the batch is new to the building, so the whole
-			// batch counts against the grid.
+			// All racks are new, so the whole batch counts against the grid.
 			if err := s.enforceBuildingRackCapacity(txCtx, params.OrgID, *buildingID, len(params.Racks)); err != nil {
 				return nil, err
 			}
@@ -627,16 +610,15 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 
 		created := make([]*pb.DeviceCollection, 0, len(params.Racks))
 		for i, r := range params.Racks {
-			// Insert through the same store calls a single create uses, so the
-			// unique-index mapping and column defaults stay in one place.
+			// Same store calls a single create uses, so the unique-index
+			// mapping and column defaults stay in one place.
 			collection, err := s.collectionStore.CreateCollection(txCtx, params.OrgID, pb.CollectionType_COLLECTION_TYPE_RACK, labels[i], "")
 			if err != nil {
-				// uk_device_collection_org_type_label is org-wide, but the only
-				// locks this tx holds are the target site/building rows — and an
-				// unplaced batch holds none at all. So a concurrent create with
-				// the same label can commit after the ListTakenLabels read above
-				// and this insert loses at READ COMMITTED. Report it as this
-				// row's rejection rather than an opaque AlreadyExists.
+				// The unique index is org-wide, but this tx locks only the
+				// target site/building rows (an unplaced batch locks none), so
+				// a concurrent same-label create can commit between the
+				// ListTakenLabels read and this insert at READ COMMITTED.
+				// Report as this row's rejection, not an opaque AlreadyExists.
 				var fleetErr fleeterror.FleetError
 				if errors.As(err, &fleetErr) && fleetErr.GRPCCode == connect.CodeAlreadyExists {
 					rejected = []PerRackCreateError{{
@@ -685,8 +667,7 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 		return nil, nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	// Post-commit: one activity row per rack, matching what a sequence of
-	// single creates would have written.
+	// One activity row per rack, matching a sequence of single creates.
 	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_RACK)
 	for _, rack := range txResult.racks {
 		label := rack.Label
@@ -711,9 +692,8 @@ type createRacksResult struct {
 	siteID *int64
 }
 
-// validateNewRackShape enforces the same dimension/order/cooling contract
-// validateRackInfoShape applies to every other rack-writing path. Zone stays
-// optional. Kept separate because a bulk row has no RackInfo to hand over —
+// validateNewRackShape enforces the same dimension/order/cooling contract as
+// validateRackInfoShape. Separate because a bulk row has no RackInfo — its
 // placement lives on the request, not the row.
 func validateNewRackShape(r NewRackParams) error {
 	if r.Rows < 1 || r.Rows > maxRackDimension {

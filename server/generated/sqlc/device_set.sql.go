@@ -1539,11 +1539,9 @@ type ListTakenDeviceSetLabelsParams struct {
 	Labels []string
 }
 
-// Which of the candidate labels are already live in the org for this type.
-// Backs bulk create's per-row duplicate check: uk_device_collection_org_type_label
-// spans (org_id, type, label), so a site- or building-scoped list of racks can
-// never answer "is this label free?" — the collision may be a rack the caller
-// has no reason to have loaded.
+// Which candidate labels are already live in the org for this type. Backs bulk
+// create's duplicate check: uk_device_collection_org_type_label spans
+// (org_id, type, label), so a site/building-scoped rack list can't answer it.
 func (q *Queries) ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error) {
 	rows, err := q.query(ctx, q.listTakenDeviceSetLabelsStmt, listTakenDeviceSetLabels, arg.OrgID, arg.Type, pq.Array(arg.Labels))
 	if err != nil {

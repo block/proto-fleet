@@ -405,20 +405,14 @@ func (h *Handler) CreateRacks(ctx context.Context, r *connect.Request[dspb.Creat
 	if err != nil {
 		return nil, err
 	}
-	// Same escalation SaveRack applies: dropping racks into a site or building
-	// is a site-management action, so a rack:manage-only caller may create
-	// unplaced racks but not place them. Unlike SaveRack there is no "preserve
-	// current placement" case — every rack here is new — so any non-nil id is
-	// placement intent.
+	// Placing racks into a site/building is a site-management action, so a
+	// rack:manage-only caller can create unplaced racks but not place them.
+	// Every rack here is new, so any non-nil id is placement intent.
 	if r.Msg.SiteId != nil || r.Msg.BuildingId != nil {
-		// Scope the check to the target site when the request names one, so a
-		// site-scoped site:manage operator is admitted at their own site and a
-		// site assignment narrowing an org-wide grant is honored.
-		//
-		// A building-only request stays org-scoped: resolving the building's
-		// parent site needs a store read this handler has no dependency for,
-		// and the service resolves it later under the canonical lock order.
-		// That is the pre-existing behavior, shared with SaveRack.
+		// Scope to the target site when named, so a site-scoped site:manage
+		// operator is admitted and a narrowing site assignment is honored. A
+		// building-only request stays org-scoped (resolving its parent site
+		// needs a store read this handler lacks); shared with SaveRack, see #873.
 		rc := authz.ResourceContext{}
 		if r.Msg.SiteId != nil && *r.Msg.SiteId > 0 {
 			rc.SiteID = r.Msg.SiteId
@@ -431,8 +425,8 @@ func (h *Handler) CreateRacks(ctx context.Context, r *connect.Request[dspb.Creat
 	if err != nil {
 		return nil, err
 	}
-	// Label collisions: the batch wrote nothing. Return the per-row list so
-	// the bulk form can mark the offending preview lines.
+	// Collisions: nothing was written. Return the per-row list so the form
+	// can mark the offending lines.
 	if len(rejected) > 0 {
 		return connect.NewResponse(&dspb.CreateRacksResponse{
 			Errors: toDeviceSetRackCreateErrors(rejected),
