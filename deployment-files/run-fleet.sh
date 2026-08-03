@@ -5,6 +5,7 @@
 # ============================================================================
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FLEET_COMPOSE_PROJECT_NAME="deployment"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
@@ -236,7 +237,12 @@ refresh_compose_env_args() {
 refresh_compose_env_args
 
 compose() {
-    docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" "$@"
+    # Official installs have always lived in a directory named `deployment`.
+    # Pin that existing implicit project identity so an updater's temporary
+    # parent directory cannot change Compose's rendered name, containers, or
+    # persistent volume namespace between preflight and activation.
+    docker compose --project-name "$FLEET_COMPOSE_PROJECT_NAME" \
+        ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" "$@"
 }
 
 sha256() {

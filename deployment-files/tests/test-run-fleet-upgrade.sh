@@ -141,13 +141,18 @@ case " $* " in
             'proto-fleet-timescaledb:latest'
         ;;
     *" compose "*" config "*)
+        project_name=''
         previous=''
         for argument in "$@"; do
+            if [ "$previous" = "--project-name" ]; then
+                project_name="$argument"
+            fi
             if [ "$previous" = "-f" ]; then
                 printf 'compose_file: %s\n' "$argument"
             fi
             previous="$argument"
         done
+        printf 'name: %s\n' "${project_name:-${STAGE_ROOT##*/}}"
         ;;
     *" compose "*" build --no-cache "*)
         if [ "${FAKE_MUTATE_TSDB_DURING_BUILD:-false}" = "true" ]; then
@@ -272,6 +277,7 @@ else
     fail "valid non-interactive preflight should succeed"
 fi
 assert_contains "preflight validates Compose" "$STAGE/calls.log" "config --quiet"
+assert_contains "preflight pins the Compose project identity" "$STAGE/calls.log" "compose --project-name deployment"
 assert_contains "preflight pulls images" "$STAGE/calls.log" " pull"
 assert_contains "preflight builds images" "$STAGE/calls.log" " build --no-cache"
 assert_not_contains "preflight leaves services running" "$STAGE/calls.log" " down --remove-orphans"
