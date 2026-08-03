@@ -229,8 +229,9 @@ describe("AppLayout", () => {
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+40px)]");
   });
 
-  it("includes the update indicator in phone content offset calculations", () => {
+  it("uses the three-widget phone content offset when the update indicator makes four widgets visible", () => {
     mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
     mockUseSchedulePillData.mockReturnValue(
       createSchedulePillData({
         pillSchedule: createPillSchedule(),
@@ -246,7 +247,7 @@ describe("AppLayout", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+80px)]");
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+120px)]");
   });
 
   it("disables update polling when the route hides the shell header", () => {
