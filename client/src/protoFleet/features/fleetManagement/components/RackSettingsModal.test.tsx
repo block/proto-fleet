@@ -33,8 +33,13 @@ vi.mock("@/protoFleet/api/useDeviceSets", async (importActual) => ({
   }),
 }));
 
+// Settable so a test can assert what a locked Site select actually reads: the
+// trigger renders the matching option's label, so a site id with no option
+// behind it would show nothing at all.
+let mockSites: { site: { id: bigint; name: string } }[] = [];
+
 vi.mock("@/protoFleet/api/SitesContext", () => ({
-  useSitesContext: () => ({ sites: [] }),
+  useSitesContext: () => ({ sites: mockSites }),
 }));
 
 vi.mock("@/protoFleet/api/buildings", () => ({
@@ -259,5 +264,52 @@ describe("RackSettingsModal — bulk create", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmitBulk).not.toHaveBeenCalled();
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ label: "R-99", rows: 4, columns: 3 }));
+  });
+});
+
+describe("RackSettingsModal — creating from inside a building", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSites = [];
+  });
+
+  it("renders the host's label on the locked Building select", () => {
+    // The building options are fetched per site, so before that lands (and, for
+    // a site-less building, ever) the label can only come from the host.
+    renderModal({ defaultBuilding: { id: 42n, label: "Shed 4" } });
+
+    const building = screen.getByLabelText("Building");
+    expect(building).toBeDisabled();
+    expect(building).toHaveTextContent("Shed 4");
+  });
+
+  it("locks Site to the building's site so it cannot contradict the building", () => {
+    mockSites = [{ site: { id: 7n, name: "Denver" } }];
+    renderModal({ defaultBuilding: { id: 42n, label: "Shed 4" }, defaultSiteId: 7n });
+
+    const site = screen.getByLabelText("Site");
+    expect(site).toBeDisabled();
+    expect(site).toHaveTextContent("Denver");
+  });
+
+  it("locks Site to Unassigned for a building that sits in no site", async () => {
+    const onSubmitBulk = vi.fn<SubmitBulk>().mockResolvedValue([]);
+    // No defaultSiteId: the building belongs to no site. Site still locks, so
+    // the operator cannot pick one the building would contradict.
+    renderModal({ defaultBuilding: { id: 42n, label: "Shed 4" }, onSubmitBulk, initialCreateVariant: "multiple" });
+
+    const site = screen.getByLabelText("Site");
+    expect(site).toBeDisabled();
+    expect(site).toHaveTextContent("Unassigned");
+
+    fireEvent.change(screen.getByTestId("rack-bulk-count-input"), { target: { value: "2" } });
+    fireEvent.change(screen.getByTestId("rack-bulk-prefix-input"), { target: { value: "R-" } });
+    fillGeometry();
+    fireEvent.click(screen.getByText("Create racks"));
+
+    await waitFor(() => expect(onSubmitBulk).toHaveBeenCalledTimes(1));
+    // The building id alone reaches CreateRacks. A site_id of 0 would be
+    // present-but-invalid and fail the whole batch.
+    expect(onSubmitBulk).toHaveBeenCalledWith(expect.any(Array), { siteId: undefined, buildingId: 42n });
   });
 });

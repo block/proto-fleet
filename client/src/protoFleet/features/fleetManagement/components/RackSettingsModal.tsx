@@ -51,12 +51,14 @@ interface RackSettingsModalProps {
   // initialFormData already carries a siteId.
   defaultSiteId?: bigint;
   // Locks the placement to one building, for a create launched from inside that
-  // building (its rack picker). The label comes with it because the building
-  // options are fetched per site — without it the locked select would read blank
-  // until that fetch lands. Requires defaultSiteId: a building can't be chosen
-  // without its site.
-  defaultBuildingId?: bigint;
-  defaultBuildingLabel?: string;
+  // building (its rack picker). Id and label travel together because the
+  // building options are fetched per site — and a site-less building never
+  // appears in that fetch at all — so the locked select can only render a label
+  // the host hands it.
+  //
+  // defaultSiteId is NOT required alongside it. A building may sit in no site,
+  // and the rack inherits whichever site the building has — see siteLocked.
+  defaultBuilding?: { id: bigint; label: string };
   // True when editing an existing rack (which has a real, possibly-NULL
   // placement). Seeds the placement selects to "Unassigned" when the rack is
   // unplaced (vs. the empty placeholder on create) — see isExistingRack.
@@ -145,8 +147,7 @@ const RackSettingsModal = ({
   existingRacks,
   initialFormData,
   defaultSiteId,
-  defaultBuildingId,
-  defaultBuildingLabel,
+  defaultBuilding,
   existingRack,
   onDismiss,
   onSubmit,
@@ -170,31 +171,35 @@ const RackSettingsModal = ({
   // so a chosen site/building can be reverted.
   const isExistingRack = !!existingRack;
 
-  // Creating within a page-header site scope: the rack belongs to that site,
-  // so lock the field to it (defaultSiteId is only set for a single-site
-  // scope). An unscoped create leaves Site editable/optional; edit is never
-  // locked.
-  const siteLocked = !isExistingRack && canManagePlacement && defaultSiteId !== undefined;
-
   // Creating from inside a building: the rack is being added to THAT building,
   // so lock the field rather than letting the operator create it somewhere the
   // host's list would never show it.
-  const buildingLocked = !isExistingRack && canManagePlacement && defaultBuildingId !== undefined;
+  const buildingLocked = !isExistingRack && canManagePlacement && defaultBuilding !== undefined;
+
+  // Locked either by a page-header site scope (defaultSiteId is only set for a
+  // single-site scope) or by a locked building, which owns the site: the rack
+  // lands in that building, so its site is whatever the building's is —
+  // including none. Locking both together is what keeps the operator from
+  // picking a site that contradicts the building. An unscoped create leaves
+  // Site editable/optional; edit is never locked.
+  const siteLocked = !isExistingRack && canManagePlacement && (defaultSiteId !== undefined || buildingLocked);
 
   // Placement. Site is retained even when a building is chosen (it's the
   // building's site) so downstream eligibility filtering can pin the site;
   // saveRack drops it from the wire RackInfo.
   const [siteIdText, setSiteIdText] = useState<string>(() => {
     if (initialFormData?.siteId !== undefined) return initialFormData.siteId.toString();
-    // Create + page-header scope: prefill the site the field is locked to.
-    if (siteLocked) return defaultSiteId!.toString();
+    // Create + page-header scope: prefill the site the field is locked to. A
+    // locked building with no site reads "Unassigned" — truthful, and it maps to
+    // no site_id on submit so the server derives one from the building.
+    if (siteLocked) return defaultSiteId?.toString() ?? UNASSIGNED_VALUE;
     // Edit of an unplaced rack shows "Unassigned"; unscoped create shows the
     // empty placeholder.
     return isExistingRack ? UNASSIGNED_VALUE : "";
   });
   const [buildingIdText, setBuildingIdText] = useState<string>(() => {
     if (initialFormData?.buildingId !== undefined) return initialFormData.buildingId.toString();
-    if (buildingLocked) return defaultBuildingId!.toString();
+    if (buildingLocked) return defaultBuilding.id.toString();
     return isExistingRack ? UNASSIGNED_VALUE : "";
   });
   const [buildings, setBuildings] = useState<BuildingWithCounts[]>([]);
@@ -368,9 +373,10 @@ const RackSettingsModal = ({
 
   const buildingOptions = useMemo<SelectOption[]>(() => {
     // A locked building is the only option, rendered from the host's label so
-    // the field reads correctly before (and regardless of) the building fetch.
+    // the field reads correctly before (and regardless of) the building fetch —
+    // the id and label travel together, so it can't come out blank.
     if (buildingLocked) {
-      return [{ value: defaultBuildingId!.toString(), label: defaultBuildingLabel ?? "" }];
+      return [{ value: defaultBuilding.id.toString(), label: defaultBuilding.label }];
     }
     if (!siteSelected) return [UNASSIGNED_OPTION];
     const real = buildings
@@ -378,7 +384,7 @@ const RackSettingsModal = ({
       .map((b) => ({ value: b.building!.id.toString(), label: b.building!.name }))
       .sort((a, b) => a.label.localeCompare(b.label));
     return [UNASSIGNED_OPTION, ...real];
-  }, [siteSelected, buildings, buildingLocked, defaultBuildingId, defaultBuildingLabel]);
+  }, [siteSelected, buildings, buildingLocked, defaultBuilding]);
 
   // The exact labels the batch will submit. The preview renders this same
   // array, so what the operator reads is what CreateRacks receives.
