@@ -1156,359 +1156,13 @@ const RacksPage = () => {
   // instead of the filtered-empty state with the chip showing.
   const hasRacks = hasEverLoaded || totalCount > 0 || racks.length > 0 || hasActiveFilters;
 
-  if (!hasRacks) {
-    return (
-      <>
-        <NullState
-          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
-          icon={<Racks width="w-5" />}
-          title="You haven't set up any racks"
-          description="Add a rack and assign miners to rack positions to get started."
-          action={
-            <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
-              Add rack
-            </Button>
-          }
-        />
-        {showRackSettingsModal ? (
-          <RackSettingsModal
-            show={showRackSettingsModal}
-            existingRacks={racks}
-            defaultSiteId={scopedSiteId}
-            onDismiss={() => setShowRackSettingsModal(false)}
-            onSubmit={createRack}
-            // Present unconditionally — this is what shows the Single / Multiple
-            // toggle inside the create modal.
-            onSubmitBulk={handleCreateRacks}
-            saving={creatingRack || creatingRacks}
-          />
-        ) : null}
-        {manageRackFormData && manageRackId !== undefined ? (
-          <ManageRackModal
-            show
-            rackSettings={manageRackFormData}
-            existingRackId={manageRackId}
-            existingRacks={racks}
-            scopedSiteId={scopedSiteId}
-            onDismiss={handleManageRackDismiss}
-            onSave={handleManageRackSave}
-            onSettingsPersisted={handleRackSettingsPersisted}
-            onDelete={handleDeleteRack}
-          />
-        ) : null}
-        {rackCreateConflict ? (
-          <ReparentWarningDialog
-            count={rackCreateConflict.count}
-            rackLabel={rackCreateConflict.rackLabel}
-            onCancel={cancelConflict}
-            onConfirm={confirmConflict}
-          />
-        ) : null}
-      </>
-    );
-  }
-
-  return (
-    <div>
-      <div className={clsx("sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10", PAGE_SCROLL_CHROME_WIDTH)}>
-        {insideFleetShell ? null : <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>}
-        <div className="flex flex-col gap-2 pb-6">
-          {/* Action button — full-width on tablet/phone */}
-          <div className="block laptop:hidden">
-            <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
-              Add rack
-            </Button>
-          </div>
-          {/* View toggle — full width on tablet/phone */}
-          <div className="block laptop:hidden">
-            <SegmentedControl
-              key={`mobile-${racksViewMode}`}
-              className="!w-full whitespace-nowrap [&>button]:flex-1"
-              segmentClassName="text-center"
-              segments={[
-                { key: "grid", title: "View grid" },
-                { key: "list", title: "View list" },
-              ]}
-              initialSegmentKey={racksViewMode}
-              onSelect={handleRacksViewModeSelect}
-            />
-          </div>
-          {/* Desktop layout — single row with toggle + filters left, buttons right */}
-          <div className="hidden flex-row flex-wrap items-center gap-2 laptop:flex">
-            <SegmentedControl
-              key={`desktop-${racksViewMode}`}
-              className="shrink-0 whitespace-nowrap"
-              segments={[
-                { key: "grid", title: "View grid" },
-                { key: "list", title: "View list" },
-              ]}
-              initialSegmentKey={racksViewMode}
-              onSelect={handleRacksViewModeSelect}
-            />
-            <FilterChipsBar
-              filters={filterChipsBarFilters}
-              onChange={handleFilterChange}
-              numericFilters={TELEMETRY_FILTER_CHIPS}
-              selectedNumericValues={selectedNumericValues}
-              onNumericChange={handleNumericFilterChange}
-              onClearAll={handleClearFilters}
-            />
-            {racksViewMode === "grid" ? (
-              <DropdownFilter
-                title="Sort"
-                options={RACK_SORT_OPTIONS}
-                selectedOptions={[currentSort.field]}
-                onSelect={handleSortSelect}
-                showSelectAll={false}
-                closeOnSelect
-              />
-            ) : null}
-            <Button
-              className="ml-auto"
-              variant={variants.secondary}
-              size={sizes.compact}
-              onClick={() => setShowRackSettingsModal(true)}
-            >
-              Add rack
-            </Button>
-          </div>
-          {/* Filters — shown separately on tablet/phone */}
-          <div className="flex flex-row flex-wrap items-center gap-2 laptop:hidden">
-            <FilterChipsBar
-              filters={filterChipsBarFilters}
-              onChange={handleFilterChange}
-              numericFilters={TELEMETRY_FILTER_CHIPS}
-              selectedNumericValues={selectedNumericValues}
-              onNumericChange={handleNumericFilterChange}
-              onClearAll={handleClearFilters}
-            />
-            {racksViewMode === "grid" ? (
-              <DropdownFilter
-                title="Sort"
-                options={RACK_SORT_OPTIONS}
-                selectedOptions={[currentSort.field]}
-                onSelect={handleSortSelect}
-                showSelectAll={false}
-                closeOnSelect
-              />
-            ) : null}
-          </div>
-        </div>
-      </div>
-      <div
-        className={clsx(
-          "sticky left-0 px-6 pb-4 text-emphasis-300 text-text-primary-70 laptop:px-10",
-          PAGE_SCROLL_CHROME_WIDTH,
-        )}
-        data-testid="racks-count-label"
-      >
-        {formatListCountLabel(totalCount, {
-          unfilteredTotal: totalUnfilteredRacks,
-          hasActiveFilters,
-          singular: "rack",
-          plural: "racks",
-        })}
-      </div>
-      {error ? (
-        <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
-      ) : null}
-      {racksViewMode === "list" ? (
-        // No horizontal padding or overflow wrapper here: that inset the table
-        // (white gaps beside the row rules) and added a second scroll
-        // container. Row content is indented via DeviceSetList's paddingLeft
-        // so the rules still span the full width, and the page is the single
-        // scroll container.
-        <div className="pb-6 laptop:pb-10">
-          <DeviceSetList
-            deviceSets={racks}
-            statsMap={statsMap}
-            renderName={renderName}
-            renderMiners={renderMiners}
-            renderSite={renderSite}
-            renderBuilding={renderBuilding}
-            columns={insideFleetShell ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
-            currentSort={currentSort}
-            onSort={handleRackSort}
-            itemName={{ singular: "rack", plural: "racks" }}
-            total={totalCount}
-            loading={isLoading}
-            pageSize={DEFAULT_PAGE_SIZE}
-            currentPage={currentPage}
-            hasPreviousPage={currentPage > 0}
-            hasNextPage={hasNextPage}
-            onNextPage={handleRackNextPage}
-            onPrevPage={handleRackPrevPage}
-            emptyStateRow={emptyStateRow}
-            selectedIds={selectedRackIds}
-            onSelectedIdsChange={handleSelectedRackIdsChange}
-            paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
-            overflowContainer={false}
-          />
-        </div>
-      ) : (
-        <div className="px-6 laptop:px-10">
-          {isLoading && racks.length === 0 ? (
-            <div className="flex items-center justify-center py-20">
-              <ProgressCircular indeterminate />
-            </div>
-          ) : racks.length === 0 ? (
-            <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
-          ) : (
-            <div ref={measureRef}>
-              <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
-                {racks.map((rack) => {
-                  const stats = statsMap.get(rack.id);
-                  const { zone, rows, cols, loading, statusSegments, slots, hashrate, efficiency, power, temperature } =
-                    mapRackToCardProps(rack, stats, temperatureUnit);
-                  return (
-                    <RackCard
-                      key={rack.id.toString()}
-                      label={rack.label}
-                      zone={zone}
-                      cols={cols}
-                      rows={rows}
-                      slots={slots}
-                      loading={loading}
-                      statusSegments={statusSegments}
-                      hashrate={hashrate}
-                      efficiency={efficiency}
-                      power={power}
-                      temperature={temperature}
-                      onClick={() => navigate(`/racks/${rack.id}`)}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {shouldRenderGridPagination || (currentPage > 0 && racks.length === 0) ? (
-            <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
-              <span className="text-300 text-text-primary">
-                Showing {firstItemIndex}–{lastItemIndex} of {totalCount} racks
-              </span>
-              <div className="flex gap-3">
-                <Button
-                  variant={variants.secondary}
-                  size={sizes.compact}
-                  ariaLabel="Previous page"
-                  prefixIcon={<ChevronDown className="rotate-90" />}
-                  onClick={handleRackPrevPage}
-                  disabled={currentPage === 0}
-                />
-                <Button
-                  variant={variants.secondary}
-                  size={sizes.compact}
-                  ariaLabel="Next page"
-                  prefixIcon={<ChevronDown className="rotate-270" />}
-                  onClick={handleRackNextPage}
-                  disabled={!hasNextPage}
-                />
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
-      {selectedRackScopes.length > 0 || isBulkActionBusy ? (
-        <FleetGroupListActionBar
-          selectedScopes={selectedRackScopes}
-          kind="rack"
-          bulkExtraActions={[
-            {
-              label: "Add to building",
-              icon: <Plus />,
-              testId: "fleet-bulk-rack-actions-add-to-building",
-              onClick: () => setBulkReparentKind("building"),
-              hidden: !canManageSitePlacement,
-            },
-            {
-              label: "Add to site",
-              icon: <Plus />,
-              testId: "fleet-bulk-rack-actions-add-to-site",
-              onClick: () => setBulkReparentKind("site"),
-              hidden: !canManageSitePlacement,
-            },
-          ]}
-          onClearSelection={handleClearRackSelection}
-          onSelectAllVisible={handleSelectAllVisibleRacks}
-          onActionBusyChange={setIsBulkActionBusy}
-        />
-      ) : null}
-      {bulkReparentKind ? (
-        <ParentPickerModal
-          kind={bulkReparentKind}
-          show
-          selectionMode="single"
-          sourceLabel={
-            selectedRackScopes.length === 1 ? selectedRackScopes[0]!.name : `${selectedRackScopes.length} racks`
-          }
-          createNewLaunchLabel={
-            createFlow ? (bulkReparentKind === "building" ? "New building" : "New site") : undefined
-          }
-          onCreateNewLaunch={
-            createFlow
-              ? () => {
-                  const rackIds = selectedRackScopes.map((scope) => scope.id);
-                  setBulkReparentKind(null);
-                  setSelectedRackIds([]);
-                  if (bulkReparentKind === "building") {
-                    // A rack in another building OR directly in another site
-                    // will be moved into the new building's site.
-                    const conflictCount = selectedRackScopes.filter(
-                      (scope) => scope.buildingId !== 0n || scope.siteId !== 0n,
-                    ).length;
-                    createFlow.launchCreateBuilding({ rackIds, minerIds: [], conflictCount });
-                  } else {
-                    // A rack directly in another site OR in a building (whose
-                    // building_id AssignRacksToSite clears on the cross-site
-                    // move) is displaced — warn for both.
-                    const conflictCount = selectedRackScopes.filter(
-                      (scope) => scope.siteId !== 0n || scope.buildingId !== 0n,
-                    ).length;
-                    createFlow.launchCreateSite({ buildingIds: [], rackIds, minerIds: [], conflictCount });
-                  }
-                }
-              : undefined
-          }
-          onDismiss={() => setBulkReparentKind(null)}
-          onConfirm={(parentIds) =>
-            new Promise<void>((resolve, reject) => {
-              const parentId = parentIds[0];
-              if (parentId === undefined) {
-                resolve();
-                return;
-              }
-              const buildingMode = bulkReparentKind === "building";
-              // Drop no-op building moves: a same-building request without a
-              // grid position is an explicit unplace server-side, so leaving
-              // already-in-building racks in the batch would silently clear
-              // their placement.
-              const rackIds = buildingMode
-                ? selectedRackScopes.filter((scope) => scope.buildingId !== parentId).map((scope) => scope.id)
-                : selectedRackScopes.map((scope) => scope.id);
-              if (buildingMode && rackIds.length === 0) {
-                pushToast({ message: "Selected racks are already in that building.", status: STATUSES.queued });
-                setBulkReparentKind(null);
-                setSelectedRackIds([]);
-                resolve();
-                return;
-              }
-              const subjectLabel = `${rackIds.length} ${rackIds.length === 1 ? "rack" : "racks"}`;
-              const dispatch = buildingMode
-                ? dispatchRackBuildingAssign(rackIds, parentId, subjectLabel)
-                : dispatchRackSiteAssign(rackIds, parentId, subjectLabel);
-              dispatch
-                .then((ok) => {
-                  if (ok) {
-                    setBulkReparentKind(null);
-                    setSelectedRackIds([]);
-                  }
-                  resolve();
-                })
-                .catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
-            })
-          }
-        />
-      ) : null}
+  // Shared by the null state and the populated page, and rendered as the second
+  // child of a fragment in both: creating the first rack flips hasRacks, and a
+  // separate copy per branch would be a different tree position, so React would
+  // unmount the modal the operator is working in. Keeping the position stable
+  // preserves the create modal's add-miners step across that flip.
+  const rackModalSurfaces = (
+    <>
       {showRackSettingsModal ? (
         <RackSettingsModal
           show={showRackSettingsModal}
@@ -1516,6 +1170,8 @@ const RacksPage = () => {
           defaultSiteId={scopedSiteId}
           onDismiss={() => setShowRackSettingsModal(false)}
           onSubmit={createRack}
+          // Present unconditionally — this is what shows the Single / Multiple
+          // toggle inside the create modal.
           onSubmitBulk={handleCreateRacks}
           saving={creatingRack || creatingRacks}
         />
@@ -1530,6 +1186,7 @@ const RacksPage = () => {
           onDismiss={handleManageRackDismiss}
           onSave={handleManageRackSave}
           onSettingsPersisted={handleRackSettingsPersisted}
+          onDelete={handleDeleteRack}
         />
       ) : null}
       {rackCreateConflict ? (
@@ -1540,126 +1197,462 @@ const RacksPage = () => {
           onConfirm={confirmConflict}
         />
       ) : null}
-      {reparentTarget ? (
-        <ParentPickerModal
-          kind={reparentTarget.kind}
-          show
-          selectionMode="single"
-          sourceLabel={reparentTarget.rack.label || "rack"}
-          description={
-            reparentTarget.rack.deviceCount > 0
-              ? `${reparentTarget.rack.deviceCount} ${reparentTarget.rack.deviceCount === 1 ? "miner" : "miners"} will move with this rack.`
-              : undefined
-          }
-          currentParentId={
-            reparentTarget.rack.typeDetails.case === "rackInfo"
-              ? reparentTarget.kind === "building"
-                ? reparentTarget.rack.typeDetails.value.buildingId
-                : reparentTarget.rack.typeDetails.value.siteId
-              : undefined
-          }
-          createNewLaunchLabel={
-            createFlow ? (reparentTarget.kind === "building" ? "New building" : "New site") : undefined
-          }
-          onCreateNewLaunch={
-            createFlow
-              ? () => {
-                  const rack = reparentTarget.rack;
-                  const targetKind = reparentTarget.kind;
-                  const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
-                  setReparentTarget(null);
-                  if (targetKind === "building") {
-                    const buildingId = rackInfo?.buildingId ?? 0n;
-                    const siteId = rackInfo?.siteId ?? 0n;
-                    createFlow.launchCreateBuilding({
-                      rackIds: [rack.id],
-                      minerIds: [],
-                      conflictCount: buildingId !== 0n || siteId !== 0n ? 1 : 0,
-                    });
-                  } else {
-                    const siteId = rackInfo?.siteId ?? 0n;
-                    const buildingId = rackInfo?.buildingId ?? 0n;
-                    createFlow.launchCreateSite({
-                      buildingIds: [],
-                      rackIds: [rack.id],
-                      minerIds: [],
-                      // AssignRacksToSite clears building_id on the cross-site
-                      // move, so a building-held rack is displaced too.
-                      conflictCount: siteId !== 0n || buildingId !== 0n ? 1 : 0,
-                    });
-                  }
-                }
-              : undefined
-          }
-          onDismiss={() => setReparentTarget(null)}
-          onConfirm={(parentIds) =>
-            new Promise<void>((resolve, reject) => {
-              const parentId = parentIds[0];
-              if (parentId === undefined) {
-                resolve();
-                return;
-              }
-              const rackName = reparentTarget.rack.label || "rack";
-              const currentBuildingId =
-                reparentTarget.rack.typeDetails.case === "rackInfo"
-                  ? reparentTarget.rack.typeDetails.value.buildingId
-                  : 0n;
-              // No-op building move: a same-building request without a grid
-              // position is an explicit unplace server-side, so don't dispatch
-              // it (it would silently clear this rack's placement).
-              if (reparentTarget.kind === "building" && currentBuildingId === parentId) {
-                pushToast({ message: `"${rackName}" is already in that building.`, status: STATUSES.queued });
-                setReparentTarget(null);
-                resolve();
-                return;
-              }
-              const dispatch =
-                reparentTarget.kind === "building"
-                  ? dispatchRackBuildingAssign([reparentTarget.rack.id], parentId, `"${rackName}"`)
-                  : dispatchRackSiteAssign([reparentTarget.rack.id], parentId, `"${rackName}"`);
-              dispatch
-                .then((ok) => {
-                  if (ok) setReparentTarget(null);
-                  resolve();
-                })
-                .catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
-            })
+    </>
+  );
+
+  if (!hasRacks) {
+    return (
+      <>
+        <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
+          icon={<Racks width="w-5" />}
+          title="You haven't set up any racks"
+          description="Add a rack and assign miners to rack positions to get started."
+          action={
+            <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
+              Add rack
+            </Button>
           }
         />
-      ) : null}
-      {siteClearConfirmation ? (
-        <Dialog
-          open
-          title="Move racks between sites?"
-          subtitle={siteClearSubtitle(
-            siteClearConfirmation.affectedBuildingLabels,
-            siteClearConfirmation.affectedRackCount,
-            siteClearConfirmation.unresolved,
+        {rackModalSurfaces}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div>
+        <div className={clsx("sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10", PAGE_SCROLL_CHROME_WIDTH)}>
+          {insideFleetShell ? null : <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>}
+          <div className="flex flex-col gap-2 pb-6">
+            {/* Action button — full-width on tablet/phone */}
+            <div className="block laptop:hidden">
+              <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
+                Add rack
+              </Button>
+            </div>
+            {/* View toggle — full width on tablet/phone */}
+            <div className="block laptop:hidden">
+              <SegmentedControl
+                key={`mobile-${racksViewMode}`}
+                className="!w-full whitespace-nowrap [&>button]:flex-1"
+                segmentClassName="text-center"
+                segments={[
+                  { key: "grid", title: "View grid" },
+                  { key: "list", title: "View list" },
+                ]}
+                initialSegmentKey={racksViewMode}
+                onSelect={handleRacksViewModeSelect}
+              />
+            </div>
+            {/* Desktop layout — single row with toggle + filters left, buttons right */}
+            <div className="hidden flex-row flex-wrap items-center gap-2 laptop:flex">
+              <SegmentedControl
+                key={`desktop-${racksViewMode}`}
+                className="shrink-0 whitespace-nowrap"
+                segments={[
+                  { key: "grid", title: "View grid" },
+                  { key: "list", title: "View list" },
+                ]}
+                initialSegmentKey={racksViewMode}
+                onSelect={handleRacksViewModeSelect}
+              />
+              <FilterChipsBar
+                filters={filterChipsBarFilters}
+                onChange={handleFilterChange}
+                numericFilters={TELEMETRY_FILTER_CHIPS}
+                selectedNumericValues={selectedNumericValues}
+                onNumericChange={handleNumericFilterChange}
+                onClearAll={handleClearFilters}
+              />
+              {racksViewMode === "grid" ? (
+                <DropdownFilter
+                  title="Sort"
+                  options={RACK_SORT_OPTIONS}
+                  selectedOptions={[currentSort.field]}
+                  onSelect={handleSortSelect}
+                  showSelectAll={false}
+                  closeOnSelect
+                />
+              ) : null}
+              <Button
+                className="ml-auto"
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={() => setShowRackSettingsModal(true)}
+              >
+                Add rack
+              </Button>
+            </div>
+            {/* Filters — shown separately on tablet/phone */}
+            <div className="flex flex-row flex-wrap items-center gap-2 laptop:hidden">
+              <FilterChipsBar
+                filters={filterChipsBarFilters}
+                onChange={handleFilterChange}
+                numericFilters={TELEMETRY_FILTER_CHIPS}
+                selectedNumericValues={selectedNumericValues}
+                onNumericChange={handleNumericFilterChange}
+                onClearAll={handleClearFilters}
+              />
+              {racksViewMode === "grid" ? (
+                <DropdownFilter
+                  title="Sort"
+                  options={RACK_SORT_OPTIONS}
+                  selectedOptions={[currentSort.field]}
+                  onSelect={handleSortSelect}
+                  showSelectAll={false}
+                  closeOnSelect
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div
+          className={clsx(
+            "sticky left-0 px-6 pb-4 text-emphasis-300 text-text-primary-70 laptop:px-10",
+            PAGE_SCROLL_CHROME_WIDTH,
           )}
-          onDismiss={() => {
-            if (siteClearInFlight) return;
-            cancelSiteClearConfirmation();
-          }}
-          buttons={[
-            {
-              text: "Cancel",
-              variant: variants.secondary,
-              onClick: cancelSiteClearConfirmation,
-              disabled: siteClearInFlight,
-            },
-            {
-              text: "Continue",
-              variant: variants.primary,
-              onClick: () => {
-                void siteClearConfirmation.onConfirm();
+          data-testid="racks-count-label"
+        >
+          {formatListCountLabel(totalCount, {
+            unfilteredTotal: totalUnfilteredRacks,
+            hasActiveFilters,
+            singular: "rack",
+            plural: "racks",
+          })}
+        </div>
+        {error ? (
+          <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
+        ) : null}
+        {racksViewMode === "list" ? (
+          // No horizontal padding or overflow wrapper here: that inset the table
+          // (white gaps beside the row rules) and added a second scroll
+          // container. Row content is indented via DeviceSetList's paddingLeft
+          // so the rules still span the full width, and the page is the single
+          // scroll container.
+          <div className="pb-6 laptop:pb-10">
+            <DeviceSetList
+              deviceSets={racks}
+              statsMap={statsMap}
+              renderName={renderName}
+              renderMiners={renderMiners}
+              renderSite={renderSite}
+              renderBuilding={renderBuilding}
+              columns={insideFleetShell ? RACK_COLUMNS_FLEET : RACK_COLUMNS_STANDALONE}
+              currentSort={currentSort}
+              onSort={handleRackSort}
+              itemName={{ singular: "rack", plural: "racks" }}
+              total={totalCount}
+              loading={isLoading}
+              pageSize={DEFAULT_PAGE_SIZE}
+              currentPage={currentPage}
+              hasPreviousPage={currentPage > 0}
+              hasNextPage={hasNextPage}
+              onNextPage={handleRackNextPage}
+              onPrevPage={handleRackPrevPage}
+              emptyStateRow={emptyStateRow}
+              selectedIds={selectedRackIds}
+              onSelectedIdsChange={handleSelectedRackIdsChange}
+              paddingLeft={{ phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" }}
+              overflowContainer={false}
+            />
+          </div>
+        ) : (
+          <div className="px-6 laptop:px-10">
+            {isLoading && racks.length === 0 ? (
+              <div className="flex items-center justify-center py-20">
+                <ProgressCircular indeterminate />
+              </div>
+            ) : racks.length === 0 ? (
+              <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
+            ) : (
+              <div ref={measureRef}>
+                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
+                  {racks.map((rack) => {
+                    const stats = statsMap.get(rack.id);
+                    const {
+                      zone,
+                      rows,
+                      cols,
+                      loading,
+                      statusSegments,
+                      slots,
+                      hashrate,
+                      efficiency,
+                      power,
+                      temperature,
+                    } = mapRackToCardProps(rack, stats, temperatureUnit);
+                    return (
+                      <RackCard
+                        key={rack.id.toString()}
+                        label={rack.label}
+                        zone={zone}
+                        cols={cols}
+                        rows={rows}
+                        slots={slots}
+                        loading={loading}
+                        statusSegments={statusSegments}
+                        hashrate={hashrate}
+                        efficiency={efficiency}
+                        power={power}
+                        temperature={temperature}
+                        onClick={() => navigate(`/racks/${rack.id}`)}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {shouldRenderGridPagination || (currentPage > 0 && racks.length === 0) ? (
+              <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
+                <span className="text-300 text-text-primary">
+                  Showing {firstItemIndex}–{lastItemIndex} of {totalCount} racks
+                </span>
+                <div className="flex gap-3">
+                  <Button
+                    variant={variants.secondary}
+                    size={sizes.compact}
+                    ariaLabel="Previous page"
+                    prefixIcon={<ChevronDown className="rotate-90" />}
+                    onClick={handleRackPrevPage}
+                    disabled={currentPage === 0}
+                  />
+                  <Button
+                    variant={variants.secondary}
+                    size={sizes.compact}
+                    ariaLabel="Next page"
+                    prefixIcon={<ChevronDown className="rotate-270" />}
+                    onClick={handleRackNextPage}
+                    disabled={!hasNextPage}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+        {selectedRackScopes.length > 0 || isBulkActionBusy ? (
+          <FleetGroupListActionBar
+            selectedScopes={selectedRackScopes}
+            kind="rack"
+            bulkExtraActions={[
+              {
+                label: "Add to building",
+                icon: <Plus />,
+                testId: "fleet-bulk-rack-actions-add-to-building",
+                onClick: () => setBulkReparentKind("building"),
+                hidden: !canManageSitePlacement,
               },
-              loading: siteClearInFlight,
-              disabled: siteClearInFlight,
-            },
-          ]}
-        />
-      ) : null}
-    </div>
+              {
+                label: "Add to site",
+                icon: <Plus />,
+                testId: "fleet-bulk-rack-actions-add-to-site",
+                onClick: () => setBulkReparentKind("site"),
+                hidden: !canManageSitePlacement,
+              },
+            ]}
+            onClearSelection={handleClearRackSelection}
+            onSelectAllVisible={handleSelectAllVisibleRacks}
+            onActionBusyChange={setIsBulkActionBusy}
+          />
+        ) : null}
+        {bulkReparentKind ? (
+          <ParentPickerModal
+            kind={bulkReparentKind}
+            show
+            selectionMode="single"
+            sourceLabel={
+              selectedRackScopes.length === 1 ? selectedRackScopes[0]!.name : `${selectedRackScopes.length} racks`
+            }
+            createNewLaunchLabel={
+              createFlow ? (bulkReparentKind === "building" ? "New building" : "New site") : undefined
+            }
+            onCreateNewLaunch={
+              createFlow
+                ? () => {
+                    const rackIds = selectedRackScopes.map((scope) => scope.id);
+                    setBulkReparentKind(null);
+                    setSelectedRackIds([]);
+                    if (bulkReparentKind === "building") {
+                      // A rack in another building OR directly in another site
+                      // will be moved into the new building's site.
+                      const conflictCount = selectedRackScopes.filter(
+                        (scope) => scope.buildingId !== 0n || scope.siteId !== 0n,
+                      ).length;
+                      createFlow.launchCreateBuilding({ rackIds, minerIds: [], conflictCount });
+                    } else {
+                      // A rack directly in another site OR in a building (whose
+                      // building_id AssignRacksToSite clears on the cross-site
+                      // move) is displaced — warn for both.
+                      const conflictCount = selectedRackScopes.filter(
+                        (scope) => scope.siteId !== 0n || scope.buildingId !== 0n,
+                      ).length;
+                      createFlow.launchCreateSite({ buildingIds: [], rackIds, minerIds: [], conflictCount });
+                    }
+                  }
+                : undefined
+            }
+            onDismiss={() => setBulkReparentKind(null)}
+            onConfirm={(parentIds) =>
+              new Promise<void>((resolve, reject) => {
+                const parentId = parentIds[0];
+                if (parentId === undefined) {
+                  resolve();
+                  return;
+                }
+                const buildingMode = bulkReparentKind === "building";
+                // Drop no-op building moves: a same-building request without a
+                // grid position is an explicit unplace server-side, so leaving
+                // already-in-building racks in the batch would silently clear
+                // their placement.
+                const rackIds = buildingMode
+                  ? selectedRackScopes.filter((scope) => scope.buildingId !== parentId).map((scope) => scope.id)
+                  : selectedRackScopes.map((scope) => scope.id);
+                if (buildingMode && rackIds.length === 0) {
+                  pushToast({ message: "Selected racks are already in that building.", status: STATUSES.queued });
+                  setBulkReparentKind(null);
+                  setSelectedRackIds([]);
+                  resolve();
+                  return;
+                }
+                const subjectLabel = `${rackIds.length} ${rackIds.length === 1 ? "rack" : "racks"}`;
+                const dispatch = buildingMode
+                  ? dispatchRackBuildingAssign(rackIds, parentId, subjectLabel)
+                  : dispatchRackSiteAssign(rackIds, parentId, subjectLabel);
+                dispatch
+                  .then((ok) => {
+                    if (ok) {
+                      setBulkReparentKind(null);
+                      setSelectedRackIds([]);
+                    }
+                    resolve();
+                  })
+                  .catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
+              })
+            }
+          />
+        ) : null}
+        {reparentTarget ? (
+          <ParentPickerModal
+            kind={reparentTarget.kind}
+            show
+            selectionMode="single"
+            sourceLabel={reparentTarget.rack.label || "rack"}
+            description={
+              reparentTarget.rack.deviceCount > 0
+                ? `${reparentTarget.rack.deviceCount} ${reparentTarget.rack.deviceCount === 1 ? "miner" : "miners"} will move with this rack.`
+                : undefined
+            }
+            currentParentId={
+              reparentTarget.rack.typeDetails.case === "rackInfo"
+                ? reparentTarget.kind === "building"
+                  ? reparentTarget.rack.typeDetails.value.buildingId
+                  : reparentTarget.rack.typeDetails.value.siteId
+                : undefined
+            }
+            createNewLaunchLabel={
+              createFlow ? (reparentTarget.kind === "building" ? "New building" : "New site") : undefined
+            }
+            onCreateNewLaunch={
+              createFlow
+                ? () => {
+                    const rack = reparentTarget.rack;
+                    const targetKind = reparentTarget.kind;
+                    const rackInfo = rack.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
+                    setReparentTarget(null);
+                    if (targetKind === "building") {
+                      const buildingId = rackInfo?.buildingId ?? 0n;
+                      const siteId = rackInfo?.siteId ?? 0n;
+                      createFlow.launchCreateBuilding({
+                        rackIds: [rack.id],
+                        minerIds: [],
+                        conflictCount: buildingId !== 0n || siteId !== 0n ? 1 : 0,
+                      });
+                    } else {
+                      const siteId = rackInfo?.siteId ?? 0n;
+                      const buildingId = rackInfo?.buildingId ?? 0n;
+                      createFlow.launchCreateSite({
+                        buildingIds: [],
+                        rackIds: [rack.id],
+                        minerIds: [],
+                        // AssignRacksToSite clears building_id on the cross-site
+                        // move, so a building-held rack is displaced too.
+                        conflictCount: siteId !== 0n || buildingId !== 0n ? 1 : 0,
+                      });
+                    }
+                  }
+                : undefined
+            }
+            onDismiss={() => setReparentTarget(null)}
+            onConfirm={(parentIds) =>
+              new Promise<void>((resolve, reject) => {
+                const parentId = parentIds[0];
+                if (parentId === undefined) {
+                  resolve();
+                  return;
+                }
+                const rackName = reparentTarget.rack.label || "rack";
+                const currentBuildingId =
+                  reparentTarget.rack.typeDetails.case === "rackInfo"
+                    ? reparentTarget.rack.typeDetails.value.buildingId
+                    : 0n;
+                // No-op building move: a same-building request without a grid
+                // position is an explicit unplace server-side, so don't dispatch
+                // it (it would silently clear this rack's placement).
+                if (reparentTarget.kind === "building" && currentBuildingId === parentId) {
+                  pushToast({ message: `"${rackName}" is already in that building.`, status: STATUSES.queued });
+                  setReparentTarget(null);
+                  resolve();
+                  return;
+                }
+                const dispatch =
+                  reparentTarget.kind === "building"
+                    ? dispatchRackBuildingAssign([reparentTarget.rack.id], parentId, `"${rackName}"`)
+                    : dispatchRackSiteAssign([reparentTarget.rack.id], parentId, `"${rackName}"`);
+                dispatch
+                  .then((ok) => {
+                    if (ok) setReparentTarget(null);
+                    resolve();
+                  })
+                  .catch((err) => reject(err instanceof Error ? err : new Error(String(err))));
+              })
+            }
+          />
+        ) : null}
+        {siteClearConfirmation ? (
+          <Dialog
+            open
+            title="Move racks between sites?"
+            subtitle={siteClearSubtitle(
+              siteClearConfirmation.affectedBuildingLabels,
+              siteClearConfirmation.affectedRackCount,
+              siteClearConfirmation.unresolved,
+            )}
+            onDismiss={() => {
+              if (siteClearInFlight) return;
+              cancelSiteClearConfirmation();
+            }}
+            buttons={[
+              {
+                text: "Cancel",
+                variant: variants.secondary,
+                onClick: cancelSiteClearConfirmation,
+                disabled: siteClearInFlight,
+              },
+              {
+                text: "Continue",
+                variant: variants.primary,
+                onClick: () => {
+                  void siteClearConfirmation.onConfirm();
+                },
+                loading: siteClearInFlight,
+                disabled: siteClearInFlight,
+              },
+            ]}
+          />
+        ) : null}
+      </div>
+      {rackModalSurfaces}
+    </>
   );
 };
 
