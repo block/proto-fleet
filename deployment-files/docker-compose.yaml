@@ -6,6 +6,8 @@ services:
     extends:
       file: ./server/docker-compose.base.yaml
       service: fleet-api
+    image: proto-fleet-api:latest
+    pull_policy: never
     build:
       context: ./server
     environment:
@@ -55,6 +57,8 @@ services:
         compress: "true"
 
   fleet-client:
+    image: proto-fleet-client:latest
+    pull_policy: never
     build:
       context: ./client
     depends_on:

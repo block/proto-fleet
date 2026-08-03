@@ -492,6 +492,14 @@ jobs:
             echo "channel: $CHANNEL" >> deployment/version.txt
           fi
 
+      - name: Create immutable deployment manifest
+        run: |
+          cd deployment
+          find . -type f ! -path './deployment-manifest.sha256' -print0 \
+            | LC_ALL=C sort -z \
+            | xargs -0 sha256sum \
+            > deployment-manifest.sha256
+
       - name: Package ProtoFleet deployment bundle
         run: |
           tar -czf "proto-fleet-${VERSION}-${{ matrix.arch }}.tar.gz" deployment

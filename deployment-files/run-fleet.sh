@@ -11,6 +11,7 @@ COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.y
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 VERSION_FILE="$PROJECT_ROOT/version.txt"
+RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 
@@ -251,6 +252,97 @@ sha256() {
     printf '%s\n' "$output" | awk '{print $1}'
 }
 
+verify_release_manifest() {
+    local manifest_name="${RELEASE_MANIFEST_FILE##*/}" manifest_paths current_paths
+    if [ ! -f "$RELEASE_MANIFEST_FILE" ]; then
+        echo "Error: upgrade preflight requires the immutable release manifest at $RELEASE_MANIFEST_FILE." >&2
+        return 1
+    fi
+
+    manifest_paths=$(mktemp) || return 1
+    current_paths=$(mktemp) || {
+        rm -f "$manifest_paths"
+        return 1
+    }
+
+    # Validate and extract the GNU sha256sum path column before asking a
+    # checksum utility to open anything. Release paths must stay below the
+    # deployment root, and the sorted path set must exactly match the current
+    # immutable files so added provisioning/config files cannot bypass the
+    # manifest by simply being absent from it.
+    if ! awk '
+        {
+            digest = substr($0, 1, 64)
+            separator = substr($0, 65, 2)
+            path = substr($0, 67)
+            if (length(digest) != 64 || digest !~ /^[0-9a-fA-F]+$/ ||
+                separator != "  " || path !~ /^\.\// ||
+                path ~ /(^|\/)\.\.(\/|$)/) {
+                exit 1
+            }
+            print path
+        }
+    ' "$RELEASE_MANIFEST_FILE" > "$manifest_paths"; then
+        rm -f "$manifest_paths" "$current_paths"
+        echo "Error: immutable release manifest has an invalid entry." >&2
+        return 1
+    fi
+
+    if ! (cd "$PROJECT_ROOT" && find . -type f \
+        ! -path './deployment-manifest.sha256' \
+        ! -path './.env' \
+        ! -path './.update-preflight-complete' \
+        ! -path './.update-preflight-complete.tmp.*' \
+        ! -path './client/nginx.conf' \
+        ! -path './ssl/*' \
+        ! -path './server/influx_config/.env' \
+        -print | LC_ALL=C sort) > "$current_paths"; then
+        rm -f "$manifest_paths" "$current_paths"
+        return 1
+    fi
+    if ! cmp -s "$manifest_paths" "$current_paths"; then
+        rm -f "$manifest_paths" "$current_paths"
+        echo "Error: immutable release file set does not match the packaged manifest." >&2
+        return 1
+    fi
+    rm -f "$manifest_paths" "$current_paths"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        (cd "$PROJECT_ROOT" && sha256sum -c "$manifest_name" >/dev/null)
+    elif command -v shasum >/dev/null 2>&1; then
+        (cd "$PROJECT_ROOT" && shasum -a 256 -c "$manifest_name" >/dev/null)
+    else
+        echo "Error: SHA-256 support requires sha256sum or shasum." >&2
+        return 1
+    fi
+}
+
+prepared_images_fingerprint() {
+    local images image image_id metadata=""
+    images=$(compose config --images) || {
+        echo "Error: could not list the images required by this release." >&2
+        return 1
+    }
+    images=$(printf '%s\n' "$images" | sort -u)
+    if [ -z "$images" ]; then
+        echo "Error: Docker Compose did not report any release images." >&2
+        return 1
+    fi
+
+    for image in $images; do
+        image_id=$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null) || {
+            echo "Error: prepared image is missing before activation: $image" >&2
+            return 1
+        }
+        [ -n "$image_id" ] || {
+            echo "Error: Docker returned an empty image ID for $image." >&2
+            return 1
+        }
+        metadata="${metadata}${image}=${image_id}\n"
+    done
+    printf '%b' "$metadata" | sha256
+}
+
 project_relative_path() {
     case "$1" in
         "$PROJECT_ROOT"/*) printf '%s' "${1#"$PROJECT_ROOT"/}" ;;
@@ -293,7 +385,7 @@ compose_config_hash() {
 write_preflight_metadata() {
     local config_hash digest file relative index
 
-    for file in "$VERSION_FILE" "$ENV_FILE" "$TSDB_IMAGE" "$PROJECT_ROOT/run-fleet.sh" "$NGINX_CONF_DIR/nginx.conf"; do
+    for file in "$VERSION_FILE" "$RELEASE_MANIFEST_FILE" "$ENV_FILE" "$TSDB_IMAGE" "$PROJECT_ROOT/run-fleet.sh" "$NGINX_CONF_DIR/nginx.conf"; do
         if [ ! -f "$file" ]; then
             echo "Error: upgrade preflight metadata requires $file." >&2
             return 1
@@ -303,11 +395,21 @@ write_preflight_metadata() {
     config_hash=$(compose_config_hash) || return 1
     printf 'format=1\n'
     digest=$(sha256 "$VERSION_FILE") || return 1
-    printf 'release_manifest_sha256=%s\n' "$digest"
+    printf 'version_file_sha256=%s\n' "$digest"
+    digest=$(sha256 "$RELEASE_MANIFEST_FILE") || return 1
+    printf 'deployment_manifest_sha256=%s\n' "$digest"
     digest=$(sha256 "$PROJECT_ROOT/run-fleet.sh") || return 1
     printf 'runner_sha256=%s\n' "$digest"
     digest=$(sha256 "$NGINX_CONF_DIR/nginx.conf") || return 1
     printf 'nginx_config_sha256=%s\n' "$digest"
+    if [ "$PROTOCOL_MODE" = "https" ]; then
+        digest=$(sha256 "$SSL_CERT") || return 1
+        printf 'ssl_certificate_sha256=%s\n' "$digest"
+        digest=$(sha256 "$SSL_KEY") || return 1
+        printf 'ssl_private_key_sha256=%s\n' "$digest"
+    else
+        printf 'ssl_state=disabled\n'
+    fi
     printf 'compose_config_sha256=%s\n' "$config_hash"
     printf 'feature_state=alerts:%s,system_monitoring:%s,tracing:%s,protocol:%s\n' \
         "$ENABLE_BETA_ALERTS" "$ENABLE_SYSTEM_MONITORING" "$ENABLE_TRACING" "$PROTOCOL_MODE"
@@ -337,14 +439,19 @@ preflight_fingerprint() {
 }
 
 record_preflight_marker() {
-    local prepared_fingerprint="$1" current_fingerprint temporary_marker
+    local prepared_fingerprint="$1" current_fingerprint image_fingerprint temporary_marker
+    if ! verify_release_manifest; then
+        echo "Error: release or configuration changed during preflight; immutable release files no longer match." >&2
+        return 1
+    fi
     current_fingerprint=$(preflight_fingerprint) || return 1
     if [ "$current_fingerprint" != "$prepared_fingerprint" ]; then
         echo "Error: release or configuration changed during preflight; run preflight again." >&2
         return 1
     fi
+    image_fingerprint=$(prepared_images_fingerprint) || return 1
     temporary_marker=$(umask 077; mktemp "$PREFLIGHT_MARKER.tmp.XXXXXX") || return 1
-    if ! printf 'proto-fleet-preflight-v1:%s\n' "$prepared_fingerprint" > "$temporary_marker"; then
+    if ! printf 'proto-fleet-preflight-v2:%s:%s\n' "$prepared_fingerprint" "$image_fingerprint" > "$temporary_marker"; then
         rm -f "$temporary_marker"
         return 1
     fi
@@ -359,20 +466,23 @@ record_preflight_marker() {
 }
 
 verify_preflight_marker() {
-    local actual expected
+    local actual expected image_fingerprint
     if [ ! -f "$PREFLIGHT_MARKER" ]; then
         echo "Error: --skip-build requires a successful preflight for this deployment." >&2
         return 1
     fi
 
-    if ! expected=$(preflight_fingerprint); then
+    if ! verify_release_manifest || \
+        ! expected=$(preflight_fingerprint) || \
+        ! image_fingerprint=$(prepared_images_fingerprint); then
         if ! rm -f "$PREFLIGHT_MARKER"; then
             echo "Error: preflight verification failed and the stale marker could not be removed." >&2
         fi
+        echo "Error: release, prepared images, or configuration changed after preflight; run preflight again before activation." >&2
         return 1
     fi
     actual=$(cat "$PREFLIGHT_MARKER") || return 1
-    if [ "$actual" != "proto-fleet-preflight-v1:$expected" ]; then
+    if [ "$actual" != "proto-fleet-preflight-v2:$expected:$image_fingerprint" ]; then
         if ! rm -f "$PREFLIGHT_MARKER"; then
             echo "Error: preflight inputs changed and the stale marker could not be removed." >&2
             return 1
@@ -828,7 +938,7 @@ fi
 # (Compose v2.17.0+). Fail fast here, before `docker compose down` takes an
 # existing stack offline.
 compose_up_help=$(docker compose up --help 2>&1 || true)
-for flag in --wait --wait-timeout; do
+for flag in --wait --wait-timeout --no-build --pull; do
     if ! grep -qE -- "(^|[[:space:]])${flag}([[:space:]]|$)" <<<"$compose_up_help"; then
         echo "Error: your docker compose does not support ${flag}."
         echo "run-fleet.sh requires Compose v2.17.0+. Upgrade: https://docs.docker.com/compose/install/"
@@ -1169,15 +1279,37 @@ echo "==========================================================================
 # can be stale after an operator switches back to HTTP, so their mere presence
 # must not silently re-enable HTTPS.
 if [ "$NON_INTERACTIVE" = "true" ]; then
-    if env_boolean_is_true SESSION_COOKIE_SECURE; then
-        if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
-            echo "Error: HTTPS is persisted but its certificate/key are missing; refusing to switch protocol during upgrade." >&2
-            exit 1
-        fi
-        echo "Preserving HTTPS mode from $ENV_FILE."
+    if persisted_cookie_mode=$(env_last_value SESSION_COOKIE_SECURE); then
+        persisted_cookie_mode=$(printf '%s' "$persisted_cookie_mode" | tr '[:upper:]' '[:lower:]')
+        case "$persisted_cookie_mode" in
+            true)
+                if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
+                    echo "Error: HTTPS is persisted but its certificate/key are missing; refusing to switch protocol during upgrade." >&2
+                    exit 1
+                fi
+                echo "Preserving HTTPS mode from $ENV_FILE."
+                PROTOCOL_MODE="https"
+                ;;
+            false)
+                echo "Preserving HTTP mode from $ENV_FILE."
+                PROTOCOL_MODE="http"
+                ;;
+            *)
+                echo "Error: SESSION_COOKIE_SECURE must be true or false in $ENV_FILE." >&2
+                exit 1
+                ;;
+        esac
+    elif [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+        # Releases before transport mode was persisted inferred HTTPS from a
+        # complete certificate pair. Preserve that secure legacy behavior and
+        # write the explicit setting below for future unattended upgrades.
+        echo "Preserving legacy HTTPS mode from the existing certificate pair."
         PROTOCOL_MODE="https"
+    elif [ -f "$SSL_CERT" ] || [ -f "$SSL_KEY" ]; then
+        echo "Error: SESSION_COOKIE_SECURE is missing and the legacy certificate pair is incomplete; refusing to switch protocol during upgrade." >&2
+        exit 1
     else
-        echo "Preserving HTTP mode from $ENV_FILE."
+        echo "No persisted transport or certificate pair found; preserving legacy HTTP mode."
         PROTOCOL_MODE="http"
     fi
 else
@@ -1263,6 +1395,10 @@ if [ "$SKIP_BUILD" = "true" ]; then
         exit 1
     fi
 elif [ "$PREFLIGHT_ONLY" = "true" ]; then
+    if ! verify_release_manifest; then
+        echo "Error: immutable release manifest validation failed before preflight." >&2
+        exit 1
+    fi
     PREFLIGHT_FINGERPRINT=$(preflight_fingerprint) || {
         echo "Error: could not fingerprint the release before preflight." >&2
         exit 1
@@ -1275,7 +1411,7 @@ fi
 
 if [ "$SKIP_BUILD" != "true" ]; then
     echo "Pulling latest Docker images..."
-    if ! compose pull; then
+    if ! compose pull --ignore-buildable; then
         echo "Error: Failed to pull required Docker images."
         exit 1
     fi
@@ -1335,7 +1471,7 @@ echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).
 # Without it, `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under
 # host networking), producing a false "Proto Fleet is now running!" banner.
-if ! compose up --remove-orphans -d --wait --wait-timeout 300; then
+if ! compose up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull never; then
     echo "Error: services failed to reach running state."
     echo "Check logs with: docker compose ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} logs"
     exit 1

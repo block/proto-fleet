@@ -66,10 +66,44 @@ enable_valid_alerts() {
         'FLEET_ALERTS_GRAFANA_TOKEN=service-token' >> "$env_file"
 }
 
+write_release_manifest() {
+    local stage="$1"
+    (
+        cd "$stage" || exit 1
+        if command -v sha256sum >/dev/null 2>&1; then
+            find . -type f \
+                ! -path './.env' \
+                ! -path './.update-preflight-complete' \
+                ! -path './.update-preflight-complete.tmp.*' \
+                ! -path './client/nginx.conf' \
+                ! -path './ssl/*' \
+                ! -path './server/influx_config/.env' \
+                ! -path './deployment-manifest.sha256' \
+                -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > deployment-manifest.sha256
+        else
+            find . -type f \
+                ! -path './.env' \
+                ! -path './.update-preflight-complete' \
+                ! -path './.update-preflight-complete.tmp.*' \
+                ! -path './client/nginx.conf' \
+                ! -path './ssl/*' \
+                ! -path './server/influx_config/.env' \
+                ! -path './deployment-manifest.sha256' \
+                -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > deployment-manifest.sha256
+        fi
+    )
+}
+
 make_stage() {
     local name="$1"
     STAGE="$TMP_DIR/$name"
-    mkdir -p "$STAGE/bin" "$STAGE/client"
+    local runtime="$STAGE-runtime"
+    mkdir -p "$STAGE/client" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$runtime/bin"
+    ln -s "$runtime/bin" "$STAGE/bin"
+    : > "$runtime/calls.log"
+    : > "$runtime/output.log"
+    ln -s "$runtime/calls.log" "$STAGE/calls.log"
+    ln -s "$runtime/output.log" "$STAGE/output.log"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.alerts.yaml" "$STAGE/"
@@ -77,6 +111,8 @@ make_stage() {
     cp "$DEPLOY_DIR/docker-compose.tracing.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/client/nginx.http.conf" "$STAGE/client/"
     cp "$DEPLOY_DIR/client/nginx.https.conf" "$STAGE/client/"
+    cp "$DEPLOY_DIR/server/otel-collector-config.datadog.yaml" "$STAGE/server/"
+    printf 'apiVersion: 1\n' > "$STAGE/server/monitoring/grafana/provisioning/datasources/base.yaml"
     printf '%s\n' 'version: v1.2.3' 'commit: test-release' > "$STAGE/version.txt"
     mkdir -p "$STAGE/images" "$STAGE/image-fixture"
     printf '[{"Config":"config.json","RepoTags":["proto-fleet-timescaledb:latest"],"Layers":[]}]\n' > "$STAGE/image-fixture/manifest.json"
@@ -93,10 +129,16 @@ printf '\n' >> "$CALL_LOG"
 
 case " $* " in
     *" compose up --help "*)
-        echo 'Options: --wait --wait-timeout'
+        echo 'Options: --wait --wait-timeout --no-build --pull string'
         ;;
     *" compose "*" config --quiet "*)
         [ "${FAKE_COMPOSE_CONFIG_FAILURE:-false}" != "true" ]
+        ;;
+    *" compose "*" config --images "*)
+        printf '%s\n' \
+            'proto-fleet-api:latest' \
+            'proto-fleet-client:latest' \
+            'proto-fleet-timescaledb:latest'
         ;;
     *" compose "*" config "*)
         previous=''
@@ -117,6 +159,17 @@ case " $* " in
         ;;
     *" compose "*" exec "*)
         echo 't'
+        ;;
+    *" image inspect --format "*)
+        image="${!#}"
+        if [ "${FAKE_PREPARED_IMAGE_MISSING:-false}" = "true" ] && [ "$image" = "proto-fleet-api:latest" ]; then
+            exit 1
+        fi
+        if [ "${FAKE_PREPARED_IMAGE_CHANGED:-false}" = "true" ] && [ "$image" = "proto-fleet-api:latest" ]; then
+            printf 'sha256:changed-%s\n' "$image"
+            exit 0
+        fi
+        printf 'sha256:test-%s\n' "$image"
         ;;
     *" image inspect proto-fleet-timescaledb:latest "*)
         [ "${FAKE_TSDB_IMAGE_MISSING:-false}" != "true" ]
@@ -188,6 +241,7 @@ exit 0
 EOF
 
     chmod +x "$STAGE/run-fleet.sh" "$STAGE/bin/"*
+    write_release_manifest "$STAGE"
 }
 
 run_stage() {
@@ -223,7 +277,7 @@ assert_contains "preflight builds images" "$STAGE/calls.log" " build --no-cache"
 assert_not_contains "preflight leaves services running" "$STAGE/calls.log" " down --remove-orphans"
 assert_not_contains "preflight never starts replacement services" "$STAGE/calls.log" " up --remove-orphans"
 [ -f "$STAGE/.update-preflight-complete" ] || fail "preflight should create its activation marker"
-if grep -Eq '^proto-fleet-preflight-v1:[0-9a-f]{64}$' "$STAGE/.update-preflight-complete"; then
+if grep -Eq '^proto-fleet-preflight-v2:[0-9a-f]{64}:[0-9a-f]{64}$' "$STAGE/.update-preflight-complete"; then
     pass "preflight marker records versioned release metadata"
 else
     fail "preflight marker should contain versioned release metadata"
@@ -255,6 +309,7 @@ else
 fi
 assert_not_contains "activation skips pulls" "$STAGE/calls.log" " pull"
 assert_not_contains "activation skips builds" "$STAGE/calls.log" " build --no-cache"
+assert_contains "activation forbids implicit image preparation" "$STAGE/calls.log" "up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull never"
 assert_contains "activation stops the old stack" "$STAGE/calls.log" " down --remove-orphans"
 assert_contains "activation starts the new stack" "$STAGE/calls.log" " up --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "successful activation should consume its marker"
@@ -281,8 +336,14 @@ assert_contains "relocated activation stops the old stack" "$STAGE/calls.log" " 
 # Every input that defines the prepared release is bound into the marker. A
 # changed or forged marker fails before the active deployment is stopped and
 # is invalidated so recovery cannot keep retrying stale preparation.
-for mutation in env compose version nginx runner timescaledb; do
+for mutation in env compose version nginx runner runtime tls timescaledb; do
     make_stage "changed-$mutation"
+    if [ "$mutation" = "tls" ]; then
+        printf 'SESSION_COOKIE_SECURE=true\n' >> "$STAGE/.env"
+        mkdir -p "$STAGE/ssl"
+        printf 'test certificate\n' > "$STAGE/ssl/cert.pem"
+        printf 'test private key\n' > "$STAGE/ssl/key.pem"
+    fi
     if ! run_stage "$STAGE" --non-interactive --preflight-only; then
         fail "$mutation mutation fixture preflight should succeed"
         continue
@@ -293,6 +354,8 @@ for mutation in env compose version nginx runner timescaledb; do
         version) printf 'commit: changed-after-preflight\n' >> "$STAGE/version.txt" ;;
         nginx) printf '\n# changed after preflight\n' >> "$STAGE/client/nginx.http.conf" ;;
         runner) printf '\n# changed after preflight\n' >> "$STAGE/run-fleet.sh" ;;
+        runtime) printf '\n# changed after preflight\n' >> "$STAGE/server/otel-collector-config.datadog.yaml" ;;
+        tls) printf '\nchanged after preflight\n' >> "$STAGE/ssl/cert.pem" ;;
         timescaledb) printf 'changed-after-preflight' >> "$STAGE/images/timescaledb.tar.gz" ;;
     esac
     : > "$STAGE/calls.log"
@@ -301,11 +364,65 @@ for mutation in env compose version nginx runner timescaledb; do
     else
         pass "$mutation changes invalidate preflight"
     fi
-    assert_contains "$mutation mismatch is diagnosed" "$STAGE/output.log" "release or configuration changed after preflight"
+    assert_contains "$mutation mismatch is diagnosed" "$STAGE/output.log" "changed after preflight"
     assert_not_contains "$mutation mismatch prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
     assert_not_contains "$mutation mismatch prevents startup" "$STAGE/calls.log" " up --remove-orphans"
     [ ! -e "$STAGE/.update-preflight-complete" ] || fail "$mutation mismatch should remove the stale marker"
 done
+
+make_stage missing-prepared-image
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "missing-image fixture preflight should succeed"
+fi
+: > "$STAGE/calls.log"
+if FAKE_PREPARED_IMAGE_MISSING=true run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "missing prepared image should fail activation validation"
+else
+    pass "missing prepared image fails before activation"
+fi
+assert_contains "missing image is diagnosed" "$STAGE/output.log" "prepared image is missing before activation"
+assert_not_contains "missing image prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+[ ! -e "$STAGE/.update-preflight-complete" ] || fail "missing image should invalidate the marker"
+
+make_stage changed-prepared-image
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "changed-image fixture preflight should succeed"
+fi
+: > "$STAGE/calls.log"
+if FAKE_PREPARED_IMAGE_CHANGED=true run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "changed prepared image should fail activation validation"
+else
+    pass "changed prepared image fails before activation"
+fi
+assert_contains "changed image is diagnosed" "$STAGE/output.log" "changed after preflight"
+assert_not_contains "changed image prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+[ ! -e "$STAGE/.update-preflight-complete" ] || fail "changed image should invalidate the marker"
+
+make_stage added-release-file
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "added-file fixture preflight should succeed"
+fi
+printf 'apiVersion: 1\n' > "$STAGE/server/monitoring/grafana/provisioning/datasources/added-after-preflight.yaml"
+: > "$STAGE/calls.log"
+if run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "an added immutable release file should fail activation validation"
+else
+    pass "an added immutable release file fails before activation"
+fi
+assert_contains "added release file is diagnosed" "$STAGE/output.log" "file set does not match"
+assert_not_contains "added release file prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+[ ! -e "$STAGE/.update-preflight-complete" ] || fail "added release file should invalidate the marker"
+
+make_stage missing-release-manifest
+rm -f "$STAGE/deployment-manifest.sha256"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "missing release manifest should fail preflight"
+else
+    pass "missing release manifest fails preflight"
+fi
+assert_contains "missing manifest is diagnosed" "$STAGE/output.log" "requires the immutable release manifest"
+assert_not_contains "missing manifest prevents pulls" "$STAGE/calls.log" " pull"
+[ ! -e "$STAGE/.update-preflight-complete" ] || fail "missing manifest must not create a marker"
 
 make_stage changed-during-preflight
 if FAKE_MUTATE_TSDB_DURING_BUILD=true run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -488,6 +605,7 @@ assert_not_contains "marker cleanup failure makes no Docker calls" "$STAGE/calls
 # authorize service activation.
 make_stage missing-tsdb-image
 rm -f "$STAGE/images/timescaledb.tar.gz"
+write_release_manifest "$STAGE"
 if run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "missing TimescaleDB image should fail preflight"
 else
@@ -502,6 +620,7 @@ mkdir -p "$STAGE/image-fixture"
 printf '[{"Config":"config.json","RepoTags":["wrong-image:latest"],"Layers":[]}]\n' > "$STAGE/image-fixture/manifest.json"
 (cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
 rm -rf "$STAGE/image-fixture"
+write_release_manifest "$STAGE"
 if run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "mistagged TimescaleDB archive should fail preflight"
 else
@@ -518,6 +637,28 @@ else
 fi
 assert_not_contains "unloaded database image prevents builds" "$STAGE/calls.log" " build --no-cache"
 assert_not_contains "unloaded database image prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+
+# Legacy HTTPS deployments predate SESSION_COOKIE_SECURE persistence. A full
+# certificate pair remains authoritative only when the key is absent; this
+# avoids silently downgrading those installs while explicit false still wins.
+make_stage legacy-https
+legacy_env="$STAGE/.env.without-cookie-mode"
+grep -Ev '^SESSION_COOKIE_SECURE[[:space:]]*=' "$STAGE/.env" > "$legacy_env"
+mv "$legacy_env" "$STAGE/.env"
+mkdir -p "$STAGE/ssl"
+: > "$STAGE/ssl/cert.pem"
+: > "$STAGE/ssl/key.pem"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "legacy HTTPS without a persisted cookie mode preflights"
+else
+    fail "legacy HTTPS should be inferred from its complete certificate pair"
+fi
+assert_contains "legacy HTTPS transport is preserved" "$STAGE/output.log" "Preserving legacy HTTPS mode"
+if cmp -s "$STAGE/client/nginx.https.conf" "$STAGE/client/nginx.conf" && grep -q '^SESSION_COOKIE_SECURE=true$' "$STAGE/.env"; then
+    pass "legacy HTTPS is persisted explicitly"
+else
+    fail "legacy HTTPS did not select HTTPS config and persist secure cookies"
+fi
 
 # Persisted HTTP remains authoritative even if stale certificate files remain
 # on disk from an older HTTPS configuration.
