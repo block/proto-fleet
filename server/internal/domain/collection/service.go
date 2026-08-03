@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
@@ -467,6 +469,298 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 
 	// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
 	return &pb.CreateCollectionResponse{Collection: txResult.collection, AddedCount: int32(txResult.addedCount)}, nil
+}
+
+// NewRackParams is one row of a bulk rack create. Placement is not here — it
+// lives on CreateRacksParams, since a batch lands in one place.
+type NewRackParams struct {
+	Label       string
+	Rows        int32
+	Columns     int32
+	Zone        string
+	OrderIndex  pb.RackOrderIndex
+	CoolingType pb.RackCoolingType
+}
+
+// CreateRacksParams describes a bulk rack create. SiteID / BuildingID use the
+// same encoding as RackInfo: nil means "not placed", and BuildingID dictates
+// the site when both are set.
+type CreateRacksParams struct {
+	OrgID      int64
+	SiteID     *int64
+	BuildingID *int64
+	Racks      []NewRackParams
+}
+
+// RackCreateErrorReason says why one row of a bulk create was rejected.
+type RackCreateErrorReason int
+
+const (
+	RackCreateErrorReasonUnspecified RackCreateErrorReason = iota
+	RackCreateDuplicateLabelInBatch
+	// RackCreateDuplicateLabelInOrg: label taken by a live rack anywhere in
+	// the org, not just the target site/building — see ListTakenLabels.
+	RackCreateDuplicateLabelInOrg
+)
+
+// PerRackCreateError points at one offending row so the UI can mark it.
+type PerRackCreateError struct {
+	Index  int32
+	Label  string
+	Reason RackCreateErrorReason
+}
+
+// maxBulkCreateRacks caps one bulk-create batch, mirroring the buf.validate
+// max_items — a typo guard, not a capacity limit.
+const maxBulkCreateRacks = 500
+
+// errBulkRackCreateRejected rolls the batch back when label collisions are
+// found inside the tx; the offending rows travel in a closure variable.
+// Deliberately NOT a FleetError so errors.Is still matches after the
+// transactor wraps it.
+var errBulkRackCreateRejected = errors.New("bulk rack create rejected")
+
+// CreateRacks inserts the whole batch at one placement in a SINGLE
+// transaction: all racks exist afterward or none do.
+//
+// Label collisions are reported per row so the form can mark offending lines.
+// Two sources: duplicates within the batch (request math, before the tx) and
+// against live racks in the ORG (read inside the tx, after the placement rows
+// are locked, so a concurrent create can't slip in). Org-wide because
+// uk_device_collection_org_type_label is.
+//
+// Members are never seeded: N racks at once has no way to say which miner
+// belongs to which rack.
+func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]*pb.DeviceCollection, []PerRackCreateError, error) {
+	// Resolve attribution up front: failing after the racks exist would
+	// report an error for a write that happened.
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(params.Racks) == 0 {
+		return nil, nil, fleeterror.NewInvalidArgumentError("racks must not be empty")
+	}
+	if len(params.Racks) > maxBulkCreateRacks {
+		return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks exceed the %d-row limit", maxBulkCreateRacks)
+	}
+
+	// Trim first so " A" and "A " can't insert then read back as the same
+	// label. The trimmed value is stored and compared.
+	labels := make([]string, len(params.Racks))
+	for i, r := range params.Racks {
+		labels[i] = strings.TrimSpace(r.Label)
+		if labels[i] == "" {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks[%d].label is required", i)
+		}
+		if err := validateNewRackShape(r); err != nil {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks[%d]: %v", i, err)
+		}
+	}
+
+	// Don't return on batch dupes alone: a label can be both repeated here and
+	// taken in the org, and reporting one source at a time makes the operator
+	// resubmit to find the rest. Merged with the org check below.
+	batchDupes := duplicateLabelsInBatch(labels)
+
+	// Same struct SaveRack resolves, so site-from-building derivation and lock
+	// ordering stay in one place.
+	placement := &pb.RackInfo{SiteId: params.SiteID, BuildingId: params.BuildingID}
+
+	// RunInTxWithResult may retry the closure, so reset at each attempt.
+	var rejected []PerRackCreateError
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		rejected = nil
+
+		siteID, buildingID, err := s.resolveAndLockRackPlacement(txCtx, params.OrgID, placement)
+		if err != nil {
+			return nil, err
+		}
+		if buildingID != nil {
+			// All racks are new, so the whole batch counts against the grid.
+			if err := s.enforceBuildingRackCapacity(txCtx, params.OrgID, *buildingID, len(params.Racks)); err != nil {
+				return nil, err
+			}
+		}
+
+		taken, err := s.collectionStore.ListTakenLabels(txCtx, params.OrgID, pb.CollectionType_COLLECTION_TYPE_RACK, labels)
+		if err != nil {
+			return nil, err
+		}
+		var orgClashes []PerRackCreateError
+		if len(taken) > 0 {
+			takenSet := make(map[string]struct{}, len(taken))
+			for _, label := range taken {
+				takenSet[label] = struct{}{}
+			}
+			for i, label := range labels {
+				if _, clash := takenSet[label]; clash {
+					orgClashes = append(orgClashes, PerRackCreateError{
+						Index:  int32(i), //nolint:gosec // i < len(labels) <= maxBulkCreateRacks (500), checked above.
+						Label:  label,
+						Reason: RackCreateDuplicateLabelInOrg,
+					})
+				}
+			}
+		}
+		rejected = mergeRackCreateErrors(batchDupes, orgClashes)
+		if len(rejected) > 0 {
+			return nil, errBulkRackCreateRejected
+		}
+
+		created := make([]*pb.DeviceCollection, 0, len(params.Racks))
+		for i, r := range params.Racks {
+			// Same store calls a single create uses, so the unique-index
+			// mapping and column defaults stay in one place.
+			collection, err := s.collectionStore.CreateCollection(txCtx, params.OrgID, pb.CollectionType_COLLECTION_TYPE_RACK, labels[i], "")
+			if err != nil {
+				// The unique index is org-wide, but this tx locks only the
+				// target site/building rows (an unplaced batch locks none), so
+				// a concurrent same-label create can commit between the
+				// ListTakenLabels read and this insert at READ COMMITTED.
+				// Report as this row's rejection, not an opaque AlreadyExists.
+				var fleetErr fleeterror.FleetError
+				if errors.As(err, &fleetErr) && fleetErr.GRPCCode == connect.CodeAlreadyExists {
+					rejected = []PerRackCreateError{{
+						Index:  int32(i), //nolint:gosec // i < len(params.Racks) <= maxBulkCreateRacks (500).
+						Label:  labels[i],
+						Reason: RackCreateDuplicateLabelInOrg,
+					}}
+					return nil, errBulkRackCreateRejected
+				}
+				return nil, err
+			}
+			if err := s.collectionStore.CreateRackExtension(txCtx, interfaces.CreateRackExtensionParams{
+				OrgID:        params.OrgID,
+				CollectionID: collection.Id,
+				Rows:         r.Rows,
+				Columns:      r.Columns,
+				OrderIndex:   int32(r.OrderIndex),
+				CoolingType:  int32(r.CoolingType),
+				Zone:         r.Zone,
+				SiteID:       siteID,
+				BuildingID:   buildingID,
+			}); err != nil {
+				return nil, err
+			}
+			collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: &pb.RackInfo{
+				Rows:        r.Rows,
+				Columns:     r.Columns,
+				Zone:        r.Zone,
+				OrderIndex:  r.OrderIndex,
+				CoolingType: r.CoolingType,
+				SiteId:      siteID,
+				BuildingId:  buildingID,
+			}}
+			created = append(created, collection)
+		}
+		return &createRacksResult{racks: created, siteID: siteID}, nil
+	})
+	if err != nil {
+		if errors.Is(err, errBulkRackCreateRejected) {
+			return nil, rejected, nil
+		}
+		return nil, nil, err
+	}
+	txResult, ok := result.(*createRacksResult)
+	if !ok {
+		return nil, nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	// One activity row per rack, matching a sequence of single creates.
+	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_RACK)
+	for _, rack := range txResult.racks {
+		label := rack.Label
+		s.logActivity(ctx, activitymodels.Event{
+			Category:       activitymodels.CategoryCollection,
+			Type:           "create_collection",
+			Description:    fmt.Sprintf("Create %s: %s", scopeType, label),
+			ScopeType:      &scopeType,
+			ScopeLabel:     &label,
+			UserID:         &info.ExternalUserID,
+			Username:       &info.Username,
+			OrganizationID: &info.OrganizationID,
+			SiteID:         txResult.siteID,
+		})
+	}
+	return txResult.racks, nil, nil
+}
+
+type createRacksResult struct {
+	racks []*pb.DeviceCollection
+	// Resolved placement, for the activity rows' site scope.
+	siteID *int64
+}
+
+// validateNewRackShape enforces the same dimension/order/cooling contract as
+// validateRackInfoShape. Separate because a bulk row has no RackInfo — its
+// placement lives on the request, not the row.
+func validateNewRackShape(r NewRackParams) error {
+	if r.Rows < 1 || r.Rows > maxRackDimension {
+		return fmt.Errorf("rows must be between 1 and %d", maxRackDimension)
+	}
+	if r.Columns < 1 || r.Columns > maxRackDimension {
+		return fmt.Errorf("columns must be between 1 and %d", maxRackDimension)
+	}
+	if r.OrderIndex == pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED {
+		return errors.New("order_index is required")
+	}
+	if _, ok := pb.RackOrderIndex_name[int32(r.OrderIndex)]; !ok {
+		return errors.New("invalid order_index value")
+	}
+	if r.CoolingType == pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED {
+		return errors.New("cooling_type is required")
+	}
+	if _, ok := pb.RackCoolingType_name[int32(r.CoolingType)]; !ok {
+		return errors.New("invalid cooling_type value")
+	}
+	return nil
+}
+
+// duplicateLabelsInBatch reports every row whose label repeats an earlier row.
+// The FIRST occurrence is left alone — it is the later ones the operator needs
+// to change, and flagging all of them would light up a whole prefix run.
+func duplicateLabelsInBatch(labels []string) []PerRackCreateError {
+	seen := make(map[string]struct{}, len(labels))
+	var dupes []PerRackCreateError
+	for i, label := range labels {
+		if _, repeat := seen[label]; repeat {
+			dupes = append(dupes, PerRackCreateError{
+				Index:  int32(i), //nolint:gosec // caller bounds labels to maxBulkCreateRacks (500) first.
+				Label:  label,
+				Reason: RackCreateDuplicateLabelInBatch,
+			})
+			continue
+		}
+		seen[label] = struct{}{}
+	}
+	return dupes
+}
+
+// mergeRackCreateErrors combines the two label-uniqueness sources into one
+// entry per row, ordered by index so the response lines up with the request.
+// A row that is both repeated in the batch and already taken in the org
+// reports IN_ORG: that is the one renaming other rows cannot resolve.
+func mergeRackCreateErrors(batchDupes, orgClashes []PerRackCreateError) []PerRackCreateError {
+	if len(batchDupes) == 0 {
+		return orgClashes
+	}
+	if len(orgClashes) == 0 {
+		return batchDupes
+	}
+	byIndex := make(map[int32]PerRackCreateError, len(batchDupes)+len(orgClashes))
+	for _, e := range batchDupes {
+		byIndex[e.Index] = e
+	}
+	for _, e := range orgClashes {
+		byIndex[e.Index] = e
+	}
+	merged := make([]PerRackCreateError, 0, len(byIndex))
+	for _, e := range byIndex {
+		merged = append(merged, e)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Index < merged[j].Index })
+	return merged
 }
 
 // GetCollection retrieves a collection by ID.

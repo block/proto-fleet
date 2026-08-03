@@ -3,6 +3,17 @@ INSERT INTO device_set (org_id, type, label, description)
 VALUES ($1, $2, $3, $4)
 RETURNING id, org_id, type, label, description, created_at, updated_at;
 
+-- name: ListTakenDeviceSetLabels :many
+-- Which candidate labels are already live in the org for this type. Backs bulk
+-- create's duplicate check: uk_device_collection_org_type_label spans
+-- (org_id, type, label), so a site/building-scoped rack list can't answer it.
+SELECT label
+FROM device_set
+WHERE org_id = sqlc.arg('org_id')
+  AND type = sqlc.arg('type')
+  AND label = ANY(sqlc.arg('labels')::text[])
+  AND deleted_at IS NULL;
+
 -- name: CreateRackExtension :exec
 -- org_id is denormalized onto device_set_rack so the building FK can be
 -- composite-keyed; inherit it from device_set so the caller's org_id

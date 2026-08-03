@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"connectrpc.com/connect"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -3521,4 +3523,297 @@ func TestService_AssignDevicesToRack_lockReparentCrossOrgTargetReturnsEmpty(t *t
 		DeviceIdentifiers: deviceIDs,
 	})
 	require.Error(t, err)
+}
+
+// --- CreateRacks (bulk) ---
+
+func newTestServiceForBulkRacks(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.MockSiteStore, *mocks.MockBuildingStore) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockSiteStore := mocks.NewMockSiteStore(ctrl)
+	mockBuildingStore := mocks.NewMockBuildingStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
+	).AnyTimes()
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockBuildingStore, mockTransactor, nil, nil, newStubActivityService(ctrl))
+	return svc, mockStore, mockSiteStore, mockBuildingStore
+}
+
+func bulkRackRow(label string) NewRackParams {
+	return NewRackParams{
+		Label:       label,
+		Rows:        4,
+		Columns:     3,
+		OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT,
+		CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+	}
+}
+
+func TestService_CreateRacks_createsEveryRowUnplaced(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	// No placement, so resolveAndLockRackPlacement never touches the site
+	// store and the extension rows carry NULL site/building.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK,
+		[]string{"R-001", "R-002"}).Return(nil, nil)
+	var nextID int64
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any(), "").
+		DoAndReturn(func(_ context.Context, _ int64, _ pb.CollectionType, label, _ string) (*pb.DeviceCollection, error) {
+			nextID++
+			return &pb.DeviceCollection{Id: nextID, Label: label, Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil
+		}).Times(2)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p interfaces.CreateRackExtensionParams) error {
+			assert.Equal(t, int32(4), p.Rows)
+			assert.Equal(t, int32(3), p.Columns)
+			assert.Nil(t, p.SiteID)
+			assert.Nil(t, p.BuildingID)
+			return nil
+		}).Times(2)
+
+	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-002")},
+	})
+	require.NoError(t, err)
+	require.Empty(t, rejected)
+	require.Len(t, created, 2)
+	// The response carries the resolved rack info so the client can render the
+	// new racks without a refetch.
+	assert.Equal(t, "R-001", created[0].Label)
+	assert.Equal(t, int32(4), created[0].GetRackInfo().Rows)
+}
+
+func TestService_CreateRacks_stampsResolvedBuildingPlacementOnEveryRow(t *testing.T) {
+	svc, mockStore, mockSiteStore, mockBuildingStore := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	buildingID, siteID := int64(7), int64(3)
+	// building_id dictates the site: the caller sends only the building and
+	// the service derives site 3 for every row.
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, buildingID).Return(&siteID, nil).Times(2)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, siteID).Return(nil)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, buildingID).Return(nil)
+	mockBuildingStore.EXPECT().GetBuilding(gomock.Any(), testOrgID, buildingID).
+		Return(&buildingsmodels.Building{ID: buildingID, Aisles: 4, RacksPerAisle: 4}, nil)
+	mockBuildingStore.EXPECT().CountRacksInBuilding(gomock.Any(), testOrgID, buildingID).Return(int64(0), nil)
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return(nil, nil)
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any(), "").
+		Return(&pb.DeviceCollection{Id: 1, Label: "R-001"}, nil).Times(2)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p interfaces.CreateRackExtensionParams) error {
+			require.NotNil(t, p.SiteID)
+			require.NotNil(t, p.BuildingID)
+			assert.Equal(t, siteID, *p.SiteID)
+			assert.Equal(t, buildingID, *p.BuildingID)
+			return nil
+		}).Times(2)
+
+	_, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID:      testOrgID,
+		BuildingID: &buildingID,
+		Racks:      []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-002")},
+	})
+	require.NoError(t, err)
+	require.Empty(t, rejected)
+}
+
+func TestService_CreateRacks_rejectsDuplicateLabelInBatch(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	// A batch duplicate no longer short-circuits: the org-wide check still
+	// runs so one response can carry every offending row. Nothing is taken
+	// here, so the in-batch collision is the only rejection.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return(nil, nil)
+
+	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-002"), bulkRackRow("R-001")},
+	})
+	require.NoError(t, err, "a collision is a per-row rejection, not an error")
+	require.Nil(t, created)
+	require.Len(t, rejected, 1)
+	// The LATER occurrence is flagged; the first stands.
+	assert.Equal(t, int32(2), rejected[0].Index)
+	assert.Equal(t, "R-001", rejected[0].Label)
+	assert.Equal(t, RackCreateDuplicateLabelInBatch, rejected[0].Reason)
+}
+
+func TestService_CreateRacks_rejectsLabelTakenInOrgAndCreatesNothing(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	// "R-002" is live somewhere in the org — possibly in another site
+	// entirely, which is why the client can't pre-check it. The whole batch
+	// rejects: not even the two good rows are inserted.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return([]string{"R-002"}, nil)
+
+	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-002"), bulkRackRow("R-003")},
+	})
+	require.NoError(t, err)
+	require.Nil(t, created)
+	require.Len(t, rejected, 1)
+	assert.Equal(t, int32(1), rejected[0].Index)
+	assert.Equal(t, "R-002", rejected[0].Label)
+	assert.Equal(t, RackCreateDuplicateLabelInOrg, rejected[0].Reason)
+}
+
+func TestService_CreateRacks_trimsLabelsBeforeCheckingAndStoring(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	// " R-001" and "R-001 " are the same label once stored, so the batch must
+	// catch them as a collision rather than inserting both.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK,
+		[]string{"R-001", "R-001"}).Return(nil, nil)
+
+	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow(" R-001"), bulkRackRow("R-001 ")},
+	})
+	require.NoError(t, err)
+	require.Nil(t, created)
+	require.Len(t, rejected, 1)
+	assert.Equal(t, "R-001", rejected[0].Label, "the trimmed label is what's reported")
+
+	// And the trimmed value is what reaches the store.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK,
+		[]string{"R-009"}).Return(nil, nil)
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "R-009", "").
+		Return(&pb.DeviceCollection{Id: 1, Label: "R-009"}, nil)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+	_, _, err = svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow("  R-009  ")},
+	})
+	require.NoError(t, err)
+}
+
+func TestService_CreateRacks_rejectsBatchThatOverflowsTheBuildingGrid(t *testing.T) {
+	svc, mockStore, mockSiteStore, mockBuildingStore := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	buildingID := int64(7)
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, buildingID).Return(nil, nil).Times(2)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, buildingID).Return(nil)
+	// A 2×1 grid already holding one rack has room for exactly one more, so a
+	// 3-row batch is over the cap. The whole batch counts as new arrivals —
+	// checking one at a time would let the batch walk past the grid.
+	mockBuildingStore.EXPECT().GetBuilding(gomock.Any(), testOrgID, buildingID).
+		Return(&buildingsmodels.Building{ID: buildingID, Aisles: 2, RacksPerAisle: 1}, nil)
+	mockBuildingStore.EXPECT().CountRacksInBuilding(gomock.Any(), testOrgID, buildingID).Return(int64(1), nil)
+	// No ListTakenLabels, no inserts: the closure aborts at the cap.
+
+	_, _, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID:      testOrgID,
+		BuildingID: &buildingID,
+		Racks:      []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-002"), bulkRackRow("R-003")},
+	})
+	require.Error(t, err)
+}
+
+func TestService_CreateRacks_rejectsMalformedRows(t *testing.T) {
+	oversizedRows := func() []NewRackParams {
+		rows := make([]NewRackParams, maxBulkCreateRacks+1)
+		for i := range rows {
+			rows[i] = bulkRackRow(fmt.Sprintf("R-%04d", i))
+		}
+		return rows
+	}
+	outOfRange := bulkRackRow("R-001")
+	outOfRange.Columns = maxRackDimension + 1
+	noOrderIndex := bulkRackRow("R-001")
+	noOrderIndex.OrderIndex = pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED
+	noCooling := bulkRackRow("R-001")
+	noCooling.CoolingType = pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED
+
+	cases := []struct {
+		name string
+		rows []NewRackParams
+	}{
+		{"empty batch", nil},
+		{"over the row cap", oversizedRows()},
+		{"blank label", []NewRackParams{bulkRackRow("   ")}},
+		{"dimension over the rack maximum", []NewRackParams{outOfRange}},
+		{"missing order index", []NewRackParams{noOrderIndex}},
+		{"missing cooling type", []NewRackParams{noCooling}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// A fresh service per case: none of these may reach the store, and
+			// gomock fails the test if an unexpected call arrives.
+			svc, _, _, _ := newTestServiceForBulkRacks(t)
+			_, rejected, err := svc.CreateRacks(testCtx(t), CreateRacksParams{OrgID: testOrgID, Racks: tc.rows})
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err), "want InvalidArgument, got %v", err)
+			assert.Empty(t, rejected, "a malformed request is an error, not a per-row rejection")
+		})
+	}
+}
+
+// TestService_CreateRacks_reportsBothLabelSourcesInOneResponse is why a batch
+// duplicate no longer short-circuits: the operator sees every bad row on the
+// first submit instead of discovering the org collisions only after fixing
+// the in-batch one.
+func TestService_CreateRacks_reportsBothLabelSourcesInOneResponse(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	// "R-009" is live in the org; "R-001" is repeated inside the batch.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return([]string{"R-009"}, nil)
+
+	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-009"), bulkRackRow("R-001")},
+	})
+	require.NoError(t, err, "collisions are per-row rejections, not an error")
+	require.Nil(t, created)
+	require.Len(t, rejected, 2)
+	// Ordered by index so the response lines up with the request.
+	assert.Equal(t, int32(1), rejected[0].Index)
+	assert.Equal(t, RackCreateDuplicateLabelInOrg, rejected[0].Reason)
+	assert.Equal(t, int32(2), rejected[1].Index)
+	assert.Equal(t, RackCreateDuplicateLabelInBatch, rejected[1].Reason)
+}
+
+// TestService_CreateRacks_insertRaceBecomesPerRowRejection covers the window
+// no lock closes: uk_device_collection_org_type_label is org-wide, but this
+// tx locks only the target site/building — and an unplaced batch locks
+// nothing. So a concurrent create can take a label between the
+// ListTakenLabels read and the insert, and the loser must still get a
+// markable row rather than an opaque AlreadyExists.
+func TestService_CreateRacks_insertRaceBecomesPerRowRejection(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	// The read sees both labels free, so the batch passes the pre-check.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return(nil, nil)
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "R-001", "").
+		Return(&pb.DeviceCollection{Id: 1, Label: "R-001"}, nil)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+	// The second insert loses the race for "R-002".
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "R-002", "").
+		Return(nil, fleeterror.NewPlainError("a collection with this name already exists", connect.CodeAlreadyExists))
+
+	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-002")},
+	})
+	require.NoError(t, err, "a lost label race is a per-row rejection, not a transport error")
+	require.Nil(t, created, "the batch rolls back whole")
+	require.Len(t, rejected, 1)
+	assert.Equal(t, int32(1), rejected[0].Index)
+	assert.Equal(t, "R-002", rejected[0].Label)
+	assert.Equal(t, RackCreateDuplicateLabelInOrg, rejected[0].Reason)
 }

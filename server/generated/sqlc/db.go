@@ -1068,6 +1068,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listSitesStmt, err = db.PrepareContext(ctx, listSites); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSites: %w", err)
 	}
+	if q.listTakenDeviceSetLabelsStmt, err = db.PrepareContext(ctx, listTakenDeviceSetLabels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListTakenDeviceSetLabels: %w", err)
+	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
 	}
@@ -3317,6 +3320,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listSitesStmt: %w", cerr)
 		}
 	}
+	if q.listTakenDeviceSetLabelsStmt != nil {
+		if cerr := q.listTakenDeviceSetLabelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listTakenDeviceSetLabelsStmt: %w", cerr)
+		}
+	}
 	if q.listUsersForOrganizationStmt != nil {
 		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
@@ -4544,6 +4552,7 @@ type Queries struct {
 	listSiteNetworkConfigsForOverlapStmt                         *sql.Stmt
 	listSiteSlugsStmt                                            *sql.Stmt
 	listSitesStmt                                                *sql.Stmt
+	listTakenDeviceSetLabelsStmt                                 *sql.Stmt
 	listUsersForOrganizationStmt                                 *sql.Stmt
 	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
 	lockBuildingForWriteStmt                                     *sql.Stmt
@@ -5066,6 +5075,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSiteNetworkConfigsForOverlapStmt:                         q.listSiteNetworkConfigsForOverlapStmt,
 		listSiteSlugsStmt:                                            q.listSiteSlugsStmt,
 		listSitesStmt:                                                q.listSitesStmt,
+		listTakenDeviceSetLabelsStmt:                                 q.listTakenDeviceSetLabelsStmt,
 		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
 		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,

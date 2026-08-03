@@ -400,6 +400,45 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRack
 	}), nil
 }
 
+func (h *Handler) CreateRacks(ctx context.Context, r *connect.Request[dspb.CreateRacksRequest]) (*connect.Response[dspb.CreateRacksResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	// Placing racks into a site/building is a site-management action, so a
+	// rack:manage-only caller can create unplaced racks but not place them.
+	// Every rack here is new, so any non-nil id is placement intent.
+	if r.Msg.SiteId != nil || r.Msg.BuildingId != nil {
+		// Scope to the target site when named, so a site-scoped site:manage
+		// operator is admitted and a narrowing site assignment is honored. A
+		// building-only request stays org-scoped (resolving its parent site
+		// needs a store read this handler lacks); shared with SaveRack, see #873.
+		rc := authz.ResourceContext{}
+		if r.Msg.SiteId != nil && *r.Msg.SiteId > 0 {
+			rc.SiteID = r.Msg.SiteId
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, rc); err != nil {
+			return nil, err
+		}
+	}
+	created, rejected, err := h.svc.CreateRacks(ctx, toCreateRacksParams(r.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	// Collisions: nothing was written. Return the per-row list so the form
+	// can mark the offending lines.
+	if len(rejected) > 0 {
+		return connect.NewResponse(&dspb.CreateRacksResponse{
+			Errors: toDeviceSetRackCreateErrors(rejected),
+		}), nil
+	}
+	racks := make([]*dspb.DeviceSet, 0, len(created))
+	for _, rack := range created {
+		racks = append(racks, toDeviceSet(rack))
+	}
+	return connect.NewResponse(&dspb.CreateRacksResponse{Racks: racks}), nil
+}
+
 func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[dspb.AssignDevicesToRackRequest]) (*connect.Response[dspb.AssignDevicesToRackResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
 	if err != nil {
