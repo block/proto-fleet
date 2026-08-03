@@ -4,7 +4,7 @@ ARG SOURCE_COMMIT=unknown
 
 USER root
 
-COPY patroni-requirements.txt /opt/patroni-requirements.txt
+COPY patroni-build-requirements.txt patroni-requirements.txt /opt/
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -12,6 +12,12 @@ RUN apt-get update \
         python3-venv \
     && python3 -m venv /opt/patroni \
     && /opt/patroni/bin/pip install \
+        --only-binary=:all: \
+        --no-cache-dir \
+        --require-hashes \
+        --requirement /opt/patroni-build-requirements.txt \
+    && /opt/patroni/bin/pip install \
+        --no-build-isolation \
         --no-cache-dir \
         --require-hashes \
         --requirement /opt/patroni-requirements.txt \
