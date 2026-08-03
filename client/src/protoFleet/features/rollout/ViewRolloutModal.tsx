@@ -64,6 +64,9 @@ function ViewRolloutModal({
       onDismiss={onDismiss}
       testId="view-rollout-modal"
       bodyClassName="text-text-primary"
+      // Pin the title + CTAs in the sticky top bar (rather than only collapsing
+      // there on scroll), so the header reads as a persistent action bar.
+      forceTitleCollapsed
       buttons={actions.map((action) => ({
         text: action.text,
         variant: buttonVariant[action.variant],

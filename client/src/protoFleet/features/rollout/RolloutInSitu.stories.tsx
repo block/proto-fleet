@@ -101,11 +101,12 @@ const fleetRows: FleetRow[] = [
 
 function FleetTableStory(): ReactElement {
   const cols = "grid grid-cols-[120px_1fr_120px_160px] items-center gap-4 px-4";
+  const [open, setOpen] = useState(false);
   return (
     <div className="min-h-screen bg-surface-base p-8">
       <div className="mx-auto flex max-w-4xl flex-col gap-4">
         <div className="text-heading-300 text-text-primary">Building B</div>
-        <ActiveRolloutBanner event={inProgressFirmwareEvent} onView={noop} />
+        <ActiveRolloutBanner event={inProgressFirmwareEvent} onView={() => setOpen(true)} />
         <div className="overflow-hidden rounded-xl border border-border-5 bg-surface-elevated-base">
           <div className={`${cols} border-b border-border-5 py-2.5 text-200 text-text-primary-50`}>
             <span>Miner</span>
@@ -123,6 +124,12 @@ function FleetTableStory(): ReactElement {
           ))}
         </div>
       </div>
+      <ViewRolloutModal
+        event={open ? inProgressFirmwareEvent : null}
+        onDismiss={() => setOpen(false)}
+        onPause={noop}
+        onCancelRemaining={noop}
+      />
     </div>
   );
 }
@@ -132,26 +139,40 @@ export const FleetTable: Story = {
   render: () => <FleetTableStory />,
 };
 
-// ---- 3. Header bar: the persistent rollout pill ------------------------------
+// ---- 3. Header bar: the persistent rollout pill (opens the modal) -----------
 
-export const HeaderPill: Story = {
-  name: "Header pill (in the top bar)",
-  render: () => (
+function HeaderPillStory(): ReactElement {
+  const [open, setOpen] = useState(false);
+  return (
     <div className="min-h-screen bg-surface-base">
       <div className="flex h-14 items-center justify-between border-b border-border-5 bg-surface-elevated-base px-6">
         <div className="text-emphasis-300 text-text-primary">Denver — Building B</div>
-        <RolloutPill event={inProgressFirmwareEvent} detailsPath="/activity/rollouts/firmware-5-1-0" />
+        <RolloutPill event={inProgressFirmwareEvent} onViewRollout={() => setOpen(true)} />
       </div>
-      <div className="p-8 text-300 text-text-primary-70">Open the pill to see the quick-status popover.</div>
+      <div className="p-8 text-300 text-text-primary-70">
+        Open the pill, then "View rollout" to summon the progress modal in place.
+      </div>
+      <ViewRolloutModal
+        event={open ? inProgressFirmwareEvent : null}
+        onDismiss={() => setOpen(false)}
+        onPause={noop}
+        onCancelRemaining={noop}
+      />
     </div>
-  ),
+  );
+}
+
+export const HeaderPill: Story = {
+  name: "Header pill (opens the modal)",
+  render: () => <HeaderPillStory />,
 };
 
-// ---- 4. Activity "Active now": stacked banners ------------------------------
+// ---- 4. Activity "Active now": stacked banners (each opens the modal) --------
 
-export const ActivityActiveNow: Story = {
-  name: "Activity — Active now (stacked banners)",
-  render: () => (
+function ActivityActiveNowStory(): ReactElement {
+  const events = [inProgressFirmwareEvent, inProgressRebootEvent, inProgressCurtailmentEvent];
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  return (
     <div className="min-h-screen bg-surface-base p-8">
       <div className="mx-auto flex max-w-4xl flex-col gap-4">
         <div className="text-heading-300 text-text-primary">Activity</div>
@@ -159,13 +180,21 @@ export const ActivityActiveNow: Story = {
           <div className="text-emphasis-300 text-text-primary">Active now</div>
           <span className="text-200 text-text-primary-70">3 processes running</span>
         </div>
-        <ActiveRolloutBannerStack
-          events={[inProgressFirmwareEvent, inProgressRebootEvent, inProgressCurtailmentEvent]}
-          onView={noop}
-        />
+        <ActiveRolloutBannerStack events={events} onView={(_event, index) => setOpenIndex(index)} />
       </div>
+      <ViewRolloutModal
+        event={openIndex === null ? null : events[openIndex]}
+        onDismiss={() => setOpenIndex(null)}
+        onPause={noop}
+        onCancelRemaining={noop}
+      />
     </div>
-  ),
+  );
+}
+
+export const ActivityActiveNow: Story = {
+  name: "Activity — Active now (banners open the modal)",
+  render: () => <ActivityActiveNowStory />,
 };
 
 // ---- 5. View rollout modal over the fleet page ------------------------------
