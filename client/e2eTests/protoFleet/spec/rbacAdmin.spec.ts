@@ -331,6 +331,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
       await settingsTeamPage.setRolePermission("curtailment:manage", false);
       await settingsTeamPage.validateRolePermissionUnchecked("curtailment:manage");
       await settingsTeamPage.validateRolePermissionUnchecked("curtailment:read");
+      await settingsTeamPage.validateRolePermissionEnabled("curtailment:read");
     });
   });
 });

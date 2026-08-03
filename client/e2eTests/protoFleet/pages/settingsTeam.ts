@@ -195,6 +195,11 @@ export class SettingsTeamPage extends BasePage {
     await expect(this.rolePermissionRow(permissionKey).getByRole("checkbox")).toBeDisabled();
   }
 
+  async validateRolePermissionEnabled(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+    await expect(this.rolePermissionRow(permissionKey).getByRole("checkbox")).toBeEnabled();
+  }
+
   async clickCreateRoleConfirm() {
     await this.page.getByTestId("modal").getByRole("button", { name: "Create role", exact: true }).click();
   }
