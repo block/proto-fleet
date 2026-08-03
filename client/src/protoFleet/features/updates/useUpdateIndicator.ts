@@ -18,7 +18,7 @@ interface UseUpdateIndicatorOptions {
 export function useUpdateIndicator({ enabled = true }: UseUpdateIndicatorOptions = {}): UpdatePillData | null {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const isUpdateSettingsPath = pathname.replace(/\/+$/, "") === UPDATE_SETTINGS_PATH;
+  const isUpdateSettingsPath = pathname.replace(/\/+$/, "").toLowerCase() === UPDATE_SETTINGS_PATH;
   const availableVersion = useAvailableUpdate({ enabled: enabled && !isUpdateSettingsPath });
 
   const openUpdateSettings = useCallback(() => {

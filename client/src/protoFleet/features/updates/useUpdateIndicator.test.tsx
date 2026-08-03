@@ -48,7 +48,7 @@ describe("useUpdateIndicator", () => {
     expect(vi.mocked(useAvailableUpdate)).toHaveBeenLastCalledWith({ enabled: false });
   });
 
-  it.each(["/settings/updates", "/settings/updates/"])(
+  it.each(["/settings/updates", "/settings/updates/", "/Settings/Updates"])(
     "does not poll or render on the authoritative settings page at %s",
     (pathname) => {
       render(
