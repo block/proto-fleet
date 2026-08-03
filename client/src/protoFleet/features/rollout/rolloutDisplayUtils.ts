@@ -6,7 +6,7 @@ import type {
   RolloutStrategy,
   RolloutTargetPhase,
 } from "./rolloutTypes";
-import type { Segment, Status } from "@/shared/components/CompositionBar";
+import type { Segment } from "@/shared/components/CompositionBar";
 
 export const strategyLabels: Record<RolloutStrategy, string> = {
   allAtOnce: "Update all at once",
@@ -63,35 +63,28 @@ export function phaseLabel(processType: RolloutProcessType, phase: RolloutTarget
   }
 }
 
-/** Map a rollout phase to a CompositionBar status color. Retrying reads as
- * warning (in-flight recovery), the same amber the reconciler's drifted→
- * redispatch state carries. */
-const phaseStatus: Record<RolloutTargetPhase, Status> = {
-  done: "OK",
-  inProgress: "WARNING",
-  retrying: "WARNING",
-  queued: "NA",
-  failed: "CRITICAL",
-  excluded: "NA",
-};
-
 /**
- * Build CompositionBar segments from the phase rollups, in a stable visual
- * order (done → in progress → retrying → queued → failed) so the bar doesn't
- * reshuffle as counts move between phases. Excluded targets are left out of the
- * bar (they were never in scope) and surfaced separately.
+ * Simplified progress segments for the active-rollout bar + key, mirroring
+ * curtailment's consolidated shape (`getCurtailProgressSegments`: Curtailed vs
+ * a single Curtailing bucket). The per-target phases (in progress / retrying /
+ * queued) are all "not done yet", so they collapse into one **Remaining**
+ * bucket; **Done** and **Failed** stay distinct because they're the outcomes
+ * that matter. Excluded targets are never in the bar. Zero-count buckets drop
+ * out so the key only lists what's present.
  */
-export function rolloutCompositionSegments(event: RolloutEvent): Segment[] {
-  const order: RolloutTargetPhase[] = ["done", "inProgress", "retrying", "queued", "failed"];
-  const countByPhase = new Map<RolloutTargetPhase, number>(event.rollups.map((rollup) => [rollup.phase, rollup.count]));
+export function rolloutProgressSegments(event: RolloutEvent): Segment[] {
+  const done = rolloutPhaseCount(event.rollups, "done");
+  const failed = rolloutPhaseCount(event.rollups, "failed");
+  const remaining =
+    rolloutPhaseCount(event.rollups, "inProgress") +
+    rolloutPhaseCount(event.rollups, "retrying") +
+    rolloutPhaseCount(event.rollups, "queued");
 
-  return order
-    .filter((phase) => (countByPhase.get(phase) ?? 0) > 0)
-    .map((phase) => ({
-      name: phaseLabel(event.processType, phase),
-      status: phaseStatus[phase],
-      count: countByPhase.get(phase) ?? 0,
-    }));
+  return [
+    { name: phaseLabel(event.processType, "done"), status: "OK" as const, count: done },
+    { name: "Remaining", status: "WARNING" as const, count: remaining },
+    { name: "Failed", status: "CRITICAL" as const, count: failed },
+  ].filter((segment) => segment.count > 0);
 }
 
 export function rolloutPhaseCount(rollups: RolloutPhaseRollup[], phase: RolloutTargetPhase): number {
