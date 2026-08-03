@@ -171,6 +171,17 @@ describe("RackSettingsModal — bulk create", () => {
     await user.type(count, "5005");
     expect(count).toHaveValue("500");
 
+    // A rejected character is the same failure by a different route: nothing
+    // caps letters, and sanitizing to the string already held would leave the
+    // typed one on screen.
+    await user.type(count, "a");
+    expect(count).toHaveValue("500");
+    await user.clear(count);
+    await user.type(count, "1e3");
+    expect(count).toHaveValue("13");
+    await user.clear(count);
+    await user.type(count, "500");
+
     // Counter scale is one digit, so it desyncs on the very next keystroke.
     // Cleared first because it is seeded with the default scale, and a full
     // one-character field would refuse the typing outright.

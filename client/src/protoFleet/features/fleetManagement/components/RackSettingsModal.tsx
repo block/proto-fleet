@@ -721,13 +721,16 @@ const RackSettingsModal = ({
             // Row count sits above the label properties: it decides how many
             // rows the preview has, while the properties below decide what each
             // one is called.
-            // text + inputMode rather than type="number" so maxLength actually
-            // holds: the browser ignores maxlength on a number input, and Input
-            // keeps its own display value that only re-syncs when initValue
-            // changes. An extra digit slices back to the same sanitized string,
-            // so nothing re-syncs and the field would keep showing a count the
-            // preview and the request don't share. inputMode keeps the numeric
-            // keyboard; digitsOnly still guards paste.
+            // `sanitize` rather than digits-only work in onChange, so what the
+            // field shows and what the preview and CreateRacks payload use can
+            // never diverge — Input owns the displayed value, and a sanitize
+            // that returns the string it already holds gives it nothing to
+            // re-sync from (see the prop's own note).
+            //
+            // text + inputMode rather than type="number" for two more reasons:
+            // the browser ignores maxlength on a number input, and a number
+            // input reports "" for a partially-invalid value, which would feed
+            // sanitize the wrong thing. inputMode keeps the numeric keyboard.
             <Input
               id="rack-bulk-count"
               label="Number of racks"
@@ -735,8 +738,9 @@ const RackSettingsModal = ({
               inputMode="numeric"
               initValue={bulkCountText}
               maxLength={bulkCountInputMaxLength}
+              sanitize={(value) => digitsOnly(value, bulkCountInputMaxLength)}
               onChange={(value) => {
-                setBulkCountText(digitsOnly(value, bulkCountInputMaxLength));
+                setBulkCountText(value);
                 clearBulkRowErrors();
                 if (bulkCountError) setBulkCountError(undefined);
               }}
@@ -790,8 +794,9 @@ const RackSettingsModal = ({
                   inputMode="numeric"
                   initValue={bulkCounterStartText}
                   maxLength={counterStartInputMaxLength}
+                  sanitize={(value) => digitsOnly(value, counterStartInputMaxLength)}
                   onChange={(value) => {
-                    setBulkCounterStartText(digitsOnly(value, counterStartInputMaxLength));
+                    setBulkCounterStartText(value);
                     clearBulkRowErrors();
                   }}
                   testId="rack-bulk-counter-start-input"
@@ -806,8 +811,9 @@ const RackSettingsModal = ({
                   inputMode="numeric"
                   initValue={bulkCounterScaleText}
                   maxLength={1}
+                  sanitize={(value) => digitsOnly(value, 1)}
                   onChange={(value) => {
-                    setBulkCounterScaleText(digitsOnly(value, 1));
+                    setBulkCounterScaleText(value);
                     clearBulkRowErrors();
                     if (bulkCounterScaleError) setBulkCounterScaleError(undefined);
                   }}
