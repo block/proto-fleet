@@ -54,6 +54,18 @@ write_valid_env() {
     printf 'ENABLE_TRACING="FALSE" \r\n' >> "$env_file"
 }
 
+enable_valid_alerts() {
+    local env_file="$1"
+    printf '%s\n' \
+        'ENABLE_BETA_ALERTS=true' \
+        'GRAFANA_ADMIN_PASSWORD=admin-secret' \
+        'GRAFANA_DB_USERNAME=grafana_ro' \
+        'GRAFANA_DB_PASSWORD=db-secret' \
+        'FLEET_ALERTS_WEBHOOK_TOKEN=webhook-secret' \
+        'GRAFANA_SECRET_KEY=grafana-secret' \
+        'FLEET_ALERTS_GRAFANA_TOKEN=service-token' >> "$env_file"
+}
+
 make_stage() {
     local name="$1"
     STAGE="$TMP_DIR/$name"
@@ -65,6 +77,7 @@ make_stage() {
     cp "$DEPLOY_DIR/docker-compose.tracing.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/client/nginx.http.conf" "$STAGE/client/"
     cp "$DEPLOY_DIR/client/nginx.https.conf" "$STAGE/client/"
+    printf '%s\n' 'version: v1.2.3' 'commit: test-release' > "$STAGE/version.txt"
     mkdir -p "$STAGE/images" "$STAGE/image-fixture"
     printf '[{"Config":"config.json","RepoTags":["proto-fleet-timescaledb:latest"],"Layers":[]}]\n' > "$STAGE/image-fixture/manifest.json"
     (cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
@@ -84,6 +97,20 @@ case " $* " in
         ;;
     *" compose "*" config --quiet "*)
         [ "${FAKE_COMPOSE_CONFIG_FAILURE:-false}" != "true" ]
+        ;;
+    *" compose "*" config "*)
+        previous=''
+        for argument in "$@"; do
+            if [ "$previous" = "-f" ]; then
+                printf 'compose_file: %s\n' "$argument"
+            fi
+            previous="$argument"
+        done
+        ;;
+    *" compose "*" build --no-cache "*)
+        if [ "${FAKE_MUTATE_TSDB_DURING_BUILD:-false}" = "true" ]; then
+            printf 'changed-during-build' >> "$STAGE_ROOT/images/timescaledb.tar.gz"
+        fi
         ;;
     *" compose "*" up --remove-orphans "*)
         [ "${FAKE_ACTIVATION_FAILURE:-false}" != "true" ]
@@ -167,6 +194,7 @@ run_stage() {
     local stage="$1"
     shift
     CALL_LOG="$stage/calls.log" \
+    STAGE_ROOT="$stage" \
     REAL_GREP="$REAL_GREP" \
     PATH="$stage/bin:$PATH" \
     /bin/bash "$stage/run-fleet.sh" "$@" > "$stage/output.log" 2>&1
@@ -195,6 +223,17 @@ assert_contains "preflight builds images" "$STAGE/calls.log" " build --no-cache"
 assert_not_contains "preflight leaves services running" "$STAGE/calls.log" " down --remove-orphans"
 assert_not_contains "preflight never starts replacement services" "$STAGE/calls.log" " up --remove-orphans"
 [ -f "$STAGE/.update-preflight-complete" ] || fail "preflight should create its activation marker"
+if grep -Eq '^proto-fleet-preflight-v1:[0-9a-f]{64}$' "$STAGE/.update-preflight-complete"; then
+    pass "preflight marker records versioned release metadata"
+else
+    fail "preflight marker should contain versioned release metadata"
+fi
+marker_mode=$(stat -c '%a' "$STAGE/.update-preflight-complete" 2>/dev/null || stat -f '%Lp' "$STAGE/.update-preflight-complete")
+if [ "$marker_mode" = "600" ]; then
+    pass "preflight marker is readable only by its owner"
+else
+    fail "preflight marker mode should be 600, got $marker_mode"
+fi
 if [ "$(grep -c '^ENABLE_BETA_ALERTS=' "$STAGE/.env")" -eq 1 ] && grep -q '^ENABLE_BETA_ALERTS=false$' "$STAGE/.env"; then
     pass "persisted booleans use the last Compose-style assignment"
 else
@@ -219,6 +258,75 @@ assert_not_contains "activation skips builds" "$STAGE/calls.log" " build --no-ca
 assert_contains "activation stops the old stack" "$STAGE/calls.log" " down --remove-orphans"
 assert_contains "activation starts the new stack" "$STAGE/calls.log" " up --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "successful activation should consume its marker"
+
+# The updater preflights under a temporary parent and then renames the release
+# into the stable deployment path. Absolute paths in rendered Compose output
+# are normalized so that safe relocation does not invalidate the proof.
+make_stage relocated-preflight
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "relocation fixture preflight should succeed"
+fi
+relocated_stage="$TMP_DIR/activated-release/deployment"
+mkdir -p "$(dirname "$relocated_stage")"
+mv "$STAGE" "$relocated_stage"
+STAGE="$relocated_stage"
+: > "$STAGE/calls.log"
+if run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "preflight proof survives the updater's directory rename"
+else
+    fail "unchanged relocated release should activate"
+fi
+assert_contains "relocated activation stops the old stack" "$STAGE/calls.log" " down --remove-orphans"
+
+# Every input that defines the prepared release is bound into the marker. A
+# changed or forged marker fails before the active deployment is stopped and
+# is invalidated so recovery cannot keep retrying stale preparation.
+for mutation in env compose version nginx runner timescaledb; do
+    make_stage "changed-$mutation"
+    if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+        fail "$mutation mutation fixture preflight should succeed"
+        continue
+    fi
+    case "$mutation" in
+        env) printf 'DB_PASSWORD=changed-after-preflight\n' >> "$STAGE/.env" ;;
+        compose) printf '\n# changed after preflight\n' >> "$STAGE/docker-compose.yaml" ;;
+        version) printf 'commit: changed-after-preflight\n' >> "$STAGE/version.txt" ;;
+        nginx) printf '\n# changed after preflight\n' >> "$STAGE/client/nginx.http.conf" ;;
+        runner) printf '\n# changed after preflight\n' >> "$STAGE/run-fleet.sh" ;;
+        timescaledb) printf 'changed-after-preflight' >> "$STAGE/images/timescaledb.tar.gz" ;;
+    esac
+    : > "$STAGE/calls.log"
+    if run_stage "$STAGE" --non-interactive --skip-build; then
+        fail "$mutation changes should invalidate preflight"
+    else
+        pass "$mutation changes invalidate preflight"
+    fi
+    assert_contains "$mutation mismatch is diagnosed" "$STAGE/output.log" "release or configuration changed after preflight"
+    assert_not_contains "$mutation mismatch prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+    assert_not_contains "$mutation mismatch prevents startup" "$STAGE/calls.log" " up --remove-orphans"
+    [ ! -e "$STAGE/.update-preflight-complete" ] || fail "$mutation mismatch should remove the stale marker"
+done
+
+make_stage changed-during-preflight
+if FAKE_MUTATE_TSDB_DURING_BUILD=true run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "inputs changed during preparation should fail preflight"
+else
+    pass "inputs changed during preparation fail preflight"
+fi
+assert_contains "mid-preflight mutation is diagnosed" "$STAGE/output.log" "release or configuration changed during preflight"
+assert_contains "mid-preflight mutation occurs after the build starts" "$STAGE/calls.log" " build --no-cache"
+assert_not_contains "mid-preflight mutation prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+[ ! -e "$STAGE/.update-preflight-complete" ] || fail "mid-preflight mutation must not create a marker"
+
+make_stage forged-marker
+: > "$STAGE/.update-preflight-complete"
+if run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "an empty forged marker should not authorize activation"
+else
+    pass "an empty forged marker is rejected"
+fi
+assert_not_contains "forged marker prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+[ ! -e "$STAGE/.update-preflight-complete" ] || fail "forged marker should be invalidated"
 
 # A failed activation retains the marker so the recovery command can retry the
 # prepared release without an unsafe rebuild.
@@ -303,6 +411,55 @@ fi
 cmp -s "$STAGE/env.before" "$STAGE/.env" || fail "alert validation should not rewrite .env"
 assert_contains "missing alert service token is diagnosed" "$STAGE/output.log" "FLEET_ALERTS_GRAFANA_TOKEN"
 assert_not_contains "missing alert secrets prevent pulls" "$STAGE/calls.log" " pull"
+
+# Grafana role names are deterministic local validation, so reject known-bad
+# SQL identifiers and privileged/conflicting role names during preflight rather
+# than after the running stack has been replaced.
+make_stage valid-alert-role
+enable_valid_alerts "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "valid dedicated Grafana role passes preflight"
+else
+    fail "valid dedicated Grafana role should pass preflight"
+fi
+
+for role_case in invalid-grafana-identifier invalid-db-identifier postgres-role app-role reserved-pg-role; do
+    make_stage "$role_case"
+    enable_valid_alerts "$STAGE/.env"
+    case "$role_case" in
+        invalid-grafana-identifier)
+            printf 'GRAFANA_DB_USERNAME=grafana-ro\n' >> "$STAGE/.env"
+            expected_error='GRAFANA_DB_USERNAME must be a valid SQL identifier'
+            ;;
+        invalid-db-identifier)
+            printf 'DB_NAME=fleet-prod\n' >> "$STAGE/.env"
+            expected_error='DB_NAME must be a valid SQL identifier'
+            ;;
+        postgres-role)
+            printf 'GRAFANA_DB_USERNAME=postgres\n' >> "$STAGE/.env"
+            expected_error='must not match the application DB role'
+            ;;
+        app-role)
+            printf 'GRAFANA_DB_USERNAME=fleet\n' >> "$STAGE/.env"
+            expected_error='must not match the application DB role'
+            ;;
+        reserved-pg-role)
+            printf 'GRAFANA_DB_USERNAME=pg_custom\n' >> "$STAGE/.env"
+            expected_error="must not use PostgreSQL's reserved pg_ role prefix"
+            ;;
+    esac
+    cp "$STAGE/.env" "$STAGE/env.before"
+    if run_stage "$STAGE" --non-interactive --preflight-only; then
+        fail "$role_case should fail preflight"
+    else
+        pass "$role_case fails preflight"
+    fi
+    cmp -s "$STAGE/env.before" "$STAGE/.env" || fail "$role_case validation should not rewrite .env"
+    assert_contains "$role_case is diagnosed" "$STAGE/output.log" "$expected_error"
+    assert_not_contains "$role_case prevents pulls" "$STAGE/calls.log" " pull"
+    assert_not_contains "$role_case prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+    [ ! -e "$STAGE/.update-preflight-complete" ] || fail "$role_case must not create a preflight marker"
+done
 
 # Compose interpolation/render errors are also caught before image work or
 # service teardown.

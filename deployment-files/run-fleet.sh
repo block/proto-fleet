@@ -10,6 +10,8 @@ COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
+VERSION_FILE="$PROJECT_ROOT/version.txt"
+TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 
 ENABLE_BETA_ALERTS=false
@@ -18,6 +20,7 @@ ENABLE_TRACING=false
 NON_INTERACTIVE=false
 PREFLIGHT_ONLY=false
 SKIP_BUILD=false
+PREFLIGHT_FINGERPRINT=""
 
 # How long the post-start steps wait for fleet-api to finish its migrations.
 # 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
@@ -235,6 +238,150 @@ compose() {
     docker compose ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" "$@"
 }
 
+sha256() {
+    local output
+    if command -v sha256sum >/dev/null 2>&1; then
+        output=$(sha256sum "$@") || return 1
+    elif command -v shasum >/dev/null 2>&1; then
+        output=$(shasum -a 256 "$@") || return 1
+    else
+        echo "Error: SHA-256 support requires sha256sum or shasum." >&2
+        return 1
+    fi
+    printf '%s\n' "$output" | awk '{print $1}'
+}
+
+project_relative_path() {
+    case "$1" in
+        "$PROJECT_ROOT"/*) printf '%s' "${1#"$PROJECT_ROOT"/}" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+compose_config_hash() {
+    local rendered hash status
+    rendered=$(mktemp) || {
+        echo "Error: could not create a temporary file for Compose validation." >&2
+        return 1
+    }
+    if ! compose config > "$rendered"; then
+        rm -f "$rendered"
+        echo "Error: could not render Docker Compose configuration for preflight verification." >&2
+        return 1
+    fi
+
+    # Compose resolves bind/build paths to the staging directory. The updater
+    # renames that directory into place between preflight and activation, so
+    # redact only that literal prefix before hashing the normalized model.
+    hash=$(awk -v root="$PROJECT_ROOT" '
+        {
+            line = $0
+            normalized = ""
+            while ((position = index(line, root)) > 0) {
+                normalized = normalized substr(line, 1, position - 1) "<PROJECT_ROOT>"
+                line = substr(line, position + length(root))
+            }
+            print normalized line
+        }
+    ' "$rendered" | sha256)
+    status=$?
+    rm -f "$rendered"
+    [ "$status" -eq 0 ] || return "$status"
+    printf '%s' "$hash"
+}
+
+write_preflight_metadata() {
+    local config_hash digest file relative index
+
+    for file in "$VERSION_FILE" "$ENV_FILE" "$TSDB_IMAGE" "$PROJECT_ROOT/run-fleet.sh" "$NGINX_CONF_DIR/nginx.conf"; do
+        if [ ! -f "$file" ]; then
+            echo "Error: upgrade preflight metadata requires $file." >&2
+            return 1
+        fi
+    done
+
+    config_hash=$(compose_config_hash) || return 1
+    printf 'format=1\n'
+    digest=$(sha256 "$VERSION_FILE") || return 1
+    printf 'release_manifest_sha256=%s\n' "$digest"
+    digest=$(sha256 "$PROJECT_ROOT/run-fleet.sh") || return 1
+    printf 'runner_sha256=%s\n' "$digest"
+    digest=$(sha256 "$NGINX_CONF_DIR/nginx.conf") || return 1
+    printf 'nginx_config_sha256=%s\n' "$digest"
+    printf 'compose_config_sha256=%s\n' "$config_hash"
+    printf 'feature_state=alerts:%s,system_monitoring:%s,tracing:%s,protocol:%s\n' \
+        "$ENABLE_BETA_ALERTS" "$ENABLE_SYSTEM_MONITORING" "$ENABLE_TRACING" "$PROTOCOL_MODE"
+
+    for ((index = 1; index < ${#COMPOSE_FILES[@]}; index += 2)); do
+        file="${COMPOSE_FILES[$index]}"
+        relative=$(project_relative_path "$file")
+        digest=$(sha256 "$file") || return 1
+        printf 'compose_file=%s:%s\n' "$relative" "$digest"
+    done
+
+    for ((index = 1; index < ${#COMPOSE_ENV_ARGS[@]}; index += 2)); do
+        file="${COMPOSE_ENV_ARGS[$index]}"
+        relative=$(project_relative_path "$file")
+        digest=$(sha256 "$file") || return 1
+        printf 'compose_env_file=%s:%s\n' "$relative" "$digest"
+    done
+
+    digest=$(sha256 "$TSDB_IMAGE") || return 1
+    printf 'timescaledb_archive_sha256=%s\n' "$digest"
+}
+
+preflight_fingerprint() {
+    local metadata
+    metadata=$(write_preflight_metadata) || return 1
+    printf '%s' "$metadata" | sha256
+}
+
+record_preflight_marker() {
+    local prepared_fingerprint="$1" current_fingerprint temporary_marker
+    current_fingerprint=$(preflight_fingerprint) || return 1
+    if [ "$current_fingerprint" != "$prepared_fingerprint" ]; then
+        echo "Error: release or configuration changed during preflight; run preflight again." >&2
+        return 1
+    fi
+    temporary_marker=$(umask 077; mktemp "$PREFLIGHT_MARKER.tmp.XXXXXX") || return 1
+    if ! printf 'proto-fleet-preflight-v1:%s\n' "$prepared_fingerprint" > "$temporary_marker"; then
+        rm -f "$temporary_marker"
+        return 1
+    fi
+    if ! chmod 600 "$temporary_marker"; then
+        rm -f "$temporary_marker"
+        return 1
+    fi
+    if ! mv -f "$temporary_marker" "$PREFLIGHT_MARKER"; then
+        rm -f "$temporary_marker"
+        return 1
+    fi
+}
+
+verify_preflight_marker() {
+    local actual expected
+    if [ ! -f "$PREFLIGHT_MARKER" ]; then
+        echo "Error: --skip-build requires a successful preflight for this deployment." >&2
+        return 1
+    fi
+
+    if ! expected=$(preflight_fingerprint); then
+        if ! rm -f "$PREFLIGHT_MARKER"; then
+            echo "Error: preflight verification failed and the stale marker could not be removed." >&2
+        fi
+        return 1
+    fi
+    actual=$(cat "$PREFLIGHT_MARKER") || return 1
+    if [ "$actual" != "proto-fleet-preflight-v1:$expected" ]; then
+        if ! rm -f "$PREFLIGHT_MARKER"; then
+            echo "Error: preflight inputs changed and the stale marker could not be removed." >&2
+            return 1
+        fi
+        echo "Error: release or configuration changed after preflight; run preflight again before activation." >&2
+        return 1
+    fi
+}
+
 # Poll psql until the query returns true; caller owns the warning.
 wait_for_psql_true() {
     local query="$1" attempt result
@@ -283,8 +430,33 @@ validate_base64_key() {
     return 0  # Valid
 }
 
+validate_grafana_db_role_names() {
+    local grafana_user="$1" db_name="$2" app_user="$3"
+
+    # These values are spliced into SQL as quoted identifiers. Restrict them
+    # to PostgreSQL's safe identifier shape and reject roles that can never be
+    # used as the dedicated, least-privilege Grafana reader.
+    if ! [[ "$grafana_user" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "Error: GRAFANA_DB_USERNAME must be a valid SQL identifier (got: $grafana_user)" >&2
+        return 1
+    fi
+    if ! [[ "$db_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "Error: DB_NAME must be a valid SQL identifier (got: $db_name)" >&2
+        return 1
+    fi
+    if [ "$grafana_user" = "$app_user" ] || [ "$grafana_user" = "postgres" ]; then
+        echo "Error: GRAFANA_DB_USERNAME ('$grafana_user') must not match the application DB role ('$app_user') or the postgres superuser." >&2
+        echo "       Pick a dedicated read-only role name (e.g. grafana_ro) and re-run." >&2
+        return 1
+    fi
+    if [[ "$grafana_user" = pg_* ]]; then
+        echo "Error: GRAFANA_DB_USERNAME must not use PostgreSQL's reserved pg_ role prefix (got: $grafana_user)" >&2
+        return 1
+    fi
+}
+
 validate_non_interactive_environment() {
-    local key auth_secret encryption_key invalid=0
+    local key auth_secret encryption_key grafana_user db_name app_user invalid=0
     local -a alert_keys=(
         GRAFANA_ADMIN_PASSWORD
         GRAFANA_DB_USERNAME
@@ -320,6 +492,14 @@ validate_non_interactive_environment() {
                 invalid=1
             fi
         done
+        grafana_user=$(env_last_value GRAFANA_DB_USERNAME 2>/dev/null || true)
+        db_name=$(env_last_value DB_NAME 2>/dev/null || true)
+        db_name="${db_name:-fleet}"
+        app_user=$(env_last_value DB_USERNAME 2>/dev/null || true)
+        if [ -n "$grafana_user" ] && [ -n "$app_user" ] && \
+            ! validate_grafana_db_role_names "$grafana_user" "$db_name" "$app_user"; then
+            invalid=1
+        fi
     fi
 
     [ "$invalid" -eq 0 ]
@@ -1077,6 +1257,18 @@ if ! compose config --quiet; then
     exit 1
 fi
 
+if [ "$SKIP_BUILD" = "true" ]; then
+    if ! verify_preflight_marker; then
+        echo "Error: --skip-build can only activate the unchanged release prepared by preflight." >&2
+        exit 1
+    fi
+elif [ "$PREFLIGHT_ONLY" = "true" ]; then
+    PREFLIGHT_FINGERPRINT=$(preflight_fingerprint) || {
+        echo "Error: could not fingerprint the release before preflight." >&2
+        exit 1
+    }
+fi
+
 # ----------------------------------------------------------------------------
 # Docker Image Preparation
 # ----------------------------------------------------------------------------
@@ -1089,7 +1281,6 @@ if [ "$SKIP_BUILD" != "true" ]; then
     fi
 
     # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
-    TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
     if [ -f "$TSDB_IMAGE" ]; then
         if ! gunzip -c "$TSDB_IMAGE" | tar -xOf - manifest.json 2>/dev/null | grep -q '"proto-fleet-timescaledb:latest"'; then
             echo "Error: $TSDB_IMAGE does not contain the required proto-fleet-timescaledb:latest tag." >&2
@@ -1125,7 +1316,7 @@ else
 fi
 
 if [ "$PREFLIGHT_ONLY" = "true" ]; then
-    if ! (umask 077; : > "$PREFLIGHT_MARKER"); then
+    if ! record_preflight_marker "$PREFLIGHT_FINGERPRINT"; then
         echo "Error: could not record successful preflight at $PREFLIGHT_MARKER." >&2
         exit 1
     fi
@@ -1233,20 +1424,7 @@ provision_grafana_db_role() {
         return 1
     fi
 
-    # We splice these as SQL identifiers, so require them to match the
-    # safe identifier shape rather than try to quote arbitrary input.
-    if ! [[ "$grafana_user" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-        echo "Error: GRAFANA_DB_USERNAME must be a valid SQL identifier (got: $grafana_user)" >&2
-        return 1
-    fi
-    if ! [[ "$db_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-        echo "Error: DB_NAME must be a valid SQL identifier (got: $db_name)" >&2
-        return 1
-    fi
-
-    if [ "$grafana_user" = "$app_user" ] || [ "$grafana_user" = "postgres" ]; then
-        echo "Error: GRAFANA_DB_USERNAME ('$grafana_user') must not match the application DB role ('$app_user') or the postgres superuser." >&2
-        echo "       Pick a dedicated read-only role name (e.g. grafana_ro) and re-run." >&2
+    if ! validate_grafana_db_role_names "$grafana_user" "$db_name" "$app_user"; then
         return 1
     fi
 
