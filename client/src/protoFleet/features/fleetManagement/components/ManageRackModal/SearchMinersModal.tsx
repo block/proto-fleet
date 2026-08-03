@@ -21,8 +21,13 @@ interface SearchMinersModalProps {
   scope?: SiteFilterFields;
   onDismiss: () => void;
   /** `isReassignment` is true when the picked miner is currently assigned to a
-   *  different rack/building/site, so the caller can confirm the reparent. */
-  onConfirm: (selectedMinerId: string, isReassignment: boolean) => void;
+   *  different rack/building/site, so the caller can confirm the reparent.
+   *  Awaited: the assignment is a write, and the CTA stays busy until it lands. */
+  onConfirm: (selectedMinerId: string, isReassignment: boolean) => void | Promise<void>;
+  /** Caller's in-flight membership write, mirroring ManageMinersModal. Without
+   *  it a second Assign click re-enters the caller's commit, which refuses the
+   *  re-entry and reports a failure for a write that is still in flight. */
+  saving?: boolean;
 }
 
 export default function SearchMinersModal({
@@ -32,17 +37,19 @@ export default function SearchMinersModal({
   scope,
   onDismiss,
   onConfirm,
+  saving = false,
 }: SearchMinersModalProps) {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [hasSelection, setHasSelection] = useState(false);
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback(async () => {
     const selection = selectionRef.current?.getSelection();
     // blockedByFilter: a conflicting placement facet is showing no results, so
     // the (hidden) selection must not be acted on.
     if (!selection || selection.blockedByFilter || selection.selectedItems.length === 0) return;
     const minerId = selection.selectedItems[0];
-    onConfirm(minerId, selection.reassignedItems.includes(minerId));
+    // Awaited so the CTA's busy state covers the caller's write.
+    await onConfirm(minerId, selection.reassignedItems.includes(minerId));
   }, [onConfirm]);
 
   if (!show) return null;
@@ -56,10 +63,11 @@ export default function SearchMinersModal({
       divider={false}
       buttons={[
         {
-          text: "Assign",
+          text: saving ? "Assigning..." : "Assign",
           variant: "primary",
-          disabled: !hasSelection,
-          onClick: handleConfirm,
+          disabled: !hasSelection || saving,
+          loading: saving,
+          onClick: () => void handleConfirm(),
           dismissModalOnClick: false,
         },
       ]}

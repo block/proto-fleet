@@ -1099,6 +1099,7 @@ export default function ManageRackModal({
             setSelectedSlot(null);
           }}
           onConfirm={handleSearchMinerConfirm}
+          saving={isSaving}
         />
       ) : null}
 
