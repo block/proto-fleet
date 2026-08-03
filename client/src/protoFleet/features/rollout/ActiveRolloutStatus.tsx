@@ -174,7 +174,7 @@ function ActiveRolloutStatus({
       )}
       <div
         className={clsx(
-          "relative",
+          "@container relative",
           // Embedded in a modal: no card chrome, but match the modal's 24px
           // side inset with a 24px top gap so the status icon clears the sticky
           // top bar / header divider by the same margin.
@@ -205,7 +205,10 @@ function ActiveRolloutStatus({
           </div>
         </div>
 
-        <div className="mt-12 grid grid-cols-2 gap-x-8 gap-y-5 text-text-primary">
+        {/* Stat lockups reflow on the CARD's width (container query), not the
+            viewport — so they stay 2-up in the standard modal (~592px) and go
+            4-up only when the card is hosted in a wide standalone pane. */}
+        <div className="mt-12 grid grid-cols-1 gap-x-8 gap-y-5 text-text-primary @xs:grid-cols-2 @3xl:grid-cols-4">
           <StatBlock label="Scope" value={event.scopeLabel || "—"} />
           <StatBlock label="Strategy" value={pacingSummary(event)} detail={orderLabels[event.order]} />
           <StatBlock
