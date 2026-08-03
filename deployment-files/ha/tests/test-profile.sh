@@ -64,12 +64,11 @@ test_patroni_contract() {
     assert_contains "$template" 'connect_address: ${HA_NODE_IP}:5432'
     assert_contains "$template" 'connect_address: ${HA_NODE_IP}:8008'
     assert_contains "$template" "synchronous_mode: true"
-    assert_contains "$template" "synchronous_mode_strict: true"
+    assert_contains "$template" "synchronous_mode_strict: false"
     assert_contains "$template" "sslmode: verify-full"
     assert_contains "$template" 'post_bootstrap: /usr/local/bin/patroni-post-bootstrap'
     assert_not_contains "$template" "0.0.0.0/0"
     assert_contains "$entrypoint" "render-patroni-config"
-    assert_contains "$bootstrap" 'PGOPTIONS="-c synchronous_commit=local"'
     assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
     assert_not_contains "$bootstrap" 'PGDATABASE="$connection_url"'
 

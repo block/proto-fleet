@@ -10,10 +10,6 @@ connection_url="${1:?Patroni did not provide a bootstrap connection URL}"
 fleet_password_file="${2:-/run/proto-fleet-ha/fleet-db-password}"
 fleet_password="$(<"$fleet_password_file")"
 
-# Strict synchronous mode has no standby during first bootstrap. Keep only
-# these local role/database setup statements from waiting for one.
-export PGOPTIONS="-c synchronous_commit=local"
-
 # Patroni passes a password-free libpq connection string and supplies any
 # bootstrap credential through PGPASSFILE. Pass that string as psql's database
 # target; PGDATABASE would treat the whole string as a literal database name.

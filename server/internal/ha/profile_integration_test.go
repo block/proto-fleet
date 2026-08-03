@@ -125,7 +125,6 @@ func TestProductionHAProfile(t *testing.T) {
 		"leader":            observation.LeaderName,
 		"server_address":    observation.ServerAddress,
 		"server_port":       observation.ServerPort,
-		"standby_ready":     true,
 		"timeline":          observation.Timeline,
 		"writer_generation": observation.WriterGeneration,
 	})

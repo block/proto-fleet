@@ -116,8 +116,9 @@ postgresql://fleet:<url-escaped-password>@10.40.0.11:5432,10.40.0.12:5432/fleet?
 The etcd observer uses all three `https://<ip>:2379` endpoints with
 `fleet-observer`, `fleet-etcd-password`, and `service-ca.crt`.
 
-Patroni requires one synchronous standby. If it disappears, commits block
-instead of becoming single-copy durable.
+Patroni uses synchronous replication while a standby is available. If the
+standby disappears, writes continue asynchronously so real-time control stays
+available. Failover is not ready until synchronous replication is restored.
 
 ## Qualification
 
@@ -144,6 +145,6 @@ go test ./server/internal/ha -run '^TestProductionHAProfile$' -v
 
 Repeat on `ha-b` without `HA_PROFILE_MIGRATE`. The emitted
 `HA_PROFILE_EVIDENCE` line proves that the deployment artifacts, etcd leader,
-Patroni primary, connected PostgreSQL writer, and synchronous standby agree.
+Patroni primary, and connected PostgreSQL writer agree.
 The later qualification and installer work owns the complete failure matrix
 and operator runbooks.
