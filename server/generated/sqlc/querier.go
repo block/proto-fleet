@@ -861,6 +861,10 @@ type Querier interface {
 	// fires. Callers that want to detect truncation pass (cap + 1); reading one
 	// sentinel row beyond the cap keeps `len(rows) > cap` a valid signal.
 	ListBatchDeviceResults(ctx context.Context, arg ListBatchDeviceResultsParams) ([]ListBatchDeviceResultsRow, error)
+	// CreateBuildings' collision preflight: names only, so it skips
+	// ListBuildingsByOrg's org-wide rack/device aggregation while the site
+	// write lock is held.
+	ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error)
 	// Returns racks currently assigned to a building with their grid
 	// position. Used by ManageBuildingModal to seed the layout grid.
 	// Excludes soft-deleted rack collections; org guard is checked

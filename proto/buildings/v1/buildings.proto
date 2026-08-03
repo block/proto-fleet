@@ -44,6 +44,13 @@ service BuildingService {
     // create.
     rpc CreateBuilding(CreateBuildingRequest) returns (CreateBuildingResponse);
 
+    // CreateBuildings bulk-creates buildings into one site, all-or-nothing
+    // in a single transaction (#559). site_id is required and no rack/device
+    // seeding is supported. Names must be unique within the batch and against
+    // the site; a collision rejects the whole request with one `errors` entry
+    // per offending row so the UI can mark it.
+    rpc CreateBuildings(CreateBuildingsRequest) returns (CreateBuildingsResponse);
+
     // UpdateBuilding mutates name, description, capacity, layout
     // defaults. Site assignment is *not* changed by UpdateBuilding —
     // use AssignBuildingsToSite (SiteService) for that, since it has
@@ -252,6 +259,55 @@ message CreateBuildingResponse {
     // Populated only on rejection (nothing created). Empty on success and
     // for plain (unseeded) creates.
     repeated PerDeviceBuildingConflict conflicts = 5;
+}
+
+// CreateBuildings
+
+// One building in a bulk-create batch. Fields take the same server-side
+// defaults a plain CreateBuilding would. Layout dimensions live per row
+// (a batch may share one, but that's the form's choice); other rack
+// defaults are set afterwards on the building.
+message NewBuilding {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string description = 2 [(buf.validate.field).string.max_len = 4096];
+
+    double power_kw = 3 [(buf.validate.field).double.gte = 0];
+    double overhead_kw = 4 [(buf.validate.field).double.gte = 0];
+
+    int32 aisles = 5 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+    int32 racks_per_aisle = 6 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+}
+
+message CreateBuildingsRequest {
+    // Required, unlike CreateBuildingRequest.site_id.
+    int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+
+    // Response preserves request order. The 500 cap is a typo guard, not a
+    // capacity limit — it bounds the transaction against a runaway counter.
+    repeated NewBuilding buildings = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 500
+    }];
+}
+
+enum PerBuildingCreateErrorReason {
+    PER_BUILDING_CREATE_ERROR_REASON_UNSPECIFIED = 0;
+    PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_IN_BATCH = 1;
+    PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_AT_SITE = 2;
+}
+
+message PerBuildingCreateError {
+    // Zero-based index into CreateBuildingsRequest.buildings.
+    int32 index = 1;
+    string name = 2;
+    PerBuildingCreateErrorReason reason = 3;
+}
+
+message CreateBuildingsResponse {
+    // Both empty on the opposite outcome: a rejection creates nothing and
+    // rolls back, a success has no errors.
+    repeated Building buildings = 1;
+    repeated PerBuildingCreateError errors = 2;
 }
 
 // UpdateBuilding

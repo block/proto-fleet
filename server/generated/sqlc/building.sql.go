@@ -626,6 +626,45 @@ func (q *Queries) GetBuildingSiteID(ctx context.Context, arg GetBuildingSiteIDPa
 	return site_id, err
 }
 
+const listBuildingNamesBySite = `-- name: ListBuildingNamesBySite :many
+SELECT name
+FROM building
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type ListBuildingNamesBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// CreateBuildings' collision preflight: names only, so it skips
+// ListBuildingsByOrg's org-wide rack/device aggregation while the site
+// write lock is held.
+func (q *Queries) ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listBuildingNamesBySiteStmt, listBuildingNamesBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBuildingRacks = `-- name: ListBuildingRacks :many
 SELECT
     dsr.device_set_id AS rack_id,

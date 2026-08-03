@@ -463,3 +463,13 @@ FROM building
 WHERE org_id = $1
   AND deleted_at IS NULL
   AND id = ANY(@ids::bigint[]);
+
+-- name: ListBuildingNamesBySite :many
+-- CreateBuildings' collision preflight: names only, so it skips
+-- ListBuildingsByOrg's org-wide rack/device aggregation while the site
+-- write lock is held.
+SELECT name
+FROM building
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;

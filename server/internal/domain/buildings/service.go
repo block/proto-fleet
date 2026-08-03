@@ -10,6 +10,9 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
+
+	"connectrpc.com/connect"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -285,6 +288,187 @@ func (s *Service) CreateBuilding(ctx context.Context, params models.CreateParams
 	}
 
 	return res, nil, nil
+}
+
+// maxBulkCreateBuildings is a typo guard, not a capacity limit; mirrors the
+// buf.validate max_items on CreateBuildingsRequest.buildings.
+const maxBulkCreateBuildings = 500
+
+// errBulkCreateRejected signals rollback on a per-row name collision (the rows
+// themselves travel in a closure variable). Deliberately NOT a FleetError, so
+// errors.Is still matches after WithTransaction wraps it — same as errSeedConflict.
+var errBulkCreateRejected = errors.New("bulk create rejected")
+
+// CreateBuildings bulk-creates buildings against one site, all-or-nothing in a
+// single transaction (#559). Name collisions are reported per row rather than
+// as one opaque failure: in-batch duplicates (before the tx) and existing-site
+// duplicates (inside the tx, after the site lock) are merged; any collision
+// creates nothing.
+func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuildingsParams) ([]*models.Building, []models.PerBuildingCreateError, error) {
+	if params.SiteID <= 0 {
+		return nil, nil, fleeterror.NewInvalidArgumentError("site_id is required for bulk create")
+	}
+	if len(params.Buildings) == 0 {
+		return nil, nil, fleeterror.NewInvalidArgumentError("buildings must not be empty")
+	}
+	if len(params.Buildings) > maxBulkCreateBuildings {
+		return nil, nil, fleeterror.NewInvalidArgumentErrorf(
+			"buildings exceeds the %d-row limit", maxBulkCreateBuildings)
+	}
+
+	// Trim first so " A" and "A " can't both pass as distinct names; the
+	// trimmed value is what gets stored.
+	names := make([]string, len(params.Buildings))
+	for i, b := range params.Buildings {
+		names[i] = strings.TrimSpace(b.Name)
+		if names[i] == "" {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf("buildings[%d].name is required", i)
+		}
+	}
+
+	// buf.validate caps these for RPC callers; this guards a direct service
+	// caller, matching validateCreateBuildingParams for a single create.
+	for i, b := range params.Buildings {
+		if err := validateLayoutBounds(b.Aisles, b.RacksPerAisle); err != nil {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf(
+				"buildings[%d]: aisles and racks_per_aisle must each be ≤ %d (got %d and %d)",
+				i, layoutDimensionMax, b.Aisles, b.RacksPerAisle)
+		}
+	}
+
+	// Don't return on batch dupes alone: a row can collide both in-batch and
+	// at-site, and reporting only one source makes the operator resubmit to
+	// find the other. Merged with siteClashes below.
+	batchDupes := duplicateNamesInBatch(names)
+
+	// rejected is reset per attempt: RunInTxWithResult may retry the closure.
+	var rejected []models.PerBuildingCreateError
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		rejected = nil
+
+		// Lock the site so a concurrent DeleteSite or create can't slip between
+		// the existing-name read below and the inserts. NotFound surfaces directly.
+		if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, params.SiteID); err != nil {
+			return nil, err
+		}
+
+		existing, err := s.store.ListBuildingNamesBySite(txCtx, params.OrgID, params.SiteID)
+		if err != nil {
+			return nil, err
+		}
+		taken := make(map[string]struct{}, len(existing))
+		for _, name := range existing {
+			taken[name] = struct{}{}
+		}
+		var siteClashes []models.PerBuildingCreateError
+		for i, name := range names {
+			if _, clash := taken[name]; clash {
+				siteClashes = append(siteClashes, models.PerBuildingCreateError{
+					Index:  int32(i), //nolint:gosec // i < len(names) <= maxBulkCreateBuildings (500), checked above.
+					Name:   name,
+					Reason: models.ReasonBuildingCreateDuplicateNameAtSite,
+				})
+			}
+		}
+		rejected = mergeBuildingCreateErrors(batchDupes, siteClashes)
+		if len(rejected) > 0 {
+			return nil, errBulkCreateRejected
+		}
+
+		siteID := params.SiteID
+		created := make([]*models.Building, 0, len(params.Buildings))
+		for i, b := range params.Buildings {
+			row, err := s.store.CreateBuilding(txCtx, models.CreateParams{
+				OrgID:       params.OrgID,
+				SiteID:      &siteID,
+				Name:        names[i],
+				Description: b.Description,
+				PowerKw:     b.PowerKw,
+				OverheadKw:  b.OverheadKw,
+
+				Aisles:        b.Aisles,
+				RacksPerAisle: b.RacksPerAisle,
+			})
+			if err != nil {
+				// At READ COMMITTED our site lock doesn't exclude a concurrent
+				// UpdateBuilding (it locks the building row), so a name can start
+				// colliding after the read above. Report it as this row's
+				// rejection instead of an opaque AlreadyExists.
+				var fleetErr fleeterror.FleetError
+				if errors.As(err, &fleetErr) && fleetErr.GRPCCode == connect.CodeAlreadyExists {
+					rejected = []models.PerBuildingCreateError{{
+						Index:  int32(i), //nolint:gosec // i < len(params.Buildings) <= maxBulkCreateBuildings (500).
+						Name:   names[i],
+						Reason: models.ReasonBuildingCreateDuplicateNameAtSite,
+					}}
+					return nil, errBulkCreateRejected
+				}
+				return nil, err
+			}
+			created = append(created, row)
+		}
+		return created, nil
+	})
+	if err != nil {
+		if errors.Is(err, errBulkCreateRejected) {
+			return nil, rejected, nil
+		}
+		return nil, nil, err
+	}
+	created, ok := result.([]*models.Building)
+	if !ok {
+		return nil, nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	// Post-commit, fire-and-forget: one activity row per building.
+	for _, b := range created {
+		s.logBuildingCreated(ctx, params.OrgID, b)
+	}
+	return created, nil, nil
+}
+
+// duplicateNamesInBatch flags every row whose name repeats an earlier row. The
+// first occurrence is left alone — the later ones are what the operator changes.
+func duplicateNamesInBatch(names []string) []models.PerBuildingCreateError {
+	seen := make(map[string]struct{}, len(names))
+	var dupes []models.PerBuildingCreateError
+	for i, name := range names {
+		if _, repeat := seen[name]; repeat {
+			dupes = append(dupes, models.PerBuildingCreateError{
+				Index:  int32(i), //nolint:gosec // caller bounds names to maxBulkCreateBuildings (500) first.
+				Name:   name,
+				Reason: models.ReasonBuildingCreateDuplicateNameInBatch,
+			})
+			continue
+		}
+		seen[name] = struct{}{}
+	}
+	return dupes
+}
+
+// mergeBuildingCreateErrors combines the two uniqueness sources into one entry
+// per row, ordered by index. A row that collides both ways reports AT_SITE —
+// the reason editing the batch's other rows can't resolve.
+func mergeBuildingCreateErrors(batchDupes, siteClashes []models.PerBuildingCreateError) []models.PerBuildingCreateError {
+	if len(batchDupes) == 0 {
+		return siteClashes
+	}
+	if len(siteClashes) == 0 {
+		return batchDupes
+	}
+	byIndex := make(map[int32]models.PerBuildingCreateError, len(batchDupes)+len(siteClashes))
+	for _, e := range batchDupes {
+		byIndex[e.Index] = e
+	}
+	for _, e := range siteClashes {
+		byIndex[e.Index] = e
+	}
+	merged := make([]models.PerBuildingCreateError, 0, len(byIndex))
+	for _, e := range byIndex {
+		merged = append(merged, e)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Index < merged[j].Index })
+	return merged
 }
 
 // GetBuilding returns the live building or NotFound.

@@ -3402,6 +3402,18 @@ func (q *retryingQuerier) ListBatchDeviceResults(ctx context.Context, arg ListBa
 	return result, err
 }
 
+func (q *retryingQuerier) ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListBuildingNamesBySite", func() error {
+		callResult, callErr := q.next.ListBuildingNamesBySite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListBuildingRacks(ctx context.Context, arg ListBuildingRacksParams) ([]ListBuildingRacksRow, error) {
 	var result []ListBuildingRacksRow
 	err := q.retrier.RetryQuery(ctx, "ListBuildingRacks", func() error {

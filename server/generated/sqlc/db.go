@@ -909,6 +909,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
 	}
+	if q.listBuildingNamesBySiteStmt, err = db.PrepareContext(ctx, listBuildingNamesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query ListBuildingNamesBySite: %w", err)
+	}
 	if q.listBuildingRacksStmt, err = db.PrepareContext(ctx, listBuildingRacks); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuildingRacks: %w", err)
 	}
@@ -3049,6 +3052,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
 		}
 	}
+	if q.listBuildingNamesBySiteStmt != nil {
+		if cerr := q.listBuildingNamesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listBuildingNamesBySiteStmt: %w", cerr)
+		}
+	}
 	if q.listBuildingRacksStmt != nil {
 		if cerr := q.listBuildingRacksStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listBuildingRacksStmt: %w", cerr)
@@ -4483,6 +4491,7 @@ type Queries struct {
 	listAssignmentsForRoleStmt                                   *sql.Stmt
 	listAssignmentsForUserStmt                                   *sql.Stmt
 	listBatchDeviceResultsStmt                                   *sql.Stmt
+	listBuildingNamesBySiteStmt                                  *sql.Stmt
 	listBuildingRacksStmt                                        *sql.Stmt
 	listBuildingsByOrgStmt                                       *sql.Stmt
 	listBuiltinRolesForOrgStmt                                   *sql.Stmt
@@ -5004,6 +5013,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listAssignmentsForRoleStmt:                                   q.listAssignmentsForRoleStmt,
 		listAssignmentsForUserStmt:                                   q.listAssignmentsForUserStmt,
 		listBatchDeviceResultsStmt:                                   q.listBatchDeviceResultsStmt,
+		listBuildingNamesBySiteStmt:                                  q.listBuildingNamesBySiteStmt,
 		listBuildingRacksStmt:                                        q.listBuildingRacksStmt,
 		listBuildingsByOrgStmt:                                       q.listBuildingsByOrgStmt,
 		listBuiltinRolesForOrgStmt:                                   q.listBuiltinRolesForOrgStmt,
