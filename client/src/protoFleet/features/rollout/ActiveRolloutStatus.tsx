@@ -175,9 +175,10 @@ function ActiveRolloutStatus({
       <div
         className={clsx(
           "relative",
-          // Embedded in a modal: no card chrome, but add top padding so the
-          // status icon clears the modal's sticky top bar / header divider.
-          embedded ? "px-0 pt-2 pb-0" : "rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10",
+          // Embedded in a modal: no card chrome, but match the modal's 24px
+          // side inset with a 24px top gap so the status icon clears the sticky
+          // top bar / header divider by the same margin.
+          embedded ? "px-0 pt-6 pb-0" : "rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10",
         )}
       >
         {actions.length > 0 ? (
