@@ -13,6 +13,7 @@ const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
 const mockUseCurtailmentPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
+const mockUseUpdateIndicator = vi.fn();
 
 vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
   ScheduleApiProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -40,6 +41,10 @@ vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
   useCurtailmentPillData: () => mockUseCurtailmentPillData(),
+}));
+
+vi.mock("@/protoFleet/features/updates/useUpdateIndicator", () => ({
+  useUpdateIndicator: (options: { enabled?: boolean }) => mockUseUpdateIndicator(options),
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -99,6 +104,7 @@ describe("AppLayout", () => {
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
+    mockUseUpdateIndicator.mockReturnValue(null);
     vi.mocked(useHasPermission).mockReturnValue(true);
   });
 
@@ -221,6 +227,39 @@ describe("AppLayout", () => {
     );
 
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+40px)]");
+  });
+
+  it("uses the three-widget phone content offset when the update indicator makes four widgets visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseSchedulePillData.mockReturnValue(
+      createSchedulePillData({
+        pillSchedule: createPillSchedule(),
+      }),
+    );
+    mockUseUpdateIndicator.mockReturnValue({ version: "v1.3.0", onClick: vi.fn() });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+120px)]");
+  });
+
+  it("disables update polling when the route hides the shell header", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(mockUseUpdateIndicator).toHaveBeenCalledWith({ enabled: false });
   });
 
   it("keeps the base phone content offset when the only curtailment widget fits inline", () => {
