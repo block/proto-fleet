@@ -3,7 +3,7 @@ module github.com/block/proto-fleet/plugin/proto
 go 1.26
 
 require (
-	github.com/block/proto-fleet/server v0.0.0-20260801111641-43a7f441ab88
+	github.com/block/proto-fleet/server v0.0.0-20260803122651-c989687a8036
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.1
@@ -40,7 +40,7 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/klauspost/compress v1.19.1 // indirect
-	github.com/lufia/plan9stats v0.0.0-20260801144041-2fc331e7910f // indirect
+	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

@@ -3,7 +3,7 @@ module github.com/block/proto-fleet/plugin/antminer
 go 1.26
 
 require (
-	github.com/block/proto-fleet/server v0.0.0-20260801111641-43a7f441ab88
+	github.com/block/proto-fleet/server v0.0.0-20260803122651-c989687a8036
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/mock v0.6.0
