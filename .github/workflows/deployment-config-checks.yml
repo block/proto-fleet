@@ -16,3 +16,6 @@ jobs:
 
       - name: Validate host profiles and compose interpolation
         run: ./deployment-files/tests/test-profiles.sh
+
+      - name: Validate HA deployment profile
+        run: ./deployment-files/ha/tests/test-profile.sh

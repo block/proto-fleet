@@ -173,7 +173,6 @@ func (o *Observer) observeAndRun(
 			patroni.Timeline,
 		)
 	}
-
 	observed := writerObservation(first, connected)
 	if action != nil {
 		if err := action(ctx, observed); err != nil {
@@ -369,7 +368,7 @@ type etcdAPI interface {
 }
 
 // EtcdClient reads Patroni authority through etcd's authenticated native API.
-// The official client owns mTLS, authentication tokens, endpoint failover, and
+// The official client owns TLS, authentication tokens, endpoint failover, and
 // token refresh; this wrapper only translates the two reads the observer needs.
 type EtcdClient struct {
 	client         etcdAPI
@@ -562,5 +561,8 @@ func (c *PatroniHTTPClient) PrimaryIdentity(
 	if state.Timeline <= 0 {
 		return PatroniIdentity{}, errors.New("Patroni reports invalid timeline")
 	}
-	return PatroniIdentity{Role: state.Role, Timeline: state.Timeline}, nil
+	return PatroniIdentity{
+		Role:     state.Role,
+		Timeline: state.Timeline,
+	}, nil
 }

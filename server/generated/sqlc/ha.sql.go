@@ -152,6 +152,35 @@ func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPo
 	return i, err
 }
 
+const getHAProfileDatabaseIdentity = `-- name: GetHAProfileDatabaseIdentity :one
+SELECT
+    current_user::TEXT AS database_user,
+    current_database()::TEXT AS database_name,
+    COALESCE(database_role.rolsuper, FALSE)::BOOLEAN AS is_superuser,
+    current_setting('proto_fleet.source_commit')::TEXT AS source_commit
+FROM pg_catalog.pg_roles AS database_role
+WHERE database_role.rolname = current_user
+`
+
+type GetHAProfileDatabaseIdentityRow struct {
+	DatabaseUser string
+	DatabaseName string
+	IsSuperuser  bool
+	SourceCommit string
+}
+
+func (q *Queries) GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error) {
+	row := q.queryRow(ctx, q.getHAProfileDatabaseIdentityStmt, getHAProfileDatabaseIdentity)
+	var i GetHAProfileDatabaseIdentityRow
+	err := row.Scan(
+		&i.DatabaseUser,
+		&i.DatabaseName,
+		&i.IsSuperuser,
+		&i.SourceCommit,
+	)
+	return i, err
+}
+
 const renewFleetRuntimeLease = `-- name: RenewFleetRuntimeLease :one
 WITH lease_context AS (
     -- Capture database time once, and fail closed unless this is the expected writer.

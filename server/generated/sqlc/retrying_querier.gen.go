@@ -2322,6 +2322,18 @@ func (q *retryingQuerier) GetGroupRefsForDevices(ctx context.Context, arg GetGro
 	return result, err
 }
 
+func (q *retryingQuerier) GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error) {
+	var result GetHAProfileDatabaseIdentityRow
+	err := q.retrier.RetryQuery(ctx, "GetHAProfileDatabaseIdentity", func() error {
+		callResult, callErr := q.next.GetHAProfileDatabaseIdentity(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetInfrastructureControlSubnets(ctx context.Context, arg GetInfrastructureControlSubnetsParams) (string, error) {
 	var result string
 	err := q.retrier.RetryQuery(ctx, "GetInfrastructureControlSubnets", func() error {
