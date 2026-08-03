@@ -9,8 +9,8 @@ import type {
 import type { Segment } from "@/shared/components/CompositionBar";
 
 export const strategyLabels: Record<RolloutStrategy, string> = {
-  allAtOnce: "Update all at once",
-  batched: "Update in batches",
+  allAtOnce: "All at once",
+  batched: "In batches",
   pilotThenContinue: "Pilot group, then continue",
 };
 

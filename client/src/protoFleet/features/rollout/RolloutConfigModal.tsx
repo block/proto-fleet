@@ -18,8 +18,10 @@ interface RolloutConfigModalProps {
   onDismiss: () => void;
   onSubmit: () => void;
   /** Scope target rows (Apply to). Wired by the host flow; here they're the
-   * real `TargetSelectButton`s with their current selection labels. */
-  scopeTargets: Array<{ label: string; value: string; onClick: () => void }>;
+   * real `TargetSelectButton`s with their current selection labels. Omit to
+   * hide the "Apply to" section entirely — e.g. a bulk action whose scope is
+   * already fixed by the current selection. */
+  scopeTargets?: Array<{ label: string; value: string; onClick: () => void }>;
   startDate?: Date;
   onStartDateChange?: (date: Date) => void;
   startTime?: string;
@@ -82,19 +84,21 @@ function RolloutConfigModal({
       ]}
     >
       <div className="flex flex-col gap-8">
-        <section className="grid gap-3">
-          <SectionTitle>Apply to</SectionTitle>
-          <div className="grid divide-y divide-border-5">
-            {scopeTargets.map((target) => (
-              <TargetSelectButton
-                key={target.label}
-                label={target.label}
-                value={target.value}
-                onClick={target.onClick}
-              />
-            ))}
-          </div>
-        </section>
+        {scopeTargets && scopeTargets.length > 0 ? (
+          <section className="grid gap-3">
+            <SectionTitle>Apply to</SectionTitle>
+            <div className="grid divide-y divide-border-5">
+              {scopeTargets.map((target) => (
+                <TargetSelectButton
+                  key={target.label}
+                  label={target.label}
+                  value={target.value}
+                  onClick={target.onClick}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         <RolloutControls config={config} onChange={onConfigChange} />
 
