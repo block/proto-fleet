@@ -1,11 +1,15 @@
 import type { ReactElement } from "react";
 
-import type { RolloutTargetPhase } from "./rolloutTypes";
+import { columnActiveLabel } from "./rolloutDisplayUtils";
+import type { RolloutProcessType, RolloutTargetPhase } from "./rolloutTypes";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 
 interface RolloutColumnStateProps {
   phase: RolloutTargetPhase;
+  /** Process — picks the in-flight verb ("Updating firmware" / "Rebooting" /
+   * "Curtailing"), matching `MinerStatus`. Defaults to firmware. */
+  processType?: RolloutProcessType;
   /** Value shown for a settled target, e.g. the new firmware version "5.1.0".
    * Falls back to a phase word when omitted. */
   doneLabel?: string;
@@ -26,12 +30,21 @@ const phaseStatus: Record<RolloutTargetPhase, keyof typeof statuses> = {
 
 /**
  * Per-miner state cell for the process column (e.g. the Firmware column in the
- * fleet table). Built from the same primitives as `MinerStatus` — a simple
- * `StatusCircle` dot, an optional inline `ProgressCircular` spinner, and plain
- * text — so a rollout's per-row state reads identically to native miner status
- * rather than as a bespoke chip.
+ * fleet table). Built from the same primitives AND the same labels as
+ * `MinerStatus`: a `StatusCircle` dot + optional inline `ProgressCircular`
+ * spinner + the exact wording the fleet table already shows for these device
+ * statuses ("Updating firmware" for `DeviceStatus.UPDATING`, "Rebooting", etc.,
+ * via `columnActiveLabel`). A real integration derives the phase from the
+ * shipped `DeviceStatus`/`activeBatches` (see `deviceStatusToRolloutPhase`) —
+ * this component only renders it, so a rollout's per-row state reads identically
+ * to native miner status rather than as a parallel model.
  */
-function RolloutColumnState({ phase, doneLabel, idleLabel }: RolloutColumnStateProps): ReactElement {
+function RolloutColumnState({
+  phase,
+  processType = "firmware",
+  doneLabel,
+  idleLabel,
+}: RolloutColumnStateProps): ReactElement {
   const dot = (
     <StatusCircle status={phaseStatus[phase]} variant="simple" width="w-[6px]" testId="rollout-column-status" />
   );
@@ -41,7 +54,7 @@ function RolloutColumnState({ phase, doneLabel, idleLabel }: RolloutColumnStateP
       <div className="flex items-center gap-2 text-text-primary">
         {dot}
         <ProgressCircular size={14} indeterminate />
-        Updating
+        {columnActiveLabel(processType)}
       </div>
     );
   }

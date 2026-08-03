@@ -64,6 +64,50 @@ export function phaseLabel(processType: RolloutProcessType, phase: RolloutTarget
 }
 
 /**
+ * In-flight column label per process, matching the exact wording the fleet
+ * table already shows for these `DeviceStatus`es (via `MinerStatus` +
+ * `statusColumnLoadingMessages`): `DeviceStatus.UPDATING` renders "Updating
+ * firmware", a reboot batch renders "Rebooting", curtail renders "Curtailing".
+ * Using these verbatim keeps a rollout's per-miner state identical to native
+ * miner status rather than inventing a parallel label.
+ */
+const columnActiveLabels: Record<RolloutProcessType, string> = {
+  firmware: "Updating firmware",
+  reboot: "Rebooting",
+  curtailment: "Curtailing",
+};
+
+export function columnActiveLabel(processType: RolloutProcessType): string {
+  return columnActiveLabels[processType];
+}
+
+/**
+ * Map the shipped `fleetmanagement.v1.DeviceStatus` enum (as a raw number, to
+ * avoid a generated-proto import in this presentational util) onto a rollout
+ * phase, so a real integration drives the column from the same device status
+ * the fleet table reads rather than a separate source of truth:
+ *   UPDATING (7) / REBOOT_REQUIRED (8) → inProgress   (mid-rollout activity)
+ *   ERROR (4)                         → failed
+ *   everything else                   → the caller's fallback (e.g. queued/done
+ *   derived from firmware version), since a plain ONLINE miner isn't itself a
+ *   rollout state.
+ * The auto-retry "retrying" phase has no DeviceStatus analog — it comes from
+ * the rollout plan's per-target rollup (curtailment's drifted→redispatch), so
+ * it's supplied by the plan, not this mapper.
+ */
+export function deviceStatusToRolloutPhase(deviceStatus: number): RolloutTargetPhase | null {
+  switch (deviceStatus) {
+    case 7: // DeviceStatus.UPDATING
+    case 8: // DeviceStatus.REBOOT_REQUIRED
+      return "inProgress";
+    case 4: // DeviceStatus.ERROR
+      return "failed";
+    default:
+      return null;
+  }
+}
+
+/**
  * Simplified progress segments for the active-rollout bar + key, mirroring
  * curtailment's consolidated shape (`getCurtailProgressSegments`: Curtailed vs
  * a single Curtailing bucket). The per-target phases (in progress / retrying /
