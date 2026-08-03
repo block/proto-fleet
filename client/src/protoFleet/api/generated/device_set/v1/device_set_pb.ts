@@ -1666,11 +1666,8 @@ export const SaveRackResponseSchema: GenMessage<SaveRackResponse> =
   messageDesc(file_device_set_v1_device_set, 43);
 
 /**
- * One rack in a bulk-create batch. Carries the whole rack description
- * rather than only its label: whether the batch happens to use one
- * geometry throughout is the form's business, not the protocol's.
- * Placement is the exception — it lives on the request, because a batch
- * is created into one place by definition.
+ * One rack in a bulk-create batch. Placement lives on the request, not here,
+ * since a batch is created into one place.
  *
  * @generated from message device_set.v1.NewRack
  */
@@ -1681,8 +1678,7 @@ export type NewRack = Message<"device_set.v1.NewRack"> & {
   label: string;
 
   /**
-   * The same 1-12 bounds every other rack-writing path enforces (see
-   * validateRackInfoShape).
+   * 1-12, matching validateRackInfoShape.
    *
    * @generated from field: int32 rows = 2;
    */
@@ -1694,17 +1690,14 @@ export type NewRack = Message<"device_set.v1.NewRack"> & {
   columns: number;
 
   /**
-   * Optional free-text sub-building label, as on RackInfo.zone —
-   * never required, even for a rack that lands in a building.
+   * Optional sub-building label, as on RackInfo.zone.
    *
    * @generated from field: string zone = 4;
    */
   zone: string;
 
   /**
-   * Required, matching validateRackInfoShape: neither has a meaningful
-   * zero value, and a rack created without them renders wrong in the
-   * grid.
+   * Required (no meaningful zero value), matching validateRackInfoShape.
    *
    * @generated from field: device_set.v1.RackOrderIndex order_index = 5;
    */
@@ -1727,10 +1720,9 @@ export const NewRackSchema: GenMessage<NewRack> = /*@__PURE__*/ messageDesc(file
  */
 export type CreateRacksRequest = Message<"device_set.v1.CreateRacksRequest"> & {
   /**
-   * Where the whole batch lands. Both unset = fully unassigned racks.
-   * Setting building_id derives site_id from the parent building,
-   * exactly as RackInfo does, so a client that knows the building
-   * leaves site_id unset.
+   * Where the whole batch lands; both unset = unassigned. building_id
+   * derives site_id from the parent, as RackInfo does, so a client that
+   * knows the building leaves site_id unset.
    *
    * @generated from field: optional int64 site_id = 1;
    */
@@ -1742,11 +1734,8 @@ export type CreateRacksRequest = Message<"device_set.v1.CreateRacksRequest"> & {
   buildingId?: bigint | undefined;
 
   /**
-   * The batch, in the order the UI previewed it. Responses preserve
-   * this order so a row can be matched back to its preview line.
-   *
-   * The 500 cap is a typo guard: a real building holds far fewer racks,
-   * and a runaway counter shouldn't open a 100k-row transaction.
+   * The batch, in preview order; responses preserve it so a row maps back
+   * to its line. The 500 cap is a typo guard.
    *
    * @generated from field: repeated device_set.v1.NewRack racks = 3;
    */
@@ -1762,8 +1751,7 @@ export const CreateRacksRequestSchema: GenMessage<CreateRacksRequest> =
   messageDesc(file_device_set_v1_device_set, 45);
 
 /**
- * PerRackCreateError points at one offending row of the batch so the UI
- * can mark it, rather than failing the whole form opaquely.
+ * PerRackCreateError points at one offending row so the UI can mark it.
  *
  * @generated from message device_set.v1.PerRackCreateError
  */
@@ -1776,8 +1764,7 @@ export type PerRackCreateError = Message<"device_set.v1.PerRackCreateError"> & {
   index: number;
 
   /**
-   * The label that was rejected, echoed so the UI can match on either
-   * index or label.
+   * The rejected label, echoed so the UI can match on index or label.
    *
    * @generated from field: string label = 2;
    */
@@ -1802,16 +1789,14 @@ export const PerRackCreateErrorSchema: GenMessage<PerRackCreateError> =
  */
 export type CreateRacksResponse = Message<"device_set.v1.CreateRacksResponse"> & {
   /**
-   * Every created rack, in request order. Empty when errors is
-   * non-empty — nothing was created and the transaction rolled back.
+   * Created racks, in request order. Empty when errors is set (nothing
+   * created, rolled back).
    *
    * @generated from field: repeated device_set.v1.DeviceSet racks = 1;
    */
   racks: DeviceSet[];
 
   /**
-   * Populated only on rejection. Empty on success.
-   *
    * @generated from field: repeated device_set.v1.PerRackCreateError errors = 2;
    */
   errors: PerRackCreateError[];
@@ -2103,8 +2088,8 @@ export const SlotDeviceStatusSchema: GenEnum<SlotDeviceStatus> =
   enumDesc(file_device_set_v1_device_set, 3);
 
 /**
- * PerRackCreateErrorReason enumerates why one row of a bulk create was
- * rejected. The whole batch rejects; no racks are created.
+ * PerRackCreateErrorReason says why one row of a bulk create was rejected.
+ * The whole batch rejects; no racks are created.
  *
  * @generated from enum device_set.v1.PerRackCreateErrorReason
  */
@@ -2115,17 +2100,14 @@ export enum PerRackCreateErrorReason {
   UNSPECIFIED = 0,
 
   /**
-   * Two or more rows in this request carry the same label.
-   *
    * @generated from enum value: PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_BATCH = 1;
    */
   DUPLICATE_LABEL_IN_BATCH = 1,
 
   /**
-   * A rack with this label already exists in the organization. Not
-   * scoped to the target building or site: the uniqueness index spans
-   * (org_id, type, label), so the collision can be a rack the caller
-   * never listed.
+   * Label taken by a live rack anywhere in the org, not just the target
+   * site/building: the index spans (org_id, type, label), so the collision
+   * may be a rack the caller never listed.
    *
    * @generated from enum value: PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_ORG = 2;
    */
@@ -2354,23 +2336,18 @@ export const DeviceSetService: GenService<{
     output: typeof SaveRackResponseSchema;
   };
   /**
-   * CreateRacks creates a batch of racks in one transaction — the bulk
-   * counterpart to SaveRack-with-no-device_set_id. There is deliberately
-   * no member seeding: seeding N racks at once has no sensible way to
+   * CreateRacks creates a batch of racks in one transaction: all exist
+   * afterward or none do. No member seeding — a bulk create has no way to
    * say which miner belongs to which rack.
    *
-   * Label uniqueness is enforced twice: within the batch, and against
-   * every live rack in the organization. Rack labels are unique per
-   * (org, type) — NOT per site or per building — so a client holding one
-   * building's rack list cannot pre-check this and the server owns the
-   * collision query. A violation rejects the whole request with one
-   * `errors` entry per offending index and creates nothing, so the UI
-   * can mark the offending rows.
+   * Labels are unique per (org, type), NOT per site or building, so the
+   * server owns the collision check; a client holding one building's list
+   * can't pre-check it. Any collision (within the batch or against a live
+   * rack) rejects the request with one `errors` entry per offending index
+   * and creates nothing.
    *
-   * Placement is per-request rather than per-row: a batch is created
-   * from inside one building (or one site, or nowhere). The racks land
-   * unplaced in that building's grid — choosing aisle/position is the
-   * operator's next step in ManageBuildingModal.
+   * Placement is per-request, not per-row: the whole batch lands in one
+   * building (or site, or nowhere).
    *
    * @generated from rpc device_set.v1.DeviceSetService.CreateRacks
    */

@@ -244,18 +244,16 @@ func (SlotDeviceStatus) EnumDescriptor() ([]byte, []int) {
 	return file_device_set_v1_device_set_proto_rawDescGZIP(), []int{3}
 }
 
-// PerRackCreateErrorReason enumerates why one row of a bulk create was
-// rejected. The whole batch rejects; no racks are created.
+// PerRackCreateErrorReason says why one row of a bulk create was rejected.
+// The whole batch rejects; no racks are created.
 type PerRackCreateErrorReason int32
 
 const (
-	PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_UNSPECIFIED PerRackCreateErrorReason = 0
-	// Two or more rows in this request carry the same label.
+	PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_UNSPECIFIED              PerRackCreateErrorReason = 0
 	PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_BATCH PerRackCreateErrorReason = 1
-	// A rack with this label already exists in the organization. Not
-	// scoped to the target building or site: the uniqueness index spans
-	// (org_id, type, label), so the collision can be a rack the caller
-	// never listed.
+	// Label taken by a live rack anywhere in the org, not just the target
+	// site/building: the index spans (org_id, type, label), so the collision
+	// may be a rack the caller never listed.
 	PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_ORG PerRackCreateErrorReason = 2
 )
 
@@ -3290,24 +3288,17 @@ func (x *SaveRackResponse) GetConflicts() []*PerDeviceRackConflict {
 	return nil
 }
 
-// One rack in a bulk-create batch. Carries the whole rack description
-// rather than only its label: whether the batch happens to use one
-// geometry throughout is the form's business, not the protocol's.
-// Placement is the exception — it lives on the request, because a batch
-// is created into one place by definition.
+// One rack in a bulk-create batch. Placement lives on the request, not here,
+// since a batch is created into one place.
 type NewRack struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Label string                 `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
-	// The same 1-12 bounds every other rack-writing path enforces (see
-	// validateRackInfoShape).
+	// 1-12, matching validateRackInfoShape.
 	Rows    int32 `protobuf:"varint,2,opt,name=rows,proto3" json:"rows,omitempty"`
 	Columns int32 `protobuf:"varint,3,opt,name=columns,proto3" json:"columns,omitempty"`
-	// Optional free-text sub-building label, as on RackInfo.zone —
-	// never required, even for a rack that lands in a building.
+	// Optional sub-building label, as on RackInfo.zone.
 	Zone string `protobuf:"bytes,4,opt,name=zone,proto3" json:"zone,omitempty"`
-	// Required, matching validateRackInfoShape: neither has a meaningful
-	// zero value, and a rack created without them renders wrong in the
-	// grid.
+	// Required (no meaningful zero value), matching validateRackInfoShape.
 	OrderIndex    RackOrderIndex  `protobuf:"varint,5,opt,name=order_index,json=orderIndex,proto3,enum=device_set.v1.RackOrderIndex" json:"order_index,omitempty"`
 	CoolingType   RackCoolingType `protobuf:"varint,6,opt,name=cooling_type,json=coolingType,proto3,enum=device_set.v1.RackCoolingType" json:"cooling_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3388,17 +3379,13 @@ func (x *NewRack) GetCoolingType() RackCoolingType {
 
 type CreateRacksRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Where the whole batch lands. Both unset = fully unassigned racks.
-	// Setting building_id derives site_id from the parent building,
-	// exactly as RackInfo does, so a client that knows the building
-	// leaves site_id unset.
+	// Where the whole batch lands; both unset = unassigned. building_id
+	// derives site_id from the parent, as RackInfo does, so a client that
+	// knows the building leaves site_id unset.
 	SiteId     *int64 `protobuf:"varint,1,opt,name=site_id,json=siteId,proto3,oneof" json:"site_id,omitempty"`
 	BuildingId *int64 `protobuf:"varint,2,opt,name=building_id,json=buildingId,proto3,oneof" json:"building_id,omitempty"`
-	// The batch, in the order the UI previewed it. Responses preserve
-	// this order so a row can be matched back to its preview line.
-	//
-	// The 500 cap is a typo guard: a real building holds far fewer racks,
-	// and a runaway counter shouldn't open a 100k-row transaction.
+	// The batch, in preview order; responses preserve it so a row maps back
+	// to its line. The 500 cap is a typo guard.
 	Racks         []*NewRack `protobuf:"bytes,3,rep,name=racks,proto3" json:"racks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3455,14 +3442,12 @@ func (x *CreateRacksRequest) GetRacks() []*NewRack {
 	return nil
 }
 
-// PerRackCreateError points at one offending row of the batch so the UI
-// can mark it, rather than failing the whole form opaquely.
+// PerRackCreateError points at one offending row so the UI can mark it.
 type PerRackCreateError struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Zero-based index into CreateRacksRequest.racks.
 	Index int32 `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
-	// The label that was rejected, echoed so the UI can match on either
-	// index or label.
+	// The rejected label, echoed so the UI can match on index or label.
 	Label         string                   `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
 	Reason        PerRackCreateErrorReason `protobuf:"varint,3,opt,name=reason,proto3,enum=device_set.v1.PerRackCreateErrorReason" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3522,10 +3507,9 @@ func (x *PerRackCreateError) GetReason() PerRackCreateErrorReason {
 
 type CreateRacksResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Every created rack, in request order. Empty when errors is
-	// non-empty — nothing was created and the transaction rolled back.
-	Racks []*DeviceSet `protobuf:"bytes,1,rep,name=racks,proto3" json:"racks,omitempty"`
-	// Populated only on rejection. Empty on success.
+	// Created racks, in request order. Empty when errors is set (nothing
+	// created, rolled back).
+	Racks         []*DeviceSet          `protobuf:"bytes,1,rep,name=racks,proto3" json:"racks,omitempty"`
 	Errors        []*PerRackCreateError `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -138,23 +138,18 @@ type DeviceSetServiceClient interface {
 	// Atomically creates or updates a rack with its membership and slot assignments.
 	// All operations (metadata, membership, slot positions) are applied in a single transaction.
 	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
-	// CreateRacks creates a batch of racks in one transaction — the bulk
-	// counterpart to SaveRack-with-no-device_set_id. There is deliberately
-	// no member seeding: seeding N racks at once has no sensible way to
+	// CreateRacks creates a batch of racks in one transaction: all exist
+	// afterward or none do. No member seeding — a bulk create has no way to
 	// say which miner belongs to which rack.
 	//
-	// Label uniqueness is enforced twice: within the batch, and against
-	// every live rack in the organization. Rack labels are unique per
-	// (org, type) — NOT per site or per building — so a client holding one
-	// building's rack list cannot pre-check this and the server owns the
-	// collision query. A violation rejects the whole request with one
-	// `errors` entry per offending index and creates nothing, so the UI
-	// can mark the offending rows.
+	// Labels are unique per (org, type), NOT per site or building, so the
+	// server owns the collision check; a client holding one building's list
+	// can't pre-check it. Any collision (within the batch or against a live
+	// rack) rejects the request with one `errors` entry per offending index
+	// and creates nothing.
 	//
-	// Placement is per-request rather than per-row: a batch is created
-	// from inside one building (or one site, or nowhere). The racks land
-	// unplaced in that building's grid — choosing aisle/position is the
-	// operator's next step in ManageBuildingModal.
+	// Placement is per-request, not per-row: the whole batch lands in one
+	// building (or site, or nowhere).
 	CreateRacks(context.Context, *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error)
 	// AssignDevicesToRack atomically moves devices into the target rack
 	// in one transaction: removes any existing rack membership for each
@@ -451,23 +446,18 @@ type DeviceSetServiceHandler interface {
 	// Atomically creates or updates a rack with its membership and slot assignments.
 	// All operations (metadata, membership, slot positions) are applied in a single transaction.
 	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
-	// CreateRacks creates a batch of racks in one transaction — the bulk
-	// counterpart to SaveRack-with-no-device_set_id. There is deliberately
-	// no member seeding: seeding N racks at once has no sensible way to
+	// CreateRacks creates a batch of racks in one transaction: all exist
+	// afterward or none do. No member seeding — a bulk create has no way to
 	// say which miner belongs to which rack.
 	//
-	// Label uniqueness is enforced twice: within the batch, and against
-	// every live rack in the organization. Rack labels are unique per
-	// (org, type) — NOT per site or per building — so a client holding one
-	// building's rack list cannot pre-check this and the server owns the
-	// collision query. A violation rejects the whole request with one
-	// `errors` entry per offending index and creates nothing, so the UI
-	// can mark the offending rows.
+	// Labels are unique per (org, type), NOT per site or building, so the
+	// server owns the collision check; a client holding one building's list
+	// can't pre-check it. Any collision (within the batch or against a live
+	// rack) rejects the request with one `errors` entry per offending index
+	// and creates nothing.
 	//
-	// Placement is per-request rather than per-row: a batch is created
-	// from inside one building (or one site, or nowhere). The racks land
-	// unplaced in that building's grid — choosing aisle/position is the
-	// operator's next step in ManageBuildingModal.
+	// Placement is per-request, not per-row: the whole batch lands in one
+	// building (or site, or nowhere).
 	CreateRacks(context.Context, *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error)
 	// AssignDevicesToRack atomically moves devices into the target rack
 	// in one transaction: removes any existing rack membership for each
