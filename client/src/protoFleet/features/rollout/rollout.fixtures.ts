@@ -31,6 +31,29 @@ export const pilotFirmwareConfig: RolloutPlanConfig = {
   scheduledStartAt: "2026-08-04T20:00:00.000Z",
 };
 
+/** Base batched reboot plan config, for the generic (process-agnostic) config
+ * modal — a process with no bespoke product modal of its own today. */
+export const batchedRebootConfig: RolloutPlanConfig = {
+  processType: "reboot",
+  strategy: "batched",
+  order: "lowestPerformersFirst",
+  maxConcurrentOffline: 20,
+  batchSize: 10,
+  batchIntervalSec: 45,
+  scheduleType: "startNow",
+};
+
+/** Base batched curtailment plan config, for the generic config modal. */
+export const batchedCurtailmentConfig: RolloutPlanConfig = {
+  processType: "curtailment",
+  strategy: "batched",
+  order: "lowestPerformersFirst",
+  maxConcurrentOffline: 60,
+  batchSize: 60,
+  batchIntervalSec: 30,
+  scheduleType: "startNow",
+};
+
 /** A firmware rollout mid-flight — the in-progress detail card. */
 export const inProgressFirmwareEvent: RolloutEvent = {
   processType: "firmware",
