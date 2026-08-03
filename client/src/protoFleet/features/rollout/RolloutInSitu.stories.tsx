@@ -8,7 +8,7 @@ import { primaryNavItems } from "@/protoFleet/config/navItems";
 import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
 import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
 import { mockCurtailmentHistoryEvents } from "@/protoFleet/features/energy/CurtailmentHistory.fixtures";
-import { ActiveRolloutBanner, ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
+import { ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
 import {
   batchedFirmwareConfig,
@@ -16,10 +16,8 @@ import {
   inProgressFirmwareEvent,
   inProgressRebootEvent,
 } from "@/protoFleet/features/rollout/rollout.fixtures";
-import RolloutColumnState from "@/protoFleet/features/rollout/RolloutColumnState";
 import RolloutConfigModal from "@/protoFleet/features/rollout/RolloutConfigModal";
 import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
-import type { RolloutTargetPhase } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useRolloutConfigModalState } from "@/protoFleet/features/rollout/useRolloutConfigModalState";
 import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
 import { useFleetStore } from "@/protoFleet/store";
@@ -248,73 +246,7 @@ export const ConfigModal: Story = {
   render: () => <ConfigModalStory />,
 };
 
-// ---- 2. Fleet table: in-progress banner + per-miner Firmware column ---------
-
-interface FleetRow {
-  miner: string;
-  model: string;
-  status: string;
-  phase: RolloutTargetPhase;
-  doneLabel?: string;
-  idleLabel?: string;
-}
-
-const fleetRows: FleetRow[] = [
-  { miner: "M-1042", model: "Antminer S21", status: "Hashing", phase: "done", doneLabel: "5.1.0" },
-  { miner: "M-1043", model: "Antminer S21", status: "Hashing", phase: "inProgress" },
-  { miner: "M-1044", model: "Antminer S21", status: "Hashing", phase: "retrying" },
-  { miner: "M-1045", model: "Antminer S21", status: "Offline", phase: "failed" },
-  { miner: "M-1046", model: "Whatsminer M60", status: "Hashing", phase: "excluded" },
-  { miner: "M-1047", model: "Antminer S21", status: "Hashing", phase: "queued", idleLabel: "5.0.2" },
-];
-
-function FleetTableStory(): ReactElement {
-  const [open, setOpen] = useState(false);
-  const fleetColConfig: ColConfig<FleetRow, string, "miner" | "model" | "status" | "firmware"> = {
-    miner: {
-      component: (row) => <span className="text-emphasis-300 text-text-primary">{row.miner}</span>,
-      width: "w-32",
-    },
-    model: { component: (row) => row.model, width: "w-48" },
-    status: { component: (row) => row.status, width: "w-32" },
-    firmware: {
-      component: (row) => <RolloutColumnState phase={row.phase} doneLabel={row.doneLabel} idleLabel={row.idleLabel} />,
-      width: "w-48",
-    },
-  };
-  return (
-    <div className="min-h-screen bg-surface-base p-8">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
-        <div className="text-heading-300 text-text-primary">Building B</div>
-        <ActiveRolloutBanner event={inProgressFirmwareEvent} onView={() => setOpen(true)} />
-        <List<FleetRow, string, "miner" | "model" | "status" | "firmware">
-          activeCols={["miner", "model", "status", "firmware"]}
-          colTitles={{ miner: "Miner", model: "Model", status: "Status", firmware: "Firmware" }}
-          colConfig={fleetColConfig}
-          items={fleetRows}
-          itemKey="miner"
-          total={fleetRows.length}
-          itemName={{ singular: "miner", plural: "miners" }}
-          applyColumnWidthsToCells
-          stickyFirstColumn={false}
-        />
-      </div>
-      <ViewRolloutModal
-        event={open ? inProgressFirmwareEvent : null}
-        onDismiss={() => setOpen(false)}
-        onPause={noop}
-        onCancelRemaining={noop}
-      />
-    </div>
-  );
-}
-
-export const FleetTable: Story = {
-  name: "Fleet table (banner + Firmware column)",
-  render: () => <FleetTableStory />,
-};
-
-// ---- 3. Header bar: the persistent rollout pill (opens the modal) -----------
+// ---- 2. Header bar: the persistent rollout pill (opens the modal) -----------
 
 function HeaderPillStory(): ReactElement {
   const [open, setOpen] = useState(false);
@@ -342,7 +274,7 @@ export const HeaderPill: Story = {
   render: () => <HeaderPillStory />,
 };
 
-// ---- 4. Activity "Active now": stacked banners (each opens the modal) --------
+// ---- 3. Activity "Active now": stacked banners (each opens the modal) --------
 
 function ActivityActiveNowStory(): ReactElement {
   const events = [inProgressFirmwareEvent, inProgressRebootEvent, inProgressCurtailmentEvent];
@@ -372,35 +304,7 @@ export const ActivityActiveNow: Story = {
   render: () => <ActivityActiveNowStory />,
 };
 
-// ---- 5. View rollout modal over the fleet page ------------------------------
-
-function ViewRolloutInSituStory(): ReactElement {
-  const [open, setOpen] = useState(true);
-  return (
-    <div className="min-h-screen bg-surface-base p-8">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
-        <div className="text-heading-300 text-text-primary">Building B</div>
-        <ActiveRolloutBanner event={inProgressFirmwareEvent} onView={() => setOpen(true)} />
-        <div className="rounded-xl border border-border-5 bg-surface-elevated-base p-6 text-300 text-text-primary-70">
-          The fleet page stays here behind the overlay — "View rollout" summons progress without navigating away.
-        </div>
-      </div>
-      <ViewRolloutModal
-        event={open ? inProgressFirmwareEvent : null}
-        onDismiss={() => setOpen(false)}
-        onPause={noop}
-        onCancelRemaining={noop}
-      />
-    </div>
-  );
-}
-
-export const ViewRolloutInSitu: Story = {
-  name: "View rollout modal (over the fleet page)",
-  render: () => <ViewRolloutInSituStory />,
-};
-
-// ---- 6. Firmware settings page: active rollout in its detail home ----------
+// ---- 4. Firmware settings page: active rollout in its detail home ----------
 // Reproduces the Firmware settings page chrome (SettingsPageHeader token +
 // px-10/pt-10 insets) with the active rollout card as its detail surface.
 
@@ -425,7 +329,7 @@ export const FirmwareSettingsPage: Story = {
   render: () => <FirmwareSettingsPageStory />,
 };
 
-// ---- 7. Energy UI: rollout card the way curtailment renders it -------------
+// ---- 5. Energy UI: rollout card the way curtailment renders it -------------
 // Mirrors CurtailmentManagementPanel's frame (section grid gap-6, Header +
 // action buttons row) so a process rollout reads exactly like active
 // curtailment does in the energy UI.
@@ -455,7 +359,7 @@ export const EnergyUi: Story = {
   render: () => <EnergyUiStory />,
 };
 
-// ---- 8. Activity page: rollout banners in the feed ------------------------
+// ---- 6. Activity page: rollout banners in the feed ------------------------
 // Mirrors ActivityPage chrome (sticky "Activity" header + px-10 insets) with
 // the active-rollout banners stacked above the activity table region.
 
