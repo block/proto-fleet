@@ -121,6 +121,33 @@ encrypt:
 	require.Equal(t, explicitDSN, config.DB.ExplicitDSN)
 }
 
+func TestFleetdParsesHAEnabledFromEnv(t *testing.T) {
+	t.Setenv("FLEET_HA_ENABLED", "true")
+	t.Setenv("FLEET_HA_ETCD_ENDPOINTS", "https://10.0.0.1:2379,https://10.0.0.2:2379")
+
+	configPath := writeFleetdConfigFile(t, `
+auth:
+  client:
+    expiration-period: "1h"
+    secret-key: "test-client-secret"
+  miner-token-expiration-period: "30m"
+encrypt:
+  service-master-key: "test-master-key"
+`)
+	config := &Config{}
+	parser, err := kong.New(
+		config,
+		kong.Name("fleetd"),
+		kong.Configuration(kongyaml.Loader, configPath),
+	)
+	require.NoError(t, err)
+	_, err = parser.Parse(nil)
+	require.NoError(t, err)
+	require.True(t, config.HA.Enabled)
+	require.Equal(t, []string{"https://10.0.0.1:2379", "https://10.0.0.2:2379"}, config.HA.EtcdEndpoints)
+	require.NoError(t, config.HA.Validate())
+}
+
 func TestFleetdInfrastructureOTControlSubnetsFlag(t *testing.T) {
 	t.Parallel()
 

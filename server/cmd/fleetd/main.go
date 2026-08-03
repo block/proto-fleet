@@ -179,6 +179,9 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) error {
+	if err := config.HA.Validate(); err != nil {
+		return fmt.Errorf("invalid HA configuration: %w", err)
+	}
 	// Construct one configured registry before starting services. The CRUD
 	// service uses it now; the Phase 5 reconciler will share this same instance.
 	infrastructureDriverRegistry, err := infrastructureDomain.NewConfiguredDriverRegistry(config.Infrastructure)
@@ -668,11 +671,20 @@ func start(config *Config) error {
 	if err != nil {
 		return fmt.Errorf("create runtime job group: %w", err)
 	}
-	// HA configuration is not exposed yet, so production stays standalone.
-	fleetRuntime, err := ha.NewStandaloneRuntime(runtimeJobGroup, executionService.IsRunning)
+	fleetRuntime, closeHA, err := ha.NewConfiguredRuntime(
+		config.HA,
+		conn,
+		runtimeJobGroup,
+		executionService.IsRunning,
+	)
 	if err != nil {
 		return fmt.Errorf("create Fleet runtime: %w", err)
 	}
+	defer func() {
+		if err := closeHA(); err != nil {
+			slog.Error("Failed to close HA services", "error", err)
+		}
+	}()
 	defer func() {
 		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
 	}()
