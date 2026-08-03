@@ -193,7 +193,7 @@ EOF
     cat > "$STAGE/bin/systemctl" <<'EOF'
 #!/bin/bash
 printf 'systemctl %s\n' "$*" >> "$CALL_LOG"
-exit 0
+[ "${FAKE_SYSTEMD_UNAVAILABLE:-false}" != "true" ]
 EOF
 
     cat > "$STAGE/bin/id" <<'EOF'
@@ -710,6 +710,27 @@ if cmp -s "$STAGE/client/nginx.http.conf" "$STAGE/client/nginx.conf"; then
 else
     fail "stale certificates selected the wrong nginx configuration"
 fi
+
+# The Windows installer supports WSL distros whose Docker daemon is managed by
+# `service` or an init script. A healthy daemon must remain authoritative even
+# when systemctl is unavailable; native Linux retains its boot-enable guard.
+make_stage wsl-without-systemd
+if FAKE_WSL=true FAKE_SYSTEMD_UNAVAILABLE=true run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "healthy Docker on non-systemd WSL preflights"
+else
+    fail "non-systemd WSL should rely on the Docker daemon probe"
+fi
+assert_not_contains "non-systemd WSL skips the systemd boot check" "$STAGE/calls.log" "systemctl is-enabled docker"
+assert_contains "non-systemd WSL reaches the Docker daemon probe" "$STAGE/calls.log" "docker info"
+
+make_stage native-linux-without-systemd
+if FAKE_SYSTEMD_UNAVAILABLE=true run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "native Linux without Docker boot enablement should fail preflight"
+else
+    pass "native Linux retains the Docker boot-enable guard"
+fi
+assert_contains "native Linux boot failure is diagnosed" "$STAGE/output.log" "Docker is not enabled at boot"
+assert_not_contains "native Linux boot failure prevents image pulls" "$STAGE/calls.log" " pull"
 
 # A transient WSL registry outage is diagnostic-only in non-interactive mode;
 # it must not invoke sudo, edit host networking, or prune the build cache.

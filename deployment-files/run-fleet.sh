@@ -820,14 +820,20 @@ fi
 
 # Configure Docker for Linux systems
 if [ "$(uname)" == "Linux" ]; then
-    # Check if Docker is set to start on boot
-    if ! systemctl is-enabled docker &>/dev/null; then
-        if [ "$NON_INTERACTIVE" = "true" ]; then
-            echo "Error: Docker is not enabled at boot; fix the host before retrying the upgrade." >&2
-            exit 1
+    # The Windows installer supports non-systemd WSL distros by starting
+    # Docker through `service` or its init script and maintaining a Windows
+    # scheduled task. Do not reject that supported setup before the
+    # authoritative `docker info` probe below.
+    if ! is_wsl; then
+        # Check if Docker is set to start on boot on native Linux hosts.
+        if ! systemctl is-enabled docker &>/dev/null; then
+            if [ "$NON_INTERACTIVE" = "true" ]; then
+                echo "Error: Docker is not enabled at boot; fix the host before retrying the upgrade." >&2
+                exit 1
+            fi
+            echo "Configuring Docker to start on system boot..."
+            sudo systemctl enable docker
         fi
-        echo "Configuring Docker to start on system boot..."
-        sudo systemctl enable docker
     fi
 
     # Check if current user is in the docker group.
