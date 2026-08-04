@@ -205,7 +205,7 @@ func (m *Manager) run(operationID, targetVersion string) {
 	defer logFile.Close()
 
 	ctx := context.Background()
-	recovery := fmt.Sprintf("cd %s && ./run-fleet.sh --non-interactive --skip-build", shellQuote(filepath.Join(m.cfg.InstallRoot, "deployment")))
+	recovery := activationRecoveryCommand(filepath.Join(m.cfg.InstallRoot, "deployment"))
 	if err := m.setLogPath(operationID, logPath, recovery); err != nil {
 		m.fail(operationID, fmt.Errorf("persist upgrade log location: %w", err), recovery)
 		return
@@ -328,18 +328,8 @@ func (m *Manager) run(operationID, targetVersion string) {
 		return
 	}
 	backupDeployment := filepath.Join(m.cfg.InstallRoot, "deployment.previous")
-	if err := os.RemoveAll(backupDeployment); err != nil {
-		m.fail(operationID, fmt.Errorf("remove previous deployment backup: %w", err), recovery)
-		return
-	}
-	if err := os.Rename(currentDeployment, backupDeployment); err != nil {
-		m.fail(operationID, fmt.Errorf("back up current deployment: %w", err), recovery)
-		return
-	}
-	if err := os.Rename(stageDeployment, currentDeployment); err != nil {
-		// This is still pre-teardown and therefore safe to restore.
-		_ = os.Rename(backupDeployment, currentDeployment)
-		m.fail(operationID, fmt.Errorf("activate staged deployment: %w", err), recovery)
+	if err := activateDeployment(stageDeployment, currentDeployment, backupDeployment); err != nil {
+		m.fail(operationID, err, recovery)
 		return
 	}
 
@@ -363,6 +353,119 @@ func (m *Manager) run(operationID, targetVersion string) {
 		log.Printf("persist successful upgrade state: %v", err)
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] upgrade completed\n", m.cfg.Now().UTC().Format(time.RFC3339))
+}
+
+// activateDeployment makes the extracted release durable before entering the
+// two-rename activation window. The two renames cannot be committed as one
+// portable filesystem operation, so every completed metadata step is fsynced
+// and every pre-command failure attempts a checked restoration. Startup
+// reconciliation covers a process or power loss between the renames.
+func activateDeployment(staged, current, previous string) error {
+	installRoot := filepath.Dir(current)
+	stageRoot := filepath.Dir(staged)
+	if err := syncTree(staged); err != nil {
+		return fmt.Errorf("sync staged deployment before activation: %w", err)
+	}
+	if err := os.RemoveAll(previous); err != nil {
+		return fmt.Errorf("remove previous deployment backup: %w", err)
+	}
+	if err := syncDirectory(installRoot); err != nil {
+		return fmt.Errorf("persist previous deployment backup removal: %w", err)
+	}
+	if err := os.Rename(current, previous); err != nil {
+		return fmt.Errorf("back up current deployment: %w", err)
+	}
+	if err := syncDirectory(installRoot); err != nil {
+		restoreErr := restorePreviousDeployment(current, previous, installRoot)
+		return errors.Join(
+			fmt.Errorf("persist current deployment backup: %w", err),
+			restoreErr,
+		)
+	}
+	if err := os.Rename(staged, current); err != nil {
+		restoreErr := restorePreviousDeployment(current, previous, installRoot)
+		return errors.Join(
+			fmt.Errorf("activate staged deployment: %w", err),
+			restoreErr,
+		)
+	}
+	if err := errors.Join(syncDirectory(stageRoot), syncDirectory(installRoot)); err != nil {
+		restoreErr := rollbackPreparedDeployment(current, staged, previous, installRoot, stageRoot)
+		return errors.Join(
+			fmt.Errorf("persist activated deployment swap: %w", err),
+			restoreErr,
+		)
+	}
+	return nil
+}
+
+func restorePreviousDeployment(current, previous, installRoot string) error {
+	if err := os.Rename(previous, current); err != nil {
+		return fmt.Errorf("restore previous deployment: %w", err)
+	}
+	if err := syncDirectory(installRoot); err != nil {
+		return fmt.Errorf("persist restored previous deployment: %w", err)
+	}
+	return nil
+}
+
+func rollbackPreparedDeployment(current, staged, previous, installRoot, stageRoot string) error {
+	if err := os.Rename(current, staged); err != nil {
+		return fmt.Errorf("move uncommitted deployment back to staging: %w", err)
+	}
+	if err := os.Rename(previous, current); err != nil {
+		return fmt.Errorf("restore previous deployment after durability failure: %w", err)
+	}
+	if err := errors.Join(syncDirectory(stageRoot), syncDirectory(installRoot)); err != nil {
+		return fmt.Errorf("persist deployment restoration: %w", err)
+	}
+	return nil
+}
+
+func syncTree(root string) error {
+	var directories []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("walk tree for sync: %w", walkErr)
+		}
+		if entry.IsDir() {
+			directories = append(directories, path)
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("inspect tree entry for sync: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing to sync non-regular staged entry %s", path)
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return fmt.Errorf("open staged file for sync: %w", err)
+		}
+		syncErr := file.Sync()
+		closeErr := file.Close()
+		if syncErr != nil || closeErr != nil {
+			var fileErrs []error
+			if syncErr != nil {
+				fileErrs = append(fileErrs, fmt.Errorf("sync staged file %s: %w", path, syncErr))
+			}
+			if closeErr != nil {
+				fileErrs = append(fileErrs, fmt.Errorf("close staged file %s: %w", path, closeErr))
+			}
+			return errors.Join(fileErrs...)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for i := len(directories) - 1; i >= 0; i-- {
+		if err := syncDirectory(directories[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // removeFailedPreflightImages releases only the immutable target tags from a
@@ -484,15 +587,78 @@ func (m *Manager) loadState() error {
 		return fmt.Errorf("decode updater state: %w", err)
 	}
 	if !op.Phase.Terminal() {
+		restoredPrevious, err := m.reconcileInterruptedActivation(&op)
+		if err != nil {
+			return err
+		}
 		now := m.cfg.Now().UTC()
 		op.Phase = updaterapi.PhaseFailed
-		op.Message = "Upgrade interrupted"
-		op.Error = "The updater restarted before the operation completed; inspect the host log before retrying."
+		if restoredPrevious {
+			op.Message = "Upgrade interrupted; previous deployment restored"
+			op.Error = "The updater restarted during the activation swap before Fleet was stopped. The previous deployment was restored safely."
+		} else {
+			op.Message = "Upgrade interrupted"
+			op.Error = "The updater restarted before the operation completed; inspect the host log and recovery details before retrying."
+		}
 		op.UpdatedAt = now
 		op.CompletedAt = &now
 	}
 	m.operation = &op
 	return m.persistLocked()
+}
+
+// reconcileInterruptedActivation repairs only the crash-safe gap between the
+// two activation renames. If the forward deployment already exists, it is
+// never rolled back: run-fleet may have applied forward-only migrations before
+// the updater stopped. Recovery commands are derived from the current on-disk
+// preflight proof rather than trusting a command persisted before the swap.
+func (m *Manager) reconcileInterruptedActivation(op *updaterapi.Operation) (bool, error) {
+	if op.Phase != updaterapi.PhaseActivating {
+		op.RecoveryCommand = ""
+		return false, nil
+	}
+	current := filepath.Join(m.cfg.InstallRoot, "deployment")
+	previous := filepath.Join(m.cfg.InstallRoot, "deployment.previous")
+	currentInfo, err := os.Lstat(current)
+	if err == nil {
+		if !currentInfo.IsDir() {
+			return false, fmt.Errorf("reconcile interrupted activation: active deployment is not a directory")
+		}
+		op.RecoveryCommand = ""
+		version, versionErr := readInstalledVersion(filepath.Join(current, "version.txt"))
+		if versionErr == nil && version == op.TargetVersion {
+			if markerInfo, markerErr := os.Lstat(filepath.Join(current, ".update-preflight-complete")); markerErr == nil && markerInfo.Mode().IsRegular() {
+				op.RecoveryCommand = activationRecoveryCommand(current)
+			} else if markerErr != nil && !errors.Is(markerErr, os.ErrNotExist) {
+				return false, fmt.Errorf("inspect interrupted activation preflight proof: %w", markerErr)
+			}
+		}
+		return false, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("inspect interrupted active deployment: %w", err)
+	}
+	previousInfo, err := os.Lstat(previous)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, fmt.Errorf("reconcile interrupted activation: both deployment and deployment.previous are missing")
+		}
+		return false, fmt.Errorf("inspect previous deployment for interrupted activation: %w", err)
+	}
+	if !previousInfo.IsDir() {
+		return false, fmt.Errorf("reconcile interrupted activation: deployment.previous is not a directory")
+	}
+	if _, err := readInstalledVersion(filepath.Join(previous, "version.txt")); err != nil {
+		return false, fmt.Errorf("validate previous deployment for interrupted activation: %w", err)
+	}
+	if err := os.Rename(previous, current); err != nil {
+		return false, fmt.Errorf("restore previous deployment after interrupted activation: %w", err)
+	}
+	if err := syncDirectory(m.cfg.InstallRoot); err != nil {
+		return false, fmt.Errorf("persist restored deployment after interrupted activation: %w", err)
+	}
+	op.RecoveryCommand = ""
+	return true, nil
 }
 
 func (m *Manager) persistLocked() error {
@@ -881,4 +1047,8 @@ func copyTree(source, destination string) error {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func activationRecoveryCommand(deploymentPath string) string {
+	return fmt.Sprintf("cd %s && ./run-fleet.sh --non-interactive --skip-build", shellQuote(deploymentPath))
 }

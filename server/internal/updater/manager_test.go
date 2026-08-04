@@ -334,6 +334,94 @@ func TestManagerMarksAnInterruptedPersistedOperationFailed(t *testing.T) {
 	require.NotNil(t, operation.CompletedAt)
 }
 
+func TestManagerRestoresPreviousDeploymentAfterInterruptedSwap(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	require.NoError(t, os.Rename(
+		filepath.Join(installRoot, "deployment"),
+		filepath.Join(installRoot, "deployment.previous"),
+	))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+	assert.Contains(t, operation.Message, "previous deployment restored")
+	assert.Empty(t, operation.RecoveryCommand)
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+}
+
+func TestManagerKeepsForwardDeploymentAfterInterruptedActivation(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name             string
+		withProof        bool
+		wantRecoveryHint bool
+	}{
+		{name: "preflight proof remains", withProof: true, wantRecoveryHint: true},
+		{name: "preflight proof was consumed", withProof: false, wantRecoveryHint: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.1.0")
+			if test.withProof {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(installRoot, "deployment", ".update-preflight-complete"),
+					[]byte("proof\n"),
+					0o600,
+				))
+			}
+			stateDir := filepath.Join(t.TempDir(), "state")
+			writeInterruptedOperationState(t, stateDir, "v1.1.0")
+
+			manager, err := NewManager(Config{
+				InstallRoot: installRoot,
+				StateDir:    stateDir,
+				GOARCH:      "amd64",
+			})
+			require.NoError(t, err)
+
+			operation := manager.Status().Operation
+			require.NotNil(t, operation)
+			assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+			assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+			if test.wantRecoveryHint {
+				assert.Contains(t, operation.RecoveryCommand, "--skip-build")
+			} else {
+				assert.Empty(t, operation.RecoveryCommand)
+			}
+		})
+	}
+}
+
+func TestManagerRejectsUnrecoverableInterruptedActivationLayout(t *testing.T) {
+	t.Parallel()
+
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+
+	_, err := NewManager(Config{
+		InstallRoot: t.TempDir(),
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.ErrorContains(t, err, "both deployment and deployment.previous are missing")
+}
+
 func TestManagerRejectsUnsafeDownloadBaseURLs(t *testing.T) {
 	t.Parallel()
 
@@ -485,6 +573,22 @@ func releaseBundle(t *testing.T, version string) []byte {
 	require.NoError(t, tarWriter.Close())
 	require.NoError(t, gzipWriter.Close())
 	return buffer.Bytes()
+}
+
+func writeInterruptedOperationState(t *testing.T, stateDir, targetVersion string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	started := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(stateDir, stateFilename),
+		[]byte(fmt.Sprintf(
+			`{"id":"interrupted","target_version":%q,"phase":"activating","started_at":%q,"updated_at":%q,"recovery_command":"stale"}`,
+			targetVersion,
+			started.Format(time.RFC3339Nano),
+			started.Format(time.RFC3339Nano),
+		)),
+		0o600,
+	))
 }
 
 func writeCurrentDeployment(t *testing.T, installRoot, version string) {
