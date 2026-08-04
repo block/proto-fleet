@@ -34,8 +34,10 @@ const orderOptions = (Object.keys(orderLabels) as RolloutOrder[]).map((value) =>
  *
  * The per-strategy explanation lives in the strategy field's info popover (the
  * curtailment field-help pattern) rather than as inline copy, so the control
- * stays compact. All fields stack in one column at the standard field width —
- * paced fields use the same two-up sub-rows curtailment uses. `maxConcurrentOffline`
+ * stays compact. Fields pair two-up wherever there's a natural partner —
+ * strategy + order always, batch size + interval, and pilot size + the offline
+ * ceiling — falling back to a lone full-width field when there's nothing to
+ * pair with (the same lone-vs-pair reflow curtailment uses). `maxConcurrentOffline`
  * is a global ceiling, so it appears in every variant. Controlled component:
  * owns no state, mirroring curtailment's start modal.
  */
@@ -52,6 +54,53 @@ function RolloutControls({ config, onChange, disabled = false }: RolloutControls
   const showBatchFields = config.strategy === "batched" || config.strategy === "pilotThenContinue";
   const showPilotFields = config.strategy === "pilotThenContinue";
 
+  const pilotField = (
+    <Input
+      id="rollout-pilot-size"
+      label="Pilot group size (miners)"
+      type="number"
+      inputMode="numeric"
+      initValue={config.pilotSize ?? ""}
+      onChange={(value) => patch({ pilotSize: parseCount(value) })}
+      disabled={disabled}
+    />
+  );
+
+  const batchFields = (
+    <div className="grid gap-3 tablet:grid-cols-2">
+      <Input
+        id="rollout-batch-size"
+        label="Batch size (miners)"
+        type="number"
+        inputMode="numeric"
+        initValue={config.batchSize ?? ""}
+        onChange={(value) => patch({ batchSize: parseCount(value) })}
+        disabled={disabled}
+      />
+      <Input
+        id="rollout-batch-interval"
+        label="Batch interval (sec)"
+        type="number"
+        inputMode="numeric"
+        initValue={config.batchIntervalSec ?? ""}
+        onChange={(value) => patch({ batchIntervalSec: parseCount(value) })}
+        disabled={disabled}
+      />
+    </div>
+  );
+
+  const maxOfflineField = (
+    <Input
+      id="rollout-max-offline"
+      label="Max miners offline at once"
+      type="number"
+      inputMode="numeric"
+      initValue={config.maxConcurrentOffline ?? ""}
+      onChange={(value) => patch({ maxConcurrentOffline: parseCount(value) })}
+      disabled={disabled}
+    />
+  );
+
   return (
     <section className="grid gap-3" data-testid="rollout-controls">
       <div>
@@ -59,78 +108,53 @@ function RolloutControls({ config, onChange, disabled = false }: RolloutControls
         <div className="text-300 text-text-primary-70">How the update is paced across the selected miners.</div>
       </div>
 
-      <Select
-        id="rollout-strategy"
-        label="Rollout strategy"
-        options={strategyOptions}
-        value={config.strategy}
-        onChange={(value) => patch({ strategy: value as RolloutStrategy })}
-        disabled={disabled}
-        forceBelow
-        suffixAction={
-          <RolloutFieldInfo
-            ariaLabel="About rollout strategies"
-            body={strategyHelpText[config.strategy]}
-            testId="rollout-strategy-info-button"
-            popoverTestId="rollout-strategy-info-popover"
-          />
-        }
-      />
+      <div className="grid gap-3 tablet:grid-cols-2">
+        <Select
+          id="rollout-strategy"
+          label="Rollout strategy"
+          options={strategyOptions}
+          value={config.strategy}
+          onChange={(value) => patch({ strategy: value as RolloutStrategy })}
+          disabled={disabled}
+          forceBelow
+          suffixAction={
+            <RolloutFieldInfo
+              ariaLabel="About rollout strategies"
+              body={strategyHelpText[config.strategy]}
+              testId="rollout-strategy-info-button"
+              popoverTestId="rollout-strategy-info-popover"
+            />
+          }
+        />
 
-      <Select
-        id="rollout-order"
-        label="Rollout order"
-        options={orderOptions}
-        value={config.order}
-        onChange={(value) => patch({ order: value as RolloutOrder })}
-        disabled={disabled}
-        forceBelow
-      />
+        <Select
+          id="rollout-order"
+          label="Rollout order"
+          options={orderOptions}
+          value={config.order}
+          onChange={(value) => patch({ order: value as RolloutOrder })}
+          disabled={disabled}
+          forceBelow
+        />
+      </div>
 
       {showPilotFields ? (
-        <Input
-          id="rollout-pilot-size"
-          label="Pilot group size (miners)"
-          type="number"
-          inputMode="numeric"
-          initValue={config.pilotSize ?? ""}
-          onChange={(value) => patch({ pilotSize: parseCount(value) })}
-          disabled={disabled}
-        />
-      ) : null}
-
-      {showBatchFields ? (
-        <div className="grid gap-3 tablet:grid-cols-2">
-          <Input
-            id="rollout-batch-size"
-            label="Batch size (miners)"
-            type="number"
-            inputMode="numeric"
-            initValue={config.batchSize ?? ""}
-            onChange={(value) => patch({ batchSize: parseCount(value) })}
-            disabled={disabled}
-          />
-          <Input
-            id="rollout-batch-interval"
-            label="Batch interval (sec)"
-            type="number"
-            inputMode="numeric"
-            initValue={config.batchIntervalSec ?? ""}
-            onChange={(value) => patch({ batchIntervalSec: parseCount(value) })}
-            disabled={disabled}
-          />
-        </div>
-      ) : null}
-
-      <Input
-        id="rollout-max-offline"
-        label="Max miners offline at once"
-        type="number"
-        inputMode="numeric"
-        initValue={config.maxConcurrentOffline ?? ""}
-        onChange={(value) => patch({ maxConcurrentOffline: parseCount(value) })}
-        disabled={disabled}
-      />
+        <>
+          {/* Pilot phase size pairs with the global offline ceiling. */}
+          <div className="grid gap-3 tablet:grid-cols-2">
+            {pilotField}
+            {maxOfflineField}
+          </div>
+          {batchFields}
+        </>
+      ) : showBatchFields ? (
+        <>
+          {batchFields}
+          {maxOfflineField}
+        </>
+      ) : (
+        maxOfflineField
+      )}
     </section>
   );
 }

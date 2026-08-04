@@ -18,6 +18,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import Row from "@/shared/components/Row";
 
 /**
  * Progress-bar colors, matching curtailment's curtail-phase precedent exactly
@@ -73,6 +74,33 @@ function StatBlock({ label, value, detail }: StatBlockProps): ReactElement {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A single stat as a standard label/value table row — the `SummaryRow` pattern
+ * shared with `ActivityDetailModal`: label pinned left, value right-aligned, a
+ * hairline divider between rows. Used in the modal (`embedded`) presentation,
+ * where the four stats read better stacked as detail rows than as a stat grid.
+ * `detail` (percent / elapsed) sits under the value, still right-aligned.
+ */
+function StatRow({ label, value, detail, divider }: StatBlockProps & { divider: boolean }): ReactElement {
+  return (
+    <Row compact divider={divider}>
+      <div className="flex w-full items-start justify-between gap-4">
+        <span className="shrink-0 text-300 text-text-primary-70">{label}</span>
+        <span className="flex min-w-0 flex-col items-end text-right">
+          <span className="min-w-0 truncate text-300 text-text-primary" title={value}>
+            {value}
+          </span>
+          {detail ? (
+            <span className="min-w-0 truncate text-200 text-text-primary-70" title={detail}>
+              {detail}
+            </span>
+          ) : null}
+        </span>
+      </div>
+    </Row>
   );
 }
 
@@ -156,6 +184,17 @@ function ActiveRolloutStatus({
         ? "—"
         : "Calculating…";
 
+  const statItems: StatBlockProps[] = [
+    { label: "Scope", value: event.scopeLabel || "—" },
+    { label: "Strategy", value: pacingSummary(event) },
+    { label: "Order", value: orderLabels[event.order] },
+    { label: "Est. time remaining", value: etaValue },
+  ];
+
+  // Progress summary + elapsed live in the progress section (curtailment's
+  // ProgressSection precedent) — NOT as stat-block sub-details.
+  const progressSummary = `${done.toLocaleString()} of ${inScope.toLocaleString()} miners ${doneVerb} (${percent}%)`;
+
   const actions = hideActions
     ? []
     : rolloutLifecycleActions(event, { onPause, onResume, onCancelRemaining, onContinueFromPilot, onRetryFailed });
@@ -174,7 +213,7 @@ function ActiveRolloutStatus({
       )}
       <div
         className={clsx(
-          "@container relative",
+          "relative",
           // Embedded in a modal: no card chrome, but match the modal's 24px
           // side inset with a 24px top gap so the status icon clears the sticky
           // top bar / header divider by the same margin.
@@ -205,25 +244,40 @@ function ActiveRolloutStatus({
           </div>
         </div>
 
-        {/* Stat lockups reflow on the CARD's width (container query), not the
-            viewport — so they stay 2-up in the standard modal (~592px) and go
-            4-up only when the card is hosted in a wide standalone pane. */}
-        <div className="mt-12 grid grid-cols-1 gap-x-8 gap-y-5 text-text-primary @xs:grid-cols-2 @3xl:grid-cols-4">
-          <StatBlock label="Scope" value={event.scopeLabel || "—"} />
-          <StatBlock label="Strategy" value={pacingSummary(event)} detail={orderLabels[event.order]} />
-          <StatBlock
-            label={`Miners ${doneVerb}`}
-            value={`${done.toLocaleString()} of ${inScope.toLocaleString()}`}
-            detail={`${percent}%`}
-          />
-          <StatBlock
-            label="Est. time remaining"
-            value={etaValue}
-            detail={event.startedAt ? `${formatElapsed(elapsedSeconds)} elapsed` : undefined}
-          />
-        </div>
+        {/* Stat lockups: in the modal (embedded) they read as standard
+            label/value table rows; in the standalone card they use the same
+            multi-column stat grid as ActiveCurtailmentStatus (grid-cols-5,
+            gap-x-12). */}
+        {embedded ? (
+          <div className="mt-10 flex flex-col">
+            {statItems.map((item, index) => (
+              <StatRow
+                key={item.label}
+                label={item.label}
+                value={item.value}
+                detail={item.detail}
+                divider={index < statItems.length - 1}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-12 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5">
+            {statItems.map((item) => (
+              <StatBlock key={item.label} label={item.label} value={item.value} detail={item.detail} />
+            ))}
+          </div>
+        )}
 
+        {/* Progress section mirrors ActiveCurtailmentStatus' ProgressSection:
+            summary line on the left + right-aligned elapsed above the bar,
+            then the CompositionBar, then the legend. */}
         <div className="mt-8 grid gap-3" data-testid="active-rollout-progress">
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+            <div className="text-200 text-text-primary-50">{progressSummary}</div>
+            {event.startedAt ? (
+              <div className="text-right text-200 text-text-primary">{`${formatElapsed(elapsedSeconds)} elapsed`}</div>
+            ) : null}
+          </div>
           <CompositionBar segments={segments} height={12} colorMap={rolloutProgressColorMap} />
           <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
             {segments.map((segment) => (
