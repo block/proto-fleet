@@ -217,6 +217,9 @@ export function rolloutStageDetail(event: RolloutEvent): string {
 /** Lifecycle-action handlers a host can wire to a rollout. Each is optional —
  * omitting one hides its control (capability-flagging). */
 export interface RolloutLifecycleHandlers {
+  /** Edit the live plan (pacing, batch size, order, …) while the rollout is
+   * active — the analog of curtailment's "Manage". */
+  onManage?: () => void;
   onPause?: () => void;
   onResume?: () => void;
   onCancelRemaining?: () => void;
@@ -249,6 +252,12 @@ export function rolloutLifecycleActions(
   const failed = rolloutPhaseCount(event.rollups, "failed");
   const actions: RolloutLifecycleAction[] = [];
 
+  // "Manage" edits the live plan and is available whenever the rollout is not
+  // terminal — the analog of curtailment's Manage (shown for its active
+  // states). Rendered first (leftmost), as in ActiveCurtailmentStatus.
+  if (handlers.onManage && !isTerminal) {
+    actions.push({ key: "manage", text: "Manage", variant: "secondary", onClick: handlers.onManage });
+  }
   if (handlers.onContinueFromPilot && showPilotGate) {
     actions.push({
       key: "continue",

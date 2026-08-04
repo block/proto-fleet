@@ -233,6 +233,7 @@ function HeaderPillStory(): ReactElement {
       <ViewRolloutModal
         event={open ? inProgressFirmwareEvent : null}
         onDismiss={() => setOpen(false)}
+        onManage={noop}
         onPause={noop}
         onCancelRemaining={noop}
       />
@@ -266,7 +267,12 @@ function FirmwareSettingsPageStory(): ReactElement {
             />
             <Button variant={variants.primary} size={sizes.compact} text="Upload firmware" onClick={noop} />
           </div>
-          <ActiveRolloutStatus event={inProgressFirmwareEvent} onPause={noop} onCancelRemaining={noop} />
+          <ActiveRolloutStatus
+            event={inProgressFirmwareEvent}
+            onManage={noop}
+            onPause={noop}
+            onCancelRemaining={noop}
+          />
           <div className="text-emphasis-300 text-text-primary">Firmware files</div>
           <FirmwareFilesTable />
         </div>
@@ -305,7 +311,12 @@ function EnergyUiStory(): ReactElement {
               <Button variant={variants.primary} size={sizes.base} text="Run curtailment" onClick={noop} />
             </div>
           </div>
-          <ActiveRolloutStatus event={inProgressCurtailmentEvent} onPause={noop} onCancelRemaining={noop} />
+          <ActiveRolloutStatus
+            event={inProgressCurtailmentEvent}
+            onManage={noop}
+            onPause={noop}
+            onCancelRemaining={noop}
+          />
           <CurtailmentHistory events={mockCurtailmentHistoryEvents} pageSize={5} />
         </section>
       </div>
@@ -344,6 +355,7 @@ function ActivityPageStory(): ReactElement {
       <ViewRolloutModal
         event={openIndex === null ? null : events[openIndex]}
         onDismiss={() => setOpenIndex(null)}
+        onManage={() => undefined}
         onPause={() => undefined}
         onCancelRemaining={() => undefined}
       />
