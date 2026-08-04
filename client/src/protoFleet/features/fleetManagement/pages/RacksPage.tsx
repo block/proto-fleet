@@ -1127,12 +1127,14 @@ const RacksPage = () => {
   const lastItemIndex = currentPage * DEFAULT_PAGE_SIZE + racks.length;
   const shouldRenderGridPagination = !isLoading && totalCount > 0;
 
-  // `!isModalOpen` because a refetch fired from inside a modal — the first
-  // rack's create, or any membership commit reporting through
-  // onSettingsPersisted — leaves isLoading true while hasEverLoaded is still
-  // false, since that only flips on a non-empty page. Taking the page spinner
-  // there would unmount the modal the operator is working in and drop them back
-  // at the start of the add-miners step.
+  // Both guards carry `!isModalOpen` for the same reason: a refetch fired from
+  // inside a modal — the first rack's create, or any membership commit reporting
+  // through onSettingsPersisted — resolves while hasEverLoaded is still false,
+  // since that only flips on a non-empty page. Taking over the page there, with
+  // either the spinner or the error, would unmount the modal the operator is
+  // working in and drop them back at the start of the add-miners step. The rack
+  // write has already succeeded by then, so a failed *list* refresh is not
+  // theirs to act on; it resurfaces on the refetch that follows the close.
   if (isLoading && !hasEverLoaded && !isModalOpen) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -1141,7 +1143,7 @@ const RacksPage = () => {
     );
   }
 
-  if (error && !hasEverLoaded) {
+  if (error && !hasEverLoaded && !isModalOpen) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-300 text-text-primary-50">{error}</p>
