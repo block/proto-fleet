@@ -49,13 +49,10 @@ export interface ReleaseChannelScope {
 }
 
 /**
- * The live coverage preview shown in the modal's right pane: what share of the
- * fleet this channel deploys to, a one-line summary, and the upcoming rollout
- * timeline.
+ * The live coverage preview shown in the modal's right pane: a one-line summary
+ * of what this channel deploys to, and the upcoming rollout timeline.
  */
 export interface ReleaseChannelPreview {
-  /** Share of the whole fleet this channel covers, 0–100. Drives the ring. */
-  fleetPercent: number;
   minerCount: number;
   modelCount: number;
   siteCount: number;

@@ -40,7 +40,6 @@ const devChannelConfig: RolloutPlanConfig = {
 
 /** The coverage preview shown in the modal's right pane for the Dev channel. */
 export const devChannelPreview: ReleaseChannelPreview = {
-  fleetPercent: 10,
   minerCount: 240,
   modelCount: 2,
   siteCount: 1,
