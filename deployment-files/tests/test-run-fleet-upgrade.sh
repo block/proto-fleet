@@ -33,7 +33,7 @@ pass() {
 
 assert_contains() {
     local description="$1" file="$2" expected="$3"
-    if grep -qF "$expected" "$file"; then
+    if grep -qF -- "$expected" "$file"; then
         pass "$description"
     else
         fail "$description: expected '$expected' in $file"
@@ -42,7 +42,7 @@ assert_contains() {
 
 assert_not_contains() {
     local description="$1" file="$2" unexpected="$3"
-    if grep -qF "$unexpected" "$file"; then
+    if grep -qF -- "$unexpected" "$file"; then
         fail "$description: unexpected '$unexpected' in $file"
     else
         pass "$description"
@@ -140,7 +140,7 @@ make_stage() {
     HARNESS_BIN_DIR="$runtime/bin"
     HARNESS_CALL_LOG="$runtime/calls.log"
     HARNESS_OUTPUT_LOG="$runtime/output.log"
-    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
+    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
     : > "$HARNESS_CALL_LOG"
     : > "$HARNESS_OUTPUT_LOG"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
@@ -149,6 +149,7 @@ make_stage() {
     cp "$DEPLOY_DIR/docker-compose.system-monitoring.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.tracing.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/ha/compose.yaml" "$STAGE/ha/"
+    cp "$DEPLOY_DIR/profiles/mini.env" "$STAGE/profiles/"
     cp "$DEPLOY_DIR/client/nginx.http.conf" "$STAGE/client/"
     cp "$DEPLOY_DIR/client/nginx.https.conf" "$STAGE/client/"
     cp "$DEPLOY_DIR/server/otel-collector-config.datadog.yaml" "$STAGE/server/"
@@ -190,6 +191,17 @@ if [ "${1:-}" = "image" ] && [ "${2:-}" = "ls" ]; then
 fi
 
 if [ "${1:-}" = "container" ] && [ "${2:-}" = "ls" ]; then
+    case " $* " in
+        *" --filter label=com.docker.compose.project="*" --format {{.Image}} "*)
+            if [ "${FAKE_ACTIVE_IMAGE_LIST_FAILURE:-false}" = "true" ]; then
+                exit 1
+            fi
+            for image in ${FAKE_ACTIVE_RELEASE_IMAGES:-}; do
+                printf '%s\n' "$image"
+            done
+            exit 0
+            ;;
+    esac
     if [ "${FAKE_CONTAINER_LIST_FAILURE:-false}" = "true" ]; then
         exit 1
     fi
@@ -404,6 +416,12 @@ case " $* " in
     *registry-1.docker.io*)
         [ "${FAKE_REGISTRY_FAILURE:-false}" != "true" ]
         ;;
+    *"/health/ready"*)
+        [ "${FAKE_API_READINESS_FAILURE:-false}" != "true" ]
+        ;;
+    *"://127.0.0.1/"*)
+        [ "${FAKE_CLIENT_READINESS_FAILURE:-false}" != "true" ]
+        ;;
     *) exit 0 ;;
 esac
 EOF
@@ -521,6 +539,82 @@ for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRAC
         fail "$persisted_boolean did not preserve its Compose colon-form true value"
     fi
 done
+
+# Required credentials use the same literal dotenv forms accepted for project
+# identity and booleans. Mixed duplicate delimiters, export prefixes, quoting,
+# and inline comments must validate the values Compose will actually consume.
+make_stage compose-env-credentials
+printf '%s\n' \
+    'DB_USERNAME: "fleet" # database role' \
+    "export DB_PASSWORD: 'test\$password' # literal dollar" \
+    'AUTH_CLIENT_SECRET_KEY: "01234567890123456789012345678901" # auth secret' \
+    'ENCRYPT_SERVICE_MASTER_KEY: "MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=" # encryption key' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "Compose dotenv credential forms preflight"
+else
+    fail "Compose dotenv credential forms should validate their effective values"
+fi
+
+make_stage compose-env-profile
+printf 'FLEET_PROFILE: "MINI" # low-power host\n' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "Compose colon-form host profile preflights"
+else
+    fail "Compose colon-form host profile should select its profile env"
+fi
+assert_contains "colon-form host profile reaches Compose" "$HARNESS_CALL_LOG" "--env-file $STAGE/profiles/mini.env"
+
+make_stage interpolated-env
+printf 'AUTH_CLIENT_SECRET_KEY: "${SHORT_SECRET:-01234567890123456789012345678901}"\n' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "interpolated persisted secrets should fail closed"
+else
+    pass "interpolated persisted secrets fail before validation diverges from Compose"
+fi
+assert_contains "unsupported interpolation is diagnosed without printing its value" "$HARNESS_OUTPUT_LOG" "AUTH_CLIENT_SECRET_KEY in $STAGE/.env uses unsupported Compose dotenv syntax"
+assert_not_contains "unsupported interpolation makes no Docker calls" "$HARNESS_CALL_LOG" "docker "
+
+make_stage empty-commented-secret
+printf 'DB_PASSWORD="" # valid Compose comment\n' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "an empty quoted credential with a comment should fail"
+else
+    pass "empty commented credential is validated as Compose consumes it"
+fi
+assert_contains "empty commented credential is diagnosed" "$HARNESS_OUTPUT_LOG" "Missing or empty required key in environment file: DB_PASSWORD"
+assert_not_contains "empty commented credential prevents image preparation" "$HARNESS_CALL_LOG" " pull"
+
+make_stage short-commented-secret
+printf 'AUTH_CLIENT_SECRET_KEY="short" # this padding must not count\n' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "a short quoted auth secret with a comment should fail"
+else
+    pass "comment text cannot satisfy auth secret length validation"
+fi
+assert_contains "short commented auth secret is diagnosed" "$HARNESS_OUTPUT_LOG" "AUTH_CLIENT_SECRET_KEY in $STAGE/.env must be at least 32 characters"
+assert_not_contains "short commented auth secret prevents image preparation" "$HARNESS_CALL_LOG" " pull"
+
+make_stage no-space-colon-secret
+printf '%s\n' \
+    'AUTH_CLIENT_SECRET_KEY=01234567890123456789012345678901' \
+    'AUTH_CLIENT_SECRET_KEY:short' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "a no-space colon must participate in Compose last-value precedence"
+else
+    pass "no-space colon syntax cannot hide a short effective auth secret"
+fi
+assert_contains "no-space colon supplies the Compose-effective short secret" "$HARNESS_OUTPUT_LOG" \
+    "AUTH_CLIENT_SECRET_KEY in $STAGE/.env must be at least 32 characters"
+assert_not_contains "no-space colon bypass prevents image preparation" "$HARNESS_CALL_LOG" " pull"
+
+make_stage empty-process-secret
+if DB_PASSWORD= run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "an empty process credential override should fail"
+else
+    pass "process credential precedence matches Compose and fails closed"
+fi
+assert_contains "empty process credential is validated as effective" "$HARNESS_OUTPUT_LOG" "Missing or empty required key in environment file: DB_PASSWORD"
+assert_not_contains "empty process credential prevents image preparation" "$HARNESS_CALL_LOG" " pull"
 
 make_stage project-volume
 printf 'COMPOSE_PROJECT_NAME=fleet-blue\n' >> "$STAGE/.env"
@@ -713,6 +807,10 @@ gc_images=$(printf '%s\n' \
     'proto-fleet-client:v1.0.0' \
     'proto-fleet-timescaledb:v1.0.0' \
     'proto-fleet-timescaledb-ha:v1.0.0' \
+    'proto-fleet-api:v0.9.0' \
+    'proto-fleet-client:v0.9.0' \
+    'proto-fleet-timescaledb:v0.9.0' \
+    'proto-fleet-timescaledb-ha:v0.9.0' \
     'proto-fleet-api:v1.1.0' \
     'proto-fleet-client:v1.1.0' \
     'proto-fleet-timescaledb:v1.1.0' \
@@ -730,7 +828,8 @@ assert_not_contains "preflight never garbage-collects release images" "$HARNESS_
 # images for a release if any running or stopped container still uses it.
 : > "$HARNESS_CALL_LOG"
 if FAKE_RELEASE_IMAGES="$gc_images" \
-    FAKE_CONTAINER_IMAGE_REFS='proto-fleet-api:v1.0.0' \
+    FAKE_ACTIVE_RELEASE_IMAGES='proto-fleet-api:v1.0.0' \
+    FAKE_CONTAINER_IMAGE_REFS='proto-fleet-api:v0.9.0' \
     run_stage "$STAGE" --non-interactive --skip-build; then
     pass "successful activation prunes only unused obsolete release tags"
 else
@@ -752,24 +851,52 @@ for retained_image in \
     proto-fleet-api:v1.0.0 \
     proto-fleet-client:v1.0.0 \
     proto-fleet-timescaledb:v1.0.0 \
-    proto-fleet-timescaledb-ha:v1.0.0; do
+    proto-fleet-timescaledb-ha:v1.0.0 \
+    proto-fleet-api:v0.9.0 \
+    proto-fleet-client:v0.9.0 \
+    proto-fleet-timescaledb:v0.9.0 \
+    proto-fleet-timescaledb-ha:v0.9.0; do
     assert_not_contains "activation retains image $retained_image" "$HARNESS_CALL_LOG" "docker image rm $retained_image"
 done
 assert_contains "retention checks stopped containers by immutable image ID" "$HARNESS_CALL_LOG" \
-    "docker container ls --all --quiet --filter ancestor=sha256:test-proto-fleet-api:v1.0.0"
+    "docker container ls --all --quiet --filter ancestor=sha256:test-proto-fleet-api:v0.9.0"
+assert_contains "activation records the previous release before teardown" "$HARNESS_CALL_LOG" \
+    "docker container ls --all --filter label=com.docker.compose.project=deployment --format {{.Image}}"
 assert_not_contains "activation retains its current API image" "$HARNESS_CALL_LOG" "docker image rm $FLEET_API_IMAGE"
 up_line=$(grep -nF ' up --remove-orphans' "$HARNESS_CALL_LOG" | head -1 | cut -d: -f1)
 gc_line=$(grep -nF 'docker image rm proto-fleet-api:v1.1.0' "$HARNESS_CALL_LOG" | head -1 | cut -d: -f1)
-if [ -n "$up_line" ] && [ -n "$gc_line" ] && [ "$up_line" -lt "$gc_line" ]; then
-    pass "obsolete release cleanup runs only after successful startup"
+final_ready_line=$(grep -nF 'curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:4000/health/ready' "$HARNESS_CALL_LOG" | tail -1 | cut -d: -f1)
+client_ready_line=$(grep -nF 'curl -fsS -o /dev/null --max-time 2 http://127.0.0.1/' "$HARNESS_CALL_LOG" | tail -1 | cut -d: -f1)
+ready_probe_count=$(grep -cF 'curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:4000/health/ready' "$HARNESS_CALL_LOG")
+if [ -n "$up_line" ] && [ -n "$final_ready_line" ] && [ -n "$client_ready_line" ] && [ -n "$gc_line" ] \
+    && [ "$up_line" -lt "$final_ready_line" ] && [ "$final_ready_line" -lt "$client_ready_line" ] \
+    && [ "$client_ready_line" -lt "$gc_line" ] \
+    && [ "$ready_probe_count" -ge 2 ]; then
+    pass "obsolete release cleanup runs only after final API and client readiness"
 else
-    fail "obsolete release cleanup should follow successful startup"
+    fail "obsolete release cleanup should follow the final API and client readiness probes"
 fi
+
+# A retry can find target-release containers plus an unrelated stale project
+# container after the first activation attempt. Neither identifies the actual
+# previous known-good tag, so leave every managed image available for recovery.
+make_stage retry-release-discovery/deployment
+if FAKE_RELEASE_IMAGES='proto-fleet-api:v1.1.0 proto-fleet-api:v1.0.0' \
+    FAKE_ACTIVE_RELEASE_IMAGES="$FLEET_API_IMAGE proto-fleet-api:v0.9.0" \
+    run_stage "$STAGE" --non-interactive; then
+    pass "retry release discovery skips ambiguous cleanup"
+else
+    fail "retry release discovery should remain a successful activation"
+fi
+assert_contains "retry discovery is diagnosed" "$HARNESS_OUTPUT_LOG" "the target Proto Fleet release is already active"
+assert_not_contains "retry discovery preserves immediate recovery images" "$HARNESS_CALL_LOG" "docker image rm proto-fleet-api:v1.1.0"
+assert_not_contains "retry discovery preserves unidentifiable recovery images" "$HARNESS_CALL_LOG" "docker image rm proto-fleet-api:v1.0.0"
 
 # Docker inspection/removal errors are fail-safe housekeeping failures: no
 # uncertain tag is deleted, and a successful deployment remains successful.
 make_stage release-image-list-failure/deployment
 if FAKE_RELEASE_IMAGES='proto-fleet-api:v1.1.0' \
+    FAKE_ACTIVE_RELEASE_IMAGES='proto-fleet-api:v1.0.0' \
     FAKE_IMAGE_LIST_FAILURE=proto-fleet-client \
     run_stage "$STAGE" --non-interactive; then
     pass "image-list failure does not fail deployment"
@@ -781,6 +908,7 @@ assert_not_contains "image-list failure prevents partial deletion" "$HARNESS_CAL
 
 make_stage release-image-remove-failure/deployment
 if FAKE_RELEASE_IMAGES='proto-fleet-api:v1.1.0' \
+    FAKE_ACTIVE_RELEASE_IMAGES='proto-fleet-api:v1.0.0' \
     FAKE_IMAGE_RM_FAILURE=proto-fleet-api:v1.1.0 \
     run_stage "$STAGE" --non-interactive; then
     pass "image removal failure does not fail deployment"
@@ -788,6 +916,89 @@ else
     fail "image removal failure should remain best-effort"
 fi
 assert_contains "image removal failure is diagnosed" "$HARNESS_OUTPUT_LOG" "could not remove obsolete Proto Fleet image proto-fleet-api:v1.1.0"
+
+make_stage release-image-active-query-failure/deployment
+if FAKE_RELEASE_IMAGES='proto-fleet-api:v1.1.0' \
+    FAKE_ACTIVE_IMAGE_LIST_FAILURE=true \
+    run_stage "$STAGE" --non-interactive; then
+    pass "active-release discovery failure does not fail deployment"
+else
+    fail "active-release discovery failure should only skip cleanup"
+fi
+assert_contains "active-release discovery failure is diagnosed" "$HARNESS_OUTPUT_LOG" "could not identify the active Proto Fleet release"
+assert_not_contains "unknown previous-release state prevents release deletion" "$HARNESS_CALL_LOG" "docker image rm proto-fleet-api:v1.1.0"
+
+# A container being merely "running" is not sufficient after forward-only
+# migrations. Require fleet-api's DB-backed readiness endpoint before any
+# cleanup or success marker consumption.
+make_stage api-readiness-failure/deployment
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "API readiness failure fixture should preflight"
+fi
+: > "$HARNESS_CALL_LOG"
+if FLEET_API_READY_ATTEMPTS=1 \
+    FAKE_API_READINESS_FAILURE=true \
+    FAKE_ACTIVE_RELEASE_IMAGES='proto-fleet-api:v1.0.0' \
+    run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "activation should fail when fleet-api never becomes ready"
+else
+    pass "fleet-api readiness failure blocks upgrade completion"
+fi
+[ -f "$STAGE/.update-preflight-complete" ] || fail "readiness failure should retain its recovery marker"
+assert_contains "activation probes the DB-backed readiness endpoint" "$HARNESS_CALL_LOG" "curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:4000/health/ready"
+assert_not_contains "readiness failure preserves previous release images" "$HARNESS_CALL_LOG" "docker image rm "
+assert_not_contains "readiness failure never reports success" "$HARNESS_OUTPUT_LOG" "Proto Fleet is now running!"
+
+make_stage ignored-api-listen-override/deployment
+printf 'HTTP_LISTEN_ADDRESS=:80\n' >> "$STAGE/.env"
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "ignored API listen override fixture should preflight"
+fi
+: > "$HARNESS_CALL_LOG"
+if FAKE_ACTIVE_RELEASE_IMAGES='proto-fleet-api:v1.0.0' \
+    run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "API readiness uses the deployment service port"
+else
+    fail "an unrelated dotenv listen address should not redirect API readiness"
+fi
+assert_contains "API readiness probes Compose's fixed fleet-api port" "$HARNESS_CALL_LOG" \
+    "curl -fsS -o /dev/null --max-time 2 http://127.0.0.1:4000/health/ready"
+assert_not_contains "nginx cannot masquerade as API readiness" "$HARNESS_CALL_LOG" \
+    "http://127.0.0.1:80/health/ready"
+
+make_stage client-readiness-failure/deployment
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "client readiness failure fixture should preflight"
+fi
+: > "$HARNESS_CALL_LOG"
+if FLEET_API_READY_ATTEMPTS=1 \
+    FAKE_CLIENT_READINESS_FAILURE=true \
+    FAKE_ACTIVE_RELEASE_IMAGES='proto-fleet-api:v1.0.0' \
+    run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "activation should fail when fleet-client never becomes ready"
+else
+    pass "fleet-client readiness failure blocks upgrade completion"
+fi
+[ -f "$STAGE/.update-preflight-complete" ] || fail "client readiness failure should retain its recovery marker"
+assert_contains "activation probes the fleet-client endpoint" "$HARNESS_CALL_LOG" "curl -fsS -o /dev/null --max-time 2 http://127.0.0.1/"
+assert_not_contains "client readiness failure preserves previous release images" "$HARNESS_CALL_LOG" "docker image rm "
+assert_not_contains "client readiness failure never reports success" "$HARNESS_OUTPUT_LOG" "Proto Fleet is now running!"
+
+# Alerts-enabled activation exercises the DB-object readiness poll. Keep its
+# attempt budget tied to the validated service-readiness setting.
+make_stage alerts-activation/deployment
+enable_valid_alerts "$STAGE/.env"
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "alerts activation fixture should preflight"
+fi
+: > "$HARNESS_CALL_LOG"
+if FAKE_ACTIVE_RELEASE_IMAGES='proto-fleet-api:v1.0.0' \
+    run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "alerts-enabled activation completes its DB readiness poll"
+else
+    fail "alerts-enabled activation should not lose its readiness attempt budget"
+fi
+assert_contains "alerts activation provisions the Grafana DB role" "$HARNESS_OUTPUT_LOG" "Provisioning Grafana read-only DB role"
 
 # The updater preflights and activates directories that are both named
 # `deployment`; only their parent changes. Absolute paths in rendered Compose
@@ -1256,6 +1467,15 @@ if cmp -s "$STAGE/client/nginx.https.conf" "$STAGE/client/nginx.conf" && grep -q
 else
     fail "legacy HTTPS did not select HTTPS config and persist secure cookies"
 fi
+: > "$HARNESS_CALL_LOG"
+if FAKE_ACTIVE_RELEASE_IMAGES='proto-fleet-api:v1.0.0' \
+    run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "HTTPS activation probes the served frontend"
+else
+    fail "HTTPS activation should verify the app entrypoint directly"
+fi
+assert_contains "HTTPS frontend readiness bypasses only the loopback self-signed certificate" "$HARNESS_CALL_LOG" \
+    "curl -fkSs -o /dev/null --max-time 2 https://127.0.0.1/"
 
 # Persisted HTTP remains authoritative even if stale certificate files remain
 # on disk from an older HTTPS configuration.

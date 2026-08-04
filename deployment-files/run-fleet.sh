@@ -16,6 +16,17 @@ RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 
+# Preserve process-level Compose overrides before the script initializes its
+# runtime flags with the same names. Plain shell assignment keeps an inherited
+# variable's export bit, so inspecting those names later would otherwise see
+# the script default instead of the invoking environment.
+INVOKING_ENABLE_BETA_ALERTS_SET="${ENABLE_BETA_ALERTS+x}"
+INVOKING_ENABLE_BETA_ALERTS_VALUE="${ENABLE_BETA_ALERTS-}"
+INVOKING_ENABLE_SYSTEM_MONITORING_SET="${ENABLE_SYSTEM_MONITORING+x}"
+INVOKING_ENABLE_SYSTEM_MONITORING_VALUE="${ENABLE_SYSTEM_MONITORING-}"
+INVOKING_ENABLE_TRACING_SET="${ENABLE_TRACING+x}"
+INVOKING_ENABLE_TRACING_VALUE="${ENABLE_TRACING-}"
+
 ENABLE_BETA_ALERTS=false
 ENABLE_SYSTEM_MONITORING=false
 ENABLE_TRACING=false
@@ -28,6 +39,8 @@ FLEET_API_IMAGE=""
 FLEET_CLIENT_IMAGE=""
 TIMESCALEDB_IMAGE=""
 TIMESCALEDB_HA_IMAGE=""
+PREVIOUS_RELEASE_IMAGE_TAGS=()
+RELEASE_IMAGE_CLEANUP_SAFE=true
 
 # How long the post-start steps wait for fleet-api to finish its migrations.
 # 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
@@ -35,53 +48,86 @@ TIMESCALEDB_HA_IMAGE=""
 # old 2-4 minute caps and previously left grafana_ro unprovisioned. On a warm
 # database these polls return on the first attempt, so the high cap only costs
 # time when migrations are genuinely stuck.
-MIGRATION_WAIT_ATTEMPTS=300
+FLEET_API_READY_ATTEMPTS="${FLEET_API_READY_ATTEMPTS:-300}"
 
 env_last_value() {
-    local line value
-    line=$(grep -E "^${1}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1)
-    [ -n "$line" ] || return 1
-
-    value="${line#*=}"
-    value=$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
-    case "$value" in
-        \"*\") value="${value#\"}"; value="${value%\"}" ;;
-        \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    local key="$1"
+    # Compose interpolation gives the invoking process precedence over .env.
+    # Validate that same effective value rather than silently checking the
+    # persisted fallback while containers receive an exported override.
+    case "$key" in
+        ENABLE_BETA_ALERTS)
+            if [ "$INVOKING_ENABLE_BETA_ALERTS_SET" = "x" ]; then
+                printf '%s' "$INVOKING_ENABLE_BETA_ALERTS_VALUE"
+            else
+                compose_env_last_value "$key"
+            fi
+            return $?
+            ;;
+        ENABLE_SYSTEM_MONITORING)
+            if [ "$INVOKING_ENABLE_SYSTEM_MONITORING_SET" = "x" ]; then
+                printf '%s' "$INVOKING_ENABLE_SYSTEM_MONITORING_VALUE"
+            else
+                compose_env_last_value "$key"
+            fi
+            return $?
+            ;;
+        ENABLE_TRACING)
+            if [ "$INVOKING_ENABLE_TRACING_SET" = "x" ]; then
+                printf '%s' "$INVOKING_ENABLE_TRACING_VALUE"
+            else
+                compose_env_last_value "$key"
+            fi
+            return $?
+            ;;
     esac
-    printf '%s' "$value"
+    if [ "${!key+x}" = "x" ]; then
+        printf '%s' "${!key}"
+        return 0
+    fi
+    compose_env_last_value "$key"
 }
 
 parse_compose_env_value() {
     local value="$1"
-    local double_quoted='^"(.*)"[[:space:]]*(#.*)?$'
-    local single_quoted="^'(.*)'[[:space:]]*(#.*)?$"
+    local double_quoted='^"([^"\\]*)"[[:space:]]*(#.*)?$'
+    local single_quoted="^'([^']*)'[[:space:]]*(#.*)?$"
 
     value=$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
     case "$value" in
         \"*)
             [[ "$value" =~ $double_quoted ]] || return 2
             value="${BASH_REMATCH[1]}"
+            # Compose expands $ references and decodes backslash escapes in
+            # double-quoted values. Reject those uncommon forms rather than
+            # validating a different secret from the one Compose will use.
+            [[ "$value" != *'$'* && "$value" != *\\* ]] || return 2
             ;;
         \'*)
             [[ "$value" =~ $single_quoted ]] || return 2
             value="${BASH_REMATCH[1]}"
+            # An escaped quote cannot match the restricted expression above;
+            # other backslashes remain literal under Compose single quotes.
             ;;
         *)
             # Compose treats # as an inline comment only when whitespace
             # separates it from an unquoted value.
             value=$(printf '%s' "$value" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')
+            # Unquoted values undergo Compose interpolation.
+            [[ "$value" != *'$'* ]] || return 2
             ;;
     esac
     printf '%s' "$value"
 }
 
-# Read one key using Compose's documented dotenv delimiters/comments. This is
-# separate from the older deployment-value reader above because project
-# identity must never silently fall back when a valid Compose assignment uses
-# `KEY: value` syntax. Returns 1 when absent and 2 when present but malformed.
+# Read one key using the literal subset of Compose's documented dotenv
+# delimiters, quoting, and comment rules. Returns 1 when absent and 2 when a
+# runner-consumed value is present but cannot be interpreted without risking
+# divergence from Compose.
 compose_env_last_value() {
     local key="$1" line normalized parsed found=false
-    local assignment_re="^${key}[[:space:]]*([=:])(.*)$"
+    local equals_assignment_re="^${key}[[:space:]]*=(.*)$"
+    local colon_assignment_re="^${key}[[:space:]]*:(.*)$"
     local malformed_re="^${key}([[:space:]]|$)"
 
     [ -e "$ENV_FILE" ] || return 1
@@ -94,8 +140,11 @@ compose_env_last_value() {
                 normalized=$(printf '%s' "$normalized" | sed -E 's/^[[:space:]]+//')
                 ;;
         esac
-        if [[ "$normalized" =~ $assignment_re ]]; then
-            parsed=$(parse_compose_env_value "${BASH_REMATCH[2]}") || return 2
+        if [[ "$normalized" =~ $equals_assignment_re ]]; then
+            parsed=$(parse_compose_env_value "${BASH_REMATCH[1]}") || return 2
+            found=true
+        elif [[ "$normalized" =~ $colon_assignment_re ]]; then
+            parsed=$(parse_compose_env_value "${BASH_REMATCH[1]}") || return 2
             found=true
         elif [[ "$normalized" =~ $malformed_re ]]; then
             return 2
@@ -106,6 +155,47 @@ compose_env_last_value() {
     printf '%s' "$parsed"
 }
 
+validate_runner_env_values() {
+    local key status
+    local keys=(
+        COMPOSE_PROJECT_NAME
+        ENABLE_BETA_ALERTS
+        ENABLE_SYSTEM_MONITORING
+        ENABLE_TRACING
+        FLEET_PROFILE
+        DB_USERNAME
+        DB_PASSWORD
+        DB_NAME
+        AUTH_CLIENT_SECRET_KEY
+        ENCRYPT_SERVICE_MASTER_KEY
+        DD_API_KEY
+        SESSION_COOKIE_SECURE
+        GRAFANA_ADMIN_PASSWORD
+        GRAFANA_DB_USERNAME
+        GRAFANA_DB_PASSWORD
+        GRAFANA_SECRET_KEY
+        FLEET_ALERTS_WEBHOOK_TOKEN
+        FLEET_ALERTS_GRAFANA_TOKEN
+    )
+
+    [ -e "$ENV_FILE" ] || return 0
+    if [ ! -f "$ENV_FILE" ] || [ ! -r "$ENV_FILE" ]; then
+        echo "Error: $ENV_FILE must be a readable regular file." >&2
+        return 1
+    fi
+    for key in "${keys[@]}"; do
+        if compose_env_last_value "$key" >/dev/null; then
+            status=0
+        else
+            status=$?
+        fi
+        [ "$status" -eq 0 ] && continue
+        [ "$status" -eq 1 ] && continue
+        echo "Error: $key in $ENV_FILE uses unsupported Compose dotenv syntax; use a literal same-line value (single-quote literal dollar signs)." >&2
+        return 1
+    done
+}
+
 env_has_nonempty_value() {
     local value
     value=$(env_last_value "$1") || return 1
@@ -114,7 +204,7 @@ env_has_nonempty_value() {
 
 env_boolean_is_true() {
     local key="$1" value read_status
-    if value=$(compose_env_last_value "$key"); then
+    if value=$(env_last_value "$key"); then
         :
     else
         read_status=$?
@@ -129,7 +219,7 @@ env_boolean_is_true() {
         true) return 0 ;;
         false|'') return 1 ;;
         *)
-            echo "Error: $key must be true or false in $ENV_FILE." >&2
+            echo "Error: the effective $key value must be true or false (process environment takes precedence over $ENV_FILE)." >&2
             exit 1
             ;;
     esac
@@ -283,6 +373,11 @@ if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
     exit 1
 fi
 
+validate_runner_env_values || exit 1
+if [[ ! "$FLEET_API_READY_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Error: FLEET_API_READY_ATTEMPTS must be a positive integer." >&2
+    exit 1
+fi
 FLEET_COMPOSE_PROJECT_NAME=$(resolve_compose_project_name) || exit 1
 RELEASE_IMAGE_TAG=$(resolve_release_image_tag) || exit 1
 FLEET_API_IMAGE="proto-fleet-api:${RELEASE_IMAGE_TAG}"
@@ -360,11 +455,8 @@ refresh_compose_files
 refresh_compose_env_args() {
     COMPOSE_ENV_ARGS=()
     local profile profile_file
-    # `|| true` keeps a missing FLEET_PROFILE line from killing set -euo
-    # pipefail callers; tail -1 matches compose's last-wins env semantics.
-    # Normalize whitespace/CR/quotes and case: compose accepts .env syntax
-    # (CRLF edits on WSL, quoted values) that the filename match would reject
-    profile=$(grep -E '^FLEET_PROFILE=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]"'"'" | tr '[:upper:]' '[:lower:]' || true)
+    profile=$(env_last_value FLEET_PROFILE 2>/dev/null || true)
+    profile=$(printf '%s' "$profile" | tr '[:upper:]' '[:lower:]')
     if [ -n "$profile" ]; then
         profile_file="$PROJECT_ROOT/profiles/${profile}.env"
         if [[ "$profile" =~ ^[a-z]+$ ]] && [ -f "$profile_file" ]; then
@@ -460,11 +552,12 @@ is_managed_release_image_tag() {
 prune_obsolete_release_images() {
     local repository image tag image_id containers
     local candidates=()
-    local protected_tags=(latest "$RELEASE_IMAGE_TAG")
+    local protected_tags=(latest "$RELEASE_IMAGE_TAG" "${PREVIOUS_RELEASE_IMAGE_TAGS[@]}")
 
     # Source-tree runs intentionally share mutable :latest tags and must not
     # participate in packaged-release retention.
     [ "$RELEASE_IMAGE_TAG" != "latest" ] || return 0
+    [ "$RELEASE_IMAGE_CLEANUP_SAFE" = "true" ] || return 0
 
     # Collect the complete candidate set before deleting anything. If Docker
     # cannot enumerate one reserved repository, fail safe and leave every tag
@@ -532,6 +625,45 @@ prune_obsolete_release_images() {
             echo "Warning: could not remove obsolete Proto Fleet image $image; continuing." >&2
         fi
     done
+}
+
+capture_previous_release_image_tags() {
+    local images image tag existing_tag found_target=false
+    PREVIOUS_RELEASE_IMAGE_TAGS=()
+    RELEASE_IMAGE_CLEANUP_SAFE=true
+
+    [ "$RELEASE_IMAGE_TAG" != "latest" ] || return 0
+    if ! images=$(docker container ls --all \
+        --filter "label=com.docker.compose.project=$FLEET_COMPOSE_PROJECT_NAME" \
+        --format '{{.Image}}' 2>/dev/null); then
+        echo "Warning: could not identify the active Proto Fleet release; skipping release image cleanup." >&2
+        RELEASE_IMAGE_CLEANUP_SAFE=false
+        return 0
+    fi
+    while IFS= read -r image; do
+        case "$image" in
+            proto-fleet-api:*|proto-fleet-client:*|proto-fleet-timescaledb:*|proto-fleet-timescaledb-ha:*) ;;
+            *) continue ;;
+        esac
+        tag="${image##*:}"
+        is_managed_release_image_tag "$tag" || continue
+        for existing_tag in "${PREVIOUS_RELEASE_IMAGE_TAGS[@]}"; do
+            [ "$existing_tag" != "$tag" ] || continue 2
+        done
+        PREVIOUS_RELEASE_IMAGE_TAGS+=("$tag")
+        [ "$tag" != "$RELEASE_IMAGE_TAG" ] || found_target=true
+    done <<< "$images"
+
+    if [ "${#PREVIOUS_RELEASE_IMAGE_TAGS[@]}" -eq 0 ]; then
+        echo "Warning: no active Proto Fleet release tag was found; skipping release image cleanup." >&2
+        RELEASE_IMAGE_CLEANUP_SAFE=false
+    elif [ "$found_target" = "true" ]; then
+        # On a retry, target containers may already have replaced every source
+        # of the previous known-good tag. Even a second, stale project tag does
+        # not prove which intervening release is the recovery target.
+        echo "Warning: the target Proto Fleet release is already active; skipping release image cleanup because the previous tag cannot be identified safely." >&2
+        RELEASE_IMAGE_CLEANUP_SAFE=false
+    fi
 }
 
 sha256() {
@@ -814,7 +946,7 @@ verify_preflight_marker() {
 # Poll psql until the query returns true; caller owns the warning.
 wait_for_psql_true() {
     local query="$1" attempt result
-    for attempt in $(seq 1 "$MIGRATION_WAIT_ATTEMPTS"); do
+    for attempt in $(seq 1 "$FLEET_API_READY_ATTEMPTS"); do
         result=$(compose exec -T timescaledb \
             bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"$query\"" \
             2>/dev/null | tr -d '[:space:]')
@@ -1514,7 +1646,7 @@ if [ -f "$ENV_FILE" ]; then
             use_existing="yes"
             echo "Using existing environment file."
             # Pre-profile installs upgrading: ask once
-            if ! grep -q "^FLEET_PROFILE=" "$ENV_FILE"; then
+            if ! env_last_value FLEET_PROFILE >/dev/null 2>&1; then
                 maybe_prompt_fleet_profile
             fi
         else
@@ -1932,6 +2064,7 @@ fi
 # ----------------------------------------------------------------------------
 
 echo "Stopping any running services..."
+capture_previous_release_image_tags
 compose down --remove-orphans
 
 echo "Starting services..."
@@ -1941,6 +2074,56 @@ echo "Starting services..."
 if ! compose up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull never; then
     echo "Error: services failed to reach running state."
     echo "Check logs with: docker compose --project-name $FLEET_COMPOSE_PROJECT_NAME ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} logs"
+    exit 1
+fi
+
+wait_for_fleet_api_ready() {
+    local attempt
+
+    echo "Waiting for fleet-api readiness after migrations…"
+    for attempt in $(seq 1 "$FLEET_API_READY_ATTEMPTS"); do
+        # The deployment Compose model fixes fleet-api to 0.0.0.0:4000 in its
+        # extended service definition. Do not let an unrelated dotenv value
+        # redirect this probe to nginx or another process.
+        if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:4000/health/ready"; then
+            return 0
+        fi
+        if [ "$attempt" -eq "$FLEET_API_READY_ATTEMPTS" ]; then
+            echo "Error: fleet-api did not become ready within $((FLEET_API_READY_ATTEMPTS * 2))s." >&2
+            return 1
+        fi
+        sleep 2
+    done
+}
+
+wait_for_fleet_client_ready() {
+    local attempt client_url
+
+    client_url="${PROTOCOL_MODE}://127.0.0.1/"
+
+    echo "Waiting for fleet-client readiness…"
+    for attempt in $(seq 1 "$FLEET_API_READY_ATTEMPTS"); do
+        if [ "$PROTOCOL_MODE" = "https" ]; then
+            # The packaged certificate can be self-signed; this is a loopback
+            # liveness probe, not a remote identity check.
+            if curl -fkSs -o /dev/null --max-time 2 "$client_url"; then
+                return 0
+            fi
+        else
+            if curl -fsS -o /dev/null --max-time 2 "$client_url"; then
+                return 0
+            fi
+        fi
+        if [ "$attempt" -eq "$FLEET_API_READY_ATTEMPTS" ]; then
+            echo "Error: fleet-client did not become ready after $FLEET_API_READY_ATTEMPTS attempts." >&2
+            return 1
+        fi
+        sleep 2
+    done
+}
+
+if ! wait_for_fleet_api_ready; then
+    echo "Error: refusing to consume the preflight proof or remove previous release images." >&2
     exit 1
 fi
 
@@ -1954,28 +2137,6 @@ fi
 # re-applied on every run so jobs added by new migrations get staggered on
 # the next upgrade.
 apply_database_tuning() {
-    # fleetd binds its HTTP listener only after applying every pending
-    # migration (cmd/fleetd/main.go), so a responding API is the reliable
-    # all-migrations-applied signal. schema_migrations.dirty=false is not:
-    # during an upgrade the previous deploy's row already reads clean while
-    # migrations (and the policy jobs they create) are still pending.
-    local api_addr api_port attempt
-    api_addr=$(env_last_value HTTP_LISTEN_ADDRESS 2>/dev/null || true)
-    api_port="${api_addr##*:}"
-    case "$api_port" in *[!0-9]*|"") api_port=4000 ;; esac
-
-    echo "Waiting for fleet-api to finish database migrations before applying tuning…"
-    for attempt in $(seq 1 "$MIGRATION_WAIT_ATTEMPTS"); do
-        if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${api_port}/"; then
-            break
-        fi
-        if [ "$attempt" -eq "$MIGRATION_WAIT_ATTEMPTS" ]; then
-            echo "Warning: fleet-api did not come up within $((MIGRATION_WAIT_ATTEMPTS * 2))s; skipping database tuning." >&2
-            return 1
-        fi
-        sleep 2
-    done
-
     compose exec -T timescaledb \
         bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
@@ -2258,6 +2419,15 @@ if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
         echo "         so alert channel/rule/silence management will 401 until this succeeds." >&2
         echo "         Re-run this script (Grafana must be reachable on 127.0.0.1:3030) to retry." >&2
     fi
+fi
+
+# Token provisioning can recreate fleet-api after the initial post-migration
+# probe. Make the cleanup boundary definitive: never consume the preflight
+# proof or remove recovery images unless the final API process is DB-ready and
+# nginx is serving (or redirecting to) the frontend.
+if ! wait_for_fleet_api_ready || ! wait_for_fleet_client_ready; then
+    echo "Error: refusing to consume the preflight proof or remove previous release images." >&2
+    exit 1
 fi
 
 # ----------------------------------------------------------------------------
