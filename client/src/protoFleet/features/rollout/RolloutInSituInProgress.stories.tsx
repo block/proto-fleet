@@ -1,17 +1,16 @@
 import { type ReactElement, type ReactNode, useEffect, useState } from "react";
-import { MemoryRouter } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { ActivityEntrySchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import NavigationMenu from "@/protoFleet/components/NavigationMenu";
-import SecondaryNavigation from "@/protoFleet/components/SecondaryNavigation";
-import { primaryNavItems, secondaryNavItems } from "@/protoFleet/config/navItems";
+import { primaryNavItems } from "@/protoFleet/config/navItems";
 import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
 import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
 import { mockCurtailmentHistoryEvents } from "@/protoFleet/features/energy/CurtailmentHistory.fixtures";
 import { ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
+import { FirmwareSettingsSurface } from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
 import {
   inProgressCurtailmentEvent,
   inProgressFirmwareEvent,
@@ -22,8 +21,6 @@ import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
 import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
-import List from "@/shared/components/List";
-import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 
 /**
  * Contextual ("in-situ") **in-progress** surfaces: a rollout once it is live,
@@ -80,80 +77,6 @@ function AppShell({ children }: { children: ReactNode }): ReactElement {
       <NavigationMenu items={primaryNavItems} />
       <div className="min-h-screen pl-60">{children}</div>
     </div>
-  );
-}
-
-/**
- * Firmware settings "Firmware files" table, built on the shared `List` (the
- * same component `MinerList` / `ActivityTable` use) rather than bespoke grid
- * markup, so the settings surface reads with the product's real table styling.
- */
-interface FirmwareFileRow {
-  id: string;
-  filename: string;
-  target: string;
-  version: string;
-  uploaded: string;
-}
-
-type FirmwareFileColumn = "filename" | "target" | "version" | "uploaded";
-
-const firmwareFileColumns: FirmwareFileColumn[] = ["filename", "target", "version", "uploaded"];
-
-const firmwareFileColTitles: ColTitles<FirmwareFileColumn> = {
-  filename: "File name",
-  target: "Target",
-  version: "Version",
-  uploaded: "Uploaded",
-};
-
-const firmwareFileColConfig: ColConfig<FirmwareFileRow, string, FirmwareFileColumn> = {
-  filename: {
-    component: (file) => <span className="text-emphasis-300 text-text-primary">{file.filename}</span>,
-    width: "w-[22rem]",
-  },
-  target: { component: (file) => file.target, width: "w-48" },
-  version: { component: (file) => file.version, width: "w-32" },
-  uploaded: { component: (file) => file.uploaded, width: "w-40" },
-};
-
-const firmwareFileRows: FirmwareFileRow[] = [
-  {
-    id: "f1",
-    filename: "antminer-s21-5.1.0.tar.gz",
-    target: "Antminer S21",
-    version: "5.1.0",
-    uploaded: "Aug 1, 2026",
-  },
-  {
-    id: "f2",
-    filename: "antminer-s21-5.0.2.tar.gz",
-    target: "Antminer S21",
-    version: "5.0.2",
-    uploaded: "Jun 12, 2026",
-  },
-  {
-    id: "f3",
-    filename: "whatsminer-m60-3.4.1.tar.gz",
-    target: "Whatsminer M60",
-    version: "3.4.1",
-    uploaded: "May 3, 2026",
-  },
-];
-
-function FirmwareFilesTable(): ReactElement {
-  return (
-    <List<FirmwareFileRow, string, FirmwareFileColumn>
-      activeCols={firmwareFileColumns}
-      colTitles={firmwareFileColTitles}
-      colConfig={firmwareFileColConfig}
-      items={firmwareFileRows}
-      itemKey="id"
-      total={firmwareFileRows.length}
-      itemName={{ singular: "firmware file", plural: "firmware files" }}
-      applyColumnWidthsToCells
-      stickyFirstColumn={false}
-    />
   );
 }
 
@@ -247,51 +170,18 @@ export const HeaderPill: Story = {
 };
 
 // ---- 2. Firmware settings page: active rollout in its detail home ----------
-// Reproduces the Firmware settings page inside the real settings chrome: the
-// shipped `SecondaryNavigation` subnav (Network / Firmware / …) beside the page
-// body, mirroring `SettingsLayout`. Rendered under a MemoryRouter at
-// `/settings/firmware` so the subnav filters to the settings group and marks
-// Firmware current.
-
-function FirmwareSettingsPageStory(): ReactElement {
-  return (
-    <AppShell>
-      <div className="flex h-full grow flex-row">
-        <SecondaryNavigation items={secondaryNavItems} />
-        <div className="flex min-w-0 grow flex-col gap-6 p-10">
-          <div className="flex items-center justify-between gap-4">
-            <Header
-              title="Firmware"
-              titleSize="text-heading-300"
-              description="Upload and manage firmware files available to your fleet."
-            />
-            <Button variant={variants.primary} size={sizes.compact} text="Upload firmware" onClick={noop} />
-          </div>
-          <ActiveRolloutStatus
-            event={inProgressFirmwareEvent}
-            onManage={noop}
-            onPause={noop}
-            onCancelRemaining={noop}
-          />
-          <div className="text-emphasis-300 text-text-primary">Firmware files</div>
-          <FirmwareFilesTable />
-        </div>
-      </div>
-    </AppShell>
-  );
-}
+// The established in-situ home for a firmware rollout: the Firmware settings
+// page (settings subnav + "Firmware" header + Upload CTA + firmware files
+// table) with the active-rollout card inline above the table. Rendered through
+// the shared `FirmwareSettingsSurface` so this and the per-state
+// `Firmware Lifecycle` stories share one source of truth and can't drift; the
+// surface provides its own MemoryRouter at `/settings/firmware`, so this story
+// opts out of the global StoryRouter.
 
 export const FirmwareSettingsPage: Story = {
   name: "Firmware settings page",
   parameters: { withRouter: false },
-  decorators: [
-    (StoryFn: () => ReactElement) => (
-      <MemoryRouter initialEntries={["/settings/firmware"]}>
-        <StoryFn />
-      </MemoryRouter>
-    ),
-  ],
-  render: () => <FirmwareSettingsPageStory />,
+  render: () => <FirmwareSettingsSurface event={inProgressFirmwareEvent} />,
 };
 
 // ---- 3. Energy UI: rollout card the way curtailment renders it -------------
