@@ -5,7 +5,7 @@ import { BasePage } from "./base";
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export class SettingsTeamPage extends BasePage {
-  private memberRow(username: string) {
+  private getMemberRow(username: string) {
     return this.page
       .getByTestId("list-body")
       .locator("tr")
@@ -14,7 +14,7 @@ export class SettingsTeamPage extends BasePage {
       });
   }
 
-  private roleRow(roleName: string) {
+  private getRoleRow(roleName: string) {
     return this.page
       .getByTestId("list-body")
       .locator("tr")
@@ -25,6 +25,10 @@ export class SettingsTeamPage extends BasePage {
 
   private sanitizePermissionKey(permissionKey: string) {
     return permissionKey.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  }
+
+  private getRolePermissionRow(permissionKey: string) {
+    return this.page.getByTestId(`role-permission-${this.sanitizePermissionKey(permissionKey)}`);
   }
 
   async validateTeamSettingsPageOpened() {
@@ -113,11 +117,11 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberRole(username: string, role: string) {
-    await expect(this.memberRow(username).getByTestId("role")).toHaveText(role);
+    await expect(this.getMemberRow(username).getByTestId("role")).toHaveText(role);
   }
 
   async validateMemberLastLogin(username: string, lastLogin: string) {
-    await expect(this.memberRow(username).getByTestId("lastLoginAt")).toHaveText(lastLogin);
+    await expect(this.getMemberRow(username).getByTestId("lastLoginAt")).toHaveText(lastLogin);
   }
 
   async getTemporaryPassword(): Promise<string> {
@@ -125,7 +129,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberVisible(username: string) {
-    await expect(this.memberRow(username)).toBeVisible();
+    await expect(this.getMemberRow(username)).toBeVisible();
   }
 
   // FIELD_TECH (and any role without user:read) doesn't see the Team
@@ -155,13 +159,45 @@ export class SettingsTeamPage extends BasePage {
   async selectRolePermission(permissionKey: string) {
     await this.page.getByTestId("role-permission-search").fill(permissionKey);
 
-    const permissionRow = this.page.getByTestId(`role-permission-${this.sanitizePermissionKey(permissionKey)}`);
+    const permissionRow = this.getRolePermissionRow(permissionKey);
     await expect(permissionRow).toBeVisible();
 
     const checkbox = permissionRow.getByRole("checkbox");
     if (!(await checkbox.isChecked())) {
       await permissionRow.click();
     }
+  }
+
+  async setRolePermission(permissionKey: string, checked: boolean) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+
+    const permissionRow = this.getRolePermissionRow(permissionKey);
+    await expect(permissionRow).toBeVisible();
+
+    const checkbox = permissionRow.getByRole("checkbox");
+    if ((await checkbox.isChecked()) !== checked) {
+      await permissionRow.click();
+    }
+  }
+
+  async validateRolePermissionChecked(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+    await expect(this.getRolePermissionRow(permissionKey).getByRole("checkbox")).toBeChecked();
+  }
+
+  async validateRolePermissionUnchecked(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+    await expect(this.getRolePermissionRow(permissionKey).getByRole("checkbox")).not.toBeChecked();
+  }
+
+  async validateRolePermissionDisabled(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+    await expect(this.getRolePermissionRow(permissionKey).getByRole("checkbox")).toBeDisabled();
+  }
+
+  async validateRolePermissionEnabled(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+    await expect(this.getRolePermissionRow(permissionKey).getByRole("checkbox")).toBeEnabled();
   }
 
   async clickCreateRoleConfirm() {
@@ -184,11 +220,11 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateRoleVisible(roleName: string) {
-    await expect(this.roleRow(roleName)).toBeVisible();
+    await expect(this.getRoleRow(roleName)).toBeVisible();
   }
 
   async validateRoleNotVisible(roleName: string) {
-    await expect(this.roleRow(roleName)).toHaveCount(0);
+    await expect(this.getRoleRow(roleName)).toHaveCount(0);
   }
 
   async validateSystemRoleLockVisible() {
@@ -235,21 +271,21 @@ export class SettingsTeamPage extends BasePage {
     }
 
     for (const roleName of roleNamesToDelete) {
-      const row = this.roleRow(roleName);
+      const row = this.getRoleRow(roleName);
       await expect(row).toBeVisible();
       await row.getByTestId("list-actions-trigger").click();
       await this.clickButton("Delete");
       await this.clickButton("Delete role");
-      await expect(this.roleRow(roleName)).toBeHidden();
+      await expect(this.getRoleRow(roleName)).toBeHidden();
     }
   }
 
   async clickMemberActionsMenu(username: string) {
-    await this.memberRow(username).getByTestId("list-actions-trigger").click();
+    await this.getMemberRow(username).getByTestId("list-actions-trigger").click();
   }
 
   async validateMemberActionsHidden(username: string) {
-    await expect(this.memberRow(username).getByTestId("list-actions-trigger")).toHaveCount(0);
+    await expect(this.getMemberRow(username).getByTestId("list-actions-trigger")).toHaveCount(0);
   }
 
   async clickResetPassword() {
@@ -269,7 +305,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async clickRoleActionsMenu(roleName: string) {
-    await this.roleRow(roleName).getByTestId("list-actions-trigger").click();
+    await this.getRoleRow(roleName).getByTestId("list-actions-trigger").click();
   }
 
   async clickEditRoleAction() {
@@ -312,6 +348,6 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberNotInList(username: string) {
-    await expect(this.memberRow(username)).toBeHidden();
+    await expect(this.getMemberRow(username)).toBeHidden();
   }
 }

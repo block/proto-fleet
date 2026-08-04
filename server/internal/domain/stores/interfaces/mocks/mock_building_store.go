@@ -251,6 +251,21 @@ func (mr *MockBuildingStoreMockRecorder) GetBuildingSiteID(ctx, orgID, buildingI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBuildingSiteID", reflect.TypeOf((*MockBuildingStore)(nil).GetBuildingSiteID), ctx, orgID, buildingID)
 }
 
+// ListBuildingNamesBySite mocks base method.
+func (m *MockBuildingStore) ListBuildingNamesBySite(ctx context.Context, orgID, siteID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBuildingNamesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListBuildingNamesBySite indicates an expected call of ListBuildingNamesBySite.
+func (mr *MockBuildingStoreMockRecorder) ListBuildingNamesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBuildingNamesBySite", reflect.TypeOf((*MockBuildingStore)(nil).ListBuildingNamesBySite), ctx, orgID, siteID)
+}
+
 // ListBuildingRacks mocks base method.
 func (m *MockBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32, pageToken string) ([]models.BuildingRack, string, error) {
 	m.ctrl.T.Helper()

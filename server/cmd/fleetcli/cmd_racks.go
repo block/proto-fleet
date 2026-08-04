@@ -21,16 +21,24 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/AssignDevicesToRack",
 				generatedAuthAuthenticated,
 				append([]cli.Flag{
-					&cli.Int64Flag{Name: "target-rack-id", Usage: "(required) target rack id", Required: true},
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.Int64Flag{Name: "target-rack-id", Usage: "(required unless provided by --json) target rack id"},
 					&cli.BoolFlag{Name: "force-clear-conflicting-site", Usage: "force clear conflicting site"},
 				}, generatedCommonDeviceListSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.AssignDevicesToRackRequest{}
-					selector, err := generatedBuildCommonDeviceListSelector(cmd)
-					if err != nil {
-						return nil, err
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
 					}
-					req.DeviceSelector = selector
+					if generatedCommonDeviceListSelectorProvided(cmd) {
+						selector, err := generatedBuildCommonDeviceListSelector(cmd)
+						if err != nil {
+							return nil, err
+						}
+						req.DeviceSelector = selector
+					}
 					if cmd.IsSet("target-rack-id") {
 						value := cmd.Int64("target-rack-id")
 						req.TargetRackId = &value
@@ -38,6 +46,9 @@ func generatedRacksCommand() *cli.Command {
 					if cmd.IsSet("force-clear-conflicting-site") {
 						value := cmd.Bool("force-clear-conflicting-site")
 						req.ForceClearConflictingSite = &value
+					}
+					if err := generatedValidateRequiredFields(req, "target_rack_id"); err != nil {
+						return nil, err
 					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err

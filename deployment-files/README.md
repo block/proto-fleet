@@ -277,9 +277,9 @@ the Grafana UI at `127.0.0.1:3030` during an outage.
 Disabling the feature removes the alert rules on the next start (via a
 provisioned tombstone) but leaves the System Monitoring dashboard in
 Grafana; delete it from the UI if it bothers you. fleet-api also
-serves `GET /health/ready` (200 only when its database answers a ping)
-for external uptime monitors, alongside the always-static liveness
-check at `GET /health`.
+serves `GET /health/ready` (200 only when Fleet is active and its
+database answers a ping) for external uptime monitors, alongside the
+always-static liveness check at `GET /health`.
 
 ## Client Observability
 

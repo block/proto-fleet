@@ -104,7 +104,10 @@ func TestPatroniHTTPClientDialsValidatedPostgresAddress(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/primary", r.URL.Path)
 		require.Equal(t, expectedHost, r.Host)
-		writeJSON(t, w, map[string]any{"role": "primary", "timeline": 7})
+		writeJSON(t, w, map[string]any{
+			"role":     "primary",
+			"timeline": 7,
+		})
 	}))
 	t.Cleanup(server.Close)
 
@@ -120,7 +123,10 @@ func TestPatroniHTTPClientDialsValidatedPostgresAddress(t *testing.T) {
 		serverURL.Hostname(),
 	)
 	require.NoError(t, err)
-	require.Equal(t, PatroniIdentity{Role: "primary", Timeline: 7}, identity)
+	require.Equal(t, PatroniIdentity{
+		Role:     "primary",
+		Timeline: 7,
+	}, identity)
 }
 
 func TestObserverAcceptsStableBoundWriter(t *testing.T) {
@@ -164,7 +170,10 @@ func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
 		return []string{"172.30.0.12"}, nil
 	}
 	observer.patroni = fakePatroniReader{
-		identity:      PatroniIdentity{Role: "primary", Timeline: 7},
+		identity: PatroniIdentity{
+			Role:     "primary",
+			Timeline: 7,
+		},
 		calls:         &calls,
 		serverAddress: &patroniServerAddress,
 	}
@@ -205,8 +214,11 @@ func TestObserverRunsActionInsideDCSValidationBracket(t *testing.T) {
 		return []string{"172.30.0.12"}, nil
 	}
 	observer.patroni = fakePatroniReader{
-		identity: PatroniIdentity{Role: "primary", Timeline: 7},
-		calls:    &calls,
+		identity: PatroniIdentity{
+			Role:     "primary",
+			Timeline: 7,
+		},
+		calls: &calls,
 	}
 
 	_, err := observer.ObserveAndRun(

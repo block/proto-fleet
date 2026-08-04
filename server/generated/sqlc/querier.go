@@ -607,6 +607,7 @@ type Querier interface {
 	GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error)
 	// Batch query to get group refs for multiple devices at once (for miner list)
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
+	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
 	// Dedicated sensitive read: this field is intentionally not projected through
 	// the generic Site API. Org scope and deleted_at mask cross-org/missing sites
 	// as the same not-found result.
@@ -705,6 +706,9 @@ type Querier interface {
 	GetRackInfo(ctx context.Context, arg GetRackInfoParams) (GetRackInfoRow, error)
 	GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchParams) ([]GetRackInfoBatchRow, error)
 	GetRackSlots(ctx context.Context, arg GetRackSlotsParams) ([]GetRackSlotsRow, error)
+	// No row means the org has never chosen a channel; the service layer maps
+	// sql.ErrNoRows to the 'stable' default rather than seeding a row here.
+	GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error)
 	GetRoleByID(ctx context.Context, id int64) (Role, error)
 	// Locking counterpart of GetRoleByID. Used by mutations that must serialize
 	// against a concurrent SoftDeleteCustomRole on the same role row:
@@ -860,6 +864,10 @@ type Querier interface {
 	// fires. Callers that want to detect truncation pass (cap + 1); reading one
 	// sentinel row beyond the cap keeps `len(rows) > cap` a valid signal.
 	ListBatchDeviceResults(ctx context.Context, arg ListBatchDeviceResultsParams) ([]ListBatchDeviceResultsRow, error)
+	// CreateBuildings' collision preflight: names only, so it skips
+	// ListBuildingsByOrg's org-wide rack/device aggregation while the site
+	// write lock is held.
+	ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error)
 	// Returns racks currently assigned to a building with their grid
 	// position. Used by ManageBuildingModal to seed the layout grid.
 	// Excludes soft-deleted rack collections; org guard is checked
@@ -1084,6 +1092,10 @@ type Querier interface {
 	// can show "N miners, M buildings, K racks, J infrastructure devices"
 	// without an extra round trip.
 	ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error)
+	// Which candidate labels are already live in the org for this type. Backs bulk
+	// create's duplicate check: uk_device_collection_org_type_label spans
+	// (org_id, type, label), so a site/building-scoped rack list can't answer it.
+	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	// Last-SUPER_ADMIN guard. Locks every live org-scope SUPER_ADMIN
 	// assignment in the org and returns the count. Callers that intend to
@@ -1679,6 +1691,7 @@ type Querier interface {
 	// the in-code catalog so catalog text changes propagate without a new
 	// migration.
 	UpsertPermission(ctx context.Context, arg UpsertPermissionParams) (Permission, error)
+	UpsertReleaseChannelSetting(ctx context.Context, arg UpsertReleaseChannelSettingParams) (ReleaseChannelSetting, error)
 }
 
 var _ Querier = (*Queries)(nil)

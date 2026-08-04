@@ -19,6 +19,7 @@ global: &global
 
 deployment_config:
   - *global
+  - deployment-files/ha/**
   - deployment-files/profiles/**
   - deployment-files/tests/**
   - server/docker-compose.base.yaml

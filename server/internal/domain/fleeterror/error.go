@@ -288,6 +288,14 @@ func NewUnavailableErrorf(format string, a ...any) FleetError {
 	return newErrorfWithCode(format, connect.CodeUnavailable, a...)
 }
 
+func NewNotActiveError() FleetError {
+	return NewErrorWithCommonCode(
+		"Fleet is not active",
+		connect.CodeUnavailable,
+		commonv1.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE,
+	)
+}
+
 func NewCanceledError() FleetError {
 	return NewPlainError("operation was canceled", connect.CodeCanceled).WithCallerStackTrace()
 }

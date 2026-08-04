@@ -1133,6 +1133,12 @@ type RackSlot struct {
 	CreatedAt   time.Time
 }
 
+type ReleaseChannelSetting struct {
+	OrganizationID int64
+	Channel        string
+	UpdatedAt      time.Time
+}
+
 type Role struct {
 	ID             int64
 	Name           string

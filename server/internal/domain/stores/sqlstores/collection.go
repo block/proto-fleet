@@ -83,6 +83,21 @@ func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, params int
 	return nil
 }
 
+func (s *SQLCollectionStore) ListTakenLabels(ctx context.Context, orgID int64, collectionType pb.CollectionType, labels []string) ([]string, error) {
+	if len(labels) == 0 {
+		return nil, nil
+	}
+	taken, err := s.GetQueries(ctx).ListTakenDeviceSetLabels(ctx, sqlc.ListTakenDeviceSetLabelsParams{
+		OrgID:  orgID,
+		Type:   protoDeviceSetTypeToSQL(collectionType),
+		Labels: labels,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list taken labels: %v", err)
+	}
+	return taken, nil
+}
+
 func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error) {
 	row, err := s.GetQueries(ctx).GetDeviceSet(ctx, sqlc.GetDeviceSetParams{
 		ID:    collectionID,
@@ -918,6 +933,15 @@ func (s *SQLCollectionStore) SetRackSlotPosition(ctx context.Context, collection
 		Col:              column,
 	})
 	if err != nil {
+		// uk_rack_slot_position means another writer already holds the cell.
+		// Callers pre-check where they can, but the standalone slot RPCs take
+		// no rack row lock, so a concurrent placement can still land between
+		// that read and this write. Report it as a caller-fixable conflict
+		// rather than a 500 — refreshing and retrying is the resolution.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.ConstraintName == "uk_rack_slot_position" {
+			return fleeterror.NewInvalidArgumentErrorf("slot (%d, %d) is already occupied", row, column)
+		}
 		return fleeterror.NewInternalErrorf("failed to set rack slot position: %v", err)
 	}
 	return nil

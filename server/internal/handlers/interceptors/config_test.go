@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -176,6 +177,42 @@ func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 			"%s must remain API-key-accessible for public-API integrations",
 			procedure)
 	}
+}
+
+// The updates surface is uniformly session-only: an API key can neither read
+// the instance's patch level nor flip the release channel. Membership is
+// asserted AND exercised through the interceptor so a procedure rename cannot
+// silently drop the gate (nil service deps are fine — the SessionOnly branch
+// returns before any service is touched).
+func TestInstanceUpdateProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+
+	procedures := []string{
+		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+		instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must reject API-key auth like the rest of the instance-administration surface", procedure)
+
+		header := http.Header{}
+		header.Set("Authorization", "Bearer fleet_test_some_key")
+		_, err := interceptor.authenticate(context.Background(), procedure, header)
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	}
+}
+
+func TestInstanceUpdateStatusResponseIsRedacted(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, RedactedResponseProcedures,
+		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+		"update status exposes patch metadata and a host command that should not land in debug logs")
 }
 
 // API-key auth on AdminTerminateEvent returns PermissionDenied. nil service

@@ -636,6 +636,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
 	}
+	if q.getHAProfileDatabaseIdentityStmt, err = db.PrepareContext(ctx, getHAProfileDatabaseIdentity); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHAProfileDatabaseIdentity: %w", err)
+	}
 	if q.getInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, getInfrastructureControlSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetInfrastructureControlSubnets: %w", err)
 	}
@@ -758,6 +761,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getRackSlotsStmt, err = db.PrepareContext(ctx, getRackSlots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackSlots: %w", err)
+	}
+	if q.getReleaseChannelSettingStmt, err = db.PrepareContext(ctx, getReleaseChannelSetting); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannelSetting: %w", err)
 	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
@@ -911,6 +917,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
+	}
+	if q.listBuildingNamesBySiteStmt, err = db.PrepareContext(ctx, listBuildingNamesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query ListBuildingNamesBySite: %w", err)
 	}
 	if q.listBuildingRacksStmt, err = db.PrepareContext(ctx, listBuildingRacks); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuildingRacks: %w", err)
@@ -1067,6 +1076,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listSitesStmt, err = db.PrepareContext(ctx, listSites); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSites: %w", err)
+	}
+	if q.listTakenDeviceSetLabelsStmt, err = db.PrepareContext(ctx, listTakenDeviceSetLabels); err != nil {
+		return nil, fmt.Errorf("error preparing query ListTakenDeviceSetLabels: %w", err)
 	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
@@ -1577,6 +1589,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertPermissionStmt, err = db.PrepareContext(ctx, upsertPermission); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertPermission: %w", err)
+	}
+	if q.upsertReleaseChannelSettingStmt, err = db.PrepareContext(ctx, upsertReleaseChannelSetting); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertReleaseChannelSetting: %w", err)
 	}
 	return &q, nil
 }
@@ -2603,6 +2618,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getGroupRefsForDevicesStmt: %w", cerr)
 		}
 	}
+	if q.getHAProfileDatabaseIdentityStmt != nil {
+		if cerr := q.getHAProfileDatabaseIdentityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHAProfileDatabaseIdentityStmt: %w", cerr)
+		}
+	}
 	if q.getInfrastructureControlSubnetsStmt != nil {
 		if cerr := q.getInfrastructureControlSubnetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getInfrastructureControlSubnetsStmt: %w", cerr)
@@ -2806,6 +2826,11 @@ func (q *Queries) Close() error {
 	if q.getRackSlotsStmt != nil {
 		if cerr := q.getRackSlotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRackSlotsStmt: %w", cerr)
+		}
+	}
+	if q.getReleaseChannelSettingStmt != nil {
+		if cerr := q.getReleaseChannelSettingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelSettingStmt: %w", cerr)
 		}
 	}
 	if q.getRoleByIDStmt != nil {
@@ -3061,6 +3086,11 @@ func (q *Queries) Close() error {
 	if q.listBatchDeviceResultsStmt != nil {
 		if cerr := q.listBatchDeviceResultsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
+		}
+	}
+	if q.listBuildingNamesBySiteStmt != nil {
+		if cerr := q.listBuildingNamesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listBuildingNamesBySiteStmt: %w", cerr)
 		}
 	}
 	if q.listBuildingRacksStmt != nil {
@@ -3321,6 +3351,11 @@ func (q *Queries) Close() error {
 	if q.listSitesStmt != nil {
 		if cerr := q.listSitesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listSitesStmt: %w", cerr)
+		}
+	}
+	if q.listTakenDeviceSetLabelsStmt != nil {
+		if cerr := q.listTakenDeviceSetLabelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listTakenDeviceSetLabelsStmt: %w", cerr)
 		}
 	}
 	if q.listUsersForOrganizationStmt != nil {
@@ -4173,6 +4208,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertPermissionStmt: %w", cerr)
 		}
 	}
+	if q.upsertReleaseChannelSettingStmt != nil {
+		if cerr := q.upsertReleaseChannelSettingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertReleaseChannelSettingStmt: %w", cerr)
+		}
+	}
 	return err
 }
 
@@ -4416,6 +4456,7 @@ type Queries struct {
 	getFleetNodeSessionByTokenHashStmt                           *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt             *sql.Stmt
 	getGroupRefsForDevicesStmt                                   *sql.Stmt
+	getHAProfileDatabaseIdentityStmt                             *sql.Stmt
 	getInfrastructureControlSubnetsStmt                          *sql.Stmt
 	getInfrastructureDeviceStmt                                  *sql.Stmt
 	getKnownSubnetsStmt                                          *sql.Stmt
@@ -4457,6 +4498,7 @@ type Queries struct {
 	getRackInfoStmt                                              *sql.Stmt
 	getRackInfoBatchStmt                                         *sql.Stmt
 	getRackSlotsStmt                                             *sql.Stmt
+	getReleaseChannelSettingStmt                                 *sql.Stmt
 	getRoleByIDStmt                                              *sql.Stmt
 	getRoleByIDForUpdateStmt                                     *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt                    *sql.Stmt
@@ -4508,6 +4550,7 @@ type Queries struct {
 	listAssignmentsForRoleStmt                                   *sql.Stmt
 	listAssignmentsForUserStmt                                   *sql.Stmt
 	listBatchDeviceResultsStmt                                   *sql.Stmt
+	listBuildingNamesBySiteStmt                                  *sql.Stmt
 	listBuildingRacksStmt                                        *sql.Stmt
 	listBuildingsByOrgStmt                                       *sql.Stmt
 	listBuiltinRolesForOrgStmt                                   *sql.Stmt
@@ -4560,6 +4603,7 @@ type Queries struct {
 	listSiteNetworkConfigsForOverlapStmt                         *sql.Stmt
 	listSiteSlugsStmt                                            *sql.Stmt
 	listSitesStmt                                                *sql.Stmt
+	listTakenDeviceSetLabelsStmt                                 *sql.Stmt
 	listUsersForOrganizationStmt                                 *sql.Stmt
 	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
 	lockBuildingForWriteStmt                                     *sql.Stmt
@@ -4730,6 +4774,7 @@ type Queries struct {
 	upsertMQTTSourceStateStmt                                    *sql.Stmt
 	upsertMinerCredentialsStmt                                   *sql.Stmt
 	upsertPermissionStmt                                         *sql.Stmt
+	upsertReleaseChannelSettingStmt                              *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
@@ -4940,6 +4985,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeSessionByTokenHashStmt:                           q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:             q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                   q.getGroupRefsForDevicesStmt,
+		getHAProfileDatabaseIdentityStmt:                             q.getHAProfileDatabaseIdentityStmt,
 		getInfrastructureControlSubnetsStmt:                          q.getInfrastructureControlSubnetsStmt,
 		getInfrastructureDeviceStmt:                                  q.getInfrastructureDeviceStmt,
 		getKnownSubnetsStmt:                                          q.getKnownSubnetsStmt,
@@ -4981,6 +5027,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackInfoStmt:                                              q.getRackInfoStmt,
 		getRackInfoBatchStmt:                                         q.getRackInfoBatchStmt,
 		getRackSlotsStmt:                                             q.getRackSlotsStmt,
+		getReleaseChannelSettingStmt:                                 q.getReleaseChannelSettingStmt,
 		getRoleByIDStmt:                                              q.getRoleByIDStmt,
 		getRoleByIDForUpdateStmt:                                     q.getRoleByIDForUpdateStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:                    q.getRunningPowerTargetScheduleOverlapsStmt,
@@ -5032,6 +5079,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listAssignmentsForRoleStmt:                                   q.listAssignmentsForRoleStmt,
 		listAssignmentsForUserStmt:                                   q.listAssignmentsForUserStmt,
 		listBatchDeviceResultsStmt:                                   q.listBatchDeviceResultsStmt,
+		listBuildingNamesBySiteStmt:                                  q.listBuildingNamesBySiteStmt,
 		listBuildingRacksStmt:                                        q.listBuildingRacksStmt,
 		listBuildingsByOrgStmt:                                       q.listBuildingsByOrgStmt,
 		listBuiltinRolesForOrgStmt:                                   q.listBuiltinRolesForOrgStmt,
@@ -5084,6 +5132,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSiteNetworkConfigsForOverlapStmt:                         q.listSiteNetworkConfigsForOverlapStmt,
 		listSiteSlugsStmt:                                            q.listSiteSlugsStmt,
 		listSitesStmt:                                                q.listSitesStmt,
+		listTakenDeviceSetLabelsStmt:                                 q.listTakenDeviceSetLabelsStmt,
 		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
 		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
@@ -5254,5 +5303,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertMQTTSourceStateStmt:                                    q.upsertMQTTSourceStateStmt,
 		upsertMinerCredentialsStmt:                                   q.upsertMinerCredentialsStmt,
 		upsertPermissionStmt:                                         q.upsertPermissionStmt,
+		upsertReleaseChannelSettingStmt:                              q.upsertReleaseChannelSettingStmt,
 	}
 }

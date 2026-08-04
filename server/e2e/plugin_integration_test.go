@@ -114,21 +114,21 @@ func testDockerContainersRunning(t *testing.T) {
 	}
 }
 
-// testFleetAPIHealth checks if the Fleet API health endpoint is responding
+// testFleetAPIHealth checks if the Fleet API is ready for product traffic.
 func testFleetAPIHealth(t *testing.T, ctx context.Context) {
 	client := &http.Client{Timeout: requestTimeout}
 
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fleetAPIURL+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fleetAPIURL+"/health/ready", nil)
 	require.NoError(t, err, "failed to create health check request")
 
 	resp, err := client.Do(req)
 	require.NoError(t, err, "health check request failed")
 	defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "health endpoint should return 200 OK")
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "readiness endpoint should return 200 OK")
 }
 
 // testPluginBinaries verifies plugin binaries are correct architecture (Linux ARM64 ELF)
@@ -414,7 +414,7 @@ func TestCompletePluginWorkflow(t *testing.T) {
 
 // Helper functions for TestCompletePluginWorkflow
 
-// waitForFleetAPIHealth waits for the Fleet API to be healthy
+// waitForFleetAPIHealth waits for the Fleet API to accept product traffic.
 func waitForFleetAPIHealth(t *testing.T, ctx context.Context, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	pollInterval := 2 * time.Second
@@ -422,7 +422,7 @@ func waitForFleetAPIHealth(t *testing.T, ctx context.Context, timeout time.Durat
 
 	for time.Now().Before(deadline) {
 		reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
-		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fleetAPIURL+"/health", nil)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, fleetAPIURL+"/health/ready", nil)
 		if err != nil {
 			cancel()
 			time.Sleep(pollInterval)
@@ -434,7 +434,7 @@ func waitForFleetAPIHealth(t *testing.T, ctx context.Context, timeout time.Durat
 
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
-			t.Log("✓ Fleet API is healthy")
+			t.Log("✓ Fleet API is ready")
 			return
 		}
 		if resp != nil {

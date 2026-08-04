@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -39,6 +42,12 @@ func (l stopOrderedLifecycle) Stop(ctx context.Context) error {
 		return fmt.Errorf("stop ordered lifecycle: %w", err)
 	}
 	return l.lifecycle.Stop(ctx)
+}
+
+func (l stopOrderedLifecycle) Abort() {
+	if aborter, ok := l.lifecycle.(runtimejobs.Aborter); ok {
+		aborter.Abort()
+	}
 }
 
 func newBackgroundLoop(run func(context.Context)) *backgroundLoop {
@@ -102,6 +111,64 @@ type runtimeJobGroupStopper interface {
 	Stop(ctx context.Context) error
 }
 
+type fleetRuntimeRunner interface {
+	Run(ctx context.Context) error
+}
+
+// serveFleetRuntime starts serving always-on health before runtime activation.
+// If either side exits, it stops the other before returning.
+func serveFleetRuntime(
+	server *http.Server,
+	listener net.Listener,
+	runtime fleetRuntimeRunner,
+	timeout time.Duration,
+) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	serverResult := make(chan error, 1)
+	go func() {
+		serverResult <- server.Serve(listener)
+	}()
+	runtimeResult := make(chan error, 1)
+	go func() {
+		runtimeResult <- runtime.Run(ctx)
+	}()
+
+	select {
+	case runtimeErr := <-runtimeResult:
+		cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
+		shutdownErr := server.Shutdown(shutdownCtx)
+		shutdownCancel()
+		serverErr := <-serverResult
+		if runtimeErr == nil {
+			runtimeErr = errors.New("Fleet runtime stopped unexpectedly")
+		}
+		if shutdownErr != nil {
+			return errors.Join(runtimeErr, fmt.Errorf("shutdown HTTP server: %w", shutdownErr))
+		}
+		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
+			return errors.Join(runtimeErr, fmt.Errorf("serve HTTP: %w", serverErr))
+		}
+		return runtimeErr
+
+	case serverErr := <-serverResult:
+		cancel()
+		runtimeErr := <-runtimeResult
+		if serverErr == nil || errors.Is(serverErr, http.ErrServerClosed) {
+			return runtimeErr
+		}
+		if runtimeErr != nil {
+			return errors.Join(
+				fmt.Errorf("serve HTTP: %w", serverErr),
+				fmt.Errorf("stop Fleet runtime: %w", runtimeErr),
+			)
+		}
+		return fmt.Errorf("serve HTTP: %w", serverErr)
+	}
+}
+
 // stopRuntimeJobGroup gives the group one graceful-shutdown budget. Command
 // execution receives a final independent budget because its activation is
 // detached from group cancellation to preserve shutdown ordering.
@@ -135,6 +202,7 @@ type runtimeJobLifecycles struct {
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
+	releaseChecker            runtimejobs.Lifecycle
 }
 
 func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) {
@@ -182,6 +250,11 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 	}
 	if lifecycles.systemMonitoring != nil {
 		if err := add("system-monitoring", lifecycles.systemMonitoring); err != nil {
+			return nil, err
+		}
+	}
+	if lifecycles.releaseChecker != nil {
+		if err := add("release-checker", lifecycles.releaseChecker); err != nil {
 			return nil, err
 		}
 	}

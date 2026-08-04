@@ -33,18 +33,42 @@ export class BasePage {
   }
 
   async clickClearAllFilters() {
-    const clearAllFiltersButton = this.page.getByRole("button", { name: "Clear all filters", exact: true });
-    await clearAllFiltersButton.scrollIntoViewIfNeeded();
-    await this.dismissVisibleToastIfPresent();
-    try {
-      await clearAllFiltersButton.click();
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("intercepts pointer events")) {
+    await expect
+      .poll(
+        async () => {
+          const button = await this.findVisibleButton("Clear all filters");
+          return button ? "visible" : "hidden";
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: 'Expected a visible "Clear all filters" button.',
+        },
+      )
+      .toBe("visible");
+
+    await expect(async () => {
+      const clearAllFiltersButton = await this.findVisibleButton("Clear all filters");
+      if (!clearAllFiltersButton) {
+        throw new Error('Expected a visible "Clear all filters" button.');
+      }
+
+      await clearAllFiltersButton.scrollIntoViewIfNeeded();
+      await this.dismissVisibleToastIfPresent();
+
+      try {
+        await clearAllFiltersButton.click({ timeout: OVERLAY_DISMISS_TIMEOUT });
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          (!error.message.includes("intercepts pointer events") && !error.message.includes("element was detached"))
+        ) {
+          throw error;
+        }
+
+        await this.dismissVisibleToastIfPresent();
         throw error;
       }
-      await this.dismissVisibleToastIfPresent();
-      await clearAllFiltersButton.click();
-    }
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
   }
 
   async clearActiveFilter(filterValue: string) {
@@ -379,17 +403,6 @@ export class BasePage {
 
     const logoutButton = this.page.getByTestId("logout-button");
 
-    if (!this.isMobile) {
-      if (await logoutButton.isVisible().catch(() => false)) {
-        await logoutButton.click();
-        return;
-      }
-
-      await this.page.goto("/auth");
-      await expect(loginForm).toBeVisible();
-      return;
-    }
-
     // A server-invalidated session can redirect to /auth between any locator
     // probe and click. Retry short actions so each attempt can re-check the
     // logged-out state instead of waiting on a navigation control that vanished.
@@ -401,6 +414,12 @@ export class BasePage {
       if (await logoutButton.isVisible().catch(() => false)) {
         await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
       } else {
+        if (!this.isMobile) {
+          await this.page.goto("/auth");
+          await expect(loginForm).toBeVisible({ timeout: LOGOUT_ACTION_TIMEOUT });
+          return;
+        }
+
         await this.clickNavigationMenuIfMobile(LOGOUT_ACTION_TIMEOUT);
 
         if (await isLoggedOut()) {
@@ -443,8 +462,32 @@ export class BasePage {
   }
 
   async validateTextInToast(text: string, timeout: number = DEFAULT_TIMEOUT) {
-    const toast = this.page.getByTestId("toast").getByText(text);
-    await expect(toast).toBeVisible({ timeout });
+    await expect
+      .poll(
+        async () => {
+          const toasts = this.page.getByTestId("toast");
+          const count = await toasts.count();
+
+          for (let i = count - 1; i >= 0; i -= 1) {
+            const toast = toasts.nth(i);
+            if (!(await toast.isVisible().catch(() => false))) {
+              continue;
+            }
+
+            const toastText = ((await toast.textContent().catch(() => "")) ?? "").replace(/\s+/g, " ").trim();
+            if (toastText.includes(text)) {
+              return true;
+            }
+          }
+
+          return false;
+        },
+        {
+          timeout,
+          message: `Expected a visible toast containing "${text}".`,
+        },
+      )
+      .toBe(true);
   }
 
   async validateTextInToastGroup(text: string) {

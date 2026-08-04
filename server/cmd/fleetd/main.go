@@ -54,6 +54,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -95,6 +96,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
+	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
+	"github.com/block/proto-fleet/server/internal/ha"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
 	"github.com/block/proto-fleet/server/internal/handlers/alertmanagerwebhook"
 	alertsHandler "github.com/block/proto-fleet/server/internal/handlers/alerts"
@@ -125,6 +128,7 @@ import (
 	sitemapHandler "github.com/block/proto-fleet/server/internal/handlers/sitemap"
 	sitesHandler "github.com/block/proto-fleet/server/internal/handlers/sites"
 	telemetryHandler "github.com/block/proto-fleet/server/internal/handlers/telemetry"
+	updatesHandler "github.com/block/proto-fleet/server/internal/handlers/updates"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/mqttclient"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
@@ -171,6 +175,7 @@ var reflectEnabledServices = []string{
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
+	instancev1connect.InstanceUpdateServiceName,
 }
 
 func start(config *Config) error {
@@ -603,15 +608,86 @@ func start(config *Config) error {
 	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
 	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
+	// Both updates URLs end up inside a copy-paste upgrade command, so an
+	// http:// base must fail startup (explicit Validate, like Plugins above —
+	// kong only auto-validates flag leaves, not embedded config structs).
+	if err := config.Updates.Validate(); err != nil {
+		return fmt.Errorf("invalid updates configuration: %w", err)
+	}
+	// The checker is constructed even when disabled: the updates service still
+	// answers version/status calls, reading the zero snapshot as "no offer".
+	releaseChecker := updatesDomain.NewChecker(config.Updates, version)
+	updatesSvc := updatesDomain.NewService(config.Updates, version, releaseChecker,
+		db.NewFailoverResettingQuerier(db.NewRetryDB(conn)))
+
+	// The public listener is bound before this group starts. This channel keeps
+	// the first system heartbeat from clearing its stale alert before then.
+	listenerBound := make(chan struct{})
+	var systemMonitoring runtimejobs.Lifecycle
+	if config.SystemMonitoring.Enabled {
+		collector := sysmon.New(config.SystemMonitoring, metricsProvider)
+		systemMonitoring = newBackgroundLoop(func(ctx context.Context) {
+			select {
+			case <-listenerBound:
+				collector.Run(ctx)
+			case <-ctx.Done():
+			}
+		})
+	}
+
+	chunkedMgr := firmwareHandler.NewChunkedUploadManager()
+	chunkedUploadCleanup := newBackgroundLoop(func(ctx context.Context) {
+		chunkedMgr.StartCleanup(ctx, config.Files.ChunkedUploadSessionTTL)
+	})
+	// nil-when-disabled mirrors systemMonitoring: newRuntimeJobs skips
+	// optional jobs entirely instead of starting a lifecycle that no-ops.
+	var releaseCheckerJob runtimejobs.Lifecycle
+	if config.Updates.Enabled {
+		releaseCheckerJob = releaseChecker
+	}
+	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		identityStateCleanup:      identityStateCleanup,
+		commandArtifactCleanup:    commandArtifactCleanup,
+		diagnosticsErrorCloser:    diagnosticsService,
+		telemetry:                 telemetryService,
+		ipScanner:                 ipScannerService,
+		commandExecution:          executionService,
+		scheduleProcessor:         scheduleProcessor,
+		curtailmentReconciler:     curtailmentRec,
+		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentRigConfig:      mqttSettingsSvc,
+		curtailmentAlertMetrics:   curtailmentAlertMetrics,
+		chunkedUploadCleanup:      chunkedUploadCleanup,
+		systemMonitoring:          systemMonitoring,
+		releaseChecker:            releaseCheckerJob,
+	})
+	if err != nil {
+		return err
+	}
+	runtimeJobGroup, err := runtimejobs.NewGroup(jobs)
+	if err != nil {
+		return fmt.Errorf("create runtime job group: %w", err)
+	}
+	// HA configuration is not exposed yet, so production stays standalone.
+	fleetRuntime, err := ha.NewStandaloneRuntime(runtimeJobGroup, executionService.IsRunning)
+	if err != nil {
+		return fmt.Errorf("create Fleet runtime: %w", err)
+	}
+	defer func() {
+		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
+	}()
+
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
 		middleware.TelemetryMiddleware{TrustIncomingTraces: config.FleetTelemetry.TrustIncomingTraces},
 	}
+	activeHTTP := middleware.NewActiveMiddleware(fleetRuntime)
 
 	validateInterceptor := validate.NewInterceptor()
 
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
+		interceptors.NewActiveInterceptor(fleetRuntime),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
 		interceptors.NewFleetNodeAuthInterceptor(fleetNodeAuthSvc, interceptors.FleetNodeAuthenticatedProcedures),
@@ -622,37 +698,34 @@ func start(config *Config) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", health.NewHandler())
-	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn))
+	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn, fleetRuntime))
+	mux.HandleFunc("/health/active", health.NewActiveHandler(fleetRuntime))
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
 		orgQueries := db.NewFailoverResettingQuerier(db.NewRetryDB(conn))
-		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer))
+		mux.Handle("POST "+alertmanagerwebhook.Path, activeHTTP.Wrap(alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer)))
 	}
-	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver))
-	mux.Handle("/api/v1/firmware/check", firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore))
-	mux.Handle("GET /api/v1/firmware/config", firmwareHandler.NewConfigHandler(filesService, sessionSvc, userStore, config.Files))
-
-	chunkedMgr := firmwareHandler.NewChunkedUploadManager()
-	mux.Handle("POST /api/v1/firmware/upload/chunked", firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, sessionSvc, userStore, permissionResolver))
-	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore, permissionResolver))
-	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore, activitySvc, permissionResolver))
-	mux.Handle("GET /api/v1/firmware/files", firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore))
-	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", firmwareHandler.NewUpdateMetadataHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver))
-	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore, permissionResolver))
-	mux.Handle("DELETE /api/v1/firmware/files", firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore, permissionResolver))
-	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc))
-
-	chunkedUploadCleanup := newBackgroundLoop(func(ctx context.Context) {
-		chunkedMgr.StartCleanup(ctx, config.Files.ChunkedUploadSessionTTL)
-	})
+	mux.Handle("/api/v1/firmware/upload", activeHTTP.Wrap(firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
+	mux.Handle("/api/v1/firmware/check", activeHTTP.Wrap(firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore)))
+	mux.Handle("GET /api/v1/firmware/config", activeHTTP.Wrap(firmwareHandler.NewConfigHandler(filesService, sessionSvc, userStore, config.Files)))
+	mux.Handle("POST /api/v1/firmware/upload/chunked", activeHTTP.Wrap(firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, sessionSvc, userStore, permissionResolver)))
+	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", activeHTTP.Wrap(firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore, permissionResolver)))
+	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
+	mux.Handle("GET /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore)))
+	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
+	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore, permissionResolver)))
+	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore, permissionResolver)))
+	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc)))
 
 	if len(reflectEnabledServices) != 0 {
 		slog.Debug("enabling reflection", "services", reflectEnabledServices)
 		reflector := grpcreflect.NewStaticReflector(reflectEnabledServices...)
-		mux.Handle(grpcreflect.NewHandlerV1(reflector))
-		mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
+		path, handler := grpcreflect.NewHandlerV1(reflector)
+		mux.Handle(path, activeHTTP.Wrap(handler))
+		path, handler = grpcreflect.NewHandlerV1Alpha(reflector)
+		mux.Handle(path, activeHTTP.Wrap(handler))
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
@@ -695,7 +768,9 @@ func start(config *Config) error {
 	mux.Handle(alertsv1connect.NewHistoryServiceHandler(alertHandler, li))
 	// Runtime capability probe so the prebuilt client can surface the Alerts
 	// nav only when the sidecar this feature proxies is actually enabled.
-	mux.HandleFunc("GET /api/v1/alerts/enabled", alertsHandler.NewEnabledHandler(config.Metrics.Enabled))
+	mux.Handle("GET /api/v1/alerts/enabled", activeHTTP.Wrap(alertsHandler.NewEnabledHandler(config.Metrics.Enabled)))
+
+	mux.Handle(instancev1connect.NewInstanceUpdateServiceHandler(updatesHandler.NewHandler(updatesSvc), li))
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)
@@ -732,52 +807,6 @@ func start(config *Config) error {
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
-
-	// The first heartbeat clears the Fleet Heartbeat Stale alert, so keep it
-	// gated until the HTTP listener is bound. Other jobs may perform synchronous
-	// startup work and must finish before the public port can accept connections.
-	listenerBound := make(chan struct{})
-	var systemMonitoring runtimejobs.Lifecycle
-	if config.SystemMonitoring.Enabled {
-		collector := sysmon.New(config.SystemMonitoring, metricsProvider)
-		systemMonitoring = newBackgroundLoop(func(ctx context.Context) {
-			select {
-			case <-listenerBound:
-				collector.Run(ctx)
-			case <-ctx.Done():
-			}
-		})
-	}
-
-	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
-		identityStateCleanup:      identityStateCleanup,
-		commandArtifactCleanup:    commandArtifactCleanup,
-		diagnosticsErrorCloser:    diagnosticsService,
-		telemetry:                 telemetryService,
-		ipScanner:                 ipScannerService,
-		commandExecution:          executionService,
-		scheduleProcessor:         scheduleProcessor,
-		curtailmentReconciler:     curtailmentRec,
-		curtailmentMQTTSubscriber: mqttSubscriber,
-		curtailmentRigConfig:      mqttSettingsSvc,
-		curtailmentAlertMetrics:   curtailmentAlertMetrics,
-		chunkedUploadCleanup:      chunkedUploadCleanup,
-		systemMonitoring:          systemMonitoring,
-	})
-	if err != nil {
-		return err
-	}
-	runtimeJobGroup, err := runtimejobs.NewGroup(jobs)
-	if err != nil {
-		return fmt.Errorf("create runtime job group: %w", err)
-	}
-	defer func() {
-		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
-	}()
-	if err := runtimeJobGroup.Start(context.Background()); err != nil {
-		return fmt.Errorf("start runtime jobs: %w", err)
-	}
-
 	listener, err := net.Listen("tcp", config.HTTP.Address)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)
@@ -789,11 +818,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	err = httpServer.Serve(listener)
-	if err != nil {
-		return fmt.Errorf("server shutting down: %+v", err)
-	}
-	return nil
+	return serveFleetRuntime(&httpServer, listener, fleetRuntime, shutdownTimeout)
 }
 
 func newHTTP2Server(config HTTPConfig) *http2.Server {

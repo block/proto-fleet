@@ -2340,6 +2340,18 @@ func (q *retryingQuerier) GetGroupRefsForDevices(ctx context.Context, arg GetGro
 	return result, err
 }
 
+func (q *retryingQuerier) GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error) {
+	var result GetHAProfileDatabaseIdentityRow
+	err := q.retrier.RetryQuery(ctx, "GetHAProfileDatabaseIdentity", func() error {
+		callResult, callErr := q.next.GetHAProfileDatabaseIdentity(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetInfrastructureControlSubnets(ctx context.Context, arg GetInfrastructureControlSubnetsParams) (string, error) {
 	var result string
 	err := q.retrier.RetryQuery(ctx, "GetInfrastructureControlSubnets", func() error {
@@ -2824,6 +2836,18 @@ func (q *retryingQuerier) GetRackSlots(ctx context.Context, arg GetRackSlotsPara
 	var result []GetRackSlotsRow
 	err := q.retrier.RetryQuery(ctx, "GetRackSlots", func() error {
 		callResult, callErr := q.next.GetRackSlots(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error) {
+	var result ReleaseChannelSetting
+	err := q.retrier.RetryQuery(ctx, "GetReleaseChannelSetting", func() error {
+		callResult, callErr := q.next.GetReleaseChannelSetting(ctx, organizationID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3400,6 +3424,18 @@ func (q *retryingQuerier) ListBatchDeviceResults(ctx context.Context, arg ListBa
 	var result []ListBatchDeviceResultsRow
 	err := q.retrier.RetryQuery(ctx, "ListBatchDeviceResults", func() error {
 		callResult, callErr := q.next.ListBatchDeviceResults(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListBuildingNamesBySite", func() error {
+		callResult, callErr := q.next.ListBuildingNamesBySite(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4024,6 +4060,18 @@ func (q *retryingQuerier) ListSites(ctx context.Context, orgID int64) ([]ListSit
 	var result []ListSitesRow
 	err := q.retrier.RetryQuery(ctx, "ListSites", func() error {
 		callResult, callErr := q.next.ListSites(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListTakenDeviceSetLabels", func() error {
+		callResult, callErr := q.next.ListTakenDeviceSetLabels(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5638,6 +5686,18 @@ func (q *retryingQuerier) UpsertPermission(ctx context.Context, arg UpsertPermis
 	var result Permission
 	err := q.retrier.RetryQuery(ctx, "UpsertPermission", func() error {
 		callResult, callErr := q.next.UpsertPermission(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpsertReleaseChannelSetting(ctx context.Context, arg UpsertReleaseChannelSettingParams) (ReleaseChannelSetting, error) {
+	var result ReleaseChannelSetting
+	err := q.retrier.RetryQuery(ctx, "UpsertReleaseChannelSetting", func() error {
+		callResult, callErr := q.next.UpsertReleaseChannelSetting(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
