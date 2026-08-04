@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import RolloutControls from "./RolloutControls";
 import type { RolloutPlanConfig } from "./rolloutTypes";
 import TargetSelectButton from "@/protoFleet/components/TargetSelectButton";
-import { variants } from "@/shared/components/Button";
+import { sizes, variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
@@ -93,6 +93,7 @@ function RolloutConfigModal({
                   key={target.label}
                   label={target.label}
                   value={target.value}
+                  size={sizes.compact}
                   onClick={target.onClick}
                 />
               ))}
