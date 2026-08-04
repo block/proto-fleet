@@ -1091,6 +1091,76 @@ assert_contains "added release file is diagnosed" "$HARNESS_OUTPUT_LOG" "file se
 assert_not_contains "added release file prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "added release file should invalidate the marker"
 
+# client/nginx.conf is generated runtime state, so it is intentionally absent
+# from the immutable release manifest. It must still never be allowed to turn
+# the privileged config copy into a write through an attacker-controlled link.
+make_stage generated-nginx-symlink-preflight
+nginx_victim="$TMP_DIR/generated-nginx-preflight-victim"
+printf 'keep preflight victim unchanged\n' > "$nginx_victim"
+ln -s "$nginx_victim" "$STAGE/client/nginx.conf"
+: > "$HARNESS_CALL_LOG"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "a symlinked generated nginx config should fail preflight"
+else
+    pass "a symlinked generated nginx config fails preflight"
+fi
+assert_contains "preflight nginx symlink is diagnosed" "$HARNESS_OUTPUT_LOG" "must be a regular, non-symlink file"
+assert_not_contains "preflight nginx symlink prevents image preparation" "$HARNESS_CALL_LOG" " build --no-cache"
+assert_not_contains "preflight nginx symlink prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
+if grep -Fxq 'keep preflight victim unchanged' "$nginx_victim"; then
+    pass "preflight nginx symlink does not overwrite its target"
+else
+    fail "preflight nginx symlink overwrote its target"
+fi
+[ ! -e "$STAGE/.update-preflight-complete" ] || fail "nginx symlink preflight must not create a marker"
+
+make_stage generated-nginx-hardlink-preflight
+nginx_victim="$TMP_DIR/generated-nginx-hardlink-victim"
+printf 'keep hardlink victim unchanged\n' > "$nginx_victim"
+if ! ln "$nginx_victim" "$STAGE/client/nginx.conf"; then
+    fail "hard-linked nginx fixture could not create its link"
+else
+    if run_stage "$STAGE" --non-interactive --preflight-only; then
+        pass "a hard-linked generated nginx config is replaced safely"
+    else
+        fail "a hard-linked generated nginx config should preflight"
+    fi
+    if grep -Fxq 'keep hardlink victim unchanged' "$nginx_victim"; then
+        pass "nginx config replacement does not mutate another hard link"
+    else
+        fail "nginx config replacement mutated another hard link"
+    fi
+    if cmp -s "$STAGE/client/nginx.http.conf" "$STAGE/client/nginx.conf"; then
+        pass "hard-linked nginx destination receives the selected configuration"
+    else
+        fail "hard-linked nginx destination was not replaced"
+    fi
+fi
+
+make_stage generated-nginx-symlink-activation
+if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "nginx activation symlink fixture preflight should succeed"
+fi
+nginx_victim="$TMP_DIR/generated-nginx-activation-victim"
+printf 'keep activation victim unchanged\n' > "$nginx_victim"
+rm -f "$STAGE/client/nginx.conf"
+ln -s "$nginx_victim" "$STAGE/client/nginx.conf"
+: > "$HARNESS_CALL_LOG"
+if run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "a symlinked generated nginx config should fail activation"
+else
+    pass "a symlinked generated nginx config fails activation"
+fi
+assert_contains "activation nginx symlink is diagnosed" "$HARNESS_OUTPUT_LOG" "must be a regular, non-symlink file"
+assert_not_contains "activation nginx symlink prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
+assert_not_contains "activation nginx symlink prevents startup" "$HARNESS_CALL_LOG" " up --remove-orphans"
+if grep -Fxq 'keep activation victim unchanged' "$nginx_victim"; then
+    pass "activation nginx symlink does not overwrite its target"
+else
+    fail "activation nginx symlink overwrote its target"
+fi
+[ -f "$STAGE/.update-preflight-complete" ] || fail "nginx symlink activation should retain its recovery marker"
+
 # Non-regular entries are not valid release content. In particular, Grafana
 # recursively consumes this provisioning directory, so a symlink or FIFO added
 # after preflight must invalidate activation just like an added regular file.

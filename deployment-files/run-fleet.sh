@@ -15,6 +15,7 @@ VERSION_FILE="$PROJECT_ROOT/version.txt"
 RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
+NGINX_CONFIG_TEMP=""
 
 # Preserve process-level Compose overrides before the script initializes its
 # runtime flags with the same names. Plain shell assignment keeps an inherited
@@ -700,12 +701,25 @@ find_immutable_release_entries() {
     find_release_entries ! -path './deployment-manifest.sha256' "$@"
 }
 
+validate_generated_runtime_entries() {
+    local nginx_config="$PROJECT_ROOT/client/nginx.conf"
+
+    # Generated state stays outside the immutable manifest, but excluding its
+    # contents must not also permit a symlink, FIFO, device, or directory at
+    # the path the privileged runner replaces.
+    if [ -L "$nginx_config" ] || { [ -e "$nginx_config" ] && [ ! -f "$nginx_config" ]; }; then
+        echo "Error: generated nginx config $nginx_config must be a regular, non-symlink file when present." >&2
+        return 1
+    fi
+}
+
 verify_release_manifest() {
     local manifest_name="${RELEASE_MANIFEST_FILE##*/}" manifest_paths current_paths unsupported_entries
     if [ ! -f "$RELEASE_MANIFEST_FILE" ]; then
         echo "Error: upgrade preflight requires the immutable release manifest at $RELEASE_MANIFEST_FILE." >&2
         return 1
     fi
+    validate_generated_runtime_entries || return 1
 
     # Validate and extract the GNU sha256sum path column before asking a
     # checksum utility to open anything. Release paths must stay below the
@@ -1106,20 +1120,72 @@ generate_self_signed_cert() {
     echo "      into your browser/OS trust store."
 }
 
-# Copy appropriate nginx configuration based on protocol mode
+cleanup_nginx_config_temp() {
+    if [ -n "$NGINX_CONFIG_TEMP" ]; then
+        if ! rm -f "$NGINX_CONFIG_TEMP"; then
+            echo "Warning: could not remove temporary nginx config $NGINX_CONFIG_TEMP." >&2
+            return 1
+        fi
+        NGINX_CONFIG_TEMP=""
+    fi
+    return 0
+}
+
+abort_nginx_config_write() {
+    echo "Error: $1" >&2
+    cleanup_nginx_config_temp || true
+    return 1
+}
+
+# Copy appropriate nginx configuration based on protocol mode. Build the
+# replacement beside its destination and rename it over the stable directory
+# entry; this prevents a planted symlink or hard link from being truncated.
+# Concurrent control of the parent directory is outside this shell-level
+# defense and is excluded by the updater's trusted deployment-owner model.
 copy_nginx_config() {
     local mode="$1"
     local src_conf="$NGINX_CONF_DIR/nginx.${mode}.conf"
+    local dest_conf="$NGINX_CONF_DIR/nginx.conf"
 
-    if [ ! -f "$src_conf" ]; then
-        echo "Error: nginx config not found: $src_conf"
+    if [ ! -d "$NGINX_CONF_DIR" ] || [ -L "$NGINX_CONF_DIR" ]; then
+        echo "Error: nginx config parent $NGINX_CONF_DIR must be a real directory, not a symlink." >&2
+        return 1
+    fi
+    if [ ! -f "$src_conf" ] || [ -L "$src_conf" ]; then
+        echo "Error: nginx config source $src_conf must be a regular, non-symlink file." >&2
+        return 1
+    fi
+    if [ -L "$dest_conf" ] || { [ -e "$dest_conf" ] && [ ! -f "$dest_conf" ]; }; then
+        echo "Error: generated nginx config $dest_conf must be a regular, non-symlink file when present." >&2
         return 1
     fi
 
-    if ! cp "$src_conf" "$NGINX_CONF_DIR/nginx.conf"; then
-        echo "Error: Failed to copy nginx config"
+    NGINX_CONFIG_TEMP=$(umask 077; mktemp "$NGINX_CONF_DIR/.nginx.conf.tmp.XXXXXX") || {
+        NGINX_CONFIG_TEMP=""
+        echo "Error: could not create a temporary nginx config beside $dest_conf." >&2
+        return 1
+    }
+    if ! cp "$src_conf" "$NGINX_CONFIG_TEMP"; then
+        abort_nginx_config_write "could not write the temporary nginx config"
         return 1
     fi
+    if ! chmod 644 "$NGINX_CONFIG_TEMP"; then
+        abort_nginx_config_write "could not set permissions on the temporary nginx config"
+        return 1
+    fi
+    # Recheck the stable parent and destination immediately before replacement
+    # so a planted directory, symlink, or FIFO fails clearly. This narrows the
+    # check/write interval but is not a lock against a concurrent parent owner.
+    if [ ! -d "$NGINX_CONF_DIR" ] || [ -L "$NGINX_CONF_DIR" ] ||
+        [ -L "$dest_conf" ] || { [ -e "$dest_conf" ] && [ ! -f "$dest_conf" ]; }; then
+        abort_nginx_config_write "$dest_conf changed to a non-regular path during configuration"
+        return 1
+    fi
+    if ! mv -f "$NGINX_CONFIG_TEMP" "$dest_conf"; then
+        abort_nginx_config_write "could not atomically replace $dest_conf"
+        return 1
+    fi
+    NGINX_CONFIG_TEMP=""
 }
 
 # Detect if running inside WSL
@@ -1410,8 +1476,8 @@ abort_env_rewrite() {
 }
 
 # Keep cleanup in the main shell so a supervisor signalling only the runner
-# cannot leave a child rewrite process behind.
-trap cleanup_env_rewrite EXIT
+# cannot leave a partial generated config or environment rewrite behind.
+trap 'cleanup_nginx_config_temp || true; cleanup_env_rewrite || true' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
