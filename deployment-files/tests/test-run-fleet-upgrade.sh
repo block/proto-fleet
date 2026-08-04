@@ -78,6 +78,7 @@ write_release_manifest() {
                 ! -path './client/nginx.conf' \
                 ! -path './ssl/*' \
                 ! -path './server/influx_config/.env' \
+                ! -path './ha/node.env' \
                 ! -path './deployment-manifest.sha256' \
                 -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > deployment-manifest.sha256
         else
@@ -88,6 +89,7 @@ write_release_manifest() {
                 ! -path './client/nginx.conf' \
                 ! -path './ssl/*' \
                 ! -path './server/influx_config/.env' \
+                ! -path './ha/node.env' \
                 ! -path './deployment-manifest.sha256' \
                 -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > deployment-manifest.sha256
         fi
@@ -426,6 +428,29 @@ fi
 assert_contains "added release file is diagnosed" "$STAGE/output.log" "file set does not match"
 assert_not_contains "added release file prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "added release file should invalidate the marker"
+
+# HA's node.env is operator-owned runtime state, not a packaged release file.
+# Permit that exact path while keeping every other added HA artifact inside the
+# immutable release boundary.
+make_stage ha-operator-state
+mkdir -p "$STAGE/ha"
+printf 'HA_NODE_NAME=ha-a\n' > "$STAGE/ha/node.env"
+chmod 600 "$STAGE/ha/node.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "HA node environment remains outside the immutable release set"
+else
+    fail "operator-owned HA node environment should not fail preflight"
+fi
+printf 'tampered\n' > "$STAGE/ha/added-after-preflight.yaml"
+: > "$STAGE/calls.log"
+if run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "an added HA release file should fail activation validation"
+else
+    pass "other added HA files remain immutable"
+fi
+assert_contains "added HA release file is diagnosed" "$STAGE/output.log" "file set does not match"
+assert_not_contains "added HA release file prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+[ ! -e "$STAGE/.update-preflight-complete" ] || fail "added HA release file should invalidate the marker"
 
 make_stage missing-release-manifest
 rm -f "$STAGE/deployment-manifest.sha256"

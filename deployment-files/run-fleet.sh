@@ -302,6 +302,7 @@ verify_release_manifest() {
         ! -path './client/nginx.conf' \
         ! -path './ssl/*' \
         ! -path './server/influx_config/.env' \
+        ! -path './ha/node.env' \
         -print | LC_ALL=C sort) > "$current_paths"; then
         rm -f "$manifest_paths" "$current_paths"
         return 1
