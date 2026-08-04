@@ -605,6 +605,18 @@ type CurtailmentResponseProfile struct {
 	FanRestoreDelaySec          int32
 }
 
+type CurtailmentRigConfigReconciliation struct {
+	OrganizationID     int64
+	RequestedBy        int64
+	DesiredGeneration  int64
+	EnqueuedGeneration int64
+	RetryAt            time.Time
+	LeaseExpiresAt     sql.NullTime
+	LastError          sql.NullString
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
 type CurtailmentTarget struct {
 	CurtailmentEventID     int64
 	DeviceIdentifier       string

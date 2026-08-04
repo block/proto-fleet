@@ -7,7 +7,6 @@ import (
 	"net/netip"
 	"regexp"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -26,8 +25,6 @@ const (
 	clientErrLookupDeviceForPairing    = "device lookup failed"
 	clientErrLookupFleetNodeForPairing = "fleet node lookup failed"
 )
-
-const rigConfigReapplyTimeout = 30 * time.Second
 
 var telemetryScheduleTimeout = 5 * time.Second
 
@@ -63,14 +60,6 @@ type TelemetryScheduler interface {
 	AddDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
 }
 
-type rigConfigReapplyRequest struct {
-	userID int64
-}
-
-type rigConfigReapplyState struct {
-	pending *rigConfigReapplyRequest
-}
-
 type Service struct {
 	store           Store
 	enrollmentStore enrollment.AgentStore
@@ -83,10 +72,8 @@ type Service struct {
 	discoveredDeviceStore stores.DiscoveredDeviceStore
 	dispatcher            control.Sender
 
-	invalidateMiner     func(context.Context, int64)
-	rigConfigReapplier  func(context.Context, int64, int64)
-	rigConfigReapplyMu  sync.Mutex
-	rigConfigReapplyOrg map[int64]*rigConfigReapplyState
+	invalidateMiner    func(context.Context, int64)
+	rigConfigReapplier func(context.Context, int64, int64)
 }
 
 func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
@@ -260,66 +247,7 @@ func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID int64, a
 	if s.rigConfigReapplier == nil || assignedBy == nil || *assignedBy <= 0 {
 		return
 	}
-	request := rigConfigReapplyRequest{userID: *assignedBy}
-	baseCtx := context.WithoutCancel(ctx)
-
-	s.rigConfigReapplyMu.Lock()
-	if state, ok := s.rigConfigReapplyOrg[orgID]; ok {
-		state.pending = &request
-		s.rigConfigReapplyMu.Unlock()
-		return
-	}
-	if s.rigConfigReapplyOrg == nil {
-		s.rigConfigReapplyOrg = make(map[int64]*rigConfigReapplyState)
-	}
-	s.rigConfigReapplyOrg[orgID] = &rigConfigReapplyState{}
-	s.rigConfigReapplyMu.Unlock()
-
-	go s.runRigConfigReapply(baseCtx, orgID, request)
-}
-
-func (s *Service) runRigConfigReapply(ctx context.Context, orgID int64, request rigConfigReapplyRequest) {
-	for {
-		reapplyCtx, cancel := context.WithTimeout(ctx, rigConfigReapplyTimeout)
-		s.rigConfigReapplier(reapplyCtx, orgID, request.userID)
-		cancel()
-
-		s.rigConfigReapplyMu.Lock()
-		state := s.rigConfigReapplyOrg[orgID]
-		if state.pending == nil {
-			delete(s.rigConfigReapplyOrg, orgID)
-			s.rigConfigReapplyMu.Unlock()
-			return
-		}
-		request = *state.pending
-		state.pending = nil
-		s.rigConfigReapplyMu.Unlock()
-	}
-}
-
-// FleetNodeConnectedBestEffort reapplies desired rig configuration after an
-// offline node reconnects. The existing assignment identity supplies durable
-// command audit attribution.
-func (s *Service) FleetNodeConnectedBestEffort(ctx context.Context, fleetNodeID, orgID int64) {
-	if s.rigConfigReapplier == nil {
-		return
-	}
-	baseCtx := context.WithoutCancel(ctx)
-	go func() {
-		reapplyCtx, cancel := context.WithTimeout(baseCtx, rigConfigReapplyTimeout)
-		defer cancel()
-		devices, err := s.store.ListFleetNodeDevices(reapplyCtx, orgID, &fleetNodeID)
-		if err != nil {
-			slog.Warn("failed to list paired devices for rig config convergence", "fleet_node_id", fleetNodeID, "org_id", orgID, "err", err)
-			return
-		}
-		for _, device := range devices {
-			if device.AssignedBy != nil && *device.AssignedBy > 0 {
-				s.reapplyRigConfigBestEffort(reapplyCtx, orgID, device.AssignedBy)
-				return
-			}
-		}
-	}()
+	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, *assignedBy)
 }
 
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {

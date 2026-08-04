@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -131,6 +132,18 @@ func TestEncryptLocalCurtailmentConfigHidesCredentialsInQueuePayload(t *testing.
 	require.NoError(t, json.Unmarshal(plaintext, &roundTrip))
 	require.Len(t, roundTrip.Providers, 1)
 	assert.Equal(t, "broker-secret", roundTrip.Providers[0].Password)
+}
+
+func TestProtoRigCurtailmentSelectorRequiresFullyPairedDevices(t *testing.T) {
+	t.Parallel()
+
+	filter := protoRigCurtailmentSelector().GetAllDevices()
+	require.NotNil(t, filter)
+	assert.Equal(t, []string{"Proto"}, filter.Manufacturers)
+	assert.Equal(t, []fleetpb.PairingStatus{
+		fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+	}, filter.PairingStatus)
+	assert.Equal(t, []string{"PAIRED"}, pairingStatusValuesForSelector(filter))
 }
 
 func TestCurtail_HappyPath_QueueReceivesCommand(t *testing.T) {

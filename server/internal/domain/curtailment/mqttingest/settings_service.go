@@ -7,13 +7,11 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
-
-	"connectrpc.com/authn"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -22,6 +20,8 @@ const (
 	maxMQTTSourceStringLength = 255
 	settingsReconcileTimeout  = 30 * time.Second
 	rigConfigReapplyActorName = "curtailment-config-reconciler"
+	rigConfigPollInterval     = 5 * time.Second
+	rigConfigRequestTimeout   = 5 * time.Second
 )
 
 // PasswordCipher wraps and unwraps MQTT credentials.
@@ -72,8 +72,14 @@ type SettingsService struct {
 	runtime          RuntimeController
 	connectionTester SourceConnectionTester
 	rigConfigApplier RigCurtailmentConfigApplier
+	rigConfigStore   RigConfigReconciliationStore
 	clock            func() time.Time
 	reconcileTimeout time.Duration
+
+	rigConfigWake   chan struct{}
+	rigConfigRunMu  sync.Mutex
+	rigConfigCancel context.CancelFunc
+	rigConfigDone   chan struct{}
 }
 
 type SettingsServiceConfig struct {
@@ -82,6 +88,7 @@ type SettingsServiceConfig struct {
 	Runtime          RuntimeController
 	ConnectionTester SourceConnectionTester
 	RigConfigApplier RigCurtailmentConfigApplier
+	RigConfigStore   RigConfigReconciliationStore
 	Clock            func() time.Time
 }
 
@@ -95,14 +102,19 @@ func NewSettingsService(cfg SettingsServiceConfig) (*SettingsService, error) {
 	if cfg.Clock == nil {
 		cfg.Clock = time.Now
 	}
+	if cfg.RigConfigStore == nil {
+		cfg.RigConfigStore, _ = cfg.Store.(RigConfigReconciliationStore)
+	}
 	return &SettingsService{
 		store:            cfg.Store,
 		cipher:           cfg.Cipher,
 		runtime:          cfg.Runtime,
 		connectionTester: cfg.ConnectionTester,
 		rigConfigApplier: cfg.RigConfigApplier,
+		rigConfigStore:   cfg.RigConfigStore,
 		clock:            cfg.Clock,
 		reconcileTimeout: settingsReconcileTimeout,
+		rigConfigWake:    make(chan struct{}, 1),
 	}, nil
 }
 
@@ -194,9 +206,7 @@ func (s *SettingsService) Create(ctx context.Context, req CreateSourceRequest) (
 	if err != nil {
 		return SourceView{}, sourceStoreError("create mqtt source setting", err)
 	}
-	if err := s.reconcileAndApplyRigConfig(ctx, created.OrganizationID); err != nil {
-		return SourceView{}, err
-	}
+	s.reconcileAfterSettingsWrite(ctx, created.OrganizationID)
 	state, hasState, err := s.getStateForSource(ctx, created.OrganizationID, created.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -250,9 +260,7 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 	if err != nil {
 		return SourceView{}, sourceStoreError("update mqtt source setting", err)
 	}
-	if err := s.reconcileAndApplyRigConfig(ctx, updated.OrganizationID); err != nil {
-		return SourceView{}, err
-	}
+	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID)
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -283,9 +291,7 @@ func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64,
 		}
 		return SourceView{}, sourceStoreError("set mqtt source enabled", err)
 	}
-	if err := s.reconcileAndApplyRigConfig(ctx, updated.OrganizationID); err != nil {
-		return SourceView{}, err
-	}
+	s.reconcileAfterSettingsWrite(ctx, updated.OrganizationID)
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
 	if err != nil {
 		return SourceView{}, err
@@ -310,7 +316,8 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	if err := s.store.DeleteDisabledSourceConfig(ctx, orgID, sourceID); err != nil {
 		return sourceStoreError("delete mqtt source setting", err)
 	}
-	return s.reconcileAndApplyRigConfig(ctx, orgID)
+	s.reconcileAfterSettingsWrite(ctx, orgID)
+	return nil
 }
 
 func (s *SettingsService) TestConnection(ctx context.Context, req TestSourceConnectionRequest) (TestSourceConnectionResult, error) {
@@ -328,57 +335,31 @@ func (s *SettingsService) TestConnection(ctx context.Context, req TestSourceConn
 	return s.connectionTester.TestConnection(ctx, req)
 }
 
-func (s *SettingsService) applyRigConfig(ctx context.Context, orgID int64) error {
-	if s.rigConfigApplier == nil {
-		return nil
-	}
-	applyCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
-	defer cancel()
-	config, err := s.buildRigCurtailmentConfig(applyCtx, orgID)
-	if err != nil {
-		return err
-	}
-	return s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(applyCtx, config)
-}
-
-func (s *SettingsService) applyRigConfigBestEffort(ctx context.Context, orgID int64) {
-	if err := s.applyRigConfig(ctx, orgID); err != nil {
-		slog.Error("apply curtailment config to eligible Proto rigs", "org_id", orgID, "error", err)
-	}
-}
-
-// ReapplyRigConfigBestEffort converges newly paired or reconnected rigs with
-// the organization's current MQTT settings. Pairing collaborators provide the
-// user that initiated the assignment so command audit rows retain a valid FK.
+// ReapplyRigConfigBestEffort durably requests convergence after pairing. The
+// worker and command queue handle retries; callers never launch a fan-out.
 func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID, userID int64) {
 	if orgID <= 0 || userID <= 0 {
 		slog.Warn("skip Proto rig curtailment config reapply without audit identity", "org_id", orgID, "user_id", userID)
 		return
 	}
-	reapplyCtx := authn.SetInfo(detachedContext(ctx), &session.Info{
-		SessionID:      rigConfigReapplyActorName,
-		UserID:         userID,
-		OrganizationID: orgID,
-		ExternalUserID: rigConfigReapplyActorName,
-		Username:       rigConfigReapplyActorName,
-		Actor:          session.ActorCurtailment,
-	})
-	s.applyRigConfigBestEffort(reapplyCtx, orgID)
+	if s.rigConfigStore == nil {
+		slog.Warn("skip Proto rig curtailment config reapply without durable store", "org_id", orgID)
+		return
+	}
+	requestCtx, cancel := context.WithTimeout(detachedContext(ctx), rigConfigRequestTimeout)
+	defer cancel()
+	if err := s.rigConfigStore.RequestRigConfigReconciliation(requestCtx, orgID, userID); err != nil {
+		slog.Error("request Proto rig curtailment config reconciliation", "org_id", orgID, "error", err)
+		return
+	}
+	s.wakeRigConfigReconciler()
 }
 
-func (s *SettingsService) reconcileAndApplyRigConfig(ctx context.Context, orgID int64) error {
-	reconcileErr := s.reconcile(ctx)
-	if applyErr := s.applyRigConfig(ctx, orgID); applyErr != nil {
-		if reconcileErr != nil {
-			slog.Error("runtime reload and Proto rig config delivery both failed after MQTT settings write",
-				"org_id", orgID,
-				"runtime_error", reconcileErr,
-				"delivery_error", applyErr,
-			)
-		}
-		return applyErr
+func (s *SettingsService) reconcileAfterSettingsWrite(ctx context.Context, orgID int64) {
+	s.wakeRigConfigReconciler()
+	if err := s.reconcile(ctx); err != nil {
+		slog.Error("reload MQTT runtime after durable settings write", "org_id", orgID, "error", err)
 	}
-	return reconcileErr
 }
 
 func (s *SettingsService) buildRigCurtailmentConfig(ctx context.Context, orgID int64) (sdk.CurtailmentConfig, error) {

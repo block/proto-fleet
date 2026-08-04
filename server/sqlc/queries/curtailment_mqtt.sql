@@ -84,6 +84,7 @@ SET
     pending_retry_at       = EXCLUDED.pending_retry_at;
 
 -- name: InsertMQTTSourceConfig :one
+WITH changed AS (
 INSERT INTO curtailment_mqtt_source_config (
     organization_id,
     service_user_id,
@@ -113,10 +114,25 @@ INSERT INTO curtailment_mqtt_source_config (
     sqlc.narg('staleness_threshold_sec'),
     sqlc.arg('enabled')
 )
-RETURNING *;
+RETURNING *
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by
+    )
+    SELECT organization_id, service_user_id
+    FROM changed
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+)
+SELECT * FROM changed;
 
 -- name: UpdateMQTTSourceConfig :one
-UPDATE curtailment_mqtt_source_config
+WITH changed AS (
+UPDATE curtailment_mqtt_source_config config
 SET
     service_user_id = sqlc.arg('service_user_id'),
     source_name = sqlc.arg('source_name'),
@@ -129,19 +145,115 @@ SET
     mqtt_password_enc = sqlc.arg('mqtt_password_enc'),
     payload_format = sqlc.arg('payload_format'),
     staleness_threshold_sec = sqlc.narg('staleness_threshold_sec')
-WHERE id = sqlc.arg('id')
-  AND organization_id = sqlc.arg('organization_id')
-RETURNING *;
+WHERE config.id = sqlc.arg('id')
+  AND config.organization_id = sqlc.arg('organization_id')
+RETURNING *
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by
+    )
+    SELECT organization_id, service_user_id
+    FROM changed
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+)
+SELECT * FROM changed;
 
 -- name: SetMQTTSourceConfigEnabled :one
-UPDATE curtailment_mqtt_source_config
+WITH changed AS (
+UPDATE curtailment_mqtt_source_config config
 SET enabled = sqlc.arg('enabled')
-WHERE id = sqlc.arg('id')
-  AND organization_id = sqlc.arg('organization_id')
-RETURNING *;
+WHERE config.id = sqlc.arg('id')
+  AND config.organization_id = sqlc.arg('organization_id')
+RETURNING *
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by
+    )
+    SELECT organization_id, service_user_id
+    FROM changed
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+)
+SELECT * FROM changed;
 
--- name: DeleteDisabledMQTTSourceConfigByOrg :execrows
-DELETE FROM curtailment_mqtt_source_config
-WHERE id = sqlc.arg('id')
-  AND organization_id = sqlc.arg('organization_id')
-  AND enabled = FALSE;
+-- name: DeleteDisabledMQTTSourceConfigByOrg :one
+WITH changed AS (
+DELETE FROM curtailment_mqtt_source_config config
+WHERE config.id = sqlc.arg('id')
+  AND config.organization_id = sqlc.arg('organization_id')
+  AND config.enabled = FALSE
+RETURNING config.organization_id, config.service_user_id
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by
+    )
+    SELECT organization_id, service_user_id
+    FROM changed
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+)
+SELECT COUNT(*)::BIGINT FROM changed;
+
+-- name: RequestRigConfigReconciliation :exec
+INSERT INTO curtailment_rig_config_reconciliation (
+    organization_id,
+    requested_by
+) VALUES (
+    sqlc.arg('organization_id'),
+    sqlc.arg('requested_by')
+)
+ON CONFLICT (organization_id) DO UPDATE
+SET requested_by = EXCLUDED.requested_by,
+    desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+    retry_at = CURRENT_TIMESTAMP,
+    last_error = NULL;
+
+-- name: ClaimRigConfigReconciliation :one
+WITH candidate AS (
+    SELECT organization_id
+    FROM curtailment_rig_config_reconciliation
+    WHERE desired_generation > enqueued_generation
+      AND retry_at <= CURRENT_TIMESTAMP
+      AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
+    ORDER BY retry_at, organization_id
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1
+)
+UPDATE curtailment_rig_config_reconciliation reconciliation
+SET lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds'
+FROM candidate
+WHERE reconciliation.organization_id = candidate.organization_id
+RETURNING reconciliation.*;
+
+-- name: CompleteRigConfigReconciliation :exec
+UPDATE curtailment_rig_config_reconciliation
+SET enqueued_generation = GREATEST(enqueued_generation, sqlc.arg('enqueued_generation')),
+    retry_at = CASE
+        WHEN desired_generation > sqlc.arg('enqueued_generation') THEN CURRENT_TIMESTAMP
+        ELSE retry_at
+    END,
+    lease_expires_at = NULL,
+    last_error = NULL
+WHERE organization_id = sqlc.arg('organization_id')
+  AND enqueued_generation < sqlc.arg('enqueued_generation');
+
+-- name: RetryRigConfigReconciliation :exec
+UPDATE curtailment_rig_config_reconciliation
+SET retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
+    lease_expires_at = NULL,
+    last_error = sqlc.arg('last_error')
+WHERE organization_id = sqlc.arg('organization_id')
+  AND desired_generation >= sqlc.arg('desired_generation');

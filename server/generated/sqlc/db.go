@@ -129,6 +129,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
 	}
+	if q.claimRigConfigReconciliationStmt, err = db.PrepareContext(ctx, claimRigConfigReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimRigConfigReconciliation: %w", err)
+	}
 	if q.clearCurtailmentAutomationActiveEventStmt, err = db.PrepareContext(ctx, clearCurtailmentAutomationActiveEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearCurtailmentAutomationActiveEvent: %w", err)
 	}
@@ -155,6 +158,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.closeStaleErrorsStmt, err = db.PrepareContext(ctx, closeStaleErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CloseStaleErrors: %w", err)
+	}
+	if q.completeRigConfigReconciliationStmt, err = db.PrepareContext(ctx, completeRigConfigReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteRigConfigReconciliation: %w", err)
 	}
 	if q.confirmEnrollmentStmt, err = db.PrepareContext(ctx, confirmEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query ConfirmEnrollment: %w", err)
@@ -1200,6 +1206,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
 		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
 	}
+	if q.requestRigConfigReconciliationStmt, err = db.PrepareContext(ctx, requestRigConfigReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query RequestRigConfigReconciliation: %w", err)
+	}
 	if q.resetCurtailmentTargetsForRecurtailStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRecurtail); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRecurtail: %w", err)
 	}
@@ -1211,6 +1220,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.resumePausedScheduleStmt, err = db.PrepareContext(ctx, resumePausedSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query ResumePausedSchedule: %w", err)
+	}
+	if q.retryRigConfigReconciliationStmt, err = db.PrepareContext(ctx, retryRigConfigReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query RetryRigConfigReconciliation: %w", err)
 	}
 	if q.revertScheduleToActiveStmt, err = db.PrepareContext(ctx, revertScheduleToActive); err != nil {
 		return nil, fmt.Errorf("error preparing query RevertScheduleToActive: %w", err)
@@ -1743,6 +1755,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
 		}
 	}
+	if q.claimRigConfigReconciliationStmt != nil {
+		if cerr := q.claimRigConfigReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimRigConfigReconciliationStmt: %w", cerr)
+		}
+	}
 	if q.clearCurtailmentAutomationActiveEventStmt != nil {
 		if cerr := q.clearCurtailmentAutomationActiveEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearCurtailmentAutomationActiveEventStmt: %w", cerr)
@@ -1786,6 +1803,11 @@ func (q *Queries) Close() error {
 	if q.closeStaleErrorsStmt != nil {
 		if cerr := q.closeStaleErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing closeStaleErrorsStmt: %w", cerr)
+		}
+	}
+	if q.completeRigConfigReconciliationStmt != nil {
+		if cerr := q.completeRigConfigReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeRigConfigReconciliationStmt: %w", cerr)
 		}
 	}
 	if q.confirmEnrollmentStmt != nil {
@@ -3528,6 +3550,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing renewFleetRuntimeLeaseStmt: %w", cerr)
 		}
 	}
+	if q.requestRigConfigReconciliationStmt != nil {
+		if cerr := q.requestRigConfigReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing requestRigConfigReconciliationStmt: %w", cerr)
+		}
+	}
 	if q.resetCurtailmentTargetsForRecurtailStmt != nil {
 		if cerr := q.resetCurtailmentTargetsForRecurtailStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resetCurtailmentTargetsForRecurtailStmt: %w", cerr)
@@ -3546,6 +3573,11 @@ func (q *Queries) Close() error {
 	if q.resumePausedScheduleStmt != nil {
 		if cerr := q.resumePausedScheduleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resumePausedScheduleStmt: %w", cerr)
+		}
+	}
+	if q.retryRigConfigReconciliationStmt != nil {
+		if cerr := q.retryRigConfigReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing retryRigConfigReconciliationStmt: %w", cerr)
 		}
 	}
 	if q.revertScheduleToActiveStmt != nil {
@@ -4207,6 +4239,7 @@ type Queries struct {
 	claimAllPairedPolicyTargetsStmt                              *sql.Stmt
 	claimClosedLoopFullFleetTargetsStmt                          *sql.Stmt
 	claimMessageForProcessingStmt                                *sql.Stmt
+	claimRigConfigReconciliationStmt                             *sql.Stmt
 	clearCurtailmentAutomationActiveEventStmt                    *sql.Stmt
 	clearDeviceBuildingsByBuildingStmt                           *sql.Stmt
 	clearDeviceBuildingsBySiteStmt                               *sql.Stmt
@@ -4216,6 +4249,7 @@ type Queries struct {
 	clearRackSlotPositionStmt                                    *sql.Stmt
 	clearRolePermissionsStmt                                     *sql.Stmt
 	closeStaleErrorsStmt                                         *sql.Stmt
+	completeRigConfigReconciliationStmt                          *sql.Stmt
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
@@ -4564,10 +4598,12 @@ type Queries struct {
 	removeDevicesFromAnyRackStmt                                 *sql.Stmt
 	removeDevicesFromDeviceSetStmt                               *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
+	requestRigConfigReconciliationStmt                           *sql.Stmt
 	resetCurtailmentTargetsForRecurtailStmt                      *sql.Stmt
 	resetCurtailmentTargetsForRestoreStmt                        *sql.Stmt
 	resumeCurtailmentFromRestoringStmt                           *sql.Stmt
 	resumePausedScheduleStmt                                     *sql.Stmt
+	retryRigConfigReconciliationStmt                             *sql.Stmt
 	revertScheduleToActiveStmt                                   *sql.Stmt
 	revokeAllSessionsByUserIDStmt                                *sql.Stmt
 	revokeApiKeyStmt                                             *sql.Stmt
@@ -4726,6 +4762,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		claimAllPairedPolicyTargetsStmt:                              q.claimAllPairedPolicyTargetsStmt,
 		claimClosedLoopFullFleetTargetsStmt:                          q.claimClosedLoopFullFleetTargetsStmt,
 		claimMessageForProcessingStmt:                                q.claimMessageForProcessingStmt,
+		claimRigConfigReconciliationStmt:                             q.claimRigConfigReconciliationStmt,
 		clearCurtailmentAutomationActiveEventStmt:                    q.clearCurtailmentAutomationActiveEventStmt,
 		clearDeviceBuildingsByBuildingStmt:                           q.clearDeviceBuildingsByBuildingStmt,
 		clearDeviceBuildingsBySiteStmt:                               q.clearDeviceBuildingsBySiteStmt,
@@ -4735,6 +4772,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearRackSlotPositionStmt:                                    q.clearRackSlotPositionStmt,
 		clearRolePermissionsStmt:                                     q.clearRolePermissionsStmt,
 		closeStaleErrorsStmt:                                         q.closeStaleErrorsStmt,
+		completeRigConfigReconciliationStmt:                          q.completeRigConfigReconciliationStmt,
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
@@ -5083,10 +5121,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeDevicesFromAnyRackStmt:                                 q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                               q.removeDevicesFromDeviceSetStmt,
 		renewFleetRuntimeLeaseStmt:                                   q.renewFleetRuntimeLeaseStmt,
+		requestRigConfigReconciliationStmt:                           q.requestRigConfigReconciliationStmt,
 		resetCurtailmentTargetsForRecurtailStmt:                      q.resetCurtailmentTargetsForRecurtailStmt,
 		resetCurtailmentTargetsForRestoreStmt:                        q.resetCurtailmentTargetsForRestoreStmt,
 		resumeCurtailmentFromRestoringStmt:                           q.resumeCurtailmentFromRestoringStmt,
 		resumePausedScheduleStmt:                                     q.resumePausedScheduleStmt,
+		retryRigConfigReconciliationStmt:                             q.retryRigConfigReconciliationStmt,
 		revertScheduleToActiveStmt:                                   q.revertScheduleToActiveStmt,
 		revokeAllSessionsByUserIDStmt:                                q.revokeAllSessionsByUserIDStmt,
 		revokeApiKeyStmt:                                             q.revokeApiKeyStmt,

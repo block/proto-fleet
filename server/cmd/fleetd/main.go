@@ -567,6 +567,7 @@ func start(config *Config) error {
 		Runtime:          mqttSubscriber,
 		ConnectionTester: mqttConnectionTester,
 		RigConfigApplier: commandSvc,
+		RigConfigStore:   mqttingest.NewSQLCRigConfigReconciliationStore(mqttQueries),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt settings service: %w", err)
@@ -758,6 +759,7 @@ func start(config *Config) error {
 		scheduleProcessor:         scheduleProcessor,
 		curtailmentReconciler:     curtailmentRec,
 		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
 		systemMonitoring:          systemMonitoring,

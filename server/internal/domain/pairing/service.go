@@ -62,7 +62,6 @@ const (
 	defaultIPDiscoveryTimeoutSecs = 600              // Overall timeout for IP-based discovery (10 minutes)
 	perDeviceDiscoveryTimeout     = 10 * time.Second // Timeout for probing a single device
 	perDevicePairingTimeout       = 30 * time.Second // Timeout for pairing a single device (plugin RPC + DB writes)
-	rigConfigReapplyTimeout       = 30 * time.Second
 
 	// Nmap tuning parameters for faster scanning
 	nmapMaxRetriesPerHost = 1 // Reduce retries to speed up scanning of unresponsive hosts
@@ -1393,12 +1392,7 @@ func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID, userID 
 	if s.rigConfigReapplier == nil {
 		return
 	}
-	baseCtx := context.WithoutCancel(ctx)
-	go func() {
-		reapplyCtx, cancel := context.WithTimeout(baseCtx, rigConfigReapplyTimeout)
-		defer cancel()
-		s.rigConfigReapplier(reapplyCtx, orgID, userID)
-	}()
+	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, userID)
 }
 
 func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID models.DeviceIdentifier, orgID int64) (bool, error) {

@@ -39,6 +39,7 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
@@ -1738,11 +1739,7 @@ func (s *Service) Uncurtail(ctx context.Context, deviceSelector *pb.DeviceSelect
 // every paired Proto rig in the caller's organization. Operators do not manage
 // a separate coverage list.
 func (s *Service) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config sdk.CurtailmentConfig) error {
-	allProtoRigs := &pb.DeviceSelector{
-		SelectionType: &pb.DeviceSelector_AllDevices{
-			AllDevices: &pb.DeviceFilter{Manufacturers: []string{"Proto"}},
-		},
-	}
+	allProtoRigs := protoRigCurtailmentSelector()
 	identifiers, err := s.resolveSelectorIdentifiers(ctx, allProtoRigs, commandtype.ApplyCurtailmentConfig)
 	if err != nil {
 		return err
@@ -1764,6 +1761,19 @@ func (s *Service) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config 
 	}
 	s.finalizeDispatch(ctx, result, "apply_curtailment_config", "Applied rig curtailment fallback config")
 	return nil
+}
+
+func protoRigCurtailmentSelector() *pb.DeviceSelector {
+	return &pb.DeviceSelector{
+		SelectionType: &pb.DeviceSelector_AllDevices{
+			AllDevices: &pb.DeviceFilter{
+				Manufacturers: []string{"Proto"},
+				PairingStatus: []fleetpb.PairingStatus{
+					fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+				},
+			},
+		},
+	}
 }
 
 // verifyUserCredentials verifies the provided username and password match the current authenticated user

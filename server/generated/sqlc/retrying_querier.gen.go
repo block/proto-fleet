@@ -420,6 +420,18 @@ func (q *retryingQuerier) ClaimMessageForProcessing(ctx context.Context, id int6
 	return result, err
 }
 
+func (q *retryingQuerier) ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error) {
+	var result CurtailmentRigConfigReconciliation
+	err := q.retrier.RetryQuery(ctx, "ClaimRigConfigReconciliation", func() error {
+		callResult, callErr := q.next.ClaimRigConfigReconciliation(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearCurtailmentAutomationActiveEvent", func() error {
 		return q.next.ClearCurtailmentAutomationActiveEvent(ctx, arg)
@@ -502,6 +514,12 @@ func (q *retryingQuerier) CloseStaleErrors(ctx context.Context, arg CloseStaleEr
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error {
+	return q.retrier.RetryQuery(ctx, "CompleteRigConfigReconciliation", func() error {
+		return q.next.CompleteRigConfigReconciliation(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error) {
@@ -3180,8 +3198,8 @@ func (q *retryingQuerier) InsertError(ctx context.Context, arg InsertErrorParams
 	return result, err
 }
 
-func (q *retryingQuerier) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error) {
-	var result CurtailmentMqttSourceConfig
+func (q *retryingQuerier) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error) {
+	var result InsertMQTTSourceConfigRow
 	err := q.retrier.RetryQuery(ctx, "InsertMQTTSourceConfig", func() error {
 		callResult, callErr := q.next.InsertMQTTSourceConfig(ctx, arg)
 		if callErr == nil {
@@ -4512,6 +4530,12 @@ func (q *retryingQuerier) RenewFleetRuntimeLease(ctx context.Context, arg RenewF
 	return result, err
 }
 
+func (q *retryingQuerier) RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error {
+	return q.retrier.RetryQuery(ctx, "RequestRigConfigReconciliation", func() error {
+		return q.next.RequestRigConfigReconciliation(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ResetCurtailmentTargetsForRecurtail(ctx context.Context, curtailmentEventID int64) (ResetCurtailmentTargetsForRecurtailRow, error) {
 	var result ResetCurtailmentTargetsForRecurtailRow
 	err := q.retrier.RetryQuery(ctx, "ResetCurtailmentTargetsForRecurtail", func() error {
@@ -4552,6 +4576,12 @@ func (q *retryingQuerier) ResumePausedSchedule(ctx context.Context, arg ResumePa
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error {
+	return q.retrier.RetryQuery(ctx, "RetryRigConfigReconciliation", func() error {
+		return q.next.RetryRigConfigReconciliation(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) RevertScheduleToActive(ctx context.Context, id int64) error {
@@ -4674,8 +4704,8 @@ func (q *retryingQuerier) SetInfrastructureControlSubnets(ctx context.Context, a
 	return result, err
 }
 
-func (q *retryingQuerier) SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (CurtailmentMqttSourceConfig, error) {
-	var result CurtailmentMqttSourceConfig
+func (q *retryingQuerier) SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error) {
+	var result SetMQTTSourceConfigEnabledRow
 	err := q.retrier.RetryQuery(ctx, "SetMQTTSourceConfigEnabled", func() error {
 		callResult, callErr := q.next.SetMQTTSourceConfigEnabled(ctx, arg)
 		if callErr == nil {
@@ -5304,8 +5334,8 @@ func (q *retryingQuerier) UpdateLastLogin(ctx context.Context, id int64) error {
 	})
 }
 
-func (q *retryingQuerier) UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error) {
-	var result CurtailmentMqttSourceConfig
+func (q *retryingQuerier) UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (UpdateMQTTSourceConfigRow, error) {
+	var result UpdateMQTTSourceConfigRow
 	err := q.retrier.RetryQuery(ctx, "UpdateMQTTSourceConfig", func() error {
 		callResult, callErr := q.next.UpdateMQTTSourceConfig(ctx, arg)
 		if callErr == nil {

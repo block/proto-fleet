@@ -55,6 +55,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		scheduleProcessor:         noopLifecycle{},
 		curtailmentReconciler:     noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
+		curtailmentRigConfig:      noopLifecycle{},
 		curtailmentAlertMetrics:   noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 		systemMonitoring:          noopLifecycle{},
@@ -72,6 +73,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"schedule-processor",
 		"curtailment-reconciler",
 		"curtailment-mqtt-subscriber",
+		"curtailment-rig-config",
 		"curtailment-alert-metrics",
 		"chunked-upload-cleanup",
 		"system-monitoring",
@@ -91,6 +93,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"schedule-processor",
 		"curtailment-reconciler",
 		"curtailment-mqtt-subscriber",
+		"curtailment-rig-config",
 		"chunked-upload-cleanup",
 	}, jobNames(jobs))
 }
@@ -137,6 +140,7 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		scheduleProcessor:         producer,
 		curtailmentReconciler:     noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
+		curtailmentRigConfig:      noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 	})
 	require.NoError(t, err)
