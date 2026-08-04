@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
-import { AnimatedInSituRollout, InSituRollout } from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
+import { AnimatedFirmwareInSitu, FirmwareInSitu } from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
 import {
   completedFirmwareEvent,
   completedWithFailuresFirmwareEvent,
@@ -14,18 +14,23 @@ import {
 
 /**
  * The active **firmware update** across its lifecycle states, plus a
- * live-animated lifecycle — all rendered **in situ**, inside the real app shell
- * with the shipped `RolloutPill` in a page header and the shipped
- * `ViewRolloutModal` opened on the rollout. Each state reads where an operator
- * actually meets it (product chrome behind the detail overlay) rather than as a
- * bare card on a blank canvas. The shared helpers keep this identical to the
- * reboot story so the two can't drift.
+ * live-animated lifecycle — all rendered **in situ**, on the established
+ * firmware in-situ surface: the Firmware settings page (nav sidebar + settings
+ * subnav + "Firmware" header + Upload CTA + firmware files table), with the
+ * shipped `ActiveRolloutStatus` card inline above the files table, exactly the
+ * way the `In Situ/In Progress` "Firmware settings page" story already
+ * establishes. Each state reads where an operator actually meets it, not as a
+ * bare card on a blank canvas. `FirmwareInSitu` is the single shared surface so
+ * this can't drift from that story.
  */
 const meta = {
   title: "Proto Fleet/Rollout/In Situ/Firmware Lifecycle",
   component: ActiveRolloutStatus,
   parameters: {
     layout: "fullscreen",
+    // The in-situ surface provides its own MemoryRouter (at /settings/firmware),
+    // so opt out of the global StoryRouter — react-router throws on nested routers.
+    withRouter: false,
   },
 } satisfies Meta<typeof ActiveRolloutStatus>;
 
@@ -34,35 +39,35 @@ export default meta;
 type Story = StoryObj<typeof ActiveRolloutStatus>;
 
 export const Scheduled: Story = {
-  render: () => <InSituRollout event={scheduledFirmwareEvent} />,
+  render: () => <FirmwareInSitu event={scheduledFirmwareEvent} />,
 };
 
 export const InProgress: Story = {
   name: "In progress",
-  render: () => <InSituRollout event={inProgressFirmwareEvent} />,
+  render: () => <FirmwareInSitu event={inProgressFirmwareEvent} />,
 };
 
 export const Paused: Story = {
-  render: () => <InSituRollout event={pausedFirmwareEvent} />,
+  render: () => <FirmwareInSitu event={pausedFirmwareEvent} />,
 };
 
 export const PilotReview: Story = {
   name: "Pilot review",
-  render: () => <InSituRollout event={pilotGateFirmwareEvent} />,
+  render: () => <FirmwareInSitu event={pilotGateFirmwareEvent} />,
 };
 
 export const Completed: Story = {
-  render: () => <InSituRollout event={completedFirmwareEvent} />,
+  render: () => <FirmwareInSitu event={completedFirmwareEvent} />,
 };
 
 export const CompletedWithFailures: Story = {
   name: "Completed with failures",
-  render: () => <InSituRollout event={completedWithFailuresFirmwareEvent} />,
+  render: () => <FirmwareInSitu event={completedWithFailuresFirmwareEvent} />,
 };
 
 export const AnimatedFirmwareLifecycle: Story = {
   name: "Animated firmware lifecycle",
   render: function renderAnimatedFirmwareLifecycle(): ReactElement {
-    return <AnimatedInSituRollout base={inProgressFirmwareEvent} />;
+    return <AnimatedFirmwareInSitu base={inProgressFirmwareEvent} />;
   },
 };
