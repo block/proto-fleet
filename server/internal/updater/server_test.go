@@ -36,8 +36,14 @@ func TestListenUpdaterSocketReclaimsStaleSocket(t *testing.T) {
 	require.NoError(t, stale.Close())
 	assert.FileExists(t, socketPath)
 
-	listener, err := listenUpdaterSocket(socketPath)
-	require.NoError(t, err)
+	var listener *net.UnixListener
+	// Darwin can briefly continue accepting connects immediately after Close.
+	// The production code correctly treats that ambiguity as live, so retry the
+	// proof rather than weakening its fail-closed behavior.
+	require.Eventually(t, func() bool {
+		listener, err = listenUpdaterSocket(socketPath)
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
 	require.NoError(t, listener.Close())
 	assert.NoFileExists(t, socketPath)
 }

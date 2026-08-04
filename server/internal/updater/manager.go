@@ -42,9 +42,17 @@ const (
 	maxCommandLogBytes       = int64(64 << 20)
 	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
 	processLockFilename      = "updater.lock"
+	activationMarkerFilename = "activation-swap.json"
+	activationMarkerTempName = ".activation-swap.json.tmp"
+	operationArtifactPrefix  = ".proto-fleet-upgrade-"
+	stateTempPrefix          = ".state-"
 )
 
-var canonicalRelease = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
+var (
+	canonicalRelease         = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
+	staleStateArtifactName   = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
+	staleStagingArtifactName = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
+)
 
 var releaseImageRepositories = [...]string{
 	"proto-fleet-api",
@@ -105,17 +113,24 @@ type Config struct {
 	allowTestDownloadBaseURL bool
 }
 
+type activationMarker struct {
+	OperationID   string `json:"operation_id"`
+	TargetVersion string `json:"target_version"`
+}
+
 type Manager struct {
 	cfg Config
 
-	mu              sync.RWMutex
-	operation       *updaterapi.Operation
-	closing         bool
-	cancelOperation context.CancelFunc
-	operationWG     sync.WaitGroup
-	processLock     *os.File
-	closeOnce       sync.Once
-	closeErr        error
+	mu               sync.RWMutex
+	operation        *updaterapi.Operation
+	closing          bool
+	operationRunning bool
+	cancelOperation  context.CancelFunc
+	operationWG      sync.WaitGroup
+	selfUpdateReady  chan struct{}
+	processLock      *os.File
+	closeOnce        sync.Once
+	closeErr         error
 }
 
 func NewManager(cfg Config) (*Manager, error) {
@@ -185,10 +200,15 @@ func NewManager(cfg Config) (*Manager, error) {
 	}
 
 	m := &Manager{
-		cfg:         cfg,
-		processLock: processLock,
+		cfg:             cfg,
+		selfUpdateReady: make(chan struct{}, 1),
+		processLock:     processLock,
 	}
 	if err := m.loadState(); err != nil {
+		_ = processLock.Close()
+		return nil, err
+	}
+	if err := m.cleanupStaleArtifacts(); err != nil {
 		_ = processLock.Close()
 		return nil, err
 	}
@@ -197,6 +217,13 @@ func NewManager(cfg Config) (*Manager, error) {
 
 func (m *Manager) Close() error {
 	return m.Shutdown(context.Background())
+}
+
+// SelfUpdateReady is signaled once the replacement executable and successful
+// terminal state are both durable. The command process owns listener draining,
+// lock release, and exec so the manager remains independent of any supervisor.
+func (m *Manager) SelfUpdateReady() <-chan struct{} {
+	return m.selfUpdateReady
 }
 
 // Shutdown rejects future triggers, cancels work that has not crossed the
@@ -307,6 +334,16 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	if !canonicalRelease.MatchString(targetVersion) || !semver.IsValid(targetVersion) {
 		return updaterapi.Operation{}, fmt.Errorf("target version must be a stable or RC release tag")
 	}
+	marker, err := m.readActivationMarker()
+	if err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("inspect pending activation recovery: %w", err)
+	}
+	if marker != nil {
+		return updaterapi.Operation{}, fmt.Errorf(
+			"activation recovery for operation %s is pending; restart the updater after completing recovery",
+			marker.OperationID,
+		)
+	}
 	currentVersion, err := readInstalledVersion(filepath.Join(m.cfg.InstallRoot, "deployment", "version.txt"))
 	if err != nil {
 		return updaterapi.Operation{}, err
@@ -326,6 +363,12 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	if m.operation != nil && !m.operation.Phase.Terminal() {
 		return updaterapi.Operation{}, fmt.Errorf("an upgrade to %s is already in progress", m.operation.TargetVersion)
 	}
+	if m.operationRunning {
+		return updaterapi.Operation{}, fmt.Errorf("the previous upgrade is still completing cleanup")
+	}
+	if err := m.cleanupStaleArtifacts(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("clean stale upgrade artifacts: %w", err)
+	}
 	now := m.cfg.Now().UTC()
 	op := &updaterapi.Operation{
 		ID:            m.cfg.NewID(),
@@ -343,12 +386,21 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	operationCopy := *op
 	operationCtx, cancelOperation := context.WithCancel(context.Background())
 	m.cancelOperation = cancelOperation
+	m.operationRunning = true
 	m.operationWG.Add(1)
 	go func() {
 		defer m.operationWG.Done()
+		defer m.finishOperation()
 		m.run(operationCtx, operationCopy.ID, targetVersion)
 	}()
 	return operationCopy, nil
+}
+
+func (m *Manager) finishOperation() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.operationRunning = false
+	m.cancelOperation = nil
 }
 
 func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
@@ -383,8 +435,9 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 
 	archiveName := fmt.Sprintf("proto-fleet-%s-%s.tar.gz", targetVersion, m.cfg.GOARCH)
 	archiveURL := strings.TrimSuffix(m.cfg.DownloadBaseURL, "/") + "/" + targetVersion + "/" + archiveName
-	archivePath := filepath.Join(m.cfg.StateDir, operationID+"-"+archiveName)
-	checksumPath := archivePath + ".sha256"
+	artifactBase := operationArtifactBase(operationID)
+	archivePath := filepath.Join(m.cfg.StateDir, artifactBase+".tar.gz")
+	checksumPath := filepath.Join(m.cfg.StateDir, artifactBase+".sha256")
 	defer os.Remove(archivePath)
 	defer os.Remove(checksumPath)
 
@@ -413,8 +466,8 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 
-	stageRoot, err := os.MkdirTemp(m.cfg.InstallRoot, ".proto-fleet-upgrade-")
-	if err != nil {
+	stageRoot := filepath.Join(m.cfg.InstallRoot, artifactBase)
+	if err := os.Mkdir(stageRoot, 0o700); err != nil {
 		m.fail(operationID, fmt.Errorf("create staging directory: %w", err), recovery)
 		return
 	}
@@ -427,12 +480,12 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	var preparedUpdater *os.File
 	updaterCopied := false
 	if m.cfg.SelfUpdatePath != "" {
-		preparedUpdater, err = os.CreateTemp(m.cfg.StateDir, ".prepared-updater-")
+		preparedUpdaterPath := filepath.Join(m.cfg.StateDir, artifactBase+".updater")
+		preparedUpdater, err = os.OpenFile(preparedUpdaterPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 		if err != nil {
 			m.fail(operationID, fmt.Errorf("create protected updater copy: %w", err), recovery)
 			return
 		}
-		preparedUpdaterPath := preparedUpdater.Name()
 		defer os.Remove(preparedUpdaterPath)
 		defer func() {
 			if preparedUpdater != nil {
@@ -501,12 +554,16 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	}
 	backupDeployment := filepath.Join(m.cfg.InstallRoot, "deployment.previous")
 	if err := activateDeployment(stageDeployment, currentDeployment, backupDeployment); err != nil {
-		m.fail(operationID, err, recovery)
+		m.failActivation(operationID, targetVersion, err, logFile)
 		return
 	}
 	recovery = activationRecoveryCommand(currentDeployment)
 	if err := m.setRecoveryCommand(operationID, recovery); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation recovery command: %w", err), recovery)
+		return
+	}
+	if err := m.clearActivationMarker(); err != nil {
+		m.failActivation(operationID, targetVersion, fmt.Errorf("complete activation swap: %w", err), logFile)
 		return
 	}
 
@@ -518,18 +575,149 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 	successMessage := fmt.Sprintf("Fleet %s is running", targetVersion)
+	selfUpdateSucceeded := false
 	if preparedUpdater != nil {
 		if err := atomicReplaceExecutableFromFile(preparedUpdater, m.cfg.SelfUpdatePath); err != nil {
 			_, _ = fmt.Fprintf(logFile, "[%s] warning: Fleet is healthy, but the host updater binary was not refreshed: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
 			successMessage += "; host updater refresh needs attention (see upgrade log)"
+		} else {
+			selfUpdateSucceeded = true
 		}
 	}
 
-	if err := m.succeed(operationID, successMessage); err != nil {
+	if err := m.succeed(operationID, successMessage, selfUpdateSucceeded); err != nil {
 		_, _ = fmt.Fprintf(logFile, "[%s] warning: persist successful terminal state: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
 		log.Printf("persist successful upgrade state: %v", err)
+	} else if selfUpdateSucceeded {
+		select {
+		case m.selfUpdateReady <- struct{}{}:
+		default:
+		}
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] upgrade completed\n", m.cfg.Now().UTC().Format(time.RFC3339))
+}
+
+func operationArtifactBase(operationID string) string {
+	digest := sha256.Sum256([]byte(operationID))
+	return operationArtifactPrefix + hex.EncodeToString(digest[:])
+}
+
+func (m *Manager) writeActivationMarker(marker activationMarker) error {
+	data, err := json.Marshal(marker)
+	if err != nil {
+		return fmt.Errorf("encode activation marker: %w", err)
+	}
+	path := filepath.Join(m.cfg.StateDir, activationMarkerFilename)
+	if _, err := os.Lstat(path); err == nil {
+		return fmt.Errorf("create activation marker: marker already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect activation marker destination: %w", err)
+	}
+	tempPath := filepath.Join(m.cfg.StateDir, activationMarkerTempName)
+	fd, err := syscall.Open(
+		tempPath,
+		syscall.O_CREAT|syscall.O_EXCL|syscall.O_WRONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+		0o600,
+	)
+	if err != nil {
+		return fmt.Errorf("create activation marker temp file: %w", err)
+	}
+	file := os.NewFile(uintptr(fd), tempPath)
+	if file == nil {
+		_ = syscall.Close(fd)
+		return fmt.Errorf("create activation marker temp file")
+	}
+	tempInstalled := false
+	defer func() {
+		if !tempInstalled {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write activation marker: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync activation marker: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close activation marker: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("install activation marker: %w", err)
+	}
+	tempInstalled = true
+	if err := syncDirectory(m.cfg.StateDir); err != nil {
+		return fmt.Errorf("persist activation marker: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) readActivationMarker() (*activationMarker, error) {
+	path := filepath.Join(m.cfg.StateDir, activationMarkerFilename)
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect activation marker: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("activation marker is not a regular file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read activation marker: %w", err)
+	}
+	var marker activationMarker
+	if err := json.Unmarshal(data, &marker); err != nil {
+		return nil, fmt.Errorf("decode activation marker: %w", err)
+	}
+	if marker.OperationID == "" || !canonicalRelease.MatchString(marker.TargetVersion) || !semver.IsValid(marker.TargetVersion) {
+		return nil, fmt.Errorf("activation marker is invalid")
+	}
+	return &marker, nil
+}
+
+func (m *Manager) clearActivationMarker() error {
+	path := filepath.Join(m.cfg.StateDir, activationMarkerFilename)
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("remove activation marker: %w", err)
+	}
+	if err := syncDirectory(m.cfg.StateDir); err != nil {
+		return fmt.Errorf("persist activation marker removal: %w", err)
+	}
+	return nil
+}
+
+func (m *Manager) failActivation(
+	operationID string,
+	targetVersion string,
+	activationErr error,
+	logOutput io.Writer,
+) {
+	layout := &updaterapi.Operation{
+		TargetVersion: targetVersion,
+		Phase:         updaterapi.PhaseActivating,
+	}
+	restoredPrevious, reconcileErr := m.reconcileDeploymentLayout(layout, true, true, true)
+	if restoredPrevious {
+		_, _ = fmt.Fprintf(logOutput, "[%s] activation failed before Fleet stopped; restored the previous deployment\n", m.cfg.Now().UTC().Format(time.RFC3339))
+	}
+	if reconcileErr == nil {
+		reconcileErr = m.clearActivationMarker()
+	}
+	if reconcileErr != nil {
+		activationErr = errors.Join(
+			activationErr,
+			fmt.Errorf("reconcile failed activation layout: %w", reconcileErr),
+		)
+	}
+	m.fail(operationID, activationErr, layout.RecoveryCommand)
 }
 
 // activateDeployment makes the extracted release durable before entering the
@@ -780,10 +968,23 @@ func (m *Manager) beginActivation(id, message string) error {
 	if m.closing {
 		return fmt.Errorf("updater is shutting down before activation")
 	}
+	marker := activationMarker{
+		OperationID:   m.operation.ID,
+		TargetVersion: m.operation.TargetVersion,
+	}
+	if err := m.writeActivationMarker(marker); err != nil {
+		return fmt.Errorf("persist activation swap marker: %w", err)
+	}
 	m.operation.Phase = updaterapi.PhaseActivating
 	m.operation.Message = message
 	m.operation.UpdatedAt = m.cfg.Now().UTC()
-	return m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		return errors.Join(
+			fmt.Errorf("persist activating operation: %w", err),
+			m.clearActivationMarker(),
+		)
+	}
+	return nil
 }
 
 func (m *Manager) setLogPath(id, logPath, recovery string) error {
@@ -819,9 +1020,7 @@ func (m *Manager) fail(id string, err error, recovery string) {
 	m.operation.Phase = updaterapi.PhaseFailed
 	m.operation.Message = "Upgrade failed"
 	m.operation.Error = err.Error()
-	if recovery != "" {
-		m.operation.RecoveryCommand = recovery
-	}
+	m.operation.RecoveryCommand = recovery
 	m.operation.UpdatedAt = now
 	m.operation.CompletedAt = &now
 	if persistErr := m.persistLocked(); persistErr != nil {
@@ -829,7 +1028,7 @@ func (m *Manager) fail(id string, err error, recovery string) {
 	}
 }
 
-func (m *Manager) succeed(id, message string) error {
+func (m *Manager) succeed(id, message string, closeForSelfUpdate bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.operation == nil || m.operation.ID != id {
@@ -841,13 +1040,29 @@ func (m *Manager) succeed(id, message string) error {
 	m.operation.RecoveryCommand = ""
 	m.operation.UpdatedAt = now
 	m.operation.CompletedAt = &now
-	return m.persistLocked()
+	if err := m.persistLocked(); err != nil {
+		return err
+	}
+	if closeForSelfUpdate {
+		// Bar a second trigger before the restart notification is observable.
+		// The command process will drain this manager and exec the replacement.
+		m.closing = true
+	}
+	return nil
 }
 
 func (m *Manager) loadState() error {
+	marker, err := m.readActivationMarker()
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(filepath.Join(m.cfg.StateDir, stateFilename))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		if marker != nil {
+			return fmt.Errorf("activation marker exists without persisted operation state")
+		}
+		_, reconcileErr := m.reconcileDeploymentLayout(&updaterapi.Operation{}, false, false, false)
+		return reconcileErr
 	}
 	if err != nil {
 		return fmt.Errorf("read updater state: %w", err)
@@ -856,11 +1071,52 @@ func (m *Manager) loadState() error {
 	if err := json.Unmarshal(data, &op); err != nil {
 		return fmt.Errorf("decode updater state: %w", err)
 	}
-	if !op.Phase.Terminal() {
-		restoredPrevious, err := m.reconcileInterruptedActivation(&op)
-		if err != nil {
+	if marker != nil && (marker.OperationID != op.ID || marker.TargetVersion != op.TargetVersion) {
+		return fmt.Errorf("activation marker does not match persisted operation")
+	}
+	if marker != nil && op.Phase == updaterapi.PhaseSucceeded {
+		return fmt.Errorf("successful operation retains an unexpected activation marker")
+	}
+	wasTerminal := op.Phase.Terminal()
+	deriveForwardRecovery := op.Phase == updaterapi.PhaseActivating || marker != nil
+	if !wasTerminal && !deriveForwardRecovery {
+		op.RecoveryCommand = ""
+	}
+	restoredPrevious, err := m.reconcileDeploymentLayout(
+		&op,
+		deriveForwardRecovery,
+		marker != nil,
+		marker != nil,
+	)
+	if err != nil {
+		if marker != nil && op.RecoveryCommand != "" {
+			now := m.cfg.Now().UTC()
+			op.Phase = updaterapi.PhaseFailed
+			op.Message = "Activation layout requires manual recovery"
+			recoveryError := "Activation layout recovery did not complete: " + err.Error()
+			if !strings.Contains(op.Error, recoveryError) {
+				if op.Error != "" {
+					op.Error += " "
+				}
+				op.Error += recoveryError
+			}
+			op.UpdatedAt = now
+			if op.CompletedAt == nil {
+				op.CompletedAt = &now
+			}
+			m.operation = &op
+			if persistErr := m.persistLocked(); persistErr != nil {
+				return errors.Join(err, fmt.Errorf("persist activation recovery instructions: %w", persistErr))
+			}
+		}
+		return err
+	}
+	if marker != nil {
+		if err := m.clearActivationMarker(); err != nil {
 			return err
 		}
+	}
+	if !wasTerminal {
 		now := m.cfg.Now().UTC()
 		op.Phase = updaterapi.PhaseFailed
 		if restoredPrevious {
@@ -872,63 +1128,178 @@ func (m *Manager) loadState() error {
 		}
 		op.UpdatedAt = now
 		op.CompletedAt = &now
+	} else if restoredPrevious {
+		now := m.cfg.Now().UTC()
+		op.Phase = updaterapi.PhaseFailed
+		op.Message = "Previous deployment restored during updater startup"
+		if op.Error == "" {
+			op.Error = "The active deployment was missing; the updater restored the validated previous deployment."
+		} else {
+			op.Error += " The active deployment was missing during startup; the updater restored the validated previous deployment."
+		}
+		op.RecoveryCommand = ""
+		op.UpdatedAt = now
+		if op.CompletedAt == nil {
+			op.CompletedAt = &now
+		}
 	}
 	m.operation = &op
 	return m.persistLocked()
 }
 
-// reconcileInterruptedActivation repairs only the crash-safe gap between the
-// two activation renames. If the forward deployment already exists, it is
-// never rolled back: run-fleet may have applied forward-only migrations before
-// the updater stopped. Recovery commands are derived from the current on-disk
-// preflight proof rather than trusting a command persisted before the swap.
-func (m *Manager) reconcileInterruptedActivation(op *updaterapi.Operation) (bool, error) {
-	if op.Phase != updaterapi.PhaseActivating {
-		op.RecoveryCommand = ""
-		return false, nil
-	}
+// reconcileDeploymentLayout validates the active layout and repairs the
+// two-rename crash gap only when a durable activation marker proves the
+// operation had not yet crossed into command execution. A present forward
+// deployment is never rolled back because migrations may already be applied.
+func (m *Manager) reconcileDeploymentLayout(
+	op *updaterapi.Operation,
+	deriveForwardRecovery bool,
+	allowPreviousRestore bool,
+	ensureDurable bool,
+) (bool, error) {
 	current := filepath.Join(m.cfg.InstallRoot, "deployment")
 	previous := filepath.Join(m.cfg.InstallRoot, "deployment.previous")
 	currentInfo, err := os.Lstat(current)
 	if err == nil {
 		if !currentInfo.IsDir() {
-			return false, fmt.Errorf("reconcile interrupted activation: active deployment is not a directory")
+			return false, fmt.Errorf("reconcile deployment layout: active deployment is not a directory")
 		}
-		op.RecoveryCommand = ""
 		version, versionErr := readInstalledVersion(filepath.Join(current, "version.txt"))
-		if versionErr == nil && version == op.TargetVersion {
-			if markerInfo, markerErr := os.Lstat(filepath.Join(current, ".update-preflight-complete")); markerErr == nil && markerInfo.Mode().IsRegular() {
-				op.RecoveryCommand = activationRecoveryCommand(current)
-			} else if markerErr != nil && !errors.Is(markerErr, os.ErrNotExist) {
-				return false, fmt.Errorf("inspect interrupted activation preflight proof: %w", markerErr)
+		if versionErr != nil {
+			return false, fmt.Errorf("validate active deployment during reconciliation: %w", versionErr)
+		}
+		if deriveForwardRecovery {
+			op.RecoveryCommand = ""
+			if version == op.TargetVersion {
+				markerInfo, markerErr := os.Lstat(filepath.Join(current, ".update-preflight-complete"))
+				if markerErr == nil {
+					if !markerInfo.Mode().IsRegular() {
+						return false, fmt.Errorf("activation preflight proof is not a regular file")
+					}
+					op.RecoveryCommand = activationRecoveryCommand(current)
+				} else if !errors.Is(markerErr, os.ErrNotExist) {
+					return false, fmt.Errorf("inspect activation preflight proof: %w", markerErr)
+				}
+			}
+		}
+		if ensureDurable {
+			if err := syncDirectory(m.cfg.InstallRoot); err != nil {
+				return false, fmt.Errorf("persist reconciled active deployment: %w", err)
 			}
 		}
 		return false, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("inspect interrupted active deployment: %w", err)
+		return false, fmt.Errorf("inspect active deployment during reconciliation: %w", err)
+	}
+	if !allowPreviousRestore {
+		return false, fmt.Errorf("active deployment is missing without a pending activation swap; refusing automatic rollback")
 	}
 	previousInfo, err := os.Lstat(previous)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return false, fmt.Errorf("reconcile interrupted activation: both deployment and deployment.previous are missing")
+			return false, fmt.Errorf("reconcile deployment layout: both deployment and deployment.previous are missing")
 		}
-		return false, fmt.Errorf("inspect previous deployment for interrupted activation: %w", err)
+		return false, fmt.Errorf("inspect previous deployment during reconciliation: %w", err)
 	}
 	if !previousInfo.IsDir() {
-		return false, fmt.Errorf("reconcile interrupted activation: deployment.previous is not a directory")
+		return false, fmt.Errorf("reconcile deployment layout: deployment.previous is not a directory")
 	}
 	if _, err := readInstalledVersion(filepath.Join(previous, "version.txt")); err != nil {
-		return false, fmt.Errorf("validate previous deployment for interrupted activation: %w", err)
+		return false, fmt.Errorf("validate previous deployment during reconciliation: %w", err)
 	}
+	op.RecoveryCommand = activationRestoreCommand(current, previous)
 	if err := os.Rename(previous, current); err != nil {
-		return false, fmt.Errorf("restore previous deployment after interrupted activation: %w", err)
+		return false, fmt.Errorf("restore previous deployment during reconciliation: %w", err)
 	}
 	if err := syncDirectory(m.cfg.InstallRoot); err != nil {
-		return false, fmt.Errorf("persist restored deployment after interrupted activation: %w", err)
+		return false, fmt.Errorf("persist restored deployment during reconciliation: %w", err)
 	}
 	op.RecoveryCommand = ""
 	return true, nil
+}
+
+// cleanupStaleArtifacts runs only after the daemon-lifetime lock is held and
+// any interrupted deployment swap has been reconciled. Exact SHA-derived
+// names keep cleanup inside reserved direct-child slots. Non-directories are
+// unlinked without following them; directories in state-file slots fail closed.
+func (m *Manager) cleanupStaleArtifacts() error {
+	removedState, cleanupStateErr := cleanupStaleStateArtifacts(m.cfg.StateDir)
+	if removedState {
+		if err := syncDirectory(m.cfg.StateDir); err != nil {
+			return fmt.Errorf("persist stale updater state cleanup: %w", err)
+		}
+	}
+	if cleanupStateErr != nil {
+		return cleanupStateErr
+	}
+
+	removedStages, cleanupStagesErr := cleanupStaleStageDirectories(m.cfg.InstallRoot)
+	if removedStages {
+		if err := syncDirectory(m.cfg.InstallRoot); err != nil {
+			return fmt.Errorf("persist stale updater staging cleanup: %w", err)
+		}
+	}
+	if cleanupStagesErr != nil {
+		return cleanupStagesErr
+	}
+	return nil
+}
+
+func cleanupStaleStateArtifacts(stateDir string) (bool, error) {
+	entries, err := os.ReadDir(stateDir)
+	if err != nil {
+		return false, fmt.Errorf("list updater state for stale artifacts: %w", err)
+	}
+	removed := false
+	for _, entry := range entries {
+		name := entry.Name()
+		if !staleStateArtifactName.MatchString(name) &&
+			!strings.HasPrefix(name, stateTempPrefix) &&
+			name != activationMarkerTempName {
+			continue
+		}
+		path := filepath.Join(stateDir, name)
+		info, err := os.Lstat(path)
+		if err != nil {
+			return removed, fmt.Errorf("inspect stale updater state artifact %s: %w", name, err)
+		}
+		if info.IsDir() {
+			return removed, fmt.Errorf("refusing to remove stale updater state directory from file slot %s", name)
+		}
+		if err := os.Remove(path); err != nil {
+			return removed, fmt.Errorf("remove stale updater state artifact %s: %w", name, err)
+		}
+		removed = true
+	}
+	return removed, nil
+}
+
+func cleanupStaleStageDirectories(installRoot string) (bool, error) {
+	entries, err := os.ReadDir(installRoot)
+	if err != nil {
+		return false, fmt.Errorf("list install root for stale updater staging: %w", err)
+	}
+	removed := false
+	for _, entry := range entries {
+		if !staleStagingArtifactName.MatchString(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(installRoot, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil {
+			return removed, fmt.Errorf("inspect stale updater staging directory %s: %w", entry.Name(), err)
+		}
+		remove := os.Remove
+		if info.IsDir() {
+			remove = os.RemoveAll
+		}
+		if err := remove(path); err != nil {
+			return removed, fmt.Errorf("remove stale updater staging directory %s: %w", entry.Name(), err)
+		}
+		removed = true
+	}
+	return removed, nil
 }
 
 func (m *Manager) persistLocked() error {
@@ -940,7 +1311,7 @@ func (m *Manager) persistLocked() error {
 		return fmt.Errorf("encode updater state: %w", err)
 	}
 	path := filepath.Join(m.cfg.StateDir, stateFilename)
-	temp, err := os.CreateTemp(m.cfg.StateDir, ".state-")
+	temp, err := os.CreateTemp(m.cfg.StateDir, stateTempPrefix)
 	if err != nil {
 		return fmt.Errorf("create updater state temp file: %w", err)
 	}
@@ -1356,4 +1727,17 @@ func shellQuote(value string) string {
 
 func activationRecoveryCommand(deploymentPath string) string {
 	return fmt.Sprintf("cd %s && ./run-fleet.sh --non-interactive --skip-build", shellQuote(deploymentPath))
+}
+
+func activationRestoreCommand(current, previous string) string {
+	quotedCurrent := shellQuote(current)
+	quotedPrevious := shellQuote(previous)
+	return fmt.Sprintf(
+		"test ! -e %s && test ! -L %s && test -d %s && mv -- %s %s && sync",
+		quotedCurrent,
+		quotedCurrent,
+		quotedPrevious,
+		quotedPrevious,
+		quotedCurrent,
+	)
 }

@@ -19,6 +19,12 @@ import (
 var version = "dev"
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	defaultInstallRoot := os.Getenv("PROTO_FLEET_INSTALL_ROOT")
 	if defaultInstallRoot == "" {
 		defaultInstallRoot = "/opt/proto-fleet"
@@ -42,11 +48,11 @@ func main() {
 
 	if *showVersion {
 		fmt.Println(version)
-		return
+		return nil
 	}
 	absoluteInstallRoot, err := filepath.Abs(*installRoot)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("resolve install root: %w", err)
 	}
 	manager, err := updater.NewManager(updater.Config{
 		InstallRoot:    absoluteInstallRoot,
@@ -54,7 +60,7 @@ func main() {
 		SelfUpdatePath: *selfUpdatePath,
 	})
 	if err != nil {
-		log.Fatalf("initialize updater: %v", err)
+		return fmt.Errorf("initialize updater: %w", err)
 	}
 	defer func() {
 		if err := manager.Close(); err != nil {
@@ -74,17 +80,34 @@ func main() {
 	select {
 	case sig := <-signals:
 		log.Printf("received %s, shutting down", sig)
-		serverShutdownCtx, cancelServerShutdown := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := server.Shutdown(serverShutdownCtx); err != nil {
+		if err := shutdownUpdater(server, manager); err != nil {
 			log.Printf("shutdown: %v", err)
 		}
-		cancelServerShutdown()
-		if err := manager.Shutdown(context.Background()); err != nil {
-			log.Printf("stop updater operation: %v", err)
+		return nil
+	case <-manager.SelfUpdateReady():
+		log.Printf("activating refreshed host updater")
+		if err := shutdownUpdater(server, manager); err != nil {
+			return fmt.Errorf("drain updater before self-restart: %w", err)
 		}
+		if *selfUpdatePath == "" {
+			return fmt.Errorf("self-update completed without a configured executable path")
+		}
+		if err := syscall.Exec(*selfUpdatePath, os.Args, os.Environ()); err != nil {
+			return fmt.Errorf("activate refreshed updater: %w", err)
+		}
+		return nil
 	case err := <-errs:
 		if !errors.Is(err, http.ErrServerClosed) {
-			log.Printf("serve updater API: %v", err)
+			return fmt.Errorf("serve updater API: %w", err)
 		}
+		return nil
 	}
+}
+
+func shutdownUpdater(server *updater.Server, manager *updater.Manager) error {
+	serverShutdownCtx, cancelServerShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	serverErr := server.Shutdown(serverShutdownCtx)
+	cancelServerShutdown()
+	managerErr := manager.Shutdown(context.Background())
+	return errors.Join(serverErr, managerErr)
 }
