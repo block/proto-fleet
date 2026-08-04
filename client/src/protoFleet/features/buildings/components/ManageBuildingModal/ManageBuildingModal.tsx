@@ -357,7 +357,11 @@ const ManageBuildingModal = ({
   // failure stops the chain; onChunkCommitted lets the caller tell "nothing
   // landed" from "partial commit".
   const dispatchAssign = useCallback(
-    async (racks: RackPlacementInput[], targetBuildingId?: bigint, onChunkCommitted?: () => void) => {
+    async (
+      racks: RackPlacementInput[],
+      targetBuildingId?: bigint,
+      onChunkCommitted?: (chunk: RackPlacementInput[]) => void,
+    ) => {
       if (racks.length === 0) return;
       for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
         const chunk = racks.slice(i, i + RACKS_PER_RPC);
@@ -369,7 +373,7 @@ const ManageBuildingModal = ({
             onError: (msg) => reject(new Error(msg)),
           });
         });
-        onChunkCommitted?.();
+        onChunkCommitted?.(chunk);
       }
     },
     [assignRacksToBuilding],
@@ -425,21 +429,47 @@ const ManageBuildingModal = ({
         // Removals first: they free their cells before any newcomer lands, and
         // the reverse order would trip the capacity check above on a swap.
         if (removed.length > 0) {
-          await dispatchAssign(
-            removed.map((rackId) => ({ rackId })),
-            undefined,
-          );
-          // Persisted. Drop them from the working set and tell the host now, so
-          // a failure in the newcomer write below still leaves both truthful —
-          // the callers skip their own update when this returns false.
-          forgetRacks(removed);
-          onSaved?.(building);
+          // Fold in each chunk as it lands, not once the whole batch resolves.
+          // A >1000-rack removal spans several AssignRacksToBuilding calls; if
+          // an earlier chunk commits and a later one fails, dropping only the
+          // committed ids keeps the working set and host truthful instead of
+          // showing already-unassigned racks as members. The callers skip their
+          // own update when this returns false, so this is the only place they
+          // land.
+          const committedRemovals: bigint[] = [];
+          try {
+            await dispatchAssign(
+              removed.map((rackId) => ({ rackId })),
+              undefined,
+              (chunk) => {
+                for (const c of chunk) committedRemovals.push(c.rackId);
+              },
+            );
+          } finally {
+            if (committedRemovals.length > 0) {
+              forgetRacks(committedRemovals);
+              onSaved?.(building);
+            }
+          }
         }
         if (newcomers.length > 0) {
-          await dispatchAssign(
-            newcomers.map((a) => ({ rackId: a.rackId })),
-            building.id,
-          );
+          // Same partial-commit shape on the add path: if an early chunk lands
+          // and a later one fails, the host's rack count is already stale, so
+          // refresh it even though the throw below leaves the newcomers for the
+          // caller's reseed to pick up.
+          let addedAny = false;
+          try {
+            await dispatchAssign(
+              newcomers.map((a) => ({ rackId: a.rackId })),
+              building.id,
+              () => {
+                addedAny = true;
+              },
+            );
+          } catch (err) {
+            if (addedAny) onSaved?.(building);
+            throw err;
+          }
         }
       } catch (err) {
         const detail = err instanceof Error ? err.message : "Failed to update racks";
@@ -477,7 +507,14 @@ const ManageBuildingModal = ({
       }
       const apply = async () => {
         const ok = await commitMembership([{ rackId, label }], []);
-        if (!ok) return;
+        // Close on failure like the Manage racks path: commitMembership renders
+        // its error on this modal, behind the search popover, so leaving the
+        // popover open would make the click look like a no-op with the reason
+        // hidden.
+        if (!ok) {
+          setShowSearchRacks(false);
+          return;
+        }
         const { aisle, position } = parseCellKey(targetKey);
         setEntries((prev) => {
           const idStr = rackId.toString();
@@ -508,13 +545,12 @@ const ManageBuildingModal = ({
   );
 
   // Row-level "Remove rack" — an immediate unassign (the rack moves out of the
-  // building; it is not deleted). The row drops only once the write lands.
+  // building; it is not deleted). commitMembership's removal path forgets the
+  // rack (dropping the row and clearing any selection on it) as the write
+  // lands, so there's nothing left to reconcile here.
   const handleRemoveRack = useCallback(
     async (rackId: bigint) => {
-      const ok = await commitMembership([], [rackId]);
-      if (!ok) return;
-      setEntries((prev) => prev.filter((e) => e.rackId !== rackId));
-      setSelectedRackId((prev) => (prev === rackId ? null : prev));
+      await commitMembership([], [rackId]);
     },
     [commitMembership],
   );

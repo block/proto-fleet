@@ -151,8 +151,9 @@ export class FleetLocationsPage extends BasePage {
     await this.closeFullScreenModalIfVisible();
   }
 
-  // Building settings only exposes name + layout now: capacity was pulled from
-  // the form until something actually consumes it.
+  // Single-mode building settings exposes name, layout, and the optional power
+  // capacity / overhead fields. This helper edits the name only; the other
+  // fields are covered where they're asserted.
   async editBuildingDetailsFromDetail(updates: { name?: string }) {
     await this.clickResponsiveTestId("building-page-edit");
     const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");

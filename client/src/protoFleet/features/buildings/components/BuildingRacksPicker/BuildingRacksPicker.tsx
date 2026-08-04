@@ -124,8 +124,12 @@ const BuildingRacksPicker = ({
         existingRacks={[]}
         // Both placement fields are locked: the operator opened create from
         // inside this building, and a rack created elsewhere would vanish from
-        // the list they were looking at.
-        defaultSiteId={siteId}
+        // the list they were looking at. A site-less building (the 0n sentinel)
+        // passes no defaultSiteId — RackSettingsModal then locks Site to
+        // "Unassigned" and drops site_id on submit, so the server derives it
+        // from the locked building. Passing 0n instead would submit an invalid
+        // site_id=0 on the Multiple path, which forwards placement unchanged.
+        defaultSiteId={siteId !== 0n ? siteId : undefined}
         defaultBuilding={{ id: buildingId, label: buildingName }}
         onSubmit={createRack}
         // Present unconditionally — this is what shows the Single / Multiple

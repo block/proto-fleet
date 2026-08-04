@@ -88,11 +88,6 @@ export type BuildingSettingsModalProps = BuildingSettingsModalCommonProps &
       }
   );
 
-// Building type is deliberately absent from this form. The comps show it, but
-// the concept needs its own definition (and its own proto enum) before a
-// dropdown here means anything — a permanently disabled stub only advertised a
-// field nobody could use.
-
 // Layout-dimension cap. Matches the buf.validate int32.lte on
 // Create/UpdateBuildingRequest in proto/buildings/v1/buildings.proto.
 // 100 × 100 = 10,000 cells stays responsive in the ManageBuildingModal
