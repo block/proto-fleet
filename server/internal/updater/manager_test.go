@@ -34,6 +34,7 @@ type recordingRunner struct {
 	commands    []recordedCommand
 	preflight   error
 	activation  error
+	cleanup     error
 	preflightAt chan struct{}
 	release     chan struct{}
 }
@@ -48,10 +49,9 @@ ENABLE_ONE_CLICK_UPDATES=true
 func (r *recordingRunner) Run(_ context.Context, dir string, _ io.Writer, name string, args ...string) error {
 	r.mu.Lock()
 	r.commands = append(r.commands, recordedCommand{Dir: dir, Name: name, Args: append([]string(nil), args...)})
-	call := len(r.commands)
 	r.mu.Unlock()
 
-	if call == 1 {
+	if name == "/bin/bash" && len(args) > 0 && args[len(args)-1] == "--preflight-only" {
 		if r.preflightAt != nil {
 			close(r.preflightAt)
 		}
@@ -59,6 +59,9 @@ func (r *recordingRunner) Run(_ context.Context, dir string, _ io.Writer, name s
 			<-r.release
 		}
 		return r.preflight
+	}
+	if name == "docker" {
+		return r.cleanup
 	}
 	return r.activation
 }
@@ -140,7 +143,35 @@ func TestManagerPreflightFailureNeverTakesTheRunningDeploymentOffline(t *testing
 	assert.Contains(t, completed.Error, "preflight failed")
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
-	require.Len(t, runner.Commands(), 1)
+	commands := runner.Commands()
+	require.Len(t, commands, 1+len(releaseImageRepositories))
+	assert.Equal(t, []string{"./run-fleet.sh", "--non-interactive", "--preflight-only"}, commands[0].Args)
+	for i, repository := range releaseImageRepositories {
+		cleanup := commands[i+1]
+		assert.Equal(t, "docker", cleanup.Name)
+		assert.Equal(t, []string{"image", "rm", repository + ":v1.1.0"}, cleanup.Args)
+		assert.Contains(t, cleanup.Dir, ".proto-fleet-upgrade-")
+	}
+}
+
+func TestManagerFailedPreflightImageCleanupIsBestEffort(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{preflight: assert.AnError, cleanup: assert.AnError}
+	manager := newTestManager(t, installRoot, server, runner)
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "preflight failed")
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	assert.Contains(t, mustReadFile(t, completed.LogPath), "warning: could not remove failed preflight image proto-fleet-api:v1.1.0")
 }
 
 func TestManagerRejectsASecondUpgradeWhileOneIsRunning(t *testing.T) {

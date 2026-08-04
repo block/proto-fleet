@@ -40,6 +40,13 @@ const (
 
 var canonicalRelease = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
 
+var releaseImageRepositories = [...]string{
+	"proto-fleet-api",
+	"proto-fleet-client",
+	"proto-fleet-timescaledb",
+	"proto-fleet-timescaledb-ha",
+}
+
 type CommandRunner interface {
 	Run(ctx context.Context, dir string, output io.Writer, name string, args ...string) error
 }
@@ -259,6 +266,7 @@ func (m *Manager) run(operationID, targetVersion string) {
 		return
 	}
 	if err := m.cfg.Runner.Run(ctx, stageDeployment, logFile, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only"); err != nil {
+		m.removeFailedPreflightImages(ctx, stageDeployment, logFile, targetVersion)
 		m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
 		return
 	}
@@ -300,6 +308,20 @@ func (m *Manager) run(operationID, targetVersion string) {
 		log.Printf("persist successful upgrade state: %v", err)
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] upgrade completed\n", m.cfg.Now().UTC().Format(time.RFC3339))
+}
+
+// removeFailedPreflightImages releases only the immutable target tags from a
+// preflight that did not complete. The manager has already proved the target
+// is newer than the active release, and Docker refuses to remove an image used
+// by any running or stopped container. Cleanup is best-effort so it can never
+// hide the original preflight failure or make recovery less reliable.
+func (m *Manager) removeFailedPreflightImages(ctx context.Context, dir string, output io.Writer, targetVersion string) {
+	for _, repository := range releaseImageRepositories {
+		image := repository + ":" + targetVersion
+		if err := m.cfg.Runner.Run(ctx, dir, output, "docker", "image", "rm", image); err != nil {
+			_, _ = fmt.Fprintf(output, "warning: could not remove failed preflight image %s: %v\n", image, err)
+		}
+	}
 }
 
 func (m *Manager) download(ctx context.Context, rawURL, path string, maxBytes int64) error {
