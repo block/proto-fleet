@@ -1,11 +1,11 @@
 import { test } from "../fixtures/pageFixtures";
 import {
   AUTOMATION_ZONE,
+  createRackLabel,
   NETWORK_RACK_COLUMNS,
   NETWORK_RACK_ROWS,
   ORDER_INDEX_SCENARIOS,
   RACK_COLUMNS,
-  RACK_LABEL,
   RACK_ROWS,
   useRacksHooks,
 } from "../helpers/racksTestSetup";
@@ -23,7 +23,7 @@ test.describe("Racks - creation", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = RACK_LABEL;
+      rackLabel = createRackLabel();
       await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();
@@ -70,12 +70,13 @@ test.describe("Racks - creation", () => {
   });
 
   test("Rack numbering updates when order index changes", async ({ racksPage }) => {
+    const rackLabel = createRackLabel();
     let selectedMiners: RackSelectorMiner[] = [];
 
     await test.step("Create a new 2x2 rack", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
-      await racksPage.inputRackLabel(RACK_LABEL);
+      await racksPage.inputRackLabel(rackLabel);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(RACK_COLUMNS);
       await racksPage.inputRows(RACK_ROWS);
@@ -112,12 +113,13 @@ test.describe("Racks - creation", () => {
   });
 
   test("Assign by network orders all miners by IP address on a 9x9 rack", async ({ racksPage }) => {
+    const rackLabel = createRackLabel();
     let allVisibleMiners: RackSelectorMiner[] = [];
 
     await test.step("Create a new 9x9 rack and add all visible miners", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
-      await racksPage.inputRackLabel(RACK_LABEL);
+      await racksPage.inputRackLabel(rackLabel);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(NETWORK_RACK_COLUMNS);
       await racksPage.inputRows(NETWORK_RACK_ROWS);

@@ -230,6 +230,26 @@ export class MinersPage extends BasePage {
     await expect(columnLocator).toHaveText(expectedValue);
   }
 
+  async waitForMinerValue(
+    ipAddress: string,
+    columnTestId: string,
+    expectedValue: string,
+    timeout: number = DEFAULT_TIMEOUT,
+  ) {
+    await expect
+      .poll(
+        async () => {
+          await this.waitForColumnValuesToLoad(columnTestId);
+          return await this.getMinerColumnText(ipAddress, columnTestId);
+        },
+        {
+          timeout,
+          message: `Expected miner ${ipAddress} column ${columnTestId} to become ${expectedValue}.`,
+        },
+      )
+      .toBe(expectedValue);
+  }
+
   async getMinerColumnText(ipAddress: string, columnTestId: string): Promise<string> {
     const minerRow = await this.getMinerRowByIp(ipAddress);
     const text = await minerRow
