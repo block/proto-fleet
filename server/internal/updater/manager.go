@@ -36,6 +36,10 @@ const (
 	maxExtractedBytes        = int64(16 << 30)
 	maxArchiveEntries        = 100_000
 	defaultHTTPTimeout       = 30 * time.Minute
+	defaultPreflightTimeout  = 2 * time.Hour
+	defaultActivationTimeout = 45 * time.Minute
+	defaultCleanupTimeout    = 2 * time.Minute
+	maxCommandLogBytes       = int64(64 << 20)
 	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
 	processLockFilename      = "updater.lock"
 )
@@ -61,6 +65,21 @@ func (execRunner) Run(ctx context.Context, dir string, output io.Writer, name st
 	cmd.Stdout = output
 	cmd.Stderr = output
 	cmd.Env = append(os.Environ(), "CI=1", "TERM=dumb")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		// Commands run in their own process group so a timed-out shell cannot
+		// leave Docker clients or other descendants running without supervision.
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+			if errors.Is(err, syscall.ESRCH) {
+				return os.ErrProcessDone
+			}
+			return fmt.Errorf("kill command process group: %w", err)
+		}
+		return nil
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("run %s: %w", name, err)
 	}
@@ -68,15 +87,18 @@ func (execRunner) Run(ctx context.Context, dir string, output io.Writer, name st
 }
 
 type Config struct {
-	InstallRoot     string
-	StateDir        string
-	DownloadBaseURL string
-	HTTPClient      *http.Client
-	Runner          CommandRunner
-	Now             func() time.Time
-	NewID           func() string
-	GOARCH          string
-	SelfUpdatePath  string
+	InstallRoot       string
+	StateDir          string
+	DownloadBaseURL   string
+	HTTPClient        *http.Client
+	Runner            CommandRunner
+	Now               func() time.Time
+	NewID             func() string
+	GOARCH            string
+	SelfUpdatePath    string
+	PreflightTimeout  time.Duration
+	ActivationTimeout time.Duration
+	CleanupTimeout    time.Duration
 
 	// Tests inject an httptest TLS endpoint without opening a production
 	// configuration path for alternate release mirrors.
@@ -86,11 +108,14 @@ type Config struct {
 type Manager struct {
 	cfg Config
 
-	mu          sync.RWMutex
-	operation   *updaterapi.Operation
-	processLock *os.File
-	closeOnce   sync.Once
-	closeErr    error
+	mu              sync.RWMutex
+	operation       *updaterapi.Operation
+	closing         bool
+	cancelOperation context.CancelFunc
+	operationWG     sync.WaitGroup
+	processLock     *os.File
+	closeOnce       sync.Once
+	closeErr        error
 }
 
 func NewManager(cfg Config) (*Manager, error) {
@@ -139,6 +164,18 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.GOARCH != "amd64" && cfg.GOARCH != "arm64" {
 		return nil, fmt.Errorf("unsupported architecture %q", cfg.GOARCH)
 	}
+	if cfg.PreflightTimeout == 0 {
+		cfg.PreflightTimeout = defaultPreflightTimeout
+	}
+	if cfg.ActivationTimeout == 0 {
+		cfg.ActivationTimeout = defaultActivationTimeout
+	}
+	if cfg.CleanupTimeout == 0 {
+		cfg.CleanupTimeout = defaultCleanupTimeout
+	}
+	if cfg.PreflightTimeout < 0 || cfg.ActivationTimeout < 0 || cfg.CleanupTimeout < 0 {
+		return nil, fmt.Errorf("updater phase timeouts must be positive")
+	}
 	if err := os.MkdirAll(filepath.Join(cfg.StateDir, "logs"), 0o700); err != nil {
 		return nil, fmt.Errorf("create updater state directory: %w", err)
 	}
@@ -147,7 +184,10 @@ func NewManager(cfg Config) (*Manager, error) {
 		return nil, err
 	}
 
-	m := &Manager{cfg: cfg, processLock: processLock}
+	m := &Manager{
+		cfg:         cfg,
+		processLock: processLock,
+	}
 	if err := m.loadState(); err != nil {
 		_ = processLock.Close()
 		return nil, err
@@ -155,17 +195,43 @@ func NewManager(cfg Config) (*Manager, error) {
 	return m, nil
 }
 
-// Close releases the daemon-lifetime process lock. Production calls this only
-// after the listener has stopped and any operation has finished; closing the
-// descriptor is sufficient because the lock file must never be unlinked while
-// another process could still hold a flock on its inode.
 func (m *Manager) Close() error {
-	m.closeOnce.Do(func() {
-		if m.processLock != nil {
-			m.closeErr = m.processLock.Close()
+	return m.Shutdown(context.Background())
+}
+
+// Shutdown rejects future triggers, cancels work that has not crossed the
+// activation boundary, waits for the operation to persist a terminal state,
+// and only then releases the daemon lock. An active forward migration is not
+// canceled; its own bounded activation deadline remains the safety limit.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	m.mu.Lock()
+	m.closing = true
+	cancelOperation := m.operation == nil || m.operation.Phase != updaterapi.PhaseActivating
+	cancel := m.cancelOperation
+	m.mu.Unlock()
+	if cancelOperation && cancel != nil {
+		cancel()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		m.operationWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		if cancel != nil {
+			cancel()
 		}
-	})
-	return m.closeErr
+		m.closeOnce.Do(func() {
+			if m.processLock != nil {
+				m.closeErr = m.processLock.Close()
+			}
+		})
+		return m.closeErr
+	case <-ctx.Done():
+		return fmt.Errorf("wait for updater operation shutdown: %w", ctx.Err())
+	}
 }
 
 func acquireProcessLock(stateDir string) (*os.File, error) {
@@ -213,15 +279,18 @@ func acquireProcessLock(stateDir string) (*os.File, error) {
 
 func writeProcessLockPID(lockFile *os.File) error {
 	if _, err := lockFile.Seek(0, io.SeekStart); err != nil {
-		return err
+		return fmt.Errorf("seek updater process lock: %w", err)
 	}
 	if err := lockFile.Truncate(0); err != nil {
-		return err
+		return fmt.Errorf("truncate updater process lock: %w", err)
 	}
 	if _, err := fmt.Fprintf(lockFile, "%d\n", os.Getpid()); err != nil {
-		return err
+		return fmt.Errorf("write updater process lock: %w", err)
 	}
-	return lockFile.Sync()
+	if err := lockFile.Sync(); err != nil {
+		return fmt.Errorf("sync updater process lock: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) Status() updaterapi.StatusResponse {
@@ -251,6 +320,9 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closing {
+		return updaterapi.Operation{}, fmt.Errorf("updater is shutting down")
+	}
 	if m.operation != nil && !m.operation.Phase.Terminal() {
 		return updaterapi.Operation{}, fmt.Errorf("an upgrade to %s is already in progress", m.operation.TargetVersion)
 	}
@@ -269,11 +341,17 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 		return updaterapi.Operation{}, err
 	}
 	operationCopy := *op
-	go m.run(operationCopy.ID, targetVersion)
+	operationCtx, cancelOperation := context.WithCancel(context.Background())
+	m.cancelOperation = cancelOperation
+	m.operationWG.Add(1)
+	go func() {
+		defer m.operationWG.Done()
+		m.run(operationCtx, operationCopy.ID, targetVersion)
+	}()
 	return operationCopy, nil
 }
 
-func (m *Manager) run(operationID, targetVersion string) {
+func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	logPath := filepath.Join(m.cfg.StateDir, "logs", operationID+".log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -281,9 +359,22 @@ func (m *Manager) run(operationID, targetVersion string) {
 		return
 	}
 	defer logFile.Close()
+	defer func() {
+		operation := m.Status().Operation
+		if operation == nil || operation.ID != operationID || !operation.Phase.Terminal() {
+			return
+		}
+		_, _ = fmt.Fprintf(
+			logFile,
+			"[%s] terminal phase=%s error=%q\n",
+			m.cfg.Now().UTC().Format(time.RFC3339),
+			operation.Phase,
+			operation.Error,
+		)
+	}()
+	commandOutput := newCappedWriter(logFile, maxCommandLogBytes)
 
-	ctx := context.Background()
-	recovery := activationRecoveryCommand(filepath.Join(m.cfg.InstallRoot, "deployment"))
+	recovery := ""
 	if err := m.setLogPath(operationID, logPath, recovery); err != nil {
 		m.fail(operationID, fmt.Errorf("persist upgrade log location: %w", err), recovery)
 		return
@@ -317,7 +408,7 @@ func (m *Manager) run(operationID, targetVersion string) {
 	// The fixed GitHub Releases origin is the publisher trust anchor. This
 	// sidecar detects transfer/storage corruption; it is not represented as an
 	// independent publisher signature.
-	if err := verifyChecksum(archivePath, checksumPath, archiveName); err != nil {
+	if err := verifyChecksum(ctx, archivePath, checksumPath, archiveName); err != nil {
 		m.fail(operationID, err, recovery)
 		return
 	}
@@ -350,6 +441,7 @@ func (m *Manager) run(operationID, targetVersion string) {
 		}()
 	}
 	if err := extractArchiveWithUpdaterCopy(
+		ctx,
 		archivePath,
 		stageRoot,
 		preparedUpdater,
@@ -382,11 +474,11 @@ func (m *Manager) run(operationID, targetVersion string) {
 		m.fail(operationID, err, recovery)
 		return
 	}
-	if err := preserveDeploymentState(currentDeployment, stageDeployment); err != nil {
+	if err := preserveDeploymentState(ctx, currentDeployment, stageDeployment); err != nil {
 		m.fail(operationID, fmt.Errorf("preserve deployment configuration: %w", err), recovery)
 		return
 	}
-	if err := preserveDeploymentOwnership(currentDeployment, stageDeployment); err != nil {
+	if err := preserveDeploymentOwnership(ctx, currentDeployment, stageDeployment); err != nil {
 		m.fail(operationID, fmt.Errorf("preserve deployment ownership: %w", err), recovery)
 		return
 	}
@@ -395,13 +487,15 @@ func (m *Manager) run(operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("persist preflight phase: %w", err), recovery)
 		return
 	}
-	if err := m.cfg.Runner.Run(ctx, stageDeployment, logFile, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only"); err != nil {
-		m.removeFailedPreflightImages(ctx, stageDeployment, logFile, targetVersion)
+	if err := m.runCommand(ctx, m.cfg.PreflightTimeout, stageDeployment, commandOutput, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only"); err != nil {
+		if ctx.Err() == nil {
+			m.removeFailedPreflightImages(ctx, stageDeployment, commandOutput, logFile, targetVersion)
+		}
 		m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
 		return
 	}
 
-	if err := m.advance(operationID, updaterapi.PhaseActivating, "Restarting Fleet; the client may disconnect for several minutes"); err != nil {
+	if err := m.beginActivation(operationID, "Restarting Fleet; the client may disconnect for several minutes"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation phase: %w", err), recovery)
 		return
 	}
@@ -410,8 +504,13 @@ func (m *Manager) run(operationID, targetVersion string) {
 		m.fail(operationID, err, recovery)
 		return
 	}
+	recovery = activationRecoveryCommand(currentDeployment)
+	if err := m.setRecoveryCommand(operationID, recovery); err != nil {
+		m.fail(operationID, fmt.Errorf("persist activation recovery command: %w", err), recovery)
+		return
+	}
 
-	if err := m.cfg.Runner.Run(ctx, currentDeployment, logFile, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--skip-build"); err != nil {
+	if err := m.runCommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--skip-build"); err != nil {
 		// run-fleet may have applied forward-only migrations before returning an
 		// error. Keep the new deployment active for forward recovery; restoring
 		// the previous binaries could make the schema and application incompatible.
@@ -536,7 +635,7 @@ func syncTree(root string) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("sync staged tree: %w", err)
 	}
 	for i := len(directories) - 1; i >= 0; i-- {
 		if err := syncDirectory(directories[i]); err != nil {
@@ -546,16 +645,82 @@ func syncTree(root string) error {
 	return nil
 }
 
+func (m *Manager) runCommand(
+	parent context.Context,
+	timeout time.Duration,
+	dir string,
+	output io.Writer,
+	name string,
+	args ...string,
+) error {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	err := m.cfg.Runner.Run(ctx, dir, output, name, args...)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("command did not complete within its phase deadline: %w", ctxErr)
+	}
+	return err
+}
+
+type cappedWriter struct {
+	mu        sync.Mutex
+	output    io.Writer
+	remaining int64
+	truncated bool
+}
+
+func newCappedWriter(output io.Writer, limit int64) *cappedWriter {
+	return &cappedWriter{output: output, remaining: limit}
+}
+
+func (w *cappedWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	originalLength := len(data)
+	allowed := originalLength
+	if int64(allowed) > w.remaining {
+		allowed = int(w.remaining)
+	}
+	if allowed > 0 {
+		written, err := w.output.Write(data[:allowed])
+		w.remaining -= int64(written)
+		if err != nil {
+			return written, fmt.Errorf("write bounded command output: %w", err)
+		}
+		if written != allowed {
+			return written, io.ErrShortWrite
+		}
+	}
+	if allowed < originalLength && !w.truncated {
+		w.truncated = true
+		if _, err := io.WriteString(w.output, "\n[command output truncated at configured limit]\n"); err != nil {
+			return allowed, fmt.Errorf("write command output truncation marker: %w", err)
+		}
+	}
+	// Discarded bytes are reported as consumed so verbose child commands keep
+	// running while manager-owned terminal messages remain writable directly to
+	// the underlying log file.
+	return originalLength, nil
+}
+
 // removeFailedPreflightImages releases only the immutable target tags from a
 // preflight that did not complete. The manager has already proved the target
 // is newer than the active release, and Docker refuses to remove an image used
 // by any running or stopped container. Cleanup is best-effort so it can never
 // hide the original preflight failure or make recovery less reliable.
-func (m *Manager) removeFailedPreflightImages(ctx context.Context, dir string, output io.Writer, targetVersion string) {
+func (m *Manager) removeFailedPreflightImages(
+	parent context.Context,
+	dir string,
+	commandOutput io.Writer,
+	logOutput io.Writer,
+	targetVersion string,
+) {
+	ctx, cancel := context.WithTimeout(parent, m.cfg.CleanupTimeout)
+	defer cancel()
 	for _, repository := range releaseImageRepositories {
 		image := repository + ":" + targetVersion
-		if err := m.cfg.Runner.Run(ctx, dir, output, "docker", "image", "rm", image); err != nil {
-			_, _ = fmt.Fprintf(output, "warning: could not remove failed preflight image %s: %v\n", image, err)
+		if err := m.cfg.Runner.Run(ctx, dir, commandOutput, "docker", "image", "rm", image); err != nil {
+			_, _ = fmt.Fprintf(logOutput, "warning: could not remove failed preflight image %s: %v\n", image, err)
 		}
 	}
 }
@@ -606,6 +771,21 @@ func (m *Manager) advance(id string, phase updaterapi.Phase, message string) err
 	return m.persistLocked()
 }
 
+func (m *Manager) beginActivation(id, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.operation == nil || m.operation.ID != id {
+		return fmt.Errorf("operation %s is no longer current", id)
+	}
+	if m.closing {
+		return fmt.Errorf("updater is shutting down before activation")
+	}
+	m.operation.Phase = updaterapi.PhaseActivating
+	m.operation.Message = message
+	m.operation.UpdatedAt = m.cfg.Now().UTC()
+	return m.persistLocked()
+}
+
 func (m *Manager) setLogPath(id, logPath, recovery string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -613,6 +793,17 @@ func (m *Manager) setLogPath(id, logPath, recovery string) error {
 		return fmt.Errorf("operation %s is no longer current", id)
 	}
 	m.operation.LogPath = logPath
+	m.operation.RecoveryCommand = recovery
+	m.operation.UpdatedAt = m.cfg.Now().UTC()
+	return m.persistLocked()
+}
+
+func (m *Manager) setRecoveryCommand(id, recovery string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.operation == nil || m.operation.ID != id {
+		return fmt.Errorf("operation %s is no longer current", id)
+	}
 	m.operation.RecoveryCommand = recovery
 	m.operation.UpdatedAt = m.cfg.Now().UTC()
 	return m.persistLocked()
@@ -647,6 +838,7 @@ func (m *Manager) succeed(id, message string) error {
 	now := m.cfg.Now().UTC()
 	m.operation.Phase = updaterapi.PhaseSucceeded
 	m.operation.Message = message
+	m.operation.RecoveryCommand = ""
 	m.operation.UpdatedAt = now
 	m.operation.CompletedAt = &now
 	return m.persistLocked()
@@ -791,7 +983,7 @@ func readInstalledVersion(path string) (string, error) {
 	return "", fmt.Errorf("installed version file has no version")
 }
 
-func verifyChecksum(archivePath, checksumPath, archiveName string) error {
+func verifyChecksum(ctx context.Context, archivePath, checksumPath, archiveName string) error {
 	data, err := os.ReadFile(checksumPath)
 	if err != nil {
 		return fmt.Errorf("read release checksum: %w", err)
@@ -810,7 +1002,7 @@ func verifyChecksum(archivePath, checksumPath, archiveName string) error {
 	}
 	defer file.Close()
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	if _, err := io.Copy(hash, readerWithContext(ctx, file)); err != nil {
 		return fmt.Errorf("hash release bundle: %w", err)
 	}
 	if !equalBytes(hash.Sum(nil), expected) {
@@ -831,7 +1023,7 @@ func equalBytes(a, b []byte) bool {
 }
 
 func extractArchive(archivePath, destination string) error {
-	return extractArchiveWithUpdaterCopy(archivePath, destination, nil, nil)
+	return extractArchiveWithUpdaterCopy(context.Background(), archivePath, destination, nil, nil)
 }
 
 // extractArchiveWithUpdaterCopy streams the updater payload directly from the
@@ -839,6 +1031,7 @@ func extractArchive(archivePath, destination string) error {
 // deployment tree. The protected copy is therefore never read back through an
 // operator-writable installation path before it replaces the host updater.
 func extractArchiveWithUpdaterCopy(
+	ctx context.Context,
 	archivePath string,
 	destination string,
 	updaterCopy *os.File,
@@ -849,7 +1042,7 @@ func extractArchiveWithUpdaterCopy(
 		return fmt.Errorf("open release archive: %w", err)
 	}
 	defer file.Close()
-	gz, err := gzip.NewReader(file)
+	gz, err := gzip.NewReader(readerWithContext(ctx, file))
 	if err != nil {
 		return fmt.Errorf("open gzip stream: %w", err)
 	}
@@ -859,6 +1052,9 @@ func extractArchiveWithUpdaterCopy(
 	var extractedBytes int64
 	entries := 0
 	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("extract release archive: %w", err)
+		}
 		header, err := tr.Next()
 		if errors.Is(err, io.EOF) {
 			return nil
@@ -947,21 +1143,24 @@ func validateStagedRelease(deploymentPath, targetVersion string) error {
 	return nil
 }
 
-func preserveDeploymentState(current, staged string) error {
+func preserveDeploymentState(ctx context.Context, current, staged string) error {
 	for _, path := range []string{".env", "server/influx_config/.env"} {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("preserve deployment configuration: %w", err)
+		}
 		source := filepath.Join(current, path)
 		if _, err := os.Stat(source); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
 			return fmt.Errorf("inspect preserved file %s: %w", path, err)
 		}
-		if err := copyFile(source, filepath.Join(staged, path)); err != nil {
+		if err := copyFile(ctx, source, filepath.Join(staged, path)); err != nil {
 			return err
 		}
 	}
 	sourceSSL := filepath.Join(current, "ssl")
 	if _, err := os.Stat(sourceSSL); err == nil {
-		if err := copyTree(sourceSSL, filepath.Join(staged, "ssl")); err != nil {
+		if err := copyTree(ctx, sourceSSL, filepath.Join(staged, "ssl")); err != nil {
 			return err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -976,7 +1175,7 @@ func preserveDeploymentState(current, staged string) error {
 // owner can control the same rootful Docker daemon, and root-run installs are
 // root-owned. Preserve that owner so one successful upgrade does not make
 // later manual maintenance unexpectedly require a different account.
-func preserveDeploymentOwnership(current, staged string) error {
+func preserveDeploymentOwnership(ctx context.Context, current, staged string) error {
 	if os.Geteuid() != 0 {
 		return nil
 	}
@@ -989,6 +1188,9 @@ func preserveDeploymentOwnership(current, staged string) error {
 		return fmt.Errorf("read deployment owner")
 	}
 	err = filepath.WalkDir(staged, func(path string, _ os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("preserve staged deployment ownership: %w", err)
+		}
 		if walkErr != nil {
 			return fmt.Errorf("walk staged deployment: %w", walkErr)
 		}
@@ -1003,7 +1205,7 @@ func preserveDeploymentOwnership(current, staged string) error {
 	return nil
 }
 
-func copyFile(source, destination string) error {
+func copyFile(ctx context.Context, source, destination string) error {
 	info, err := os.Lstat(source)
 	if err != nil {
 		return fmt.Errorf("inspect source file: %w", err)
@@ -1023,7 +1225,7 @@ func copyFile(source, destination string) error {
 	if err != nil {
 		return fmt.Errorf("open destination file: %w", err)
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := io.Copy(out, readerWithContext(ctx, in)); err != nil {
 		out.Close()
 		return fmt.Errorf("copy file contents: %w", err)
 	}
@@ -1092,8 +1294,11 @@ func syncDirectory(path string) error {
 	return nil
 }
 
-func copyTree(source, destination string) error {
+func copyTree(ctx context.Context, source, destination string) error {
 	err := filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("preserve deployment tree: %w", err)
+		}
 		if walkErr != nil {
 			return fmt.Errorf("walk preserved tree: %w", walkErr)
 		}
@@ -1115,12 +1320,34 @@ func copyTree(source, destination string) error {
 		if entry.Type()&os.ModeSymlink != 0 {
 			return fmt.Errorf("refusing to preserve symlink %s", path)
 		}
-		return copyFile(path, target)
+		return copyFile(ctx, path, target)
 	})
 	if err != nil {
 		return fmt.Errorf("copy preserved tree: %w", err)
 	}
 	return nil
+}
+
+type readerFunc func(data []byte) (int, error)
+
+func (read readerFunc) Read(data []byte) (int, error) {
+	return read(data)
+}
+
+func readerWithContext(ctx context.Context, reader io.Reader) io.Reader {
+	return readerFunc(func(data []byte) (int, error) {
+		if err := ctx.Err(); err != nil {
+			return 0, fmt.Errorf("read canceled: %w", err)
+		}
+		read, err := reader.Read(data)
+		if errors.Is(err, io.EOF) {
+			return read, io.EOF
+		}
+		if err != nil {
+			return read, fmt.Errorf("read source: %w", err)
+		}
+		return read, nil
+	})
 }
 
 func shellQuote(value string) string {

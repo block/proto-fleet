@@ -55,7 +55,8 @@ func TestListenUpdaterSocketRefusesNonSocketPath(t *testing.T) {
 
 func shortSocketPath(t *testing.T) string {
 	t.Helper()
-	directory, err := os.MkdirTemp("/tmp", "proto-fleet-updater-test-")
+	// /tmp keeps the path below macOS's short Unix-domain socket limit.
+	directory, err := os.MkdirTemp("/tmp", "proto-fleet-updater-test-") //nolint:usetesting
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(directory)) })
 	return filepath.Join(directory, "updater.sock")

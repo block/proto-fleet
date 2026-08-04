@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,9 +92,13 @@ func listenUpdaterSocket(socketPath string) (*net.UnixListener, error) {
 	return listener, nil
 }
 
-func (s *Server) Shutdown() error {
-	if err := s.http.Close(); err != nil {
-		return fmt.Errorf("close updater API: %w", err)
+func (s *Server) Shutdown(ctx context.Context) error {
+	if err := s.http.Shutdown(ctx); err != nil {
+		closeErr := s.http.Close()
+		return errors.Join(
+			fmt.Errorf("shut down updater API: %w", err),
+			closeErr,
+		)
 	}
 	return nil
 }

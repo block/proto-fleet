@@ -31,14 +31,19 @@ type recordedCommand struct {
 }
 
 type recordingRunner struct {
-	mu             sync.Mutex
-	commands       []recordedCommand
-	preflight      error
-	activation     error
-	cleanup        error
-	preflightAt    chan struct{}
-	release        chan struct{}
-	activationHook func(string)
+	mu                   sync.Mutex
+	commands             []recordedCommand
+	preflight            error
+	activation           error
+	cleanup              error
+	preflightAt          chan struct{}
+	release              chan struct{}
+	waitForCancel        bool
+	activationAt         chan struct{}
+	releaseActivation    chan struct{}
+	waitForCleanupCancel bool
+	releaseCleanup       chan struct{}
+	activationHook       func(string)
 }
 
 const operatorEnv = `DB_PASSWORD=secret
@@ -48,7 +53,7 @@ ENABLE_TRACING=true
 ENABLE_ONE_CLICK_UPDATES=true
 `
 
-func (r *recordingRunner) Run(_ context.Context, dir string, _ io.Writer, name string, args ...string) error {
+func (r *recordingRunner) Run(ctx context.Context, dir string, _ io.Writer, name string, args ...string) error {
 	r.mu.Lock()
 	r.commands = append(r.commands, recordedCommand{Dir: dir, Name: name, Args: append([]string(nil), args...)})
 	r.mu.Unlock()
@@ -57,13 +62,39 @@ func (r *recordingRunner) Run(_ context.Context, dir string, _ io.Writer, name s
 		if r.preflightAt != nil {
 			close(r.preflightAt)
 		}
+		if r.waitForCancel {
+			<-ctx.Done()
+			return fmt.Errorf("preflight canceled: %w", ctx.Err())
+		}
 		if r.release != nil {
-			<-r.release
+			select {
+			case <-r.release:
+			case <-ctx.Done():
+				return fmt.Errorf("preflight canceled: %w", ctx.Err())
+			}
 		}
 		return r.preflight
 	}
 	if name == "docker" {
+		if r.waitForCleanupCancel {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("cleanup canceled: %w", ctx.Err())
+			case <-r.releaseCleanup:
+				return fmt.Errorf("cleanup released before cancellation")
+			}
+		}
 		return r.cleanup
+	}
+	if r.activationAt != nil {
+		close(r.activationAt)
+	}
+	if r.releaseActivation != nil {
+		select {
+		case <-r.releaseActivation:
+		case <-ctx.Done():
+			return fmt.Errorf("activation canceled: %w", ctx.Err())
+		}
 	}
 	if r.activationHook != nil {
 		r.activationHook(dir)
@@ -106,7 +137,7 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	assert.Equal(t, filepath.Join(installRoot, "deployment"), commands[1].Dir)
 	assert.Equal(t, []string{"./run-fleet.sh", "--non-interactive", "--skip-build"}, commands[1].Args)
 	assert.FileExists(t, completed.LogPath)
-	assert.Contains(t, completed.RecoveryCommand, "./run-fleet.sh --non-interactive --skip-build")
+	assert.Empty(t, completed.RecoveryCommand)
 }
 
 func TestManagerDefersSelfUpdateUntilActivationSucceeds(t *testing.T) {
@@ -255,6 +286,34 @@ func TestManagerFailedPreflightImageCleanupIsBestEffort(t *testing.T) {
 	assert.Contains(t, mustReadFile(t, completed.LogPath), "warning: could not remove failed preflight image proto-fleet-api:v1.1.0")
 }
 
+func TestManagerFailedPreflightImageCleanupHasABoundedDeadline(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	releaseCleanup := make(chan struct{})
+	runner := &recordingRunner{
+		preflight:            assert.AnError,
+		waitForCleanupCancel: true,
+		releaseCleanup:       releaseCleanup,
+	}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.CleanupTimeout = 25 * time.Millisecond
+	})
+	t.Cleanup(func() { close(releaseCleanup) })
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "preflight failed")
+	assert.NotContains(t, completed.Error, "cleanup canceled")
+	assert.Contains(t, mustReadFile(t, completed.LogPath), context.DeadlineExceeded.Error())
+}
+
 func TestManagerActivationFailurePreservesForwardRecovery(t *testing.T) {
 	t.Parallel()
 
@@ -351,6 +410,163 @@ func TestManagerProcessLockPreventsASecondDaemonFromMutatingState(t *testing.T) 
 	close(runner.release)
 	assert.Equal(t, updaterapi.PhaseSucceeded, waitForTerminal(t, manager).Phase)
 	require.NoError(t, manager.Close())
+	replacement, err := NewManager(config)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, replacement.Close()) })
+}
+
+func TestManagerPreflightDeadlineFailsTheOperation(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{waitForCancel: true}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.PreflightTimeout = 25 * time.Millisecond
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "phase deadline")
+	assert.Contains(t, completed.Error, context.DeadlineExceeded.Error())
+}
+
+func TestManagerActivationDeadlineLetsShutdownFinishWithoutRollback(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	activationAt := make(chan struct{})
+	runner := &recordingRunner{
+		activationAt:      activationAt,
+		releaseActivation: make(chan struct{}),
+	}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.ActivationTimeout = 250 * time.Millisecond
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	select {
+	case <-activationAt:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade never reached activation")
+	}
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelShutdown()
+	require.NoError(t, manager.Shutdown(shutdownCtx))
+	completed := manager.Status().Operation
+	require.NotNil(t, completed)
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "phase deadline")
+	assert.Contains(t, completed.Error, context.DeadlineExceeded.Error())
+	assert.NotContains(t, completed.Error, context.Canceled.Error())
+	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment.previous", "version.txt")))
+	assert.Contains(t, completed.RecoveryCommand, "./run-fleet.sh --non-interactive --skip-build")
+}
+
+func TestManagerShutdownCancelsPreActivationWorkAndWaits(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{
+		preflightAt:   make(chan struct{}),
+		waitForCancel: true,
+	}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.PreflightTimeout = time.Hour
+	})
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	select {
+	case <-runner.preflightAt:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade never reached preflight")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, manager.Shutdown(shutdownCtx))
+	completed := manager.Status().Operation
+	require.NotNil(t, completed)
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, context.Canceled.Error())
+	_, err = manager.Trigger("v1.2.0")
+	require.ErrorContains(t, err, "updater is shutting down")
+}
+
+func TestManagerShutdownDuringActivationRetainsTheProcessLockUntilCompletion(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	activationAt := make(chan struct{})
+	releaseActivation := make(chan struct{})
+	var releaseOnce sync.Once
+	runner := &recordingRunner{
+		activationAt:      activationAt,
+		releaseActivation: releaseActivation,
+	}
+	config := Config{
+		InstallRoot:              installRoot,
+		StateDir:                 stateDir,
+		DownloadBaseURL:          server.URL,
+		HTTPClient:               server.Client(),
+		Runner:                   runner,
+		GOARCH:                   "amd64",
+		NewID:                    func() string { return "activating-operation" },
+		ActivationTimeout:        time.Hour,
+		allowTestDownloadBaseURL: true,
+	}
+	manager, err := NewManager(config)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	t.Cleanup(func() { releaseOnce.Do(func() { close(releaseActivation) }) })
+
+	_, err = manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	select {
+	case <-activationAt:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade never reached activation")
+	}
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	err = manager.Shutdown(shutdownCtx)
+	cancelShutdown()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.Equal(t, updaterapi.PhaseActivating, operation.Phase)
+
+	contender, contenderErr := NewManager(config)
+	if contender != nil {
+		_ = contender.Close()
+	}
+	require.ErrorContains(t, contenderErr, "another updater process is already running")
+
+	releaseOnce.Do(func() { close(releaseActivation) })
+	completed := waitForTerminal(t, manager)
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	finalShutdownCtx, cancelFinalShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	require.NoError(t, manager.Shutdown(finalShutdownCtx))
+	cancelFinalShutdown()
+
 	replacement, err := NewManager(config)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, replacement.Close()) })
@@ -542,6 +758,64 @@ func TestAtomicReplaceExecutableRefreshesTheInstalledUpdater(t *testing.T) {
 	info, err := os.Stat(destination)
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode().Perm()&0o111)
+}
+
+func TestCappedWriterDiscardsExcessWhileLeavingTheLogWritable(t *testing.T) {
+	t.Parallel()
+
+	var log bytes.Buffer
+	commandOutput := newCappedWriter(&log, 4)
+	written, err := commandOutput.Write([]byte("abcdefgh"))
+	require.NoError(t, err)
+	assert.Equal(t, 8, written)
+	written, err = commandOutput.Write([]byte("discarded"))
+	require.NoError(t, err)
+	assert.Equal(t, len("discarded"), written)
+	_, err = io.WriteString(&log, "terminal message\n")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, strings.Count(log.String(), "command output truncated"))
+	assert.Contains(t, log.String(), "abcd")
+	assert.NotContains(t, log.String(), "efgh")
+	assert.Contains(t, log.String(), "terminal message")
+}
+
+func TestExecRunnerCancellationKillsBackgroundDescendants(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	childStarted := filepath.Join(directory, "child-started")
+	delayedMarker := filepath.Join(directory, "delayed-marker")
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		done <- (execRunner{}).Run(
+			ctx,
+			directory,
+			io.Discard,
+			"/bin/bash",
+			"-c",
+			`(printf child-started > "$1"; sleep 0.25; printf survived > "$2") & wait`,
+			"bash",
+			childStarted,
+			delayedMarker,
+		)
+	}()
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(childStarted)
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond, "background child never started")
+
+	cancel()
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("exec runner did not return after cancellation")
+	}
+	time.Sleep(350 * time.Millisecond)
+	assert.NoFileExists(t, delayedMarker, "background descendant survived command cancellation")
 }
 
 func newTestManager(t *testing.T, installRoot string, server *httptest.Server, runner CommandRunner) *Manager {

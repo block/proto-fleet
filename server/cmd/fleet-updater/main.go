@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/updater"
 )
@@ -68,15 +70,21 @@ func main() {
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
 	select {
 	case sig := <-signals:
 		log.Printf("received %s, shutting down", sig)
-		if err := server.Shutdown(); err != nil {
+		serverShutdownCtx, cancelServerShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := server.Shutdown(serverShutdownCtx); err != nil {
 			log.Printf("shutdown: %v", err)
+		}
+		cancelServerShutdown()
+		if err := manager.Shutdown(context.Background()); err != nil {
+			log.Printf("stop updater operation: %v", err)
 		}
 	case err := <-errs:
 		if !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("serve updater API: %v", err)
+			log.Printf("serve updater API: %v", err)
 		}
 	}
 }
