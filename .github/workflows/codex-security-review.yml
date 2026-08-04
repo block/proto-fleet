@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [edited, opened, reopened, ready_for_review, synchronize]
 
+env:
+  CODEX_CLI_VERSION: "0.146.0"
+  CODEX_MODEL: gpt-5.6-sol
+  CODEX_REASONING_EFFORT: xhigh
+
 jobs:
   security-review:
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -16,8 +21,6 @@ jobs:
       contents: read
     env:
       OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
-      CODEX_MODEL: gpt-5.5
-      CODEX_REASONING_EFFORT: xhigh
       REVIEW_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
@@ -57,8 +60,10 @@ jobs:
         uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          codex-version: ${{ env.CODEX_CLI_VERSION }}
           model: ${{ env.CODEX_MODEL }}
-          codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}","-c","service_tier=fast"]'
+          effort: ${{ env.CODEX_REASONING_EFFORT }}
+          codex-args: '["-c","service_tier=fast"]'
 
           safety-strategy: drop-sudo
           sandbox: read-only
@@ -187,6 +192,13 @@ jobs:
           REVIEW_COMMIT_RANGE: ${{ env.REVIEW_COMMIT_RANGE }}
           REVIEW_RUN_ID: ${{ github.run_id }}
         run: |
+          actual_cli_version="$(codex --version)"
+          if [[ "$actual_cli_version" != *"$CODEX_CLI_VERSION"* ]]; then
+            echo "Codex CLI version mismatch: expected $CODEX_CLI_VERSION, got $actual_cli_version" >&2
+            exit 1
+          fi
+          export CODEX_CLI_VERSION_ACTUAL="$actual_cli_version"
+
           python3 - <<'PY'
           import json
           import os
@@ -206,6 +218,9 @@ jobs:
               "commit_range": os.environ["REVIEW_COMMIT_RANGE"],
               "run_id": os.environ["REVIEW_RUN_ID"],
               "overall_risk": risk,
+              "model": os.environ["CODEX_MODEL"],
+              "reasoning_effort": os.environ["CODEX_REASONING_EFFORT"],
+              "codex_cli_version": os.environ["CODEX_CLI_VERSION_ACTUAL"],
           }
           output = Path("codex-security-review-result.json")
           output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
@@ -242,7 +257,6 @@ jobs:
       issues: write
       pull-requests: write
     env:
-      CODEX_MODEL: gpt-5.5
       REVIEW_COMMIT_RANGE: ${{ format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) }}
       REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -266,6 +280,8 @@ jobs:
             const review = fs.readFileSync(process.env.REVIEW_MARKDOWN_FILE, 'utf8');
             const commitRange = process.env.REVIEW_COMMIT_RANGE || `${context.sha}..${context.sha}`;
             const modelName = process.env.CODEX_MODEL || 'unknown';
+            const reasoningEffort = process.env.CODEX_REASONING_EFFORT || 'unknown';
+            const codexCliVersion = process.env.CODEX_CLI_VERSION || 'unknown';
             const reviewedHeadSha = process.env.REVIEW_HEAD_SHA;
             const prNumber = Number(process.env.REVIEW_PR_NUMBER);
             const scopeSummaryLine = `Reviewed pull request diff only (\`${commitRange}\`, exact PR three-dot diff)`;
@@ -281,6 +297,8 @@ jobs:
             > **Scope summary**
             > - ${scopeSummaryLine}
             > - Model: ${modelName}
+            > - Reasoning effort: ${reasoningEffort}
+            > - Codex CLI: ${codexCliVersion} (pinned)
             >
             > 💡 *Click "edited" above to see previous reviews for this PR.*
 
