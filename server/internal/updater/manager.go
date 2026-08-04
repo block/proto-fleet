@@ -30,12 +30,13 @@ import (
 )
 
 const (
-	stateFilename      = "state.json"
-	maxChecksumBytes   = 4096
-	maxDownloadBytes   = int64(8 << 30) // 8 GiB hard stop for a corrupt or hostile response.
-	maxExtractedBytes  = int64(16 << 30)
-	maxArchiveEntries  = 100_000
-	defaultHTTPTimeout = 30 * time.Minute
+	stateFilename            = "state.json"
+	maxChecksumBytes         = 4096
+	maxDownloadBytes         = int64(8 << 30) // 8 GiB hard stop for a corrupt or hostile response.
+	maxExtractedBytes        = int64(16 << 30)
+	maxArchiveEntries        = 100_000
+	defaultHTTPTimeout       = 30 * time.Minute
+	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
 )
 
 var canonicalRelease = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
@@ -75,6 +76,10 @@ type Config struct {
 	NewID           func() string
 	GOARCH          string
 	SelfUpdatePath  string
+
+	// Tests inject an httptest TLS endpoint without opening a production
+	// configuration path for alternate release mirrors.
+	allowTestDownloadBaseURL bool
 }
 
 type Manager struct {
@@ -93,6 +98,11 @@ func NewManager(cfg Config) (*Manager, error) {
 	}
 	if cfg.SelfUpdatePath != "" && !filepath.IsAbs(cfg.SelfUpdatePath) {
 		return nil, fmt.Errorf("self-update path must be absolute")
+	}
+	if cfg.DownloadBaseURL == "" {
+		cfg.DownloadBaseURL = canonicalDownloadBaseURL
+	} else if cfg.DownloadBaseURL != canonicalDownloadBaseURL && !cfg.allowTestDownloadBaseURL {
+		return nil, fmt.Errorf("download base URL must use the official GitHub Releases URL")
 	}
 	downloadBase, err := url.Parse(cfg.DownloadBaseURL)
 	if err != nil || downloadBase.Scheme != "https" || downloadBase.Host == "" ||
@@ -222,10 +232,13 @@ func (m *Manager) run(operationID, targetVersion string) {
 		return
 	}
 
-	if err := m.advance(operationID, updaterapi.PhaseVerifying, "Verifying release integrity"); err != nil {
+	if err := m.advance(operationID, updaterapi.PhaseVerifying, "Verifying release checksum"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist verification phase: %w", err), recovery)
 		return
 	}
+	// The fixed GitHub Releases origin is the publisher trust anchor. This
+	// sidecar detects transfer/storage corruption; it is not represented as an
+	// independent publisher signature.
 	if err := verifyChecksum(archivePath, checksumPath, archiveName); err != nil {
 		m.fail(operationID, err, recovery)
 		return
@@ -242,9 +255,48 @@ func (m *Manager) run(operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("persist staging phase: %w", err), recovery)
 		return
 	}
-	if err := extractArchive(archivePath, stageRoot); err != nil {
+	var preparedUpdater *os.File
+	updaterCopied := false
+	if m.cfg.SelfUpdatePath != "" {
+		preparedUpdater, err = os.CreateTemp(m.cfg.StateDir, ".prepared-updater-")
+		if err != nil {
+			m.fail(operationID, fmt.Errorf("create protected updater copy: %w", err), recovery)
+			return
+		}
+		preparedUpdaterPath := preparedUpdater.Name()
+		defer os.Remove(preparedUpdaterPath)
+		defer func() {
+			if preparedUpdater != nil {
+				_ = preparedUpdater.Close()
+			}
+		}()
+	}
+	if err := extractArchiveWithUpdaterCopy(
+		archivePath,
+		stageRoot,
+		preparedUpdater,
+		&updaterCopied,
+	); err != nil {
 		m.fail(operationID, fmt.Errorf("extract release bundle: %w", err), recovery)
 		return
+	}
+	if preparedUpdater != nil {
+		if !updaterCopied {
+			m.fail(operationID, fmt.Errorf("release bundle is missing required updater binary"), recovery)
+			return
+		}
+		if err := preparedUpdater.Chmod(0o700); err != nil {
+			m.fail(operationID, fmt.Errorf("secure protected updater copy: %w", err), recovery)
+			return
+		}
+		if err := preparedUpdater.Sync(); err != nil {
+			m.fail(operationID, fmt.Errorf("sync protected updater copy: %w", err), recovery)
+			return
+		}
+		if _, err := preparedUpdater.Seek(0, io.SeekStart); err != nil {
+			m.fail(operationID, fmt.Errorf("rewind protected updater copy: %w", err), recovery)
+			return
+		}
 	}
 	stageDeployment := filepath.Join(stageRoot, "deployment")
 	currentDeployment := filepath.Join(m.cfg.InstallRoot, "deployment")
@@ -270,13 +322,6 @@ func (m *Manager) run(operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
 		return
 	}
-	if m.cfg.SelfUpdatePath != "" {
-		stagedUpdater := filepath.Join(stageDeployment, "updater", "proto-fleet-updater")
-		if err := atomicReplaceExecutable(stagedUpdater, m.cfg.SelfUpdatePath); err != nil {
-			m.fail(operationID, fmt.Errorf("update host updater binary: %w", err), recovery)
-			return
-		}
-	}
 
 	if err := m.advance(operationID, updaterapi.PhaseActivating, "Restarting Fleet; the client may disconnect for several minutes"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation phase: %w", err), recovery)
@@ -299,11 +344,21 @@ func (m *Manager) run(operationID, targetVersion string) {
 	}
 
 	if err := m.cfg.Runner.Run(ctx, currentDeployment, logFile, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--skip-build"); err != nil {
+		// run-fleet may have applied forward-only migrations before returning an
+		// error. Keep the new deployment active for forward recovery; restoring
+		// the previous binaries could make the schema and application incompatible.
 		m.fail(operationID, fmt.Errorf("new stack failed to start: %w", err), recovery)
 		return
 	}
+	successMessage := fmt.Sprintf("Fleet %s is running", targetVersion)
+	if preparedUpdater != nil {
+		if err := atomicReplaceExecutableFromFile(preparedUpdater, m.cfg.SelfUpdatePath); err != nil {
+			_, _ = fmt.Fprintf(logFile, "[%s] warning: Fleet is healthy, but the host updater binary was not refreshed: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
+			successMessage += "; host updater refresh needs attention (see upgrade log)"
+		}
+	}
 
-	if err := m.succeed(operationID, fmt.Sprintf("Fleet %s is running", targetVersion)); err != nil {
+	if err := m.succeed(operationID, successMessage); err != nil {
 		_, _ = fmt.Fprintf(logFile, "[%s] warning: persist successful terminal state: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
 		log.Printf("persist successful upgrade state: %v", err)
 	}
@@ -532,6 +587,19 @@ func equalBytes(a, b []byte) bool {
 }
 
 func extractArchive(archivePath, destination string) error {
+	return extractArchiveWithUpdaterCopy(archivePath, destination, nil, nil)
+}
+
+// extractArchiveWithUpdaterCopy streams the updater payload directly from the
+// checksum-verified archive into root-only state while extracting the ordinary
+// deployment tree. The protected copy is therefore never read back through an
+// operator-writable installation path before it replaces the host updater.
+func extractArchiveWithUpdaterCopy(
+	archivePath string,
+	destination string,
+	updaterCopy *os.File,
+	updaterCopied *bool,
+) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return fmt.Errorf("open release archive: %w", err)
@@ -587,11 +655,19 @@ func extractArchive(archivePath, destination string) error {
 			if err != nil {
 				return fmt.Errorf("create archive file %s: %w", header.Name, err)
 			}
+			writer := io.Writer(out)
+			copyUpdater := updaterCopy != nil && filepath.ToSlash(name) == "deployment/updater/proto-fleet-updater"
+			if copyUpdater {
+				writer = io.MultiWriter(out, updaterCopy)
+			}
 			// tar.Reader already bounds reads to header.Size; the additional
 			// LimitReader documents that bound for static analysis.
-			if _, err := io.Copy(out, io.LimitReader(tr, header.Size)); err != nil { // #nosec G110
+			if _, err := io.Copy(writer, io.LimitReader(tr, header.Size)); err != nil { // #nosec G110
 				out.Close()
 				return fmt.Errorf("extract archive file %s: %w", header.Name, err)
+			}
+			if copyUpdater && updaterCopied != nil {
+				*updaterCopied = true
 			}
 			if err := out.Close(); err != nil {
 				return fmt.Errorf("close archive file %s: %w", header.Name, err)
@@ -651,9 +727,11 @@ func preserveDeploymentState(current, staged string) error {
 }
 
 // The host updater runs as root so it can manage rootful Docker and its own
-// systemd unit. Keep the extracted deployment owned by the same account as
-// the previous deployment, otherwise one successful one-click upgrade would
-// make later manual maintenance unexpectedly require root.
+// systemd unit. The deployment owner is inside that same host-administrator
+// trust boundary: supported non-root installs enable one-click only when the
+// owner can control the same rootful Docker daemon, and root-run installs are
+// root-owned. Preserve that owner so one successful upgrade does not make
+// later manual maintenance unexpectedly require a different account.
 func preserveDeploymentOwnership(current, staged string) error {
 	if os.Geteuid() != 0 {
 		return nil
@@ -712,11 +790,23 @@ func copyFile(source, destination string) error {
 }
 
 func atomicReplaceExecutable(source, destination string) error {
-	info, err := os.Stat(source)
+	in, err := os.Open(source)
+	if err != nil {
+		return fmt.Errorf("open staged updater: %w", err)
+	}
+	defer in.Close()
+	return atomicReplaceExecutableFromFile(in, destination)
+}
+
+func atomicReplaceExecutableFromFile(in *os.File, destination string) error {
+	if _, err := in.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind staged updater: %w", err)
+	}
+	info, err := in.Stat()
 	if err != nil {
 		return fmt.Errorf("inspect staged updater: %w", err)
 	}
-	if info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		return fmt.Errorf("staged updater is not executable")
 	}
 	temp, err := os.CreateTemp(filepath.Dir(destination), ".proto-fleet-updater-")
@@ -725,20 +815,9 @@ func atomicReplaceExecutable(source, destination string) error {
 	}
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
-	in, err := os.Open(source)
-	if err != nil {
+	if _, err := io.Copy(temp, in); err != nil {
 		temp.Close()
-		return fmt.Errorf("open staged updater: %w", err)
-	}
-	_, copyErr := io.Copy(temp, in)
-	closeInErr := in.Close()
-	if copyErr != nil {
-		temp.Close()
-		return fmt.Errorf("copy staged updater: %w", copyErr)
-	}
-	if closeInErr != nil {
-		temp.Close()
-		return fmt.Errorf("close staged updater: %w", closeInErr)
+		return fmt.Errorf("copy staged updater: %w", err)
 	}
 	if err := temp.Chmod(0o755); err != nil {
 		temp.Close()

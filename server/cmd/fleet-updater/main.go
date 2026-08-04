@@ -29,16 +29,11 @@ func main() {
 	if defaultSocketPath == "" {
 		defaultSocketPath = "/run/proto-fleet-updater/updater.sock"
 	}
-	defaultDownloadBase := os.Getenv("PROTO_FLEET_DOWNLOAD_BASE_URL")
-	if defaultDownloadBase == "" {
-		defaultDownloadBase = "https://github.com/block/proto-fleet/releases/download"
-	}
 	defaultSelfUpdatePath := os.Getenv("PROTO_FLEET_UPDATER_BINARY_PATH")
 
 	installRoot := flag.String("install-root", defaultInstallRoot, "Proto Fleet installation root")
 	stateDir := flag.String("state-dir", defaultStateDir, "Durable updater state directory")
 	socketPath := flag.String("socket-path", defaultSocketPath, "Unix socket path")
-	downloadBase := flag.String("download-base-url", defaultDownloadBase, "Official release download base URL")
 	selfUpdatePath := flag.String("self-update-path", defaultSelfUpdatePath, "Installed updater binary path to atomically refresh")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
@@ -52,10 +47,9 @@ func main() {
 		log.Fatal(err)
 	}
 	manager, err := updater.NewManager(updater.Config{
-		InstallRoot:     absoluteInstallRoot,
-		StateDir:        *stateDir,
-		DownloadBaseURL: *downloadBase,
-		SelfUpdatePath:  *selfUpdatePath,
+		InstallRoot:    absoluteInstallRoot,
+		StateDir:       *stateDir,
+		SelfUpdatePath: *selfUpdatePath,
 	})
 	if err != nil {
 		log.Fatalf("initialize updater: %v", err)

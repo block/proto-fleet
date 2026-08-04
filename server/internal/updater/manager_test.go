@@ -30,13 +30,14 @@ type recordedCommand struct {
 }
 
 type recordingRunner struct {
-	mu          sync.Mutex
-	commands    []recordedCommand
-	preflight   error
-	activation  error
-	cleanup     error
-	preflightAt chan struct{}
-	release     chan struct{}
+	mu             sync.Mutex
+	commands       []recordedCommand
+	preflight      error
+	activation     error
+	cleanup        error
+	preflightAt    chan struct{}
+	release        chan struct{}
+	activationHook func(string)
 }
 
 const operatorEnv = `DB_PASSWORD=secret
@@ -62,6 +63,9 @@ func (r *recordingRunner) Run(_ context.Context, dir string, _ io.Writer, name s
 	}
 	if name == "docker" {
 		return r.cleanup
+	}
+	if r.activationHook != nil {
+		r.activationHook(dir)
 	}
 	return r.activation
 }
@@ -102,6 +106,82 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	assert.Equal(t, []string{"./run-fleet.sh", "--non-interactive", "--skip-build"}, commands[1].Args)
 	assert.FileExists(t, completed.LogPath)
 	assert.Contains(t, completed.RecoveryCommand, "./run-fleet.sh --non-interactive --skip-build")
+}
+
+func TestManagerDefersSelfUpdateUntilActivationSucceeds(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{activation: assert.AnError}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.SelfUpdatePath = installedUpdater
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Equal(t, "old updater", mustReadFile(t, installedUpdater))
+}
+
+func TestManagerSelfUpdateUsesVerifiedArchiveCopy(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{
+		activationHook: func(dir string) {
+			require.NoError(t, os.WriteFile(
+				filepath.Join(dir, "updater", "proto-fleet-updater"),
+				[]byte("operator replacement"),
+				0o755,
+			))
+		},
+	}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.SelfUpdatePath = installedUpdater
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	assert.Equal(t, "updater", mustReadFile(t, installedUpdater))
+}
+
+func TestManagerSelfUpdateFailureIsADegradedSuccess(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{}
+	missingParent := filepath.Join(t.TempDir(), "missing", "proto-fleet-updater")
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.SelfUpdatePath = missingParent
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	assert.Contains(t, completed.Message, "host updater refresh needs attention")
+	assert.Contains(t, mustReadFile(t, completed.LogPath), "host updater binary was not refreshed")
+	assert.NoFileExists(t, missingParent)
 }
 
 func TestManagerChecksumFailureLeavesCurrentDeploymentUntouched(t *testing.T) {
@@ -240,11 +320,10 @@ func TestManagerMarksAnInterruptedPersistedOperationFailed(t *testing.T) {
 	))
 
 	manager, err := NewManager(Config{
-		InstallRoot:     installRoot,
-		StateDir:        stateDir,
-		DownloadBaseURL: "https://example.invalid",
-		GOARCH:          "amd64",
-		Now:             func() time.Time { return started.Add(time.Minute) },
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+		Now:         func() time.Time { return started.Add(time.Minute) },
 	})
 	require.NoError(t, err)
 
@@ -266,13 +345,26 @@ func TestManagerRejectsUnsafeDownloadBaseURLs(t *testing.T) {
 		"https://example.com/releases#fragment",
 	} {
 		_, err := NewManager(Config{
-			InstallRoot:     t.TempDir(),
-			StateDir:        filepath.Join(t.TempDir(), "state"),
-			DownloadBaseURL: rawURL,
-			GOARCH:          "amd64",
+			InstallRoot:              t.TempDir(),
+			StateDir:                 filepath.Join(t.TempDir(), "state"),
+			DownloadBaseURL:          rawURL,
+			GOARCH:                   "amd64",
+			allowTestDownloadBaseURL: true,
 		})
 		require.Error(t, err, rawURL)
 	}
+}
+
+func TestManagerRejectsProductionDownloadBaseOverride(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewManager(Config{
+		InstallRoot:     t.TempDir(),
+		StateDir:        filepath.Join(t.TempDir(), "state"),
+		DownloadBaseURL: "https://mirror.example.com/proto-fleet",
+		GOARCH:          "amd64",
+	})
+	require.ErrorContains(t, err, "official GitHub Releases URL")
 }
 
 func TestExtractArchiveRejectsTraversal(t *testing.T) {
@@ -312,15 +404,31 @@ func TestAtomicReplaceExecutableRefreshesTheInstalledUpdater(t *testing.T) {
 
 func newTestManager(t *testing.T, installRoot string, server *httptest.Server, runner CommandRunner) *Manager {
 	t.Helper()
-	manager, err := NewManager(Config{
-		InstallRoot:     installRoot,
-		StateDir:        filepath.Join(t.TempDir(), "state"),
-		DownloadBaseURL: server.URL,
-		HTTPClient:      server.Client(),
-		Runner:          runner,
-		GOARCH:          "amd64",
-		NewID:           func() string { return "test-operation" },
-	})
+	return newTestManagerWithConfig(t, installRoot, server, runner, nil)
+}
+
+func newTestManagerWithConfig(
+	t *testing.T,
+	installRoot string,
+	server *httptest.Server,
+	runner CommandRunner,
+	configure func(*Config),
+) *Manager {
+	t.Helper()
+	cfg := Config{
+		InstallRoot:              installRoot,
+		StateDir:                 filepath.Join(t.TempDir(), "state"),
+		DownloadBaseURL:          server.URL,
+		HTTPClient:               server.Client(),
+		Runner:                   runner,
+		GOARCH:                   "amd64",
+		NewID:                    func() string { return "test-operation" },
+		allowTestDownloadBaseURL: true,
+	}
+	if configure != nil {
+		configure(&cfg)
+	}
+	manager, err := NewManager(cfg)
 	require.NoError(t, err)
 	return manager
 }
