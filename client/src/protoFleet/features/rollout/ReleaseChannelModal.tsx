@@ -225,6 +225,7 @@ function ReleaseChannelModal({
                   key={level}
                   label={label}
                   value={getTargetButtonLabel(draft.scope[level], singular)}
+                  size={sizes.compact}
                   onClick={() => onSelectScope(level)}
                 />
               ))}
