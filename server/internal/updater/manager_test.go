@@ -174,6 +174,30 @@ func TestManagerFailedPreflightImageCleanupIsBestEffort(t *testing.T) {
 	assert.Contains(t, mustReadFile(t, completed.LogPath), "warning: could not remove failed preflight image proto-fleet-api:v1.1.0")
 }
 
+func TestManagerActivationFailurePreservesForwardRecovery(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{activation: assert.AnError}
+	manager := newTestManager(t, installRoot, server, runner)
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "new stack failed to start")
+	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment.previous", "version.txt")))
+	assert.Contains(t, completed.RecoveryCommand, "./run-fleet.sh --non-interactive --skip-build")
+	commands := runner.Commands()
+	require.Len(t, commands, 2)
+	assert.Equal(t, []string{"./run-fleet.sh", "--non-interactive", "--skip-build"}, commands[1].Args)
+}
+
 func TestManagerRejectsASecondUpgradeWhileOneIsRunning(t *testing.T) {
 	t.Parallel()
 
