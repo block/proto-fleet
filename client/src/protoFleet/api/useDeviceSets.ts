@@ -14,6 +14,7 @@ import {
   type DeviceSetStats,
   DeviceSetType,
   type PerDeviceRackConflict,
+  type PerRackCreateErrorReason,
   type RackCoolingType,
   RackInfoSchema,
   type RackOrderIndex,
@@ -240,6 +241,42 @@ interface SaveRackProps {
   // The caller confirms and retries with forceClearConflictingSite=true.
   onConflicts?: (conflicts: PerDeviceRackConflict[]) => void;
   onError?: (message: string) => void;
+  onFinally?: () => void;
+}
+
+// One rack in a bulk create. Carries the whole rack description, not just the
+// label: the bulk form applies one geometry across the batch, but a NewRack
+// describes a whole rack. Placement is the exception — see CreateRacksProps.
+export interface NewRackInput {
+  label: string;
+  rows: number;
+  columns: number;
+  zone?: string;
+  orderIndex: RackOrderIndex;
+  coolingType: RackCoolingType;
+}
+
+// A row the server refused, keyed by its index in the submitted list so the
+// preview can mark that exact line.
+export interface BulkCreateRackError {
+  index: number;
+  label: string;
+  reason: PerRackCreateErrorReason;
+}
+
+interface CreateRacksProps {
+  // Where the whole batch lands. Omit both for unassigned racks; a building
+  // determines the site server-side, so callers that know the building leave
+  // siteId undefined.
+  siteId?: bigint;
+  buildingId?: bigint;
+  racks: NewRackInput[];
+  signal?: AbortSignal;
+  onSuccess?: (racks: DeviceSet[]) => void;
+  // Called on failure. `errors` carries the per-row label collisions when the
+  // server rejected the batch (nothing was created); it is empty for a
+  // transport / permission failure.
+  onError?: (message: string, errors: BulkCreateRackError[]) => void;
   onFinally?: () => void;
 }
 
@@ -1104,9 +1141,57 @@ const useDeviceSets = () => {
     [handleAuthErrors],
   );
 
+  // createRacks creates every rack in the batch at one placement in a single
+  // transaction (all-or-nothing), so a mid-list failure can't leave half the
+  // operator's list behind. Label collisions come back per row — within the
+  // batch, or against a rack already live anywhere in the org — with nothing
+  // created, so the caller can mark the offending preview lines.
+  const createRacks = useCallback(
+    async ({ siteId, buildingId, racks, signal, onSuccess, onError, onFinally }: CreateRacksProps) => {
+      try {
+        const response = await deviceSetClient.createRacks(
+          {
+            siteId,
+            buildingId,
+            racks: racks.map((r) => ({
+              label: r.label,
+              rows: r.rows,
+              columns: r.columns,
+              zone: r.zone ?? "",
+              orderIndex: r.orderIndex,
+              coolingType: r.coolingType,
+            })),
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        if (response.errors.length > 0 || response.racks.length === 0) {
+          onError?.(
+            "Some rack labels are already taken",
+            response.errors.map((e) => ({ index: e.index, label: e.label, reason: e.reason })),
+          );
+          return;
+        }
+        onSuccess?.(response.racks);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getDeviceSetErrorMessage(error, "rack"), []);
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   return {
     createGroup,
     createRack,
+    createRacks,
     updateGroup,
     updateRack,
     deleteGroup,

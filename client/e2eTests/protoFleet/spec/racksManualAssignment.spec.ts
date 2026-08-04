@@ -28,7 +28,7 @@ test.describe("Racks - manual assignment", () => {
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(LARGE_RACK_COLUMNS);
       await racksPage.inputRows(LARGE_RACK_ROWS);
-      await racksPage.clickContinueFromRackSettings();
+      await racksPage.clickCreateRackFromSettings();
     });
 
     await test.step("Manage miners and add the first miner to the rack list", async () => {
@@ -39,7 +39,7 @@ test.describe("Racks - manual assignment", () => {
       selectedMiners = await racksPage.getMinersFromSelector(selectableMinerIndexes);
       test.expect(selectedMiners).toHaveLength(2);
       await racksPage.selectMinersInSelectorByIndex([selectableMinerIndexes[0]]);
-      await racksPage.clickContinueInMinerSelector();
+      await racksPage.clickSaveInMinerSelector();
     });
 
     await test.step("Search and assign the second miner to slot 04", async () => {
@@ -102,8 +102,8 @@ test.describe("Racks - manual assignment", () => {
       await racksPage.validateMinerRowPosition(selectedMiners[1].ipAddress, 9);
       await racksPage.validateRackSlotsHighlighted([1, 9]);
 
-      await racksPage.clickSaveRack();
-      await racksPage.validateRackToast(rackLabel);
+      await racksPage.clickSaveMinerPositions();
+      await racksPage.validateMinerPositionsToast(rackLabel);
     });
 
     await test.step("Open the created rack and validate saved slots", async () => {
@@ -130,9 +130,11 @@ test.describe("Racks - manual assignment", () => {
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
       await racksPage.inputRows(OVERVIEW_RACK_ROWS);
-      await racksPage.clickContinueFromRackSettings();
-      await racksPage.clickSaveRack();
+      await racksPage.clickCreateRackFromSettings();
       await racksPage.validateRackToast(rackLabel);
+      // No miner has a slot yet, so there is no placement to save — Save just
+      // closes the modal.
+      await racksPage.saveMinerPositionsWithNothingPlaced();
     });
 
     await test.step("Open the created rack and assign the first miner to slot 02", async () => {
@@ -182,10 +184,11 @@ test.describe("Racks - manual assignment", () => {
       await racksPage.waitForMinerSelectorListToLoad();
       await racksPage.toggleMinerInSelectorByIpAddress(selectedMiners[0].ipAddress);
       await racksPage.toggleMinerInSelectorByIpAddress(selectedMiners[1].ipAddress);
-      await racksPage.clickContinueInMinerSelector();
+      await racksPage.clickSaveInMinerSelector();
       await racksPage.validateTextIsVisible("No miners added to this rack yet.");
-      await racksPage.clickSaveRack();
-      await racksPage.validateRackToast(rackLabel, "updated");
+      // The picker already persisted the removal, which took the slots with it,
+      // so Save has no placement left to write and closes without a toast.
+      await racksPage.saveMinerPositionsWithNothingPlaced();
     });
 
     await test.step("Validate rack overview is empty after saving", async () => {

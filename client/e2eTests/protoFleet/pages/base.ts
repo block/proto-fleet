@@ -506,6 +506,14 @@ export class BasePage {
       .toBe(true);
   }
 
+  // Toasts stack, and validateTextInToast matches any visible one carrying the
+  // text, so a loop that repeats the same action can pass on the toast a previous
+  // pass left behind. Clearing between passes keeps each assertion about the
+  // toast that pass produced.
+  async clearToasts() {
+    await this.dismissVisibleToastIfPresent();
+  }
+
   async dismissToast() {
     const toastContainer = this.page.getByTestId("toaster-container");
     const groupedDismissButton = toastContainer.getByRole("button", { name: "Dismiss", exact: true });
