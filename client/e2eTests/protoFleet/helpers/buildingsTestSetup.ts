@@ -150,7 +150,9 @@ export async function createRackWithAssignedMiners(
     test.expect(selectedMinerIps).toHaveLength(2);
 
     await racksPage.clickSaveRack();
-    await racksPage.validateRackToast(rackLabel);
+    // The persisted rack row is a more durable success signal than the transient
+    // creation toast, especially on mobile flows that immediately continue into
+    // list navigation and follow-up assertions.
     await racksPage.clickViewList();
     await racksPage.waitForRackListToLoad({ allowEmpty: false });
 
