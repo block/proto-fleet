@@ -151,8 +151,22 @@ compose_env_last_value() {
     printf '%s' "$parsed"
 }
 
-validate_runner_env_values() {
+validate_runner_env_value_syntax() {
     local key status
+    for key in "$@"; do
+        if compose_env_last_value "$key" >/dev/null; then
+            status=0
+        else
+            status=$?
+        fi
+        [ "$status" -eq 0 ] && continue
+        [ "$status" -eq 1 ] && continue
+        echo "Error: $key in $ENV_FILE uses unsupported Compose dotenv syntax; use a literal same-line value (single-quote literal dollar signs)." >&2
+        return 1
+    done
+}
+
+validate_runner_env_values() {
     local keys=(
         COMPOSE_PROJECT_NAME
         ENABLE_BETA_ALERTS
@@ -164,14 +178,7 @@ validate_runner_env_values() {
         DB_NAME
         AUTH_CLIENT_SECRET_KEY
         ENCRYPT_SERVICE_MASTER_KEY
-        DD_API_KEY
         SESSION_COOKIE_SECURE
-        GRAFANA_ADMIN_PASSWORD
-        GRAFANA_DB_USERNAME
-        GRAFANA_DB_PASSWORD
-        GRAFANA_SECRET_KEY
-        FLEET_ALERTS_WEBHOOK_TOKEN
-        FLEET_ALERTS_GRAFANA_TOKEN
     )
 
     [ -e "$ENV_FILE" ] || return 0
@@ -179,17 +186,7 @@ validate_runner_env_values() {
         echo "Error: $ENV_FILE must be a readable regular file." >&2
         return 1
     fi
-    for key in "${keys[@]}"; do
-        if compose_env_last_value "$key" >/dev/null; then
-            status=0
-        else
-            status=$?
-        fi
-        [ "$status" -eq 0 ] && continue
-        [ "$status" -eq 1 ] && continue
-        echo "Error: $key in $ENV_FILE uses unsupported Compose dotenv syntax; use a literal same-line value (single-quote literal dollar signs)." >&2
-        return 1
-    done
+    validate_runner_env_value_syntax "${keys[@]}"
 }
 
 env_has_nonempty_value() {
@@ -385,14 +382,6 @@ if [ "$SKIP_BUILD" = "true" ] && [ ! -f "$PREFLIGHT_MARKER" ]; then
     exit 1
 fi
 
-if [ "$PREFLIGHT_ONLY" = "true" ]; then
-    # A failed retry must not leave an older success marker reusable.
-    if ! rm -f "$PREFLIGHT_MARKER"; then
-        echo "Error: could not clear the previous preflight marker at $PREFLIGHT_MARKER." >&2
-        exit 1
-    fi
-fi
-
 # Also honor persisted overlay state. Use the last exact-key assignment, as
 # Docker Compose does, and accept quoted/case-insensitive boolean values.
 if env_boolean_is_true ENABLE_BETA_ALERTS; then
@@ -413,9 +402,23 @@ if [ "$ENABLE_SYSTEM_MONITORING" = "true" ] && [ "$ENABLE_BETA_ALERTS" != "true"
     exit 1
 fi
 
+# Optional settings are interpreted by the runner only while their matching
+# overlay is active. Preserve Compose's full dotenv surface for dormant values,
+# while continuing to fail closed before any state changes when they are used.
+if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
+    validate_runner_env_value_syntax \
+        GRAFANA_ADMIN_PASSWORD \
+        GRAFANA_DB_USERNAME \
+        GRAFANA_DB_PASSWORD \
+        GRAFANA_SECRET_KEY \
+        FLEET_ALERTS_WEBHOOK_TOKEN \
+        FLEET_ALERTS_GRAFANA_TOKEN || exit 1
+fi
+
 # Validate tracing prerequisites before the overlay is layered: its ${DD_API_KEY:?}
 # interpolation would otherwise abort every compose command, even `compose down`.
 if [ "$ENABLE_TRACING" = "true" ]; then
+    validate_runner_env_value_syntax DD_API_KEY || exit 1
     if [ ! -f "$COMPOSE_TRACING_FILE" ]; then
         echo "Error: --enable-tracing was passed but $COMPOSE_TRACING_FILE is missing." >&2
         exit 1
@@ -423,6 +426,14 @@ if [ "$ENABLE_TRACING" = "true" ]; then
     # Compose interpolation reads the shell environment and the .env file; accept either.
     if [ -z "${DD_API_KEY:-}" ] && ! env_has_nonempty_value DD_API_KEY; then
         echo "Error: --enable-tracing requires DD_API_KEY (a Datadog API key) in $ENV_FILE." >&2
+        exit 1
+    fi
+fi
+
+if [ "$PREFLIGHT_ONLY" = "true" ]; then
+    # A failed retry must not leave an older success marker reusable.
+    if ! rm -f "$PREFLIGHT_MARKER"; then
+        echo "Error: could not clear the previous preflight marker at $PREFLIGHT_MARKER." >&2
         exit 1
     fi
 fi
@@ -1395,8 +1406,10 @@ fi
 # WSL Networking Fix
 # ----------------------------------------------------------------------------
 
-# Fix WSL networking issues (IPv6/DNS) if running in WSL
-if is_wsl; then
+# Registry diagnostics and host-network repair are needed only when image
+# preparation may pull. A prepared activation verifies local image IDs and
+# starts with --no-build/--pull never, so it must remain usable offline.
+if [ "$SKIP_BUILD" != "true" ] && is_wsl; then
     if [ "$NON_INTERACTIVE" = "true" ]; then
         echo "Detected WSL environment. Checking Docker registry connectivity..."
         if ! curl -s --max-time 5 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then

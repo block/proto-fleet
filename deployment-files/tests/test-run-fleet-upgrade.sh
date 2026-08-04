@@ -562,6 +562,64 @@ fi
 assert_contains "unsupported interpolation is diagnosed without printing its value" "$HARNESS_OUTPUT_LOG" "AUTH_CLIENT_SECRET_KEY in $STAGE/.env uses unsupported Compose dotenv syntax"
 assert_not_contains "unsupported interpolation makes no Docker calls" "$HARNESS_CALL_LOG" "docker "
 
+# Optional overlay values are runner-consumed only while their overlay is
+# active. Dormant Compose interpolation must not block an otherwise unrelated
+# preflight, but the same syntax must still fail closed before Docker activity
+# once the matching overlay is enabled.
+make_stage dormant-overlay-interpolation
+printf '%s\n' \
+    'DD_API_KEY=${DATADOG_API_KEY}' \
+    'GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD_FROM_VAULT}' \
+    'GRAFANA_DB_USERNAME=${GRAFANA_DB_USERNAME_FROM_VAULT}' \
+    'GRAFANA_DB_PASSWORD=${GRAFANA_DB_PASSWORD_FROM_VAULT}' \
+    'GRAFANA_SECRET_KEY=${GRAFANA_SECRET_KEY_FROM_VAULT}' \
+    'FLEET_ALERTS_WEBHOOK_TOKEN=${FLEET_ALERTS_WEBHOOK_TOKEN_FROM_VAULT}' \
+    'FLEET_ALERTS_GRAFANA_TOKEN=${FLEET_ALERTS_GRAFANA_TOKEN_FROM_VAULT}' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "disabled overlays tolerate dormant Compose interpolation"
+else
+    fail "disabled overlays should ignore values they do not consume"
+fi
+assert_not_contains "disabled tracing omits its Compose overlay" "$HARNESS_CALL_LOG" "docker-compose.tracing.yaml"
+assert_not_contains "disabled alerts omit their Compose overlay" "$HARNESS_CALL_LOG" "docker-compose.alerts.yaml"
+assert_contains "dormant tracing value is preserved" "$STAGE/.env" 'DD_API_KEY=${DATADOG_API_KEY}'
+assert_contains "dormant alert value is preserved" "$STAGE/.env" 'GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD_FROM_VAULT}'
+
+make_stage interpolated-tracing-env
+printf '%s\n' \
+    'ENABLE_TRACING=true' \
+    'DD_API_KEY=${DATADOG_API_KEY}' >> "$STAGE/.env"
+cp "$STAGE/.env" "$HARNESS_OUTPUT_LOG.env-before"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "enabled tracing should reject unsupported DD_API_KEY interpolation"
+else
+    pass "enabled tracing validates its API key syntax"
+fi
+assert_contains "enabled tracing interpolation is diagnosed" "$HARNESS_OUTPUT_LOG" "DD_API_KEY in $STAGE/.env uses unsupported Compose dotenv syntax"
+assert_not_contains "invalid tracing interpolation makes no Docker calls" "$HARNESS_CALL_LOG" "docker "
+if cmp -s "$HARNESS_OUTPUT_LOG.env-before" "$STAGE/.env"; then
+    pass "invalid tracing interpolation leaves the environment unchanged"
+else
+    fail "invalid tracing interpolation should not rewrite the environment"
+fi
+
+make_stage interpolated-alerts-env
+enable_valid_alerts "$STAGE/.env"
+printf 'GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD_FROM_VAULT}\n' >> "$STAGE/.env"
+cp "$STAGE/.env" "$HARNESS_OUTPUT_LOG.env-before"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "enabled alerts should reject unsupported secret interpolation"
+else
+    pass "enabled alerts validate their secret syntax"
+fi
+assert_contains "enabled alert interpolation is diagnosed" "$HARNESS_OUTPUT_LOG" "GRAFANA_ADMIN_PASSWORD in $STAGE/.env uses unsupported Compose dotenv syntax"
+assert_not_contains "invalid alert interpolation makes no Docker calls" "$HARNESS_CALL_LOG" "docker "
+if cmp -s "$HARNESS_OUTPUT_LOG.env-before" "$STAGE/.env"; then
+    pass "invalid alert interpolation leaves the environment unchanged"
+else
+    fail "invalid alert interpolation should not rewrite the environment"
+fi
+
 make_stage empty-commented-secret
 printf 'DB_PASSWORD="" # valid Compose comment\n' >> "$STAGE/.env"
 if run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -1577,6 +1635,35 @@ fi
 assert_not_contains "WSL failure does not invoke sudo" "$HARNESS_CALL_LOG" "sudo "
 assert_not_contains "WSL failure does not prune build cache" "$HARNESS_CALL_LOG" "builder prune -af"
 assert_not_contains "WSL failure prevents pulls" "$HARNESS_CALL_LOG" " pull"
+
+# A prepared activation is local-only: its marker binds every required image
+# ID and Compose runs with --no-build/--pull never, so a later registry outage
+# must not block activation or trigger WSL host-network repair.
+make_stage wsl-prepared-offline-activation
+if FAKE_WSL=true run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "WSL activation fixture preflights while the registry is available"
+else
+    fail "WSL activation fixture should preflight"
+fi
+assert_contains "WSL preflight checks required registry connectivity" "$HARNESS_CALL_LOG" "registry-1.docker.io"
+: > "$HARNESS_CALL_LOG"
+if FAKE_WSL=true FAKE_REGISTRY_FAILURE=true \
+    run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "prepared WSL activation tolerates a registry outage"
+else
+    fail "prepared WSL activation should not require registry connectivity"
+fi
+assert_not_contains "prepared WSL activation skips the registry probe" "$HARNESS_CALL_LOG" "registry-1.docker.io"
+assert_not_contains "prepared WSL activation does not mutate host networking" "$HARNESS_CALL_LOG" "sudo "
+assert_not_contains "prepared WSL activation does not clear build cache" "$HARNESS_CALL_LOG" "builder prune -af"
+assert_not_contains "prepared WSL activation skips image pulls" "$HARNESS_CALL_LOG" " pull --ignore-buildable"
+assert_not_contains "prepared WSL activation skips image builds" "$HARNESS_CALL_LOG" " build --no-cache"
+assert_contains "prepared WSL activation reaches local-only Compose startup" "$HARNESS_CALL_LOG" "up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull never"
+if [ -f "$STAGE/.update-preflight-complete" ]; then
+    fail "successful offline WSL activation should consume its marker"
+else
+    pass "successful offline WSL activation consumes its marker"
+fi
 
 if [ "$FAILURES" -ne 0 ]; then
     while IFS= read -r -d '' output; do
