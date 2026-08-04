@@ -145,7 +145,12 @@ case " $* " in
         [ "${FAKE_COMPOSE_CONFIG_FAILURE:-false}" != "true" ]
         ;;
     *" compose "*" config --images "*)
-        if [ "${FAKE_COMPOSE_USES_LATEST:-false}" = "true" ]; then
+        if [ "${FAKE_SOURCE_INSTALL:-false}" = "true" ]; then
+            printf '%s\n' \
+                'proto-fleet-api:latest' \
+                'proto-fleet-client:latest' \
+                'proto-fleet-timescaledb:latest'
+        elif [ "${FAKE_COMPOSE_USES_LATEST:-false}" = "true" ]; then
             printf '%s\n' \
                 'proto-fleet-api:latest' \
                 'proto-fleet-client:v1.2.3' \
@@ -186,6 +191,11 @@ case " $* " in
         ;;
     *" compose "*" exec "*)
         echo 't'
+        ;;
+    *" volume ls -q "*)
+        if [ -n "${FAKE_DOCKER_VOLUME:-}" ]; then
+            printf '%s\n' "$FAKE_DOCKER_VOLUME"
+        fi
         ;;
     *" image inspect --format "*)
         image="${!#}"
@@ -293,9 +303,56 @@ else
     fail "--help should succeed"
 fi
 
+# Ordinary source-tree runs retain their directory-derived project identity,
+# so a checkout cannot stop or reuse resources from an installed `deployment`
+# project on the same Docker daemon.
+make_stage source-layout
+rm -f "$STAGE/version.txt" "$STAGE/deployment-manifest.sha256" "$STAGE/images/timescaledb.tar.gz"
+cp "$DEPLOY_DIR/docker-compose.yaml" "$STAGE/"
+cp "$DEPLOY_DIR/ha/compose.yaml" "$STAGE/ha/"
+if FAKE_SOURCE_INSTALL=true run_stage "$STAGE" --non-interactive; then
+    pass "source-tree run succeeds with its own Compose project"
+else
+    fail "source-tree run should preserve its Compose project identity"
+fi
+assert_contains "source-tree run targets its directory project" "$STAGE/calls.log" "compose --project-name source-layout"
+assert_not_contains "source-tree run cannot target an installed deployment project" "$STAGE/calls.log" "compose --project-name deployment "
+assert_contains "source-tree run reaches teardown in its isolated project" "$STAGE/calls.log" " down --remove-orphans"
+
+# Existing process-level overrides remain authoritative and are reused by
+# volume detection. Do not persist a new multi-install identity here: the
+# surrounding migration and uninstall tools do not support that contract.
+make_stage project-override
+if COMPOSE_PROJECT_NAME=fleet-blue run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "explicit Compose project override preflights"
+else
+    fail "explicit Compose project override should be preserved"
+fi
+assert_contains "explicit project override reaches Compose" "$STAGE/calls.log" "compose --project-name fleet-blue"
+
+make_stage project-volume
+env_without_password="$STAGE/.env.without-password"
+grep -Ev '^DB_PASSWORD=' "$STAGE/.env" > "$env_without_password"
+mv "$env_without_password" "$STAGE/.env"
+if printf 'n\n' | COMPOSE_PROJECT_NAME=fleet-blue FAKE_DOCKER_VOLUME=fleet-blue_timescaledb-data run_stage "$STAGE"; then
+    fail "declining removal of an overridden project volume should abort"
+else
+    pass "volume guard uses the explicit Compose project override"
+fi
+assert_contains "volume guard finds the overridden project volume" "$STAGE/output.log" "Detected existing TimescaleDB data volume: fleet-blue_timescaledb-data"
+
+make_stage invalid-project-override
+if COMPOSE_PROJECT_NAME='Fleet Blue' run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "invalid Compose project override should fail"
+else
+    pass "invalid Compose project override fails before Docker activity"
+fi
+assert_contains "invalid project override is diagnosed" "$STAGE/output.log" "COMPOSE_PROJECT_NAME must start with a lowercase letter or digit"
+assert_not_contains "invalid project override cannot target Docker" "$STAGE/calls.log" "docker "
+
 # A successful preflight validates and prepares images, but never stops or
 # starts the active stack. It records a same-directory activation marker.
-make_stage preflight
+make_stage preflight-parent/deployment
 if run_stage "$STAGE" --non-interactive --preflight-only; then
     pass "valid non-interactive preflight succeeds"
 else
@@ -350,10 +407,11 @@ assert_contains "activation stops the old stack" "$STAGE/calls.log" " down --rem
 assert_contains "activation starts the new stack" "$STAGE/calls.log" " up --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "successful activation should consume its marker"
 
-# The updater preflights under a temporary parent and then renames the release
-# into the stable deployment path. Absolute paths in rendered Compose output
-# are normalized so that safe relocation does not invalidate the proof.
-make_stage relocated-preflight
+# The updater preflights and activates directories that are both named
+# `deployment`; only their parent changes. Absolute paths in rendered Compose
+# output are normalized so that this safe relocation does not invalidate the
+# proof, while Compose's native project identity stays stable.
+make_stage relocated-preflight/deployment
 if ! run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "relocation fixture preflight should succeed"
 fi
@@ -544,6 +602,7 @@ else
     pass "activation failure propagates"
 fi
 [ -f "$STAGE/.update-preflight-complete" ] || fail "failed activation should retain its recovery marker"
+assert_contains "activation recovery command keeps the resolved project" "$STAGE/output.log" "docker compose --project-name failed-activation"
 
 # Skip-build must not be usable without proof that this exact deployment
 # directory completed preflight.
@@ -836,11 +895,10 @@ assert_not_contains "WSL failure does not prune build cache" "$STAGE/calls.log" 
 assert_not_contains "WSL failure prevents pulls" "$STAGE/calls.log" " pull"
 
 if [ "$FAILURES" -ne 0 ]; then
-    for output in "$TMP_DIR"/*/output.log; do
-        [ -f "$output" ] || continue
+    while IFS= read -r -d '' output; do
         echo "--- $output" >&2
         sed 's/^/    /' "$output" >&2
-    done
+    done < <(find "$TMP_DIR" -type f -name output.log -print0)
     echo "$FAILURES failure(s)" >&2
     exit 1
 fi

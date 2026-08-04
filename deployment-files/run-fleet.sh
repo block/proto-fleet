@@ -5,7 +5,7 @@
 # ============================================================================
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FLEET_COMPOSE_PROJECT_NAME="deployment"
+FLEET_COMPOSE_PROJECT_NAME=""
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
@@ -69,6 +69,27 @@ env_boolean_is_true() {
             exit 1
             ;;
     esac
+}
+
+resolve_compose_project_name() {
+    local project_name
+
+    if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+        project_name="$COMPOSE_PROJECT_NAME"
+    else
+        # Preserve Compose's historical per-directory project identity for
+        # source checkouts and renamed/nonstandard deployment directories.
+        project_name=$(basename "$PROJECT_ROOT")
+    fi
+
+    # The same value is also used to select volumes below, so reject names
+    # outside Compose's documented grammar before any destructive operation.
+    if [[ ! "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+        echo "Error: COMPOSE_PROJECT_NAME must start with a lowercase letter or digit and contain only lowercase letters, digits, hyphens, and underscores." >&2
+        return 1
+    fi
+
+    printf '%s' "$project_name"
 }
 
 resolve_release_image_tag() {
@@ -183,6 +204,7 @@ if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
     exit 1
 fi
 
+FLEET_COMPOSE_PROJECT_NAME=$(resolve_compose_project_name) || exit 1
 RELEASE_IMAGE_TAG=$(resolve_release_image_tag) || exit 1
 FLEET_API_IMAGE="proto-fleet-api:${RELEASE_IMAGE_TAG}"
 FLEET_CLIENT_IMAGE="proto-fleet-client:${RELEASE_IMAGE_TAG}"
@@ -279,10 +301,10 @@ refresh_compose_env_args() {
 refresh_compose_env_args
 
 compose() {
-    # Official installs have always lived in a directory named `deployment`.
-    # Pin that existing implicit project identity so an updater's temporary
-    # parent directory cannot change Compose's rendered name, containers, or
-    # persistent volume namespace between preflight and activation.
+    # Resolve this once so Compose operations, volume detection, and printed
+    # recovery commands all target the same project. Packaged updater paths
+    # keep the implicit `deployment` identity because both their staged and
+    # active release directories have that basename.
     docker compose --project-name "$FLEET_COMPOSE_PROJECT_NAME" \
         ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" "$@"
 }
@@ -1082,8 +1104,9 @@ scrub_env_key() {
 
 # Prompt user to reinitialize TimescaleDB data volume if it exists
 prompt_store_reinit() {
-  local proj=$(basename "$PROJECT_ROOT")
-  local vol=$(docker volume ls -q | grep -E "^${proj}[-_]timescaledb-data$")
+  local proj="$FLEET_COMPOSE_PROJECT_NAME"
+  local vol
+  vol=$(docker volume ls -q | grep -E "^${proj}[-_]timescaledb-data$")
   if [[ -n $vol ]]; then
     echo "⚠️  Detected existing TimescaleDB data volume: $vol"
     read -p "   Remove & reinitialize this volume now? ALL DATA WILL BE LOST (y/N): " answer
@@ -1600,7 +1623,7 @@ echo "Starting services..."
 # host networking), producing a false "Proto Fleet is now running!" banner.
 if ! compose up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull never; then
     echo "Error: services failed to reach running state."
-    echo "Check logs with: docker compose ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} logs"
+    echo "Check logs with: docker compose --project-name $FLEET_COMPOSE_PROJECT_NAME ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} logs"
     exit 1
 fi
 
@@ -1901,7 +1924,7 @@ provision_grafana_service_account_token() {
     if ! compose up -d --no-deps --force-recreate fleet-api; then
         echo "Error: wrote the Grafana token to $ENV_FILE but failed to restart fleet-api; it is still" >&2
         echo "       running with the pre-token environment and will 401 against Grafana. Restart it with:" >&2
-        echo "         docker compose ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} up -d --no-deps --force-recreate fleet-api" >&2
+        echo "         docker compose --project-name $FLEET_COMPOSE_PROJECT_NAME ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} up -d --no-deps --force-recreate fleet-api" >&2
         return 1
     fi
 }
