@@ -105,12 +105,12 @@ make_stage() {
     local name="$1"
     STAGE="$TMP_DIR/$name"
     local runtime="$STAGE-runtime"
-    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$runtime/bin"
-    ln -s "$runtime/bin" "$STAGE/bin"
-    : > "$runtime/calls.log"
-    : > "$runtime/output.log"
-    ln -s "$runtime/calls.log" "$STAGE/calls.log"
-    ln -s "$runtime/output.log" "$STAGE/output.log"
+    HARNESS_BIN_DIR="$runtime/bin"
+    HARNESS_CALL_LOG="$runtime/calls.log"
+    HARNESS_OUTPUT_LOG="$runtime/output.log"
+    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
+    : > "$HARNESS_CALL_LOG"
+    : > "$HARNESS_OUTPUT_LOG"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.alerts.yaml" "$STAGE/"
@@ -129,9 +129,9 @@ make_stage() {
     (cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
     rm -rf "$STAGE/image-fixture"
     write_valid_env "$STAGE/.env"
-    : > "$STAGE/calls.log"
+    : > "$HARNESS_CALL_LOG"
 
-    cat > "$STAGE/bin/docker" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/docker" <<'EOF'
 #!/bin/bash
 printf 'docker' >> "$CALL_LOG"
 printf ' %s' "$@" >> "$CALL_LOG"
@@ -217,13 +217,13 @@ case " $* " in
 esac
 EOF
 
-    cat > "$STAGE/bin/systemctl" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/systemctl" <<'EOF'
 #!/bin/bash
 printf 'systemctl %s\n' "$*" >> "$CALL_LOG"
 [ "${FAKE_SYSTEMD_UNAVAILABLE:-false}" != "true" ]
 EOF
 
-    cat > "$STAGE/bin/id" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/id" <<'EOF'
 #!/bin/bash
 if [ "${1:-}" = "-u" ]; then
     echo 0
@@ -232,12 +232,12 @@ else
 fi
 EOF
 
-    cat > "$STAGE/bin/uname" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/uname" <<'EOF'
 #!/bin/bash
 echo Linux
 EOF
 
-    cat > "$STAGE/bin/grep" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/grep" <<'EOF'
 #!/bin/bash
 if [ "${FAKE_WSL:-false}" = "true" ]; then
     for argument in "$@"; do
@@ -249,7 +249,7 @@ fi
 exec "$REAL_GREP" "$@"
 EOF
 
-    cat > "$STAGE/bin/curl" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/curl" <<'EOF'
 #!/bin/bash
 printf 'curl %s\n' "$*" >> "$CALL_LOG"
 case " $* " in
@@ -260,13 +260,13 @@ case " $* " in
 esac
 EOF
 
-    cat > "$STAGE/bin/sudo" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/sudo" <<'EOF'
 #!/bin/bash
 printf 'sudo %s\n' "$*" >> "$CALL_LOG"
 exit 0
 EOF
 
-    cat > "$STAGE/bin/hostname" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/hostname" <<'EOF'
 #!/bin/bash
 if [ "${1:-}" = "-I" ]; then
     echo '192.0.2.10'
@@ -275,30 +275,30 @@ else
 fi
 EOF
 
-    cat > "$STAGE/bin/ip" <<'EOF'
+    cat > "$HARNESS_BIN_DIR/ip" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
 
-    chmod +x "$STAGE/run-fleet.sh" "$STAGE/bin/"*
+    chmod +x "$STAGE/run-fleet.sh" "$HARNESS_BIN_DIR/"*
     write_release_manifest "$STAGE"
 }
 
 run_stage() {
     local stage="$1"
     shift
-    CALL_LOG="$stage/calls.log" \
+    CALL_LOG="$HARNESS_CALL_LOG" \
     STAGE_ROOT="$stage" \
     REAL_GREP="$REAL_GREP" \
-    PATH="$stage/bin:$PATH" \
-    /bin/bash "$stage/run-fleet.sh" "$@" > "$stage/output.log" 2>&1
+    PATH="$HARNESS_BIN_DIR:$PATH" \
+    /bin/bash "$stage/run-fleet.sh" "$@" > "$HARNESS_OUTPUT_LOG" 2>&1
 }
 
 # The updater-specific option is intentionally deferred until its Compose
 # overlay is shipped and packaged later in the stack.
 make_stage help
 if run_stage "$STAGE" --help; then
-    assert_not_contains "help omits the unavailable updater overlay" "$STAGE/output.log" "enable-one-click-updates"
+    assert_not_contains "help omits the unavailable updater overlay" "$HARNESS_OUTPUT_LOG" "enable-one-click-updates"
 else
     fail "--help should succeed"
 fi
@@ -315,9 +315,9 @@ if FAKE_SOURCE_INSTALL=true run_stage "$STAGE" --non-interactive; then
 else
     fail "source-tree run should preserve its Compose project identity"
 fi
-assert_contains "source-tree run targets its directory project" "$STAGE/calls.log" "compose --project-name source-layout"
-assert_not_contains "source-tree run cannot target an installed deployment project" "$STAGE/calls.log" "compose --project-name deployment "
-assert_contains "source-tree run reaches teardown in its isolated project" "$STAGE/calls.log" " down --remove-orphans"
+assert_contains "source-tree run targets its directory project" "$HARNESS_CALL_LOG" "compose --project-name source-layout"
+assert_not_contains "source-tree run cannot target an installed deployment project" "$HARNESS_CALL_LOG" "compose --project-name deployment "
+assert_contains "source-tree run reaches teardown in its isolated project" "$HARNESS_CALL_LOG" " down --remove-orphans"
 
 # Existing process-level overrides remain authoritative and are reused by
 # volume detection. Do not persist a new multi-install identity here: the
@@ -328,7 +328,7 @@ if COMPOSE_PROJECT_NAME=fleet-blue run_stage "$STAGE" --non-interactive --prefli
 else
     fail "explicit Compose project override should be preserved"
 fi
-assert_contains "explicit project override reaches Compose" "$STAGE/calls.log" "compose --project-name fleet-blue"
+assert_contains "explicit project override reaches Compose" "$HARNESS_CALL_LOG" "compose --project-name fleet-blue"
 
 make_stage project-volume
 env_without_password="$STAGE/.env.without-password"
@@ -339,7 +339,7 @@ if printf 'n\n' | COMPOSE_PROJECT_NAME=fleet-blue FAKE_DOCKER_VOLUME=fleet-blue_
 else
     pass "volume guard uses the explicit Compose project override"
 fi
-assert_contains "volume guard finds the overridden project volume" "$STAGE/output.log" "Detected existing TimescaleDB data volume: fleet-blue_timescaledb-data"
+assert_contains "volume guard finds the overridden project volume" "$HARNESS_OUTPUT_LOG" "Detected existing TimescaleDB data volume: fleet-blue_timescaledb-data"
 
 make_stage invalid-project-override
 if COMPOSE_PROJECT_NAME='Fleet Blue' run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -347,8 +347,8 @@ if COMPOSE_PROJECT_NAME='Fleet Blue' run_stage "$STAGE" --non-interactive --pref
 else
     pass "invalid Compose project override fails before Docker activity"
 fi
-assert_contains "invalid project override is diagnosed" "$STAGE/output.log" "COMPOSE_PROJECT_NAME must start with a lowercase letter or digit"
-assert_not_contains "invalid project override cannot target Docker" "$STAGE/calls.log" "docker "
+assert_contains "invalid project override is diagnosed" "$HARNESS_OUTPUT_LOG" "COMPOSE_PROJECT_NAME must start with a lowercase letter or digit"
+assert_not_contains "invalid project override cannot target Docker" "$HARNESS_CALL_LOG" "docker "
 
 # A successful preflight validates and prepares images, but never stops or
 # starts the active stack. It records a same-directory activation marker.
@@ -358,16 +358,16 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     fail "valid non-interactive preflight should succeed"
 fi
-assert_contains "preflight validates Compose" "$STAGE/calls.log" "config --quiet"
-assert_contains "preflight pins the Compose project identity" "$STAGE/calls.log" "compose --project-name deployment"
-assert_contains "preflight pulls images" "$STAGE/calls.log" " pull"
-assert_contains "preflight builds images" "$STAGE/calls.log" " build --no-cache"
-assert_contains "preflight verifies the release API image" "$STAGE/calls.log" "image inspect --format {{.Id}} $FLEET_API_IMAGE"
-assert_contains "preflight verifies the release client image" "$STAGE/calls.log" "image inspect --format {{.Id}} $FLEET_CLIENT_IMAGE"
-assert_contains "preflight verifies the release database image" "$STAGE/calls.log" "image inspect --format {{.Id}} $TIMESCALEDB_IMAGE"
-assert_not_contains "preflight never targets shared latest image tags" "$STAGE/calls.log" ":latest"
-assert_not_contains "preflight leaves services running" "$STAGE/calls.log" " down --remove-orphans"
-assert_not_contains "preflight never starts replacement services" "$STAGE/calls.log" " up --remove-orphans"
+assert_contains "preflight validates Compose" "$HARNESS_CALL_LOG" "config --quiet"
+assert_contains "preflight pins the Compose project identity" "$HARNESS_CALL_LOG" "compose --project-name deployment"
+assert_contains "preflight pulls images" "$HARNESS_CALL_LOG" " pull"
+assert_contains "preflight builds images" "$HARNESS_CALL_LOG" " build --no-cache"
+assert_contains "preflight verifies the release API image" "$HARNESS_CALL_LOG" "image inspect --format {{.Id}} $FLEET_API_IMAGE"
+assert_contains "preflight verifies the release client image" "$HARNESS_CALL_LOG" "image inspect --format {{.Id}} $FLEET_CLIENT_IMAGE"
+assert_contains "preflight verifies the release database image" "$HARNESS_CALL_LOG" "image inspect --format {{.Id}} $TIMESCALEDB_IMAGE"
+assert_not_contains "preflight never targets shared latest image tags" "$HARNESS_CALL_LOG" ":latest"
+assert_not_contains "preflight leaves services running" "$HARNESS_CALL_LOG" " down --remove-orphans"
+assert_not_contains "preflight never starts replacement services" "$HARNESS_CALL_LOG" " up --remove-orphans"
 [ -f "$STAGE/.update-preflight-complete" ] || fail "preflight should create its activation marker"
 if grep -Eq '^proto-fleet-preflight-v2:[0-9a-f]{64}:[0-9a-f]{64}$' "$STAGE/.update-preflight-complete"; then
     pass "preflight marker records versioned release metadata"
@@ -393,18 +393,18 @@ fi
 
 # Activation consumes the marker, reuses prepared images, and performs the
 # service transition without another pull or build.
-: > "$STAGE/calls.log"
+: > "$HARNESS_CALL_LOG"
 if run_stage "$STAGE" --non-interactive --skip-build; then
     pass "prepared activation succeeds"
 else
     fail "prepared activation should succeed"
 fi
-assert_not_contains "activation skips pulls" "$STAGE/calls.log" " pull"
-assert_not_contains "activation skips builds" "$STAGE/calls.log" " build --no-cache"
-assert_contains "activation forbids implicit image preparation" "$STAGE/calls.log" "up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull never"
-assert_not_contains "activation never resolves shared latest image tags" "$STAGE/calls.log" ":latest"
-assert_contains "activation stops the old stack" "$STAGE/calls.log" " down --remove-orphans"
-assert_contains "activation starts the new stack" "$STAGE/calls.log" " up --remove-orphans"
+assert_not_contains "activation skips pulls" "$HARNESS_CALL_LOG" " pull"
+assert_not_contains "activation skips builds" "$HARNESS_CALL_LOG" " build --no-cache"
+assert_contains "activation forbids implicit image preparation" "$HARNESS_CALL_LOG" "up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull never"
+assert_not_contains "activation never resolves shared latest image tags" "$HARNESS_CALL_LOG" ":latest"
+assert_contains "activation stops the old stack" "$HARNESS_CALL_LOG" " down --remove-orphans"
+assert_contains "activation starts the new stack" "$HARNESS_CALL_LOG" " up --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "successful activation should consume its marker"
 
 # The updater preflights and activates directories that are both named
@@ -419,13 +419,13 @@ relocated_stage="$TMP_DIR/activated-release/deployment"
 mkdir -p "$(dirname "$relocated_stage")"
 mv "$STAGE" "$relocated_stage"
 STAGE="$relocated_stage"
-: > "$STAGE/calls.log"
+: > "$HARNESS_CALL_LOG"
 if run_stage "$STAGE" --non-interactive --skip-build; then
     pass "preflight proof survives the updater's directory rename"
 else
     fail "unchanged relocated release should activate"
 fi
-assert_contains "relocated activation stops the old stack" "$STAGE/calls.log" " down --remove-orphans"
+assert_contains "relocated activation stops the old stack" "$HARNESS_CALL_LOG" " down --remove-orphans"
 
 # Every input that defines the prepared release is bound into the marker. A
 # changed or forged marker fails before the active deployment is stopped and
@@ -452,15 +452,15 @@ for mutation in env compose version nginx runner runtime tls timescaledb; do
         tls) printf '\nchanged after preflight\n' >> "$STAGE/ssl/cert.pem" ;;
         timescaledb) printf 'changed-after-preflight' >> "$STAGE/images/timescaledb.tar.gz" ;;
     esac
-    : > "$STAGE/calls.log"
+    : > "$HARNESS_CALL_LOG"
     if run_stage "$STAGE" --non-interactive --skip-build; then
         fail "$mutation changes should invalidate preflight"
     else
         pass "$mutation changes invalidate preflight"
     fi
-    assert_contains "$mutation mismatch is diagnosed" "$STAGE/output.log" "changed after preflight"
-    assert_not_contains "$mutation mismatch prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
-    assert_not_contains "$mutation mismatch prevents startup" "$STAGE/calls.log" " up --remove-orphans"
+    assert_contains "$mutation mismatch is diagnosed" "$HARNESS_OUTPUT_LOG" "changed after preflight"
+    assert_not_contains "$mutation mismatch prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
+    assert_not_contains "$mutation mismatch prevents startup" "$HARNESS_CALL_LOG" " up --remove-orphans"
     [ ! -e "$STAGE/.update-preflight-complete" ] || fail "$mutation mismatch should remove the stale marker"
 done
 
@@ -468,28 +468,28 @@ make_stage missing-prepared-image
 if ! run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "missing-image fixture preflight should succeed"
 fi
-: > "$STAGE/calls.log"
+: > "$HARNESS_CALL_LOG"
 if FAKE_PREPARED_IMAGE_MISSING=true run_stage "$STAGE" --non-interactive --skip-build; then
     fail "missing prepared image should fail activation validation"
 else
     pass "missing prepared image fails before activation"
 fi
-assert_contains "missing image is diagnosed" "$STAGE/output.log" "prepared image is missing before activation"
-assert_not_contains "missing image prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_contains "missing image is diagnosed" "$HARNESS_OUTPUT_LOG" "prepared image is missing before activation"
+assert_not_contains "missing image prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "missing image should invalidate the marker"
 
 make_stage changed-prepared-image
 if ! run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "changed-image fixture preflight should succeed"
 fi
-: > "$STAGE/calls.log"
+: > "$HARNESS_CALL_LOG"
 if FAKE_PREPARED_IMAGE_CHANGED=true run_stage "$STAGE" --non-interactive --skip-build; then
     fail "changed prepared image should fail activation validation"
 else
     pass "changed prepared image fails before activation"
 fi
-assert_contains "changed image is diagnosed" "$STAGE/output.log" "changed after preflight"
-assert_not_contains "changed image prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_contains "changed image is diagnosed" "$HARNESS_OUTPUT_LOG" "changed after preflight"
+assert_not_contains "changed image prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "changed image should invalidate the marker"
 
 make_stage added-release-file
@@ -497,15 +497,41 @@ if ! run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "added-file fixture preflight should succeed"
 fi
 printf 'apiVersion: 1\n' > "$STAGE/server/monitoring/grafana/provisioning/datasources/added-after-preflight.yaml"
-: > "$STAGE/calls.log"
+: > "$HARNESS_CALL_LOG"
 if run_stage "$STAGE" --non-interactive --skip-build; then
     fail "an added immutable release file should fail activation validation"
 else
     pass "an added immutable release file fails before activation"
 fi
-assert_contains "added release file is diagnosed" "$STAGE/output.log" "file set does not match"
-assert_not_contains "added release file prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_contains "added release file is diagnosed" "$HARNESS_OUTPUT_LOG" "file set does not match"
+assert_not_contains "added release file prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "added release file should invalidate the marker"
+
+# Non-regular entries are not valid release content. In particular, Grafana
+# recursively consumes this provisioning directory, so a symlink or FIFO added
+# after preflight must invalidate activation just like an added regular file.
+for entry_type in symlink fifo; do
+    make_stage "added-release-$entry_type"
+    if ! run_stage "$STAGE" --non-interactive --preflight-only; then
+        fail "$entry_type fixture preflight should succeed"
+        continue
+    fi
+    entry="$STAGE/server/monitoring/grafana/provisioning/datasources/added-after-preflight-$entry_type.yaml"
+    case "$entry_type" in
+        symlink) ln -s base.yaml "$entry" ;;
+        fifo) mkfifo "$entry" ;;
+    esac
+    : > "$HARNESS_CALL_LOG"
+    if run_stage "$STAGE" --non-interactive --skip-build; then
+        fail "an added immutable $entry_type should fail activation validation"
+    else
+        pass "an added immutable $entry_type fails before activation"
+    fi
+    assert_contains "$entry_type addition is diagnosed" "$HARNESS_OUTPUT_LOG" "unsupported non-regular entries"
+    assert_not_contains "$entry_type addition prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
+    assert_not_contains "$entry_type addition prevents startup" "$HARNESS_CALL_LOG" " up --remove-orphans"
+    [ ! -e "$STAGE/.update-preflight-complete" ] || fail "$entry_type addition should invalidate the marker"
+done
 
 # HA's node.env is operator-owned runtime state, not a packaged release file.
 # Permit that exact path while keeping every other added HA artifact inside the
@@ -520,14 +546,14 @@ else
     fail "operator-owned HA node environment should not fail preflight"
 fi
 printf 'tampered\n' > "$STAGE/ha/added-after-preflight.yaml"
-: > "$STAGE/calls.log"
+: > "$HARNESS_CALL_LOG"
 if run_stage "$STAGE" --non-interactive --skip-build; then
     fail "an added HA release file should fail activation validation"
 else
     pass "other added HA files remain immutable"
 fi
-assert_contains "added HA release file is diagnosed" "$STAGE/output.log" "file set does not match"
-assert_not_contains "added HA release file prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_contains "added HA release file is diagnosed" "$HARNESS_OUTPUT_LOG" "file set does not match"
+assert_not_contains "added HA release file prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "added HA release file should invalidate the marker"
 
 make_stage missing-release-manifest
@@ -537,8 +563,8 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "missing release manifest fails preflight"
 fi
-assert_contains "missing manifest is diagnosed" "$STAGE/output.log" "requires the immutable release manifest"
-assert_not_contains "missing manifest prevents pulls" "$STAGE/calls.log" " pull"
+assert_contains "missing manifest is diagnosed" "$HARNESS_OUTPUT_LOG" "requires the immutable release manifest"
+assert_not_contains "missing manifest prevents pulls" "$HARNESS_CALL_LOG" " pull"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "missing manifest must not create a marker"
 
 # Release bundles must pin literal image references before any preparation.
@@ -550,10 +576,10 @@ if FAKE_COMPOSE_USES_LATEST=true run_stage "$STAGE" --non-interactive --prefligh
 else
     pass "release Compose model rejects shared latest tags"
 fi
-assert_contains "unpinned Compose is diagnosed" "$STAGE/output.log" "not pinned to required image $FLEET_API_IMAGE"
-assert_not_contains "unpinned Compose prevents pulls" "$STAGE/calls.log" " pull"
-assert_not_contains "unpinned Compose prevents archive loading" "$STAGE/calls.log" "docker load"
-assert_not_contains "unpinned Compose prevents builds" "$STAGE/calls.log" " build --no-cache"
+assert_contains "unpinned Compose is diagnosed" "$HARNESS_OUTPUT_LOG" "not pinned to required image $FLEET_API_IMAGE"
+assert_not_contains "unpinned Compose prevents pulls" "$HARNESS_CALL_LOG" " pull"
+assert_not_contains "unpinned Compose prevents archive loading" "$HARNESS_CALL_LOG" "docker load"
+assert_not_contains "unpinned Compose prevents builds" "$HARNESS_CALL_LOG" " build --no-cache"
 
 make_stage unpinned-ha-compose
 sed -i.bak "s|$TIMESCALEDB_HA_IMAGE|proto-fleet-timescaledb-ha:latest|" "$STAGE/ha/compose.yaml"
@@ -564,8 +590,8 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "release HA Compose model rejects the shared latest tag"
 fi
-assert_contains "unpinned HA Compose is diagnosed" "$STAGE/output.log" "not pinned to required image $TIMESCALEDB_HA_IMAGE"
-assert_not_contains "unpinned HA Compose prevents archive loading" "$STAGE/calls.log" "docker load"
+assert_contains "unpinned HA Compose is diagnosed" "$HARNESS_OUTPUT_LOG" "not pinned to required image $TIMESCALEDB_HA_IMAGE"
+assert_not_contains "unpinned HA Compose prevents archive loading" "$HARNESS_CALL_LOG" "docker load"
 
 make_stage changed-during-preflight
 if FAKE_MUTATE_TSDB_DURING_BUILD=true run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -573,10 +599,10 @@ if FAKE_MUTATE_TSDB_DURING_BUILD=true run_stage "$STAGE" --non-interactive --pre
 else
     pass "inputs changed during preparation fail preflight"
 fi
-assert_contains "mid-preflight mutation is diagnosed" "$STAGE/output.log" "release or configuration changed during preflight"
-assert_contains "mid-preflight mutation occurs after the build starts" "$STAGE/calls.log" " build --no-cache"
-assert_not_contains "failed preflight leaves shared latest tags untouched" "$STAGE/calls.log" ":latest"
-assert_not_contains "mid-preflight mutation prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_contains "mid-preflight mutation is diagnosed" "$HARNESS_OUTPUT_LOG" "release or configuration changed during preflight"
+assert_contains "mid-preflight mutation occurs after the build starts" "$HARNESS_CALL_LOG" " build --no-cache"
+assert_not_contains "failed preflight leaves shared latest tags untouched" "$HARNESS_CALL_LOG" ":latest"
+assert_not_contains "mid-preflight mutation prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "mid-preflight mutation must not create a marker"
 
 make_stage forged-marker
@@ -586,7 +612,7 @@ if run_stage "$STAGE" --non-interactive --skip-build; then
 else
     pass "an empty forged marker is rejected"
 fi
-assert_not_contains "forged marker prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_not_contains "forged marker prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "forged marker should be invalidated"
 
 # A failed activation retains the marker so the recovery command can retry the
@@ -595,14 +621,14 @@ make_stage failed-activation
 if ! run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "failed-activation fixture preflight should succeed"
 fi
-: > "$STAGE/calls.log"
+: > "$HARNESS_CALL_LOG"
 if FAKE_ACTIVATION_FAILURE=true run_stage "$STAGE" --non-interactive --skip-build; then
     fail "simulated activation failure should propagate"
 else
     pass "activation failure propagates"
 fi
 [ -f "$STAGE/.update-preflight-complete" ] || fail "failed activation should retain its recovery marker"
-assert_contains "activation recovery command keeps the resolved project" "$STAGE/output.log" "docker compose --project-name failed-activation"
+assert_contains "activation recovery command keeps the resolved project" "$HARNESS_OUTPUT_LOG" "docker compose --project-name failed-activation"
 
 # Skip-build must not be usable without proof that this exact deployment
 # directory completed preflight.
@@ -612,7 +638,7 @@ if run_stage "$STAGE" --non-interactive --skip-build; then
 else
     pass "skip-build rejects an unprepared deployment"
 fi
-assert_not_contains "unprepared activation makes no Docker calls" "$STAGE/calls.log" "docker "
+assert_not_contains "unprepared activation makes no Docker calls" "$HARNESS_CALL_LOG" "docker "
 
 # Invalid persisted booleans fail before even read-only Docker probes.
 make_stage invalid-boolean
@@ -622,7 +648,7 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "invalid persisted boolean fails preflight"
 fi
-assert_not_contains "invalid boolean makes no Docker calls" "$STAGE/calls.log" "docker "
+assert_not_contains "invalid boolean makes no Docker calls" "$HARNESS_CALL_LOG" "docker "
 
 # Invalid persisted configuration must fail before mutation or image/service
 # operations, so activation cannot discover it only after teardown.
@@ -636,8 +662,8 @@ else
     pass "empty required settings fail preflight"
 fi
 cmp -s "$STAGE/env.before" "$STAGE/.env" || fail "invalid preflight should not rewrite .env"
-assert_not_contains "invalid settings prevent pulls" "$STAGE/calls.log" " pull"
-assert_not_contains "invalid settings prevent teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_not_contains "invalid settings prevent pulls" "$HARNESS_CALL_LOG" " pull"
+assert_not_contains "invalid settings prevent teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 
 make_stage invalid-secrets
 sed -i.bak \
@@ -650,9 +676,9 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "malformed secrets fail preflight"
 fi
-assert_contains "short auth secret is diagnosed" "$STAGE/output.log" "must be at least 32 characters"
-assert_contains "invalid encryption key is diagnosed" "$STAGE/output.log" "must decode to exactly 32 bytes"
-assert_not_contains "malformed secrets prevent pulls" "$STAGE/calls.log" " pull"
+assert_contains "short auth secret is diagnosed" "$HARNESS_OUTPUT_LOG" "must be at least 32 characters"
+assert_contains "invalid encryption key is diagnosed" "$HARNESS_OUTPUT_LOG" "must decode to exactly 32 bytes"
+assert_not_contains "malformed secrets prevent pulls" "$HARNESS_CALL_LOG" " pull"
 
 # Existing alert deployments must retain their secrets; an unattended run
 # fails instead of generating replacements for incomplete persisted state.
@@ -671,8 +697,8 @@ else
     pass "missing alert secrets fail preflight"
 fi
 cmp -s "$STAGE/env.before" "$STAGE/.env" || fail "alert validation should not rewrite .env"
-assert_contains "missing alert service token is diagnosed" "$STAGE/output.log" "FLEET_ALERTS_GRAFANA_TOKEN"
-assert_not_contains "missing alert secrets prevent pulls" "$STAGE/calls.log" " pull"
+assert_contains "missing alert service token is diagnosed" "$HARNESS_OUTPUT_LOG" "FLEET_ALERTS_GRAFANA_TOKEN"
+assert_not_contains "missing alert secrets prevent pulls" "$HARNESS_CALL_LOG" " pull"
 
 # Grafana role names are deterministic local validation, so reject known-bad
 # SQL identifiers and privileged/conflicting role names during preflight rather
@@ -717,9 +743,9 @@ for role_case in invalid-grafana-identifier invalid-db-identifier postgres-role 
         pass "$role_case fails preflight"
     fi
     cmp -s "$STAGE/env.before" "$STAGE/.env" || fail "$role_case validation should not rewrite .env"
-    assert_contains "$role_case is diagnosed" "$STAGE/output.log" "$expected_error"
-    assert_not_contains "$role_case prevents pulls" "$STAGE/calls.log" " pull"
-    assert_not_contains "$role_case prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+    assert_contains "$role_case is diagnosed" "$HARNESS_OUTPUT_LOG" "$expected_error"
+    assert_not_contains "$role_case prevents pulls" "$HARNESS_CALL_LOG" " pull"
+    assert_not_contains "$role_case prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
     [ ! -e "$STAGE/.update-preflight-complete" ] || fail "$role_case must not create a preflight marker"
 done
 
@@ -732,8 +758,8 @@ if FAKE_COMPOSE_CONFIG_FAILURE=true run_stage "$STAGE" --non-interactive --prefl
 else
     pass "invalid Compose configuration fails preflight"
 fi
-assert_not_contains "invalid Compose prevents pulls" "$STAGE/calls.log" " pull"
-assert_not_contains "invalid Compose prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_not_contains "invalid Compose prevents pulls" "$HARNESS_CALL_LOG" " pull"
+assert_not_contains "invalid Compose prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "invalid Compose must not leave a preflight marker"
 
 # A non-removable stale marker fails closed before Docker activity.
@@ -744,7 +770,7 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "non-removable preflight marker fails closed"
 fi
-assert_not_contains "marker cleanup failure makes no Docker calls" "$STAGE/calls.log" "docker "
+assert_not_contains "marker cleanup failure makes no Docker calls" "$HARNESS_CALL_LOG" "docker "
 
 # Missing packaged and local database images must fail before a preflight can
 # authorize service activation.
@@ -756,8 +782,8 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "missing TimescaleDB image fails preflight"
 fi
-assert_not_contains "missing database image prevents builds" "$STAGE/calls.log" " build --no-cache"
-assert_not_contains "missing database image prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_not_contains "missing database image prevents builds" "$HARNESS_CALL_LOG" " build --no-cache"
+assert_not_contains "missing database image prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "missing database image must not leave a preflight marker"
 
 # Compose skips pull_policy: never services even when their local image is
@@ -769,10 +795,10 @@ if FAKE_TSDB_IMAGE_COLD_CACHE=true run_stage "$STAGE" --non-interactive --prefli
 else
     fail "compose pull should skip an uncached pull_policy-never TimescaleDB image"
 fi
-assert_contains "cold cache still pulls external dependencies" "$STAGE/calls.log" " pull --ignore-buildable"
-assert_contains "cold cache loads the packaged database image" "$STAGE/calls.log" "docker load"
-pull_line=$(grep -nF ' pull --ignore-buildable' "$STAGE/calls.log" | head -1 | cut -d: -f1)
-load_line=$(grep -nF 'docker load' "$STAGE/calls.log" | head -1 | cut -d: -f1)
+assert_contains "cold cache still pulls external dependencies" "$HARNESS_CALL_LOG" " pull --ignore-buildable"
+assert_contains "cold cache loads the packaged database image" "$HARNESS_CALL_LOG" "docker load"
+pull_line=$(grep -nF ' pull --ignore-buildable' "$HARNESS_CALL_LOG" | head -1 | cut -d: -f1)
+load_line=$(grep -nF 'docker load' "$HARNESS_CALL_LOG" | head -1 | cut -d: -f1)
 if [ -n "$pull_line" ] && [ -n "$load_line" ] && [ "$pull_line" -lt "$load_line" ]; then
     pass "external pull fails before any packaged database retagging"
 else
@@ -791,8 +817,8 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "mistagged TimescaleDB archive fails preflight"
 fi
-assert_not_contains "mistagged database image is not loaded" "$STAGE/calls.log" "docker load"
-assert_not_contains "mistagged database image prevents builds" "$STAGE/calls.log" " build --no-cache"
+assert_not_contains "mistagged database image is not loaded" "$HARNESS_CALL_LOG" "docker load"
+assert_not_contains "mistagged database image prevents builds" "$HARNESS_CALL_LOG" " build --no-cache"
 
 # Requiring only the standard release tag would still allow docker load to
 # move the daemon-global HA latest tag.
@@ -808,9 +834,9 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "archive with a shared HA latest tag fails preflight"
 fi
-assert_contains "shared HA archive tag is diagnosed" "$STAGE/output.log" "contains forbidden shared image proto-fleet-timescaledb-ha:latest"
-assert_not_contains "shared HA archive tag is not loaded" "$STAGE/calls.log" "docker load"
-assert_not_contains "shared HA archive tag prevents builds" "$STAGE/calls.log" " build --no-cache"
+assert_contains "shared HA archive tag is diagnosed" "$HARNESS_OUTPUT_LOG" "contains forbidden shared image proto-fleet-timescaledb-ha:latest"
+assert_not_contains "shared HA archive tag is not loaded" "$HARNESS_CALL_LOG" "docker load"
+assert_not_contains "shared HA archive tag prevents builds" "$HARNESS_CALL_LOG" " build --no-cache"
 
 make_stage unloaded-tsdb-image
 if FAKE_TSDB_IMAGE_MISSING=true run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -818,8 +844,8 @@ if FAKE_TSDB_IMAGE_MISSING=true run_stage "$STAGE" --non-interactive --preflight
 else
     pass "loaded archive must expose the expected TimescaleDB tag"
 fi
-assert_not_contains "unloaded database image prevents builds" "$STAGE/calls.log" " build --no-cache"
-assert_not_contains "unloaded database image prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
+assert_not_contains "unloaded database image prevents builds" "$HARNESS_CALL_LOG" " build --no-cache"
+assert_not_contains "unloaded database image prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
 
 # Legacy HTTPS deployments predate SESSION_COOKIE_SECURE persistence. A full
 # certificate pair remains authoritative only when the key is absent; this
@@ -836,7 +862,7 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     fail "legacy HTTPS should be inferred from its complete certificate pair"
 fi
-assert_contains "legacy HTTPS transport is preserved" "$STAGE/output.log" "Preserving legacy HTTPS mode"
+assert_contains "legacy HTTPS transport is preserved" "$HARNESS_OUTPUT_LOG" "Preserving legacy HTTPS mode"
 if cmp -s "$STAGE/client/nginx.https.conf" "$STAGE/client/nginx.conf" && grep -q '^SESSION_COOKIE_SECURE=true$' "$STAGE/.env"; then
     pass "legacy HTTPS is persisted explicitly"
 else
@@ -854,7 +880,7 @@ if run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     fail "persisted HTTP with stale certificates should preflight"
 fi
-assert_contains "HTTP transport is explicitly preserved" "$STAGE/output.log" "Preserving HTTP mode"
+assert_contains "HTTP transport is explicitly preserved" "$HARNESS_OUTPUT_LOG" "Preserving HTTP mode"
 if cmp -s "$STAGE/client/nginx.http.conf" "$STAGE/client/nginx.conf"; then
     pass "HTTP nginx configuration remains active"
 else
@@ -870,8 +896,8 @@ if FAKE_WSL=true FAKE_SYSTEMD_UNAVAILABLE=true run_stage "$STAGE" --non-interact
 else
     fail "non-systemd WSL should rely on the Docker daemon probe"
 fi
-assert_not_contains "non-systemd WSL skips the systemd boot check" "$STAGE/calls.log" "systemctl is-enabled docker"
-assert_contains "non-systemd WSL reaches the Docker daemon probe" "$STAGE/calls.log" "docker info"
+assert_not_contains "non-systemd WSL skips the systemd boot check" "$HARNESS_CALL_LOG" "systemctl is-enabled docker"
+assert_contains "non-systemd WSL reaches the Docker daemon probe" "$HARNESS_CALL_LOG" "docker info"
 
 make_stage native-linux-without-systemd
 if FAKE_SYSTEMD_UNAVAILABLE=true run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -879,8 +905,8 @@ if FAKE_SYSTEMD_UNAVAILABLE=true run_stage "$STAGE" --non-interactive --prefligh
 else
     pass "native Linux retains the Docker boot-enable guard"
 fi
-assert_contains "native Linux boot failure is diagnosed" "$STAGE/output.log" "Docker is not enabled at boot"
-assert_not_contains "native Linux boot failure prevents image pulls" "$STAGE/calls.log" " pull"
+assert_contains "native Linux boot failure is diagnosed" "$HARNESS_OUTPUT_LOG" "Docker is not enabled at boot"
+assert_not_contains "native Linux boot failure prevents image pulls" "$HARNESS_CALL_LOG" " pull"
 
 # A transient WSL registry outage is diagnostic-only in non-interactive mode;
 # it must not invoke sudo, edit host networking, or prune the build cache.
@@ -890,9 +916,9 @@ if FAKE_WSL=true FAKE_REGISTRY_FAILURE=true run_stage "$STAGE" --non-interactive
 else
     pass "WSL registry outage fails without repair mutations"
 fi
-assert_not_contains "WSL failure does not invoke sudo" "$STAGE/calls.log" "sudo "
-assert_not_contains "WSL failure does not prune build cache" "$STAGE/calls.log" "builder prune -af"
-assert_not_contains "WSL failure prevents pulls" "$STAGE/calls.log" " pull"
+assert_not_contains "WSL failure does not invoke sudo" "$HARNESS_CALL_LOG" "sudo "
+assert_not_contains "WSL failure does not prune build cache" "$HARNESS_CALL_LOG" "builder prune -af"
+assert_not_contains "WSL failure prevents pulls" "$HARNESS_CALL_LOG" " pull"
 
 if [ "$FAILURES" -ne 0 ]; then
     while IFS= read -r -d '' output; do

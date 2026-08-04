@@ -516,6 +516,12 @@ jobs:
       - name: Create immutable deployment manifest
         run: |
           cd deployment
+          unsupported_entries=$(find . ! -type f ! -type d -print)
+          if [ -n "$unsupported_entries" ]; then
+            echo "Deployment bundle contains unsupported non-regular entries:" >&2
+            printf '  %s\n' "$unsupported_entries" >&2
+            exit 1
+          fi
           find . -type f ! -path './deployment-manifest.sha256' -print0 \
             | LC_ALL=C sort -z \
             | xargs -0 sha256sum \

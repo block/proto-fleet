@@ -385,8 +385,27 @@ sha256() {
     printf '%s\n' "$output" | awk '{print $1}'
 }
 
+# Keep the release scope shared by the type and path-set checks. These narrow
+# exclusions are operator-owned runtime state; selected files are fingerprinted
+# separately by write_preflight_metadata.
+find_release_entries() {
+    find . \
+        ! -path './.env' \
+        ! -path './.update-preflight-complete' \
+        ! -path './.update-preflight-complete.tmp.*' \
+        ! -path './client/nginx.conf' \
+        ! -path './ssl/*' \
+        ! -path './server/influx_config/.env' \
+        ! -path './ha/node.env' \
+        "$@"
+}
+
+find_immutable_release_entries() {
+    find_release_entries ! -path './deployment-manifest.sha256' "$@"
+}
+
 verify_release_manifest() {
-    local manifest_name="${RELEASE_MANIFEST_FILE##*/}" manifest_paths current_paths
+    local manifest_name="${RELEASE_MANIFEST_FILE##*/}" manifest_paths current_paths unsupported_entries
     if [ ! -f "$RELEASE_MANIFEST_FILE" ]; then
         echo "Error: upgrade preflight requires the immutable release manifest at $RELEASE_MANIFEST_FILE." >&2
         return 1
@@ -421,16 +440,20 @@ verify_release_manifest() {
         return 1
     fi
 
-    if ! (cd "$PROJECT_ROOT" && find . -type f \
-        ! -path './deployment-manifest.sha256' \
-        ! -path './.env' \
-        ! -path './.update-preflight-complete' \
-        ! -path './.update-preflight-complete.tmp.*' \
-        ! -path './client/nginx.conf' \
-        ! -path './ssl/*' \
-        ! -path './server/influx_config/.env' \
-        ! -path './ha/node.env' \
-        -print | LC_ALL=C sort) > "$current_paths"; then
+    if ! unsupported_entries=$(cd "$PROJECT_ROOT" && \
+        find_release_entries ! -type f ! -type d -print); then
+        rm -f "$manifest_paths" "$current_paths"
+        return 1
+    fi
+    if [ -n "$unsupported_entries" ]; then
+        rm -f "$manifest_paths" "$current_paths"
+        echo "Error: immutable release contains unsupported non-regular entries:" >&2
+        printf '  %s\n' "$unsupported_entries" >&2
+        return 1
+    fi
+
+    if ! (cd "$PROJECT_ROOT" && \
+        find_immutable_release_entries -type f -print | LC_ALL=C sort) > "$current_paths"; then
         rm -f "$manifest_paths" "$current_paths"
         return 1
     fi
