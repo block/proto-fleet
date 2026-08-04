@@ -37,7 +37,7 @@ function RolloutControlsStory(): ReactElement {
 }
 
 export const Controls: Story = {
-  name: "Rollout controls (flip the strategy live)",
+  name: "Rollout controls",
   render: () => <RolloutControlsStory />,
 };
 
@@ -60,7 +60,7 @@ const columnRows: ColumnRow[] = [
 ];
 
 export const ColumnState: Story = {
-  name: "Rollout column state (all firmware-column states)",
+  name: "Rollout column state",
   render: () => (
     <div className="w-[420px] max-w-full overflow-hidden rounded-xl border border-border-5 bg-surface-elevated-base">
       <div className="grid grid-cols-[1fr_auto] gap-4 border-b border-border-5 px-4 py-2.5 text-200 text-text-primary-50">
