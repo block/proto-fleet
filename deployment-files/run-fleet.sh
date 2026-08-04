@@ -1109,16 +1109,149 @@ for flag in --wait --wait-timeout --no-build --pull; do
     fi
 done
 
-scrub_env_key() {
-    local key="$1"
-    local tmp
-    if grep -Eq "^${key}[[:space:]]*=" "$ENV_FILE" 2>/dev/null; then
-        tmp=$(mktemp)
-        grep -Ev "^${key}[[:space:]]*=" "$ENV_FILE" > "$tmp" || true
-        # Overwrite in place to preserve the 0600 perms set elsewhere.
-        cat "$tmp" > "$ENV_FILE"
-        rm -f "$tmp"
+# Replace exact keys without ever truncating the live environment file. The
+# temporary file lives beside .env so the final rename is atomic, while the
+# checked ownership handoff preserves access for deployments upgraded by a
+# root-owned service on behalf of a non-root operator.
+file_owner_group() {
+    local owner_group
+    if owner_group=$(stat -c '%u:%g' "$1" 2>/dev/null); then
+        :
+    elif owner_group=$(stat -f '%u:%g' "$1" 2>/dev/null); then
+        :
+    else
+        return 1
     fi
+    [ -n "$owner_group" ] || return 1
+    printf '%s' "$owner_group"
+}
+
+ENV_REWRITE_TEMP=""
+
+cleanup_env_rewrite() {
+    if [ -n "$ENV_REWRITE_TEMP" ]; then
+        if ! rm -f "$ENV_REWRITE_TEMP"; then
+            echo "Warning: could not remove temporary environment file $ENV_REWRITE_TEMP." >&2
+            return 1
+        fi
+        ENV_REWRITE_TEMP=""
+    fi
+    return 0
+}
+
+abort_env_rewrite() {
+    echo "Error: $1; the original was not changed." >&2
+    cleanup_env_rewrite || true
+    return 1
+}
+
+# Keep cleanup in the main shell so a supervisor signalling only the runner
+# cannot leave a child rewrite process behind.
+trap cleanup_env_rewrite EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+atomic_set_env_values() {
+    local key value key_csv original_owner temp_owner last_byte assignment
+    local -a removed_keys=()
+    local -a assignments=()
+
+    if [ "$#" -eq 0 ] || [ $(( $# % 2 )) -ne 0 ]; then
+        echo "Error: environment updates require key/value pairs." >&2
+        return 1
+    fi
+    while [ "$#" -gt 0 ]; do
+        key="$1"
+        value="$2"
+        shift 2
+        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "Error: invalid environment key: $key" >&2
+            return 1
+        fi
+        if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+            echo "Error: refusing to persist a multiline value for $key." >&2
+            return 1
+        fi
+        removed_keys+=("$key")
+        assignments+=("${key}=${value}")
+    done
+
+    if [ ! -f "$ENV_FILE" ] || [ -L "$ENV_FILE" ]; then
+        echo "Error: $ENV_FILE must be a regular, non-symlink file." >&2
+        return 1
+    fi
+
+    key_csv=$(IFS=,; printf '%s' "${removed_keys[*]}")
+
+    original_owner=$(file_owner_group "$ENV_FILE") || {
+        abort_env_rewrite "could not read owner/group metadata from $ENV_FILE"
+        return 1
+    }
+    ENV_REWRITE_TEMP=$(umask 077; mktemp "${ENV_FILE}.tmp.XXXXXX") || {
+        ENV_REWRITE_TEMP=""
+        abort_env_rewrite "could not create a temporary environment file next to $ENV_FILE"
+        return 1
+    }
+
+    if ! awk -v keys="$key_csv" '
+        BEGIN {
+            count = split(keys, names, ",")
+            for (i = 1; i <= count; i++) {
+                removed[names[i]] = 1
+            }
+        }
+        {
+            separator = index($0, "=")
+            if (separator > 0) {
+                name = substr($0, 1, separator - 1)
+                sub(/[[:space:]]+$/, "", name)
+                if (name in removed) {
+                    next
+                }
+            }
+            print
+        }
+    ' "$ENV_FILE" > "$ENV_REWRITE_TEMP"; then
+        abort_env_rewrite "could not build a replacement for $ENV_FILE"
+        return 1
+    fi
+
+    if [ -s "$ENV_REWRITE_TEMP" ]; then
+        last_byte=$(tail -c 1 "$ENV_REWRITE_TEMP") || {
+            abort_env_rewrite "could not inspect the temporary environment file"
+            return 1
+        }
+        if [ -n "$last_byte" ] && ! printf '\n' >> "$ENV_REWRITE_TEMP"; then
+            abort_env_rewrite "could not complete the temporary environment file"
+            return 1
+        fi
+    fi
+    for assignment in "${assignments[@]}"; do
+        if ! printf '%s\n' "$assignment" >> "$ENV_REWRITE_TEMP"; then
+            abort_env_rewrite "could not write the temporary environment file"
+            return 1
+        fi
+    done
+
+    temp_owner=$(file_owner_group "$ENV_REWRITE_TEMP") || {
+        abort_env_rewrite "could not read owner/group metadata from the temporary environment file"
+        return 1
+    }
+    if [ "$temp_owner" != "$original_owner" ] && ! chown "$original_owner" "$ENV_REWRITE_TEMP"; then
+        abort_env_rewrite "could not preserve owner/group for $ENV_FILE"
+        return 1
+    fi
+    if ! chmod 600 "$ENV_REWRITE_TEMP"; then
+        abort_env_rewrite "could not restrict permissions on the replacement for $ENV_FILE"
+        return 1
+    fi
+    if ! mv -f "$ENV_REWRITE_TEMP" "$ENV_FILE"; then
+        abort_env_rewrite "could not atomically replace $ENV_FILE"
+        return 1
+    fi
+
+    ENV_REWRITE_TEMP=""
 }
 
 # ----------------------------------------------------------------------------
@@ -1325,25 +1458,16 @@ fi
 
 # Persist every deployment overlay as explicit state. Historically, flags were
 # process-only, so the next upgrade could silently disable alerts, monitoring,
-# or tracing. Last value wins, matching Compose's .env behavior.
-persist_boolean_setting() {
-    local key="$1"
-    local value="$2"
-    local temp
-    temp=$(mktemp)
-    grep -Ev "^${key}[[:space:]]*=" "$ENV_FILE" > "$temp" || true
-    if [ -s "$temp" ] && [ -n "$(tail -c1 "$temp")" ]; then
-        echo >> "$temp"
-    fi
-    echo "${key}=${value}" >> "$temp"
-    cat "$temp" > "$ENV_FILE"
-    rm -f "$temp"
-}
-
-persist_boolean_setting ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS"
-persist_boolean_setting ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING"
-persist_boolean_setting ENABLE_TRACING "$ENABLE_TRACING"
-chmod 600 "$ENV_FILE"
+# or tracing. Replace the three values as one transaction so a failure cannot
+# leave partially updated state. Last value wins, matching Compose's .env
+# behavior.
+if ! atomic_set_env_values \
+    ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS" \
+    ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING" \
+    ENABLE_TRACING "$ENABLE_TRACING"; then
+    echo "Error: could not persist deployment overlay settings; aborting before Compose validation or service changes." >&2
+    exit 1
+fi
 refresh_compose_files
 refresh_compose_env_args
 
@@ -1372,13 +1496,17 @@ if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
     fi
 
     if ! env_has_nonempty_value GRAFANA_DB_USERNAME; then
-        scrub_env_key GRAFANA_DB_USERNAME
-        echo "GRAFANA_DB_USERNAME=grafana_ro" >> "$ENV_FILE"
+        if ! atomic_set_env_values GRAFANA_DB_USERNAME grafana_ro; then
+            echo "Error: could not persist the Grafana database username." >&2
+            exit 1
+        fi
     fi
     if ! env_has_nonempty_value GRAFANA_DB_PASSWORD; then
-        scrub_env_key GRAFANA_DB_PASSWORD
         GRAFANA_DB_PASSWORD=$(openssl rand -base64 24)
-        echo "GRAFANA_DB_PASSWORD=$GRAFANA_DB_PASSWORD" >> "$ENV_FILE"
+        if ! atomic_set_env_values GRAFANA_DB_PASSWORD "$GRAFANA_DB_PASSWORD"; then
+            echo "Error: could not persist the generated Grafana database password." >&2
+            exit 1
+        fi
         echo "Generated Grafana DB password (stored in $ENV_FILE)."
     fi
 
@@ -1537,12 +1665,14 @@ fi
 
 # Update environment file with cookie security setting.
 if [ "$PROTOCOL_MODE" == "https" ]; then
-    persist_boolean_setting SESSION_COOKIE_SECURE true
+    cookie_secure=true
 else
-    persist_boolean_setting SESSION_COOKIE_SECURE false
+    cookie_secure=false
 fi
-
-chmod 600 "$ENV_FILE"
+if ! atomic_set_env_values SESSION_COOKIE_SECURE "$cookie_secure"; then
+    echo "Error: could not persist the session cookie security setting; aborting before Compose validation or service changes." >&2
+    exit 1
+fi
 
 # Pick up FLEET_PROFILE written during env setup
 refresh_compose_env_args
@@ -1938,9 +2068,10 @@ provision_grafana_service_account_token() {
         return 1
     fi
 
-    scrub_env_key FLEET_ALERTS_GRAFANA_TOKEN
-    echo "FLEET_ALERTS_GRAFANA_TOKEN=$token" >> "$ENV_FILE"
-    chmod 600 "$ENV_FILE"
+    if ! atomic_set_env_values FLEET_ALERTS_GRAFANA_TOKEN "$token"; then
+        echo "Error: could not persist the Grafana service-account token." >&2
+        return 1
+    fi
     echo "Provisioned Grafana service-account token for fleet-api (stored in $ENV_FILE)."
 
     echo "Restarting fleet-api to pick up the Grafana token…"

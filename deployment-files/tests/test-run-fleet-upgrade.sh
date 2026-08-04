@@ -6,7 +6,13 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR=$(mktemp -d)
+REAL_AWK=$(command -v awk)
+REAL_CHMOD=$(command -v chmod)
+REAL_CHOWN=$(command -v chown)
 REAL_GREP=$(command -v grep)
+REAL_MKTEMP=$(command -v mktemp)
+REAL_MV=$(command -v mv)
+REAL_STAT=$(command -v stat)
 FAILURES=0
 RELEASE_TAG="v1.2.3"
 FLEET_API_IMAGE="proto-fleet-api:${RELEASE_TAG}"
@@ -41,6 +47,32 @@ assert_not_contains() {
     else
         pass "$description"
     fi
+}
+
+file_owner_group() {
+    local owner_group
+    if owner_group=$(stat -c '%u:%g' "$1" 2>/dev/null); then
+        :
+    elif owner_group=$(stat -f '%u:%g' "$1" 2>/dev/null); then
+        :
+    else
+        return 1
+    fi
+    [ -n "$owner_group" ] || return 1
+    printf '%s' "$owner_group"
+}
+
+file_mode() {
+    local mode
+    if mode=$(stat -c '%a' "$1" 2>/dev/null); then
+        :
+    elif mode=$(stat -f '%Lp' "$1" 2>/dev/null); then
+        :
+    else
+        return 1
+    fi
+    [ -n "$mode" ] || return 1
+    printf '%s' "$mode"
 }
 
 write_valid_env() {
@@ -249,6 +281,75 @@ fi
 exec "$REAL_GREP" "$@"
 EOF
 
+    cat > "$HARNESS_BIN_DIR/mktemp" <<'EOF'
+#!/bin/bash
+if [ "${FAKE_ENV_REWRITE_FAILURE:-}" = "mktemp" ] && \
+    [ "${1:-}" = "$STAGE_ROOT/.env.tmp.XXXXXX" ]; then
+    exit 1
+fi
+exec "$REAL_MKTEMP" "$@"
+EOF
+
+    cat > "$HARNESS_BIN_DIR/stat" <<'EOF'
+#!/bin/bash
+target="${@: -1}"
+if [ "$target" = "$STAGE_ROOT/.env" ]; then
+    case "${FAKE_ENV_REWRITE_FAILURE:-}" in
+        metadata) exit 1 ;;
+        chown)
+            printf '99999:99999\n'
+            exit 0
+            ;;
+    esac
+fi
+exec "$REAL_STAT" "$@"
+EOF
+
+    cat > "$HARNESS_BIN_DIR/chown" <<'EOF'
+#!/bin/bash
+target="${@: -1}"
+if [ "${FAKE_ENV_REWRITE_FAILURE:-}" = "chown" ] && \
+    [[ "$target" == "$STAGE_ROOT/.env.tmp."* ]]; then
+    exit 1
+fi
+exec "$REAL_CHOWN" "$@"
+EOF
+
+    cat > "$HARNESS_BIN_DIR/chmod" <<'EOF'
+#!/bin/bash
+target="${@: -1}"
+if [ "${FAKE_ENV_REWRITE_FAILURE:-}" = "chmod" ] && \
+    [[ "$target" == "$STAGE_ROOT/.env.tmp."* ]]; then
+    exit 1
+fi
+exec "$REAL_CHMOD" "$@"
+EOF
+
+    cat > "$HARNESS_BIN_DIR/awk" <<'EOF'
+#!/bin/bash
+if [ "${FAKE_ENV_REWRITE_FAILURE:-}" = "filter" ]; then
+    for argument in "$@"; do
+        if [ "$argument" = "$STAGE_ROOT/.env" ]; then
+            printf 'PARTIAL_REPLACEMENT=true\n'
+            exit 2
+        fi
+    done
+fi
+exec "$REAL_AWK" "$@"
+EOF
+
+    cat > "$HARNESS_BIN_DIR/mv" <<'EOF'
+#!/bin/bash
+source_path="${@: -2:1}"
+destination_path="${@: -1}"
+if [ "${FAKE_ENV_REWRITE_FAILURE:-}" = "mv" ] && \
+    [[ "$source_path" == "$STAGE_ROOT/.env.tmp."* ]] && \
+    [ "$destination_path" = "$STAGE_ROOT/.env" ]; then
+    exit 1
+fi
+exec "$REAL_MV" "$@"
+EOF
+
     cat > "$HARNESS_BIN_DIR/curl" <<'EOF'
 #!/bin/bash
 printf 'curl %s\n' "$*" >> "$CALL_LOG"
@@ -289,7 +390,13 @@ run_stage() {
     shift
     CALL_LOG="$HARNESS_CALL_LOG" \
     STAGE_ROOT="$stage" \
+    REAL_AWK="$REAL_AWK" \
+    REAL_CHMOD="$REAL_CHMOD" \
+    REAL_CHOWN="$REAL_CHOWN" \
     REAL_GREP="$REAL_GREP" \
+    REAL_MKTEMP="$REAL_MKTEMP" \
+    REAL_MV="$REAL_MV" \
+    REAL_STAT="$REAL_STAT" \
     PATH="$HARNESS_BIN_DIR:$PATH" \
     /bin/bash "$stage/run-fleet.sh" "$@" > "$HARNESS_OUTPUT_LOG" 2>&1
 }
@@ -350,9 +457,75 @@ fi
 assert_contains "invalid project override is diagnosed" "$HARNESS_OUTPUT_LOG" "COMPOSE_PROJECT_NAME must start with a lowercase letter or digit"
 assert_not_contains "invalid project override cannot target Docker" "$HARNESS_CALL_LOG" "docker "
 
+# Every failure in the .env replacement transaction must leave secrets and
+# metadata untouched, clean up the partial file, and abort before Compose
+# validation or any image/service mutation.
+for rewrite_failure in metadata mktemp filter chown chmod mv; do
+    make_stage "env-rewrite-$rewrite_failure"
+    env_before="$HARNESS_BIN_DIR/../env.before"
+    cp -p "$STAGE/.env" "$env_before"
+    metadata_available=true
+    if ! owner_before=$(file_owner_group "$STAGE/.env"); then
+        fail "$rewrite_failure fixture could not read .env owner/group"
+        metadata_available=false
+    fi
+    if ! mode_before=$(file_mode "$STAGE/.env"); then
+        fail "$rewrite_failure fixture could not read .env mode"
+        metadata_available=false
+    fi
+    case "$rewrite_failure" in
+        metadata) expected_rewrite_error="could not read owner/group metadata" ;;
+        mktemp) expected_rewrite_error="could not create a temporary environment file" ;;
+        filter) expected_rewrite_error="could not build a replacement" ;;
+        chown) expected_rewrite_error="could not preserve owner/group" ;;
+        chmod) expected_rewrite_error="could not restrict permissions" ;;
+        mv) expected_rewrite_error="could not atomically replace" ;;
+    esac
+
+    if FAKE_ENV_REWRITE_FAILURE="$rewrite_failure" run_stage "$STAGE" --non-interactive --preflight-only; then
+        fail "$rewrite_failure failure should abort the environment rewrite"
+    else
+        pass "$rewrite_failure failure aborts the environment rewrite"
+    fi
+    cmp -s "$env_before" "$STAGE/.env" || fail "$rewrite_failure failure changed .env contents"
+    if ! owner_after=$(file_owner_group "$STAGE/.env"); then
+        fail "$rewrite_failure result could not read .env owner/group"
+        metadata_available=false
+    fi
+    if ! mode_after=$(file_mode "$STAGE/.env"); then
+        fail "$rewrite_failure result could not read .env mode"
+        metadata_available=false
+    fi
+    if [ "$metadata_available" = "true" ]; then
+        if [ "$owner_after" = "$owner_before" ] && [ "$mode_after" = "$mode_before" ]; then
+            pass "$rewrite_failure failure preserves .env metadata"
+        else
+            fail "$rewrite_failure failure changed .env metadata"
+        fi
+    fi
+    assert_contains "$rewrite_failure failure reaches the intended operation" "$HARNESS_OUTPUT_LOG" "$expected_rewrite_error"
+    assert_contains "$rewrite_failure failure is diagnosed" "$HARNESS_OUTPUT_LOG" "could not persist deployment overlay settings"
+    assert_not_contains "$rewrite_failure failure prevents Compose validation" "$HARNESS_CALL_LOG" " config --quiet"
+    assert_not_contains "$rewrite_failure failure prevents pulls" "$HARNESS_CALL_LOG" " pull"
+    assert_not_contains "$rewrite_failure failure prevents builds" "$HARNESS_CALL_LOG" " build --no-cache"
+    assert_not_contains "$rewrite_failure failure prevents teardown" "$HARNESS_CALL_LOG" " down --remove-orphans"
+    assert_not_contains "$rewrite_failure failure prevents startup" "$HARNESS_CALL_LOG" " up --remove-orphans"
+    if compgen -G "$STAGE/.env.tmp.*" >/dev/null; then
+        fail "$rewrite_failure failure left an environment rewrite temporary file"
+    else
+        pass "$rewrite_failure failure cleans its environment rewrite temporary file"
+    fi
+    [ ! -e "$STAGE/.update-preflight-complete" ] || fail "$rewrite_failure failure must not create a preflight marker"
+done
+
 # A successful preflight validates and prepares images, but never stops or
 # starts the active stack. It records a same-directory activation marker.
 make_stage preflight-parent/deployment
+printf 'NO_TRAILING_NEWLINE=preserved' >> "$STAGE/.env"
+if ! preflight_env_owner=$(file_owner_group "$STAGE/.env"); then
+    fail "preflight fixture could not read .env owner/group"
+    preflight_env_owner=""
+fi
 if run_stage "$STAGE" --non-interactive --preflight-only; then
     pass "valid non-interactive preflight succeeds"
 else
@@ -380,15 +553,39 @@ if [ "$marker_mode" = "600" ]; then
 else
     fail "preflight marker mode should be 600, got $marker_mode"
 fi
-if [ "$(grep -c '^ENABLE_BETA_ALERTS=' "$STAGE/.env")" -eq 1 ] && grep -q '^ENABLE_BETA_ALERTS=false$' "$STAGE/.env"; then
-    pass "persisted booleans use the last Compose-style assignment"
+for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING SESSION_COOKIE_SECURE; do
+    if [ "$(grep -c "^${persisted_boolean}=" "$STAGE/.env")" -eq 1 ] && \
+        grep -q "^${persisted_boolean}=false$" "$STAGE/.env"; then
+        pass "$persisted_boolean uses one normalized last-value assignment"
+    else
+        fail "$persisted_boolean did not honor last-value-wins"
+    fi
+done
+for preserved_secret in \
+    'DB_PASSWORD=test-password' \
+    'AUTH_CLIENT_SECRET_KEY=01234567890123456789012345678901' \
+    'ENCRYPT_SERVICE_MASTER_KEY=MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE='; do
+    if [ "$(grep -cFx "$preserved_secret" "$STAGE/.env")" -eq 1 ]; then
+        pass "environment rewrite preserves ${preserved_secret%%=*}"
+    else
+        fail "environment rewrite lost ${preserved_secret%%=*}"
+    fi
+done
+if grep -qFx 'NO_TRAILING_NEWLINE=preserved' "$STAGE/.env"; then
+    pass "environment rewrite handles a source without a trailing newline"
 else
-    fail "persisted booleans did not honor last-value-wins"
+    fail "environment rewrite corrupted the source's final line"
 fi
-if [ "$(grep -c '^SESSION_COOKIE_SECURE=' "$STAGE/.env")" -eq 1 ] && grep -q '^SESSION_COOKIE_SECURE=false$' "$STAGE/.env"; then
-    pass "cookie mode uses the last Compose-style assignment"
+if preflight_env_mode=$(file_mode "$STAGE/.env") && [ "$preflight_env_mode" = "600" ]; then
+    pass "environment rewrite restricts .env permissions to 600"
 else
-    fail "cookie mode did not honor last-value-wins"
+    fail "environment rewrite did not restrict .env permissions"
+fi
+if preflight_env_owner_after=$(file_owner_group "$STAGE/.env") && \
+    [ -n "$preflight_env_owner" ] && [ "$preflight_env_owner_after" = "$preflight_env_owner" ]; then
+    pass "environment rewrite preserves .env owner and group"
+else
+    fail "environment rewrite changed .env owner or group"
 fi
 
 # Activation consumes the marker, reuses prepared images, and performs the
