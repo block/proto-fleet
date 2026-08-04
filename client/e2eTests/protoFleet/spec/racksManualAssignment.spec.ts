@@ -1,11 +1,11 @@
 import { test } from "../fixtures/pageFixtures";
 import {
   AUTOMATION_ZONE,
+  createRackLabel,
   LARGE_RACK_COLUMNS,
   LARGE_RACK_ROWS,
   OVERVIEW_RACK_COLUMNS,
   OVERVIEW_RACK_ROWS,
-  RACK_LABEL,
   useRacksHooks,
 } from "../helpers/racksTestSetup";
 import { type RackSelectorMiner } from "../pages/racks";
@@ -22,7 +22,7 @@ test.describe("Racks - manual assignment", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = RACK_LABEL;
+      rackLabel = createRackLabel();
       await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();
@@ -124,7 +124,7 @@ test.describe("Racks - manual assignment", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = RACK_LABEL;
+      rackLabel = createRackLabel();
       await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();

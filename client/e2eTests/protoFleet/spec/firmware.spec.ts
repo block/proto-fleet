@@ -141,7 +141,7 @@ test.describe("Firmware", () => {
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Updating firmware", firmwareStatusTimeout);
       await waitForFirmwareActivation(minersPage, rigMinerIp, firmwareStatusTimeout);
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Hashing", firmwareStatusTimeout);
-      await minersPage.validateMinerValue(rigMinerIp, "firmware", firmwareVersion);
+      await minersPage.waitForMinerValue(rigMinerIp, "firmware", firmwareVersion, firmwareStatusTimeout * 2);
     });
   });
 });

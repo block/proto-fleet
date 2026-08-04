@@ -5,10 +5,10 @@ import { addSelectableRigMinersToSlots } from "../helpers/racksHelpers";
 import {
   AUTOMATION_ZONE,
   cleanupPoolIfPageOpen,
+  createRackLabel,
   OVERVIEW_RACK_COLUMNS,
   OVERVIEW_RACK_ROWS,
   RACK_COLUMNS,
-  RACK_LABEL,
   RACK_ROWS,
   useRacksHooks,
   VALID_POOL_URL,
@@ -30,7 +30,7 @@ test.describe("Racks - overview actions", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = RACK_LABEL;
+      rackLabel = createRackLabel();
       await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();
@@ -113,7 +113,7 @@ test.describe("Racks - overview actions", () => {
 
           await racksPage.clickAddRackButton();
           await racksPage.inputZone(AUTOMATION_ZONE);
-          rackLabel = RACK_LABEL;
+          rackLabel = createRackLabel();
           await racksPage.inputRackLabel(rackLabel);
           await racksPage.enableCustomRackLayout();
           await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
@@ -186,7 +186,7 @@ test.describe("Racks - overview actions", () => {
     await test.step("Create a rack with two assigned Proto rigs and open the overview security flow", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
-      rackLabel = RACK_LABEL;
+      rackLabel = createRackLabel();
       await racksPage.inputRackLabel(rackLabel);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
