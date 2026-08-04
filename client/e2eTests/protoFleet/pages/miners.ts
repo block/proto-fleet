@@ -236,17 +236,13 @@ export class MinersPage extends BasePage {
     expectedValue: string,
     timeout: number = DEFAULT_TIMEOUT,
   ) {
+    await this.waitForColumnValuesToLoad(columnTestId);
+
     await expect
-      .poll(
-        async () => {
-          await this.waitForColumnValuesToLoad(columnTestId);
-          return await this.getMinerColumnText(ipAddress, columnTestId);
-        },
-        {
-          timeout,
-          message: `Expected miner ${ipAddress} column ${columnTestId} to become ${expectedValue}.`,
-        },
-      )
+      .poll(async () => await this.getMinerColumnText(ipAddress, columnTestId), {
+        timeout,
+        message: `Expected miner ${ipAddress} column ${columnTestId} to become ${expectedValue}.`,
+      })
       .toBe(expectedValue);
   }
 

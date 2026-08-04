@@ -58,6 +58,7 @@ export class AuthPage extends BasePage {
       const response = await this.page.context().request.post(SESSION_VALIDATION_PATH, {
         data: {},
         headers: {
+          "Connect-Protocol-Version": "1",
           "Content-Type": "application/json",
         },
       });
