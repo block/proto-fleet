@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -305,6 +306,56 @@ func TestManagerRejectsASecondUpgradeWhileOneIsRunning(t *testing.T) {
 	assert.Equal(t, updaterapi.PhaseSucceeded, waitForTerminal(t, manager).Phase)
 }
 
+func TestManagerProcessLockPreventsASecondDaemonFromMutatingState(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	runner := &recordingRunner{
+		preflightAt: make(chan struct{}),
+		release:     make(chan struct{}),
+	}
+	config := Config{
+		InstallRoot:              installRoot,
+		StateDir:                 stateDir,
+		DownloadBaseURL:          server.URL,
+		HTTPClient:               server.Client(),
+		Runner:                   runner,
+		GOARCH:                   "amd64",
+		NewID:                    func() string { return "locked-operation" },
+		allowTestDownloadBaseURL: true,
+	}
+	manager, err := NewManager(config)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	_, err = manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	select {
+	case <-runner.preflightAt:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade never reached preflight")
+	}
+
+	_, err = NewManager(config)
+	require.ErrorContains(t, err, "another updater process is already running")
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.False(t, operation.Phase.Terminal())
+	var persisted updaterapi.Operation
+	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &persisted))
+	assert.False(t, persisted.Phase.Terminal())
+
+	close(runner.release)
+	assert.Equal(t, updaterapi.PhaseSucceeded, waitForTerminal(t, manager).Phase)
+	require.NoError(t, manager.Close())
+	replacement, err := NewManager(config)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, replacement.Close()) })
+}
+
 func TestManagerMarksAnInterruptedPersistedOperationFailed(t *testing.T) {
 	t.Parallel()
 
@@ -326,6 +377,7 @@ func TestManagerMarksAnInterruptedPersistedOperationFailed(t *testing.T) {
 		Now:         func() time.Time { return started.Add(time.Minute) },
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
@@ -352,6 +404,7 @@ func TestManagerRestoresPreviousDeploymentAfterInterruptedSwap(t *testing.T) {
 		GOARCH:      "amd64",
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
@@ -394,6 +447,7 @@ func TestManagerKeepsForwardDeploymentAfterInterruptedActivation(t *testing.T) {
 				GOARCH:      "amd64",
 			})
 			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
 			operation := manager.Status().Operation
 			require.NotNil(t, operation)
@@ -518,6 +572,7 @@ func newTestManagerWithConfig(
 	}
 	manager, err := NewManager(cfg)
 	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 	return manager
 }
 

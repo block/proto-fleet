@@ -54,6 +54,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize updater: %v", err)
 	}
+	defer func() {
+		if err := manager.Close(); err != nil {
+			log.Printf("close updater manager: %v", err)
+		}
+	}()
 	server := updater.NewServer(manager)
 	errs := make(chan error, 1)
 	go func() {

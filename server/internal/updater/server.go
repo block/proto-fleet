@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/updaterapi"
@@ -38,12 +39,9 @@ func (s *Server) Serve(socketPath string) error {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o750); err != nil {
 		return fmt.Errorf("create updater socket directory: %w", err)
 	}
-	if err := os.Remove(socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove stale updater socket: %w", err)
-	}
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := listenUpdaterSocket(socketPath)
 	if err != nil {
-		return fmt.Errorf("listen on updater socket: %w", err)
+		return err
 	}
 	// #nosec G302 -- root fleet-api needs read/write access through the
 	// bind-mounted Unix socket; the parent directory remains root-only.
@@ -55,6 +53,42 @@ func (s *Server) Serve(socketPath string) error {
 		return fmt.Errorf("serve updater API: %w", err)
 	}
 	return nil
+}
+
+func listenUpdaterSocket(socketPath string) (*net.UnixListener, error) {
+	address := &net.UnixAddr{Name: socketPath, Net: "unix"}
+	listener, err := net.ListenUnix("unix", address)
+	if err == nil {
+		listener.SetUnlinkOnClose(true)
+		return listener, nil
+	}
+	if !errors.Is(err, syscall.EADDRINUSE) {
+		return nil, fmt.Errorf("listen on updater socket: %w", err)
+	}
+	info, statErr := os.Lstat(socketPath)
+	if statErr != nil {
+		return nil, fmt.Errorf("inspect occupied updater socket path: %w", statErr)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return nil, fmt.Errorf("refusing to replace non-socket path at updater socket location")
+	}
+	connection, dialErr := net.DialTimeout("unix", socketPath, 250*time.Millisecond)
+	if dialErr == nil {
+		_ = connection.Close()
+		return nil, fmt.Errorf("another updater is already listening on the configured socket")
+	}
+	if !errors.Is(dialErr, syscall.ECONNREFUSED) {
+		return nil, fmt.Errorf("refusing to replace updater socket with ambiguous owner: %w", dialErr)
+	}
+	if err := os.Remove(socketPath); err != nil {
+		return nil, fmt.Errorf("remove stale updater socket: %w", err)
+	}
+	listener, err = net.ListenUnix("unix", address)
+	if err != nil {
+		return nil, fmt.Errorf("listen on updater socket after stale cleanup: %w", err)
+	}
+	listener.SetUnlinkOnClose(true)
+	return listener, nil
 }
 
 func (s *Server) Shutdown() error {

@@ -37,6 +37,7 @@ const (
 	maxArchiveEntries        = 100_000
 	defaultHTTPTimeout       = 30 * time.Minute
 	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
+	processLockFilename      = "updater.lock"
 )
 
 var canonicalRelease = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
@@ -85,8 +86,11 @@ type Config struct {
 type Manager struct {
 	cfg Config
 
-	mu        sync.RWMutex
-	operation *updaterapi.Operation
+	mu          sync.RWMutex
+	operation   *updaterapi.Operation
+	processLock *os.File
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 func NewManager(cfg Config) (*Manager, error) {
@@ -138,12 +142,86 @@ func NewManager(cfg Config) (*Manager, error) {
 	if err := os.MkdirAll(filepath.Join(cfg.StateDir, "logs"), 0o700); err != nil {
 		return nil, fmt.Errorf("create updater state directory: %w", err)
 	}
+	processLock, err := acquireProcessLock(cfg.StateDir)
+	if err != nil {
+		return nil, err
+	}
 
-	m := &Manager{cfg: cfg}
+	m := &Manager{cfg: cfg, processLock: processLock}
 	if err := m.loadState(); err != nil {
+		_ = processLock.Close()
 		return nil, err
 	}
 	return m, nil
+}
+
+// Close releases the daemon-lifetime process lock. Production calls this only
+// after the listener has stopped and any operation has finished; closing the
+// descriptor is sufficient because the lock file must never be unlinked while
+// another process could still hold a flock on its inode.
+func (m *Manager) Close() error {
+	m.closeOnce.Do(func() {
+		if m.processLock != nil {
+			m.closeErr = m.processLock.Close()
+		}
+	})
+	return m.closeErr
+}
+
+func acquireProcessLock(stateDir string) (*os.File, error) {
+	lockPath := filepath.Join(stateDir, processLockFilename)
+	fd, err := syscall.Open(
+		lockPath,
+		syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+		0o600,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("open updater process lock: %w", err)
+	}
+	lockFile := os.NewFile(uintptr(fd), lockPath)
+	if lockFile == nil {
+		_ = syscall.Close(fd)
+		return nil, fmt.Errorf("open updater process lock")
+	}
+	closeWithError := func(err error) (*os.File, error) {
+		_ = lockFile.Close()
+		return nil, err
+	}
+	info, err := lockFile.Stat()
+	if err != nil {
+		return closeWithError(fmt.Errorf("inspect updater process lock: %w", err))
+	}
+	if !info.Mode().IsRegular() {
+		return closeWithError(fmt.Errorf("updater process lock is not a regular file"))
+	}
+	if err := lockFile.Chmod(0o600); err != nil {
+		return closeWithError(fmt.Errorf("secure updater process lock: %w", err))
+	}
+	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return closeWithError(fmt.Errorf("another updater process is already running"))
+		}
+		return closeWithError(fmt.Errorf("acquire updater process lock: %w", err))
+	}
+	// PID metadata is diagnostic only; the open-file-description lock is the
+	// authority. Failure to refresh the hint must not weaken serialization.
+	if err := writeProcessLockPID(lockFile); err != nil {
+		log.Printf("write updater process lock owner: %v", err)
+	}
+	return lockFile, nil
+}
+
+func writeProcessLockPID(lockFile *os.File) error {
+	if _, err := lockFile.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	if err := lockFile.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(lockFile, "%d\n", os.Getpid()); err != nil {
+		return err
+	}
+	return lockFile.Sync()
 }
 
 func (m *Manager) Status() updaterapi.StatusResponse {
