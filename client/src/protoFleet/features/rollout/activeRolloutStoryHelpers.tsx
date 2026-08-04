@@ -242,7 +242,6 @@ export function FirmwareSettingsSurface({
                   </div>
                 ) : null}
                 {event ? <InlineRolloutCard event={event} /> : null}
-                <div className="text-emphasis-300 text-text-primary">Firmware files</div>
                 <FirmwareFilesTable />
               </>
             )}

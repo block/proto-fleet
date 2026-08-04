@@ -16,7 +16,6 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
-import ProgressCircular from "@/shared/components/ProgressCircular";
 import Textarea from "@/shared/components/Textarea";
 
 interface ReleaseChannelModalProps {
@@ -92,16 +91,6 @@ function CoveragePreview({ preview }: { preview: ReleaseChannelPreview }): React
 
   return (
     <div className="flex min-h-[360px] flex-1 flex-col gap-10 rounded-[24px] bg-surface-overlay px-8 py-12 laptop:min-h-0 laptop:px-16 laptop:py-10">
-      <div className="flex flex-col items-center gap-3">
-        <ProgressCircular
-          value={preview.fleetPercent}
-          size={160}
-          className="text-core-accent-fill"
-          dataTestId="release-channel-coverage-ring"
-        />
-        <div className="text-300 text-text-primary-70">{preview.fleetPercent}% of fleet</div>
-      </div>
-
       <div className="flex flex-col gap-8">
         <div className="text-heading-100 text-text-primary">
           Deploys firmware to {preview.minerCount.toLocaleString()} miners ({preview.modelCount}{" "}

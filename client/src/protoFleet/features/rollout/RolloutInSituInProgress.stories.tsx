@@ -186,8 +186,10 @@ export const FirmwareSettingsPage: Story = {
 
 // ---- 3. Energy UI: rollout card the way curtailment renders it -------------
 // Mirrors CurtailmentManagementPanel's frame (section grid gap-6, Header +
-// action buttons row) so a process rollout reads exactly like active
-// curtailment does in the energy UI.
+// action buttons row) so a process rollout reads like active curtailment does
+// in the energy UI. Header actions use the compact size per the button-sizing
+// rule (base is reserved for modal/dialog/empty-state actions), even though the
+// shipped panel currently renders these at base.
 
 function EnergyUiStory(): ReactElement {
   return (
@@ -197,8 +199,8 @@ function EnergyUiStory(): ReactElement {
           <div className="flex items-center justify-between gap-4">
             <Header title="Energy" titleSize="text-heading-300" />
             <div className="flex items-center gap-2">
-              <Button variant={variants.secondary} size={sizes.base} text="Edit settings" onClick={noop} />
-              <Button variant={variants.primary} size={sizes.base} text="Run curtailment" onClick={noop} />
+              <Button variant={variants.secondary} size={sizes.compact} text="Edit settings" onClick={noop} />
+              <Button variant={variants.primary} size={sizes.compact} text="Run curtailment" onClick={noop} />
             </div>
           </div>
           <ActiveRolloutStatus
