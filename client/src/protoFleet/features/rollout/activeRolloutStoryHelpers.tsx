@@ -12,6 +12,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
+import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
 /**
  * Shared Storybook glue for the per-process "active rollout" lifecycle story
@@ -109,6 +110,9 @@ interface FirmwareFileRow {
   uploaded: string;
 }
 
+/** Which tab the Firmware settings page shows when the tab row is enabled. */
+export type FirmwareSettingsTab = "files" | "releaseChannels";
+
 type FirmwareFileColumn = "filename" | "target" | "version" | "uploaded";
 
 const firmwareFileColumns: FirmwareFileColumn[] = ["filename", "target", "version", "uploaded"];
@@ -180,25 +184,68 @@ export function FirmwareFilesTable(): ReactElement {
  * `event` is null (the shipped page's default), only the page and its files
  * table render; pass an event to show the rollout card above the table, exactly
  * where an operator watching a firmware update sees it.
+ *
+ * Pass `releaseChannelsTab` to add the shipped `TabStrip` (Files / Release
+ * channels) under the page header and switch the body by tab — the surface the
+ * release-channels stories render in situ. Omit it and the page renders exactly
+ * as before (no tab row), so the existing lifecycle stories are unchanged.
  */
-export function FirmwareSettingsSurface({ event }: { event?: RolloutEvent | null }): ReactElement {
+export function FirmwareSettingsSurface({
+  event,
+  releaseChannelsTab,
+  initialTab = "files",
+}: {
+  event?: RolloutEvent | null;
+  releaseChannelsTab?: ReactNode;
+  initialTab?: FirmwareSettingsTab;
+}): ReactElement {
+  const [activeTab, setActiveTab] = useState<FirmwareSettingsTab>(initialTab);
+  const showTabs = releaseChannelsTab !== undefined;
+  const showReleaseChannels = showTabs && activeTab === "releaseChannels";
+
   return (
     <MemoryRouter initialEntries={["/settings/firmware"]}>
       <AppShell>
         <div className="flex h-full grow flex-row">
           <SecondaryNavigation items={secondaryNavItems} />
           <div className="flex min-w-0 grow flex-col gap-6 p-10">
-            <div className="flex items-center justify-between gap-4">
-              <Header
-                title="Firmware"
-                titleSize="text-heading-300"
-                description="Upload and manage firmware files available to your fleet."
-              />
-              <Button variant={variants.primary} size={sizes.compact} text="Upload firmware" onClick={noop} />
-            </div>
-            {event ? <InlineRolloutCard event={event} /> : null}
-            <div className="text-emphasis-300 text-text-primary">Firmware files</div>
-            <FirmwareFilesTable />
+            {showTabs ? (
+              <>
+                <Header title="Firmware" titleSize="text-heading-300" />
+                <TabStrip
+                  activeId={activeTab}
+                  onSelect={(id) => setActiveTab(id as FirmwareSettingsTab)}
+                  ariaLabel="Firmware views"
+                >
+                  <TabStripItem id="files" label="Files" />
+                  <TabStripItem id="releaseChannels" label="Release channels" />
+                </TabStrip>
+              </>
+            ) : (
+              <div className="flex items-center justify-between gap-4">
+                <Header
+                  title="Firmware"
+                  titleSize="text-heading-300"
+                  description="Upload and manage firmware files available to your fleet."
+                />
+                <Button variant={variants.primary} size={sizes.compact} text="Upload firmware" onClick={noop} />
+              </div>
+            )}
+
+            {showReleaseChannels ? (
+              releaseChannelsTab
+            ) : (
+              <>
+                {showTabs ? (
+                  <div>
+                    <Button variant={variants.primary} size={sizes.compact} text="Upload firmware" onClick={noop} />
+                  </div>
+                ) : null}
+                {event ? <InlineRolloutCard event={event} /> : null}
+                <div className="text-emphasis-300 text-text-primary">Firmware files</div>
+                <FirmwareFilesTable />
+              </>
+            )}
           </div>
         </div>
       </AppShell>
