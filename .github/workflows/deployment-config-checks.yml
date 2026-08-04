@@ -19,3 +19,6 @@ jobs:
 
       - name: Validate HA deployment profile
         run: ./deployment-files/ha/tests/test-profile.sh
+
+      - name: Validate non-interactive upgrade safety
+        run: ./deployment-files/tests/test-run-fleet-upgrade.sh

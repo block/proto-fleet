@@ -71,6 +71,8 @@ test_patroni_contract() {
     assert_contains "$entrypoint" "render-patroni-config"
     assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
     assert_not_contains "$bootstrap" 'PGDATABASE="$connection_url"'
+    assert_contains "$dockerfile" 'ARG TIMESCALEDB_IMAGE_TAG=latest'
+    assert_contains "$dockerfile" 'FROM proto-fleet-timescaledb:${TIMESCALEDB_IMAGE_TAG}'
 
     [[ "$(grep -E '^[[:space:]]*USER[[:space:]]+' "$dockerfile" | tail -n 1)" == "USER postgres" ]] ||
         fail "Patroni image must default to the postgres user"
