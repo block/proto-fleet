@@ -63,7 +63,7 @@ function renderScanMinerQrModal(overrides: Partial<ComponentProps<typeof ScanMin
     eligibility: {},
     targetSlotLabel: "Slot 1",
     onDismiss: vi.fn(),
-    onConfirm: vi.fn(),
+    onConfirm: vi.fn().mockResolvedValue(undefined),
     onAssign: vi.fn().mockReturnValue({ slotLabel: "Slot 1", hasNextSlot: true }),
     onUndoAssignment: vi.fn().mockResolvedValue(true),
     onScanNextSlot: vi.fn().mockReturnValue(true),
@@ -224,6 +224,76 @@ describe("ScanMinerQrModal", () => {
     expect(onAssign).toHaveBeenCalledWith("dev-1");
   });
 
+  it("holds the found dialog while the confirmed assignment is still writing", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    mockLookup
+      .mockResolvedValueOnce({ status: "found", snapshot: snapshot({ deviceIdentifier: "dev-1" }) })
+      .mockResolvedValueOnce({
+        status: "found",
+        snapshot: snapshot({ deviceIdentifier: "dev-2", serialNumber: "SN456" }),
+      });
+    let resolveAssign: (outcome: { slotLabel: string; hasNextSlot: boolean }) => void = () => {};
+    const onAssign = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveAssign = resolve;
+      }),
+    );
+
+    renderScanMinerQrModal({ onAssign });
+
+    await act(async () => {
+      capturedOnDetected?.(["SN:SN123", "SN:SN456"]);
+    });
+    await waitFor(() => expect(screen.getByText("Multiple miners found")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Assign to slot" }));
+
+    // Rescanning here would move the scanner on while the write is still in
+    // flight, leaving it to land against a slot the operator has left behind.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Assigning..." })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Scan another" })).toBeDisabled();
+
+    await act(async () => {
+      resolveAssign({ slotLabel: "Slot 1", hasNextSlot: true });
+    });
+
+    await waitFor(() => expect(screen.getByText("Miner assigned")).toBeInTheDocument());
+    expect(onAssign).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops an assignment result that lands after the scanner was reopened", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    mockLookup.mockResolvedValue({ status: "found", snapshot: snapshot() });
+    let resolveAssign: (outcome: { slotLabel: string; hasNextSlot: boolean }) => void = () => {};
+    const onAssign = vi.fn().mockReturnValue(
+      new Promise((resolve) => {
+        resolveAssign = resolve;
+      }),
+    );
+
+    const { props, rerender } = renderScanMinerQrModal({ onAssign });
+
+    await act(async () => {
+      capturedOnDetected?.(["SN:SN123"]);
+    });
+    expect(onAssign).toHaveBeenCalledWith("dev-1");
+
+    // Dismissing mid-write stays allowed, so the write can still land against a
+    // scan the operator has already replaced.
+    await act(async () => {
+      rerender(<ScanMinerQrModal {...props} show={false} />);
+    });
+    await act(async () => {
+      rerender(<ScanMinerQrModal {...props} show />);
+    });
+    await act(async () => {
+      resolveAssign({ slotLabel: "Slot 1", hasNextSlot: true });
+    });
+
+    expect(screen.queryByText("Miner assigned")).not.toBeInTheDocument();
+    expect(screen.getByText("Scan for Slot 1")).toBeInTheDocument();
+  });
+
   it("de-dupes a value decoded more than once in the same frame", async () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValue({ status: "found", snapshot: snapshot() });
@@ -261,7 +331,7 @@ describe("ScanMinerQrModal", () => {
       snapshot: snapshot({ placement: { rack: { id: 9n, label: "Rack B" } } }),
     });
     const onAssign = vi.fn();
-    const onConfirm = vi.fn();
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
 
     renderScanMinerQrModal({ onAssign, onConfirm });
 
@@ -273,7 +343,9 @@ describe("ScanMinerQrModal", () => {
     expect(screen.getByText("Assigning it here will move it from Rack B.")).toBeInTheDocument();
     expect(onAssign).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Assign to slot" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Assign to slot" }));
+    });
     expect(onConfirm).toHaveBeenCalledWith("dev-1", true);
   });
 
@@ -287,7 +359,7 @@ describe("ScanMinerQrModal", () => {
       snapshot: snapshot({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }),
     });
     const onAssign = vi.fn().mockReturnValue({ slotLabel: "Slot 1", hasNextSlot: true });
-    const onConfirm = vi.fn();
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
 
     renderScanMinerQrModal({ onAssign, onConfirm });
 
@@ -311,7 +383,7 @@ describe("ScanMinerQrModal", () => {
       }),
     });
     const onAssign = vi.fn();
-    const onConfirm = vi.fn();
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
 
     renderScanMinerQrModal({ onAssign, onConfirm });
 
@@ -324,7 +396,9 @@ describe("ScanMinerQrModal", () => {
     expect(screen.queryByText(/isn't fully paired/i)).not.toBeInTheDocument();
     expect(onAssign).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Assign to slot" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Assign to slot" }));
+    });
     expect(onConfirm).toHaveBeenCalledWith("dev-1", true);
   });
 
