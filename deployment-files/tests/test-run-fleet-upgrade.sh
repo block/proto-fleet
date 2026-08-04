@@ -169,6 +169,50 @@ printf 'docker' >> "$CALL_LOG"
 printf ' %s' "$@" >> "$CALL_LOG"
 printf '\n' >> "$CALL_LOG"
 
+if [ "${1:-}" = "image" ] && [ "${2:-}" = "ls" ]; then
+    repository=''
+    for argument in "$@"; do
+        case "$argument" in
+            proto-fleet-api|proto-fleet-client|proto-fleet-timescaledb|proto-fleet-timescaledb-ha)
+                repository="$argument"
+                ;;
+        esac
+    done
+    if [ "${FAKE_IMAGE_LIST_FAILURE:-}" = "$repository" ]; then
+        exit 1
+    fi
+    for image in ${FAKE_RELEASE_IMAGES:-}; do
+        case "$image" in
+            "$repository":*) printf '%s\n' "$image" ;;
+        esac
+    done
+    exit 0
+fi
+
+if [ "${1:-}" = "container" ] && [ "${2:-}" = "ls" ]; then
+    if [ "${FAKE_CONTAINER_LIST_FAILURE:-false}" = "true" ]; then
+        exit 1
+    fi
+    ancestor=''
+    for argument in "$@"; do
+        case "$argument" in
+            ancestor=*) ancestor="${argument#ancestor=}" ;;
+        esac
+    done
+    for image in ${FAKE_CONTAINER_IMAGE_REFS:-}; do
+        if [ "sha256:test-$image" = "$ancestor" ]; then
+            printf 'container-using-%s\n' "${image##*:}"
+            break
+        fi
+    done
+    exit 0
+fi
+
+if [ "${1:-}" = "image" ] && [ "${2:-}" = "rm" ]; then
+    [ "${FAKE_IMAGE_RM_FAILURE:-}" != "${3:-}" ]
+    exit
+fi
+
 case " $* " in
     *" compose up --help "*)
         echo 'Options: --wait --wait-timeout --no-build --pull string'
@@ -231,6 +275,9 @@ case " $* " in
         ;;
     *" image inspect --format "*)
         image="${!#}"
+        if [ "${FAKE_IMAGE_INSPECT_FAILURE:-}" = "$image" ]; then
+            exit 1
+        fi
         if [ "${FAKE_PREPARED_IMAGE_MISSING:-false}" = "true" ] && [ "$image" = "proto-fleet-api:v1.2.3" ]; then
             exit 1
         fi
@@ -430,23 +477,72 @@ assert_contains "source-tree run reaches teardown in its isolated project" "$HAR
 # volume detection. Do not persist a new multi-install identity here: the
 # surrounding migration and uninstall tools do not support that contract.
 make_stage project-override
+printf 'COMPOSE_PROJECT_NAME=persisted-project\n' >> "$STAGE/.env"
 if COMPOSE_PROJECT_NAME=fleet-blue run_stage "$STAGE" --non-interactive --preflight-only; then
     pass "explicit Compose project override preflights"
 else
     fail "explicit Compose project override should be preserved"
 fi
 assert_contains "explicit project override reaches Compose" "$HARNESS_CALL_LOG" "compose --project-name fleet-blue"
+assert_not_contains "process project override beats persisted identity" "$HARNESS_CALL_LOG" "compose --project-name persisted-project"
+
+# Compose historically accepted a project identity from the deployment .env.
+# Preserve its last non-empty assignment when the process has no override.
+make_stage persisted-project
+printf 'COMPOSE_PROJECT_NAME=ignored-project\n' >> "$STAGE/.env"
+printf 'export COMPOSE_PROJECT_NAME: "fleet-blue" # retained identity\r\n' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "persisted Compose project name preflights"
+else
+    fail "persisted Compose project name should be preserved"
+fi
+assert_contains "last persisted project name reaches Compose" "$HARNESS_CALL_LOG" "compose --project-name fleet-blue"
+assert_not_contains "earlier persisted project name is ignored" "$HARNESS_CALL_LOG" "compose --project-name ignored-project"
+
+# Compose also accepts `KEY: value`. Read true overlay settings through that
+# syntax and atomically normalize every prior form to one final assignment.
+make_stage compose-env-booleans
+enable_valid_alerts "$STAGE/.env"
+printf 'DD_API_KEY=test-datadog-key\n' >> "$STAGE/.env"
+printf '%s\n' \
+    'export ENABLE_BETA_ALERTS: true # preserve alerts' \
+    'ENABLE_SYSTEM_MONITORING: "true"' \
+    'ENABLE_TRACING: TRUE' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "Compose colon-form overlay settings preflight"
+else
+    fail "Compose colon-form overlay settings should be preserved"
+fi
+for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING; do
+    if [ "$(grep -Ec "^[[:space:]]*(export[[:space:]]+)?${persisted_boolean}[[:space:]]*[:=]" "$STAGE/.env")" -eq 1 ] \
+        && grep -q "^${persisted_boolean}=true$" "$STAGE/.env"; then
+        pass "$persisted_boolean normalizes Compose colon syntax without changing its value"
+    else
+        fail "$persisted_boolean did not preserve its Compose colon-form true value"
+    fi
+done
 
 make_stage project-volume
+printf 'COMPOSE_PROJECT_NAME=fleet-blue\n' >> "$STAGE/.env"
 env_without_password="$STAGE/.env.without-password"
 grep -Ev '^DB_PASSWORD=' "$STAGE/.env" > "$env_without_password"
 mv "$env_without_password" "$STAGE/.env"
-if printf 'n\n' | COMPOSE_PROJECT_NAME=fleet-blue FAKE_DOCKER_VOLUME=fleet-blue_timescaledb-data run_stage "$STAGE"; then
+if printf 'n\n' | FAKE_DOCKER_VOLUME=fleet-blue_timescaledb-data run_stage "$STAGE"; then
     fail "declining removal of an overridden project volume should abort"
 else
-    pass "volume guard uses the explicit Compose project override"
+    pass "volume guard uses the persisted Compose project name"
 fi
-assert_contains "volume guard finds the overridden project volume" "$HARNESS_OUTPUT_LOG" "Detected existing TimescaleDB data volume: fleet-blue_timescaledb-data"
+assert_contains "volume guard finds the persisted project volume" "$HARNESS_OUTPUT_LOG" "Detected existing TimescaleDB data volume: fleet-blue_timescaledb-data"
+
+make_stage invalid-persisted-project
+printf 'COMPOSE_PROJECT_NAME=Fleet Blue\n' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "invalid persisted Compose project name should fail"
+else
+    pass "invalid persisted Compose project name fails before Docker activity"
+fi
+assert_contains "invalid persisted project name is diagnosed" "$HARNESS_OUTPUT_LOG" "COMPOSE_PROJECT_NAME must start with a lowercase letter or digit"
+assert_not_contains "invalid persisted project name cannot target Docker" "$HARNESS_CALL_LOG" "docker "
 
 make_stage invalid-project-override
 if COMPOSE_PROJECT_NAME='Fleet Blue' run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -604,14 +700,105 @@ assert_contains "activation stops the old stack" "$HARNESS_CALL_LOG" " down --re
 assert_contains "activation starts the new stack" "$HARNESS_CALL_LOG" " up --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "successful activation should consume its marker"
 
+# Preflight must never delete an installed release merely because its stack is
+# stopped. Garbage collection runs only after successful activation, when the
+# old deployment is no longer the recovery path.
+make_stage release-image-retention/deployment
+gc_images=$(printf '%s\n' \
+    'proto-fleet-api:latest' \
+    'proto-fleet-api:debug' \
+    "proto-fleet-api:$RELEASE_TAG" \
+    'proto-fleet-timescaledb-ha:v1.2.3' \
+    'proto-fleet-api:v1.0.0' \
+    'proto-fleet-client:v1.0.0' \
+    'proto-fleet-timescaledb:v1.0.0' \
+    'proto-fleet-timescaledb-ha:v1.0.0' \
+    'proto-fleet-api:v1.1.0' \
+    'proto-fleet-client:v1.1.0' \
+    'proto-fleet-timescaledb:v1.1.0' \
+    'proto-fleet-timescaledb-ha:v1.1.0' \
+    'proto-fleet-api:nightly-20260731-abcdef123456')
+if FAKE_RELEASE_IMAGES="$gc_images" run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "preflight preserves installed and abandoned release tags"
+else
+    fail "release image retention fixture should preflight"
+fi
+assert_not_contains "preflight never garbage-collects release images" "$HARNESS_CALL_LOG" "docker image rm "
+
+# After activation, remove only unused obsolete Proto Fleet release tags. Keep
+# source :latest tags, the target release, local/debug tags, and all four
+# images for a release if any running or stopped container still uses it.
+: > "$HARNESS_CALL_LOG"
+if FAKE_RELEASE_IMAGES="$gc_images" \
+    FAKE_CONTAINER_IMAGE_REFS='proto-fleet-api:v1.0.0' \
+    run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "successful activation prunes only unused obsolete release tags"
+else
+    fail "post-activation release image cleanup should be nonfatal"
+fi
+for obsolete_image in \
+    proto-fleet-api:v1.1.0 \
+    proto-fleet-client:v1.1.0 \
+    proto-fleet-timescaledb:v1.1.0 \
+    proto-fleet-timescaledb-ha:v1.1.0 \
+    proto-fleet-api:nightly-20260731-abcdef123456; do
+    assert_contains "activation removes obsolete image $obsolete_image" "$HARNESS_CALL_LOG" "docker image rm $obsolete_image"
+done
+for retained_image in \
+    proto-fleet-api:latest \
+    proto-fleet-api:debug \
+    "proto-fleet-api:$RELEASE_TAG" \
+    proto-fleet-timescaledb-ha:v1.2.3 \
+    proto-fleet-api:v1.0.0 \
+    proto-fleet-client:v1.0.0 \
+    proto-fleet-timescaledb:v1.0.0 \
+    proto-fleet-timescaledb-ha:v1.0.0; do
+    assert_not_contains "activation retains image $retained_image" "$HARNESS_CALL_LOG" "docker image rm $retained_image"
+done
+assert_contains "retention checks stopped containers by immutable image ID" "$HARNESS_CALL_LOG" \
+    "docker container ls --all --quiet --filter ancestor=sha256:test-proto-fleet-api:v1.0.0"
+assert_not_contains "activation retains its current API image" "$HARNESS_CALL_LOG" "docker image rm $FLEET_API_IMAGE"
+up_line=$(grep -nF ' up --remove-orphans' "$HARNESS_CALL_LOG" | head -1 | cut -d: -f1)
+gc_line=$(grep -nF 'docker image rm proto-fleet-api:v1.1.0' "$HARNESS_CALL_LOG" | head -1 | cut -d: -f1)
+if [ -n "$up_line" ] && [ -n "$gc_line" ] && [ "$up_line" -lt "$gc_line" ]; then
+    pass "obsolete release cleanup runs only after successful startup"
+else
+    fail "obsolete release cleanup should follow successful startup"
+fi
+
+# Docker inspection/removal errors are fail-safe housekeeping failures: no
+# uncertain tag is deleted, and a successful deployment remains successful.
+make_stage release-image-list-failure/deployment
+if FAKE_RELEASE_IMAGES='proto-fleet-api:v1.1.0' \
+    FAKE_IMAGE_LIST_FAILURE=proto-fleet-client \
+    run_stage "$STAGE" --non-interactive; then
+    pass "image-list failure does not fail deployment"
+else
+    fail "image-list failure should skip cleanup without failing deployment"
+fi
+assert_contains "image-list failure is diagnosed" "$HARNESS_OUTPUT_LOG" "skipping Proto Fleet release image cleanup"
+assert_not_contains "image-list failure prevents partial deletion" "$HARNESS_CALL_LOG" "docker image rm proto-fleet-api:v1.1.0"
+
+make_stage release-image-remove-failure/deployment
+if FAKE_RELEASE_IMAGES='proto-fleet-api:v1.1.0' \
+    FAKE_IMAGE_RM_FAILURE=proto-fleet-api:v1.1.0 \
+    run_stage "$STAGE" --non-interactive; then
+    pass "image removal failure does not fail deployment"
+else
+    fail "image removal failure should remain best-effort"
+fi
+assert_contains "image removal failure is diagnosed" "$HARNESS_OUTPUT_LOG" "could not remove obsolete Proto Fleet image proto-fleet-api:v1.1.0"
+
 # The updater preflights and activates directories that are both named
 # `deployment`; only their parent changes. Absolute paths in rendered Compose
 # output are normalized so that this safe relocation does not invalidate the
 # proof, while Compose's native project identity stays stable.
 make_stage relocated-preflight/deployment
+printf 'COMPOSE_PROJECT_NAME=fleet-blue\n' >> "$STAGE/.env"
 if ! run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "relocation fixture preflight should succeed"
 fi
+assert_contains "relocated preflight uses the persisted project" "$HARNESS_CALL_LOG" "compose --project-name fleet-blue"
 relocated_stage="$TMP_DIR/activated-release/deployment"
 mkdir -p "$(dirname "$relocated_stage")"
 mv "$STAGE" "$relocated_stage"
@@ -623,6 +810,7 @@ else
     fail "unchanged relocated release should activate"
 fi
 assert_contains "relocated activation stops the old stack" "$HARNESS_CALL_LOG" " down --remove-orphans"
+assert_contains "relocated activation keeps the persisted project" "$HARNESS_CALL_LOG" "compose --project-name fleet-blue"
 
 # Every input that defines the prepared release is bound into the marker. A
 # changed or forged marker fails before the active deployment is stopped and
@@ -819,13 +1007,16 @@ if ! run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "failed-activation fixture preflight should succeed"
 fi
 : > "$HARNESS_CALL_LOG"
-if FAKE_ACTIVATION_FAILURE=true run_stage "$STAGE" --non-interactive --skip-build; then
+if FAKE_ACTIVATION_FAILURE=true \
+    FAKE_RELEASE_IMAGES='proto-fleet-api:v1.1.0' \
+    run_stage "$STAGE" --non-interactive --skip-build; then
     fail "simulated activation failure should propagate"
 else
     pass "activation failure propagates"
 fi
 [ -f "$STAGE/.update-preflight-complete" ] || fail "failed activation should retain its recovery marker"
 assert_contains "activation recovery command keeps the resolved project" "$HARNESS_OUTPUT_LOG" "docker compose --project-name failed-activation"
+assert_not_contains "failed activation cannot prune prepared or retired releases" "$HARNESS_CALL_LOG" "docker image rm proto-fleet-api:v1.1.0"
 
 # Skip-build must not be usable without proof that this exact deployment
 # directory completed preflight.

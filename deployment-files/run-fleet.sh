@@ -51,6 +51,61 @@ env_last_value() {
     printf '%s' "$value"
 }
 
+parse_compose_env_value() {
+    local value="$1"
+    local double_quoted='^"(.*)"[[:space:]]*(#.*)?$'
+    local single_quoted="^'(.*)'[[:space:]]*(#.*)?$"
+
+    value=$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+    case "$value" in
+        \"*)
+            [[ "$value" =~ $double_quoted ]] || return 2
+            value="${BASH_REMATCH[1]}"
+            ;;
+        \'*)
+            [[ "$value" =~ $single_quoted ]] || return 2
+            value="${BASH_REMATCH[1]}"
+            ;;
+        *)
+            # Compose treats # as an inline comment only when whitespace
+            # separates it from an unquoted value.
+            value=$(printf '%s' "$value" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')
+            ;;
+    esac
+    printf '%s' "$value"
+}
+
+# Read one key using Compose's documented dotenv delimiters/comments. This is
+# separate from the older deployment-value reader above because project
+# identity must never silently fall back when a valid Compose assignment uses
+# `KEY: value` syntax. Returns 1 when absent and 2 when present but malformed.
+compose_env_last_value() {
+    local key="$1" line normalized parsed found=false
+    local assignment_re="^${key}[[:space:]]*([=:])(.*)$"
+    local malformed_re="^${key}([[:space:]]|$)"
+
+    [ -e "$ENV_FILE" ] || return 1
+    [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || return 2
+    while IFS= read -r line || [ -n "$line" ]; do
+        normalized=$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//')
+        case "$normalized" in
+            export[[:space:]]*)
+                normalized="${normalized#export}"
+                normalized=$(printf '%s' "$normalized" | sed -E 's/^[[:space:]]+//')
+                ;;
+        esac
+        if [[ "$normalized" =~ $assignment_re ]]; then
+            parsed=$(parse_compose_env_value "${BASH_REMATCH[2]}") || return 2
+            found=true
+        elif [[ "$normalized" =~ $malformed_re ]]; then
+            return 2
+        fi
+    done < "$ENV_FILE"
+
+    [ "$found" = "true" ] || return 1
+    printf '%s' "$parsed"
+}
+
 env_has_nonempty_value() {
     local value
     value=$(env_last_value "$1") || return 1
@@ -58,8 +113,17 @@ env_has_nonempty_value() {
 }
 
 env_boolean_is_true() {
-    local key="$1" value
-    value=$(env_last_value "$key") || return 1
+    local key="$1" value read_status
+    if value=$(compose_env_last_value "$key"); then
+        :
+    else
+        read_status=$?
+        if [ "$read_status" -eq 1 ]; then
+            return 1
+        fi
+        echo "Error: $key in $ENV_FILE uses unsupported or malformed Compose dotenv syntax." >&2
+        exit 1
+    fi
     value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
     case "$value" in
         true) return 0 ;;
@@ -72,14 +136,29 @@ env_boolean_is_true() {
 }
 
 resolve_compose_project_name() {
-    local project_name
+    local project_name persisted_status
 
     if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
         project_name="$COMPOSE_PROJECT_NAME"
     else
-        # Preserve Compose's historical per-directory project identity for
-        # source checkouts and renamed/nonstandard deployment directories.
-        project_name=$(basename "$PROJECT_ROOT")
+        project_name=$(compose_env_last_value COMPOSE_PROJECT_NAME)
+        persisted_status=$?
+        case "$persisted_status" in
+            0)
+                if [ -z "$project_name" ]; then
+                    project_name=$(basename "$PROJECT_ROOT")
+                fi
+                ;;
+            1)
+                # Preserve Compose's historical per-directory project identity
+                # when neither the process nor deployment .env selects one.
+                project_name=$(basename "$PROJECT_ROOT")
+                ;;
+            *)
+                echo "Error: COMPOSE_PROJECT_NAME in $ENV_FILE uses unsupported or malformed Compose dotenv syntax." >&2
+                return 1
+                ;;
+        esac
     fi
 
     # The same value is also used to select volumes below, so reject names
@@ -370,6 +449,89 @@ validate_timescaledb_archive_tags() {
             fi
         done
     fi
+}
+
+is_managed_release_image_tag() {
+    local tag="$1"
+    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9][A-Za-z0-9._-]*)?$ ]] ||
+        [[ "$tag" =~ ^nightly-[0-9]{8}-[0-9a-f]{12}$ ]]
+}
+
+prune_obsolete_release_images() {
+    local repository image tag image_id containers
+    local candidates=()
+    local protected_tags=(latest "$RELEASE_IMAGE_TAG")
+
+    # Source-tree runs intentionally share mutable :latest tags and must not
+    # participate in packaged-release retention.
+    [ "$RELEASE_IMAGE_TAG" != "latest" ] || return 0
+
+    # Collect the complete candidate set before deleting anything. If Docker
+    # cannot enumerate one reserved repository, fail safe and leave every tag
+    # untouched rather than making a partial retention decision.
+    for repository in \
+        proto-fleet-api \
+        proto-fleet-client \
+        proto-fleet-timescaledb \
+        proto-fleet-timescaledb-ha; do
+        local listed_images
+        if ! listed_images=$(docker image ls --format '{{.Repository}}:{{.Tag}}' "$repository" 2>/dev/null); then
+            echo "Warning: could not inspect $repository images; skipping Proto Fleet release image cleanup." >&2
+            return 0
+        fi
+        while IFS= read -r image; do
+            [ -n "$image" ] || continue
+            case "$image" in
+                "$repository":*) ;;
+                *) continue ;;
+            esac
+            [ "${image##*:}" != "<none>" ] || continue
+            candidates+=("$image")
+        done <<< "$listed_images"
+    done
+
+    # A container may reference only three images from a four-image release
+    # (the standard and HA database images are mutually exclusive). Protect
+    # the whole release tag whenever any running or stopped container uses it.
+    for image in "${candidates[@]}"; do
+        tag="${image##*:}"
+        if [ "$tag" = "latest" ] || [ "$tag" = "$RELEASE_IMAGE_TAG" ] ||
+            ! is_managed_release_image_tag "$tag"; then
+            continue
+        fi
+        if ! image_id=$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null); then
+            echo "Warning: could not inspect obsolete Proto Fleet image $image; retaining its release tag." >&2
+            protected_tags+=("$tag")
+            continue
+        fi
+        if ! containers=$(docker container ls --all --quiet --filter "ancestor=$image_id" 2>/dev/null); then
+            echo "Warning: could not inspect containers using $image; retaining its release tag." >&2
+            protected_tags+=("$tag")
+            continue
+        fi
+        if [ -n "$containers" ]; then
+            protected_tags+=("$tag")
+        fi
+    done
+
+    for image in "${candidates[@]}"; do
+        tag="${image##*:}"
+        is_managed_release_image_tag "$tag" || continue
+        local protected=false protected_tag
+        for protected_tag in "${protected_tags[@]}"; do
+            if [ "$tag" = "$protected_tag" ]; then
+                protected=true
+                break
+            fi
+        done
+        [ "$protected" = "false" ] || continue
+
+        if ! docker image rm "$image" >/dev/null 2>&1; then
+            # Retention is best-effort housekeeping. A cleanup race or daemon
+            # error must not turn a verified upgrade into an outage.
+            echo "Warning: could not remove obsolete Proto Fleet image $image; continuing." >&2
+        fi
+    done
 }
 
 sha256() {
@@ -1202,10 +1364,12 @@ atomic_set_env_values() {
             }
         }
         {
-            separator = index($0, "=")
-            if (separator > 0) {
-                name = substr($0, 1, separator - 1)
-                sub(/[[:space:]]+$/, "", name)
+            assignment = $0
+            sub(/^[[:space:]]+/, "", assignment)
+            sub(/^export[[:space:]]+/, "", assignment)
+            if (match(assignment, /^[A-Za-z_][A-Za-z0-9_]*[[:space:]]*[:=]/)) {
+                name = substr(assignment, 1, RLENGTH)
+                sub(/[[:space:]]*[:=]$/, "", name)
                 if (name in removed) {
                     next
                 }
@@ -2101,6 +2265,7 @@ fi
 # ----------------------------------------------------------------------------
 
 echo "Cleaning up old Docker images and build cache..."
+prune_obsolete_release_images
 docker image prune -f 2>/dev/null || true
 docker builder prune -f 2>/dev/null || true
 
