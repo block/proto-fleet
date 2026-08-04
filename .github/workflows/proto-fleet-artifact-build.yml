@@ -49,8 +49,8 @@ jobs:
           INPUT_IS_PRERELEASE: ${{ inputs.is_prerelease }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
-            echo "::error::Version '$INPUT_VERSION' must only contain letters, numbers, dots, underscores, or hyphens."
+          if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$INPUT_VERSION" == "latest" ]]; then
+            echo "::error::Version '$INPUT_VERSION' must be a release-specific Docker tag (1-128 letters, numbers, dots, underscores, or hyphens; not 'latest')."
             exit 1
           fi
 
@@ -338,6 +338,7 @@ jobs:
 
   build-timescaledb-image:
     name: Build TimescaleDB images (${{ matrix.arch }})
+    needs: [metadata]
     strategy:
       matrix:
         include:
@@ -346,6 +347,8 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    env:
+      IMAGE_TAG: ${{ needs.metadata.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -356,24 +359,40 @@ jobs:
       - name: Build TimescaleDB images
         run: |
           docker buildx build \
-            -t proto-fleet-timescaledb:latest \
+            --tag "proto-fleet-timescaledb:${IMAGE_TAG}" \
             --load \
             server/timescaledb
 
           docker build \
             --file deployment-files/ha/patroni.Dockerfile \
             --build-arg SOURCE_COMMIT="${GITHUB_SHA}" \
-            --tag proto-fleet-timescaledb-ha:latest \
+            --build-arg "TIMESCALEDB_IMAGE_TAG=${IMAGE_TAG}" \
+            --tag "proto-fleet-timescaledb-ha:${IMAGE_TAG}" \
             deployment-files/ha
 
           ./deployment-files/ha/tests/validate-image.sh \
-            proto-fleet-timescaledb-ha:latest \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}" \
             "${GITHUB_SHA}"
 
           docker save \
             --output timescaledb-${{ matrix.arch }}.tar \
-            proto-fleet-timescaledb:latest \
-            proto-fleet-timescaledb-ha:latest
+            "proto-fleet-timescaledb:${IMAGE_TAG}" \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}"
+
+          ARCHIVE_MANIFEST=$(tar -xOf timescaledb-${{ matrix.arch }}.tar manifest.json)
+          for image in \
+            "proto-fleet-timescaledb:${IMAGE_TAG}" \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}"; do
+            if ! grep -Fq "\"${image}\"" <<<"$ARCHIVE_MANIFEST"; then
+              echo "::error::TimescaleDB archive is missing required image ${image}."
+              exit 1
+            fi
+          done
+          if grep -Fq ':latest"' <<<"$ARCHIVE_MANIFEST"; then
+            echo "::error::TimescaleDB archive must not contain shared latest tags."
+            exit 1
+          fi
+
           gzip -9 --force timescaledb-${{ matrix.arch }}.tar
           echo "${{ matrix.arch }} image size: $(du -h timescaledb-${{ matrix.arch }}.tar.gz | cut -f1)"
 
@@ -482,6 +501,8 @@ jobs:
 
           mkdir -p deployment/images
           cp /tmp/timescaledb-images/timescaledb-${{ matrix.arch }}.tar.gz deployment/images/timescaledb.tar.gz
+
+          deployment/scripts/pin-release-images.sh deployment "$VERSION"
 
       - name: Create version file
         run: |

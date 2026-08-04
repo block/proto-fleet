@@ -23,6 +23,11 @@ NON_INTERACTIVE=false
 PREFLIGHT_ONLY=false
 SKIP_BUILD=false
 PREFLIGHT_FINGERPRINT=""
+RELEASE_IMAGE_TAG=""
+FLEET_API_IMAGE=""
+FLEET_CLIENT_IMAGE=""
+TIMESCALEDB_IMAGE=""
+TIMESCALEDB_HA_IMAGE=""
 
 # How long the post-start steps wait for fleet-api to finish its migrations.
 # 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
@@ -64,6 +69,37 @@ env_boolean_is_true() {
             exit 1
             ;;
     esac
+}
+
+resolve_release_image_tag() {
+    local count tag
+
+    if [ ! -f "$VERSION_FILE" ]; then
+        if [ "$PREFLIGHT_ONLY" = "true" ] || [ "$SKIP_BUILD" = "true" ]; then
+            echo "Error: updater preflight and activation require packaged release metadata at $VERSION_FILE." >&2
+            return 1
+        fi
+        # Source-tree and local development installs do not carry version.txt.
+        # Keep their historical mutable tag; release bundles are pinned below.
+        printf 'latest'
+        return 0
+    fi
+
+    count=$(grep -c '^version:' "$VERSION_FILE" 2>/dev/null || true)
+    if [ "$count" -ne 1 ]; then
+        echo "Error: $VERSION_FILE must contain exactly one version entry." >&2
+        return 1
+    fi
+    tag=$(sed -n -E 's/^version:[[:space:]]*([^[:space:]]+)[[:space:]]*$/\1/p' "$VERSION_FILE")
+    if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$ ]] || [ "${#tag}" -gt 128 ]; then
+        echo "Error: the packaged release version is not a valid Docker image tag." >&2
+        return 1
+    fi
+    if [ "$tag" = "latest" ]; then
+        echo "Error: packaged releases must not use the shared latest image tag." >&2
+        return 1
+    fi
+    printf '%s' "$tag"
 }
 
 usage() {
@@ -146,6 +182,12 @@ if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
     echo "Error: --preflight-only and --skip-build cannot be combined." >&2
     exit 1
 fi
+
+RELEASE_IMAGE_TAG=$(resolve_release_image_tag) || exit 1
+FLEET_API_IMAGE="proto-fleet-api:${RELEASE_IMAGE_TAG}"
+FLEET_CLIENT_IMAGE="proto-fleet-client:${RELEASE_IMAGE_TAG}"
+TIMESCALEDB_IMAGE="proto-fleet-timescaledb:${RELEASE_IMAGE_TAG}"
+TIMESCALEDB_HA_IMAGE="proto-fleet-timescaledb-ha:${RELEASE_IMAGE_TAG}"
 
 if [ "$SKIP_BUILD" = "true" ] && [ ! -f "$PREFLIGHT_MARKER" ]; then
     echo "Error: --skip-build requires a successful preflight for this deployment." >&2
@@ -243,6 +285,69 @@ compose() {
     # persistent volume namespace between preflight and activation.
     docker compose --project-name "$FLEET_COMPOSE_PROJECT_NAME" \
         ${COMPOSE_ENV_ARGS[@]+"${COMPOSE_ENV_ARGS[@]}"} "${COMPOSE_FILES[@]}" "$@"
+}
+
+verify_release_image_references() {
+    local images required ha_compose="$PROJECT_ROOT/ha/compose.yaml"
+    images=$(compose config --images) || {
+        echo "Error: could not list Docker Compose image references." >&2
+        return 1
+    }
+
+    for required in "$FLEET_API_IMAGE" "$FLEET_CLIENT_IMAGE" "$TIMESCALEDB_IMAGE"; do
+        if ! printf '%s\n' "$images" | grep -Fxq "$required"; then
+            echo "Error: the packaged Compose model is not pinned to required image $required." >&2
+            return 1
+        fi
+    done
+
+    # A release bundle also carries the HA database image in the same archive.
+    # Its separate Compose profile must stay pinned even though this runner does
+    # not activate that profile itself.
+    if [ -f "$VERSION_FILE" ]; then
+        if [ ! -f "$ha_compose" ] || ! grep -Fq "image: $TIMESCALEDB_HA_IMAGE" "$ha_compose"; then
+            echo "Error: the packaged HA Compose model is not pinned to required image $TIMESCALEDB_HA_IMAGE." >&2
+            return 1
+        fi
+        for required in \
+            'proto-fleet-api:latest' \
+            'proto-fleet-client:latest' \
+            'proto-fleet-timescaledb:latest'; do
+            if printf '%s\n' "$images" | grep -Fxq "$required"; then
+                echo "Error: release Compose configuration still references shared image $required." >&2
+                return 1
+            fi
+        done
+        if grep -Fq 'proto-fleet-timescaledb-ha:latest' "$ha_compose"; then
+            echo "Error: release HA Compose configuration still references the shared latest image tag." >&2
+            return 1
+        fi
+    fi
+}
+
+validate_timescaledb_archive_tags() {
+    local manifest required forbidden
+    manifest=$(gunzip -c "$TSDB_IMAGE" | tar -xOf - manifest.json 2>/dev/null) || {
+        echo "Error: $TSDB_IMAGE does not contain a readable Docker image manifest." >&2
+        return 1
+    }
+
+    for required in "$TIMESCALEDB_IMAGE" "$TIMESCALEDB_HA_IMAGE"; do
+        if ! printf '%s\n' "$manifest" | grep -Fq "\"$required\""; then
+            echo "Error: $TSDB_IMAGE does not contain required image $required." >&2
+            return 1
+        fi
+    done
+    if [ "$RELEASE_IMAGE_TAG" != "latest" ]; then
+        for forbidden in \
+            'proto-fleet-timescaledb:latest' \
+            'proto-fleet-timescaledb-ha:latest'; do
+            if printf '%s\n' "$manifest" | grep -Fq "\"$forbidden\""; then
+                echo "Error: $TSDB_IMAGE contains forbidden shared image $forbidden." >&2
+                return 1
+            fi
+        done
+    fi
 }
 
 sha256() {
@@ -1401,6 +1506,10 @@ if ! compose config --quiet; then
     echo "Error: Docker Compose configuration is invalid; services were not stopped." >&2
     exit 1
 fi
+if ! verify_release_image_references; then
+    echo "Error: Docker Compose image references do not match this release; services were not stopped." >&2
+    exit 1
+fi
 
 if [ "$SKIP_BUILD" = "true" ]; then
     if ! verify_preflight_marker; then
@@ -1435,8 +1544,7 @@ if [ "$SKIP_BUILD" != "true" ]; then
 
     # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
     if [ -f "$TSDB_IMAGE" ]; then
-        if ! gunzip -c "$TSDB_IMAGE" | tar -xOf - manifest.json 2>/dev/null | grep -q '"proto-fleet-timescaledb:latest"'; then
-            echo "Error: $TSDB_IMAGE does not contain the required proto-fleet-timescaledb:latest tag." >&2
+        if ! validate_timescaledb_archive_tags; then
             exit 1
         fi
         echo "Loading pre-built TimescaleDB image..."
@@ -1446,20 +1554,22 @@ if [ "$SKIP_BUILD" != "true" ]; then
             echo "Error: Failed to load TimescaleDB image from $TSDB_IMAGE"
             exit 1
         fi
-        if ! docker image inspect proto-fleet-timescaledb:latest >/dev/null 2>&1; then
-            echo "Error: $TSDB_IMAGE loaded without the required proto-fleet-timescaledb:latest tag." >&2
-            exit 1
-        fi
+        for image in "$TIMESCALEDB_IMAGE" "$TIMESCALEDB_HA_IMAGE"; do
+            if ! docker image inspect "$image" >/dev/null 2>&1; then
+                echo "Error: $TSDB_IMAGE loaded without required image $image." >&2
+                exit 1
+            fi
+        done
     else
         if [ "$PREFLIGHT_ONLY" = "true" ]; then
             echo "Error: upgrade preflight requires the release's pre-built TimescaleDB image at $TSDB_IMAGE." >&2
             exit 1
         fi
-        if ! docker image inspect proto-fleet-timescaledb:latest >/dev/null 2>&1; then
-            echo "Error: Pre-built TimescaleDB image not found at $TSDB_IMAGE and proto-fleet-timescaledb:latest is not loaded." >&2
+        if ! docker image inspect "$TIMESCALEDB_IMAGE" >/dev/null 2>&1; then
+            echo "Error: Pre-built TimescaleDB image not found at $TSDB_IMAGE and $TIMESCALEDB_IMAGE is not loaded." >&2
             exit 1
         fi
-        echo "Pre-built TimescaleDB archive not found; reusing the loaded proto-fleet-timescaledb:latest image."
+        echo "Pre-built TimescaleDB archive not found; reusing loaded image $TIMESCALEDB_IMAGE."
     fi
 
     # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)

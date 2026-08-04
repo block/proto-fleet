@@ -8,6 +8,11 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR=$(mktemp -d)
 REAL_GREP=$(command -v grep)
 FAILURES=0
+RELEASE_TAG="v1.2.3"
+FLEET_API_IMAGE="proto-fleet-api:${RELEASE_TAG}"
+FLEET_CLIENT_IMAGE="proto-fleet-client:${RELEASE_TAG}"
+TIMESCALEDB_IMAGE="proto-fleet-timescaledb:${RELEASE_TAG}"
+TIMESCALEDB_HA_IMAGE="proto-fleet-timescaledb-ha:${RELEASE_TAG}"
 
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -100,7 +105,7 @@ make_stage() {
     local name="$1"
     STAGE="$TMP_DIR/$name"
     local runtime="$STAGE-runtime"
-    mkdir -p "$STAGE/client" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$runtime/bin"
+    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$runtime/bin"
     ln -s "$runtime/bin" "$STAGE/bin"
     : > "$runtime/calls.log"
     : > "$runtime/output.log"
@@ -111,13 +116,16 @@ make_stage() {
     cp "$DEPLOY_DIR/docker-compose.alerts.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.system-monitoring.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.tracing.yaml" "$STAGE/"
+    cp "$DEPLOY_DIR/ha/compose.yaml" "$STAGE/ha/"
     cp "$DEPLOY_DIR/client/nginx.http.conf" "$STAGE/client/"
     cp "$DEPLOY_DIR/client/nginx.https.conf" "$STAGE/client/"
     cp "$DEPLOY_DIR/server/otel-collector-config.datadog.yaml" "$STAGE/server/"
     printf 'apiVersion: 1\n' > "$STAGE/server/monitoring/grafana/provisioning/datasources/base.yaml"
-    printf '%s\n' 'version: v1.2.3' 'commit: test-release' > "$STAGE/version.txt"
+    printf '%s\n' "version: $RELEASE_TAG" 'commit: test-release' > "$STAGE/version.txt"
+    "$DEPLOY_DIR/scripts/pin-release-images.sh" "$STAGE" "$RELEASE_TAG"
     mkdir -p "$STAGE/images" "$STAGE/image-fixture"
-    printf '[{"Config":"config.json","RepoTags":["proto-fleet-timescaledb:latest"],"Layers":[]}]\n' > "$STAGE/image-fixture/manifest.json"
+    printf '[{"Config":"config.json","RepoTags":["%s","%s"],"Layers":[]}]\n' \
+        "$TIMESCALEDB_IMAGE" "$TIMESCALEDB_HA_IMAGE" > "$STAGE/image-fixture/manifest.json"
     (cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
     rm -rf "$STAGE/image-fixture"
     write_valid_env "$STAGE/.env"
@@ -137,10 +145,17 @@ case " $* " in
         [ "${FAKE_COMPOSE_CONFIG_FAILURE:-false}" != "true" ]
         ;;
     *" compose "*" config --images "*)
-        printf '%s\n' \
-            'proto-fleet-api:latest' \
-            'proto-fleet-client:latest' \
-            'proto-fleet-timescaledb:latest'
+        if [ "${FAKE_COMPOSE_USES_LATEST:-false}" = "true" ]; then
+            printf '%s\n' \
+                'proto-fleet-api:latest' \
+                'proto-fleet-client:v1.2.3' \
+                'proto-fleet-timescaledb:v1.2.3'
+        else
+            printf '%s\n' \
+                'proto-fleet-api:v1.2.3' \
+                'proto-fleet-client:v1.2.3' \
+                'proto-fleet-timescaledb:v1.2.3'
+        fi
         ;;
     *" compose "*" config "*)
         project_name=''
@@ -158,7 +173,7 @@ case " $* " in
         ;;
     *" compose "*" pull --ignore-buildable "*)
         if [ "${FAKE_TSDB_IMAGE_COLD_CACHE:-false}" = "true" ]; then
-            echo 'Image proto-fleet-timescaledb:latest Skipped'
+            echo 'Image proto-fleet-timescaledb:v1.2.3 Skipped'
         fi
         ;;
     *" compose "*" build --no-cache "*)
@@ -174,16 +189,16 @@ case " $* " in
         ;;
     *" image inspect --format "*)
         image="${!#}"
-        if [ "${FAKE_PREPARED_IMAGE_MISSING:-false}" = "true" ] && [ "$image" = "proto-fleet-api:latest" ]; then
+        if [ "${FAKE_PREPARED_IMAGE_MISSING:-false}" = "true" ] && [ "$image" = "proto-fleet-api:v1.2.3" ]; then
             exit 1
         fi
-        if [ "${FAKE_PREPARED_IMAGE_CHANGED:-false}" = "true" ] && [ "$image" = "proto-fleet-api:latest" ]; then
+        if [ "${FAKE_PREPARED_IMAGE_CHANGED:-false}" = "true" ] && [ "$image" = "proto-fleet-api:v1.2.3" ]; then
             printf 'sha256:changed-%s\n' "$image"
             exit 0
         fi
         printf 'sha256:test-%s\n' "$image"
         ;;
-    *" image inspect proto-fleet-timescaledb:latest "*)
+    *" image inspect proto-fleet-timescaledb:v1.2.3 "*|*" image inspect proto-fleet-timescaledb-ha:v1.2.3 "*)
         if [ "${FAKE_TSDB_IMAGE_COLD_CACHE:-false}" = "true" ] && ! grep -qF 'docker load' "$CALL_LOG"; then
             exit 1
         fi
@@ -290,6 +305,10 @@ assert_contains "preflight validates Compose" "$STAGE/calls.log" "config --quiet
 assert_contains "preflight pins the Compose project identity" "$STAGE/calls.log" "compose --project-name deployment"
 assert_contains "preflight pulls images" "$STAGE/calls.log" " pull"
 assert_contains "preflight builds images" "$STAGE/calls.log" " build --no-cache"
+assert_contains "preflight verifies the release API image" "$STAGE/calls.log" "image inspect --format {{.Id}} $FLEET_API_IMAGE"
+assert_contains "preflight verifies the release client image" "$STAGE/calls.log" "image inspect --format {{.Id}} $FLEET_CLIENT_IMAGE"
+assert_contains "preflight verifies the release database image" "$STAGE/calls.log" "image inspect --format {{.Id}} $TIMESCALEDB_IMAGE"
+assert_not_contains "preflight never targets shared latest image tags" "$STAGE/calls.log" ":latest"
 assert_not_contains "preflight leaves services running" "$STAGE/calls.log" " down --remove-orphans"
 assert_not_contains "preflight never starts replacement services" "$STAGE/calls.log" " up --remove-orphans"
 [ -f "$STAGE/.update-preflight-complete" ] || fail "preflight should create its activation marker"
@@ -326,6 +345,7 @@ fi
 assert_not_contains "activation skips pulls" "$STAGE/calls.log" " pull"
 assert_not_contains "activation skips builds" "$STAGE/calls.log" " build --no-cache"
 assert_contains "activation forbids implicit image preparation" "$STAGE/calls.log" "up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull never"
+assert_not_contains "activation never resolves shared latest image tags" "$STAGE/calls.log" ":latest"
 assert_contains "activation stops the old stack" "$STAGE/calls.log" " down --remove-orphans"
 assert_contains "activation starts the new stack" "$STAGE/calls.log" " up --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "successful activation should consume its marker"
@@ -463,6 +483,32 @@ assert_contains "missing manifest is diagnosed" "$STAGE/output.log" "requires th
 assert_not_contains "missing manifest prevents pulls" "$STAGE/calls.log" " pull"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "missing manifest must not create a marker"
 
+# Release bundles must pin literal image references before any preparation.
+# This protects bare Compose and Windows installer paths that do not inherit
+# state from run-fleet.sh.
+make_stage unpinned-compose
+if FAKE_COMPOSE_USES_LATEST=true run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "release Compose model with a shared latest tag should fail preflight"
+else
+    pass "release Compose model rejects shared latest tags"
+fi
+assert_contains "unpinned Compose is diagnosed" "$STAGE/output.log" "not pinned to required image $FLEET_API_IMAGE"
+assert_not_contains "unpinned Compose prevents pulls" "$STAGE/calls.log" " pull"
+assert_not_contains "unpinned Compose prevents archive loading" "$STAGE/calls.log" "docker load"
+assert_not_contains "unpinned Compose prevents builds" "$STAGE/calls.log" " build --no-cache"
+
+make_stage unpinned-ha-compose
+sed -i.bak "s|$TIMESCALEDB_HA_IMAGE|proto-fleet-timescaledb-ha:latest|" "$STAGE/ha/compose.yaml"
+rm -f "$STAGE/ha/compose.yaml.bak"
+write_release_manifest "$STAGE"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "release HA Compose model with a shared latest tag should fail preflight"
+else
+    pass "release HA Compose model rejects the shared latest tag"
+fi
+assert_contains "unpinned HA Compose is diagnosed" "$STAGE/output.log" "not pinned to required image $TIMESCALEDB_HA_IMAGE"
+assert_not_contains "unpinned HA Compose prevents archive loading" "$STAGE/calls.log" "docker load"
+
 make_stage changed-during-preflight
 if FAKE_MUTATE_TSDB_DURING_BUILD=true run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "inputs changed during preparation should fail preflight"
@@ -471,6 +517,7 @@ else
 fi
 assert_contains "mid-preflight mutation is diagnosed" "$STAGE/output.log" "release or configuration changed during preflight"
 assert_contains "mid-preflight mutation occurs after the build starts" "$STAGE/calls.log" " build --no-cache"
+assert_not_contains "failed preflight leaves shared latest tags untouched" "$STAGE/calls.log" ":latest"
 assert_not_contains "mid-preflight mutation prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
 [ ! -e "$STAGE/.update-preflight-complete" ] || fail "mid-preflight mutation must not create a marker"
 
@@ -675,7 +722,8 @@ fi
 
 make_stage mistagged-tsdb-image
 mkdir -p "$STAGE/image-fixture"
-printf '[{"Config":"config.json","RepoTags":["wrong-image:latest"],"Layers":[]}]\n' > "$STAGE/image-fixture/manifest.json"
+printf '[{"Config":"config.json","RepoTags":["proto-fleet-timescaledb:latest","%s"],"Layers":[]}]\n' \
+    "$TIMESCALEDB_HA_IMAGE" > "$STAGE/image-fixture/manifest.json"
 (cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
 rm -rf "$STAGE/image-fixture"
 write_release_manifest "$STAGE"
@@ -686,6 +734,24 @@ else
 fi
 assert_not_contains "mistagged database image is not loaded" "$STAGE/calls.log" "docker load"
 assert_not_contains "mistagged database image prevents builds" "$STAGE/calls.log" " build --no-cache"
+
+# Requiring only the standard release tag would still allow docker load to
+# move the daemon-global HA latest tag.
+make_stage mixed-ha-tags
+mkdir -p "$STAGE/image-fixture"
+printf '[{"Config":"config.json","RepoTags":["%s","%s","proto-fleet-timescaledb-ha:latest"],"Layers":[]}]\n' \
+    "$TIMESCALEDB_IMAGE" "$TIMESCALEDB_HA_IMAGE" > "$STAGE/image-fixture/manifest.json"
+(cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
+rm -rf "$STAGE/image-fixture"
+write_release_manifest "$STAGE"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "archive with a shared HA latest tag should fail preflight"
+else
+    pass "archive with a shared HA latest tag fails preflight"
+fi
+assert_contains "shared HA archive tag is diagnosed" "$STAGE/output.log" "contains forbidden shared image proto-fleet-timescaledb-ha:latest"
+assert_not_contains "shared HA archive tag is not loaded" "$STAGE/calls.log" "docker load"
+assert_not_contains "shared HA archive tag prevents builds" "$STAGE/calls.log" " build --no-cache"
 
 make_stage unloaded-tsdb-image
 if FAKE_TSDB_IMAGE_MISSING=true run_stage "$STAGE" --non-interactive --preflight-only; then

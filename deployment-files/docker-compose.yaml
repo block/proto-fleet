@@ -2,6 +2,8 @@ x-extends:
   file: ./server/docker-compose.base.yaml
 
 services:
+  # Source checkouts use :latest for local builds. Release packaging replaces
+  # every Proto Fleet runtime reference with the bundle's literal version tag.
   fleet-api:
     extends:
       file: ./server/docker-compose.base.yaml
