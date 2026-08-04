@@ -39,6 +39,16 @@ type firmwareStatusMiner struct {
 	minerInterfaces.FirmwareUpdateStatusProvider
 }
 
+type recordingCurtailmentConfigMiner struct {
+	minerInterfaces.Miner
+	payload dto.ApplyCurtailmentConfigPayload
+}
+
+func (m *recordingCurtailmentConfigMiner) ApplyCurtailmentConfig(_ context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
+	m.payload = payload
+	return nil
+}
+
 func TestExecutionService_Start(t *testing.T) {
 	t.Run("rejects a canceled activation", func(t *testing.T) {
 		svc := &ExecutionService{}
@@ -316,6 +326,30 @@ func TestExecutionService_CallerCanceledEnqueueRemainsCallerCancellation(t *test
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.NotErrorIs(t, err, errExecutionStoppedBeforeEnqueue)
+}
+
+func TestShouldRequeueRigConfig(t *testing.T) {
+	t.Parallel()
+
+	terminalErr := errors.New("terminal")
+	tests := []struct {
+		name        string
+		commandType commandtype.Type
+		terminal    bool
+		err         error
+		want        bool
+	}{
+		{name: "terminal config failure", commandType: commandtype.ApplyCurtailmentConfig, terminal: true, err: terminalErr, want: true},
+		{name: "retryable config failure", commandType: commandtype.ApplyCurtailmentConfig, err: terminalErr},
+		{name: "successful config", commandType: commandtype.ApplyCurtailmentConfig, terminal: true},
+		{name: "other terminal failure", commandType: commandtype.Reboot, terminal: true, err: terminalErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, shouldRequeueRigConfig(tt.commandType, tt.terminal, tt.err))
+		})
+	}
 }
 
 func TestExecutionService_DequeueIsLimitedToAvailableWorkers(t *testing.T) {
@@ -770,6 +804,179 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.Uncurtail, message)
 		require.NoError(t, err)
 	})
+
+	t.Run("ApplyCurtailmentConfig dispatches decoded payload", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		configurator := &recordingCurtailmentConfigMiner{Miner: mockMiner}
+		encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: testServiceMasterKey})
+		require.NoError(t, err)
+		configBytes, err := json.Marshal(sdk.CurtailmentConfig{
+			Enabled: true,
+			Providers: []sdk.CurtailmentProviderConfig{{
+				Name:     "maestro",
+				Password: "broker-secret",
+			}},
+		})
+		require.NoError(t, err)
+		defer clear(configBytes)
+		encryptedConfig, err := encryptSvc.Encrypt(configBytes)
+		require.NoError(t, err)
+		payload := curtailmentConfigQueuePayload{LocalConfigCiphertext: encryptedConfig}
+		payloadBytes, err := json.Marshal(payload)
+		require.NoError(t, err)
+		assert.NotContains(t, string(payloadBytes), "broker-secret")
+
+		mockMiner.EXPECT().GetOrgID().Return(int64(12))
+		mockMiner.EXPECT().GetSiteID().Return(int64(34))
+		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(54)).Return(configurator, nil)
+
+		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, encryptSvc, nil, mockMinerGetter, nil, nil, nil)
+		orgID, siteID, err := svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
+			CommandType: commandtype.ApplyCurtailmentConfig,
+			DeviceID:    54,
+			Payload:     payloadBytes,
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, int64(12), orgID)
+		assert.Equal(t, int64(34), siteID)
+		require.NotNil(t, configurator.payload.Config)
+		assert.True(t, configurator.payload.Config.Enabled)
+		require.Len(t, configurator.payload.Config.Providers, 1)
+		assert.Equal(t, "broker-secret", configurator.payload.Config.Providers[0].Password)
+		assert.Nil(t, configurator.payload.EncryptedConfig)
+	})
+
+	t.Run("ApplyCurtailmentConfig preserves FleetNode encrypted payload", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		configurator := &recordingCurtailmentConfigMiner{Miner: mockMiner}
+		encrypted := &dto.NodeEncryptedPayload{
+			Algorithm:       "algorithm",
+			EphemeralPubkey: []byte("pubkey"),
+			Nonce:           []byte("nonce"),
+			Ciphertext:      []byte("ciphertext"),
+		}
+		payloadBytes, err := json.Marshal(curtailmentConfigQueuePayload{FleetNodeEncryptedConfig: encrypted})
+		require.NoError(t, err)
+
+		mockMiner.EXPECT().GetOrgID().Return(int64(12))
+		mockMiner.EXPECT().GetSiteID().Return(int64(34))
+		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(58)).Return(configurator, nil)
+
+		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
+			CommandType: commandtype.ApplyCurtailmentConfig,
+			DeviceID:    58,
+			Payload:     payloadBytes,
+		})
+
+		require.NoError(t, err)
+		assert.Nil(t, configurator.payload.Config)
+		assert.Equal(t, encrypted, configurator.payload.EncryptedConfig)
+	})
+
+	t.Run("ApplyCurtailmentConfig rejects malformed payload", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		configurator := &recordingCurtailmentConfigMiner{Miner: mockMiner}
+		mockMiner.EXPECT().GetOrgID().Return(int64(0))
+		mockMiner.EXPECT().GetSiteID().Return(int64(0))
+		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(55)).Return(configurator, nil)
+
+		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
+			CommandType: commandtype.ApplyCurtailmentConfig,
+			DeviceID:    55,
+			Payload:     []byte("not-json"),
+		})
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
+		assert.Contains(t, err.Error(), "unmarshalling curtailment config payload")
+		assert.Nil(t, configurator.payload.Config)
+	})
+
+	t.Run("ApplyCurtailmentConfig rejects plaintext queue payload", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		configurator := &recordingCurtailmentConfigMiner{Miner: mockMiner}
+		payloadBytes, err := json.Marshal(dto.ApplyCurtailmentConfigPayload{Config: &sdk.CurtailmentConfig{Enabled: true}})
+		require.NoError(t, err)
+
+		mockMiner.EXPECT().GetOrgID().Return(int64(0))
+		mockMiner.EXPECT().GetSiteID().Return(int64(0))
+		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(57)).Return(configurator, nil)
+
+		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
+			CommandType: commandtype.ApplyCurtailmentConfig,
+			DeviceID:    57,
+			Payload:     payloadBytes,
+		})
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
+		assert.Contains(t, err.Error(), "missing an encrypted config")
+		assert.Nil(t, configurator.payload.Config)
+	})
+
+	t.Run("ApplyCurtailmentConfig rejects unsupported miner", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		payloadBytes, err := json.Marshal(curtailmentConfigQueuePayload{FleetNodeEncryptedConfig: &dto.NodeEncryptedPayload{}})
+		require.NoError(t, err)
+
+		mockMiner.EXPECT().GetOrgID().Return(int64(0))
+		mockMiner.EXPECT().GetSiteID().Return(int64(0))
+		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(56)).Return(mockMiner, nil)
+
+		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
+			CommandType: commandtype.ApplyCurtailmentConfig,
+			DeviceID:    56,
+			Payload:     payloadBytes,
+		})
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
+		assert.Contains(t, err.Error(), "does not support curtailment configuration")
+	})
+}
+
+func TestPrepareCurtailmentConfigPayloadRejectsMultipleRepresentations(t *testing.T) {
+	t.Parallel()
+
+	svc := &ExecutionService{}
+	_, err := svc.prepareCurtailmentConfigPayload(curtailmentConfigQueuePayload{
+		LocalConfigCiphertext:    "ciphertext",
+		FleetNodeEncryptedConfig: &dto.NodeEncryptedPayload{},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "multiple encrypted representations")
 }
 
 func TestFirmwareUpdateAutoReboot(t *testing.T) {

@@ -14,7 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 type fakeSettingsStore struct {
@@ -25,13 +27,18 @@ type fakeSettingsStore struct {
 	createErr           error
 	updateErr           error
 	automationRuleCount int64
+	rigConfigRequests   map[int64]RigConfigReconciliation
+	rigConfigRequestErr error
+	rigConfigComplete   []RigConfigReconciliation
+	rigConfigRetry      []RigConfigReconciliation
 }
 
 func newFakeSettingsStore(configs ...SourceConfig) *fakeSettingsStore {
 	store := &fakeSettingsStore{
-		nextID:  1,
-		configs: make(map[int64]SourceConfig),
-		states:  make(map[int64]SourceState),
+		nextID:            1,
+		configs:           make(map[int64]SourceConfig),
+		states:            make(map[int64]SourceState),
+		rigConfigRequests: make(map[int64]RigConfigReconciliation),
 	}
 	for _, cfg := range configs {
 		if cfg.ID == 0 {
@@ -93,6 +100,7 @@ func (f *fakeSettingsStore) CreateSourceConfig(_ context.Context, source SourceC
 	source.CreatedAt = now
 	source.UpdatedAt = now
 	f.configs[source.ID] = source
+	f.requestRigConfigLocked(source.OrganizationID, source.ServiceUserID)
 	return source, nil
 }
 
@@ -110,6 +118,7 @@ func (f *fakeSettingsStore) UpdateSourceConfig(_ context.Context, source SourceC
 	source.CreatedAt = current.CreatedAt
 	source.UpdatedAt = current.UpdatedAt.Add(time.Second)
 	f.configs[source.ID] = source
+	f.requestRigConfigLocked(source.OrganizationID, source.ServiceUserID)
 	return source, nil
 }
 
@@ -123,6 +132,7 @@ func (f *fakeSettingsStore) SetSourceConfigEnabled(_ context.Context, orgID, sou
 	cfg.Enabled = enabled
 	cfg.UpdatedAt = cfg.UpdatedAt.Add(time.Second)
 	f.configs[sourceID] = cfg
+	f.requestRigConfigLocked(orgID, cfg.ServiceUserID)
 	return cfg, nil
 }
 
@@ -138,11 +148,58 @@ func (f *fakeSettingsStore) DeleteDisabledSourceConfig(_ context.Context, orgID,
 	}
 	delete(f.configs, sourceID)
 	delete(f.states, sourceID)
+	f.requestRigConfigLocked(orgID, cfg.ServiceUserID)
 	return nil
 }
 
 func (f *fakeSettingsStore) CountAutomationRulesByMQTTSource(context.Context, int64, int64) (int64, error) {
 	return f.automationRuleCount, nil
+}
+
+func (f *fakeSettingsStore) requestRigConfigLocked(orgID, requestedBy int64) {
+	request := f.rigConfigRequests[orgID]
+	request.OrganizationID = orgID
+	request.RequestedBy = requestedBy
+	request.DesiredGeneration++
+	f.rigConfigRequests[orgID] = request
+}
+
+func (f *fakeSettingsStore) RequestRigConfigReconciliation(_ context.Context, orgID, requestedBy int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.rigConfigRequestErr != nil {
+		return f.rigConfigRequestErr
+	}
+	f.requestRigConfigLocked(orgID, requestedBy)
+	return nil
+}
+
+func (f *fakeSettingsStore) ClaimRigConfigReconciliation(context.Context) (RigConfigReconciliation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for orgID, request := range f.rigConfigRequests {
+		delete(f.rigConfigRequests, orgID)
+		return request, nil
+	}
+	return RigConfigReconciliation{}, ErrRigConfigReconciliationNotFound
+}
+
+func (f *fakeSettingsStore) CompleteRigConfigReconciliation(_ context.Context, orgID, generation int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rigConfigComplete = append(f.rigConfigComplete, RigConfigReconciliation{
+		OrganizationID: orgID, DesiredGeneration: generation,
+	})
+	return nil
+}
+
+func (f *fakeSettingsStore) RetryRigConfigReconciliation(_ context.Context, orgID, generation int64, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rigConfigRetry = append(f.rigConfigRetry, RigConfigReconciliation{
+		OrganizationID: orgID, DesiredGeneration: generation,
+	})
+	return nil
 }
 
 type fakeSettingsCipher struct {
@@ -198,6 +255,28 @@ type fakeSourceConnectionTester struct {
 	err   error
 }
 
+type fakeRigConfigApplier struct {
+	calls   int
+	configs []sdk.CurtailmentConfig
+	err     error
+}
+
+type sessionCapturingRigConfigApplier struct {
+	info *session.Info
+	err  error
+}
+
+func (f *sessionCapturingRigConfigApplier) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, _ sdk.CurtailmentConfig) error {
+	f.info, f.err = session.GetInfo(ctx)
+	return f.err
+}
+
+func (f *fakeRigConfigApplier) ApplyCurtailmentConfigToProtoRigs(_ context.Context, config sdk.CurtailmentConfig) error {
+	f.calls++
+	f.configs = append(f.configs, config)
+	return f.err
+}
+
 func (f *fakeSourceConnectionTester) TestConnection(_ context.Context, req TestSourceConnectionRequest) (TestSourceConnectionResult, error) {
 	f.calls++
 	f.req = req
@@ -240,6 +319,264 @@ func TestSettingsService_CreateDefaultsEnabledAndEncryptsPassword(t *testing.T) 
 	assert.Equal(t, int32(1883), view.Config.BrokerPort)
 	assert.Equal(t, 1, cipher.encryptCalls)
 	assert.Equal(t, 1, runtime.reconcileCalls)
+}
+
+func TestRigConfigReconcilerAppliesCompleteConfigToEligibleProtoRigs(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSettingsStore()
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          &fakeRuntimeController{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            validSettingsSource(),
+		PlaintextPassword: "secret",
+	})
+	require.NoError(t, err)
+	assert.Zero(t, applier.calls, "the settings request must not fan out synchronously")
+	svc.processDueRigConfigReconciliations(t.Context())
+	require.Equal(t, 1, applier.calls)
+	require.Len(t, applier.configs, 1)
+
+	config := applier.configs[0]
+	assert.True(t, config.Enabled)
+	assert.Equal(t, "closed", config.FailPolicy)
+	assert.Equal(t, "respect_manual_stop", config.RestorePolicy)
+	assert.Equal(t, "nats://localhost:4222", config.NATSURL)
+	require.Len(t, config.Providers, 1)
+	assert.Equal(t, "maestro", config.Providers[0].Name)
+	assert.Equal(t, "maestro_mqtt", config.Providers[0].Type)
+	assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, config.Providers[0].Brokers)
+	assert.Equal(t, "secret", config.Providers[0].Password)
+	assert.Equal(t, "4m0s", config.Providers[0].StaleAfter)
+	require.Len(t, store.rigConfigComplete, 1)
+	assert.Equal(t, int64(1), store.rigConfigComplete[0].DesiredGeneration)
+}
+
+func TestRigConfigReconcilerCoalescesSettingsGenerationsBeforeClaim(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          &fakeRuntimeController{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+	require.NoError(t, err)
+	_, err = svc.SetEnabled(t.Context(), 42, 7, true)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), store.rigConfigRequests[42].DesiredGeneration)
+
+	svc.processDueRigConfigReconciliations(t.Context())
+
+	require.Len(t, applier.configs, 1)
+	assert.True(t, applier.configs[0].Enabled)
+	require.Len(t, store.rigConfigComplete, 1)
+	assert.Equal(t, int64(2), store.rigConfigComplete[0].DesiredGeneration)
+}
+
+func TestSettingsService_CreateReturnsDurableSuccessWhenRuntimeReloadFails(t *testing.T) {
+	t.Parallel()
+
+	runtime := &fakeRuntimeController{reconcileErr: errors.New("reload failed")}
+	applier := &fakeRigConfigApplier{}
+	store := newFakeSettingsStore()
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          runtime,
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            validSettingsSource(),
+		PlaintextPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, runtime.reconcileCalls)
+	assert.Zero(t, applier.calls)
+	svc.processDueRigConfigReconciliations(t.Context())
+	assert.Equal(t, 1, applier.calls)
+}
+
+func TestRigConfigReconcilerPersistsRetryWhenEnqueueFails(t *testing.T) {
+	t.Parallel()
+
+	applyErr := errors.New("queue unavailable")
+	store := newFakeSettingsStore()
+	runtime := &fakeRuntimeController{}
+	applier := &fakeRigConfigApplier{err: applyErr}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          runtime,
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            validSettingsSource(),
+		PlaintextPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, runtime.reconcileCalls)
+	assert.Zero(t, applier.calls)
+	svc.processDueRigConfigReconciliations(t.Context())
+	assert.Equal(t, 1, applier.calls)
+	require.Len(t, store.rigConfigRetry, 1)
+	assert.Equal(t, int64(42), store.rigConfigRetry[0].OrganizationID)
+	assert.Equal(t, int64(1), store.rigConfigRetry[0].DesiredGeneration)
+	configs, listErr := store.ListSourceConfigsByOrg(t.Context(), 42)
+	require.NoError(t, listErr)
+	assert.Len(t, configs, 1, "the durable write survives delivery failure")
+}
+
+func TestRigConfigReconcilerRetriesWhenRuntimeReloadAndEnqueueFail(t *testing.T) {
+	t.Parallel()
+
+	runtimeErr := errors.New("reload failed")
+	applyErr := errors.New("queue unavailable")
+	runtime := &fakeRuntimeController{reconcileErr: runtimeErr}
+	applier := &fakeRigConfigApplier{err: applyErr}
+	store := newFakeSettingsStore()
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          runtime,
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            validSettingsSource(),
+		PlaintextPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, runtime.reconcileCalls)
+	assert.Zero(t, applier.calls)
+	svc.processDueRigConfigReconciliations(t.Context())
+	assert.Equal(t, 1, applier.calls)
+	require.Len(t, store.rigConfigRetry, 1)
+}
+
+func TestSettingsService_DisableAppliesDisabledConfigWithoutProviders(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          &fakeRuntimeController{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+	require.NoError(t, err)
+	svc.processDueRigConfigReconciliations(t.Context())
+	require.Len(t, applier.configs, 1)
+	assert.False(t, applier.configs[0].Enabled)
+	assert.Empty(t, applier.configs[0].Providers)
+}
+
+func TestSettingsService_TLSBrokerIsExcludedFromRigFallbackConfig(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSettingsStore()
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          &fakeRuntimeController{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	source := validSettingsSource()
+	source.BrokerTransport = brokerTransportTLS
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            source,
+		PlaintextPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	svc.processDueRigConfigReconciliations(t.Context())
+	require.Len(t, applier.configs, 1)
+	assert.False(t, applier.configs[0].Enabled)
+	assert.Empty(t, applier.configs[0].Providers)
+}
+
+func TestRigConfigReconcilerRetriesOversizedFallbackConfig(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = false
+	source.MQTTPasswordEncrypted = "enc:" + strings.Repeat("p", 8192)
+	applier := &fakeRigConfigApplier{}
+	store := newFakeSettingsStore(source)
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, true)
+
+	require.NoError(t, err)
+	svc.processDueRigConfigReconciliations(t.Context())
+	assert.Zero(t, applier.calls)
+	require.Len(t, store.rigConfigRetry, 1)
+}
+
+func TestSettingsService_ReapplyRigConfigUsesSyntheticAuditIdentity(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	applier := &sessionCapturingRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(source),
+		Cipher:           &fakeSettingsCipher{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	svc.ReapplyRigConfigBestEffort(t.Context(), 42, 99)
+	svc.processDueRigConfigReconciliations(t.Context())
+
+	require.NoError(t, applier.err)
+	require.NotNil(t, applier.info)
+	assert.Equal(t, int64(42), applier.info.OrganizationID)
+	assert.Equal(t, int64(99), applier.info.UserID)
+	assert.Equal(t, session.ActorCurtailment, applier.info.Actor)
 }
 
 func TestSettingsService_TestConnectionNormalizesAndDelegatesWithoutPersistence(t *testing.T) {

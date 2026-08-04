@@ -918,6 +918,15 @@ impl Driver for DriverService {
         Ok(Response::new(()))
     }
 
+    async fn apply_curtailment_config(
+        &self,
+        _req: Request<pb::ApplyCurtailmentConfigRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented(
+            "curtailment configuration not supported by asicrs",
+        ))
+    }
+
     // --- Telemetry ---
 
     async fn device_status(

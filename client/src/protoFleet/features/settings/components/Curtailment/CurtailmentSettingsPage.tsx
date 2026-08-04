@@ -42,7 +42,7 @@ import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
+import Callout, { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Card, { cardType } from "@/shared/components/Card";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -61,6 +61,8 @@ const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
 const RESPONSE_PROFILES_DESCRIPTION = "Saved configurations that define how much power to shed and how to restore it.";
 const SOURCES_DESCRIPTION = "MaestroOS MQTT brokers that publish curtailment signals.";
+const PROTO_RIG_FALLBACK_DESCRIPTION =
+  "Proto rigs can use compatible TCP MaestroOS sources as a local fallback. Fleet also sends commands to all targeted miners, confirms curtailment, tracks progress, and restores them.";
 const SOURCE_CONNECTION_FAILURE_MESSAGE =
   "We couldn't connect with your source. Review your source details and try again.";
 const MAX_BROKER_PORT = 65_535;
@@ -1659,7 +1661,17 @@ export function CurtailmentSettingsContent({
 
   return (
     <div className="flex flex-col gap-14" data-testid="settings-curtailment-page">
-      <SettingsPageHeader title="Curtailment" description={CURTAILMENT_PAGE_DESCRIPTION} />
+      <div className="flex flex-col gap-6">
+        <SettingsPageHeader title="Curtailment" description={CURTAILMENT_PAGE_DESCRIPTION} />
+
+        <Callout
+          intent={intents.information}
+          prefixIcon={<Info width={iconSizes.medium} />}
+          subtitle={PROTO_RIG_FALLBACK_DESCRIPTION}
+          testId="proto-rig-curtailment-fallback-notice"
+          title="Proto rig fallback"
+        />
+      </div>
 
       <section className="curtailment-settings__section">
         <SectionHeader

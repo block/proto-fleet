@@ -354,6 +354,12 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedComm
 			}); err != nil {
 				return err
 			}
+			kind, kindErr := commandtype.FromString(msg.CommandType)
+			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
+				if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, msg.OrgID); err != nil {
+					return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
+				}
+			}
 			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
 		}
 		for _, msg := range fwReaped {
@@ -560,6 +566,11 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		}); err != nil {
 			return err
 		}
+		if shouldRequeueRigConfig(message.CommandType, queueTerminal, workerError) {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, orgID); err != nil {
+				return fmt.Errorf("requeue rig config reconciliation after terminal command failure: %w", err)
+			}
+		}
 
 		return nil
 	})
@@ -575,6 +586,10 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	if queueUpdated && queueTerminal {
 		emitTerminalCommand(ctx, es.metricsEmitter, orgID, siteID, message.CommandType, workerError)
 	}
+}
+
+func shouldRequeueRigConfig(commandType commandtype.Type, terminal bool, commandErr error) bool {
+	return commandType == commandtype.ApplyCurtailmentConfig && terminal && commandErr != nil
 }
 
 // markQueueMessageStatus transitions the queue_message to its next state within an
@@ -761,6 +776,20 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
+	case commandtype.ApplyCurtailmentConfig:
+		var queuePayload curtailmentConfigQueuePayload
+		if configExtractErr := json.Unmarshal(message.Payload, &queuePayload); configExtractErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("error unmarshalling curtailment config payload: %v", configExtractErr)
+		}
+		dispatchPayload, prepareErr := es.prepareCurtailmentConfigPayload(queuePayload)
+		if prepareErr != nil {
+			return orgID, siteID, prepareErr
+		}
+		configurator, ok := minerInfo.(interfaces.MinerCurtailmentConfigurator)
+		if !ok {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("miner does not support curtailment configuration")
+		}
+		err = configurator.ApplyCurtailmentConfig(ctx, dispatchPayload)
 	case commandtype.UpdateMinerPassword:
 		p := *passwordPayload
 
@@ -809,6 +838,31 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return orgID, siteID, err
+}
+
+func (es *ExecutionService) prepareCurtailmentConfigPayload(payload curtailmentConfigQueuePayload) (dto.ApplyCurtailmentConfigPayload, error) {
+	if payload.LocalConfigCiphertext != "" {
+		if payload.FleetNodeEncryptedConfig != nil {
+			return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewFailedPreconditionError("curtailment config payload has multiple encrypted representations")
+		}
+		if es.encryptService == nil {
+			return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewInternalError("curtailment config decryption is not configured")
+		}
+		plaintext, err := es.encryptService.Decrypt(payload.LocalConfigCiphertext)
+		if err != nil {
+			return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewFailedPreconditionErrorf("decrypt local curtailment config: %v", err)
+		}
+		defer clear(plaintext)
+		var config sdk.CurtailmentConfig
+		if err := json.Unmarshal(plaintext, &config); err != nil {
+			return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewFailedPreconditionErrorf("unmarshal local curtailment config: %v", err)
+		}
+		return dto.ApplyCurtailmentConfigPayload{Config: &config}, nil
+	}
+	if payload.FleetNodeEncryptedConfig == nil {
+		return dto.ApplyCurtailmentConfigPayload{}, fleeterror.NewFailedPreconditionError("curtailment config payload is missing an encrypted config")
+	}
+	return dto.ApplyCurtailmentConfigPayload{EncryptedConfig: payload.FleetNodeEncryptedConfig}, nil
 }
 
 func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64, passwordPayload *dto.UpdateMinerPasswordPayload) (interfaces.Miner, error) {

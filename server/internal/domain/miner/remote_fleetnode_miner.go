@@ -41,6 +41,7 @@ var remoteTelemetryDefaultCommandTimeout = 5 * time.Second
 
 var _ interfaces.Miner = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*RemoteFleetNodeMiner)(nil)
+var _ interfaces.MinerCurtailmentConfigurator = (*RemoteFleetNodeMiner)(nil)
 
 type remoteTelemetryRoute struct {
 	fleetNodeID        int64
@@ -527,6 +528,13 @@ func (m *RemoteFleetNodeMiner) Uncurtail(ctx context.Context, req sdk.UncurtailR
 		return m.delegate.Uncurtail(ctx, req)
 	}
 	return m.unsupported("curtailment")
+}
+
+func (m *RemoteFleetNodeMiner) ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
+	if configurator, ok := m.delegate.(interfaces.MinerCurtailmentConfigurator); ok {
+		return configurator.ApplyCurtailmentConfig(ctx, payload)
+	}
+	return m.unsupported("apply curtailment config")
 }
 
 func (m *RemoteFleetNodeMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {

@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/pools/preflight"
@@ -38,6 +39,7 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
@@ -89,6 +91,14 @@ type Service struct {
 type resolvedDevice struct {
 	id         int64
 	identifier string
+}
+
+// curtailmentConfigQueuePayload deliberately has no plaintext representation.
+// Direct configs are encrypted at rest with the service master key; FleetNode
+// configs remain encrypted for their destination node and device.
+type curtailmentConfigQueuePayload struct {
+	LocalConfigCiphertext    string                    `json:"local_config_ciphertext,omitempty"`
+	FleetNodeEncryptedConfig *dto.NodeEncryptedPayload `json:"fleet_node_encrypted_config,omitempty"`
 }
 
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
@@ -212,6 +222,8 @@ func activityEventType(t commandtype.Type) string {
 		return "curtail"
 	case commandtype.Uncurtail:
 		return "uncurtail"
+	case commandtype.ApplyCurtailmentConfig:
+		return "apply_curtailment_config"
 	default:
 		return t.String()
 	}
@@ -774,29 +786,13 @@ func (s *Service) prepareUpdateMinerPasswordDispatch(ctx context.Context, orgID 
 	if len(devices) == 0 {
 		return commandPayloadRedacted("update_miner_password"), nil, nil
 	}
-	identifiers := make([]string, 0, len(devices))
-	for _, device := range devices {
-		identifiers = append(identifiers, device.identifier)
-	}
-	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceCommandRoutesRow, error) {
-		return q.GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
-			OrgID:             orgID,
-			DeviceIdentifiers: identifiers,
-		})
-	})
+	routes, err := s.resolveDeviceCommandRoutes(ctx, orgID, devices)
 	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("resolve device command routes: %v", err)
-	}
-	routeByID := make(map[int64]sqlc.GetDeviceCommandRoutesRow, len(rows))
-	for _, row := range rows {
-		routeByID[row.ID] = row
+		return nil, nil, err
 	}
 	dispatches := make([]queue.EnqueueMessage, 0, len(devices))
-	for _, device := range devices {
-		route, ok := routeByID[device.id]
-		if !ok {
-			return nil, nil, fleeterror.NewInternalErrorf("missing command route for device %d", device.id)
-		}
+	for i, device := range devices {
+		route := routes[i]
 		if route.FleetNodeID.Valid {
 			encrypted, err := passwordupdate.Encrypt(route.EncryptionPubkey, passwordupdate.Secret{
 				DeviceIdentifier: device.identifier,
@@ -820,6 +816,90 @@ func (s *Service) prepareUpdateMinerPasswordDispatch(ctx context.Context, orgID 
 		dispatches = append(dispatches, queue.EnqueueMessage{DeviceID: device.id, Payload: payload})
 	}
 	return commandPayloadRedacted("update_miner_password"), dispatches, nil
+}
+
+func (s *Service) prepareCurtailmentConfigDispatch(ctx context.Context, orgID int64, devices []resolvedDevice, payload dto.ApplyCurtailmentConfigPayload) (interface{}, []queue.EnqueueMessage, error) {
+	if payload.Config == nil {
+		return nil, nil, fleeterror.NewInternalError("plaintext curtailment config is required before route encryption")
+	}
+	if len(devices) == 0 {
+		return commandPayloadRedacted("apply_curtailment_config"), nil, nil
+	}
+	routes, err := s.resolveDeviceCommandRoutes(ctx, orgID, devices)
+	if err != nil {
+		return nil, nil, err
+	}
+	dispatches := make([]queue.EnqueueMessage, 0, len(devices))
+	for i, device := range devices {
+		route := routes[i]
+		if route.FleetNodeID.Valid {
+			encrypted, err := curtailmentconfig.Encrypt(route.EncryptionPubkey, device.identifier, *payload.Config)
+			if err != nil {
+				if errors.Is(err, curtailmentconfig.ErrInvalidRecipientPublicKey) {
+					return nil, nil, fleeterror.NewFailedPreconditionErrorf("fleet node %d does not have an encryption key; re-enroll the fleet node before applying curtailment config", route.FleetNodeID.Int64)
+				}
+				return nil, nil, fleeterror.NewInternalErrorf("encrypt curtailment config for device %s: %v", device.identifier, err)
+			}
+			dispatches = append(dispatches, queue.EnqueueMessage{
+				DeviceID: device.id,
+				Payload: curtailmentConfigQueuePayload{
+					FleetNodeEncryptedConfig: protoNodeEncryptedPayloadToDTO(encrypted),
+				},
+			})
+			continue
+		}
+		localPayload, err := s.encryptLocalCurtailmentConfig(*payload.Config)
+		if err != nil {
+			return nil, nil, err
+		}
+		dispatches = append(dispatches, queue.EnqueueMessage{DeviceID: device.id, Payload: localPayload})
+	}
+	return commandPayloadRedacted("apply_curtailment_config"), dispatches, nil
+}
+
+func (s *Service) encryptLocalCurtailmentConfig(config sdk.CurtailmentConfig) (curtailmentConfigQueuePayload, error) {
+	if s.encryptService == nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalError("curtailment config encryption is not configured")
+	}
+	plaintext, err := json.Marshal(config)
+	if err != nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalErrorf("marshal local curtailment config: %v", err)
+	}
+	defer clear(plaintext)
+	encrypted, err := s.encryptService.Encrypt(plaintext)
+	if err != nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalErrorf("encrypt local curtailment config: %v", err)
+	}
+	return curtailmentConfigQueuePayload{LocalConfigCiphertext: encrypted}, nil
+}
+
+func (s *Service) resolveDeviceCommandRoutes(ctx context.Context, orgID int64, devices []resolvedDevice) ([]sqlc.GetDeviceCommandRoutesRow, error) {
+	identifiers := make([]string, 0, len(devices))
+	for _, device := range devices {
+		identifiers = append(identifiers, device.identifier)
+	}
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceCommandRoutesRow, error) {
+		return q.GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
+			OrgID:             orgID,
+			DeviceIdentifiers: identifiers,
+		})
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("resolve device command routes: %v", err)
+	}
+	routeByID := make(map[int64]sqlc.GetDeviceCommandRoutesRow, len(rows))
+	for _, row := range rows {
+		routeByID[row.ID] = row
+	}
+	routes := make([]sqlc.GetDeviceCommandRoutesRow, 0, len(devices))
+	for _, device := range devices {
+		route, ok := routeByID[device.id]
+		if !ok {
+			return nil, fleeterror.NewInternalErrorf("missing command route for device %d", device.id)
+		}
+		routes = append(routes, route)
+	}
+	return routes, nil
 }
 
 func protoNodeEncryptedPayloadToDTO(payload *gatewaypb.NodeEncryptedPayload) *dto.NodeEncryptedPayload {
@@ -920,7 +1000,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	}
 
 	logPayload := command.payload
-	queuePayloads := []queue.EnqueueMessage{}
+	var queuePayloads []queue.EnqueueMessage
 	if command.commandType == commandtype.UpdateMinerPassword {
 		passwordPayload, ok := command.payload.(dto.UpdateMinerPasswordPayload)
 		if !ok {
@@ -928,6 +1008,16 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		}
 		var err error
 		logPayload, queuePayloads, err = s.prepareUpdateMinerPasswordDispatch(ctx, info.OrganizationID, resolvedDevices, passwordPayload)
+		if err != nil {
+			return nil, err
+		}
+	} else if command.commandType == commandtype.ApplyCurtailmentConfig {
+		configPayload, ok := command.payload.(dto.ApplyCurtailmentConfigPayload)
+		if !ok {
+			return nil, fleeterror.NewInternalError("invalid curtailment config payload")
+		}
+		var err error
+		logPayload, queuePayloads, err = s.prepareCurtailmentConfigDispatch(ctx, info.OrganizationID, resolvedDevices, configPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -1635,6 +1725,47 @@ func (s *Service) Uncurtail(ctx context.Context, deviceSelector *pb.DeviceSelect
 	}
 	s.finalizeDispatch(ctx, result, "uncurtail", "Uncurtail")
 	return result, nil
+}
+
+// ApplyCurtailmentConfigToProtoRigs replaces the rig-local fallback config on
+// every paired Proto rig in the caller's organization. Operators do not manage
+// a separate coverage list.
+func (s *Service) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config sdk.CurtailmentConfig) error {
+	allProtoRigs := protoRigCurtailmentSelector()
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, allProtoRigs, commandtype.ApplyCurtailmentConfig)
+	if err != nil {
+		return err
+	}
+	if len(identifiers) == 0 {
+		return nil
+	}
+	result, err := s.processCommand(ctx, &Command{
+		commandType: commandtype.ApplyCurtailmentConfig,
+		deviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: identifiers},
+			},
+		},
+		payload: dto.ApplyCurtailmentConfigPayload{Config: &config},
+	})
+	if err != nil {
+		return err
+	}
+	s.finalizeDispatch(ctx, result, "apply_curtailment_config", "Applied rig curtailment fallback config")
+	return nil
+}
+
+func protoRigCurtailmentSelector() *pb.DeviceSelector {
+	return &pb.DeviceSelector{
+		SelectionType: &pb.DeviceSelector_AllDevices{
+			AllDevices: &pb.DeviceFilter{
+				Manufacturers: []string{"Proto"},
+				PairingStatus: []fleetpb.PairingStatus{
+					fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+				},
+			},
+		},
+	}
 }
 
 // verifyUserCredentials verifies the provided username and password match the current authenticated user

@@ -185,6 +185,7 @@ type Service struct {
 	probeSemaphore        chan struct{}
 	invalidateMiner       func(models.DeviceIdentifier)
 	optionsCache          *fleetoptions.Cache
+	rigConfigReapplier    func(context.Context, int64, int64)
 }
 
 func NewService(
@@ -221,6 +222,11 @@ func (s *Service) WithMinerInvalidator(invalidate func(models.DeviceIdentifier))
 // pairing adds can evict stale model/firmware lists. Pass nil to disable.
 func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 	s.optionsCache = cache
+}
+
+// WithRigConfigReapplier wires the post-pair desired-state convergence hook.
+func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64)) {
+	s.rigConfigReapplier = reapply
 }
 
 type NetworkInfo struct {
@@ -1369,6 +1375,7 @@ func (s *Service) pairDevices(ctx context.Context, r *pb.PairRequest, allowAllFa
 		return nil, fleeterror.NewInternalError("Failed to pair any devices")
 	}
 
+	s.reapplyRigConfigBestEffort(ctx, info.OrganizationID, info.UserID)
 	if len(telemetryDeviceIDs) > 0 {
 		if err := s.listener.AddDevices(ctx, telemetryDeviceIDs...); err != nil {
 			slog.Error("failed to add devices to telemetry scheduler", "error", err)
@@ -1379,6 +1386,13 @@ func (s *Service) pairDevices(ctx context.Context, r *pb.PairRequest, allowAllFa
 	return &pb.PairResponse{
 		FailedDeviceIds: failedIDs,
 	}, nil
+}
+
+func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID, userID int64) {
+	if s.rigConfigReapplier == nil {
+		return
+	}
+	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, userID)
 }
 
 func (s *Service) shouldScheduleTelemetryForDevice(ctx context.Context, deviceID models.DeviceIdentifier, orgID int64) (bool, error) {

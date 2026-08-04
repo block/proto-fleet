@@ -571,10 +571,14 @@ func start(config *Config) error {
 		Cipher:           encryptSvc,
 		Runtime:          mqttSubscriber,
 		ConnectionTester: mqttConnectionTester,
+		RigConfigApplier: commandSvc,
+		RigConfigStore:   mqttingest.NewSQLCRigConfigReconciliationStore(mqttQueries),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt settings service: %w", err)
 	}
+	pairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
+	fleetNodePairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
 
 	// Feeds the MQTT curtailment default alert rules; skipped when the
 	// metrics pipeline is off so its periodic queries aren't wasted work.
@@ -651,6 +655,7 @@ func start(config *Config) error {
 		scheduleProcessor:         scheduleProcessor,
 		curtailmentReconciler:     curtailmentRec,
 		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
 		systemMonitoring:          systemMonitoring,
