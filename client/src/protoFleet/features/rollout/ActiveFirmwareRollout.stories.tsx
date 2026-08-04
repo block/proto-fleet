@@ -2,10 +2,7 @@ import type { ReactElement } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
-import {
-  ActiveRolloutStatusCard,
-  AnimatedRolloutLifecycle,
-} from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
+import { AnimatedInSituRollout, InSituRollout } from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
 import {
   completedFirmwareEvent,
   completedWithFailuresFirmwareEvent,
@@ -16,26 +13,20 @@ import {
 } from "@/protoFleet/features/rollout/rollout.fixtures";
 
 /**
- * The active **firmware update** detail card across its lifecycle states, plus
- * a live-animated lifecycle — the same showcase shape as
- * `ActiveCurtailmentStatus.stories` (each state as its own story, then one
- * animated loop). All stories render the shipped `ActiveRolloutStatus` with
- * fixture events; the shared helpers keep the lifecycle animation identical to
- * the reboot story so the two can't drift.
+ * The active **firmware update** across its lifecycle states, plus a
+ * live-animated lifecycle — all rendered **in situ**, inside the real app shell
+ * with the shipped `RolloutPill` in a page header and the shipped
+ * `ViewRolloutModal` opened on the rollout. Each state reads where an operator
+ * actually meets it (product chrome behind the detail overlay) rather than as a
+ * bare card on a blank canvas. The shared helpers keep this identical to the
+ * reboot story so the two can't drift.
  */
 const meta = {
-  title: "Proto Fleet/Rollout/Active Firmware Update",
+  title: "Proto Fleet/Rollout/In Situ/Firmware Lifecycle",
   component: ActiveRolloutStatus,
   parameters: {
     layout: "fullscreen",
   },
-  decorators: [
-    (Story) => (
-      <div className="min-h-screen bg-surface-base p-8">
-        <Story />
-      </div>
-    ),
-  ],
 } satisfies Meta<typeof ActiveRolloutStatus>;
 
 export default meta;
@@ -43,35 +34,35 @@ export default meta;
 type Story = StoryObj<typeof ActiveRolloutStatus>;
 
 export const Scheduled: Story = {
-  render: () => <ActiveRolloutStatusCard event={scheduledFirmwareEvent} />,
+  render: () => <InSituRollout event={scheduledFirmwareEvent} />,
 };
 
 export const InProgress: Story = {
   name: "In progress",
-  render: () => <ActiveRolloutStatusCard event={inProgressFirmwareEvent} />,
+  render: () => <InSituRollout event={inProgressFirmwareEvent} />,
 };
 
 export const Paused: Story = {
-  render: () => <ActiveRolloutStatusCard event={pausedFirmwareEvent} />,
+  render: () => <InSituRollout event={pausedFirmwareEvent} />,
 };
 
 export const PilotReview: Story = {
   name: "Pilot review",
-  render: () => <ActiveRolloutStatusCard event={pilotGateFirmwareEvent} />,
+  render: () => <InSituRollout event={pilotGateFirmwareEvent} />,
 };
 
 export const Completed: Story = {
-  render: () => <ActiveRolloutStatusCard event={completedFirmwareEvent} />,
+  render: () => <InSituRollout event={completedFirmwareEvent} />,
 };
 
 export const CompletedWithFailures: Story = {
   name: "Completed with failures",
-  render: () => <ActiveRolloutStatusCard event={completedWithFailuresFirmwareEvent} />,
+  render: () => <InSituRollout event={completedWithFailuresFirmwareEvent} />,
 };
 
 export const AnimatedFirmwareLifecycle: Story = {
   name: "Animated firmware lifecycle",
   render: function renderAnimatedFirmwareLifecycle(): ReactElement {
-    return <AnimatedRolloutLifecycle base={inProgressFirmwareEvent} />;
+    return <AnimatedInSituRollout base={inProgressFirmwareEvent} />;
   },
 };
