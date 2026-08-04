@@ -148,6 +148,250 @@ detect_previous_install() {
   return 1
 }
 
+parse_compose_env_value() {
+  local value="$1"
+  local double_quoted='^"(.*)"[[:space:]]*(#.*)?$'
+  local single_quoted="^'(.*)'[[:space:]]*(#.*)?$"
+
+  value=$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+  case "$value" in
+    \"*)
+      [[ "$value" =~ $double_quoted ]] || return 2
+      value="${BASH_REMATCH[1]}"
+      ;;
+    \'*)
+      [[ "$value" =~ $single_quoted ]] || return 2
+      value="${BASH_REMATCH[1]}"
+      ;;
+    *)
+      # Compose treats # as an inline comment only when whitespace separates
+      # it from an unquoted value.
+      value=$(printf '%s' "$value" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')
+      ;;
+  esac
+  printf '%s' "$value"
+}
+
+# Read the last assignment using Compose's documented dotenv delimiters and
+# comment rules. Returns 1 when absent and 2 when the file or assignment is
+# malformed, so callers never silently infer over an explicit value.
+compose_env_last_value() {
+  local env_file="$1"
+  local key="$2"
+  local line normalized parsed found=false
+  local assignment_re="^${key}[[:space:]]*([=:])(.*)$"
+  local malformed_re="^${key}([[:space:]]|$)"
+
+  [ -e "$env_file" ] || return 1
+  [ -f "$env_file" ] && [ -r "$env_file" ] || return 2
+  while IFS= read -r line || [ -n "$line" ]; do
+    normalized=$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//')
+    case "$normalized" in
+      export[[:space:]]*)
+        normalized="${normalized#export}"
+        normalized=$(printf '%s' "$normalized" | sed -E 's/^[[:space:]]+//')
+        ;;
+    esac
+    if [[ "$normalized" =~ $assignment_re ]]; then
+      parsed=$(parse_compose_env_value "${BASH_REMATCH[2]}") || return 2
+      found=true
+    elif [[ "$normalized" =~ $malformed_re ]]; then
+      return 2
+    fi
+  done < "$env_file"
+
+  [ "$found" = true ] || return 1
+  printf '%s' "$parsed"
+}
+
+# Report an explicit deployment boolean as true/false, or "missing" when the
+# key is absent. Invalid explicit values are rejected instead of being
+# silently replaced by an inferred container state.
+deployment_boolean_state() {
+  local env_file="$1"
+  local key="$2"
+  local value read_status
+
+  if value=$(compose_env_last_value "$env_file" "$key"); then
+    :
+  else
+    read_status=$?
+    if [ "$read_status" -eq 1 ]; then
+      echo "missing"
+      return 0
+    fi
+    return 2
+  fi
+
+  value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+  case "$value" in
+    true|false) echo "$value" ;;
+    '') echo "false" ;;
+    *) return 2 ;;
+  esac
+}
+
+compose_config_files_has() {
+  local config_files="$1"
+  local expected_file="$2"
+  case "$expected_file" in
+    *,*) return 2 ;;
+  esac
+
+  local expected_dir expected_name canonical_expected
+  expected_dir=$(cd "$(dirname "$expected_file")" 2>/dev/null && pwd -P) || return 2
+  expected_name=$(basename "$expected_file")
+  canonical_expected="${expected_dir%/}/${expected_name}"
+
+  local config_file config_dir config_name canonical_config
+  while IFS= read -r config_file; do
+    config_file=$(printf '%s' "$config_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    case "$config_file" in
+      /*) ;;
+      *) continue ;;
+    esac
+    config_dir=$(cd "$(dirname "$config_file")" 2>/dev/null && pwd -P) || continue
+    config_name=$(basename "$config_file")
+    canonical_config="${config_dir%/}/${config_name}"
+    [ "$canonical_config" = "$canonical_expected" ] && return 0
+  done <<< "$(printf '%s' "$config_files" | tr ',' '\n')"
+  return 1
+}
+
+# Return the one Compose-managed fleet-api container whose recorded base
+# Compose file belongs to the selected installation. Exact service labels and
+# canonical paths avoid guessing from container-name substrings.
+find_install_container_with() {
+  local install_dir="$1"
+  shift
+  local privilege=("$@")
+  local base_file="${install_dir%/}/${DEPLOYMENT_DIR}/docker-compose.yaml"
+  local container_ids
+  if ! container_ids=$(${privilege[@]+"${privilege[@]}"} docker ps -a \
+    --filter "label=com.docker.compose.service=fleet-api" \
+    --format "{{.ID}}" 2>/dev/null); then
+    return 3
+  fi
+
+  local container_id config_files selected_container="" match_count=0 inspect_failed=0
+  while IFS= read -r container_id; do
+    [ -n "$container_id" ] || continue
+    if ! config_files=$(${privilege[@]+"${privilege[@]}"} docker inspect \
+      --format '{{with index .Config.Labels "com.docker.compose.project.config_files"}}{{.}}{{end}}' \
+      "$container_id" 2>/dev/null); then
+      inspect_failed=1
+      continue
+    fi
+    if compose_config_files_has "$config_files" "$base_file"; then
+      selected_container="$container_id"
+      match_count=$((match_count + 1))
+    fi
+  done <<< "$container_ids"
+
+  [ "$inspect_failed" -eq 0 ] || return 3
+  [ "$match_count" -le 1 ] || return 2
+  [ "$match_count" -eq 1 ] || return 1
+  echo "$selected_container"
+}
+
+# Migrate only overlay settings absent from the existing deployment .env.
+# The Compose config-files label records the old model without trusting
+# mutable service environment values. PREVIOUS_* is set only for a missing
+# setting whose legacy overlay was active.
+capture_previous_run_options() {
+  local install_dir="$1"
+  local existing_deployment="$2"
+  shift 2
+  local privilege=("$@")
+  local env_file="${install_dir%/}/${DEPLOYMENT_DIR}/.env"
+
+  PREVIOUS_BETA_ALERTS=0
+  PREVIOUS_SYSTEM_MONITORING=0
+  PREVIOUS_TRACING=0
+
+  local beta_state system_state tracing_state
+  beta_state=$(deployment_boolean_state "$env_file" ENABLE_BETA_ALERTS) || {
+    echo "❌ Existing ENABLE_BETA_ALERTS in $env_file must be true or false." >&2
+    return 1
+  }
+  system_state=$(deployment_boolean_state "$env_file" ENABLE_SYSTEM_MONITORING) || {
+    echo "❌ Existing ENABLE_SYSTEM_MONITORING in $env_file must be true or false." >&2
+    return 1
+  }
+  tracing_state=$(deployment_boolean_state "$env_file" ENABLE_TRACING) || {
+    echo "❌ Existing ENABLE_TRACING in $env_file must be true or false." >&2
+    return 1
+  }
+
+  if [ "$beta_state" != "missing" ] \
+    && [ "$system_state" != "missing" ] \
+    && [ "$tracing_state" != "missing" ]; then
+    if [ "$system_state" = "true" ] && [ "$beta_state" != "true" ]; then
+      echo "❌ Existing overlay state enables system monitoring without beta alerts; correct the ENABLE_* values in ${env_file} before upgrading." >&2
+      return 1
+    fi
+    return 0
+  fi
+  # Fresh installs have no legacy state to migrate and retain false defaults.
+  [ "$existing_deployment" = "1" ] || return 0
+
+  local container_id find_status
+  if container_id=$(find_install_container_with "$install_dir" \
+    ${privilege[@]+"${privilege[@]}"}); then
+    :
+  else
+    find_status=$?
+    case "$find_status" in
+      2) echo "❌ Multiple fleet-api containers match ${install_dir}; remove the stale container before upgrading." >&2 ;;
+      3) echo "❌ Could not inspect Docker to migrate missing deployment overlay settings." >&2 ;;
+      *) echo "❌ No existing fleet-api container matches ${install_dir}; add explicit ENABLE_BETA_ALERTS, ENABLE_SYSTEM_MONITORING, and ENABLE_TRACING values to ${env_file} before upgrading." >&2 ;;
+    esac
+    return 1
+  fi
+
+  local config_files
+  if ! config_files=$(${privilege[@]+"${privilege[@]}"} docker inspect \
+    --format '{{with index .Config.Labels "com.docker.compose.project.config_files"}}{{.}}{{end}}' \
+    "$container_id" 2>/dev/null); then
+    echo "❌ Could not inspect the old fleet-api Compose config-files label." >&2
+    return 1
+  fi
+  [ -n "$config_files" ] || {
+    echo "❌ The old fleet-api container has no Compose config-files label; set all ENABLE_* overlay values explicitly in ${env_file} before upgrading." >&2
+    return 1
+  }
+
+  local deployment_path
+  deployment_path=$(cd "${install_dir%/}/${DEPLOYMENT_DIR}" 2>/dev/null && pwd -P) || return 1
+  local base_file="${deployment_path}/docker-compose.yaml"
+  local alerts_file="${deployment_path}/docker-compose.alerts.yaml"
+  local system_file="${deployment_path}/docker-compose.system-monitoring.yaml"
+  local tracing_file="${deployment_path}/docker-compose.tracing.yaml"
+  if ! compose_config_files_has "$config_files" "$base_file"; then
+    echo "❌ The old fleet-api Compose config-files label does not belong to ${deployment_path}." >&2
+    return 1
+  fi
+
+  local inferred_beta=false inferred_system=false inferred_tracing=false
+  if compose_config_files_has "$config_files" "$alerts_file"; then inferred_beta=true; fi
+  if compose_config_files_has "$config_files" "$system_file"; then inferred_system=true; fi
+  if compose_config_files_has "$config_files" "$tracing_file"; then inferred_tracing=true; fi
+
+  local effective_beta="$beta_state" effective_system="$system_state"
+  [ "$effective_beta" != "missing" ] || effective_beta="$inferred_beta"
+  [ "$effective_system" != "missing" ] || effective_system="$inferred_system"
+  if [ "$effective_system" = "true" ] && [ "$effective_beta" != "true" ]; then
+    echo "❌ Existing overlay state enables system monitoring without beta alerts; correct the ENABLE_* values in ${env_file} before upgrading." >&2
+    return 1
+  fi
+
+  [ "$beta_state" != "missing" ] || [ "$inferred_beta" != "true" ] || PREVIOUS_BETA_ALERTS=1
+  [ "$system_state" != "missing" ] || [ "$inferred_system" != "true" ] || PREVIOUS_SYSTEM_MONITORING=1
+  [ "$tracing_state" != "missing" ] || [ "$inferred_tracing" != "true" ] || PREVIOUS_TRACING=1
+}
+
+# END INSTALL DISCOVERY AND LEGACY MIGRATION HELPERS
+
 # Function to extract files to the installation directory and cd to it
 extract_and_cd() {
   local tar_path="$1"
@@ -525,25 +769,21 @@ esac
 echo "📌 Will install to: ${INSTALL_DIR}"
 
 # Releases before one-click support treated optional Compose overlays as
-# process-only flags. Capture the effective fleet-api environment while the
-# old stack is still running so the bootstrap upgrade can persist those
-# choices into the new deployment's .env.
-PREVIOUS_BETA_ALERTS=0
-PREVIOUS_SYSTEM_MONITORING=0
-PREVIOUS_TRACING=0
-capture_previous_run_options() {
-  local container_id container_env
-  container_id=$(docker ps -a \
-    --filter "name=${DEPLOYMENT_DIR}-fleet-api" \
-    --filter "name=${DEPLOYMENT_DIR}_fleet-api" \
-    --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
-  [ -n "$container_id" ] || return 0
-  container_env=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" 2>/dev/null || true)
-  printf '%s\n' "$container_env" | grep -Eqi '^FLEET_ALERTS_ENABLED=true$' && PREVIOUS_BETA_ALERTS=1
-  printf '%s\n' "$container_env" | grep -Eqi '^FLEET_SYSTEM_MONITORING_ENABLED=true$' && PREVIOUS_SYSTEM_MONITORING=1
-  printf '%s\n' "$container_env" | grep -Eqi '^FLEET_TELEMETRY_ENABLED=true$' && PREVIOUS_TRACING=1
-}
-capture_previous_run_options
+# process-only flags. Capture only missing values while the validated old
+# stack still exists, and abort before extraction if its state is ambiguous.
+EXISTING_DEPLOYMENT=0
+if [ -f "${INSTALL_DIR%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; then
+  EXISTING_DEPLOYMENT=1
+fi
+CAPTURE_PRIVILEGE=()
+if [ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" = "1" ]; then
+  CAPTURE_PRIVILEGE=(sudo -n)
+fi
+if ! capture_previous_run_options "$INSTALL_DIR" "$EXISTING_DEPLOYMENT" \
+  ${CAPTURE_PRIVILEGE[@]+"${CAPTURE_PRIVILEGE[@]}"}; then
+  echo "❌ Existing deployment options could not be migrated safely; no files were replaced." >&2
+  exit 1
+fi
 
 extract_and_cd "/tmp/${TAR_NAME}" "$INSTALL_DIR"
 # The system service starts with / as its working directory, so persist the

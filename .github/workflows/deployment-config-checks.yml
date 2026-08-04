@@ -22,3 +22,6 @@ jobs:
 
       - name: Validate non-interactive upgrade safety
         run: ./deployment-files/tests/test-run-fleet-upgrade.sh
+
+      - name: Validate installer overlay migration
+        run: ./deployment-files/tests/test-install-overlay-migration.sh
