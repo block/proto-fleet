@@ -338,6 +338,12 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedComm
 			}); err != nil {
 				return err
 			}
+			kind, kindErr := commandtype.FromString(msg.CommandType)
+			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
+				if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, msg.OrgID); err != nil {
+					return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
+				}
+			}
 			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
 		}
 		for _, msg := range fwReaped {
@@ -544,6 +550,11 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		}); err != nil {
 			return err
 		}
+		if shouldRequeueRigConfig(message.CommandType, queueTerminal, workerError) {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, orgID); err != nil {
+				return fmt.Errorf("requeue rig config reconciliation after terminal command failure: %w", err)
+			}
+		}
 
 		return nil
 	})
@@ -559,6 +570,10 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	if queueUpdated && queueTerminal {
 		emitTerminalCommand(ctx, es.metricsEmitter, orgID, siteID, message.CommandType, workerError)
 	}
+}
+
+func shouldRequeueRigConfig(commandType commandtype.Type, terminal bool, commandErr error) bool {
+	return commandType == commandtype.ApplyCurtailmentConfig && terminal && commandErr != nil
 }
 
 // markQueueMessageStatus transitions the queue_message to its next state within an

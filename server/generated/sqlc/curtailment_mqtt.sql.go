@@ -462,6 +462,22 @@ func (q *Queries) RequestRigConfigReconciliation(ctx context.Context, arg Reques
 	return err
 }
 
+const requeueRigConfigReconciliationAfterTerminalFailure = `-- name: RequeueRigConfigReconciliationAfterTerminalFailure :exec
+UPDATE curtailment_rig_config_reconciliation
+SET desired_generation = desired_generation + 1,
+    retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
+    last_error = 'config command reached terminal failure'
+WHERE organization_id = $1
+`
+
+// The command queue has bounded per-message retries. Reopen the organization
+// generation when one config command becomes terminal so reconciliation keeps
+// retrying instead of treating durable enqueue as durable device application.
+func (q *Queries) RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, organizationID int64) error {
+	_, err := q.exec(ctx, q.requeueRigConfigReconciliationAfterTerminalFailureStmt, requeueRigConfigReconciliationAfterTerminalFailure, organizationID)
+	return err
+}
+
 const retryRigConfigReconciliation = `-- name: RetryRigConfigReconciliation :exec
 UPDATE curtailment_rig_config_reconciliation
 SET retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',

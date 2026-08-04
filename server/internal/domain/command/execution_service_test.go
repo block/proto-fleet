@@ -305,6 +305,30 @@ func TestExecutionService_CallerCanceledEnqueueRemainsCallerCancellation(t *test
 	require.NotErrorIs(t, err, errExecutionStoppedBeforeEnqueue)
 }
 
+func TestShouldRequeueRigConfig(t *testing.T) {
+	t.Parallel()
+
+	terminalErr := errors.New("terminal")
+	tests := []struct {
+		name        string
+		commandType commandtype.Type
+		terminal    bool
+		err         error
+		want        bool
+	}{
+		{name: "terminal config failure", commandType: commandtype.ApplyCurtailmentConfig, terminal: true, err: terminalErr, want: true},
+		{name: "retryable config failure", commandType: commandtype.ApplyCurtailmentConfig, err: terminalErr},
+		{name: "successful config", commandType: commandtype.ApplyCurtailmentConfig, terminal: true},
+		{name: "other terminal failure", commandType: commandtype.Reboot, terminal: true, err: terminalErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, shouldRequeueRigConfig(tt.commandType, tt.terminal, tt.err))
+		})
+	}
+}
+
 func TestExecutionService_DequeueIsLimitedToAvailableWorkers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockQueue := mocks.NewMockMessageQueue(ctrl)

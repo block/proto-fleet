@@ -1294,6 +1294,10 @@ type Querier interface {
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
+	// The command queue has bounded per-message retries. Reopen the organization
+	// generation when one config command becomes terminal so reconciliation keeps
+	// retrying instead of treating durable enqueue as durable device application.
+	RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, organizationID int64) error
 	// Reopen restore targets for curtailment. Counts let the store reject partial
 	// resets when another non-terminal event already has unresolved work for one
 	// of the same devices.

@@ -257,3 +257,13 @@ SET retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
     last_error = sqlc.arg('last_error')
 WHERE organization_id = sqlc.arg('organization_id')
   AND desired_generation >= sqlc.arg('desired_generation');
+
+-- name: RequeueRigConfigReconciliationAfterTerminalFailure :exec
+-- The command queue has bounded per-message retries. Reopen the organization
+-- generation when one config command becomes terminal so reconciliation keeps
+-- retrying instead of treating durable enqueue as durable device application.
+UPDATE curtailment_rig_config_reconciliation
+SET desired_generation = desired_generation + 1,
+    retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
+    last_error = 'config command reached terminal failure'
+WHERE organization_id = sqlc.arg('organization_id');
