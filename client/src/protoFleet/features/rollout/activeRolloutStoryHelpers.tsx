@@ -1,39 +1,107 @@
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
 
-import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
+import NavigationMenu from "@/protoFleet/components/NavigationMenu";
+import { primaryNavItems } from "@/protoFleet/config/navItems";
+import { inScopeTargetCount } from "@/protoFleet/features/rollout/rolloutDisplayUtils";
+import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
 import type { RolloutEvent, RolloutPhaseRollup } from "@/protoFleet/features/rollout/rolloutTypes";
+import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
+import { useFleetStore } from "@/protoFleet/store";
 
 /**
- * Shared Storybook glue for the per-process "active rollout" story files
- * (firmware update, reboot). Curtailment's `ActiveCurtailmentStatus.stories`
- * showcases each lifecycle state plus one live-animated lifecycle; these
- * helpers let the firmware and reboot story files do exactly the same thing
- * against the shipped `ActiveRolloutStatus` without duplicating (and drifting)
- * the animation logic between the two.
+ * Shared Storybook glue for the per-process "active rollout" lifecycle story
+ * files (firmware update, reboot). Curtailment's `ActiveCurtailmentStatus`
+ * stories showcase each lifecycle state plus one live-animated lifecycle; these
+ * helpers do the same against the shipped rollout surfaces, but **in situ** —
+ * inside the real app shell, with the shipped `RolloutPill` in a page header and
+ * the shipped `ViewRolloutModal` opened on the rollout, so each state reads
+ * where an operator actually meets it rather than as a bare card on a blank
+ * canvas. Firmware and reboot share this so the two can't drift.
  *
  * Story-only: no product code lives here — it just wires fixtures and noop
- * handlers into the real card.
+ * handlers into the real components.
  */
 
 const noop = (): void => undefined;
 
 /**
- * Renders a single fixed rollout state through the real card, with the full set
- * of lifecycle handlers wired as noops. Each state then shows exactly the CTA
- * set `rolloutLifecycleActions` gates for it (Manage/Pause/Resume/Continue/
- * Retry/Cancel), so the per-state stories double as an action-set showcase.
+ * The real app shell: the `NavigationMenu` sidebar (absolute, w-60) plus a
+ * content column inset by that width. Seeds the fleet store with read +
+ * settings permissions so the permission-gated primary nav renders (Storybook
+ * has no auth session otherwise). Shared by every in-situ rollout story.
  */
-export function ActiveRolloutStatusCard({ event }: { event: RolloutEvent }): ReactElement {
+export function AppShell({ children }: { children: ReactNode }): ReactElement {
+  useEffect(() => {
+    useFleetStore
+      .getState()
+      .auth.setPermissions([
+        "fleet:read",
+        "miner:read",
+        "miner:firmware_update",
+        "rack:read",
+        "site:read",
+        "pool:manage",
+        "fleetnode:read",
+        "schedule:manage",
+        "curtailment:read",
+        "curtailment:manage",
+        "activity:read",
+        "user:read",
+        "apikey:manage",
+        "serverlog:read",
+      ]);
+  }, []);
   return (
-    <ActiveRolloutStatus
-      event={event}
-      onManage={noop}
-      onPause={noop}
-      onResume={noop}
-      onCancelRemaining={noop}
-      onContinueFromPilot={noop}
-      onRetryFailed={noop}
-    />
+    <div className="relative min-h-screen bg-surface-base">
+      <NavigationMenu items={primaryNavItems} />
+      <div className="min-h-screen pl-60">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A believable page header — the rollout's scope (its location) on the left and
+ * the active rollout's `RolloutPill` on the right, exactly where the real
+ * `PageHeader` shows the pill. Matches the `In Situ/In Progress` header bar
+ * (h-14, px-6). The pill re-opens the detail via its shipped "View rollout"
+ * action, so the state stays reachable after the modal is dismissed.
+ */
+function InSituPageHeader({ event, onView }: { event: RolloutEvent; onView: () => void }): ReactElement {
+  return (
+    <div className="flex h-14 items-center justify-between gap-4 border-b border-border-5 bg-surface-elevated-base px-6">
+      <div className="min-w-0 truncate text-emphasis-300 text-text-primary">{event.scopeLabel}</div>
+      <RolloutPill event={event} onViewRollout={onView} />
+    </div>
+  );
+}
+
+/**
+ * Renders a rollout in situ: inside the app shell, with the state's pill in a
+ * page header and the shipped `ViewRolloutModal` opened on the rollout — the
+ * detail surface reachable from any page. Each per-state story passes a
+ * different fixture, so the state also demonstrates the exact CTA set
+ * `rolloutLifecycleActions` gates for it (Manage/Pause/Resume/Continue/Retry/
+ * Cancel) in the modal's top bar.
+ */
+export function InSituRollout({ event }: { event: RolloutEvent }): ReactElement {
+  const [open, setOpen] = useState(true);
+  return (
+    <AppShell>
+      <InSituPageHeader event={event} onView={() => setOpen(true)} />
+      <div className="p-8 text-300 text-text-primary-70">
+        {`${event.title} — ${inScopeTargetCount(event).toLocaleString()} miners in scope.`}
+      </div>
+      <ViewRolloutModal
+        event={open ? event : null}
+        onDismiss={() => setOpen(false)}
+        onManage={noop}
+        onPause={noop}
+        onResume={noop}
+        onCancelRemaining={noop}
+        onContinueFromPilot={noop}
+        onRetryFailed={noop}
+      />
+    </AppShell>
   );
 }
 
@@ -82,12 +150,12 @@ function buildAnimatedRolloutEvent(base: RolloutEvent, donePercent: number, star
 }
 
 /**
- * A live, looping lifecycle: the base rollout ticks from 0% to 100% done, holds
+ * A base rollout ticking from 0% to 100% done on a loop: it advances, holds
  * briefly on the completed state, then restarts — the process-agnostic analog
- * of curtailment's `AnimatedCurtailmentLifecycle`. `startedAt` is reset each
- * loop so the card's elapsed timer counts up from zero.
+ * of curtailment's `AnimatedCurtailmentLifecycle`. `startedAt` resets each loop
+ * so the card's elapsed timer counts up from zero.
  */
-export function AnimatedRolloutLifecycle({ base }: { base: RolloutEvent }): ReactElement {
+function useAnimatedRolloutEvent(base: RolloutEvent): RolloutEvent {
   const [donePercent, setDonePercent] = useState(0);
   const [startedAt, setStartedAt] = useState(() => new Date().toISOString());
 
@@ -106,7 +174,15 @@ export function AnimatedRolloutLifecycle({ base }: { base: RolloutEvent }): Reac
     return () => window.clearInterval(intervalId);
   }, [donePercent]);
 
-  const event = useMemo(() => buildAnimatedRolloutEvent(base, donePercent, startedAt), [base, donePercent, startedAt]);
+  return useMemo(() => buildAnimatedRolloutEvent(base, donePercent, startedAt), [base, donePercent, startedAt]);
+}
 
-  return <ActiveRolloutStatusCard event={event} />;
+/**
+ * The animated lifecycle, shown in situ: the ticking rollout drives both the
+ * header pill and the opened detail modal, so the whole in-product surface
+ * updates as the rollout progresses.
+ */
+export function AnimatedInSituRollout({ base }: { base: RolloutEvent }): ReactElement {
+  const event = useAnimatedRolloutEvent(base);
+  return <InSituRollout event={event} />;
 }
