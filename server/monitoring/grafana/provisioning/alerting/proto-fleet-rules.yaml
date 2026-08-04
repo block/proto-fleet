@@ -469,4 +469,9 @@ groups:
             {{ $labels.organization_id }} in the last five minutes, even
             though it has pollable miners. Either fleet-api is down or the
             in-process metrics writer is wedged. Alerts cannot fire until
-            ingest resumes.
+            ingest resumes. This reads the fleet_telemetry_poll_heartbeat
+            aggregate, not the raw samples, so a stalled refresh policy on
+            that aggregate presents identically. Compare the newest
+            notification_metric_sample row against the aggregate's newest
+            bucket to tell them apart; see the alerts section of the
+            deployment README.
