@@ -51,26 +51,16 @@ assert_not_contains() {
 
 file_owner_group() {
     local owner_group
-    if owner_group=$(stat -c '%u:%g' "$1" 2>/dev/null); then
-        :
-    elif owner_group=$(stat -f '%u:%g' "$1" 2>/dev/null); then
-        :
-    else
-        return 1
-    fi
+    owner_group=$(stat -c '%u:%g' "$1" 2>/dev/null) ||
+        owner_group=$(stat -f '%u:%g' "$1" 2>/dev/null) || return 1
     [ -n "$owner_group" ] || return 1
     printf '%s' "$owner_group"
 }
 
 file_mode() {
     local mode
-    if mode=$(stat -c '%a' "$1" 2>/dev/null); then
-        :
-    elif mode=$(stat -f '%Lp' "$1" 2>/dev/null); then
-        :
-    else
-        return 1
-    fi
+    mode=$(stat -c '%a' "$1" 2>/dev/null) ||
+        mode=$(stat -f '%Lp' "$1" 2>/dev/null) || return 1
     [ -n "$mode" ] || return 1
     printf '%s' "$mode"
 }
@@ -91,6 +81,18 @@ write_valid_env() {
     printf 'ENABLE_TRACING="FALSE" \r\n' >> "$env_file"
 }
 
+# Build a minimal docker-save-shaped archive whose manifest carries the given
+# RepoTags JSON fragment (comma-separated, pre-quoted).
+write_tsdb_archive() {
+    local stage="$1" repo_tags="$2"
+    local fixture="$stage/image-fixture"
+    mkdir -p "$stage/images" "$fixture"
+    printf '[{"Config":"config.json","RepoTags":[%s],"Layers":[]}]\n' \
+        "$repo_tags" > "$fixture/manifest.json"
+    (cd "$fixture" && tar -cf - manifest.json) | gzip > "$stage/images/timescaledb.tar.gz"
+    rm -rf "$fixture"
+}
+
 enable_valid_alerts() {
     local env_file="$1"
     printf '%s\n' \
@@ -105,31 +107,22 @@ enable_valid_alerts() {
 
 write_release_manifest() {
     local stage="$1"
+    local -a hasher=(sha256sum)
+    command -v sha256sum >/dev/null 2>&1 || hasher=(shasum -a 256)
     (
         cd "$stage" || exit 1
-        if command -v sha256sum >/dev/null 2>&1; then
-            find . -type f \
-                ! -path './.env' \
-                ! -path './.update-preflight-complete' \
-                ! -path './.update-preflight-complete.tmp.*' \
-                ! -path './client/nginx.conf' \
-                ! -path './ssl/*' \
-                ! -path './server/influx_config/.env' \
-                ! -path './ha/node.env' \
-                ! -path './deployment-manifest.sha256' \
-                -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > deployment-manifest.sha256
-        else
-            find . -type f \
-                ! -path './.env' \
-                ! -path './.update-preflight-complete' \
-                ! -path './.update-preflight-complete.tmp.*' \
-                ! -path './client/nginx.conf' \
-                ! -path './ssl/*' \
-                ! -path './server/influx_config/.env' \
-                ! -path './ha/node.env' \
-                ! -path './deployment-manifest.sha256' \
-                -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256 > deployment-manifest.sha256
-        fi
+        # Must exclude the same operator-owned paths as find_release_entries
+        # in run-fleet.sh.
+        find . -type f \
+            ! -path './.env' \
+            ! -path './.update-preflight-complete' \
+            ! -path './.update-preflight-complete.tmp.*' \
+            ! -path './client/nginx.conf' \
+            ! -path './ssl/*' \
+            ! -path './server/influx_config/.env' \
+            ! -path './ha/node.env' \
+            ! -path './deployment-manifest.sha256' \
+            -print0 | LC_ALL=C sort -z | xargs -0 "${hasher[@]}" > deployment-manifest.sha256
     )
 }
 
@@ -156,13 +149,8 @@ make_stage() {
     printf 'apiVersion: 1\n' > "$STAGE/server/monitoring/grafana/provisioning/datasources/base.yaml"
     printf '%s\n' "version: $RELEASE_TAG" 'commit: test-release' > "$STAGE/version.txt"
     "$DEPLOY_DIR/scripts/pin-release-images.sh" "$STAGE" "$RELEASE_TAG"
-    mkdir -p "$STAGE/images" "$STAGE/image-fixture"
-    printf '[{"Config":"config.json","RepoTags":["%s","%s"],"Layers":[]}]\n' \
-        "$TIMESCALEDB_IMAGE" "$TIMESCALEDB_HA_IMAGE" > "$STAGE/image-fixture/manifest.json"
-    (cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
-    rm -rf "$STAGE/image-fixture"
+    write_tsdb_archive "$STAGE" "\"$TIMESCALEDB_IMAGE\",\"$TIMESCALEDB_HA_IMAGE\""
     write_valid_env "$STAGE/.env"
-    : > "$HARNESS_CALL_LOG"
 
     cat > "$HARNESS_BIN_DIR/docker" <<'EOF'
 #!/bin/bash
@@ -1405,11 +1393,7 @@ else
 fi
 
 make_stage mistagged-tsdb-image
-mkdir -p "$STAGE/image-fixture"
-printf '[{"Config":"config.json","RepoTags":["proto-fleet-timescaledb:latest","%s"],"Layers":[]}]\n' \
-    "$TIMESCALEDB_HA_IMAGE" > "$STAGE/image-fixture/manifest.json"
-(cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
-rm -rf "$STAGE/image-fixture"
+write_tsdb_archive "$STAGE" "\"proto-fleet-timescaledb:latest\",\"$TIMESCALEDB_HA_IMAGE\""
 write_release_manifest "$STAGE"
 if run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "mistagged TimescaleDB archive should fail preflight"
@@ -1422,11 +1406,7 @@ assert_not_contains "mistagged database image prevents builds" "$HARNESS_CALL_LO
 # Requiring only the standard release tag would still allow docker load to
 # move the daemon-global HA latest tag.
 make_stage mixed-ha-tags
-mkdir -p "$STAGE/image-fixture"
-printf '[{"Config":"config.json","RepoTags":["%s","%s","proto-fleet-timescaledb-ha:latest"],"Layers":[]}]\n' \
-    "$TIMESCALEDB_IMAGE" "$TIMESCALEDB_HA_IMAGE" > "$STAGE/image-fixture/manifest.json"
-(cd "$STAGE/image-fixture" && tar -cf - manifest.json) | gzip > "$STAGE/images/timescaledb.tar.gz"
-rm -rf "$STAGE/image-fixture"
+write_tsdb_archive "$STAGE" "\"$TIMESCALEDB_IMAGE\",\"$TIMESCALEDB_HA_IMAGE\",\"proto-fleet-timescaledb-ha:latest\""
 write_release_manifest "$STAGE"
 if run_stage "$STAGE" --non-interactive --preflight-only; then
     fail "archive with a shared HA latest tag should fail preflight"

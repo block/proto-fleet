@@ -20,12 +20,12 @@ PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 # runtime flags with the same names. Plain shell assignment keeps an inherited
 # variable's export bit, so inspecting those names later would otherwise see
 # the script default instead of the invoking environment.
-INVOKING_ENABLE_BETA_ALERTS_SET="${ENABLE_BETA_ALERTS+x}"
-INVOKING_ENABLE_BETA_ALERTS_VALUE="${ENABLE_BETA_ALERTS-}"
-INVOKING_ENABLE_SYSTEM_MONITORING_SET="${ENABLE_SYSTEM_MONITORING+x}"
-INVOKING_ENABLE_SYSTEM_MONITORING_VALUE="${ENABLE_SYSTEM_MONITORING-}"
-INVOKING_ENABLE_TRACING_SET="${ENABLE_TRACING+x}"
-INVOKING_ENABLE_TRACING_VALUE="${ENABLE_TRACING-}"
+OVERLAY_FLAG_KEYS=(ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING)
+for overlay_key in "${OVERLAY_FLAG_KEYS[@]}"; do
+    printf -v "INVOKING_${overlay_key}_SET" '%s' "${!overlay_key+x}"
+    printf -v "INVOKING_${overlay_key}_VALUE" '%s' "${!overlay_key-}"
+done
+unset overlay_key
 
 ENABLE_BETA_ALERTS=false
 ENABLE_SYSTEM_MONITORING=false
@@ -39,6 +39,13 @@ FLEET_API_IMAGE=""
 FLEET_CLIENT_IMAGE=""
 TIMESCALEDB_IMAGE=""
 TIMESCALEDB_HA_IMAGE=""
+# Every repository whose tags release retention may protect or remove.
+PROTO_FLEET_IMAGE_REPOSITORIES=(
+    proto-fleet-api
+    proto-fleet-client
+    proto-fleet-timescaledb
+    proto-fleet-timescaledb-ha
+)
 PREVIOUS_RELEASE_IMAGE_TAGS=()
 RELEASE_IMAGE_CLEANUP_SAFE=true
 
@@ -51,33 +58,21 @@ RELEASE_IMAGE_CLEANUP_SAFE=true
 FLEET_API_READY_ATTEMPTS="${FLEET_API_READY_ATTEMPTS:-300}"
 
 env_last_value() {
-    local key="$1"
+    local key="$1" snapshot_set snapshot_value
     # Compose interpolation gives the invoking process precedence over .env.
     # Validate that same effective value rather than silently checking the
-    # persisted fallback while containers receive an exported override.
+    # persisted fallback while containers receive an exported override. The
+    # overlay flags read their pre-initialization snapshot because the script
+    # reuses their names for its runtime defaults.
     case "$key" in
-        ENABLE_BETA_ALERTS)
-            if [ "$INVOKING_ENABLE_BETA_ALERTS_SET" = "x" ]; then
-                printf '%s' "$INVOKING_ENABLE_BETA_ALERTS_VALUE"
-            else
-                compose_env_last_value "$key"
+        ENABLE_BETA_ALERTS|ENABLE_SYSTEM_MONITORING|ENABLE_TRACING)
+            snapshot_set="INVOKING_${key}_SET"
+            snapshot_value="INVOKING_${key}_VALUE"
+            if [ "${!snapshot_set}" = "x" ]; then
+                printf '%s' "${!snapshot_value}"
+                return 0
             fi
-            return $?
-            ;;
-        ENABLE_SYSTEM_MONITORING)
-            if [ "$INVOKING_ENABLE_SYSTEM_MONITORING_SET" = "x" ]; then
-                printf '%s' "$INVOKING_ENABLE_SYSTEM_MONITORING_VALUE"
-            else
-                compose_env_last_value "$key"
-            fi
-            return $?
-            ;;
-        ENABLE_TRACING)
-            if [ "$INVOKING_ENABLE_TRACING_SET" = "x" ]; then
-                printf '%s' "$INVOKING_ENABLE_TRACING_VALUE"
-            else
-                compose_env_last_value "$key"
-            fi
+            compose_env_last_value "$key"
             return $?
             ;;
     esac
@@ -93,7 +88,10 @@ parse_compose_env_value() {
     local double_quoted='^"([^"\\]*)"[[:space:]]*(#.*)?$'
     local single_quoted="^'([^']*)'[[:space:]]*(#.*)?$"
 
-    value=$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+    # Fork-free trims: these run per line per key lookup, which adds up on
+    # SD-card-class hardware.
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
     case "$value" in
         \"*)
             [[ "$value" =~ $double_quoted ]] || return 2
@@ -112,7 +110,8 @@ parse_compose_env_value() {
         *)
             # Compose treats # as an inline comment only when whitespace
             # separates it from an unquoted value.
-            value=$(printf '%s' "$value" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//')
+            value="${value%%[[:space:]]#*}"
+            value="${value%"${value##*[![:space:]]}"}"
             # Unquoted values undergo Compose interpolation.
             [[ "$value" != *'$'* ]] || return 2
             ;;
@@ -126,24 +125,20 @@ parse_compose_env_value() {
 # divergence from Compose.
 compose_env_last_value() {
     local key="$1" line normalized parsed found=false
-    local equals_assignment_re="^${key}[[:space:]]*=(.*)$"
-    local colon_assignment_re="^${key}[[:space:]]*:(.*)$"
+    local assignment_re="^${key}[[:space:]]*[:=](.*)$"
     local malformed_re="^${key}([[:space:]]|$)"
 
     [ -e "$ENV_FILE" ] || return 1
     [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || return 2
     while IFS= read -r line || [ -n "$line" ]; do
-        normalized=$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//')
+        normalized="${line#"${line%%[![:space:]]*}"}"
         case "$normalized" in
             export[[:space:]]*)
                 normalized="${normalized#export}"
-                normalized=$(printf '%s' "$normalized" | sed -E 's/^[[:space:]]+//')
+                normalized="${normalized#"${normalized%%[![:space:]]*}"}"
                 ;;
         esac
-        if [[ "$normalized" =~ $equals_assignment_re ]]; then
-            parsed=$(parse_compose_env_value "${BASH_REMATCH[1]}") || return 2
-            found=true
-        elif [[ "$normalized" =~ $colon_assignment_re ]]; then
+        if [[ "$normalized" =~ $assignment_re ]]; then
             parsed=$(parse_compose_env_value "${BASH_REMATCH[1]}") || return 2
             found=true
         elif [[ "$normalized" =~ $malformed_re ]]; then
@@ -204,10 +199,9 @@ env_has_nonempty_value() {
 
 env_boolean_is_true() {
     local key="$1" value read_status
-    if value=$(env_last_value "$key"); then
-        :
-    else
-        read_status=$?
+    value=$(env_last_value "$key")
+    read_status=$?
+    if [ "$read_status" -ne 0 ]; then
         if [ "$read_status" -eq 1 ]; then
             return 1
         fi
@@ -549,6 +543,16 @@ is_managed_release_image_tag() {
         [[ "$tag" =~ ^nightly-[0-9]{8}-[0-9a-f]{12}$ ]]
 }
 
+is_proto_fleet_image_reference() {
+    local image="$1" repository
+    for repository in "${PROTO_FLEET_IMAGE_REPOSITORIES[@]}"; do
+        case "$image" in
+            "$repository":*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 prune_obsolete_release_images() {
     local repository image tag image_id containers
     local candidates=()
@@ -562,11 +566,7 @@ prune_obsolete_release_images() {
     # Collect the complete candidate set before deleting anything. If Docker
     # cannot enumerate one reserved repository, fail safe and leave every tag
     # untouched rather than making a partial retention decision.
-    for repository in \
-        proto-fleet-api \
-        proto-fleet-client \
-        proto-fleet-timescaledb \
-        proto-fleet-timescaledb-ha; do
+    for repository in "${PROTO_FLEET_IMAGE_REPOSITORIES[@]}"; do
         local listed_images
         if ! listed_images=$(docker image ls --format '{{.Repository}}:{{.Tag}}' "$repository" 2>/dev/null); then
             echo "Warning: could not inspect $repository images; skipping Proto Fleet release image cleanup." >&2
@@ -574,10 +574,6 @@ prune_obsolete_release_images() {
         fi
         while IFS= read -r image; do
             [ -n "$image" ] || continue
-            case "$image" in
-                "$repository":*) ;;
-                *) continue ;;
-            esac
             [ "${image##*:}" != "<none>" ] || continue
             candidates+=("$image")
         done <<< "$listed_images"
@@ -641,10 +637,7 @@ capture_previous_release_image_tags() {
         return 0
     fi
     while IFS= read -r image; do
-        case "$image" in
-            proto-fleet-api:*|proto-fleet-client:*|proto-fleet-timescaledb:*|proto-fleet-timescaledb-ha:*) ;;
-            *) continue ;;
-        esac
+        is_proto_fleet_image_reference "$image" || continue
         tag="${image##*:}"
         is_managed_release_image_tag "$tag" || continue
         for existing_tag in "${PREVIOUS_RELEASE_IMAGE_TAGS[@]}"; do
@@ -666,16 +659,25 @@ capture_previous_release_image_tags() {
     fi
 }
 
-sha256() {
-    local output
+# Resolved once and shared by digest computation and manifest verification.
+SHA256_CMD=()
+
+resolve_sha256_cmd() {
+    [ "${#SHA256_CMD[@]}" -eq 0 ] || return 0
     if command -v sha256sum >/dev/null 2>&1; then
-        output=$(sha256sum "$@") || return 1
+        SHA256_CMD=(sha256sum)
     elif command -v shasum >/dev/null 2>&1; then
-        output=$(shasum -a 256 "$@") || return 1
+        SHA256_CMD=(shasum -a 256)
     else
         echo "Error: SHA-256 support requires sha256sum or shasum." >&2
         return 1
     fi
+}
+
+sha256() {
+    local output
+    resolve_sha256_cmd || return 1
+    output=$("${SHA256_CMD[@]}" "$@") || return 1
     printf '%s\n' "$output" | awk '{print $1}'
 }
 
@@ -705,18 +707,12 @@ verify_release_manifest() {
         return 1
     fi
 
-    manifest_paths=$(mktemp) || return 1
-    current_paths=$(mktemp) || {
-        rm -f "$manifest_paths"
-        return 1
-    }
-
     # Validate and extract the GNU sha256sum path column before asking a
     # checksum utility to open anything. Release paths must stay below the
     # deployment root, and the sorted path set must exactly match the current
     # immutable files so added provisioning/config files cannot bypass the
     # manifest by simply being absent from it.
-    if ! awk '
+    if ! manifest_paths=$(awk '
         {
             digest = substr($0, 1, 64)
             separator = substr($0, 65, 2)
@@ -728,44 +724,28 @@ verify_release_manifest() {
             }
             print path
         }
-    ' "$RELEASE_MANIFEST_FILE" > "$manifest_paths"; then
-        rm -f "$manifest_paths" "$current_paths"
+    ' "$RELEASE_MANIFEST_FILE"); then
         echo "Error: immutable release manifest has an invalid entry." >&2
         return 1
     fi
 
-    if ! unsupported_entries=$(cd "$PROJECT_ROOT" && \
-        find_release_entries ! -type f ! -type d -print); then
-        rm -f "$manifest_paths" "$current_paths"
-        return 1
-    fi
+    unsupported_entries=$(cd "$PROJECT_ROOT" && \
+        find_release_entries ! -type f ! -type d -print) || return 1
     if [ -n "$unsupported_entries" ]; then
-        rm -f "$manifest_paths" "$current_paths"
         echo "Error: immutable release contains unsupported non-regular entries:" >&2
         printf '  %s\n' "$unsupported_entries" >&2
         return 1
     fi
 
-    if ! (cd "$PROJECT_ROOT" && \
-        find_immutable_release_entries -type f -print | LC_ALL=C sort) > "$current_paths"; then
-        rm -f "$manifest_paths" "$current_paths"
-        return 1
-    fi
-    if ! cmp -s "$manifest_paths" "$current_paths"; then
-        rm -f "$manifest_paths" "$current_paths"
+    current_paths=$(cd "$PROJECT_ROOT" && \
+        find_immutable_release_entries -type f -print | LC_ALL=C sort) || return 1
+    if [ "$manifest_paths" != "$current_paths" ]; then
         echo "Error: immutable release file set does not match the packaged manifest." >&2
         return 1
     fi
-    rm -f "$manifest_paths" "$current_paths"
 
-    if command -v sha256sum >/dev/null 2>&1; then
-        (cd "$PROJECT_ROOT" && sha256sum -c "$manifest_name" >/dev/null)
-    elif command -v shasum >/dev/null 2>&1; then
-        (cd "$PROJECT_ROOT" && shasum -a 256 -c "$manifest_name" >/dev/null)
-    else
-        echo "Error: SHA-256 support requires sha256sum or shasum." >&2
-        return 1
-    fi
+    resolve_sha256_cmd || return 1
+    (cd "$PROJECT_ROOT" && "${SHA256_CMD[@]}" -c "$manifest_name" >/dev/null)
 }
 
 prepared_images_fingerprint() {
@@ -789,9 +769,9 @@ prepared_images_fingerprint() {
             echo "Error: Docker returned an empty image ID for $image." >&2
             return 1
         }
-        metadata="${metadata}${image}=${image_id}\n"
+        metadata="${metadata}${image}=${image_id}"$'\n'
     done
-    printf '%b' "$metadata" | sha256
+    printf '%s' "$metadata" | sha256
 }
 
 project_relative_path() {
@@ -1235,15 +1215,22 @@ fix_wsl_networking() {
     fi
 }
 
+# Unattended upgrades never mutate the host: every interactive repair below
+# (installs, service enablement, group changes) must fail through this guard
+# instead of running.
+refuse_non_interactive_host_repair() {
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        echo "Error: $1" >&2
+        exit 1
+    fi
+}
+
 # ----------------------------------------------------------------------------
 # Docker Installation Check and Setup
 # ----------------------------------------------------------------------------
 
 if ! command -v docker &> /dev/null; then
-    if [ "$NON_INTERACTIVE" = "true" ]; then
-        echo "Error: Docker is not installed; non-interactive upgrade cannot install host prerequisites." >&2
-        exit 1
-    fi
+    refuse_non_interactive_host_repair "Docker is not installed; non-interactive upgrade cannot install host prerequisites."
     echo "Docker is not installed. Attempting to install Docker..."
 
     if [ "$(uname)" == "Linux" ]; then
@@ -1272,10 +1259,7 @@ if [ "$(uname)" == "Linux" ]; then
     if ! is_wsl; then
         # Check if Docker is set to start on boot on native Linux hosts.
         if ! systemctl is-enabled docker &>/dev/null; then
-            if [ "$NON_INTERACTIVE" = "true" ]; then
-                echo "Error: Docker is not enabled at boot; fix the host before retrying the upgrade." >&2
-                exit 1
-            fi
+            refuse_non_interactive_host_repair "Docker is not enabled at boot; fix the host before retrying the upgrade."
             echo "Configuring Docker to start on system boot..."
             sudo systemctl enable docker
         fi
@@ -1288,10 +1272,7 @@ if [ "$(uname)" == "Linux" ]; then
     # for the sudo-mismatch detection in install.sh) would exit here telling
     # the user to log out and back in, leaving the upgrade half-applied.
     if [ "$(id -u)" -ne 0 ] && ! groups $USER | grep -q '\bdocker\b'; then
-        if [ "$NON_INTERACTIVE" = "true" ]; then
-            echo "Error: the upgrade user cannot access Docker." >&2
-            exit 1
-        fi
+        refuse_non_interactive_host_repair "the upgrade user cannot access Docker."
         echo "Adding current user to the docker group for passwordless Docker usage..."
         sudo usermod -aG docker $USER
         echo "Please log out and log back in to apply group changes, then re-run this script."
@@ -1304,10 +1285,7 @@ fi
 # ----------------------------------------------------------------------------
 
 if ! docker info > /dev/null 2>&1; then
-    if [ "$NON_INTERACTIVE" = "true" ]; then
-        echo "Error: Docker daemon is not available; non-interactive upgrade will not mutate host services." >&2
-        exit 1
-    fi
+    refuse_non_interactive_host_repair "Docker daemon is not available; non-interactive upgrade will not mutate host services."
     echo "Docker daemon is not running. Starting Docker..."
 
     # For macOS, attempt to start Docker Desktop
@@ -1369,10 +1347,7 @@ fi
 # ----------------------------------------------------------------------------
 
 if ! docker compose version &> /dev/null; then
-    if [ "$NON_INTERACTIVE" = "true" ]; then
-        echo "Error: docker compose is not installed; non-interactive upgrade cannot install host prerequisites." >&2
-        exit 1
-    fi
+    refuse_non_interactive_host_repair "docker compose is not installed; non-interactive upgrade cannot install host prerequisites."
     echo "docker compose is not installed. Attempting to install it..."
 
     if [ "$(uname)" == "Linux" ]; then
@@ -1409,13 +1384,8 @@ done
 # root-owned service on behalf of a non-root operator.
 file_owner_group() {
     local owner_group
-    if owner_group=$(stat -c '%u:%g' "$1" 2>/dev/null); then
-        :
-    elif owner_group=$(stat -f '%u:%g' "$1" 2>/dev/null); then
-        :
-    else
-        return 1
-    fi
+    owner_group=$(stat -c '%u:%g' "$1" 2>/dev/null) ||
+        owner_group=$(stat -f '%u:%g' "$1" 2>/dev/null) || return 1
     [ -n "$owner_group" ] || return 1
     printf '%s' "$owner_group"
 }
@@ -1764,8 +1734,6 @@ if ! atomic_set_env_values \
     echo "Error: could not persist deployment overlay settings; aborting before Compose validation or service changes." >&2
     exit 1
 fi
-refresh_compose_files
-refresh_compose_env_args
 
 # ----------------------------------------------------------------------------
 # Docker Compose File Validation
@@ -2077,49 +2045,40 @@ if ! compose up --remove-orphans -d --wait --wait-timeout 300 --no-build --pull 
     exit 1
 fi
 
-wait_for_fleet_api_ready() {
-    local attempt
+wait_for_http_ready() {
+    local label="$1" url="$2" attempt
+    shift 2
 
-    echo "Waiting for fleet-api readiness after migrations…"
     for attempt in $(seq 1 "$FLEET_API_READY_ATTEMPTS"); do
-        # The deployment Compose model fixes fleet-api to 0.0.0.0:4000 in its
-        # extended service definition. Do not let an unrelated dotenv value
-        # redirect this probe to nginx or another process.
-        if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:4000/health/ready"; then
+        if curl "$@" -o /dev/null --max-time 2 "$url"; then
             return 0
         fi
         if [ "$attempt" -eq "$FLEET_API_READY_ATTEMPTS" ]; then
-            echo "Error: fleet-api did not become ready within $((FLEET_API_READY_ATTEMPTS * 2))s." >&2
+            echo "Error: $label did not become ready within $((FLEET_API_READY_ATTEMPTS * 2))s." >&2
             return 1
         fi
         sleep 2
     done
 }
 
-wait_for_fleet_client_ready() {
-    local attempt client_url
+wait_for_fleet_api_ready() {
+    echo "Waiting for fleet-api readiness after migrations…"
+    # The deployment Compose model fixes fleet-api to 0.0.0.0:4000 in its
+    # extended service definition. Do not let an unrelated dotenv value
+    # redirect this probe to nginx or another process.
+    wait_for_http_ready fleet-api "http://127.0.0.1:4000/health/ready" -fsS
+}
 
-    client_url="${PROTOCOL_MODE}://127.0.0.1/"
+wait_for_fleet_client_ready() {
+    local -a curl_flags=(-fsS)
+    if [ "$PROTOCOL_MODE" = "https" ]; then
+        # The packaged certificate can be self-signed; this is a loopback
+        # liveness probe, not a remote identity check.
+        curl_flags=(-fkSs)
+    fi
 
     echo "Waiting for fleet-client readiness…"
-    for attempt in $(seq 1 "$FLEET_API_READY_ATTEMPTS"); do
-        if [ "$PROTOCOL_MODE" = "https" ]; then
-            # The packaged certificate can be self-signed; this is a loopback
-            # liveness probe, not a remote identity check.
-            if curl -fkSs -o /dev/null --max-time 2 "$client_url"; then
-                return 0
-            fi
-        else
-            if curl -fsS -o /dev/null --max-time 2 "$client_url"; then
-                return 0
-            fi
-        fi
-        if [ "$attempt" -eq "$FLEET_API_READY_ATTEMPTS" ]; then
-            echo "Error: fleet-client did not become ready after $FLEET_API_READY_ATTEMPTS attempts." >&2
-            return 1
-        fi
-        sleep 2
-    done
+    wait_for_http_ready fleet-client "${PROTOCOL_MODE}://127.0.0.1/" "${curl_flags[@]}"
 }
 
 if ! wait_for_fleet_api_ready; then

@@ -33,8 +33,7 @@ pin_reference() {
 
     temporary=$(mktemp "${file}.tmp.XXXXXX") || return 1
     if ! while IFS= read -r line || [ -n "$line" ]; do
-        pinned_line=${line//$source/$target}
-        printf '%s\n' "$pinned_line"
+        printf '%s\n' "${line//$source/$target}"
     done < "$file" > "$temporary"; then
         rm -f "$temporary"
         return 1
@@ -46,18 +45,12 @@ pin_reference() {
     rm -f "$temporary"
 }
 
-pin_reference \
-    "$deployment_root/docker-compose.yaml" \
-    "proto-fleet-api:latest" \
-    "proto-fleet-api:${release_tag}"
-pin_reference \
-    "$deployment_root/docker-compose.yaml" \
-    "proto-fleet-client:latest" \
-    "proto-fleet-client:${release_tag}"
-pin_reference \
-    "$deployment_root/docker-compose.yaml" \
-    "proto-fleet-timescaledb:latest" \
-    "proto-fleet-timescaledb:${release_tag}"
+for repository in proto-fleet-api proto-fleet-client proto-fleet-timescaledb; do
+    pin_reference \
+        "$deployment_root/docker-compose.yaml" \
+        "${repository}:latest" \
+        "${repository}:${release_tag}"
+done
 pin_reference \
     "$deployment_root/ha/compose.yaml" \
     "proto-fleet-timescaledb-ha:latest" \
