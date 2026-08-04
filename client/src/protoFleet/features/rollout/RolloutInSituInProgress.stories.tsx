@@ -242,7 +242,7 @@ function HeaderPillStory(): ReactElement {
 }
 
 export const HeaderPill: Story = {
-  name: "Header pill (opens the modal)",
+  name: "Header pill",
   render: () => <HeaderPillStory />,
 };
 
@@ -282,7 +282,7 @@ function FirmwareSettingsPageStory(): ReactElement {
 }
 
 export const FirmwareSettingsPage: Story = {
-  name: "Firmware settings page (active rollout in context)",
+  name: "Firmware settings page",
   parameters: { withRouter: false },
   decorators: [
     (StoryFn: () => ReactElement) => (
@@ -325,7 +325,7 @@ function EnergyUiStory(): ReactElement {
 }
 
 export const EnergyUi: Story = {
-  name: "Energy UI (curtailment rollout, as today)",
+  name: "Energy UI",
   render: () => <EnergyUiStory />,
 };
 
@@ -364,6 +364,6 @@ function ActivityPageStory(): ReactElement {
 }
 
 export const ActivityPage: Story = {
-  name: "Activity page (rollout banners in the feed)",
+  name: "Activity page",
   render: () => <ActivityPageStory />,
 };

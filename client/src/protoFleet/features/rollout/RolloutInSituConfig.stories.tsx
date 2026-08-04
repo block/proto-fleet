@@ -346,6 +346,6 @@ function BulkActionsStory(): ReactElement {
 }
 
 export const BulkActions: Story = {
-  name: "Bulk actions (launch a process from the selection bar)",
+  name: "Bulk actions",
   render: () => <BulkActionsStory />,
 };
