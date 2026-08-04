@@ -46,6 +46,7 @@ interface ActiveRolloutStatusProps {
   hideActions?: boolean;
   /** Lifecycle actions — each renders only when its handler is supplied, so
    * capability-flagging is just "pass the handler or don't". */
+  onManage?: () => void;
   onPause?: () => void;
   onResume?: () => void;
   onCancelRemaining?: () => void;
@@ -150,6 +151,7 @@ function ActiveRolloutStatus({
   className,
   embedded = false,
   hideActions = false,
+  onManage,
   onPause,
   onResume,
   onCancelRemaining,
@@ -197,7 +199,14 @@ function ActiveRolloutStatus({
 
   const actions = hideActions
     ? []
-    : rolloutLifecycleActions(event, { onPause, onResume, onCancelRemaining, onContinueFromPilot, onRetryFailed });
+    : rolloutLifecycleActions(event, {
+        onManage,
+        onPause,
+        onResume,
+        onCancelRemaining,
+        onContinueFromPilot,
+        onRetryFailed,
+      });
   const buttonVariant = {
     primary: variants.primary,
     secondary: variants.secondary,
@@ -291,6 +300,14 @@ function ActiveRolloutStatus({
                 {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
               </span>
             ))}
+            {/* Excluded targets are never in the bar, so the legend annotates
+                them separately (right-aligned) — the analog of curtailment's
+                "N unavailable" annotation in ProgressSection. */}
+            {event.excludedTargets > 0 ? (
+              <span className="ml-auto text-right text-text-primary-50">
+                {`${event.excludedTargets.toLocaleString()} excluded`}
+              </span>
+            ) : null}
           </div>
         </div>
       </div>

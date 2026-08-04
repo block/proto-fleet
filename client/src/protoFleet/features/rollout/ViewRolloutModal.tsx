@@ -10,6 +10,7 @@ interface ViewRolloutModalProps {
   /** The rollout to show; when null the modal is closed. */
   event: RolloutEvent | null;
   onDismiss: () => void;
+  onManage?: () => void;
   onPause?: () => void;
   onResume?: () => void;
   onCancelRemaining?: () => void;
@@ -39,6 +40,7 @@ const buttonVariant = {
 function ViewRolloutModal({
   event,
   onDismiss,
+  onManage,
   onPause,
   onResume,
   onCancelRemaining,
@@ -50,6 +52,7 @@ function ViewRolloutModal({
   }
 
   const actions = rolloutLifecycleActions(event, {
+    onManage,
     onPause,
     onResume,
     onCancelRemaining,
