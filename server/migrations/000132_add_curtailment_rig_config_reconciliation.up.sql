@@ -19,6 +19,20 @@ CREATE TABLE curtailment_rig_config_reconciliation (
             AND enqueued_generation <= desired_generation)
 );
 
+-- Existing enabled sources predate the reconciliation outbox. Seed one due
+-- request per organization so upgrades deliver their current fallback config
+-- without waiting for a settings edit or a new rig pairing.
+INSERT INTO curtailment_rig_config_reconciliation (
+    organization_id,
+    requested_by
+)
+SELECT DISTINCT ON (organization_id)
+    organization_id,
+    service_user_id
+FROM curtailment_mqtt_source_config
+WHERE enabled = TRUE
+ORDER BY organization_id, id;
+
 CREATE INDEX idx_curtailment_rig_config_reconciliation_due
     ON curtailment_rig_config_reconciliation (retry_at, organization_id);
 
