@@ -14,6 +14,7 @@ import (
 	"golang.org/x/mod/semver"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -184,13 +185,26 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targ
 	}
 
 	// Authorization and target validation are complete. Detach the privileged
-	// local mutation from browser cancellation, but keep a hard bound so a
-	// wedged socket cannot hold the RPC forever.
+	// local mutation from browser cancellation while preserving the exact
+	// active-runtime lifetime that admitted this request. A missing lifetime
+	// means the active gate was bypassed, so no host mutation is allowed.
+	operationCtx, cancelOperation, ok := admissionctx.DetachRequestCancellation(ctx)
+	if !ok {
+		return updaterapi.Operation{}, fleeterror.NewInternalError("upgrade request is missing active-runtime admission")
+	}
+	defer cancelOperation()
+	if err := operationCtx.Err(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
+	}
+
 	operationID := uuid.NewString()
-	operation, err := s.triggerUpgrade(context.WithoutCancel(ctx), operationID, targetVersion)
+	operation, err := s.triggerUpgrade(operationCtx, operationID, targetVersion)
 	if err == nil {
-		s.logUpgradeTriggered(ctx, organizationID, operation)
+		s.logUpgradeTriggered(operationCtx, organizationID, operation)
 		return operation, nil
+	}
+	if cancelErr := operationCtx.Err(); cancelErr != nil {
+		return updaterapi.Operation{}, fmt.Errorf("trigger canceled during host mutation: %w", cancelErr)
 	}
 
 	// A reset, timeout, or malformed accepted response does not prove that the
@@ -200,14 +214,20 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targ
 	// also inconclusive, an exact status match is authoritative and cannot be
 	// confused with another operator's same-target request.
 	if ambiguousExecutorResult(err) {
-		operation, retryErr := s.triggerUpgrade(context.WithoutCancel(ctx), operationID, targetVersion)
+		operation, retryErr := s.triggerUpgrade(operationCtx, operationID, targetVersion)
 		if retryErr == nil {
-			s.logUpgradeTriggered(ctx, organizationID, operation)
+			s.logUpgradeTriggered(operationCtx, organizationID, operation)
 			return operation, nil
 		}
-		if reconciled, ok := s.reconcileUpgrade(ctx, operationID, targetVersion); ok {
-			s.logUpgradeTriggered(ctx, organizationID, reconciled)
+		if cancelErr := operationCtx.Err(); cancelErr != nil {
+			return updaterapi.Operation{}, fmt.Errorf("trigger canceled during host mutation retry: %w", cancelErr)
+		}
+		if reconciled, ok := s.reconcileUpgrade(operationCtx, operationID, targetVersion); ok {
+			s.logUpgradeTriggered(operationCtx, organizationID, reconciled)
 			return reconciled, nil
+		}
+		if cancelErr := operationCtx.Err(); cancelErr != nil {
+			return updaterapi.Operation{}, fmt.Errorf("trigger canceled during host mutation reconciliation: %w", cancelErr)
 		}
 	}
 	return updaterapi.Operation{}, mapExecutorTriggerError(err)
@@ -226,7 +246,7 @@ func ambiguousExecutorResult(err error) bool {
 }
 
 func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, bool) {
-	statusCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), executorStatusTimeout)
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
 	defer cancel()
 	status, err := s.executor.Status(statusCtx)
 	if err != nil || status.Operation == nil {
@@ -278,7 +298,7 @@ func (s *Service) logUpgradeTriggered(ctx context.Context, organizationID int64,
 		},
 	}
 	activity.StampActor(ctx, &event)
-	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), upgradeAuditTimeout)
+	auditCtx, cancel := context.WithTimeout(ctx, upgradeAuditTimeout)
 	defer cancel()
 	s.activitySvc.Log(auditCtx, event)
 }

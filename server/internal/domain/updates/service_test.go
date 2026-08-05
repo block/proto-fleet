@@ -16,6 +16,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -620,12 +621,12 @@ func TestTriggerUpgradeRevalidatesTheEligibleTarget(t *testing.T) {
 	}
 	svc.executor = executor
 
-	operation, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	operation, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
 	require.NoError(t, err)
 	assert.Equal(t, "operation-1", operation.ID)
 	assert.Equal(t, []string{"v1.1.0"}, executor.triggered)
 
-	_, err = svc.TriggerUpgrade(context.Background(), 1, "v1.2.0")
+	_, err = svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.2.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Equal(t, []string{"v1.1.0"}, executor.triggered, "a stale or invented target must never reach the host executor")
@@ -647,7 +648,7 @@ func TestTriggerUpgradeMapsExecutorConflict(t *testing.T) {
 		},
 	}
 
-	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err))
 }
@@ -661,6 +662,38 @@ func newEligibleUpgradeService(t *testing.T) *Service {
 	}}
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 	return svc
+}
+
+func admittedUpgradeContext(ctx context.Context) context.Context {
+	return admissionctx.WithActiveLifetime(ctx, context.Background())
+}
+
+func TestTriggerUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeExecutor{}
+	svc := newEligibleUpgradeService(t)
+	svc.executor = executor
+
+	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing active-runtime admission")
+	assert.Empty(t, executor.triggered)
+}
+
+func TestTriggerUpgradeRejectsEndedActiveAdmissionBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeExecutor{}
+	svc := newEligibleUpgradeService(t)
+	svc.executor = executor
+	activeCtx, cancelActive := context.WithCancel(context.Background())
+	cancelActive()
+	requestCtx := admissionctx.WithActiveLifetime(context.Background(), activeCtx)
+
+	_, err := svc.TriggerUpgrade(requestCtx, 1, "v1.1.0")
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, executor.triggered)
 }
 
 func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellation(t *testing.T) {
@@ -690,6 +723,7 @@ func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellati
 		ExternalUserID: "user-1",
 		Username:       "test-operator",
 	}))
+	requestCtx = admittedUpgradeContext(requestCtx)
 	executor.triggerFunc = func(triggerCtx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
 		accepted = &updaterapi.Operation{
 			ID:            operationID,
@@ -715,6 +749,51 @@ func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellati
 	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
 }
 
+func TestTriggerUpgradeCancelsHostMutationWhenActiveRuntimeEnds(t *testing.T) {
+	svc := newEligibleUpgradeService(t)
+	executor := &fakeExecutor{}
+	triggerStarted := make(chan struct{})
+	statusCalls := 0
+	triggerCalls := 0
+	executor.statusFunc = func(context.Context) (updaterapi.StatusResponse, error) {
+		statusCalls++
+		return updaterapi.StatusResponse{}, nil
+	}
+	executor.triggerFunc = func(ctx context.Context, _, _ string) (updaterapi.Operation, error) {
+		triggerCalls++
+		if triggerCalls == 1 {
+			close(triggerStarted)
+		}
+		<-ctx.Done()
+		return updaterapi.Operation{}, &executorTransportError{cause: ctx.Err()}
+	}
+	svc.executor = executor
+
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	requestCtx := admissionctx.WithActiveLifetime(t.Context(), activeCtx)
+	result := make(chan error, 1)
+	go func() {
+		_, err := svc.TriggerUpgrade(requestCtx, 1, "v1.1.0")
+		result <- err
+	}()
+
+	select {
+	case <-triggerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for host mutation")
+	}
+	cancelActive()
+
+	select {
+	case err := <-result:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("active-runtime cancellation did not stop host mutation")
+	}
+	assert.Equal(t, 1, triggerCalls, "demotion must prevent the same-ID retry")
+	assert.Equal(t, 1, statusCalls, "demotion must prevent reconciliation after the availability probe")
+}
+
 func TestTriggerUpgradeDoesNotClaimAnotherOperationAfterAmbiguousFailure(t *testing.T) {
 	t.Parallel()
 
@@ -737,7 +816,7 @@ func TestTriggerUpgradeDoesNotClaimAnotherOperationAfterAmbiguousFailure(t *test
 	}
 	svc.executor = executor
 
-	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
 }
@@ -760,7 +839,7 @@ func TestTriggerUpgradePreservesUnknownOutcomeAfterDefinitiveRetryFailure(t *tes
 	}
 	svc.executor = executor
 
-	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
 	assert.Contains(t, err.Error(), "did not confirm the upgrade")
@@ -830,7 +909,7 @@ func TestTriggerUpgradeMapsExecutorFailures(t *testing.T) {
 			svc := newEligibleUpgradeService(t)
 			svc.executor = &fakeExecutor{triggerErr: test.err}
 
-			_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+			_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
 			require.Error(t, err)
 			assert.True(t, test.check(err), "unexpected mapped error: %v", err)
 		})
@@ -870,7 +949,7 @@ func TestTriggerUpgradeHonorsCanceledCallerBeforeMutation(t *testing.T) {
 			svc := newEligibleUpgradeService(t)
 			svc.executor = executor
 
-			_, err := svc.TriggerUpgrade(test.ctx(), 1, "v1.1.0")
+			_, err := svc.TriggerUpgrade(admittedUpgradeContext(test.ctx()), 1, "v1.1.0")
 			assert.ErrorIs(t, err, test.want)
 			assert.Empty(t, executor.triggered)
 		})
