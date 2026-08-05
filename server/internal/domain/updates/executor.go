@@ -123,11 +123,11 @@ func (c *unixExecutorClient) do(ctx context.Context, method, path string, body, 
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		if errors.Is(err, errExecutorUnavailable) {
-			return errExecutorUnavailable
-		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return &executorTransportError{cause: ctxErr}
+		}
+		if errors.Is(err, errExecutorUnavailable) {
+			return errExecutorUnavailable
 		}
 		return &executorTransportError{cause: err}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -27,6 +28,12 @@ type executorRequestObservation struct {
 	contentType string
 	trigger     updaterapi.TriggerRequest
 	decodeErr   error
+}
+
+type executorRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f executorRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 func startExecutorTestServer(t *testing.T, handler http.Handler) *unixExecutorClient {
@@ -278,6 +285,59 @@ func TestUnixExecutorClientHonorsContext(t *testing.T) {
 				t.Fatal("executor request did not honor its context")
 			}
 			assert.Equal(t, executorHTTPTimeout, client.http.Timeout)
+		})
+	}
+}
+
+func TestUnixExecutorClientContextWinsOverUnavailableTransportError(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		cancel bool
+		want   error
+	}{
+		{name: "cancellation", cancel: true, want: context.Canceled},
+		{name: "deadline", want: context.DeadlineExceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			entered := make(chan struct{})
+			client := &unixExecutorClient{http: &http.Client{Transport: executorRoundTripFunc(
+				func(request *http.Request) (*http.Response, error) {
+					close(entered)
+					<-request.Context().Done()
+					return nil, fmt.Errorf("%w: %v", errExecutorUnavailable, request.Context().Err())
+				},
+			)}}
+			var ctx context.Context
+			var cancel context.CancelFunc
+			if test.cancel {
+				ctx, cancel = context.WithCancel(context.Background())
+			} else {
+				ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
+			}
+			defer cancel()
+
+			done := make(chan error, 1)
+			go func() {
+				_, statusErr := client.Status(ctx)
+				done <- statusErr
+			}()
+			<-entered
+			if test.cancel {
+				cancel()
+			}
+
+			select {
+			case err := <-done:
+				require.ErrorIs(t, err, test.want)
+				assert.NotErrorIs(t, err, errExecutorUnavailable)
+				var transportErr *executorTransportError
+				assert.ErrorAs(t, err, &transportErr)
+			case <-time.After(time.Second):
+				t.Fatal("executor request did not preserve its context error")
+			}
 		})
 	}
 }
