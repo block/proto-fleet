@@ -54,9 +54,13 @@ func run() error {
 		fmt.Println(version)
 		return nil
 	}
+	selfUpdateStartup, err := updater.PrepareSelfUpdateStartup(*selfUpdatePath, *selfUpdateHandoff)
+	if err != nil {
+		return fmt.Errorf("prepare updater startup: %w", err)
+	}
 	absoluteInstallRoot, err := filepath.Abs(*installRoot)
 	if err != nil {
-		return fmt.Errorf("resolve install root: %w", err)
+		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("resolve install root: %w", err))
 	}
 	manager, err := updater.NewManager(updater.Config{
 		InstallRoot:    absoluteInstallRoot,
@@ -64,7 +68,7 @@ func run() error {
 		SelfUpdatePath: *selfUpdatePath,
 	})
 	if err != nil {
-		return handleSelfUpdateStartupFailure(*selfUpdateHandoff, fmt.Errorf("initialize updater: %w", err))
+		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("initialize updater: %w", err))
 	}
 	defer func() {
 		if err := manager.Close(); err != nil {
@@ -86,8 +90,14 @@ func run() error {
 	// Signals are intentional shutdowns, not evidence that the candidate is bad.
 	select {
 	case <-server.Ready():
+		if err := selfUpdateStartup.Commit(); err != nil {
+			startupErr := fmt.Errorf("commit refreshed updater startup: %w", err)
+			if shutdownErr := shutdownUpdater(server, manager); shutdownErr != nil {
+				startupErr = errors.Join(startupErr, fmt.Errorf("shutdown after startup commit failure: %w", shutdownErr))
+			}
+			return handleSelfUpdateStartupFailure(selfUpdateStartup, startupErr)
+		}
 		log.Printf("proto-fleet-updater %s listening on %s", version, *socketPath)
-		*selfUpdateHandoff = ""
 	case sig := <-signals:
 		log.Printf("received %s during startup, shutting down", sig)
 		if err := shutdownUpdater(server, manager); err != nil {
@@ -98,7 +108,7 @@ func run() error {
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
-		return handleSelfUpdateStartupFailure(*selfUpdateHandoff, fmt.Errorf("serve updater API: %w", err))
+		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("serve updater API: %w", err))
 	}
 
 	select {
@@ -136,11 +146,11 @@ func run() error {
 	}
 }
 
-func handleSelfUpdateStartupFailure(handoffPath string, startupErr error) error {
-	if handoffPath == "" {
+func handleSelfUpdateStartupFailure(selfUpdateStartup *updater.SelfUpdateStartup, startupErr error) error {
+	if selfUpdateStartup == nil {
 		return startupErr
 	}
-	if rollbackErr := updater.RollbackSelfUpdateExecutable(handoffPath); rollbackErr != nil {
+	if rollbackErr := selfUpdateStartup.Rollback(); rollbackErr != nil {
 		return errors.Join(
 			startupErr,
 			fmt.Errorf("restore previous updater after replacement startup failure: %w", rollbackErr),

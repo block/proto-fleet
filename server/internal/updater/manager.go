@@ -123,6 +123,9 @@ type Config struct {
 	// Tests inject deterministic state-write failures without weakening the
 	// production state-directory trust boundary.
 	beforePersistState func(updaterapi.Operation) error
+	// Tests pause staged-tree durability to exercise shutdown and deadline
+	// behavior before the non-cancelable activation boundary.
+	syncStagedDeployment func(context.Context, string) error
 }
 
 type activationMarker struct {
@@ -332,18 +335,10 @@ func ensureTrustedSelfUpdatePath(selfUpdatePath string) (string, error) {
 	if err := validateSelfUpdateExecutable(selfUpdatePath, configuredInfo); err != nil {
 		return "", err
 	}
-	configuredParent := filepath.Dir(selfUpdatePath)
-	if err := validateTrustedDirectoryChain(configuredParent, "self-update path", "", false, validateDaemonPathOwner); err != nil {
-		return "", err
-	}
-	canonicalParent, err := filepath.EvalSymlinks(configuredParent)
+	canonicalPath, err := ensureTrustedSelfUpdateLocation(selfUpdatePath)
 	if err != nil {
-		return "", fmt.Errorf("resolve self-update parent: %w", err)
-	}
-	if err := validateTrustedDirectoryChain(canonicalParent, "self-update path", "", false, validateDaemonPathOwner); err != nil {
 		return "", err
 	}
-	canonicalPath := filepath.Join(canonicalParent, filepath.Base(selfUpdatePath))
 	canonicalInfo, err := os.Lstat(canonicalPath)
 	if err != nil {
 		return "", fmt.Errorf("inspect canonical self-update path: %w", err)
@@ -355,6 +350,26 @@ func ensureTrustedSelfUpdatePath(selfUpdatePath string) (string, error) {
 		return "", fmt.Errorf("self-update path changed while it was validated")
 	}
 	return canonicalPath, nil
+}
+
+// ensureTrustedSelfUpdateLocation validates and canonicalizes the protected
+// parent chain without requiring the final executable entry to exist. Durable
+// handoff recovery uses this narrower primitive to restore a missing entry;
+// ordinary startup still uses ensureTrustedSelfUpdatePath above.
+func ensureTrustedSelfUpdateLocation(selfUpdatePath string) (string, error) {
+	selfUpdatePath = filepath.Clean(selfUpdatePath)
+	configuredParent := filepath.Dir(selfUpdatePath)
+	if err := validateTrustedDirectoryChain(configuredParent, "self-update path", "", false, validateDaemonPathOwner); err != nil {
+		return "", err
+	}
+	canonicalParent, err := filepath.EvalSymlinks(configuredParent)
+	if err != nil {
+		return "", fmt.Errorf("resolve self-update parent: %w", err)
+	}
+	if err := validateTrustedDirectoryChain(canonicalParent, "self-update path", "", false, validateDaemonPathOwner); err != nil {
+		return "", err
+	}
+	return filepath.Join(canonicalParent, filepath.Base(selfUpdatePath)), nil
 }
 
 func validateTrustedDirectoryChain(
@@ -551,6 +566,9 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.CleanupTimeout == 0 {
 		cfg.CleanupTimeout = defaultCleanupTimeout
 	}
+	if cfg.syncStagedDeployment == nil {
+		cfg.syncStagedDeployment = syncStagedDeployment
+	}
 	if cfg.PreflightTimeout < 0 || cfg.ActivationTimeout < 0 || cfg.CleanupTimeout < 0 {
 		return nil, fmt.Errorf("updater phase timeouts must be positive")
 	}
@@ -628,22 +646,7 @@ func (m *Manager) RollbackSelfUpdate() error {
 	if m.cfg.SelfUpdatePath == "" {
 		return fmt.Errorf("self-update path is not configured")
 	}
-	return restorePreviousExecutable(m.cfg.SelfUpdatePath)
-}
-
-// RollbackSelfUpdateExecutable validates the installed executable trust chain
-// before restoring its retained sibling backup. The command uses this during
-// the replacement process's one-shot startup window, including failures that
-// happen before a Manager can be constructed.
-func RollbackSelfUpdateExecutable(selfUpdatePath string) error {
-	if selfUpdatePath == "" {
-		return fmt.Errorf("self-update path is not configured")
-	}
-	canonicalPath, err := ensureTrustedSelfUpdatePath(selfUpdatePath)
-	if err != nil {
-		return fmt.Errorf("validate self-update rollback path: %w", err)
-	}
-	return restorePreviousExecutable(canonicalPath)
+	return rollbackPendingSelfUpdate(m.cfg.SelfUpdatePath)
 }
 
 // Shutdown rejects future triggers, cancels work that has not crossed the
@@ -988,6 +991,20 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
 		return
 	}
+	if err := m.advance(operationID, updaterapi.PhasePreflight, "Persisting the staged release before activation"); err != nil {
+		m.fail(operationID, fmt.Errorf("persist staged-release durability phase: %w", err), recovery)
+		return
+	}
+	syncCtx, cancelSync := context.WithTimeout(ctx, m.cfg.ActivationTimeout)
+	syncErr := m.cfg.syncStagedDeployment(syncCtx, stageDeployment)
+	if syncErr == nil {
+		syncErr = syncCtx.Err()
+	}
+	cancelSync()
+	if syncErr != nil {
+		m.fail(operationID, fmt.Errorf("persist staged deployment before activation: %w", syncErr), recovery)
+		return
+	}
 
 	if err := m.beginActivation(operationID, "Restarting Fleet; the client may disconnect for several minutes"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation phase: %w", err), recovery)
@@ -1172,7 +1189,7 @@ func (m *Manager) failActivation(
 	m.fail(operationID, activationErr, layout.RecoveryCommand)
 }
 
-// activateDeployment makes the extracted release durable before entering the
+// activateDeployment swaps an already-durable staged release through the
 // two-rename activation window. The two renames cannot be committed as one
 // portable filesystem operation, so every completed metadata step is fsynced
 // and every pre-command failure attempts a checked restoration. Startup
@@ -1180,9 +1197,6 @@ func (m *Manager) failActivation(
 func activateDeployment(staged, current, previous string) error {
 	installRoot := filepath.Dir(current)
 	stageRoot := filepath.Dir(staged)
-	if err := syncTree(staged); err != nil {
-		return fmt.Errorf("sync staged deployment before activation: %w", err)
-	}
 	if err := os.RemoveAll(previous); err != nil {
 		return fmt.Errorf("remove previous deployment backup: %w", err)
 	}
@@ -1239,9 +1253,12 @@ func rollbackPreparedDeployment(current, staged, previous, installRoot, stageRoo
 	return nil
 }
 
-func syncTree(root string) error {
+func syncTree(ctx context.Context, root string) error {
 	var directories []string
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("cancel staged-tree sync: %w", err)
+		}
 		if walkErr != nil {
 			return fmt.Errorf("walk tree for sync: %w", walkErr)
 		}
@@ -1272,15 +1289,37 @@ func syncTree(root string) error {
 			}
 			return errors.Join(fileErrs...)
 		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("cancel staged-tree sync: %w", err)
+		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("sync staged tree: %w", err)
 	}
 	for i := len(directories) - 1; i >= 0; i-- {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("sync staged tree: %w", err)
+		}
 		if err := syncDirectory(directories[i]); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func syncStagedDeployment(ctx context.Context, staged string) error {
+	if err := syncTree(ctx, staged); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancel staged deployment sync: %w", err)
+	}
+	if err := syncDirectory(filepath.Dir(staged)); err != nil {
+		return fmt.Errorf("sync staging parent directory: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancel staged deployment sync: %w", err)
 	}
 	return nil
 }
@@ -2398,16 +2437,40 @@ func installExecutableCandidate(candidatePath, destination string) error {
 			cleanupErr,
 		)
 	}
+	// The durable marker is installed after the previous executable is safely
+	// retained but before the candidate can replace the supervised path. It is
+	// the only cross-process authority to restore that backup.
+	if err := writeSelfUpdateHandoffMarker(destination); err != nil {
+		cleanupErr := cleanupFailedSelfUpdatePreparation(destination)
+		return errors.Join(fmt.Errorf("prepare updater startup handoff: %w", err), cleanupErr)
+	}
 	if err := os.Rename(candidatePath, destination); err != nil {
-		cleanupErr := os.Remove(backupPath)
-		if cleanupErr == nil {
-			cleanupErr = syncDirectory(parent)
-		}
-		return errors.Join(fmt.Errorf("replace updater executable: %w", err), cleanupErr)
+		return errors.Join(
+			fmt.Errorf("replace updater executable: %w", err),
+			rollbackPendingSelfUpdate(destination),
+		)
 	}
 	if err := syncDirectory(parent); err != nil {
-		restoreErr := restorePreviousExecutable(destination)
+		restoreErr := rollbackPendingSelfUpdate(destination)
 		return errors.Join(fmt.Errorf("persist updater executable replacement: %w", err), restoreErr)
+	}
+	return nil
+}
+
+func cleanupFailedSelfUpdatePreparation(destination string) error {
+	_, markerExists, err := readSelfUpdateHandoffMarker(destination)
+	if err != nil {
+		return err
+	}
+	if markerExists {
+		return rollbackPendingSelfUpdate(destination)
+	}
+	removed, err := unlinkExecutableSlot(destination + selfUpdateBackupSuffix)
+	if err != nil {
+		return err
+	}
+	if removed {
+		return syncDirectory(filepath.Dir(destination))
 	}
 	return nil
 }
@@ -2421,15 +2484,35 @@ func restorePreviousExecutable(destination string) error {
 	if !backupInfo.Mode().IsRegular() || backupInfo.Mode().Perm()&0o111 == 0 || backupInfo.Size() == 0 {
 		return fmt.Errorf("previous updater backup is not a non-empty executable")
 	}
-	if destinationInfo, err := os.Lstat(destination); err == nil && destinationInfo.IsDir() {
-		return fmt.Errorf("refusing to replace updater destination directory")
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	destinationInfo, err := os.Lstat(destination)
+	if err == nil {
+		if !destinationInfo.Mode().IsRegular() {
+			return fmt.Errorf("refusing to replace non-regular updater destination")
+		}
+		if os.SameFile(destinationInfo, backupInfo) {
+			return nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect updater destination before restoration: %w", err)
 	}
-	if err := os.Rename(backupPath, destination); err != nil {
+
+	parent := filepath.Dir(destination)
+	restorePath := destination + selfUpdateRestoreTempSuffix
+	if removed, err := unlinkExecutableSlot(restorePath); err != nil {
+		return fmt.Errorf("clean stale updater restoration link: %w", err)
+	} else if removed {
+		if err := syncDirectory(parent); err != nil {
+			return fmt.Errorf("persist stale updater restoration cleanup: %w", err)
+		}
+	}
+	if err := os.Link(backupPath, restorePath); err != nil {
+		return fmt.Errorf("prepare previous updater restoration: %w", err)
+	}
+	defer os.Remove(restorePath)
+	if err := os.Rename(restorePath, destination); err != nil {
 		return fmt.Errorf("restore previous updater executable: %w", err)
 	}
-	if err := syncDirectory(filepath.Dir(destination)); err != nil {
+	if err := syncDirectory(parent); err != nil {
 		return fmt.Errorf("persist previous updater executable restoration: %w", err)
 	}
 	return nil

@@ -792,6 +792,84 @@ func TestManagerPreflightDeadlineFailsTheOperation(t *testing.T) {
 	assert.Contains(t, completed.Error, context.DeadlineExceeded.Error())
 }
 
+func TestManagerShutdownCancelsStagedTreeSyncBeforeActivation(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	syncStarted := make(chan struct{})
+	manager := newTestManagerWithConfig(t, installRoot, server, &recordingRunner{}, func(cfg *Config) {
+		cfg.ActivationTimeout = time.Hour
+		cfg.syncStagedDeployment = func(ctx context.Context, _ string) error {
+			close(syncStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		}
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	select {
+	case <-syncStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade never reached staged-tree sync")
+	}
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.Equal(t, updaterapi.PhasePreflight, operation.Phase)
+	assert.NoFileExists(t, filepath.Join(manager.cfg.StateDir, activationMarkerFilename))
+	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelShutdown()
+	require.NoError(t, manager.Shutdown(shutdownCtx))
+	completed := manager.Status().Operation
+	require.NotNil(t, completed)
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, context.Canceled.Error())
+	assert.NoFileExists(t, filepath.Join(manager.cfg.StateDir, activationMarkerFilename))
+	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+}
+
+func TestManagerStagedTreeSyncUsesActivationDeadlineBeforeSwap(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	manager := newTestManagerWithConfig(t, installRoot, server, &recordingRunner{}, func(cfg *Config) {
+		cfg.ActivationTimeout = 25 * time.Millisecond
+		cfg.syncStagedDeployment = func(ctx context.Context, _ string) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, context.DeadlineExceeded.Error())
+	assert.NoFileExists(t, filepath.Join(manager.cfg.StateDir, activationMarkerFilename))
+	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+}
+
+func TestSyncTreeStopsBeforeWalkingCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "file"), []byte("data"), 0o600))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, syncTree(ctx, root), context.Canceled)
+}
+
 func TestManagerActivationDeadlineLetsShutdownFinishWithoutRollback(t *testing.T) {
 	t.Parallel()
 
@@ -1825,9 +1903,13 @@ func TestManagerCanonicalizesTrustedSelfUpdateAncestor(t *testing.T) {
 	replacementParent := filepath.Join(root, "replacement")
 	for _, parent := range []string{originalParent, replacementParent} {
 		require.NoError(t, os.Mkdir(parent, 0o700))
-		require.NoError(t, os.WriteFile(filepath.Join(parent, "updater"), []byte("current"), 0o755))
 	}
-	require.NoError(t, os.WriteFile(filepath.Join(originalParent, "updater.previous"), []byte("previous"), 0o755))
+	originalUpdater := filepath.Join(originalParent, "updater")
+	require.NoError(t, os.WriteFile(originalUpdater, []byte("previous"), 0o755))
+	candidateUpdater := filepath.Join(originalParent, "updater.candidate")
+	require.NoError(t, os.WriteFile(candidateUpdater, []byte("current"), 0o755))
+	require.NoError(t, installExecutableCandidate(candidateUpdater, originalUpdater))
+	require.NoError(t, os.WriteFile(filepath.Join(replacementParent, "updater"), []byte("current"), 0o755))
 	linkedParent := filepath.Join(root, "linked")
 	require.NoError(t, os.Symlink(originalParent, linkedParent))
 	configuredPath := filepath.Join(linkedParent, "updater")
@@ -2052,13 +2134,15 @@ func TestInstallExecutableCandidateRetainsAndRestoresThePreviousUpdater(t *testi
 	require.NoError(t, installExecutableCandidate(candidatePath, destination))
 	assert.Equal(t, "new updater", mustReadFile(t, destination))
 	assert.Equal(t, "old updater", mustReadFile(t, destination+selfUpdateBackupSuffix))
+	assert.FileExists(t, destination+selfUpdateHandoffSuffix)
 	info, err := os.Stat(destination)
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode().Perm()&0o111)
 
-	require.NoError(t, restorePreviousExecutable(destination))
+	require.NoError(t, rollbackPendingSelfUpdate(destination))
 	assert.Equal(t, "old updater", mustReadFile(t, destination))
-	assert.NoFileExists(t, destination+selfUpdateBackupSuffix)
+	assert.Equal(t, "old updater", mustReadFile(t, destination+selfUpdateBackupSuffix))
+	assert.NoFileExists(t, destination+selfUpdateHandoffSuffix)
 }
 
 func TestValidateUpdaterCandidateRejectsAnUnrunnablePayload(t *testing.T) {
