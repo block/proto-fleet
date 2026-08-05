@@ -46,6 +46,20 @@ func main() {
 	// Apply error configuration from environment
 	applyErrorConfig(state)
 
+	// PROTOTYPE: FAKE_RIG_MINING seeds a pool so the rig reports live hashrate
+	// (no pool → NoPools → zeroed telemetry), making the single-miner Lab demo
+	// show a mining device instead of an idle one.
+	if getEnvBool("FAKE_RIG_MINING", false) {
+		state.AddPool(&Pool{
+			Idx:      0,
+			Priority: 0,
+			Url:      "stratum+tcp://lab-pool.example:3333",
+			Username: "lab.worker",
+			Password: "x",
+		})
+		log.Printf("Lab mining seed: added pool, rig will report Mining")
+	}
+
 	// Set IP address based on outbound interface
 	state.IPAddress = getOutboundIP().String()
 
@@ -66,6 +80,23 @@ func main() {
 	}
 }
 
+// withPrototypeCORS wraps the whole fake-rig mux with permissive CORS so a
+// browser-based Strategy 3 adapter can call the rig directly (PROTOTYPE). This
+// mirrors a real finding: direct browser→miner calls need CORS on the device;
+// real miners lack it, which is exactly why production goes through minerproxy.
+func withPrototypeCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-MDK-Key")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 	mux := http.NewServeMux()
 
@@ -83,7 +114,7 @@ func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
+		Handler: withPrototypeCORS(mux),
 	}
 
 	// Start listening

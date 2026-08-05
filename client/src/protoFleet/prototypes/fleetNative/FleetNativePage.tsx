@@ -5,8 +5,8 @@
  * snapshot for now; the next step swaps `useFleetNativeSnapshot` to call the
  * throwaway `prototype/v1` Connect RPC (GetSingleMinerDetail).
  */
-import { SingleMinerView } from "../shared/SingleMinerView";
 import { buildMockSnapshot } from "../shared/mockData";
+import { SingleMinerView } from "../shared/SingleMinerView";
 
 const FLEET_DATA_PATH = [
   { label: "ProtoFleet client", detail: "React" },

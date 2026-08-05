@@ -45,9 +45,9 @@ function DataPathRibbon({ steps, source }: { steps: DataPathStep[]; source: stri
           <div key={`${step.label}-${i}`} className="flex items-center gap-2">
             <div className="rounded-md bg-surface-elevated-base px-2.5 py-1.5">
               <div className="text-200 text-text-primary">{step.label}</div>
-              {step.detail && <div className="text-heading-100 text-text-primary-50">{step.detail}</div>}
+              {step.detail ? <div className="text-heading-100 text-text-primary-50">{step.detail}</div> : null}
             </div>
-            {i < steps.length - 1 && <span className="text-text-primary-30">→</span>}
+            {i < steps.length - 1 ? <span className="text-text-primary-30">→</span> : null}
           </div>
         ))}
       </div>
@@ -174,7 +174,7 @@ export function SingleMinerView({ snapshot, actions = {} }: SingleMinerViewProps
             <IdentityRow label="MDK" value={snapshot.identity.mdkVersion} />
             <IdentityRow label="MAC" value={snapshot.identity.macAddress} />
             <IdentityRow label="Serial" value={snapshot.identity.serialNumber} />
-            {snapshot.identity.ipAddress && <IdentityRow label="IP" value={snapshot.identity.ipAddress} />}
+            {snapshot.identity.ipAddress ? <IdentityRow label="IP" value={snapshot.identity.ipAddress} /> : null}
           </div>
         </div>
         <ControlBar snapshot={snapshot} actions={actions} />
@@ -193,11 +193,11 @@ export function SingleMinerView({ snapshot, actions = {} }: SingleMinerViewProps
         <AsicGrid snapshot={snapshot} />
       </div>
 
-      {snapshot.updatedAt && (
+      {snapshot.updatedAt ? (
         <div className="text-heading-100 text-text-primary-30">
           Updated {new Date(snapshot.updatedAt).toLocaleTimeString()}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
