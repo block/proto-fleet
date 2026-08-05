@@ -143,9 +143,6 @@ func (config Config) Validate() error {
 	if err != nil || !endpointIP.Is4() || !endpointIP.IsGlobalUnicast() || endpointIP.As4()[0] == 0 {
 		return errors.New("HA endpoint IP must be a routable literal IPv4 address")
 	}
-	if config.LeaseDuration <= endpointOwnershipTimeout {
-		return fmt.Errorf("HA lease duration must be greater than the %s endpoint ownership timeout", endpointOwnershipTimeout)
-	}
 	for _, endpoint := range config.EtcdEndpoints {
 		parsed, err := url.Parse(endpoint)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {

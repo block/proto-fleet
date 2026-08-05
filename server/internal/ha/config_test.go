@@ -62,13 +62,6 @@ func TestHAConfigValidation(t *testing.T) {
 			wantError: "endpoint IP must be a routable literal IPv4 address",
 		},
 		{
-			name: "lease duration cannot cover endpoint ownership",
-			configure: func(config *Config) {
-				config.LeaseDuration = endpointOwnershipTimeout
-			},
-			wantError: "lease duration must be greater than the 5s endpoint ownership timeout",
-		},
-		{
 			name: "lease duration has sub-millisecond precision",
 			configure: func(config *Config) {
 				config.LeaseDuration = 1500 * time.Microsecond
