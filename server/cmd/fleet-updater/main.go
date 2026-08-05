@@ -22,9 +22,17 @@ var version = "dev"
 const selfUpdateHandoffFlag = "self-update-handoff"
 
 func main() {
+	setSecureProcessUmask()
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func setSecureProcessUmask() {
+	// Keep the Unix socket and updater-owned artifacts private from creation,
+	// including when the binary is started outside the hardened systemd unit.
+	// The umask is process-global, so establish it before run starts goroutines.
+	syscall.Umask(0o077)
 }
 
 func run() error {

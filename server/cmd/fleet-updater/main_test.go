@@ -2,13 +2,39 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const updaterUmaskTestHelper = "PROTO_FLEET_UPDATER_UMASK_TEST_HELPER"
+
+func TestMainSetsSecureProcessUmask(t *testing.T) {
+	if os.Getenv(updaterUmaskTestHelper) == "1" {
+		// Keep the process-global umask change inside this one-shot child so it
+		// cannot race the package's parallel tests.
+		syscall.Umask(0)
+		os.Args = []string{"proto-fleet-updater", "--version"}
+		flag.CommandLine = flag.NewFlagSet("proto-fleet-updater", flag.ContinueOnError)
+
+		main()
+
+		actual := syscall.Umask(0)
+		assert.Equal(t, 0o077, actual)
+		return
+	}
+
+	command := exec.Command(os.Args[0], "-test.run=^TestMainSetsSecureProcessUmask$") //nolint:gosec // The current test executable is trusted.
+	command.Env = append(os.Environ(), updaterUmaskTestHelper+"=1")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, "umask helper failed: %s", output)
+}
 
 func TestSelfUpdateExecArgsReplacesPriorHandoff(t *testing.T) {
 	t.Parallel()
