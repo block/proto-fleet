@@ -7,7 +7,7 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
     await page.goto("/");
   });
 
-  test("Numeric and subnet filters persist through reload and clear cleanly", async ({
+  test("Numeric and subnet filters persist through reload and clear cleanly @pr", async ({
     minersPage,
     commonSteps,
     page,
@@ -81,7 +81,11 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
     });
   });
 
-  test("Saved view can be created and reset back to its saved filters", async ({ minersPage, commonSteps, page }) => {
+  test("Saved view can be created and reset back to its saved filters @pr", async ({
+    minersPage,
+    commonSteps,
+    page,
+  }) => {
     const viewName = generateRandomText("miners_view");
     let firstMinerIp = "";
     let firstMinerSubnet = "";

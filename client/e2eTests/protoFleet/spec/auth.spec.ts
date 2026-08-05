@@ -9,7 +9,7 @@ test.describe("Proto Fleet - Authentication", () => {
     await page.goto("/");
   });
 
-  test("Sign in with admin", async ({ authPage, settingsPage, settingsTeamPage }) => {
+  test("Sign in with admin @pr", async ({ authPage, settingsPage, settingsTeamPage }) => {
     await test.step("Log in as admin user", async () => {
       await authPage.inputUsername(testConfig.users.admin.username);
       await authPage.inputPassword(testConfig.users.admin.password);

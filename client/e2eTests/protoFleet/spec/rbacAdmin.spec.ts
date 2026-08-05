@@ -30,7 +30,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     });
   });
 
-  test("Activity read role can view the activity log and export CSV", async ({
+  test("Activity read role can view the activity log and export CSV @pr", async ({
     activityPage,
     browser,
     commonSteps,
@@ -139,7 +139,11 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     });
   });
 
-  test("API-key manage role can create and revoke API keys", async ({ browser, commonSteps, settingsApiKeysPage }) => {
+  test("API-key manage role can create and revoke API keys @pr", async ({
+    browser,
+    commonSteps,
+    settingsApiKeysPage,
+  }) => {
     const apiKeyName = generateRandomText(ADMIN_RBAC_API_KEY_PREFIX);
 
     await test.step("Provision an API-key-manage role", async () => {
@@ -296,7 +300,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     });
   });
 
-  test("Role-manage role auto-selects the required read permission for curtailment management", async ({
+  test("Role-manage role auto-selects the required read permission for curtailment management @pr", async ({
     browser,
     commonSteps,
     settingsPage,

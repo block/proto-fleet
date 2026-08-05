@@ -14,7 +14,7 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - creation", () => {
   useRacksHooks();
 
-  test("Create rack with miners assigned by name", async ({ racksPage }) => {
+  test("Create rack with miners assigned by name @pr", async ({ racksPage }) => {
     let rackLabel = "";
     let orderIndexValue = "";
     let selectedMiners: RackSelectorMiner[] = [];
@@ -69,7 +69,7 @@ test.describe("Racks - creation", () => {
     });
   });
 
-  test("Rack numbering updates when order index changes", async ({ racksPage }) => {
+  test("Rack numbering updates when order index changes @pr", async ({ racksPage }) => {
     const rackLabel = createRackLabel();
     let selectedMiners: RackSelectorMiner[] = [];
 

@@ -5,7 +5,7 @@ test.describe("Miners", () => {
     await page.goto("/");
   });
 
-  test("REBOOT a single miner", async ({ minersPage, page, commonSteps }) => {
+  test("REBOOT a single miner @pr", async ({ minersPage, page, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -150,7 +150,7 @@ test.describe("Miners", () => {
     });
   });
 
-  test("MANAGE POWER for multiple miners", async ({ minersPage, page, commonSteps }) => {
+  test("MANAGE POWER for multiple miners @pr", async ({ minersPage, page, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 

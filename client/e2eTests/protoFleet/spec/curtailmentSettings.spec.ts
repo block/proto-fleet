@@ -150,7 +150,7 @@ test.describe("Proto Fleet - Curtailment Settings", () => {
     }
   });
 
-  test("Create curtailment response profiles and sources", async ({
+  test("Create curtailment response profiles and sources @pr", async ({
     commonSteps,
     page,
     settingsCurtailmentPage,

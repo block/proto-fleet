@@ -42,7 +42,7 @@ test.describe("Proto Fleet - Activity", () => {
     }
   });
 
-  test("Blink LEDs bulk action is visible in Activity with the right miner count", async ({
+  test("Blink LEDs bulk action is visible in Activity with the right miner count @pr", async ({
     activityPage,
     commonSteps,
     minersPage,
@@ -127,7 +127,7 @@ test.describe("Proto Fleet - Activity", () => {
     });
   });
 
-  test("Type and user filter pills can be removed and Activity export starts a CSV download", async ({
+  test("Type and user filter pills can be removed and Activity export starts a CSV download @pr", async ({
     page,
     activityPage,
     commonSteps,
