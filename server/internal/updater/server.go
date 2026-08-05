@@ -37,21 +37,113 @@ func (s *Server) Serve(socketPath string) error {
 	if !filepath.IsAbs(socketPath) {
 		return fmt.Errorf("socket path must be absolute")
 	}
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o750); err != nil {
-		return fmt.Errorf("create updater socket directory: %w", err)
+	if err := prepareUpdaterSocketDirectory(socketPath); err != nil {
+		return err
 	}
 	listener, err := listenUpdaterSocket(socketPath)
 	if err != nil {
 		return err
 	}
-	// #nosec G302 -- root fleet-api needs read/write access through the
-	// bind-mounted Unix socket; the parent directory remains root-only.
-	if err := os.Chmod(socketPath, 0o660); err != nil {
+	if err := secureUpdaterSocket(socketPath); err != nil {
 		listener.Close()
-		return fmt.Errorf("set updater socket permissions: %w", err)
+		return err
 	}
 	if err := s.http.Serve(listener); err != nil {
 		return fmt.Errorf("serve updater API: %w", err)
+	}
+	return nil
+}
+
+// prepareUpdaterSocketDirectory establishes the filesystem authentication
+// boundary for the updater API. The socket is not network-reachable and its
+// intended caller is the root fleet-api process, so a trusted directory chain
+// plus a daemon-owned 0660 socket is sufficient without a second application
+// authentication protocol.
+func prepareUpdaterSocketDirectory(socketPath string) error {
+	socketDir := filepath.Dir(socketPath)
+	if err := os.MkdirAll(socketDir, 0o750); err != nil {
+		return fmt.Errorf("create updater socket directory: %w", err)
+	}
+	if err := validateUpdaterSocketDirectoryChain(socketDir); err != nil {
+		return fmt.Errorf("validate updater socket directory: %w", err)
+	}
+	return nil
+}
+
+// validateUpdaterSocketDirectoryChain checks both the configured and resolved
+// paths. A protected symlink in an ancestor (for example, /tmp on macOS) is
+// safe once its containing and target directory chains are both trusted, but
+// the socket directory itself must never be a symlink.
+func validateUpdaterSocketDirectoryChain(socketDir string) error {
+	if err := walkUpdaterSocketDirectoryChain(socketDir, true); err != nil {
+		return err
+	}
+	resolvedDir, err := filepath.EvalSymlinks(socketDir)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", socketDir, err)
+	}
+	if resolvedDir != socketDir {
+		if err := walkUpdaterSocketDirectoryChain(resolvedDir, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func walkUpdaterSocketDirectoryChain(path string, rejectFirstSymlink bool) error {
+	euid := uint32(os.Geteuid()) //nolint:gosec // Effective UIDs are non-negative on supported Unix hosts.
+	current := filepath.Clean(path)
+	first := true
+	for {
+		info, err := os.Lstat(current)
+		if err != nil {
+			return fmt.Errorf("inspect path component %s: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if first && rejectFirstSymlink {
+				return fmt.Errorf("socket directory %s must not be a symlink", current)
+			}
+			// The containing directory is checked below and the symlink target
+			// is checked by the resolved-path walk above.
+		} else {
+			if !info.IsDir() {
+				return fmt.Errorf("path component %s is not a directory", current)
+			}
+			stat, ok := info.Sys().(*syscall.Stat_t)
+			if !ok {
+				return fmt.Errorf("path component %s has unsupported stat type %T", current, info.Sys())
+			}
+			if stat.Uid != 0 && stat.Uid != euid {
+				return fmt.Errorf("path component %s owner uid %d must be root or daemon uid %d", current, stat.Uid, euid)
+			}
+			mode := info.Mode()
+			if mode.Perm()&0o022 != 0 && (first || mode&os.ModeSticky == 0) {
+				return fmt.Errorf("path component %s mode %#o must not be group- or world-writable", current, mode.Perm())
+			}
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+		first = false
+	}
+	return nil
+}
+
+func secureUpdaterSocket(socketPath string) error {
+	// A setgid socket directory can otherwise make a newly bound socket
+	// inherit an unintended group. Set both IDs explicitly before chmod because
+	// chown is permitted to clear mode bits on supported Unix hosts.
+	if err := os.Chown(socketPath, os.Geteuid(), os.Getegid()); err != nil {
+		return fmt.Errorf("set updater socket ownership: %w", err)
+	}
+	// #nosec G302 -- the root fleet-api caller needs read/write access through
+	// the bind-mounted Unix socket; the validated parent directory is 0750 or
+	// stricter and every writable ancestor is protected by the sticky bit.
+	if err := os.Chmod(socketPath, 0o660); err != nil {
+		return fmt.Errorf("set updater socket permissions: %w", err)
 	}
 	return nil
 }

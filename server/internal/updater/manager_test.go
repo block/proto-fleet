@@ -1403,6 +1403,134 @@ func TestManagerRejectsUnrecoverableInterruptedActivationLayout(t *testing.T) {
 	require.ErrorContains(t, err, "both deployment and deployment.previous are missing")
 }
 
+func TestManagerRejectsWritableStateDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{name: "group writable", mode: 0o770},
+		{name: "world writable", mode: 0o707},
+		{name: "sticky world writable", mode: os.ModeSticky | 0o707},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			stateDir := filepath.Join(t.TempDir(), "state")
+			require.NoError(t, os.Mkdir(stateDir, 0o700))
+			require.NoError(t, os.Chmod(stateDir, test.mode))
+
+			_, err := NewManager(Config{
+				InstallRoot: t.TempDir(),
+				StateDir:    stateDir,
+				GOARCH:      "amd64",
+			})
+			require.ErrorContains(t, err, "state directory must not be group- or world-writable")
+		})
+	}
+}
+
+func TestManagerRejectsWritableStateDirectoryAncestor(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{name: "group writable", mode: 0o770},
+		{name: "world writable", mode: 0o707},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			unsafeAncestor := filepath.Join(t.TempDir(), "unsafe")
+			require.NoError(t, os.Mkdir(unsafeAncestor, 0o700))
+			require.NoError(t, os.Chmod(unsafeAncestor, test.mode))
+			t.Cleanup(func() {
+				// #nosec G302 -- directories require execute permission for cleanup.
+				assert.NoError(t, os.Chmod(unsafeAncestor, 0o700))
+			})
+
+			_, err := NewManager(Config{
+				InstallRoot: t.TempDir(),
+				StateDir:    filepath.Join(unsafeAncestor, "nested", "state"),
+				GOARCH:      "amd64",
+			})
+			require.ErrorContains(t, err, "state ancestor is group- or world-writable without the sticky bit")
+		})
+	}
+}
+
+func TestManagerAllowsStickySharedStateDirectoryAncestor(t *testing.T) {
+	t.Parallel()
+
+	sharedAncestor := filepath.Join(t.TempDir(), "shared")
+	require.NoError(t, os.Mkdir(sharedAncestor, 0o700))
+	require.NoError(t, os.Chmod(sharedAncestor, os.ModeSticky|0o777))
+	t.Cleanup(func() {
+		// #nosec G302 -- directories require execute permission for cleanup.
+		assert.NoError(t, os.Chmod(sharedAncestor, 0o700))
+	})
+	stateDir := filepath.Join(sharedAncestor, "owned", "state")
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	info, err := os.Stat(stateDir)
+	require.NoError(t, err)
+	assert.Zero(t, info.Mode().Perm()&0o077)
+}
+
+func TestManagerRejectsStateDirectorySymlink(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	require.NoError(t, os.Mkdir(target, 0o700))
+	stateDir := filepath.Join(root, "state")
+	require.NoError(t, os.Symlink(target, stateDir))
+
+	_, err := NewManager(Config{
+		InstallRoot: t.TempDir(),
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.ErrorContains(t, err, "state directory must not be a symlink")
+}
+
+func TestManagerCanonicalizesTrustedStateDirectorySymlinkAncestor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	realParent := filepath.Join(root, "real")
+	require.NoError(t, os.Mkdir(realParent, 0o700))
+	linkedParent := filepath.Join(root, "linked")
+	require.NoError(t, os.Symlink(realParent, linkedParent))
+	stateDir := filepath.Join(linkedParent, "state")
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	canonicalStateDir, err := filepath.EvalSymlinks(stateDir)
+	require.NoError(t, err)
+	assert.Equal(t, canonicalStateDir, manager.cfg.StateDir)
+}
+
 func TestManagerRejectsUnsafeDownloadBaseURLs(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -57,6 +58,112 @@ func TestListenUpdaterSocketRefusesNonSocketPath(t *testing.T) {
 	_, err := listenUpdaterSocket(socketPath)
 	require.ErrorContains(t, err, "refusing to replace non-socket path")
 	assert.Equal(t, "not a socket", mustReadFile(t, socketPath))
+}
+
+func TestPrepareUpdaterSocketDirectoryRefusesSymlink(t *testing.T) {
+	t.Parallel()
+
+	root, err := os.MkdirTemp("/tmp", "proto-fleet-updater-dir-test-") //nolint:usetesting
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(root)) })
+	realDirectory := filepath.Join(root, "real")
+	require.NoError(t, os.Mkdir(realDirectory, 0o700))
+	symlinkDirectory := filepath.Join(root, "socket-dir")
+	require.NoError(t, os.Symlink(realDirectory, symlinkDirectory))
+
+	err = prepareUpdaterSocketDirectory(filepath.Join(symlinkDirectory, "updater.sock"))
+	require.ErrorContains(t, err, "must not be a symlink")
+}
+
+func TestPrepareUpdaterSocketDirectoryRefusesWritableDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		mode os.FileMode
+	}{
+		{name: "group writable", mode: 0o770},
+		{name: "world writable even when sticky", mode: 0o777 | os.ModeSticky},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			socketPath := shortSocketPath(t)
+			require.NoError(t, os.Chmod(filepath.Dir(socketPath), test.mode))
+
+			err := prepareUpdaterSocketDirectory(socketPath)
+			require.ErrorContains(t, err, "must not be group- or world-writable")
+		})
+	}
+}
+
+func TestPrepareUpdaterSocketDirectoryAllowsStickySharedAncestor(t *testing.T) {
+	t.Parallel()
+
+	root, err := os.MkdirTemp("/tmp", "proto-fleet-updater-dir-test-") //nolint:usetesting
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(root)) })
+	sharedDirectory := filepath.Join(root, "shared")
+	require.NoError(t, os.Mkdir(sharedDirectory, 0o700))
+	require.NoError(t, os.Chmod(sharedDirectory, 0o777|os.ModeSticky))
+	socketDirectory := filepath.Join(sharedDirectory, "socket-dir")
+	require.NoError(t, os.Mkdir(socketDirectory, 0o700))
+
+	require.NoError(t, prepareUpdaterSocketDirectory(filepath.Join(socketDirectory, "updater.sock")))
+}
+
+func TestSecureUpdaterSocketOverridesSetgidDirectoryAndSetsMode(t *testing.T) {
+	t.Parallel()
+
+	socketPath := shortSocketPath(t)
+	directory := filepath.Dir(socketPath)
+	inheritedGID := alternateOwnedGroup(t)
+	require.NoError(t, os.Chown(directory, os.Geteuid(), inheritedGID))
+	require.NoError(t, os.Chmod(directory, 0o750|os.ModeSetgid))
+	directoryInfo, err := os.Lstat(directory)
+	require.NoError(t, err)
+	require.NotZero(t, directoryInfo.Mode()&os.ModeSetgid)
+	require.NoError(t, prepareUpdaterSocketDirectory(socketPath))
+
+	listener, err := listenUpdaterSocket(socketPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+	if inheritedGID != os.Getegid() {
+		inheritedInfo, err := os.Lstat(socketPath)
+		require.NoError(t, err)
+		inheritedStat, ok := inheritedInfo.Sys().(*syscall.Stat_t)
+		require.True(t, ok)
+		require.Equal(t, uint32(inheritedGID), inheritedStat.Gid) //nolint:gosec // Test GIDs are non-negative.
+	}
+
+	require.NoError(t, secureUpdaterSocket(socketPath))
+	info, err := os.Lstat(socketPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o660), info.Mode().Perm())
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	require.True(t, ok)
+	assert.Equal(t, uint32(os.Geteuid()), stat.Uid) //nolint:gosec // Effective UIDs are non-negative on supported Unix hosts.
+	assert.Equal(t, uint32(os.Getegid()), stat.Gid) //nolint:gosec // Effective GIDs are non-negative on supported Unix hosts.
+}
+
+func alternateOwnedGroup(t *testing.T) int {
+	t.Helper()
+	for _, gid := range mustGetgroups(t) {
+		if gid != os.Getegid() {
+			return gid
+		}
+	}
+	if os.Geteuid() == 0 {
+		return os.Getegid() + 1
+	}
+	return os.Getegid()
+}
+
+func mustGetgroups(t *testing.T) []int {
+	t.Helper()
+	groups, err := os.Getgroups()
+	require.NoError(t, err)
+	return groups
 }
 
 func shortSocketPath(t *testing.T) string {

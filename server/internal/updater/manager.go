@@ -143,18 +143,137 @@ type Manager struct {
 	closeErr         error
 }
 
-func ensureUpdaterStateDirectory(stateDir string) error {
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		return fmt.Errorf("create updater state directory: %w", err)
+// ensureUpdaterStateDirectory establishes the trust boundary that permits the
+// updater to reopen state and downloaded artifacts by pathname. Every path
+// component must be owned by root or the current effective user. Group- and
+// world-writable components are rejected except for sticky shared ancestors
+// (for example /tmp), where an untrusted user cannot replace a trusted-owned
+// child. The state directory itself is never allowed to be group- or
+// world-writable.
+func ensureUpdaterStateDirectory(stateDir string) (string, error) {
+	stateDir = filepath.Clean(stateDir)
+
+	existingPath, err := nearestExistingPath(stateDir)
+	if err != nil {
+		return "", err
 	}
+	existingIsStateDir := existingPath == stateDir
+	if err := validateTrustedUpdaterPath(existingPath, existingIsStateDir); err != nil {
+		return "", err
+	}
+	existingCanonical, err := filepath.EvalSymlinks(existingPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve existing updater state ancestor: %w", err)
+	}
+	if err := validateTrustedUpdaterPath(existingCanonical, existingIsStateDir); err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return "", fmt.Errorf("create updater state directory: %w", err)
+	}
+	if err := validateTrustedUpdaterPath(stateDir, true); err != nil {
+		return "", err
+	}
+	canonicalStateDir, err := filepath.EvalSymlinks(stateDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve updater state directory: %w", err)
+	}
+	if err := validateTrustedUpdaterPath(canonicalStateDir, true); err != nil {
+		return "", err
+	}
+
 	stateInfo, err := os.Lstat(stateDir)
 	if err != nil {
-		return fmt.Errorf("inspect updater state directory: %w", err)
+		return "", fmt.Errorf("inspect updater state directory: %w", err)
 	}
-	if !stateInfo.IsDir() {
-		return fmt.Errorf("updater state path is not a directory")
+	canonicalInfo, err := os.Lstat(canonicalStateDir)
+	if err != nil {
+		return "", fmt.Errorf("inspect canonical updater state directory: %w", err)
+	}
+	if !os.SameFile(stateInfo, canonicalInfo) {
+		return "", fmt.Errorf("updater state directory changed while it was validated")
+	}
+	return canonicalStateDir, nil
+}
+
+func nearestExistingPath(path string) (string, error) {
+	for candidate := path; ; candidate = filepath.Dir(candidate) {
+		_, err := os.Lstat(candidate)
+		if err == nil {
+			return candidate, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("inspect updater state ancestor %q: %w", candidate, err)
+		}
+		if parent := filepath.Dir(candidate); parent == candidate {
+			return "", fmt.Errorf("find existing updater state ancestor for %q", path)
+		}
+	}
+}
+
+func validateTrustedUpdaterPath(path string, finalIsStateDir bool) error {
+	components := pathComponents(path)
+	for index, component := range components {
+		info, err := os.Lstat(component)
+		if err != nil {
+			return fmt.Errorf("inspect updater state path component %q: %w", component, err)
+		}
+		isFinal := index == len(components)-1
+		if info.Mode()&os.ModeSymlink != 0 {
+			if finalIsStateDir && isFinal {
+				return fmt.Errorf("updater state directory must not be a symlink: %q", component)
+			}
+			if err := validateTrustedUpdaterOwner(component, info); err != nil {
+				return err
+			}
+			continue
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("updater state path component is not a directory: %q", component)
+		}
+		if err := validateTrustedUpdaterOwner(component, info); err != nil {
+			return err
+		}
+		if info.Mode().Perm()&0o022 == 0 {
+			continue
+		}
+		if finalIsStateDir && isFinal {
+			return fmt.Errorf("updater state directory must not be group- or world-writable: %q", component)
+		}
+		if info.Mode()&os.ModeSticky == 0 {
+			return fmt.Errorf("updater state ancestor is group- or world-writable without the sticky bit: %q", component)
+		}
 	}
 	return nil
+}
+
+func validateTrustedUpdaterOwner(path string, info os.FileInfo) error {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("inspect owner of updater state path component %q", path)
+	}
+	euid := uint32(os.Geteuid()) //nolint:gosec // Effective UIDs are non-negative on supported Unix hosts.
+	if stat.Uid != 0 && stat.Uid != euid {
+		return fmt.Errorf("updater state path component %q is owned by untrusted UID %d", path, stat.Uid)
+	}
+	return nil
+}
+
+func pathComponents(path string) []string {
+	var reversed []string
+	for component := filepath.Clean(path); ; component = filepath.Dir(component) {
+		reversed = append(reversed, component)
+		parent := filepath.Dir(component)
+		if parent == component {
+			break
+		}
+	}
+	components := make([]string, len(reversed))
+	for index := range reversed {
+		components[index] = reversed[len(reversed)-1-index]
+	}
+	return components
 }
 
 func openOperationLogRoot(stateDir string) (*os.Root, error) {
@@ -269,9 +388,11 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.PreflightTimeout < 0 || cfg.ActivationTimeout < 0 || cfg.CleanupTimeout < 0 {
 		return nil, fmt.Errorf("updater phase timeouts must be positive")
 	}
-	if err := ensureUpdaterStateDirectory(cfg.StateDir); err != nil {
+	canonicalStateDir, err := ensureUpdaterStateDirectory(cfg.StateDir)
+	if err != nil {
 		return nil, err
 	}
+	cfg.StateDir = canonicalStateDir
 	processLock, err := acquireProcessLock(cfg.StateDir)
 	if err != nil {
 		return nil, err
