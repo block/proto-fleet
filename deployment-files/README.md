@@ -247,13 +247,15 @@ So the alert firing does not by itself mean ingest died. Check the raw
 samples first — this is the discriminator:
 
 ```bash
-docker exec -i <timescaledb-container> psql -U fleet -d fleet -c \
-  "SELECT organization_id, max(time) AS newest,
-          round(extract(epoch from now() - max(time))) AS staleness_seconds
-     FROM notification_metric_sample
-    WHERE metric = 'fleet_telemetry_poll_total'
-      AND time > now() - INTERVAL '15 minutes'
-    GROUP BY organization_id"
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT organization_id, max(time) AS newest,
+       round(extract(epoch from now() - max(time))) AS staleness_seconds
+  FROM notification_metric_sample
+ WHERE metric = 'fleet_telemetry_poll_total'
+   AND time > now() - INTERVAL '15 minutes'
+ GROUP BY organization_id;
+SQL
 ```
 
 If the newest raw sample is also stale, the stall is real: check fleet-api
@@ -261,16 +263,31 @@ and its metrics writer (`docker logs … | grep 'metrics:'`). If raw samples
 are landing fine, the aggregate is the problem — check its refresh policy:
 
 ```bash
-docker exec -i <timescaledb-container> psql -U fleet -d fleet -c \
-  "SELECT job_status, last_successful_finish, total_failures
-     FROM timescaledb_information.job_stats
-    WHERE job_id IN (SELECT job_id FROM timescaledb_information.jobs
-                      WHERE hypertable_name = 'fleet_telemetry_poll_heartbeat')"
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT s.job_id, s.job_status, s.last_successful_finish, s.total_failures
+  FROM timescaledb_information.job_stats s
+  JOIN timescaledb_information.jobs j ON j.job_id = s.job_id
+ WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
+   AND j.hypertable_name IN (
+       SELECT ca.view_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat'
+       UNION ALL
+       SELECT ca.materialization_hypertable_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat');
+SQL
 ```
 
+The `proc_name` filter excludes the aggregate's retention policy, which is
+also registered against the same hypertable; matching the materialization
+hypertable name too covers the TimescaleDB versions that label a refresh
+policy that way rather than by view name.
+
 A `job_status` of `Paused`, or a `last_successful_finish` well in the past,
-confirms it. Resume the job and backfill enough buckets to clear the alert
-(the `CALL` must not run inside a transaction):
+confirms it. Resume the job with the `job_id` from above and backfill enough
+buckets to clear the alert (the `CALL` must not run inside a transaction):
 
 ```sql
 SELECT alter_job(<job_id>, scheduled => true);
