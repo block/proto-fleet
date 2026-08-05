@@ -4,6 +4,7 @@ package updates
 
 import (
 	"context"
+	"errors"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -41,11 +42,16 @@ func (h *Handler) authorize(ctx context.Context) (int64, error) {
 	return info.OrganizationID, nil
 }
 
-// mapErr is the sibling-handler seam for translating domain errors into
-// transport codes. The updates domain returns fleeterror values (which
-// already carry codes) or wrapped storage errors (which the error-mapping
-// interceptor turns into Internal), so nothing needs translating yet.
+// mapErr preserves caller cancellation at the transport boundary. The global
+// error interceptor intentionally treats otherwise-unclassified errors as
+// Internal, including wrapped context errors.
 func mapErr(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return connect.NewError(connect.CodeCanceled, err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return connect.NewError(connect.CodeDeadlineExceeded, err)
+	}
 	return err
 }
 

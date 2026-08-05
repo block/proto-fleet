@@ -6,14 +6,21 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"connectrpc.com/authn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
@@ -26,19 +33,29 @@ type fakeSnapshots struct{ snap Snapshot }
 func (f *fakeSnapshots) Snapshot() Snapshot { return f.snap }
 
 type fakeExecutor struct {
-	status     updaterapi.StatusResponse
-	statusErr  error
-	triggered  []string
-	trigger    updaterapi.Operation
-	triggerErr error
+	status       updaterapi.StatusResponse
+	statusErr    error
+	statusFunc   func(context.Context) (updaterapi.StatusResponse, error)
+	operationIDs []string
+	triggered    []string
+	trigger      updaterapi.Operation
+	triggerErr   error
+	triggerFunc  func(context.Context, string, string) (updaterapi.Operation, error)
 }
 
-func (f *fakeExecutor) Status(context.Context) (updaterapi.StatusResponse, error) {
+func (f *fakeExecutor) Status(ctx context.Context) (updaterapi.StatusResponse, error) {
+	if f.statusFunc != nil {
+		return f.statusFunc(ctx)
+	}
 	return f.status, f.statusErr
 }
 
-func (f *fakeExecutor) Trigger(_ context.Context, targetVersion string) (updaterapi.Operation, error) {
+func (f *fakeExecutor) Trigger(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
+	f.operationIDs = append(f.operationIDs, operationID)
 	f.triggered = append(f.triggered, targetVersion)
+	if f.triggerFunc != nil {
+		return f.triggerFunc(ctx, operationID, targetVersion)
+	}
 	return f.trigger, f.triggerErr
 }
 
@@ -633,6 +650,231 @@ func TestTriggerUpgradeMapsExecutorConflict(t *testing.T) {
 	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err))
+}
+
+func newEligibleUpgradeService(t *testing.T) *Service {
+	t.Helper()
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v1.1.0"),
+		StableAvailable: true,
+		RCAvailable:     true,
+	}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	return svc
+}
+
+func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded activitymodels.Event
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, event *activitymodels.Event) error {
+			assert.NoError(t, ctx.Err(), "accepted-operation audit must be detached from caller cancellation")
+			recorded = *event
+			return nil
+		},
+	)
+
+	svc := newEligibleUpgradeService(t)
+	svc.activitySvc = activity.NewService(activityStore)
+	executor := &fakeExecutor{}
+	var accepted *updaterapi.Operation
+	executor.statusFunc = func(context.Context) (updaterapi.StatusResponse, error) {
+		return updaterapi.StatusResponse{Operation: accepted}, nil
+	}
+
+	requestCtx, cancelRequest := context.WithCancel(authn.SetInfo(context.Background(), &session.Info{
+		OrganizationID: 1,
+		ExternalUserID: "user-1",
+		Username:       "test-operator",
+	}))
+	executor.triggerFunc = func(triggerCtx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
+		accepted = &updaterapi.Operation{
+			ID:            operationID,
+			TargetVersion: targetVersion,
+			Phase:         updaterapi.PhaseQueued,
+		}
+		cancelRequest()
+		assert.NoError(t, triggerCtx.Err(), "host mutation must outlive browser cancellation")
+		return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset after accept")}
+	}
+	svc.executor = executor
+
+	operation, err := svc.TriggerUpgrade(requestCtx, 1, "v1.1.0")
+	require.NoError(t, err)
+	require.NotNil(t, accepted)
+	assert.Equal(t, *accepted, operation)
+	assert.Equal(t, "instance_upgrade_triggered", recorded.Type)
+	require.NotNil(t, recorded.UserID)
+	require.NotNil(t, recorded.Username)
+	assert.Equal(t, "user-1", *recorded.UserID)
+	assert.Equal(t, "test-operator", *recorded.Username)
+	assert.Equal(t, operation.ID, recorded.Metadata["operation_id"])
+	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
+}
+
+func TestTriggerUpgradeDoesNotClaimAnotherOperationAfterAmbiguousFailure(t *testing.T) {
+	t.Parallel()
+
+	svc := newEligibleUpgradeService(t)
+	executor := &fakeExecutor{}
+	triggered := false
+	executor.statusFunc = func(context.Context) (updaterapi.StatusResponse, error) {
+		if !triggered {
+			return updaterapi.StatusResponse{}, nil
+		}
+		return updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+			ID:            "22222222-2222-4222-8222-222222222222",
+			TargetVersion: "v1.1.0",
+			Phase:         updaterapi.PhaseQueued,
+		}}, nil
+	}
+	executor.triggerFunc = func(context.Context, string, string) (updaterapi.Operation, error) {
+		triggered = true
+		return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset")}
+	}
+	svc.executor = executor
+
+	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+}
+
+func TestTriggerUpgradePreservesUnknownOutcomeAfterDefinitiveRetryFailure(t *testing.T) {
+	t.Parallel()
+
+	svc := newEligibleUpgradeService(t)
+	executor := &fakeExecutor{}
+	attempt := 0
+	executor.triggerFunc = func(context.Context, string, string) (updaterapi.Operation, error) {
+		attempt++
+		if attempt == 1 {
+			return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset after accept")}
+		}
+		return updaterapi.Operation{}, &executorHTTPError{
+			StatusCode: http.StatusServiceUnavailable,
+			Message:    "updater is restarting",
+		}
+	}
+	svc.executor = executor
+
+	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Contains(t, err.Error(), "did not confirm the upgrade")
+	assert.NotContains(t, err.Error(), "use the install command")
+	assert.Equal(t, 2, attempt)
+}
+
+func TestTriggerUpgradeMapsExecutorFailures(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		err   error
+		check func(error) bool
+	}{
+		{
+			name:  "socket unavailable",
+			err:   errExecutorUnavailable,
+			check: fleeterror.IsUnavailableError,
+		},
+		{
+			name:  "transport timeout",
+			err:   &executorTransportError{cause: context.DeadlineExceeded},
+			check: fleeterror.IsUnavailableError,
+		},
+		{
+			name:  "bad request",
+			err:   &executorHTTPError{StatusCode: http.StatusBadRequest, Message: "invalid target"},
+			check: fleeterror.IsFailedPreconditionError,
+		},
+		{
+			name:  "host precondition",
+			err:   &executorHTTPError{StatusCode: http.StatusPreconditionFailed, Message: "target is not newer"},
+			check: fleeterror.IsFailedPreconditionError,
+		},
+		{
+			name:  "conflict",
+			err:   &executorHTTPError{StatusCode: http.StatusConflict, Message: "upgrade already running"},
+			check: fleeterror.IsAlreadyExistsError,
+		},
+		{
+			name: "updater closing",
+			err:  &executorHTTPError{StatusCode: http.StatusServiceUnavailable, Message: "privileged detail"},
+			check: func(err error) bool {
+				return fleeterror.IsUnavailableError(err) && !strings.Contains(err.Error(), "privileged detail")
+			},
+		},
+		{
+			name: "updater internal fault",
+			err:  &executorHTTPError{StatusCode: http.StatusInternalServerError, Message: "/root/secret/path"},
+			check: func(err error) bool {
+				return !fleeterror.IsUnavailableError(err) &&
+					strings.Contains(err.Error(), "HTTP status 500") &&
+					!strings.Contains(err.Error(), "/root/secret/path")
+			},
+		},
+		{
+			name: "malformed accepted response",
+			err:  &executorProtocolError{cause: errors.New("malformed JSON")},
+			check: func(err error) bool {
+				return !fleeterror.IsUnavailableError(err) && strings.Contains(err.Error(), "malformed JSON")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			svc := newEligibleUpgradeService(t)
+			svc.executor = &fakeExecutor{triggerErr: test.err}
+
+			_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+			require.Error(t, err)
+			assert.True(t, test.check(err), "unexpected mapped error: %v", err)
+		})
+	}
+}
+
+func TestTriggerUpgradeHonorsCanceledCallerBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		ctx  func() context.Context
+		want error
+	}{
+		{
+			name: "canceled",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			want: context.Canceled,
+		},
+		{
+			name: "deadline",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			want: context.DeadlineExceeded,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			executor := &fakeExecutor{}
+			svc := newEligibleUpgradeService(t)
+			svc.executor = executor
+
+			_, err := svc.TriggerUpgrade(test.ctx(), 1, "v1.1.0")
+			assert.ErrorIs(t, err, test.want)
+			assert.Empty(t, executor.triggered)
+		})
+	}
 }
 
 func TestGetUpgradeStatusReturnsDurableOperation(t *testing.T) {

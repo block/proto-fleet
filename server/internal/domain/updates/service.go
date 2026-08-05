@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/mod/semver"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
@@ -29,6 +30,10 @@ const (
 	ChannelStable Channel = "stable"
 	// ChannelStableAndRC also offers release candidates.
 	ChannelStableAndRC Channel = "stable_and_rc"
+
+	executorStatusTimeout  = 2 * time.Second
+	executorTriggerTimeout = 6 * time.Second
+	upgradeAuditTimeout    = 5 * time.Second
 )
 
 // UpdateStatus is the gated, channel-filtered update offer for one org.
@@ -150,7 +155,7 @@ func (s *Service) executorAvailable(ctx context.Context) bool {
 	if s.executor == nil {
 		return false
 	}
-	statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
 	defer cancel()
 	_, err := s.executor.Status(statusCtx)
 	return err == nil
@@ -174,43 +179,115 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targ
 	if s.executor == nil {
 		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("one-click updates are not installed on this host")
 	}
-	operation, err := s.executor.Trigger(ctx, targetVersion)
+	if err := ctx.Err(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
+	}
+
+	// Authorization and target validation are complete. Detach the privileged
+	// local mutation from browser cancellation, but keep a hard bound so a
+	// wedged socket cannot hold the RPC forever.
+	operationID := uuid.NewString()
+	operation, err := s.triggerUpgrade(context.WithoutCancel(ctx), operationID, targetVersion)
 	if err == nil {
-		orgID := organizationID
-		event := activitymodels.Event{
-			Category:       activitymodels.CategorySystem,
-			Type:           "instance_upgrade_triggered",
-			OrganizationID: &orgID,
-			Description:    fmt.Sprintf("Triggered instance upgrade to %s", targetVersion),
-			Metadata: map[string]any{
-				"operation_id":   operation.ID,
-				"target_version": targetVersion,
-			},
-		}
-		activity.StampActor(ctx, &event)
-		s.activitySvc.Log(ctx, event)
+		s.logUpgradeTriggered(ctx, organizationID, operation)
 		return operation, nil
 	}
+
+	// A reset, timeout, or malformed accepted response does not prove that the
+	// mutation failed. Retry once with the same caller-supplied operation ID so
+	// a request still finishing admission can return its durable operation, or
+	// a request that never arrived can be safely admitted. If that response is
+	// also inconclusive, an exact status match is authoritative and cannot be
+	// confused with another operator's same-target request.
+	if ambiguousExecutorResult(err) {
+		operation, retryErr := s.triggerUpgrade(context.WithoutCancel(ctx), operationID, targetVersion)
+		if retryErr == nil {
+			s.logUpgradeTriggered(ctx, organizationID, operation)
+			return operation, nil
+		}
+		if reconciled, ok := s.reconcileUpgrade(ctx, operationID, targetVersion); ok {
+			s.logUpgradeTriggered(ctx, organizationID, reconciled)
+			return reconciled, nil
+		}
+	}
+	return updaterapi.Operation{}, mapExecutorTriggerError(err)
+}
+
+func (s *Service) triggerUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
+	triggerCtx, cancel := context.WithTimeout(ctx, executorTriggerTimeout)
+	defer cancel()
+	return s.executor.Trigger(triggerCtx, operationID, targetVersion)
+}
+
+func ambiguousExecutorResult(err error) bool {
+	var transportErr *executorTransportError
+	var protocolErr *executorProtocolError
+	return errors.As(err, &transportErr) || errors.As(err, &protocolErr)
+}
+
+func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, bool) {
+	statusCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), executorStatusTimeout)
+	defer cancel()
+	status, err := s.executor.Status(statusCtx)
+	if err != nil || status.Operation == nil {
+		return updaterapi.Operation{}, false
+	}
+	operation := *status.Operation
+	if operation.ID != operationID || operation.TargetVersion != targetVersion {
+		return updaterapi.Operation{}, false
+	}
+	return operation, true
+}
+
+func mapExecutorTriggerError(err error) error {
 	if errors.Is(err, errExecutorUnavailable) {
-		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("host updater is unavailable; use the install command instead")
+		return fleeterror.NewUnavailableErrorf("host updater is unavailable; use the install command instead")
 	}
 	var httpErr *executorHTTPError
 	if errors.As(err, &httpErr) {
 		switch httpErr.StatusCode {
 		case http.StatusConflict:
-			return updaterapi.Operation{}, fleeterror.NewAlreadyExistsError(httpErr.Message)
-		case http.StatusBadRequest:
-			return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError(httpErr.Message)
+			return fleeterror.NewAlreadyExistsError(httpErr.Message)
+		case http.StatusBadRequest, http.StatusPreconditionFailed:
+			return fleeterror.NewFailedPreconditionError(httpErr.Message)
+		case http.StatusServiceUnavailable:
+			return fleeterror.NewUnavailableErrorf("host updater is temporarily unavailable; use the install command instead")
 		}
+		return fmt.Errorf("host updater rejected trigger with HTTP status %d", httpErr.StatusCode)
 	}
-	return updaterapi.Operation{}, fmt.Errorf("trigger host upgrade: %w", err)
+	var transportErr *executorTransportError
+	if errors.As(err, &transportErr) || errors.Is(err, context.DeadlineExceeded) {
+		return fleeterror.NewUnavailableErrorf("host updater did not confirm the upgrade; check its status before retrying")
+	}
+	if errors.Is(err, context.Canceled) {
+		return fleeterror.NewUnavailableErrorf("host updater canceled the upgrade request before confirming it")
+	}
+	return fmt.Errorf("trigger host upgrade: %w", err)
+}
+
+func (s *Service) logUpgradeTriggered(ctx context.Context, organizationID int64, operation updaterapi.Operation) {
+	orgID := organizationID
+	event := activitymodels.Event{
+		Category:       activitymodels.CategorySystem,
+		Type:           "instance_upgrade_triggered",
+		OrganizationID: &orgID,
+		Description:    fmt.Sprintf("Triggered instance upgrade to %s", operation.TargetVersion),
+		Metadata: map[string]any{
+			"operation_id":   operation.ID,
+			"target_version": operation.TargetVersion,
+		},
+	}
+	activity.StampActor(ctx, &event)
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), upgradeAuditTimeout)
+	defer cancel()
+	s.activitySvc.Log(auditCtx, event)
 }
 
 func (s *Service) GetUpgradeStatus(ctx context.Context) UpgradeStatus {
 	if s.executor == nil {
 		return UpgradeStatus{}
 	}
-	statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
 	defer cancel()
 	status, err := s.executor.Status(statusCtx)
 	if err != nil {

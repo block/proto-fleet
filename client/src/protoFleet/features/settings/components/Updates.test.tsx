@@ -81,7 +81,9 @@ const RELEASE_NOTES_URL = "https://github.com/block/proto-fleet/releases/tag/v1.
 const DISMISSED_UPDATE_TAG_KEY = "dismissedUpdateTag";
 const SET_CHANNEL_RESPONSE = create(SetReleaseChannelResponseSchema);
 
-const buildReleaseInfo = (overrides?: Partial<ReleaseInfo>): ReleaseInfo =>
+type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
+
+const buildReleaseInfo = (overrides?: MessageOverrides<ReleaseInfo>): ReleaseInfo =>
   create(ReleaseInfoSchema, {
     version: "v1.3.0",
     releaseNotesUrl: RELEASE_NOTES_URL,
@@ -89,7 +91,7 @@ const buildReleaseInfo = (overrides?: Partial<ReleaseInfo>): ReleaseInfo =>
     ...overrides,
   });
 
-const buildStatus = (overrides?: Partial<GetUpdateStatusResponse>): GetUpdateStatusResponse =>
+const buildStatus = (overrides?: MessageOverrides<GetUpdateStatusResponse>): GetUpdateStatusResponse =>
   create(GetUpdateStatusResponseSchema, {
     currentVersion: "v1.2.0",
     channel: ReleaseChannel.STABLE,

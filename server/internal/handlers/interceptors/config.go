@@ -63,8 +63,12 @@ var RedactedResponseProcedures = []string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
 	// Update status exposes the instance patch level and a copy-paste host
-	// command; keep that operational metadata out of debug response logs.
+	// command. Upgrade operations can additionally expose raw host errors,
+	// recovery commands, and log paths. Keep that operational metadata out of
+	// debug response logs.
 	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
+	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
