@@ -2189,6 +2189,28 @@ func TestExtractArchiveRejectsTraversal(t *testing.T) {
 	require.ErrorContains(t, err, "unsafe path")
 }
 
+func TestExtractArchiveRejectsExcessiveEntryCount(t *testing.T) {
+	t.Parallel()
+
+	archive := filepath.Join(t.TempDir(), "too-many-entries.tar.gz")
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for range maxArchiveEntries + 1 {
+		require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+			Name:     "deployment/repeated-directory",
+			Mode:     0o755,
+			Typeflag: tar.TypeDir,
+		}))
+	}
+	require.NoError(t, tarWriter.Close())
+	require.NoError(t, gzipWriter.Close())
+	require.NoError(t, os.WriteFile(archive, buffer.Bytes(), 0o600))
+
+	err := extractArchive(archive, t.TempDir())
+	require.ErrorContains(t, err, fmt.Sprintf("archive contains more than %d entries", maxArchiveEntries))
+}
+
 func TestInstallExecutableCandidateRetainsAndRestoresThePreviousUpdater(t *testing.T) {
 	t.Parallel()
 

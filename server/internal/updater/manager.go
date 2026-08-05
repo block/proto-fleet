@@ -33,13 +33,21 @@ import (
 )
 
 const (
-	stateFilename            = "state.json"
-	maxChecksumBytes         = 4096
-	maxDownloadBytes         = int64(1 << 30) // Larger bundles require an explicit updater contract change.
-	maxExtractedBytes        = int64(16 << 30)
-	maxArchiveEntries        = 100_000
-	defaultHTTPTimeout       = 30 * time.Minute
-	defaultPreflightTimeout  = 2 * time.Hour
+	stateFilename     = "state.json"
+	maxChecksumBytes  = 4096
+	maxDownloadBytes  = int64(1 << 30) // Larger bundles require an explicit updater contract change.
+	maxExtractedBytes = int64(16 << 30)
+	maxArchiveEntries = 10_000 // Larger bundles require an explicit packaging contract change.
+	// The request deadline still permits release downloads over slow mine-site
+	// links; shutdown cancellation interrupts it immediately before activation.
+	defaultHTTPTimeout = 30 * time.Minute
+	// Fleet remains online while preflight pulls, loads, and builds images on
+	// supported ARM and SD-card-class hosts, so false timeouts cost more than
+	// the generous cancellable bound.
+	defaultPreflightTimeout = 2 * time.Hour
+	// Activation includes migrations and multiple readiness windows after the
+	// old stack is stopped. Timing out requires forward manual recovery, making
+	// this a minimum liveness bound rather than spare retry time.
 	defaultActivationTimeout = 45 * time.Minute
 	defaultCleanupTimeout    = 2 * time.Minute
 	defaultCandidateTimeout  = 10 * time.Second
