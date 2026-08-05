@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -20,19 +21,21 @@ import (
 )
 
 type hostEnvironment struct {
-	goos          string
-	localIPs      func() ([]netip.Addr, error)
-	runCommand    func(context.Context, string, ...string) ([]byte, error)
-	applyFirewall func(context.Context, NodeConfig, string) error
+	goos              string
+	localIPs          func() ([]netip.Addr, error)
+	interfacePrefixes func(string) ([]netip.Prefix, error)
+	runCommand        func(context.Context, string, ...string) ([]byte, error)
+	applyFirewall     func(context.Context, NodeConfig, string) error
 }
 
 // Preflight checks a clean host and loads the firewall required before startup.
 func Preflight(ctx context.Context, envPath, firewallTemplatePath string) (NodeConfig, error) {
 	host := hostEnvironment{
-		goos:          runtime.GOOS,
-		localIPs:      localAddresses,
-		runCommand:    runCommand,
-		applyFirewall: applyFirewall,
+		goos:              runtime.GOOS,
+		localIPs:          localAddresses,
+		interfacePrefixes: interfaceIPv4Prefixes,
+		runCommand:        runCommand,
+		applyFirewall:     applyFirewall,
 	}
 	return preflight(ctx, envPath, firewallTemplatePath, host)
 }
@@ -61,6 +64,13 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 	if slices.Contains(addresses, virtualIP) {
 		return NodeConfig{}, errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
 	}
+	prefixes, err := host.interfacePrefixes(config.NetworkInterface)
+	if err != nil {
+		return NodeConfig{}, fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
+	}
+	if err := validateVirtualIPPrefix(nodeIP, virtualIP, prefixes); err != nil {
+		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+	}
 
 	for _, peer := range []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP} {
 		if peer == config.NodeIP {
@@ -84,6 +94,12 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 	_, routedViaGateway := routeField(output, "via")
 	if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
 		return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
+	}
+	if config.isDatabaseNode() {
+		output, err := host.runCommand(ctx, "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
+		if err != nil {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
+		}
 	}
 	listeners, err := host.runCommand(ctx, "ss", "-H", "-lnt")
 	if err != nil {
@@ -368,6 +384,50 @@ func localAddresses() ([]netip.Addr, error) {
 		}
 	}
 	return result, nil
+}
+
+func interfaceIPv4Prefixes(name string) ([]netip.Prefix, error) {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil, fmt.Errorf("find interface %s: %w", name, err)
+	}
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return nil, fmt.Errorf("list addresses on interface %s: %w", name, err)
+	}
+	prefixes := make([]netip.Prefix, 0, len(addresses))
+	for _, address := range addresses {
+		prefix, err := netip.ParsePrefix(address.String())
+		if err == nil && prefix.Addr().Is4() {
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	return prefixes, nil
+}
+
+func validateVirtualIPPrefix(nodeIP, virtualIP netip.Addr, prefixes []netip.Prefix) error {
+	for _, prefix := range prefixes {
+		if prefix.Addr() != nodeIP {
+			continue
+		}
+		if !prefix.Contains(virtualIP) {
+			return errors.New("HA_VIRTUAL_IP must be on HA_NETWORK_INTERFACE's IPv4 network")
+		}
+		if prefix.Bits() <= 30 && (virtualIP == prefix.Masked().Addr() || virtualIP == ipv4Broadcast(prefix)) {
+			return errors.New("HA_VIRTUAL_IP must not be the network or broadcast address")
+		}
+		return nil
+	}
+	return errors.New("HA_NODE_IP is not assigned to HA_NETWORK_INTERFACE")
+}
+
+func ipv4Broadcast(prefix netip.Prefix) netip.Addr {
+	networkBytes := prefix.Masked().Addr().As4()
+	network := binary.BigEndian.Uint32(networkBytes[:])
+	hostMask := ^uint32(0) >> prefix.Bits()
+	var broadcast [4]byte
+	binary.BigEndian.PutUint32(broadcast[:], network|hostMask)
+	return netip.AddrFrom4(broadcast)
 }
 
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {

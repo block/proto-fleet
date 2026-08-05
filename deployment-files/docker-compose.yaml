@@ -41,6 +41,9 @@ services:
       TIMESCALEDB_MAX_TIME_SERIES_ROWS: "${TIMESCALEDB_MAX_TIME_SERIES_ROWS:-100000}"
       TIMESCALEDB_ASYNC_METRIC_COMMIT: "${TIMESCALEDB_ASYNC_METRIC_COMMIT:-false}"
       FLEET_COMMAND_MAX_WORKERS: "${FLEET_COMMAND_MAX_WORKERS:-500}"
+      FLEET_HA_ENABLED: "${FLEET_HA_ENABLED:-false}"
+      FLEET_HA_ETCD_ENDPOINTS: "${FLEET_HA_ETCD_ENDPOINTS:-}"
+      FLEET_HA_ENDPOINT_IP: "${FLEET_HA_ENDPOINT_IP:-}"
       # Deployment-controlled half of the dual Modbus dial allowlist.
       # Empty keeps all infrastructure writes disabled.
       INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
@@ -51,6 +54,9 @@ services:
     network_mode: host
     extra_hosts:
       - "timescaledb:127.0.0.1"
+    volumes:
+      - "${HA_SECRETS_DIR:-/etc/proto-fleet/ha}:/etc/proto-fleet/ha:ro"
+      - "/run/proto-fleet-ha:/run/proto-fleet-ha:ro"
     logging:
       driver: "json-file"
       options:

@@ -19,21 +19,23 @@ var testHostIPs = [3]string{"10.40.0.11", "10.40.0.12", "10.40.0.13"}
 
 func TestRenderFirewall(t *testing.T) {
 	config := NodeConfig{
-		DatabaseAIP: testHostIPs[0],
-		DatabaseBIP: testHostIPs[1],
-		WitnessIP:   testHostIPs[2],
+		NodeIP:           testHostIPs[0],
+		DatabaseAIP:      testHostIPs[0],
+		DatabaseBIP:      testHostIPs[1],
+		WitnessIP:        testHostIPs[2],
+		NetworkInterface: "eth0",
 	}
-	template := "nodes = { ${HA_DB_A_IP}, ${HA_DB_B_IP}, ${HA_DCS_C_IP} }\n"
+	template := "nodes = { ${HA_DB_A_IP}, ${HA_DB_B_IP}, ${HA_DCS_C_IP} }\ninput = ${HA_NODE_IP} ${HA_NETWORK_INTERFACE}\n"
 	rules, err := renderFirewall(template, config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "nodes = { 10.40.0.11, 10.40.0.12, 10.40.0.13 }\n"
+	want := "nodes = { 10.40.0.11, 10.40.0.12, 10.40.0.13 }\ninput = 10.40.0.11 eth0\n"
 	if rules != want {
 		t.Fatalf("renderFirewall() = %q, want %q", rules, want)
 	}
 
-	if _, err := renderFirewall(template+"node = ${HA_NODE_IP}\n", config); err == nil {
+	if _, err := renderFirewall(template+"node = ${UNRESOLVED}\n", config); err == nil {
 		t.Fatal("renderFirewall accepted an unresolved placeholder")
 	}
 }
@@ -54,7 +56,7 @@ func TestRenderKeepalivedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "source=10.40.0.11\npeer=10.40.0.12\nvip=10.40.0.100\ninterface=eth0\nheartbeat=/run/proto-fleet-ha-endpoint-heartbeat\n"
+	want := "source=10.40.0.11\npeer=10.40.0.12\nvip=10.40.0.100\ninterface=eth0\nheartbeat=/run/proto-fleet-ha/endpoint-heartbeat\n"
 	if rendered != want {
 		t.Fatalf("renderKeepalivedConfig() = %q, want %q", rendered, want)
 	}
@@ -175,10 +177,21 @@ func TestPreflight(t *testing.T) {
 	firewallApplied := false
 	routeSource := testHostIPs[0]
 	routeViaGateway := false
+	arpingConflict := false
+	var arpingArgs []string
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
 	host := hostEnvironment{
-		goos:     "linux",
-		localIPs: func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil },
+		goos:              "linux",
+		localIPs:          func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil },
+		interfacePrefixes: func(string) ([]netip.Prefix, error) { return prefixes, nil },
 		runCommand: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			if name == "arping" {
+				arpingArgs = slices.Clone(args)
+				if arpingConflict {
+					return []byte("reply from 10.40.0.100"), errors.New("exit status 1")
+				}
+				return nil, nil
+			}
 			if name == "ip" {
 				if routeViaGateway && args[2] == "10.40.0.100" {
 					return []byte(fmt.Sprintf("%s via 10.40.0.1 dev eth0 src %s\n", args[2], routeSource)), nil
@@ -206,6 +219,9 @@ func TestPreflight(t *testing.T) {
 	if !firewallApplied {
 		t.Fatal("preflight did not apply the firewall")
 	}
+	if !slices.Equal(arpingArgs, []string{"-D", "-I", "eth0", "-c", "2", "10.40.0.100"}) {
+		t.Fatalf("arping arguments = %q", arpingArgs)
+	}
 
 	host.localIPs = func() ([]netip.Addr, error) {
 		return []netip.Addr{netip.MustParseAddr(testHostIPs[0]), netip.MustParseAddr("10.40.0.100")}, nil
@@ -214,6 +230,11 @@ func TestPreflight(t *testing.T) {
 		t.Fatalf("preflight(assigned VIP) error = %v", err)
 	}
 	host.localIPs = func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil }
+	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/26")}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "IPv4 network") {
+		t.Fatalf("preflight(VIP outside interface network) error = %v", err)
+	}
+	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
 
 	routeSource = "10.40.0.99"
 	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "must use HA_NODE_IP") {
@@ -225,6 +246,11 @@ func TestPreflight(t *testing.T) {
 		t.Fatalf("preflight(routed VIP) error = %v", err)
 	}
 	routeViaGateway = false
+	arpingConflict = true
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "HA_VIRTUAL_IP is in use") {
+		t.Fatalf("preflight(conflicting VIP) error = %v", err)
+	}
+	arpingConflict = false
 
 	host.applyFirewall = func(context.Context, NodeConfig, string) error {
 		return errors.New("injected apply failure")
@@ -283,6 +309,15 @@ func TestPreflight(t *testing.T) {
 	}
 	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "pre-existing PostgreSQL state") {
 		t.Fatalf("preflight(existing database) error = %v", err)
+	}
+}
+
+func TestValidateVirtualIPPrefixRejectsNetworkAndBroadcast(t *testing.T) {
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
+	for _, virtualIP := range []string{"10.40.0.0", "10.40.0.255"} {
+		if err := validateVirtualIPPrefix(netip.MustParseAddr(testHostIPs[0]), netip.MustParseAddr(virtualIP), prefixes); err == nil || !strings.Contains(err.Error(), "network or broadcast") {
+			t.Fatalf("validateVirtualIPPrefix(%s) error = %v", virtualIP, err)
+		}
 	}
 }
 

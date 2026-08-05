@@ -22,6 +22,10 @@ func TestEndpointHealthRequiresLocalAddressAndFreshHeartbeat(t *testing.T) {
 	require.NoError(t, os.Chtimes(heartbeat, stale, stale))
 	require.False(t, healthy())
 
+	future := time.Now().Add(time.Second)
+	require.NoError(t, os.Chtimes(heartbeat, future, future))
+	require.False(t, healthy())
+
 	unassigned, err := newEndpointHealth("192.0.2.1", heartbeat, time.Second)
 	require.NoError(t, err)
 	require.False(t, unassigned())

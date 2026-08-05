@@ -9,7 +9,7 @@ import (
 )
 
 // EndpointHeartbeatFile is the local keepalived-to-Fleet liveness contract.
-const EndpointHeartbeatFile = "/run/proto-fleet-ha-endpoint-heartbeat"
+const EndpointHeartbeatFile = "/run/proto-fleet-ha/endpoint-heartbeat"
 
 func newEndpointHealth(rawIP, heartbeatFile string, timeout time.Duration) (func() bool, error) {
 	endpointIP, err := netip.ParseAddr(rawIP)
@@ -21,7 +21,11 @@ func newEndpointHealth(rawIP, heartbeatFile string, timeout time.Duration) (func
 			return false
 		}
 		info, err := os.Stat(heartbeatFile)
-		return err == nil && time.Since(info.ModTime()) <= timeout
+		if err != nil {
+			return false
+		}
+		age := time.Since(info.ModTime())
+		return age >= 0 && age <= timeout
 	}, nil
 }
 

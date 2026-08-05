@@ -61,6 +61,9 @@ Create `node.env` from `node.env.example` on each host:
 Use the same peer IPs on every host and only the keys documented in
 `node.env.example`.
 
+Install the `arping` binary on both Fleet hosts before preflight. Preflight uses
+ARP duplicate-address detection to verify that the shared address is unused.
+
 Run the clean-host preflight before starting services:
 
 ```bash
@@ -72,6 +75,10 @@ Preflight validates the clean host and loads its peer-restricted firewall.
 Reboot and nftables-reload recovery are unsupported in this lab: services do
 not restart automatically, and recovery requires a clean redeployment until
 the supported installer owns firewall persistence and boot ordering.
+
+The profile requires a trusted L2 segment. Host rules restrict VRRP to the
+expected interface, Fleet-host source addresses, and local destination, but
+they cannot authenticate raw-packet peers.
 
 Load the database images on `ha-a` and `ha-b`. All three hosts require
 registry access to pull the pinned etcd image before starting it:
@@ -119,6 +126,7 @@ unicast VRRP configuration, then install the health check and configuration:
 sudo install -D -m 0755 \
   scripts/check-fleet-active.sh \
   /usr/local/libexec/proto-fleet/check-fleet-active
+sudo install -d -m 0755 /run/proto-fleet-ha
 sudo install -D -m 0644 \
   /var/lib/proto-fleet/ha/keepalived/keepalived.conf \
   /etc/keepalived/keepalived.conf
@@ -128,15 +136,20 @@ Configure Fleet on both Fleet hosts with its local keepalived contract:
 
 ```text
 HTTP_LISTEN_ADDRESS=0.0.0.0:4000
+HA_SECRETS_DIR=/etc/proto-fleet/ha
+FLEET_HA_ENABLED=true
+FLEET_HA_ETCD_ENDPOINTS=https://<HA_DB_A_IP>:2379,https://<HA_DB_B_IP>:2379,https://<HA_DCS_C_IP>:2379
 FLEET_HA_ENDPOINT_IP=<HA_VIRTUAL_IP>
 FLEET_HA_ENDPOINT_TIMEOUT=5s
 ```
 
-Start keepalived before Fleet; it remains in backup while `/health/active` is
-unavailable. When Fleet becomes active, keepalived claims the VIP and refreshes
-the heartbeat. Fleet allows five seconds for initial VIP ownership, then exits and
-stops lease renewal if the VIP or heartbeat disappears. The database lease
-remains the authority that makes Fleet active.
+These values are read by `docker compose`; the HA secrets and heartbeat directory
+are mounted read-only into `fleet-api`. Start keepalived before Fleet; it remains
+in backup while `/health/active` is unavailable. When Fleet becomes active,
+keepalived claims the VIP and refreshes the heartbeat. Fleet allows five seconds
+for initial VIP ownership, then exits and stops lease renewal if the VIP or
+heartbeat disappears. The database lease remains the authority that makes Fleet
+active.
 
 ## Fleet connection contract
 
