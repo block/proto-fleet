@@ -94,6 +94,16 @@ const SettingsIntegrations = lazy(importSettingsIntegrations);
 const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
+
+// --- Prototype Lab (throwaway; migrate-single-miner-to-fleet branch only) ---
+// Dev-only preview surface for the single-miner-view strategies. Lazily loaded
+// and self-contained under prototypes/, so removal is: delete this block +
+// prototypes/. Not wired into routePrefetch (prefetch is just an optimization).
+const LabLayout = lazy(() => import("./prototypes/lab/LabLayout"));
+const LabIndex = lazy(() => import("./prototypes/lab/LabIndex"));
+const FleetNativePage = lazy(() => import("./prototypes/fleetNative/FleetNativePage"));
+const ProxyVersionedPage = lazy(() => import("./prototypes/proxyVersioned/ProxyVersionedPage"));
+const AdapterPage = lazy(() => import("./prototypes/adapter/AdapterPage"));
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
@@ -376,6 +386,22 @@ const router = createBrowserRouter([
 
   // Error routes (fullscreen)
   createRoute("/fleet-down", <FleetDown />, { fullscreen: true }),
+
+  // --- Prototype Lab (throwaway) ---
+  {
+    path: "/lab",
+    element: (
+      <App fullscreen>
+        <LabLayout />
+      </App>
+    ),
+    children: [
+      { index: true, element: <LabIndex /> },
+      { path: "fleet-native", element: <FleetNativePage /> },
+      { path: "proxy", element: <ProxyVersionedPage /> },
+      { path: "adapter", element: <AdapterPage /> },
+    ],
+  },
 ]);
 
 export default router;

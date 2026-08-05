@@ -571,3 +571,15 @@ _asicrs-build-release:
     rm -rf "/tmp/asicrs-${arch}"
   done
   chmod +x deployment-files/server/asicrs-plugin-*
+
+# run two fake proto rigs (MDK v1 + v2) for the single-miner Lab [PROTOTYPE]
+lab-fakes:
+  #!/usr/bin/env bash
+  cd server/fake-proto-rig
+  GOWORK=off go build -o /tmp/fakerig-lab .
+  echo "MDK v1 rig → http://localhost:18081  (SN PROTO-LAB-V1, pw admin1234)"
+  echo "MDK v2 rig → http://localhost:18082  (SN PROTO-LAB-V2, pw admin1234)"
+  trap 'kill 0' EXIT
+  MDK_VERSION=1 HTTP_PORT=18081 SERIAL_NUMBER=PROTO-LAB-V1 FAKE_RIG_PASSWORD=admin1234 /tmp/fakerig-lab &
+  MDK_VERSION=2 HTTP_PORT=18082 SERIAL_NUMBER=PROTO-LAB-V2 FAKE_RIG_PASSWORD=admin1234 /tmp/fakerig-lab &
+  wait

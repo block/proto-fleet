@@ -72,6 +72,8 @@ func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 	// Create REST API handler
 	restHandler := NewRESTApiHandler(state)
 	restHandler.RegisterRoutes(mux)
+	// PROTOTYPE: MDK v2 simulation + version probe (throwaway).
+	restHandler.RegisterV2Routes(mux)
 
 	// Add health check endpoint
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
