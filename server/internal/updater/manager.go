@@ -159,6 +159,9 @@ type Config struct {
 	// Tests observe ownership restoration ordering around preflight-generated
 	// artifacts without requiring the test process to run as root.
 	preserveDeploymentOwnership func(context.Context, string, string) error
+	// Tests pause a trigger after unlocked prechecks but before serialized
+	// admission so a completed concurrent upgrade can change the installed version.
+	beforeTriggerAdmission func(string)
 }
 
 type activationMarker struct {
@@ -859,21 +862,8 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 			),
 		)
 	}
-	currentVersion, err := readInstalledVersion(filepath.Join(m.cfg.InstallRoot, "deployment", "version.txt"))
-	if err != nil {
-		return updaterapi.Operation{}, err
-	}
-	if !semver.IsValid(currentVersion) {
-		return updaterapi.Operation{}, newTriggerError(
-			errTriggerPrecondition,
-			fmt.Sprintf("installed version %q is not upgradeable", currentVersion),
-		)
-	}
-	if semver.Compare(targetVersion, currentVersion) <= 0 {
-		return updaterapi.Operation{}, newTriggerError(
-			errTriggerPrecondition,
-			fmt.Sprintf("target version %s must be newer than installed version %s", targetVersion, currentVersion),
-		)
+	if m.cfg.beforeTriggerAdmission != nil {
+		m.cfg.beforeTriggerAdmission(targetVersion)
 	}
 
 	m.mu.Lock()
@@ -900,6 +890,25 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerBusy,
 			"the previous upgrade is still completing cleanup",
+		)
+	}
+	// The installed deployment can change while an earlier trigger is running.
+	// Validate the monotonic-version precondition while admission is serialized,
+	// after the prior worker has fully finished and before this one is accepted.
+	currentVersion, err := readInstalledVersion(filepath.Join(m.cfg.InstallRoot, "deployment", "version.txt"))
+	if err != nil {
+		return updaterapi.Operation{}, err
+	}
+	if !semver.IsValid(currentVersion) {
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerPrecondition,
+			fmt.Sprintf("installed version %q is not upgradeable", currentVersion),
+		)
+	}
+	if semver.Compare(targetVersion, currentVersion) <= 0 {
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerPrecondition,
+			fmt.Sprintf("target version %s must be newer than installed version %s", targetVersion, currentVersion),
 		)
 	}
 	if err := m.cleanupStaleArtifacts(); err != nil {

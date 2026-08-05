@@ -230,6 +230,94 @@ func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
 	assert.Len(t, runner.Commands(), 2, "concurrent same-ID admission must launch exactly one upgrade worker")
 }
 
+func TestManagerTriggerRevalidatesInstalledVersionDuringSerializedAdmission(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.2.0")
+	server := releaseServer(t, "v1.2.0", "amd64", bundle, "")
+	runner := &recordingRunner{}
+	firstSyncStarted := make(chan struct{})
+	releaseFirstSync := make(chan struct{})
+	staleTriggerAtAdmission := make(chan struct{})
+	releaseStaleTrigger := make(chan struct{})
+	var pauseFirstSync sync.Once
+	var releaseFirstSyncOnce sync.Once
+	var releaseStaleTriggerOnce sync.Once
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.syncStagedDeployment = func(ctx context.Context, staged string) error {
+			pause := false
+			pauseFirstSync.Do(func() {
+				pause = true
+				close(firstSyncStarted)
+			})
+			if pause {
+				select {
+				case <-releaseFirstSync:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return syncStagedDeployment(ctx, staged)
+		}
+		cfg.beforeTriggerAdmission = func(targetVersion string) {
+			if targetVersion != "v1.1.0" {
+				return
+			}
+			close(staleTriggerAtAdmission)
+			<-releaseStaleTrigger
+		}
+	})
+	releaseFirst := func() { releaseFirstSyncOnce.Do(func() { close(releaseFirstSync) }) }
+	releaseStale := func() { releaseStaleTriggerOnce.Do(func() { close(releaseStaleTrigger) }) }
+	t.Cleanup(releaseFirst)
+	t.Cleanup(releaseStale)
+
+	firstOperationID := "11111111-1111-4111-8111-111111111111"
+	_, err := manager.TriggerWithID("v1.2.0", firstOperationID)
+	require.NoError(t, err)
+	select {
+	case <-firstSyncStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first upgrade never reached staged-tree sync")
+	}
+
+	staleResult := make(chan error, 1)
+	go func() {
+		_, triggerErr := manager.TriggerWithID(
+			"v1.1.0",
+			"22222222-2222-4222-8222-222222222222",
+		)
+		staleResult <- triggerErr
+	}()
+	select {
+	case <-staleTriggerAtAdmission:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second trigger never reached final admission")
+	}
+
+	releaseFirst()
+	completed := waitForTerminal(t, manager)
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	require.Eventually(t, func() bool {
+		manager.mu.RLock()
+		defer manager.mu.RUnlock()
+		return !manager.operationRunning
+	}, 5*time.Second, 10*time.Millisecond, "first upgrade worker did not finish")
+
+	releaseStale()
+	select {
+	case err = <-staleResult:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second trigger did not complete admission")
+	}
+	require.ErrorIs(t, err, errTriggerPrecondition)
+	assert.ErrorContains(t, err, "target version v1.1.0 must be newer than installed version v1.2.0")
+	assert.Equal(t, firstOperationID, manager.Status().Operation.ID)
+	assert.Len(t, runner.Commands(), 2, "stale trigger must not launch a downgrade worker")
+}
+
 func TestPreserveDeploymentStateRejectsDanglingSymlink(t *testing.T) {
 	t.Parallel()
 
