@@ -35,6 +35,8 @@ func TestHAConfigValidation(t *testing.T) {
 		RenewInterval:    3 * time.Second,
 		RetryInterval:    time.Second,
 		DialTimeout:      5 * time.Second,
+		EndpointIP:       "10.0.0.100",
+		EndpointTimeout:  5 * time.Second,
 	}
 	require.NoError(t, valid.Validate())
 
@@ -53,6 +55,27 @@ func TestHAConfigValidation(t *testing.T) {
 		configure func(*Config)
 		wantError string
 	}{
+		{
+			name: "endpoint IP is not usable",
+			configure: func(config *Config) {
+				config.EndpointIP = "127.0.0.1"
+			},
+			wantError: "endpoint IP must be a routable literal IPv4 address",
+		},
+		{
+			name: "endpoint timeout is not positive",
+			configure: func(config *Config) {
+				config.EndpointTimeout = 0
+			},
+			wantError: "positive endpoint timeout",
+		},
+		{
+			name: "endpoint timeout is too short for VIP election",
+			configure: func(config *Config) {
+				config.EndpointTimeout = 4 * time.Second
+			},
+			wantError: "endpoint timeout must be at least 5s",
+		},
 		{
 			name: "lease duration has sub-millisecond precision",
 			configure: func(config *Config) {

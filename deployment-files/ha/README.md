@@ -9,10 +9,11 @@ The topology is:
 - `ha-a` and `ha-b`: PostgreSQL + TimescaleDB managed by Patroni, plus etcd;
 - `ha-c`: etcd witness only;
 - one stable LAN IPv4 address per host;
+- one unused LAN IPv4 address shared by keepalived on `ha-a` and `ha-b`;
 - host networking on PostgreSQL `5432`, Patroni `8008`, and etcd `2379`/`2380`.
 
-VIP routing, node joins, certificate rotation, upgrades, rollback, and restore
-automation are intentionally deferred to later work.
+Node joins, certificate rotation, upgrades, rollback, and restore automation are
+intentionally deferred to later work.
 
 Release bundles include the `fleet-ha` host utility in this directory. From a
 source checkout, build the same binary with:
@@ -104,6 +105,38 @@ docker compose --env-file node.env --profile database up -d --no-build patroni
 
 Patroni creates the `fleet` database, login, and required extensions. Fleet
 continues to own application migrations.
+
+## Stable Fleet endpoint
+
+Install keepalived and curl on both database hosts. Render the host-specific
+unicast VRRP configuration, then install the health check and configuration:
+
+```bash
+./fleet-ha render-keepalived \
+  node.env \
+  keepalived.conf.tmpl \
+  /var/lib/proto-fleet/ha/keepalived/keepalived.conf
+sudo install -D -m 0755 \
+  scripts/check-fleet-active.sh \
+  /usr/local/libexec/proto-fleet/check-fleet-active
+sudo install -D -m 0644 \
+  /var/lib/proto-fleet/ha/keepalived/keepalived.conf \
+  /etc/keepalived/keepalived.conf
+```
+
+Configure Fleet on both database hosts with its local keepalived contract:
+
+```text
+HTTP_LISTEN_ADDRESS=0.0.0.0:4000
+FLEET_HA_ENDPOINT_IP=<HA_VIRTUAL_IP>
+FLEET_HA_ENDPOINT_TIMEOUT=5s
+```
+
+Start keepalived before Fleet; it remains in backup while `/health/active` is
+unavailable. When Fleet becomes active, keepalived claims the VIP and refreshes
+the heartbeat. Fleet allows five seconds for initial VIP ownership, then exits and
+stops lease renewal if the VIP or heartbeat disappears. The database lease
+remains the authority that makes Fleet active.
 
 ## Fleet connection contract
 

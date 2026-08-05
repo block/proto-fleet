@@ -57,6 +57,10 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 	if !slices.Contains(addresses, nodeIP) {
 		return NodeConfig{}, errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
 	}
+	virtualIP, _ := netip.ParseAddr(config.VirtualIP)
+	if slices.Contains(addresses, virtualIP) {
+		return NodeConfig{}, errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
+	}
 
 	for _, peer := range []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP} {
 		if peer == config.NodeIP {
@@ -71,13 +75,23 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
 		}
 	}
+	output, err := host.runCommand(ctx, "ip", "route", "get", config.VirtualIP)
+	if err != nil {
+		return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
+	}
+	source, sourceOK := routeSource(output)
+	device, deviceOK := routeDevice(output)
+	_, routedViaGateway := routeField(output, "via")
+	if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
+		return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
+	}
 	listeners, err := host.runCommand(ctx, "ss", "-H", "-lnt")
 	if err != nil {
 		return NodeConfig{}, fmt.Errorf("HA preflight failed: inspect listening ports: %s", commandError(listeners, err))
 	}
 	ports := []int{2379, 2380}
 	if config.isDatabaseNode() {
-		ports = append(ports, 5432, 8008)
+		ports = append(ports, 4000, 5432, 8008)
 	}
 	for _, port := range ports {
 		if portIsListening(string(listeners), port) {
@@ -104,31 +118,39 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 
 func validateNodeConfig(config NodeConfig) error {
 	required := map[string]string{
-		"HA_NODE_NAME":   config.NodeName,
-		"HA_NODE_IP":     config.NodeIP,
-		"HA_DB_A_IP":     config.DatabaseAIP,
-		"HA_DB_B_IP":     config.DatabaseBIP,
-		"HA_DCS_C_IP":    config.WitnessIP,
-		"HA_DATA_DIR":    config.DataDir,
-		"HA_SECRETS_DIR": config.SecretsDir,
+		"HA_NODE_NAME":         config.NodeName,
+		"HA_NODE_IP":           config.NodeIP,
+		"HA_DB_A_IP":           config.DatabaseAIP,
+		"HA_DB_B_IP":           config.DatabaseBIP,
+		"HA_DCS_C_IP":          config.WitnessIP,
+		"HA_VIRTUAL_IP":        config.VirtualIP,
+		"HA_NETWORK_INTERFACE": config.NetworkInterface,
+		"HA_DATA_DIR":          config.DataDir,
+		"HA_SECRETS_DIR":       config.SecretsDir,
 	}
 	for key, value := range required {
 		if value == "" {
 			return fmt.Errorf("%s is required", key)
 		}
 	}
-
 	peers := []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP}
 	seen := make(map[netip.Addr]struct{}, len(peers))
 	for _, rawIP := range peers {
-		ip, err := netip.ParseAddr(rawIP)
-		if err != nil || !ip.Is4() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.As4()[0] == 0 {
+		ip, ok := parseRoutableIPv4(rawIP)
+		if !ok {
 			return errors.New("HA peer identity must be a routable literal IPv4 address")
 		}
 		if _, duplicate := seen[ip]; duplicate {
 			return errors.New("HA peer identities must be unique")
 		}
 		seen[ip] = struct{}{}
+	}
+	virtualIP, ok := parseRoutableIPv4(config.VirtualIP)
+	if !ok {
+		return errors.New("HA_VIRTUAL_IP must be a routable literal IPv4 address")
+	}
+	if _, duplicate := seen[virtualIP]; duplicate {
+		return errors.New("HA_VIRTUAL_IP must differ from every HA node address")
 	}
 
 	expectedIP := map[string]string{
@@ -368,13 +390,26 @@ func portIsListening(listeners string, port int) bool {
 }
 
 func routeSource(output []byte) (string, bool) {
+	return routeField(output, "src")
+}
+
+func routeDevice(output []byte) (string, bool) {
+	return routeField(output, "dev")
+}
+
+func routeField(output []byte, name string) (string, bool) {
 	fields := strings.Fields(string(output))
 	for i, field := range fields {
-		if field == "src" && i+1 < len(fields) {
+		if field == name && i+1 < len(fields) {
 			return fields[i+1], true
 		}
 	}
 	return "", false
+}
+
+func parseRoutableIPv4(raw string) (netip.Addr, bool) {
+	ip, err := netip.ParseAddr(raw)
+	return ip, err == nil && ip.Is4() && ip.IsGlobalUnicast() && ip.As4()[0] != 0
 }
 
 func commandError(output []byte, err error) string {

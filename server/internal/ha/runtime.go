@@ -19,10 +19,13 @@ const (
 var ErrRuntimeAborted = errors.New("HA Fleet runtime aborted")
 
 var errCriticalRuntimeUnhealthy = errors.New("critical Fleet runtime is unhealthy")
+var errEndpointUnavailable = errors.New("active Fleet endpoint is unavailable")
 
 type RuntimeConfig struct {
 	HealthCheckInterval time.Duration
 	CleanupTimeout      time.Duration
+	EndpointHealthy     func() bool
+	EndpointTimeout     time.Duration
 }
 
 type runtimeOwner interface {
@@ -190,6 +193,7 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return r.stopGroupAndDrainAdmissions(admissionDrained)
 	}
+	cancelCoordinator()
 	abortErr := r.abortGroup(activeErr)
 
 	select {
@@ -213,6 +217,7 @@ func (r *Runtime) abortGroup(cause error) error {
 func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 	ticker := time.NewTicker(r.config.HealthCheckInterval)
 	defer ticker.Stop()
+	endpoint := newEndpointMonitor(r.config.EndpointHealthy, time.Now(), r.config.EndpointTimeout)
 	for {
 		select {
 		case <-parent.Done():
@@ -223,8 +228,35 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 			if !r.healthCheck() {
 				return errCriticalRuntimeUnhealthy
 			}
+			if err := endpoint.check(time.Now()); err != nil {
+				return err
+			}
 		}
 	}
+}
+
+type endpointMonitor struct {
+	healthy  func() bool
+	deadline time.Time
+	ready    bool
+}
+
+func newEndpointMonitor(healthy func() bool, startedAt time.Time, timeout time.Duration) *endpointMonitor {
+	return &endpointMonitor{healthy: healthy, deadline: startedAt.Add(timeout)}
+}
+
+func (m *endpointMonitor) check(now time.Time) error {
+	if m.healthy == nil {
+		return nil
+	}
+	if m.healthy() {
+		m.ready = true
+		return nil
+	}
+	if m.ready || !now.Before(m.deadline) {
+		return errEndpointUnavailable
+	}
+	return nil
 }
 
 func (r *Runtime) stopGroup() error {

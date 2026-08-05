@@ -60,11 +60,20 @@ func run(ctx context.Context, args []string) error {
 		}
 		fmt.Println("etcd authentication enabled with Patroni read/write and Fleet read-only roles")
 		return nil
+	case "render-keepalived":
+		if len(args) != 4 {
+			return errors.New("usage: fleet-ha render-keepalived NODE_ENV TEMPLATE OUTPUT")
+		}
+		if err := deployment.RenderKeepalivedConfig(args[1], args[2], args[3]); err != nil {
+			return err
+		}
+		fmt.Printf("keepalived configuration written to %s\n", args[3])
+		return nil
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth> ...")
+	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived> ...")
 }

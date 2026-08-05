@@ -38,6 +38,34 @@ func TestRenderFirewall(t *testing.T) {
 	}
 }
 
+func TestRenderKeepalivedConfig(t *testing.T) {
+	config := NodeConfig{
+		NodeName:         "ha-a",
+		NodeIP:           testHostIPs[0],
+		DatabaseAIP:      testHostIPs[0],
+		DatabaseBIP:      testHostIPs[1],
+		VirtualIP:        "10.40.0.100",
+		NetworkInterface: "eth0",
+		DataDir:          "/var/lib/proto-fleet/ha",
+	}
+	template := "source=${HA_NODE_IP}\npeer=${HA_PEER_IP}\nvip=${HA_VIRTUAL_IP}\ninterface=${HA_NETWORK_INTERFACE}\nheartbeat=${HA_ENDPOINT_HEARTBEAT_FILE}\n"
+
+	rendered, err := renderKeepalivedConfig(template, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "source=10.40.0.11\npeer=10.40.0.12\nvip=10.40.0.100\ninterface=eth0\nheartbeat=/run/proto-fleet-ha-endpoint-heartbeat\n"
+	if rendered != want {
+		t.Fatalf("renderKeepalivedConfig() = %q, want %q", rendered, want)
+	}
+
+	config.NodeName = "ha-c"
+	_, err = renderKeepalivedConfig(template, config)
+	if err == nil || !strings.Contains(err.Error(), "database hosts") {
+		t.Fatalf("renderKeepalivedConfig(witness) error = %v", err)
+	}
+}
+
 func TestGenerateSecrets(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "generated")
 	if err := GenerateSecrets(output, testHostIPs); err != nil {
@@ -146,11 +174,15 @@ func TestPreflight(t *testing.T) {
 	const firewallTemplatePath = "firewall.nft.tmpl"
 	firewallApplied := false
 	routeSource := testHostIPs[0]
+	routeViaGateway := false
 	host := hostEnvironment{
 		goos:     "linux",
 		localIPs: func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil },
 		runCommand: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			if name == "ip" {
+				if routeViaGateway && args[2] == "10.40.0.100" {
+					return []byte(fmt.Sprintf("%s via 10.40.0.1 dev eth0 src %s\n", args[2], routeSource)), nil
+				}
 				return []byte(fmt.Sprintf("%s dev eth0 src %s\n", args[2], routeSource)), nil
 			}
 			return nil, nil
@@ -175,11 +207,24 @@ func TestPreflight(t *testing.T) {
 		t.Fatal("preflight did not apply the firewall")
 	}
 
+	host.localIPs = func() ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr(testHostIPs[0]), netip.MustParseAddr("10.40.0.100")}, nil
+	}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "HA_VIRTUAL_IP is already assigned") {
+		t.Fatalf("preflight(assigned VIP) error = %v", err)
+	}
+	host.localIPs = func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil }
+
 	routeSource = "10.40.0.99"
 	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "must use HA_NODE_IP") {
 		t.Fatalf("preflight(mismatched route source) error = %v", err)
 	}
 	routeSource = testHostIPs[0]
+	routeViaGateway = true
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "route to HA_VIRTUAL_IP") {
+		t.Fatalf("preflight(routed VIP) error = %v", err)
+	}
+	routeViaGateway = false
 
 	host.applyFirewall = func(context.Context, NodeConfig, string) error {
 		return errors.New("injected apply failure")
@@ -314,6 +359,10 @@ HA_NODE_IP=%s
 HA_DB_A_IP=%s
 HA_DB_B_IP=%s
 HA_DCS_C_IP=%s
+
+HA_VIRTUAL_IP=10.40.0.100
+HA_NETWORK_INTERFACE=eth0
+
 HA_DATA_DIR=%s
 HA_SECRETS_DIR=%s
 `, testHostIPs[0], testHostIPs[0], testHostIPs[1], testHostIPs[2], dataDir, secretsDir)

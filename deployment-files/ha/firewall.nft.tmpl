@@ -12,6 +12,9 @@ table inet proto_fleet_ha {
     chain protect_ha_ports {
         type filter hook input priority -10; policy accept;
 
+        ip protocol vrrp ip saddr @database_nodes accept
+        ip protocol vrrp drop
+
         tcp dport 2380 ip saddr @ha_nodes accept
         tcp dport 2380 drop
 
