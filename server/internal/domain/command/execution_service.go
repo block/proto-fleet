@@ -32,6 +32,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
 const (
@@ -153,6 +154,10 @@ func (es *ExecutionService) Start(ctx context.Context) error {
 		es.lifecycleMu.Unlock()
 		return nil
 	}
+	if err := es.reapAfterRestart(ctx); err != nil {
+		es.lifecycleMu.Unlock()
+		return err
+	}
 
 	run := newExecutionRun(ctx)
 	es.run = run
@@ -228,8 +233,7 @@ func (es *ExecutionService) IsRunning() bool {
 	return es.run != nil && es.run.accepting && es.run.admissionCtx.Err() == nil
 }
 
-// Abort cancels both new and already-admitted command work. HA demotion uses
-// this before graceful group cleanup so commands cannot outlive ownership.
+// Abort immediately cancels admitted work before a fatal HA process exit.
 func (es *ExecutionService) Abort() {
 	es.lifecycleMu.Lock()
 	run := es.run
@@ -292,7 +296,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 				continue
 			}
 			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
-			reaped, fwDeviceIDs, err := es.reapStuckMessages(reapCtx)
+			reaped, err := es.reapMessages(reapCtx, reapModeStuck)
 			reapCancel()
 			if err != nil {
 				slog.Error("stuck message reaper error", "error", err)
@@ -303,8 +307,8 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 				slog.Warn("stuck message reaper moved messages to FAILED", "count", len(reaped))
 			}
 			es.emitReapedCommandMetrics(ctx, reaped)
-			for _, deviceID := range fwDeviceIDs {
-				es.clearFirmwareUpdateStatus(ctx, deviceID)
+			if _, err := es.finishTerminalCommandBatches(ctx); err != nil {
+				slog.Error("finish terminal command batches", "error", err)
 			}
 			reportProgress()
 		}
@@ -313,37 +317,86 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 
 type reapedCommand struct {
 	orgID       int64
+	siteID      int64
 	commandType string
 }
 
-// reapStuckMessages atomically marks stuck PROCESSING messages as FAILED and
-// writes the corresponding audit log entries in a single transaction.
-// Firmware update messages use a longer cutoff since they include install polling.
-// Returns the reaped commands' metric metadata and the device IDs from reaped
-// firmware update messages (so callers can clean up stuck device statuses).
-func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedCommand, []int64, error) {
-	cutoff := time.Now().Add(-es.config.StuckMessageTimeout)
+type reapMode uint8
+
+const (
+	reapModeStuck reapMode = iota
+	reapModeRestart
+)
+
+const (
+	reaperBatchSize      = 100
+	stuckMessageReason   = "reaped: stuck in PROCESSING beyond timeout"
+	stuckFirmwareReason  = "reaped: firmware update stuck in PROCESSING beyond timeout"
+	commandRestartReason = "Interrupted by Fleet restart; device outcome may be unknown"
+)
+
+// reapAfterRestart fails PROCESSING work whose device outcome is unknown.
+// PENDING work remains queued for this process to execute.
+func (es *ExecutionService) reapAfterRestart(ctx context.Context) error {
+	if es.conn == nil {
+		return nil
+	}
+
+	for {
+		reaped, err := es.reapMessages(ctx, reapModeRestart)
+		if err != nil {
+			return fmt.Errorf("reap commands after restart: %w", err)
+		}
+		es.emitReapedCommandMetrics(ctx, reaped)
+		if len(reaped) < reaperBatchSize {
+			break
+		}
+	}
+	for {
+		finished, err := es.finishTerminalCommandBatches(ctx)
+		if err != nil {
+			return err
+		}
+		if finished < reaperBatchSize {
+			return nil
+		}
+	}
+}
+
+func (es *ExecutionService) finishTerminalCommandBatches(ctx context.Context) (int64, error) {
+	return db.WithTransactionTimeout(ctx, es.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (int64, error) {
+		return q.FinishTerminalCommandBatches(ctx, reaperBatchSize)
+	})
+}
+
+// reapMessages marks one bounded batch FAILED and writes its audit rows.
+// Normal age-based reaping also clears firmware-owned status.
+func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]reapedCommand, error) {
+	now := time.Now()
+	errorInfo := stuckMessageReason
+	firmwareErrorInfo := stuckFirmwareReason
+	if mode == reapModeRestart {
+		errorInfo = commandRestartReason
+		firmwareErrorInfo = commandRestartReason
+	}
+
 	var reapedCmds []reapedCommand
-	var fwDeviceIDs []int64
-	err := db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
-		reaped, err := q.ReapStuckProcessingMessages(ctx, sqlc.ReapStuckProcessingMessagesParams{
-			Cutoff:    cutoff,
-			ReapLimit: 100,
+	err := db.WithTransactionTimeoutNoResult(ctx, es.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
+		reaped, err := q.ReapMessages(ctx, sqlc.ReapMessagesParams{
+			IncludeFresh:      mode == reapModeRestart,
+			Cutoff:            now.Add(-es.config.StuckMessageTimeout),
+			FirmwareCutoff:    now.Add(-es.config.FirmwareUpdateStuckTimeout),
+			ReapLimit:         reaperBatchSize,
+			ErrorInfo:         errorInfo,
+			FirmwareErrorInfo: firmwareErrorInfo,
 		})
 		if err != nil {
 			return err
 		}
 
-		fwCutoff := time.Now().Add(-es.config.FirmwareUpdateStuckTimeout)
-		fwReaped, err := q.ReapStuckFirmwareUpdateMessages(ctx, sqlc.ReapStuckFirmwareUpdateMessagesParams{
-			Cutoff:    fwCutoff,
-			ReapLimit: 100,
-		})
-		if err != nil {
-			return err
-		}
-
-		reapedCmds = make([]reapedCommand, 0, len(reaped)+len(fwReaped))
+		reapedCmds = make([]reapedCommand, 0, len(reaped))
+		firmwareDeviceIDs := make([]int64, 0)
+		requeueOrganizations := make(map[int64]struct{})
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -356,31 +409,37 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedComm
 			}
 			kind, kindErr := commandtype.FromString(msg.CommandType)
 			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
-				if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, msg.OrgID); err != nil {
-					return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
-				}
+				requeueOrganizations[msg.OrgID] = struct{}{}
 			}
-			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
+			if mode == reapModeStuck && kindErr == nil && kind == commandtype.FirmwareUpdate {
+				firmwareDeviceIDs = append(firmwareDeviceIDs, msg.DeviceID)
+			}
+			siteID := int64(0)
+			if msg.SiteID.Valid {
+				siteID = msg.SiteID.Int64
+			}
+			reapedCmds = append(reapedCmds, reapedCommand{
+				orgID:       msg.OrgID,
+				siteID:      siteID,
+				commandType: msg.CommandType,
+			})
 		}
-		for _, msg := range fwReaped {
-			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
-				Uuid:      msg.CommandBatchLogUuid,
-				DeviceID:  msg.DeviceID,
-				Status:    sqlc.DeviceCommandStatusEnumFAILED,
-				UpdatedAt: time.Now(),
-				ErrorInfo: msg.ErrorInfo,
-			}); err != nil {
-				return err
+		for orgID := range requeueOrganizations {
+			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, orgID); err != nil {
+				return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
 			}
-			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
-			fwDeviceIDs = append(fwDeviceIDs, msg.DeviceID)
+		}
+		if len(firmwareDeviceIDs) > 0 {
+			if err := q.ResetReapedFirmwareStatuses(ctx, firmwareDeviceIDs); err != nil {
+				return fmt.Errorf("reset reaped firmware statuses: %w", err)
+			}
 		}
 		return nil
 	})
-	return reapedCmds, fwDeviceIDs, err
+	return reapedCmds, err
 }
 
-var errReapedStuck = errors.New("reaped: stuck in PROCESSING beyond timeout")
+var errReapedCommand = errors.New("reaped command")
 
 // records a result="failure" sample for each reaped command.
 func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped []reapedCommand) {
@@ -394,7 +453,7 @@ func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped
 				"command_type", r.commandType, "error", err)
 			continue
 		}
-		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, 0, kind, errReapedStuck)
+		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, r.siteID, kind, errReapedCommand)
 	}
 }
 
@@ -539,7 +598,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		queueUpdated  bool
 		queueTerminal bool
 	)
-	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q sqlc.Querier) error {
+	txErr := db.WithTransactionTimeoutNoResult(dbCtx, es.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		// First: transition queue_message status (detects staleness via rowsAffected).
 		updated, terminal, err := es.markQueueMessageStatus(dbCtx, q, message, workerError)
 		if err != nil {
@@ -550,6 +609,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		if !updated {
 			slog.Warn("skipping audit log for stale message",
 				"message_id", message.ID, "device_id", message.DeviceID)
+			return nil
+		}
+		if !terminal {
 			return nil
 		}
 
@@ -634,7 +696,10 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q sqlc.Q
 	if err != nil {
 		return false, false, fleeterror.NewInternalErrorf("failed to update queue message status: %v", err)
 	}
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, false, fleeterror.NewInternalErrorf("failed to read queue message transition result: %v", err)
+	}
 	return rowsAffected > 0, terminal, nil
 }
 
@@ -753,6 +818,10 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			break
 		}
 		if shouldReboot {
+			if ctx.Err() != nil {
+				err = ctx.Err()
+				break
+			}
 			err = es.rebootAfterFirmwareInstall(ctx, minerInfo, message.DeviceID)
 		}
 	case commandtype.Unpair:
@@ -1286,7 +1355,11 @@ func (es *ExecutionService) clearFirmwareUpdateStatusForDevice(ctx context.Conte
 // already verified reboot support for firmware updates. For polling-capable
 // devices, status transitions to UPDATING while installation runs, then
 // REBOOT_REQUIRED on success.
-func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) (bool, error) {
+func (es *ExecutionService) pollFirmwareInstallStatus(
+	ctx context.Context,
+	minerInfo interfaces.Miner,
+	deviceID int64,
+) (bool, error) {
 	provider, canPoll := minerInfo.(interfaces.FirmwareUpdateStatusProvider)
 	if !canPoll {
 		slog.Info("firmware update status provider unavailable, rebooting after upload", "device_id", deviceID)

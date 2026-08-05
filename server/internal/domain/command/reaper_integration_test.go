@@ -27,19 +27,28 @@ func setupReaperTest(t *testing.T) (*sql.DB, *testutil.DatabaseService, *testuti
 	return dbService.DB, dbService, user
 }
 
-func createBatchLog(t *testing.T, conn *sql.DB, batchUUID string, userID int64, deviceCount int32) {
+func createBatchLog(t *testing.T, conn *sql.DB, batchUUID string, userID int64, deviceCount int32, status sqlc.BatchStatusEnum) {
+	t.Helper()
+	createBatchLogs(t, conn, []string{batchUUID}, userID, deviceCount, status)
+}
+
+func createBatchLogs(t *testing.T, conn *sql.DB, batchUUIDs []string, userID int64, deviceCount int32, status sqlc.BatchStatusEnum) {
 	t.Helper()
 	err := db2.WithTransactionNoResult(context.Background(), conn, func(q sqlc.Querier) error {
-		_, err := q.CreateCommandBatchLog(context.Background(), sqlc.CreateCommandBatchLogParams{
-			Uuid:         batchUUID,
-			Type:         "REBOOT",
-			CreatedBy:    userID,
-			CreatedAt:    time.Now(),
-			Status:       sqlc.BatchStatusEnumPROCESSING,
-			DevicesCount: deviceCount,
-			Payload:      pqtype.NullRawMessage{Valid: false},
-		})
-		return err
+		for _, batchUUID := range batchUUIDs {
+			if _, err := q.CreateCommandBatchLog(context.Background(), sqlc.CreateCommandBatchLogParams{
+				Uuid:         batchUUID,
+				Type:         "REBOOT",
+				CreatedBy:    userID,
+				CreatedAt:    time.Now(),
+				Status:       status,
+				DevicesCount: deviceCount,
+				Payload:      pqtype.NullRawMessage{Valid: false},
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	require.NoError(t, err)
 }
@@ -126,15 +135,7 @@ func (n *noopMessageQueue) Dequeue(ctx context.Context, _ int32) ([]queue.Messag
 	<-ctx.Done()
 	return nil, fmt.Errorf("dequeue cancelled: %w", ctx.Err())
 }
-func (n *noopMessageQueue) MarkSuccess(_ context.Context, _ int64) error          { return nil }
-func (n *noopMessageQueue) MarkFailed(_ context.Context, _ int64, _ string) error { return nil }
-func (n *noopMessageQueue) MarkPermanentlyFailed(_ context.Context, _ int64, _ string) error {
-	return nil
-}
 func (n *noopMessageQueue) IsBatchFinished(_ context.Context, _ string) (bool, error) {
-	return false, nil
-}
-func (n *noopMessageQueue) IsBatchProcessing(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
 func (n *noopMessageQueue) MaxFailureRetries() int32 { return 5 }
@@ -148,28 +149,24 @@ func TestReaperIntegration(t *testing.T) {
 		// Arrange
 		conn, dbService, user := setupReaperTest(t)
 		device := dbService.CreateDevice(user.OrganizationID, "proto")
-
-		batchUUID := "reap-test-batch-1"
-		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
-		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 10*time.Minute)
-
 		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
 			ReaperInterval:        50 * time.Millisecond,
 		}, conn, &noopMessageQueue{}, nil, nil, nil, nil, nil, nil)
-
-		// Act — start the service, the reaper should fire within 50ms
 		err := svc.Start(t.Context())
 		require.NoError(t, err)
+		batchUUID := "reap-test-batch-1"
+		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1, sqlc.BatchStatusEnumPROCESSING)
+		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 10*time.Minute)
 
-		// Assert — reaper should mark the stuck message as FAILED
+		// Act
 		assert.Eventually(t, func() bool {
 			return getQueueMessageStatus(t, conn, batchUUID, device.DatabaseID) == sqlc.QueueStatusEnumFAILED
 		}, 500*time.Millisecond, 25*time.Millisecond, "reaper should mark stuck message as FAILED")
 
-		// Audit log should also be written
+		// Assert
 		auditStatus, found := getAuditLogStatus(t, conn, batchUUID, device.DatabaseID)
 		assert.True(t, found, "audit log should exist for reaped message")
 		assert.Equal(t, sqlc.DeviceCommandStatusEnumFAILED, auditStatus)
@@ -185,23 +182,19 @@ func TestReaperIntegration(t *testing.T) {
 		// Arrange
 		conn, dbService, user := setupReaperTest(t)
 		device := dbService.CreateDevice(user.OrganizationID, "proto")
-
-		batchUUID := "reap-test-batch-2"
-		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
-		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 1*time.Minute)
-
 		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
 			ReaperInterval:        50 * time.Millisecond,
 		}, conn, &noopMessageQueue{}, nil, nil, nil, nil, nil, nil)
-
-		// Act
 		err := svc.Start(t.Context())
 		require.NoError(t, err)
+		batchUUID := "reap-test-batch-2"
+		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1, sqlc.BatchStatusEnumPROCESSING)
+		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 1*time.Minute)
 
-		// Wait for a few reaper ticks
+		// Act
 		time.Sleep(200 * time.Millisecond)
 
 		// Assert — message should still be PROCESSING
@@ -215,7 +208,7 @@ func TestReaperIntegration(t *testing.T) {
 		device := dbService.CreateDevice(user.OrganizationID, "proto")
 
 		batchUUID := "reap-test-batch-3"
-		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
+		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1, sqlc.BatchStatusEnumPROCESSING)
 
 		// Create a message in SUCCESS state with an old timestamp
 		ctx := context.Background()
@@ -261,31 +254,27 @@ func TestReaperIntegration(t *testing.T) {
 		conn, dbService, user := setupReaperTest(t)
 		device1 := dbService.CreateDevice(user.OrganizationID, "proto")
 		device2 := dbService.CreateDevice(user.OrganizationID, "proto")
-
-		batchUUID := "reap-test-batch-4"
-		createBatchLog(t, conn, batchUUID, user.DatabaseID, 2)
-		createStuckMessage(t, conn, batchUUID, device1.DatabaseID, 10*time.Minute)
-		createStuckMessage(t, conn, batchUUID, device2.DatabaseID, 10*time.Minute)
-
 		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
 			ReaperInterval:        50 * time.Millisecond,
 		}, conn, &noopMessageQueue{}, nil, nil, nil, nil, nil, nil)
-
-		// Act
 		err := svc.Start(t.Context())
 		require.NoError(t, err)
+		batchUUID := "reap-test-batch-4"
+		createBatchLog(t, conn, batchUUID, user.DatabaseID, 2, sqlc.BatchStatusEnumPROCESSING)
+		createStuckMessage(t, conn, batchUUID, device1.DatabaseID, 10*time.Minute)
+		createStuckMessage(t, conn, batchUUID, device2.DatabaseID, 10*time.Minute)
 
-		// Assert — both should be reaped
+		// Act
 		assert.Eventually(t, func() bool {
 			s1 := getQueueMessageStatus(t, conn, batchUUID, device1.DatabaseID)
 			s2 := getQueueMessageStatus(t, conn, batchUUID, device2.DatabaseID)
 			return s1 == sqlc.QueueStatusEnumFAILED && s2 == sqlc.QueueStatusEnumFAILED
 		}, 500*time.Millisecond, 25*time.Millisecond)
 
-		// Both should have audit log entries
+		// Assert
 		status1, found1 := getAuditLogStatus(t, conn, batchUUID, device1.DatabaseID)
 		status2, found2 := getAuditLogStatus(t, conn, batchUUID, device2.DatabaseID)
 		assert.True(t, found1)
@@ -293,4 +282,73 @@ func TestReaperIntegration(t *testing.T) {
 		assert.Equal(t, sqlc.DeviceCommandStatusEnumFAILED, status1)
 		assert.Equal(t, sqlc.DeviceCommandStatusEnumFAILED, status2)
 	})
+}
+
+func TestExecutionServiceStartupPreservesPendingAndFailsProcessing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	// Arrange
+	conn, dbService, user := setupReaperTest(t)
+	queries := sqlc.New(conn)
+	commandDevice := dbService.CreateDevice(user.OrganizationID, "proto")
+	firmwareDevice := dbService.CreateDevice(user.OrganizationID, "proto")
+	commandBatch := "restart-pending-command-batch"
+	firmwareBatch := "restart-processing-firmware-batch"
+	rebootCommand := commandtype.Reboot
+	firmwareCommand := commandtype.FirmwareUpdate
+	createBatchLog(t, conn, commandBatch, user.DatabaseID, 1, sqlc.BatchStatusEnumPENDING)
+	createBatchLog(t, conn, firmwareBatch, user.DatabaseID, 1, sqlc.BatchStatusEnumPROCESSING)
+	require.NoError(t, queries.CreateQueueMessage(t.Context(), sqlc.CreateQueueMessageParams{
+		CommandBatchLogUuid: commandBatch,
+		CommandType:         rebootCommand.String(),
+		DeviceID:            commandDevice.DatabaseID,
+		Status:              sqlc.QueueStatusEnumPENDING,
+		Payload:             pqtype.NullRawMessage{},
+	}))
+	require.NoError(t, queries.CreateQueueMessage(t.Context(), sqlc.CreateQueueMessageParams{
+		CommandBatchLogUuid: firmwareBatch,
+		CommandType:         firmwareCommand.String(),
+		DeviceID:            firmwareDevice.DatabaseID,
+		Status:              sqlc.QueueStatusEnumPROCESSING,
+		Payload:             pqtype.NullRawMessage{},
+	}))
+	require.NoError(t, queries.UpsertDeviceStatus(t.Context(), sqlc.UpsertDeviceStatusParams{
+		DeviceID: firmwareDevice.DatabaseID,
+		Status:   sqlc.DeviceStatusEnumUPDATING,
+	}))
+
+	svc := command.NewExecutionService(
+		&command.Config{MaxWorkers: 1},
+		conn,
+		&noopMessageQueue{},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	// Act
+	err := svc.Start(t.Context())
+
+	// Assert
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, svc.Stop(context.Background())) })
+	require.Equal(t, sqlc.QueueStatusEnumPENDING, getQueueMessageStatus(t, conn, commandBatch, commandDevice.DatabaseID))
+	require.Equal(t, sqlc.QueueStatusEnumFAILED, getQueueMessageStatus(t, conn, firmwareBatch, firmwareDevice.DatabaseID))
+	reason, found := getAuditLogErrorInfo(t, conn, firmwareBatch, firmwareDevice.DatabaseID)
+	require.True(t, found)
+	require.Equal(t, "Interrupted by Fleet restart; device outcome may be unknown", reason)
+	firmwareStatus, err := queries.GetDeviceStatus(t.Context(), firmwareDevice.DatabaseID)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.DeviceStatusEnumUPDATING, firmwareStatus)
+	pendingBatch, err := queries.GetBatchLog(t.Context(), commandBatch)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.BatchStatusEnumPENDING, pendingBatch.Status)
+	batch, err := queries.GetBatchLog(t.Context(), firmwareBatch)
+	require.NoError(t, err)
+	require.Equal(t, sqlc.BatchStatusEnumFINISHED, batch.Status)
 }

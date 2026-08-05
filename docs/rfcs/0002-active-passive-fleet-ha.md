@@ -3,7 +3,7 @@
 - **Status**: approved
 - **Author(s)**: Ankit Goswami (@ankitgoswami)
 - **Created**: 2026-07-13
-- **Last updated**: 2026-07-14
+- **Last updated**: 2026-08-04
 
 ## Summary
 
@@ -29,7 +29,7 @@ This RFC deliberately scopes the HA promise to the real-time control plane. Curt
 The HA design needs to satisfy four requirements:
 
 - **No single point of failure** in the supported HA topology.
-- **Automatic recovery** of curtailment dispatch, with a target recovery time under 60 seconds.
+- **Automatic recovery** of curtailment dispatch, with a target recovery time under 180 seconds.
 - **Correctness over convenience**: never run two active control dispatchers at once.
 - **Deployment simplicity** across on-prem and cloud installs.
 
@@ -205,11 +205,11 @@ Rules:
 - Acquire succeeds when the row is absent, expired according to DB time, or already held by the same process incarnation.
 - Renew succeeds only when `name`, `holder_id`, and `lease_epoch` still match and the lease has not expired according to DB time.
 - A process that resumes after its lease expires must reacquire the lease and receive a new epoch before active runtime can resume.
-- Active renews every few seconds with a short TTL.
+- Active renews every few seconds with a 10-second TTL.
 - Lease renewal and `/health/active` depend on critical active-runtime health. If the active instance cannot run required control loops, it must stop passing active health and stop renewing or relinquish the lease.
-- Every active-only runtime loop carries the activation epoch and confirms the local coordinator still owns that epoch before dispatching or claiming work.
-- External side effects must be fenced at the nearest durable boundary. Effects that cannot be receiver-fenced must be idempotent, cancelable, or reconciled before the implementation can claim zero dual dispatch.
-- A stalled old active that resumes after takeover cannot dispatch because its epoch is stale.
+- Command write transactions are bounded to 5 seconds, and state transitions require the expected prior state.
+- When command execution starts, it preserves `PENDING` work and fails `PROCESSING` work because the device outcome is unknown. The existing reaper then handles stale work and terminal batches on its normal schedule.
+- After an active process loses ownership or critical runtime health, it exits instead of trying to demote and restart active work in place. The service supervisor restarts it in passive mode.
 
 This lease model intentionally allows future per-subsystem leases, but v1 does not use them. Active/active Fleet is out of scope.
 
@@ -226,7 +226,7 @@ Passive is deliberately dumb in v1. It does not need a carefully audited read-on
 
 ### Runtime supervisor
 
-Add a runtime supervisor that starts and stops active-only services on lease transitions. Startup moves from "all runtime work starts when the process starts" to "active runtime work starts only after activation."
+Add a runtime supervisor that starts active-only services after lease acquisition. In HA mode, ownership loss terminates the process so the external service supervisor provides a clean restart.
 
 Active-only work in v1 includes:
 
@@ -323,7 +323,7 @@ The exact installer flags, templates, compose files, and runbook commands belong
 | Failure | Expected behavior |
 | ------- | ----------------- |
 | Active Fleet app process dies | Lease expires; peer activates and starts active runtime. |
-| Active Fleet app hangs | Lease renewal stops or epoch checks fail; peer takes over; old active cannot dispatch with stale epoch. |
+| Active Fleet app hangs | Lease renewal stops; the process exits or is replaced after lease expiry, and the peer takes over. |
 | DB primary dies | Patroni promotes standby; new Fleet DB connections select the read-write host; lease renews or is reacquired. |
 | Sync standby dies | Fleet continues in async-degraded mode after the configured behavior; HA status reports `FAILOVER READY: NO`. |
 | Witness host dies | Service continues; quorum tolerance is degraded; HA status reports degraded readiness. |
@@ -341,12 +341,12 @@ The HA mode is not supported until these gates pass.
 Activation and fencing:
 
 - Two Fleet app processes against the same DB produce exactly one active holder.
-- Killing active Fleet activates the peer within 15 seconds.
+- Killing active Fleet keeps end-to-end curtailment recovery under 180 seconds.
 - Partial active-runtime failure causes `/health/active` to fail and allows the peer to take over.
-- Network partition tests produce zero dual dispatch.
+- Network partition tests prove guarded transitions cannot overwrite command state after ownership loss.
 - Passive mode rejects all product traffic, including non-RPC HTTP routes, while preserving the explicit health and operator-status bypasses.
 - Lease loss terminates already accepted product streams and active-scoped request work.
-- A stalled active process cannot dispatch after lease loss, emit stale external side effects, or renew an expired lease with its old epoch.
+- A stalled active process cannot overwrite terminal command state or renew an expired lease with its old epoch.
 - Fleet-scale reconnect tests avoid synchronized ControlStream reconnect storms during failover.
 
 Database and durability:
@@ -359,8 +359,8 @@ Database and durability:
 
 Real-time control:
 
-- Full curtailment dispatch recovery after a single failure completes within 60 seconds across repeated trials.
-- MQTT curtailment intake failover resumes on the new active Fleet app within the RTO target without dual processing.
+- Full curtailment dispatch recovery after a single failure completes within 180 seconds across repeated trials.
+- MQTT curtailment intake failover resumes on the new active Fleet app within the RTO target; pending command work resumes and interrupted attempts are failed.
 
 Deployment and diagnostics:
 
@@ -397,7 +397,7 @@ Deployment and diagnostics:
 
 ## Unresolved questions
 
-- **Exact Patroni timings**. Initial targets are chosen to fit the 60s RTO, but final `ttl`, `loop_wait`, and `retry_timeout` values must be set from lab measurements.
+- **Exact Patroni timings**. Initial targets are chosen to fit the 180-second curtailment RTO, but final `ttl`, `loop_wait`, and `retry_timeout` values must be confirmed by lab measurements.
 - **Critical write classification**. The implementation must audit write paths and decide which writes require critical durability and which are best-effort.
 - **Artifact HA boundary**. Firmware and command artifact behavior after failover needs a product decision: document re-upload in v1, add rsync, or require shared storage for covered command types.
 - **Grafana HA datasource**. Grafana is out of the RTO path, but the install should still decide whether dashboards use best-effort single-host datasource config, multi-host config if supported, or an explicit "not HA" warning.

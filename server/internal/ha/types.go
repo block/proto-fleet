@@ -1,26 +1,16 @@
 package ha
 
 import (
-	"cmp"
 	"context"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Token totally orders Fleet ownership within one DCS cluster identity.
+// Token identifies one Fleet ownership term within a DCS cluster.
 type Token struct {
 	WriterGeneration int64
 	LeaseEpoch       int64
-}
-
-// Compare orders ownership tokens lexicographically. A writer promotion always
-// outranks every lease epoch from an older writer generation.
-func (t Token) Compare(other Token) int {
-	return cmp.Or(
-		cmp.Compare(t.WriterGeneration, other.WriterGeneration),
-		cmp.Compare(t.LeaseEpoch, other.LeaseEpoch),
-	)
 }
 
 // WriterObservation is a fail-closed binding between one DCS leader term and
@@ -61,7 +51,7 @@ type ownershipStore interface {
 	Renew(
 		ctx context.Context,
 		observed WriterObservation,
-		ownership Ownership,
+		active Ownership,
 		duration time.Duration,
 	) (Ownership, error)
 }

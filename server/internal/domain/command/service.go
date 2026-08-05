@@ -36,6 +36,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -480,7 +481,7 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (string, error) {
+	return db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (string, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 
@@ -503,40 +504,74 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 }
 
 func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
-	isProcessing, err := s.messageQueue.IsBatchProcessing(ctx, commandBatchLogUUID)
+	updated, err := db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (bool, error) {
+		rowsAffected, updateErr := q.MarkCommandBatchProcessing(ctx, commandBatchLogUUID)
+		return rowsAffected > 0, updateErr
+	})
 	if err != nil {
-		return false, fleeterror.NewInternalErrorf("error asking isProcessing: %v", err)
+		return false, fleeterror.NewInternalErrorf("error marking batch: %v", err)
 	}
-	if isProcessing {
-		err = db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
-			return q.MarkCommandBatchProcessing(ctx, commandBatchLogUUID)
-		})
-		if err != nil {
-			return false, fleeterror.NewInternalErrorf("error marking batch: %v", err)
-		}
-		return true, nil
-	}
-	return false, nil
+	return updated, nil
 }
 
 func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(ctx context.Context, commandBatchLogUUID string) error {
 	return func(ctx context.Context, commandBatchLogUUID string) error {
-		return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
+		updated, err := db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (bool, error) {
+			var rowsAffected int64
+			var updateErr error
 			if processingMarkedInDB {
-				return q.MarkCommandBatchFinished(ctx, commandBatchLogUUID)
+				rowsAffected, updateErr = q.MarkCommandBatchFinished(ctx, commandBatchLogUUID)
+			} else {
+				rowsAffected, updateErr = q.MarkCommandBatchFinishedWithStartedAt(ctx, commandBatchLogUUID)
 			}
-			return q.MarkCommandBatchFinishedWithStartedAt(ctx, commandBatchLogUUID)
+			return rowsAffected > 0, updateErr
 		})
+		if err != nil {
+			return err
+		}
+		if !updated {
+			slog.Debug("command batch already left expected state", "batch_uuid", commandBatchLogUUID)
+		}
+		return nil
 	}
 }
 
-func (s *Service) finishUnenqueuedCommandBatch(ctx context.Context, commandBatchLogUUID string) error {
+func (s *Service) reconcileFailedEnqueue(ctx context.Context, commandBatchLogUUID string, expectedMessages int, enqueueErr error) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 	defer cancel()
-	if err := s.getMarkFinishedBatchFunction(false)(cleanupCtx, commandBatchLogUUID); err != nil {
-		return fleeterror.NewInternalErrorf("command execution stopped before enqueue; failed to finish command batch: %v", err)
+
+	enqueueCommitted, err := db.WithTransactionTimeout(cleanupCtx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (bool, error) {
+		status, err := q.LockCommandBatch(cleanupCtx, commandBatchLogUUID)
+		if err != nil {
+			return false, err
+		}
+		messageCount, err := q.CountQueueMessagesByBatch(cleanupCtx, commandBatchLogUUID)
+		if err != nil {
+			return false, err
+		}
+		if messageCount == int64(expectedMessages) {
+			return true, nil // the enqueue committed before returning an ambiguous error
+		}
+		if messageCount != 0 {
+			return false, fmt.Errorf("enqueue created %d of %d expected queue messages", messageCount, expectedMessages)
+		}
+
+		if status != sqlc.BatchStatusEnumPENDING {
+			return false, nil
+		}
+		_, err = q.MarkCommandBatchFinishedWithStartedAt(cleanupCtx, commandBatchLogUUID)
+		return false, err
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf(
+			"command enqueue failed and reconciliation also failed: %w",
+			errors.Join(enqueueErr, err),
+		)
 	}
-	return fleeterror.NewInternalError("command execution service stopped before enqueue")
+	if enqueueCommitted {
+		return nil
+	}
+	return enqueueErr
 }
 
 func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
@@ -1051,14 +1086,19 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		}
 		return s.messageQueue.EnqueueMany(workCtx, batchLogIdentifier, command.commandType, queuePayloads)
 	})
-	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
-		return nil, s.finishUnenqueuedCommandBatch(ctx, batchLogIdentifier)
-	}
 	if err != nil {
-		if len(queuePayloads) == 0 {
-			return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+		var enqueueErr error
+		switch {
+		case errors.Is(err, errExecutionStoppedBeforeEnqueue):
+			enqueueErr = fleeterror.NewInternalError("command execution service stopped before enqueue")
+		case len(queuePayloads) == 0:
+			enqueueErr = fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+		default:
+			enqueueErr = fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
 		}
-		return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
+		if err := s.reconcileFailedEnqueue(ctx, batchLogIdentifier, len(deviceIDs), enqueueErr); err != nil {
+			return nil, err
+		}
 	}
 
 	return &CommandResult{
@@ -1536,11 +1576,13 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
 		return s.enqueueWorkerNameReapplyMessages(workCtx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier)
 	})
-	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
-		return "", s.finishUnenqueuedCommandBatch(ctx, commandBatchLogUUID)
-	}
 	if err != nil {
-		return "", err
+		if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+			err = fleeterror.NewInternalError("command execution service stopped before enqueue")
+		}
+		if err := s.reconcileFailedEnqueue(ctx, commandBatchLogUUID, len(deviceIdentifiers), err); err != nil {
+			return "", err
+		}
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
@@ -1572,30 +1614,22 @@ func (s *Service) enqueueWorkerNameReapplyMessages(
 	deviceIDsByIdentifier map[string]int64,
 	desiredWorkerNamesByDeviceIdentifier map[string]string,
 ) error {
-	return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
-		commandType := commandtype.UpdateMiningPools
-		for _, deviceIdentifier := range deviceIdentifiers {
-			payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
+	messages := make([]queue.EnqueueMessage, 0, len(deviceIdentifiers))
+	for _, deviceIdentifier := range deviceIdentifiers {
+		messages = append(messages, queue.EnqueueMessage{
+			DeviceID: deviceIDsByIdentifier[deviceIdentifier],
+			Payload: dto.UpdateMiningPoolsPayload{
 				ReapplyCurrentPoolsWithStoredWorkerName: true,
 				DesiredWorkerName:                       desiredWorkerNamesByDeviceIdentifier[deviceIdentifier],
-			})
-			if err != nil {
-				return fleeterror.NewInternalErrorf("failed to marshal worker-name reapply payload: %v", err)
-			}
-
-			if err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
-				CommandBatchLogUuid: commandBatchLogUUID,
-				CommandType:         commandType.String(),
-				DeviceID:            deviceIDsByIdentifier[deviceIdentifier],
-				Status:              sqlc.QueueStatusEnumPENDING,
-				RetryCount:          0,
-				Payload:             pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: true},
-			}); err != nil {
-				return fleeterror.NewInternalErrorf("failed to enqueue worker-name reapply message: %v", err)
-			}
-		}
-		return nil
-	})
+			},
+		})
+	}
+	return s.messageQueue.EnqueueMany(
+		ctx,
+		commandBatchLogUUID,
+		commandtype.UpdateMiningPools,
+		messages,
+	)
 }
 
 func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
@@ -1882,7 +1916,39 @@ func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamC
 	return responseChan, nil
 }
 
-func (s *Service) GetCommandBatchLogBundle(batchUUID string) (*pb.GetCommandBatchLogBundleResponse, error) {
+func (s *Service) GetCommandBatchLogBundle(ctx context.Context, batchUUID string) (*pb.GetCommandBatchLogBundleResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+
+	batch, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (sqlc.GetBatchHeaderForOrgRow, error) {
+		header, queryErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
+			Uuid:           batchUUID,
+			OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
+		})
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return header, fleeterror.NewNotFoundErrorf("command batch %s not found", batchUUID)
+		}
+		return header, queryErr
+	})
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil, err
+		}
+		return nil, fleeterror.NewInternalErrorf("error reading command batch: %v", err)
+	}
+	downloadLogs := commandtype.DownloadLogs
+	if batch.Type != downloadLogs.String() {
+		return nil, fleeterror.NewNotFoundErrorf("command batch %s not found", batchUUID)
+	}
+	if batch.Status != sqlc.BatchStatusEnumFINISHED {
+		return nil, fleeterror.NewInternalError("log bundle is not available yet, please try again later")
+	}
+	if err := s.filesService.EnsureBatchLogBundle(batchUUID); err != nil {
+		return nil, fleeterror.NewInternalErrorf("error bundling logs: %v", err)
+	}
+
 	file, err := s.filesService.GetBatchLogBundleFile(batchUUID)
 	if err != nil {
 		return nil, err

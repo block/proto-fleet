@@ -54,20 +54,8 @@ func (f *fakeMessageQueue) EnqueueMany(_ context.Context, batchUUID string, ct c
 func (f *fakeMessageQueue) Dequeue(context.Context, int32) ([]queue.Message, error) {
 	panic("Dequeue not used")
 }
-func (f *fakeMessageQueue) MarkSuccess(context.Context, int64) error {
-	panic("MarkSuccess not used")
-}
-func (f *fakeMessageQueue) MarkFailed(context.Context, int64, string) error {
-	panic("MarkFailed not used")
-}
-func (f *fakeMessageQueue) MarkPermanentlyFailed(context.Context, int64, string) error {
-	panic("MarkPermanentlyFailed not used")
-}
 func (f *fakeMessageQueue) IsBatchFinished(context.Context, string) (bool, error) {
 	return true, nil
-}
-func (f *fakeMessageQueue) IsBatchProcessing(context.Context, string) (bool, error) {
-	return false, nil
 }
 func (f *fakeMessageQueue) MaxFailureRetries() int32 { return 0 }
 

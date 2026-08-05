@@ -285,6 +285,7 @@ type Querier interface {
 	// deactivated. Same liveness filters as above so a deactivated user
 	// never inflates the count.
 	CountOrgScopeSuperAdminsExcludingUser(ctx context.Context, arg CountOrgScopeSuperAdminsExcludingUserParams) (int64, error)
+	CountQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) (int64, error)
 	CountRacksBySite(ctx context.Context, arg CountRacksBySiteParams) (int64, error)
 	// Total live racks currently assigned to a building (placed or
 	// unplaced — membership, not grid occupancy). Used by
@@ -316,6 +317,7 @@ type Querier interface {
 	CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error)
 	CreatePool(ctx context.Context, arg CreatePoolParams) (int64, error)
 	CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error
+	CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) (int64, error)
 	// org_id is denormalized onto device_set_rack so the building FK can be
 	// composite-keyed; inherit it from device_set so the caller's org_id
 	// must match. site_id / building_id are NULL for unassigned racks.
@@ -421,6 +423,7 @@ type Querier interface {
 	// miner with only a direct building (site NULL, building set, e.g. one
 	// assigned to a site-less building) must trip the confirm too.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
+	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any
 	// non-terminal event row. Unlike AdminTerminateCurtailmentEvent, this
 	// intentionally supports ACTIVE events and has no in-flight command gate because
@@ -700,6 +703,7 @@ type Querier interface {
 	GetPermissionByKey(ctx context.Context, key string) (Permission, error)
 	GetPermissionsByKeys(ctx context.Context, keys []string) ([]Permission, error)
 	GetPool(ctx context.Context, arg GetPoolParams) (Pool, error)
+	GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error)
 	// Batch query to get rack label and formatted slot position for multiple devices at once.
 	// Returns at most one rack per device due to partial unique index.
 	GetRackDetailsForDevices(ctx context.Context, arg GetRackDetailsForDevicesParams) ([]GetRackDetailsForDevicesRow, error)
@@ -803,7 +807,6 @@ type Querier interface {
 	// the in-process metrics provider on every flush.
 	InsertNotificationMetricSamples(ctx context.Context, arg InsertNotificationMetricSamplesParams) error
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
-	IsBatchProcessing(ctx context.Context, commandBatchLogUuid string) (bool, error)
 	IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
 	// enforce the per-device single-writer rule.
@@ -1125,6 +1128,7 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
+	LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error)
 	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
 	// Physical fan commands run only while this exact lifecycle phase remains
 	// current. Holding the row lock through the command serializes Force Release's
@@ -1201,9 +1205,9 @@ type Querier interface {
 	// between the existence check and the cascade write. Returns the
 	// site id when alive; sql.ErrNoRows when soft-deleted or missing.
 	LockSiteForWrite(ctx context.Context, arg LockSiteForWriteParams) (int64, error)
-	MarkCommandBatchFinished(ctx context.Context, uuid string) error
-	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) error
-	MarkCommandBatchProcessing(ctx context.Context, uuid string) error
+	MarkCommandBatchFinished(ctx context.Context, uuid string) (int64, error)
+	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error)
+	MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error)
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
@@ -1233,8 +1237,9 @@ type Querier interface {
 	// Time range and include_closed are always applied as base filters.
 	// Uses cursor-based pagination with (severity, last_seen_at, error_id) ordering.
 	QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]QueryErrorsRow, error)
-	ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapStuckFirmwareUpdateMessagesParams) ([]ReapStuckFirmwareUpdateMessagesRow, error)
-	ReapStuckProcessingMessages(ctx context.Context, arg ReapStuckProcessingMessagesParams) ([]ReapStuckProcessingMessagesRow, error)
+	// Startup reaping fails every PROCESSING row left by the previous process.
+	// Periodic reaping only fails rows that exceeded their command-specific cutoff.
+	ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]ReapMessagesRow, error)
 	// Sets device.site_id = $target for every device in any live rack of
 	// the given building. Caller wraps this in the same tx as the building
 	// UPDATE. The JOIN on device_set with deleted_at IS NULL skips
@@ -1318,6 +1323,7 @@ type Querier interface {
 	// desired_state='active' and clears phase-local cursors so the restorer
 	// has an unambiguous queue. Terminal states are untouched.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
+	ResetReapedFirmwareStatuses(ctx context.Context, deviceIds []int64) error
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
 	// active reconciler has positively reopened airflow; clearing them here can
@@ -1345,6 +1351,7 @@ type Querier interface {
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
 	SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error)
+	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).
 	// Caller must have already set building_id via UpdateRackPlacement —
