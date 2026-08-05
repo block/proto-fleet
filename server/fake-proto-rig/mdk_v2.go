@@ -197,7 +197,7 @@ func (h *RESTApiHandler) handleV2Miner(w http.ResponseWriter, _ *http.Request) {
 }
 
 func v2State(miningState string) string {
-	if miningState == "mining" || miningState == "degraded" {
+	if miningState == string(MiningStateMining) || miningState == string(MiningStateDegraded) {
 		return "HASHING"
 	}
 	return "IDLE"
