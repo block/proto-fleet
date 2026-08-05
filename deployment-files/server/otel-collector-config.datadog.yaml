@@ -22,6 +22,10 @@ processors:
       - key: deployment.environment
         value: ${env:DD_ENV}
         action: upsert
+      # Must match the Datadog Agent's DD_HOSTNAME; unset, the exporter infers the container's hostname.
+      - key: host.name
+        value: ${env:DD_HOSTNAME}
+        action: upsert
 
 connectors:
   # Computes APM stats (hit/error/latency metrics); the exporter stopped doing this in contrib 0.95.
@@ -32,6 +36,8 @@ exporters:
     api:
       key: ${env:DD_API_KEY}
       site: ${env:DD_SITE}
+    # Fallback for the resource attribute above, which a whole-value env reference types as int for an all-numeric hostname.
+    hostname: "${env:DD_HOSTNAME}"
 
 extensions:
   health_check:

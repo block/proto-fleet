@@ -235,6 +235,74 @@ The configs live under `server/monitoring/grafana/`:
 - `provisioning/alerting/notification-policies.yaml` — root routing
   tree (grouping + repeat interval).
 
+### When "Metric Ingest Stalled" fires
+
+The rule reads the `fleet_telemetry_poll_heartbeat` continuous aggregate,
+not the raw samples. That aggregate is `materialized_only` and carries its
+own retention policy, so if its refresh policy job stops, retention keeps
+deleting buckets until the aggregate is empty and the rule fires for every
+pollable organization while ingest is perfectly healthy.
+
+So the alert firing does not by itself mean ingest died. Check the raw
+samples first — this is the discriminator:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT organization_id, max(time) AS newest,
+       round(extract(epoch from now() - max(time))) AS staleness_seconds
+  FROM notification_metric_sample
+ WHERE metric = 'fleet_telemetry_poll_total'
+   AND time > now() - INTERVAL '15 minutes'
+ GROUP BY organization_id;
+SQL
+```
+
+If the newest raw sample is also stale, the stall is real: check fleet-api
+and its metrics writer (`docker logs … | grep 'metrics:'`). If raw samples
+are landing fine, the aggregate is the problem — check its refresh policy:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT s.job_id, s.job_status, s.last_successful_finish, s.total_failures
+  FROM timescaledb_information.job_stats s
+  JOIN timescaledb_information.jobs j ON j.job_id = s.job_id
+ WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
+   AND j.hypertable_name IN (
+       SELECT ca.view_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat'
+       UNION ALL
+       SELECT ca.materialization_hypertable_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat');
+SQL
+```
+
+The `proc_name` filter excludes the aggregate's retention policy, which is
+also registered against the same hypertable; matching the materialization
+hypertable name too covers the TimescaleDB versions that label a refresh
+policy that way rather than by view name.
+
+A `job_status` of `Paused`, or a `last_successful_finish` well in the past,
+confirms it. Resume the job with the `job_id` from above and backfill enough
+buckets to clear the alert:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT alter_job(<job_id>, scheduled => true);
+CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat',
+                                  now() - INTERVAL '2 hours',
+                                  now() - INTERVAL '1 minute');
+SQL
+```
+
+Keep this on psql's default autocommit — `refresh_continuous_aggregate()`
+cannot run inside a transaction block, so adding `--single-transaction` (or
+wrapping the statements in `BEGIN`) fails with that error.
+
 ### Enabling system monitoring
 
 Host system monitoring is **off by default** and requires the alerts
@@ -314,7 +382,7 @@ DD_CLIENT_TOKEN=your-datadog-rum-client-token
 # Optional
 DD_SITE=datadoghq.com          # your Datadog site (default: datadoghq.com)
 DD_SERVICE=proto-fleet-client  # service name (default: proto-fleet-client)
-DD_ENV=production              # environment tag (default: build env)
+DD_ENV=prod-site1              # environment tag; use prod-<site> so per-site data stays separable (default: build env)
 DD_RUM_SAMPLE_RATE=100         # RUM session sample rate (default: 100)
 DD_SESSION_REPLAY_SAMPLE_RATE=0  # Session Replay sample rate (default: 0, off)
 DD_TRACE_SAMPLE_RATE=100       # trace sample rate for API calls (default: 100)
@@ -348,10 +416,23 @@ DD_API_KEY=your-datadog-api-key
 
 # Optional
 DD_SITE=datadoghq.com            # your Datadog site (default: datadoghq.com)
-DD_ENV=production                # APM env tag (default: production)
+DD_ENV=prod-site1                # APM environment tag; use prod-<site> to match the RUM config (default: production)
+DD_HOSTNAME=fleet-host-1         # host tag on spans (default: this machine's hostname)
 FLEET_TELEMETRY_SAMPLE_RATE=1.0  # server-side trace sample cap (default: 1.0)
 FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true  # parent spans to RUM trace context (default: true)
 ```
+
+`DD_HOSTNAME` is stamped onto spans as `host.name`. Without it the Datadog
+exporter infers a hostname from inside the collector container, so traces
+hang off a host that nothing else reports. `run-fleet.sh` defaults it to the
+output of `hostname` and writes that value to `.env`; if you also run a
+Datadog Agent on this machine for host metrics or logs, set `DD_HOSTNAME` to
+the hostname that agent reports (its `DD_HOSTNAME`, or `datadog-agent
+hostname`) so APM traces and infra data resolve to the same host. Matching
+`DD_ENV` across the agent, this overlay, and the RUM config is what joins
+infra, APM, and RUM. The overlay itself treats `DD_HOSTNAME` as required, so
+driving `docker compose` with `docker-compose.tracing.yaml` by hand needs it
+set in `.env` or the shell.
 
 Unlike the RUM client token, `DD_API_KEY` is a secret Datadog API key;
 it stays in `.env` (mode 0600) and the collector container's

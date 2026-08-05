@@ -49,6 +49,7 @@ PROTO_FLEET_IMAGE_REPOSITORIES=(
 )
 PREVIOUS_RELEASE_IMAGE_TAGS=()
 RELEASE_IMAGE_CLEANUP_SAFE=true
+DD_HOSTNAME_DEFAULTED=false
 
 # How long the post-start steps wait for fleet-api to finish its migrations.
 # 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
@@ -195,6 +196,13 @@ env_has_nonempty_value() {
     [ -n "$value" ]
 }
 
+# .env-scoped counterpart: whether a key still needs persisting, ignoring any process-level override.
+dotenv_has_nonempty_value() {
+    local value
+    value=$(compose_env_last_value "$1") || return 1
+    [ -n "$value" ]
+}
+
 env_boolean_is_true() {
     local key="$1" value read_status
     value=$(env_last_value "$key")
@@ -282,6 +290,29 @@ resolve_release_image_tag() {
         return 1
     fi
     printf '%s' "$tag"
+}
+
+# A hand-edited .env may lack a trailing newline; a bare append would glue the key onto the last line.
+append_env_line() {
+    if [ -s "$ENV_FILE" ] && [ -n "$(tail -c1 "$ENV_FILE")" ]; then
+        echo >> "$ENV_FILE"
+    fi
+    echo "$1" >> "$ENV_FILE"
+}
+
+# Satisfies the tracing overlay's ${DD_HOSTNAME:?}; env_has_nonempty_value already reads the effective Compose value, so only default when that is empty.
+ensure_dd_hostname() {
+    if env_has_nonempty_value DD_HOSTNAME; then
+        return 0
+    fi
+    local detected
+    detected=$(hostname 2>/dev/null || true)
+    if [ -z "$detected" ]; then
+        echo "Error: could not read this host's hostname; set DD_HOSTNAME in $ENV_FILE and re-run with --enable-tracing." >&2
+        exit 1
+    fi
+    export DD_HOSTNAME="$detected"
+    DD_HOSTNAME_DEFAULTED=true
 }
 
 usage() {
@@ -418,16 +449,17 @@ fi
 # Validate tracing prerequisites before the overlay is layered: its ${DD_API_KEY:?}
 # interpolation would otherwise abort every compose command, even `compose down`.
 if [ "$ENABLE_TRACING" = "true" ]; then
-    validate_runner_env_value_syntax DD_API_KEY || exit 1
+    validate_runner_env_value_syntax DD_API_KEY DD_HOSTNAME || exit 1
     if [ ! -f "$COMPOSE_TRACING_FILE" ]; then
         echo "Error: --enable-tracing was passed but $COMPOSE_TRACING_FILE is missing." >&2
         exit 1
     fi
-    # Compose interpolation reads the shell environment and the .env file; accept either.
-    if [ -z "${DD_API_KEY:-}" ] && ! env_has_nonempty_value DD_API_KEY; then
+    if ! env_has_nonempty_value DD_API_KEY; then
         echo "Error: --enable-tracing requires DD_API_KEY (a Datadog API key) in $ENV_FILE." >&2
         exit 1
     fi
+    # Before layering too: the overlay's ${DD_HOSTNAME:?} would abort the `compose down` the volume-reinit prompt runs.
+    ensure_dd_hostname
 fi
 
 if [ "$PREFLIGHT_ONLY" = "true" ]; then
@@ -1643,12 +1675,7 @@ prompt_fleet_profile() {
         3|max) choice="max" ;;
         *) choice="standard" ;;
     esac
-    # A hand-edited .env may lack a trailing newline; a bare append would
-    # glue FLEET_PROFILE onto the last line and corrupt that key
-    if [ -s "$ENV_FILE" ] && [ -n "$(tail -c1 "$ENV_FILE")" ]; then
-        echo >> "$ENV_FILE"
-    fi
-    echo "FLEET_PROFILE=$choice" >> "$ENV_FILE"
+    append_env_line "FLEET_PROFILE=$choice"
     echo "Host profile '$choice' saved to $ENV_FILE (edit FLEET_PROFILE there to change it)."
 }
 
@@ -1892,11 +1919,17 @@ fi
 
 if [ "$ENABLE_TRACING" = "true" ]; then
     # Re-check after env setup: regenerating .env above drops keys the pre-layering check accepted.
-    if [ -z "${DD_API_KEY:-}" ] && ! env_has_nonempty_value DD_API_KEY; then
+    if ! env_has_nonempty_value DD_API_KEY; then
         echo "Error: $ENV_FILE was regenerated without DD_API_KEY; add it and re-run with --enable-tracing." >&2
         exit 1
     fi
     echo "Tracing: enabled (fleet-api request spans forwarded to Datadog APM)"
+    # Re-run in case .env was regenerated above, then persist so later manual compose commands satisfy ${DD_HOSTNAME:?} too.
+    ensure_dd_hostname
+    if [ "$DD_HOSTNAME_DEFAULTED" = "true" ] && ! dotenv_has_nonempty_value DD_HOSTNAME; then
+        append_env_line "DD_HOSTNAME=$DD_HOSTNAME"
+        echo "         trace host.name defaults to '$DD_HOSTNAME' (saved to $ENV_FILE); change it there if the Datadog Agent reports a different hostname"
+    fi
 else
     echo "Tracing: disabled (pass --enable-tracing with DD_API_KEY in .env to forward request spans to Datadog)"
 fi
