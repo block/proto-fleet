@@ -317,7 +317,7 @@ type Querier interface {
 	CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error)
 	CreatePool(ctx context.Context, arg CreatePoolParams) (int64, error)
 	CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error
-	CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) (int64, error)
+	CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error
 	// org_id is denormalized onto device_set_rack so the building FK can be
 	// composite-keyed; inherit it from device_set so the caller's org_id
 	// must match. site_id / building_id are NULL for unassigned racks.

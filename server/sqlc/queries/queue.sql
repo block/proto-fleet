@@ -15,7 +15,7 @@ INSERT INTO queue_message (
      $6
 );
 
--- name: CreateQueueMessages :execrows
+-- name: CreateQueueMessages :exec
 INSERT INTO queue_message (
     command_batch_log_uuid,
     command_type,

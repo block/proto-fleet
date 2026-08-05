@@ -71,7 +71,7 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 			return fleeterror.NewInternalErrorf("cannot enqueue messages for command batch in %s status", batchStatus)
 		}
 
-		inserted, err := q.CreateQueueMessages(ctx, sqlc.CreateQueueMessagesParams{
+		err = q.CreateQueueMessages(ctx, sqlc.CreateQueueMessagesParams{
 			CommandBatchLogUuid: commandBatchLogUUID,
 			CommandType:         commandType.String(),
 			DeviceIds:           deviceIDs,
@@ -79,9 +79,6 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to enqueue messages: %v", err)
-		}
-		if inserted != int64(len(messages)) {
-			return fleeterror.NewInternalErrorf("failed to enqueue all messages: inserted %d of %d", inserted, len(messages))
 		}
 		return nil
 	})

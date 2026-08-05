@@ -78,7 +78,7 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 	return err
 }
 
-const createQueueMessages = `-- name: CreateQueueMessages :execrows
+const createQueueMessages = `-- name: CreateQueueMessages :exec
 INSERT INTO queue_message (
     command_batch_log_uuid,
     command_type,
@@ -105,17 +105,14 @@ type CreateQueueMessagesParams struct {
 	Payloads            []string
 }
 
-func (q *Queries) CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) (int64, error) {
-	result, err := q.exec(ctx, q.createQueueMessagesStmt, createQueueMessages,
+func (q *Queries) CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error {
+	_, err := q.exec(ctx, q.createQueueMessagesStmt, createQueueMessages,
 		arg.CommandBatchLogUuid,
 		arg.CommandType,
 		pq.Array(arg.DeviceIds),
 		pq.Array(arg.Payloads),
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	return err
 }
 
 const finishTerminalCommandBatches = `-- name: FinishTerminalCommandBatches :execrows

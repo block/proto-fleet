@@ -936,16 +936,10 @@ func (q *retryingQuerier) CreateQueueMessage(ctx context.Context, arg CreateQueu
 	})
 }
 
-func (q *retryingQuerier) CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "CreateQueueMessages", func() error {
-		callResult, callErr := q.next.CreateQueueMessages(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
+func (q *retryingQuerier) CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error {
+	return q.retrier.RetryQuery(ctx, "CreateQueueMessages", func() error {
+		return q.next.CreateQueueMessages(ctx, arg)
 	})
-	return result, err
 }
 
 func (q *retryingQuerier) CreateRackExtension(ctx context.Context, arg CreateRackExtensionParams) error {
