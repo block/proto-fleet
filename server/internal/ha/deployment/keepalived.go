@@ -10,7 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/ha"
 )
 
-// RenderKeepalivedConfig renders the local database host's unicast VRRP configuration.
+// RenderKeepalivedConfig renders the local Fleet host's unicast VRRP configuration.
 func RenderKeepalivedConfig(envPath, templatePath, outputPath string) error {
 	config, err := loadNodeConfig(envPath)
 	if err != nil {
@@ -44,7 +44,7 @@ func renderKeepalivedConfig(template string, config NodeConfig) (string, error) 
 	case "ha-b":
 		peerIP = config.DatabaseAIP
 	case "ha-c":
-		return "", fmt.Errorf("keepalived runs only on database hosts")
+		return "", fmt.Errorf("keepalived runs only on Fleet hosts")
 	default:
 		return "", fmt.Errorf("invalid HA node name: %s", config.NodeName)
 	}

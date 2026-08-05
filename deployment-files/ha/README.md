@@ -6,7 +6,7 @@ not a production installation guide.
 
 The topology is:
 
-- `ha-a` and `ha-b`: PostgreSQL + TimescaleDB managed by Patroni, plus etcd;
+- `ha-a` and `ha-b`: Fleet, PostgreSQL + TimescaleDB managed by Patroni, and etcd;
 - `ha-c`: etcd witness only;
 - one stable LAN IPv4 address per host;
 - one unused LAN IPv4 address shared by keepalived on `ha-a` and `ha-b`;
@@ -54,8 +54,8 @@ Create `node.env` from `node.env.example` on each host:
 
 | Host | `HA_NODE_NAME` | `HA_NODE_IP` |
 | --- | --- | --- |
-| first database host | `ha-a` | `HA_DB_A_IP` |
-| second database host | `ha-b` | `HA_DB_B_IP` |
+| first Fleet host | `ha-a` | `HA_DB_A_IP` |
+| second Fleet host | `ha-b` | `HA_DB_B_IP` |
 | witness | `ha-c` | `HA_DCS_C_IP` |
 
 Use the same peer IPs on every host and only the keys documented in
@@ -73,7 +73,7 @@ Reboot and nftables-reload recovery are unsupported in this lab: services do
 not restart automatically, and recovery requires a clean redeployment until
 the supported installer owns firewall persistence and boot ordering.
 
-Load the database images on the two database hosts. All three hosts require
+Load the database images on `ha-a` and `ha-b`. All three hosts require
 registry access to pull the pinned etcd image before starting it:
 
 ```bash
@@ -83,7 +83,7 @@ docker compose --env-file node.env up -d etcd
 ```
 
 After all members are healthy, temporarily copy
-`offline/etcd-root-password` to exactly one database host and enable etcd
+`offline/etcd-root-password` to exactly one of `ha-a` or `ha-b` and enable etcd
 authentication:
 
 ```bash
@@ -97,7 +97,7 @@ rm /secure/proto-fleet-ha-secrets/etcd-root-password
 Run this only against clean etcd state. If it partially fails, recreate the new
 etcd data instead of rerunning it against partial authentication state.
 
-Start Patroni on both database hosts:
+Start Patroni on `ha-a` and `ha-b`:
 
 ```bash
 docker compose --env-file node.env --profile database up -d --no-build patroni
@@ -108,7 +108,7 @@ continues to own application migrations.
 
 ## Stable Fleet endpoint
 
-Install keepalived and curl on both database hosts. Render the host-specific
+Install keepalived and curl on both Fleet hosts. Render the host-specific
 unicast VRRP configuration, then install the health check and configuration:
 
 ```bash
@@ -124,7 +124,7 @@ sudo install -D -m 0644 \
   /etc/keepalived/keepalived.conf
 ```
 
-Configure Fleet on both database hosts with its local keepalived contract:
+Configure Fleet on both Fleet hosts with its local keepalived contract:
 
 ```text
 HTTP_LISTEN_ADDRESS=0.0.0.0:4000

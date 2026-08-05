@@ -61,7 +61,7 @@ func TestRenderKeepalivedConfig(t *testing.T) {
 
 	config.NodeName = "ha-c"
 	_, err = renderKeepalivedConfig(template, config)
-	if err == nil || !strings.Contains(err.Error(), "database hosts") {
+	if err == nil || !strings.Contains(err.Error(), "Fleet hosts") {
 		t.Fatalf("renderKeepalivedConfig(witness) error = %v", err)
 	}
 }
