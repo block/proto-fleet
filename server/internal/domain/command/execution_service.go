@@ -369,8 +369,8 @@ func (es *ExecutionService) finishTerminalCommandBatches(ctx context.Context) (i
 	})
 }
 
-// reapMessages marks one bounded batch FAILED and writes its audit rows.
-// Normal age-based reaping also clears firmware-owned status.
+// reapMessages marks one bounded batch FAILED, writes its audit rows, and
+// clears firmware-owned status.
 func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]reapedCommand, error) {
 	now := time.Now()
 	errorInfo := stuckMessageReason
@@ -411,7 +411,7 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 			if kindErr == nil && kind == commandtype.ApplyCurtailmentConfig {
 				requeueOrganizations[msg.OrgID] = struct{}{}
 			}
-			if mode == reapModeStuck && kindErr == nil && kind == commandtype.FirmwareUpdate {
+			if kindErr == nil && kind == commandtype.FirmwareUpdate {
 				firmwareDeviceIDs = append(firmwareDeviceIDs, msg.DeviceID)
 			}
 			siteID := int64(0)
