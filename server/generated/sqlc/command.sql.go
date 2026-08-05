@@ -246,41 +246,73 @@ func (q *Queries) ListBatchDeviceResults(ctx context.Context, arg ListBatchDevic
 	return items, nil
 }
 
-const markCommandBatchFinished = `-- name: MarkCommandBatchFinished :exec
+const lockCommandBatch = `-- name: LockCommandBatch :one
+SELECT status
+FROM command_batch_log
+WHERE uuid = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error) {
+	row := q.queryRow(ctx, q.lockCommandBatchStmt, lockCommandBatch, uuid)
+	var status BatchStatusEnum
+	err := row.Scan(&status)
+	return status, err
+}
+
+const markCommandBatchFinished = `-- name: MarkCommandBatchFinished :execrows
 UPDATE command_batch_log
 SET status = 'FINISHED',
    finished_at = NOW()
 WHERE uuid = $1
+  AND status IN ('PENDING', 'PROCESSING')
 `
 
-func (q *Queries) MarkCommandBatchFinished(ctx context.Context, uuid string) error {
-	_, err := q.exec(ctx, q.markCommandBatchFinishedStmt, markCommandBatchFinished, uuid)
-	return err
+func (q *Queries) MarkCommandBatchFinished(ctx context.Context, uuid string) (int64, error) {
+	result, err := q.exec(ctx, q.markCommandBatchFinishedStmt, markCommandBatchFinished, uuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const markCommandBatchFinishedWithStartedAt = `-- name: MarkCommandBatchFinishedWithStartedAt :exec
+const markCommandBatchFinishedWithStartedAt = `-- name: MarkCommandBatchFinishedWithStartedAt :execrows
 UPDATE command_batch_log
 SET status = 'FINISHED',
     started_at = NOW(),
     finished_at = NOW()
 WHERE uuid = $1
+  AND status = 'PENDING'
 `
 
-func (q *Queries) MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) error {
-	_, err := q.exec(ctx, q.markCommandBatchFinishedWithStartedAtStmt, markCommandBatchFinishedWithStartedAt, uuid)
-	return err
+func (q *Queries) MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error) {
+	result, err := q.exec(ctx, q.markCommandBatchFinishedWithStartedAtStmt, markCommandBatchFinishedWithStartedAt, uuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const markCommandBatchProcessing = `-- name: MarkCommandBatchProcessing :exec
-UPDATE command_batch_log
+const markCommandBatchProcessing = `-- name: MarkCommandBatchProcessing :execrows
+UPDATE command_batch_log AS batch
 SET status = 'PROCESSING',
     started_at = NOW()
-WHERE uuid = $1
+WHERE batch.uuid = $1
+  AND batch.status = 'PENDING'
+  AND EXISTS (
+    SELECT 1
+    FROM queue_message AS message
+    WHERE message.command_batch_log_uuid = batch.uuid
+      AND message.status = 'PROCESSING'
+  )
 `
 
-func (q *Queries) MarkCommandBatchProcessing(ctx context.Context, uuid string) error {
-	_, err := q.exec(ctx, q.markCommandBatchProcessingStmt, markCommandBatchProcessing, uuid)
-	return err
+func (q *Queries) MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error) {
+	result, err := q.exec(ctx, q.markCommandBatchProcessingStmt, markCommandBatchProcessing, uuid)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertCommandOnDeviceLog = `-- name: UpsertCommandOnDeviceLog :exec

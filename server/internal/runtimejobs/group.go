@@ -203,8 +203,7 @@ func (g *Group) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Abort immediately cancels work that must not survive ownership loss.
-// Stop must follow to finish cleanup and make the group restartable.
+// Abort immediately cancels work that cannot survive a fatal runtime error.
 func (g *Group) Abort() {
 	abortJobs(g.jobs)
 }

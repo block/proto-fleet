@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/sqlc-dev/pqtype"
 )
 
@@ -23,6 +24,19 @@ WHERE id = $1
 
 func (q *Queries) ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error) {
 	return q.exec(ctx, q.claimMessageForProcessingStmt, claimMessageForProcessing, id)
+}
+
+const countQueueMessagesByBatch = `-- name: CountQueueMessagesByBatch :one
+SELECT COUNT(*)
+FROM queue_message
+WHERE command_batch_log_uuid = $1
+`
+
+func (q *Queries) CountQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) (int64, error) {
+	row := q.queryRow(ctx, q.countQueueMessagesByBatchStmt, countQueueMessagesByBatch, commandBatchLogUuid)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const createQueueMessage = `-- name: CreateQueueMessage :exec
@@ -62,6 +76,80 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 		arg.Payload,
 	)
 	return err
+}
+
+const createQueueMessages = `-- name: CreateQueueMessages :exec
+INSERT INTO queue_message (
+    command_batch_log_uuid,
+    command_type,
+    device_id,
+    status,
+    retry_count,
+    payload
+)
+SELECT
+    $1,
+    $2,
+    devices.device_id,
+    'PENDING'::queue_status_enum,
+    0,
+    payloads.payload::JSONB
+FROM unnest($3::BIGINT[]) WITH ORDINALITY AS devices(device_id, ord)
+JOIN unnest($4::TEXT[]) WITH ORDINALITY AS payloads(payload, ord) USING (ord)
+`
+
+type CreateQueueMessagesParams struct {
+	CommandBatchLogUuid string
+	CommandType         string
+	DeviceIds           []int64
+	Payloads            []string
+}
+
+func (q *Queries) CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error {
+	_, err := q.exec(ctx, q.createQueueMessagesStmt, createQueueMessages,
+		arg.CommandBatchLogUuid,
+		arg.CommandType,
+		pq.Array(arg.DeviceIds),
+		pq.Array(arg.Payloads),
+	)
+	return err
+}
+
+const finishTerminalCommandBatches = `-- name: FinishTerminalCommandBatches :execrows
+WITH candidates AS MATERIALIZED (
+    SELECT batch.id
+    FROM command_batch_log AS batch
+    WHERE batch.status IN ('PENDING', 'PROCESSING')
+      AND EXISTS (
+          SELECT 1
+          FROM queue_message AS message
+          WHERE message.command_batch_log_uuid = batch.uuid
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM queue_message AS message
+          WHERE message.command_batch_log_uuid = batch.uuid
+            AND message.status IN ('PENDING', 'PROCESSING')
+      )
+    ORDER BY batch.id
+    LIMIT $1
+    FOR UPDATE
+)
+UPDATE command_batch_log AS batch
+SET
+    status = 'FINISHED'::batch_status_enum,
+    finished_at = CURRENT_TIMESTAMP
+FROM candidates
+WHERE batch.id = candidates.id
+  AND batch.status IN ('PENDING', 'PROCESSING')
+`
+
+func (q *Queries) FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error) {
+	result, err := q.exec(ctx, q.finishTerminalCommandBatchesStmt, finishTerminalCommandBatches, finishLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
@@ -137,6 +225,49 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 	return items, nil
 }
 
+const getQueueMessagesByBatch = `-- name: GetQueueMessagesByBatch :many
+SELECT id, device_id, status, error_info, payload
+FROM queue_message
+WHERE command_batch_log_uuid = $1
+`
+
+type GetQueueMessagesByBatchRow struct {
+	ID        int64
+	DeviceID  int64
+	Status    QueueStatusEnum
+	ErrorInfo sql.NullString
+	Payload   pqtype.NullRawMessage
+}
+
+func (q *Queries) GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error) {
+	rows, err := q.query(ctx, q.getQueueMessagesByBatchStmt, getQueueMessagesByBatch, commandBatchLogUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetQueueMessagesByBatchRow
+	for rows.Next() {
+		var i GetQueueMessagesByBatchRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceID,
+			&i.Status,
+			&i.ErrorInfo,
+			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const isBatchFinished = `-- name: IsBatchFinished :one
 SELECT
     CASE
@@ -155,67 +286,83 @@ func (q *Queries) IsBatchFinished(ctx context.Context, commandBatchLogUuid strin
 	return is_finished, err
 }
 
-const isBatchProcessing = `-- name: IsBatchProcessing :one
-SELECT
-    CASE
-        WHEN COUNT(*) > 0 THEN true
-        ELSE false
-        END AS is_processing
-FROM queue_message
-WHERE command_batch_log_uuid = $1
-  AND status = 'PROCESSING'
-`
-
-func (q *Queries) IsBatchProcessing(ctx context.Context, commandBatchLogUuid string) (bool, error) {
-	row := q.queryRow(ctx, q.isBatchProcessingStmt, isBatchProcessing, commandBatchLogUuid)
-	var is_processing bool
-	err := row.Scan(&is_processing)
-	return is_processing, err
-}
-
-const reapStuckFirmwareUpdateMessages = `-- name: ReapStuckFirmwareUpdateMessages :many
-WITH stuck AS (
-    SELECT m.id FROM queue_message m
-    WHERE m.status = 'PROCESSING'
-      AND m.updated_at < $1
-      AND m.command_type = 'FirmwareUpdate'
-    LIMIT $2
+const reapMessages = `-- name: ReapMessages :many
+WITH candidates AS (
+    SELECT message.id
+    FROM queue_message AS message
+    WHERE message.status = 'PROCESSING'
+      AND (
+        $3::BOOLEAN
+        OR message.updated_at < CASE
+            WHEN message.command_type = 'FirmwareUpdate'
+                THEN $4::TIMESTAMPTZ
+            ELSE $5::TIMESTAMPTZ
+        END
+      )
+    ORDER BY message.updated_at, message.id
+    LIMIT $6
+    FOR UPDATE
 )
-UPDATE queue_message
-SET status = 'FAILED'::queue_status_enum,
-    error_info = 'reaped: firmware update stuck in PROCESSING beyond timeout',
+UPDATE queue_message AS message
+SET
+    status = 'FAILED'::queue_status_enum,
+    error_info = CASE
+        WHEN message.command_type = 'FirmwareUpdate'
+            THEN $1::TEXT
+        ELSE $2::TEXT
+    END,
     updated_at = CURRENT_TIMESTAMP
-FROM stuck, device
-WHERE queue_message.id = stuck.id
-  AND queue_message.status = 'PROCESSING'
-  AND queue_message.device_id = device.id
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid,
-    queue_message.error_info, queue_message.command_type, device.org_id
+FROM candidates, device
+WHERE message.id = candidates.id
+  AND message.status = 'PROCESSING'
+  AND message.device_id = device.id
+RETURNING
+    message.id,
+    message.device_id,
+    message.command_batch_log_uuid,
+    message.error_info,
+    message.command_type,
+    device.org_id,
+    device.site_id
 `
 
-type ReapStuckFirmwareUpdateMessagesParams struct {
-	Cutoff    time.Time
-	ReapLimit int32
+type ReapMessagesParams struct {
+	FirmwareErrorInfo string
+	ErrorInfo         string
+	IncludeFresh      bool
+	FirmwareCutoff    time.Time
+	Cutoff            time.Time
+	ReapLimit         int32
 }
 
-type ReapStuckFirmwareUpdateMessagesRow struct {
+type ReapMessagesRow struct {
 	ID                  int64
 	DeviceID            int64
 	CommandBatchLogUuid string
 	ErrorInfo           sql.NullString
 	CommandType         string
 	OrgID               int64
+	SiteID              sql.NullInt64
 }
 
-func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapStuckFirmwareUpdateMessagesParams) ([]ReapStuckFirmwareUpdateMessagesRow, error) {
-	rows, err := q.query(ctx, q.reapStuckFirmwareUpdateMessagesStmt, reapStuckFirmwareUpdateMessages, arg.Cutoff, arg.ReapLimit)
+// Startup reaping fails every PROCESSING row left by the previous process.
+// Periodic reaping only fails rows that exceeded their command-specific cutoff.
+func (q *Queries) ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]ReapMessagesRow, error) {
+	rows, err := q.query(ctx, q.reapMessagesStmt, reapMessages,
+		arg.FirmwareErrorInfo,
+		arg.ErrorInfo,
+		arg.IncludeFresh,
+		arg.FirmwareCutoff,
+		arg.Cutoff,
+		arg.ReapLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ReapStuckFirmwareUpdateMessagesRow
+	var items []ReapMessagesRow
 	for rows.Next() {
-		var i ReapStuckFirmwareUpdateMessagesRow
+		var i ReapMessagesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.DeviceID,
@@ -223,6 +370,7 @@ func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapS
 			&i.ErrorInfo,
 			&i.CommandType,
 			&i.OrgID,
+			&i.SiteID,
 		); err != nil {
 			return nil, err
 		}
@@ -237,68 +385,32 @@ func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapS
 	return items, nil
 }
 
-const reapStuckProcessingMessages = `-- name: ReapStuckProcessingMessages :many
-WITH stuck AS (
-    SELECT m.id FROM queue_message m
-    WHERE m.status = 'PROCESSING'
-      AND m.updated_at < $1
-      AND m.command_type != 'FirmwareUpdate'
-    LIMIT $2
-)
-UPDATE queue_message
-SET status = 'FAILED'::queue_status_enum,
-    error_info = 'reaped: stuck in PROCESSING beyond timeout',
-    updated_at = CURRENT_TIMESTAMP
-FROM stuck, device
-WHERE queue_message.id = stuck.id
-  AND queue_message.status = 'PROCESSING'
-  AND queue_message.device_id = device.id
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid,
-    queue_message.error_info, queue_message.command_type, device.org_id
+const resetReapedFirmwareStatuses = `-- name: ResetReapedFirmwareStatuses :exec
+UPDATE device_status
+SET
+    status = 'ACTIVE'::device_status_enum,
+    status_timestamp = CURRENT_TIMESTAMP,
+    status_details = NULL
+WHERE device_id = ANY($1::BIGINT[])
+  AND status IN ('UPDATING', 'REBOOT_REQUIRED')
 `
 
-type ReapStuckProcessingMessagesParams struct {
-	Cutoff    time.Time
-	ReapLimit int32
+func (q *Queries) ResetReapedFirmwareStatuses(ctx context.Context, deviceIds []int64) error {
+	_, err := q.exec(ctx, q.resetReapedFirmwareStatusesStmt, resetReapedFirmwareStatuses, pq.Array(deviceIds))
+	return err
 }
 
-type ReapStuckProcessingMessagesRow struct {
-	ID                  int64
-	DeviceID            int64
-	CommandBatchLogUuid string
-	ErrorInfo           sql.NullString
-	CommandType         string
-	OrgID               int64
-}
+const setLocalTransactionTimeout = `-- name: SetLocalTransactionTimeout :exec
+SELECT set_config(
+    'transaction_timeout',
+    $1::BIGINT::TEXT || 'ms',
+    TRUE
+)
+`
 
-func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuckProcessingMessagesParams) ([]ReapStuckProcessingMessagesRow, error) {
-	rows, err := q.query(ctx, q.reapStuckProcessingMessagesStmt, reapStuckProcessingMessages, arg.Cutoff, arg.ReapLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ReapStuckProcessingMessagesRow
-	for rows.Next() {
-		var i ReapStuckProcessingMessagesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.DeviceID,
-			&i.CommandBatchLogUuid,
-			&i.ErrorInfo,
-			&i.CommandType,
-			&i.OrgID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error {
+	_, err := q.exec(ctx, q.setLocalTransactionTimeoutStmt, setLocalTransactionTimeout, timeoutMilliseconds)
+	return err
 }
 
 const updateMessageAfterFailure = `-- name: UpdateMessageAfterFailure :execresult

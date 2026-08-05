@@ -24,15 +24,12 @@ type RuntimeConfig struct {
 type runtimeOwner interface {
 	Run(ctx context.Context) error
 	WaitForActive(ctx context.Context) (context.Context, Token, error)
-	RequestDemotion(cause error)
-	ResumeAcquisition()
 }
 
 type runtimeGroup interface {
 	Start(ctx context.Context) error
 	Abort()
 	Stop(ctx context.Context) error
-	Err() error
 }
 
 // Runtime serializes lease ownership, the existing runtime-job group, and
@@ -145,9 +142,21 @@ func (r *Runtime) runHA(ctx context.Context) error {
 		coordinatorResult <- r.owner.Run(coordinatorCtx)
 	}()
 
-	for {
+	type activationResult struct {
+		ctx context.Context //nolint:containedctx // Carries the owned lifetime returned by WaitForActive.
+		err error
+	}
+	activation := make(chan activationResult, 1)
+	go func() {
 		activeCtx, _, err := r.owner.WaitForActive(coordinatorCtx)
-		if err != nil {
+		activation <- activationResult{ctx: activeCtx, err: err}
+	}()
+
+	var activeCtx context.Context
+	select {
+	case result := <-activation:
+		activeCtx = result.ctx
+		if result.err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -155,47 +164,36 @@ func (r *Runtime) runHA(ctx context.Context) error {
 			case coordinatorErr := <-coordinatorResult:
 				return fmt.Errorf("run Fleet ownership coordinator: %w", coordinatorErr)
 			default:
-				return fmt.Errorf("wait for Fleet ownership: %w", err)
+				return fmt.Errorf("wait for Fleet ownership: %w", result.err)
 			}
 		}
+	case coordinatorErr := <-coordinatorResult:
+		return fmt.Errorf("run Fleet ownership coordinator: %w", coordinatorErr)
+	case <-ctx.Done():
+		return nil
+	}
 
-		if err := r.group.Start(activeCtx); err != nil {
-			r.owner.RequestDemotion(fmt.Errorf("start Fleet runtime: %w", err))
-			if terminalErr := r.group.Err(); terminalErr != nil {
-				return fmt.Errorf("start Fleet runtime left terminal cleanup failure: %w", terminalErr)
-			}
-			r.owner.ResumeAcquisition()
-			continue
-		}
-
-		if !r.healthCheck() {
-			r.group.Abort()
-			if activeCtx.Err() == nil {
-				r.owner.RequestDemotion(errCriticalRuntimeUnhealthy)
-			}
-			if stopErr := r.stopGroup(); stopErr != nil {
-				return stopErr
-			}
-			if ctx.Err() == nil {
-				r.owner.ResumeAcquisition()
-			}
-			continue
-		}
-
-		r.gate.activate(activeCtx)
-		activeErr := r.waitWhileHealthy(ctx, activeCtx)
-		admissionDrained := r.gate.deactivate()
+	if err := r.group.Start(activeCtx); err != nil {
+		return fmt.Errorf("start active Fleet runtime: %w", err)
+	}
+	if !r.healthCheck() {
 		r.group.Abort()
-		if errors.Is(activeErr, errCriticalRuntimeUnhealthy) {
-			r.owner.RequestDemotion(activeErr)
-		}
-		if err := r.stopGroupAndDrainAdmissions(admissionDrained); err != nil {
-			return err
-		}
-		if ctx.Err() != nil {
-			return nil
-		}
-		r.owner.ResumeAcquisition()
+		return errCriticalRuntimeUnhealthy
+	}
+
+	r.gate.activate(activeCtx)
+	activeErr := r.waitWhileHealthy(ctx, activeCtx)
+	admissionDrained := r.gate.deactivate()
+	if ctx.Err() != nil {
+		return r.stopGroupAndDrainAdmissions(admissionDrained)
+	}
+	r.group.Abort()
+
+	select {
+	case coordinatorErr := <-coordinatorResult:
+		return errors.Join(activeErr, coordinatorErr)
+	default:
+		return activeErr
 	}
 }
 
@@ -207,7 +205,7 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 		case <-parent.Done():
 			return fmt.Errorf("Fleet runtime stopped: %w", parent.Err())
 		case <-activeCtx.Done():
-			return fmt.Errorf("active lifetime ended: %w", activeCtx.Err())
+			return fmt.Errorf("active lifetime ended: %w", context.Cause(activeCtx))
 		case <-ticker.C:
 			if !r.healthCheck() {
 				return errCriticalRuntimeUnhealthy
