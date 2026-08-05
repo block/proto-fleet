@@ -61,7 +61,26 @@ var (
 	staleStateArtifactName   = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
 	staleStagingArtifactName = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
 	operationLogNamePattern  = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
+	errTriggerBusy           = errors.New("updater is busy")
+	errTriggerClosing        = errors.New("updater is shutting down")
 )
+
+type classifiedTriggerError struct {
+	kind    error
+	message string
+}
+
+func (e *classifiedTriggerError) Error() string {
+	return e.message
+}
+
+func (e *classifiedTriggerError) Unwrap() error {
+	return e.kind
+}
+
+func newTriggerError(kind error, message string) error {
+	return &classifiedTriggerError{kind: kind, message: message}
+}
 
 var releaseImageRepositories = [...]string{
 	"proto-fleet-api",
@@ -126,6 +145,9 @@ type Config struct {
 	// Tests pause staged-tree durability to exercise shutdown and deadline
 	// behavior before the non-cancelable activation boundary.
 	syncStagedDeployment func(context.Context, string) error
+	// Tests observe ownership restoration ordering around preflight-generated
+	// artifacts without requiring the test process to run as root.
+	preserveDeploymentOwnership func(context.Context, string, string) error
 }
 
 type activationMarker struct {
@@ -569,6 +591,9 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.syncStagedDeployment == nil {
 		cfg.syncStagedDeployment = syncStagedDeployment
 	}
+	if cfg.preserveDeploymentOwnership == nil {
+		cfg.preserveDeploymentOwnership = preserveDeploymentOwnership
+	}
 	if cfg.PreflightTimeout < 0 || cfg.ActivationTimeout < 0 || cfg.CleanupTimeout < 0 {
 		return nil, fmt.Errorf("updater phase timeouts must be positive")
 	}
@@ -767,9 +792,12 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 		return updaterapi.Operation{}, fmt.Errorf("inspect pending activation recovery: %w", err)
 	}
 	if marker != nil {
-		return updaterapi.Operation{}, fmt.Errorf(
-			"activation recovery for operation %s is pending; restart the updater after completing recovery",
-			marker.OperationID,
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerBusy,
+			fmt.Sprintf(
+				"activation recovery for operation %s is pending; restart the updater after completing recovery",
+				marker.OperationID,
+			),
 		)
 	}
 	currentVersion, err := readInstalledVersion(filepath.Join(m.cfg.InstallRoot, "deployment", "version.txt"))
@@ -786,13 +814,19 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closing {
-		return updaterapi.Operation{}, fmt.Errorf("updater is shutting down")
+		return updaterapi.Operation{}, errTriggerClosing
 	}
 	if m.operation != nil && !m.operation.Phase.Terminal() {
-		return updaterapi.Operation{}, fmt.Errorf("an upgrade to %s is already in progress", m.operation.TargetVersion)
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerBusy,
+			fmt.Sprintf("an upgrade to %s is already in progress", m.operation.TargetVersion),
+		)
 	}
 	if m.operationRunning {
-		return updaterapi.Operation{}, fmt.Errorf("the previous upgrade is still completing cleanup")
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerBusy,
+			"the previous upgrade is still completing cleanup",
+		)
 	}
 	if err := m.cleanupStaleArtifacts(); err != nil {
 		return updaterapi.Operation{}, fmt.Errorf("clean stale upgrade artifacts: %w", err)
@@ -975,10 +1009,6 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("preserve deployment configuration: %w", err), recovery)
 		return
 	}
-	if err := preserveDeploymentOwnership(ctx, currentDeployment, stageDeployment); err != nil {
-		m.fail(operationID, fmt.Errorf("preserve deployment ownership: %w", err), recovery)
-		return
-	}
 
 	if err := m.advance(operationID, updaterapi.PhasePreflight, "Building and validating the new stack while Fleet stays online"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist preflight phase: %w", err), recovery)
@@ -989,6 +1019,14 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 			m.removeFailedPreflightImages(ctx, stageDeployment, commandOutput, logFile, targetVersion)
 		}
 		m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
+		return
+	}
+	// Preflight runs as the root updater and creates the proof consumed by
+	// --skip-build. Restore the deployment owner after preflight so that proof,
+	// along with any other generated state, remains usable by the supported
+	// non-root deployment owner during manual recovery.
+	if err := m.cfg.preserveDeploymentOwnership(ctx, currentDeployment, stageDeployment); err != nil {
+		m.fail(operationID, fmt.Errorf("preserve deployment ownership: %w", err), recovery)
 		return
 	}
 	if err := m.advance(operationID, updaterapi.PhasePreflight, "Persisting the staged release before activation"); err != nil {
@@ -2232,14 +2270,28 @@ func preserveDeploymentOwnership(ctx context.Context, current, staged string) er
 	if !ok {
 		return fmt.Errorf("read deployment owner")
 	}
-	err = filepath.WalkDir(staged, func(path string, _ os.DirEntry, walkErr error) error {
+	return setDeploymentTreeOwnership(ctx, staged, int(stat.Uid), int(stat.Gid))
+}
+
+func setDeploymentTreeOwnership(ctx context.Context, staged string, uid, gid int) error {
+	err := filepath.WalkDir(staged, func(path string, _ os.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("preserve staged deployment ownership: %w", err)
 		}
 		if walkErr != nil {
 			return fmt.Errorf("walk staged deployment: %w", walkErr)
 		}
-		if err := os.Chown(path, int(stat.Uid), int(stat.Gid)); err != nil {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("inspect staged deployment entry: %w", err)
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			return fmt.Errorf("refusing to preserve ownership of non-regular staged entry %s", path)
+		}
+		// Lchown keeps the walk fail-safe if an entry changes after Lstat: a
+		// replacement symlink itself may be re-owned, but its target is never
+		// followed outside the root-private staging tree.
+		if err := os.Lchown(path, uid, gid); err != nil {
 			return fmt.Errorf("set staged deployment owner: %w", err)
 		}
 		return nil

@@ -39,6 +39,12 @@ type SelfUpdateStartup struct {
 // restarted an attempt that never reached readiness, so the previous binary is
 // restored before initialization continues.
 func PrepareSelfUpdateStartup(configuredPath, handoffPath string) (*SelfUpdateStartup, error) {
+	if configuredPath != "" && !filepath.IsAbs(configuredPath) {
+		return nil, fmt.Errorf("self-update path must be absolute")
+	}
+	if handoffPath != "" && !filepath.IsAbs(handoffPath) {
+		return nil, fmt.Errorf("self-update handoff path must be absolute")
+	}
 	if configuredPath == "" {
 		if handoffPath != "" {
 			return nil, fmt.Errorf("self-update handoff provided without a configured executable path")
@@ -77,7 +83,7 @@ func PrepareSelfUpdateStartup(configuredPath, handoffPath string) (*SelfUpdateSt
 		if err != nil {
 			return nil, fmt.Errorf("resolve self-update handoff argument: %w", err)
 		}
-		if !filepath.IsAbs(handoffPath) || canonicalHandoff != canonicalPath {
+		if canonicalHandoff != canonicalPath {
 			return nil, fmt.Errorf("self-update handoff argument does not match durable marker")
 		}
 		return &SelfUpdateStartup{executablePath: canonicalPath, active: true}, nil

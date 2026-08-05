@@ -43,6 +43,7 @@ type recordingRunner struct {
 	releaseActivation    chan struct{}
 	waitForCleanupCancel bool
 	releaseCleanup       chan struct{}
+	preflightHook        func(string) error
 	activationHook       func(string)
 	candidateVersion     string
 	candidateError       error
@@ -86,6 +87,11 @@ func (r *recordingRunner) Run(ctx context.Context, dir string, output io.Writer,
 			case <-r.release:
 			case <-ctx.Done():
 				return fmt.Errorf("preflight canceled: %w", ctx.Err())
+			}
+		}
+		if r.preflightHook != nil {
+			if err := r.preflightHook(dir); err != nil {
+				return err
 			}
 		}
 		return r.preflight
@@ -253,6 +259,7 @@ func TestManagerSelfUpdateUsesVerifiedArchiveCopy(t *testing.T) {
 	}
 	_, err = manager.Trigger("v1.2.0")
 	require.ErrorContains(t, err, "updater is shutting down")
+	require.ErrorIs(t, err, errTriggerClosing)
 	var persisted updaterapi.Operation
 	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(manager.cfg.StateDir, stateFilename))), &persisted))
 	assert.Equal(t, updaterapi.PhaseSucceeded, persisted.Phase)
@@ -318,6 +325,7 @@ func TestManagerFailsClosedWhenSuccessfulStateCannotPersist(t *testing.T) {
 
 	_, err = manager.Trigger("v1.2.0")
 	require.ErrorContains(t, err, "already in progress")
+	require.ErrorIs(t, err, errTriggerBusy)
 
 	// A restart reconciles the durable activation state into a terminal failure;
 	// until then, both the in-memory and persisted non-terminal state fail closed.
@@ -497,6 +505,69 @@ func TestManagerPreflightFailureNeverTakesTheRunningDeploymentOffline(t *testing
 		assert.Equal(t, []string{"image", "rm", repository + ":v1.1.0"}, cleanup.Args)
 		assert.Contains(t, cleanup.Dir, ".proto-fleet-upgrade-")
 	}
+}
+
+func TestManagerRestoresDeploymentOwnershipAfterPreflightBeforeStagedSync(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	canonicalInstallRoot, err := filepath.EvalSymlinks(installRoot)
+	require.NoError(t, err)
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	var events []string
+	markerFilename := ".update-preflight-complete"
+	runner := &recordingRunner{
+		preflightHook: func(dir string) error {
+			events = append(events, "preflight")
+			return os.WriteFile(filepath.Join(dir, markerFilename), []byte("proof"), 0o600)
+		},
+		activationHook: func(string) {
+			events = append(events, "activation")
+		},
+	}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.preserveDeploymentOwnership = func(_ context.Context, current, staged string) error {
+			events = append(events, "ownership")
+			if current != filepath.Join(canonicalInstallRoot, "deployment") {
+				return fmt.Errorf("unexpected current deployment %s", current)
+			}
+			info, err := os.Stat(filepath.Join(staged, markerFilename))
+			if err != nil {
+				return fmt.Errorf("inspect preflight proof during ownership restoration: %w", err)
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("preflight proof is not regular")
+			}
+			return nil
+		}
+		cfg.syncStagedDeployment = func(ctx context.Context, staged string) error {
+			events = append(events, "sync")
+			return syncStagedDeployment(ctx, staged)
+		}
+	})
+
+	_, err = manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	assert.Equal(t, []string{"preflight", "ownership", "sync", "activation"}, events)
+	assert.Equal(t, "proof", mustReadFile(t, filepath.Join(installRoot, "deployment", markerFilename)))
+}
+
+func TestSetDeploymentTreeOwnershipRejectsNonRegularEntries(t *testing.T) {
+	t.Parallel()
+
+	staged := t.TempDir()
+	target := filepath.Join(t.TempDir(), "external-target")
+	require.NoError(t, os.WriteFile(target, []byte("unchanged"), 0o600))
+	require.NoError(t, os.Symlink(target, filepath.Join(staged, "preflight-generated-link")))
+
+	err := setDeploymentTreeOwnership(context.Background(), staged, os.Geteuid(), os.Getegid())
+	require.ErrorContains(t, err, "refusing to preserve ownership of non-regular staged entry")
+	assert.Equal(t, "unchanged", mustReadFile(t, target))
 }
 
 func TestManagerFailedPreflightImageCleanupIsBestEffort(t *testing.T) {
@@ -709,6 +780,7 @@ func TestManagerRejectsAnotherUpgradeWhileActivationRecoveryIsPending(t *testing
 
 	_, err = manager.Trigger("v1.2.0")
 	require.ErrorContains(t, err, "activation recovery for operation pending-recovery is pending")
+	require.ErrorIs(t, err, errTriggerBusy)
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
 	assert.Equal(t, "pending-recovery", operation.ID)
@@ -939,6 +1011,7 @@ func TestManagerShutdownCancelsPreActivationWorkAndWaits(t *testing.T) {
 	assert.Contains(t, completed.Error, context.Canceled.Error())
 	_, err = manager.Trigger("v1.2.0")
 	require.ErrorContains(t, err, "updater is shutting down")
+	require.ErrorIs(t, err, errTriggerClosing)
 }
 
 func TestManagerShutdownDuringActivationRetainsTheProcessLockUntilCompletion(t *testing.T) {

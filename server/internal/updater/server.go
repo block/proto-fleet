@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -244,23 +245,44 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	var request updaterapi.TriggerRequest
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
+	request, err := decodeTriggerRequest(http.MaxBytesReader(w, r.Body, 4096))
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "invalid request body"})
 		return
 	}
 	operation, err := s.manager.Trigger(request.TargetVersion)
 	if err != nil {
-		status := http.StatusBadRequest
-		if current := s.manager.Status().Operation; current != nil && !current.Phase.Terminal() {
-			status = http.StatusConflict
-		}
-		writeJSON(w, status, updaterapi.ErrorResponse{Error: err.Error()})
+		writeJSON(w, triggerErrorHTTPStatus(err), updaterapi.ErrorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusAccepted, updaterapi.TriggerResponse{Operation: operation})
+}
+
+func decodeTriggerRequest(body io.Reader) (updaterapi.TriggerRequest, error) {
+	var request updaterapi.TriggerRequest
+	decoder := json.NewDecoder(body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return updaterapi.TriggerRequest{}, fmt.Errorf("decode request body: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return updaterapi.TriggerRequest{}, fmt.Errorf("request body must contain exactly one JSON value")
+		}
+		return updaterapi.TriggerRequest{}, fmt.Errorf("decode trailing request body: %w", err)
+	}
+	return request, nil
+}
+
+func triggerErrorHTTPStatus(err error) int {
+	switch {
+	case errors.Is(err, errTriggerClosing):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, errTriggerBusy):
+		return http.StatusConflict
+	default:
+		return http.StatusBadRequest
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

@@ -2,17 +2,132 @@ package updater
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/updaterapi"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHandleUpgradeRejectsTrailingContentAndAllowsWhitespace(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		body      string
+		wantError string
+	}{
+		{
+			name:      "second JSON value",
+			body:      `{"target_version":"v1.2.3"}{}`,
+			wantError: "invalid request body",
+		},
+		{
+			name:      "trailing junk",
+			body:      `{"target_version":"v1.2.3"} trailing`,
+			wantError: "invalid request body",
+		},
+		{
+			name:      "trailing whitespace",
+			body:      "{\"target_version\":\"invalid\"}\n\t ",
+			wantError: "target version must be a stable or RC release tag",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/v1/upgrade", strings.NewReader(test.body))
+			NewServer(&Manager{}).handleUpgrade(recorder, request)
+
+			assert.Equal(t, http.StatusBadRequest, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), test.wantError)
+		})
+	}
+}
+
+func TestHandleUpgradeMapsManagerStateWithoutStatusSnapshot(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name             string
+		targetVersion    string
+		phase            updaterapi.Phase
+		operationRunning bool
+		closing          bool
+		wantStatus       int
+	}{
+		{
+			name:             "active operation",
+			targetVersion:    "v1.2.0",
+			phase:            updaterapi.PhasePreflight,
+			operationRunning: true,
+			wantStatus:       http.StatusConflict,
+		},
+		{
+			name:             "terminal operation still cleaning up",
+			targetVersion:    "v1.2.0",
+			phase:            updaterapi.PhaseSucceeded,
+			operationRunning: true,
+			wantStatus:       http.StatusConflict,
+		},
+		{
+			name:          "updater closing",
+			targetVersion: "v1.2.0",
+			closing:       true,
+			wantStatus:    http.StatusServiceUnavailable,
+		},
+		{
+			name:             "invalid target while operation active",
+			targetVersion:    "invalid",
+			phase:            updaterapi.PhasePreflight,
+			operationRunning: true,
+			wantStatus:       http.StatusBadRequest,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			manager, err := NewManager(Config{
+				InstallRoot: installRoot,
+				StateDir:    filepath.Join(t.TempDir(), "state"),
+				GOARCH:      "amd64",
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+			manager.mu.Lock()
+			if test.phase != "" {
+				manager.operation = &updaterapi.Operation{
+					TargetVersion: "v1.1.0",
+					Phase:         test.phase,
+				}
+			}
+			manager.operationRunning = test.operationRunning
+			manager.closing = test.closing
+			manager.mu.Unlock()
+
+			recorder := httptest.NewRecorder()
+			body := fmt.Sprintf(`{"target_version":%q}`, test.targetVersion)
+			request := httptest.NewRequest(http.MethodPost, "/v1/upgrade", strings.NewReader(body))
+			NewServer(manager).handleUpgrade(recorder, request)
+
+			assert.Equal(t, test.wantStatus, recorder.Code)
+		})
+	}
+}
 
 func TestServerReadyAfterSocketIsBoundAndSecured(t *testing.T) {
 	t.Parallel()

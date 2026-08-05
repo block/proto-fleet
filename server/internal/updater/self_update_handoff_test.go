@@ -9,6 +9,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPrepareSelfUpdateStartupRejectsRelativePathsBeforeFilesystemAccess(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name           string
+		configuredPath string
+		handoffPath    string
+		wantError      string
+	}{
+		{
+			name:           "configured executable",
+			configuredPath: filepath.Join("missing", "proto-fleet-updater"),
+			wantError:      "self-update path must be absolute",
+		},
+		{
+			name:           "handoff executable",
+			configuredPath: filepath.Join(t.TempDir(), "missing-updater"),
+			handoffPath:    filepath.Join("missing", "proto-fleet-updater"),
+			wantError:      "self-update handoff path must be absolute",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			startup, err := PrepareSelfUpdateStartup(test.configuredPath, test.handoffPath)
+			require.ErrorContains(t, err, test.wantError)
+			assert.Nil(t, startup)
+		})
+	}
+}
+
 func TestSelfUpdateHandoffCommitsOnlyAfterReplacementReadiness(t *testing.T) {
 	t.Parallel()
 
