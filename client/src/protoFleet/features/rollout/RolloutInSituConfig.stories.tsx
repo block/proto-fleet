@@ -1,8 +1,7 @@
 import { type ReactElement, useMemo, useState } from "react";
-import clsx from "clsx";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { FileDropZone } from "@/protoFleet/components/FirmwareUpload";
+import { FileDropZone, FileSelectedStatus } from "@/protoFleet/components/FirmwareUpload";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentPlanPreview,
@@ -24,11 +23,12 @@ import { useRolloutConfigModalState } from "@/protoFleet/features/rollout/useRol
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 import { ChevronDown, Curtail, Reboot, Settings } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import { variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import { PopoverProvider } from "@/shared/components/Popover";
+import SegmentedControl from "@/shared/components/SegmentedControl";
 import Select from "@/shared/components/Select";
 
 /**
@@ -75,9 +75,31 @@ interface FirmwareFile {
   version: string;
 }
 
+// A realistic library — several models, multiple versions each — so the picker
+// is exercised at the scale a live fleet would have, not a two-row happy path.
 const firmwarePayloads: FirmwareFile[] = [
   { id: "f1", filename: "antminer-s21-5.1.0.tar.gz", target: "Antminer S21", version: "5.1.0" },
   { id: "f2", filename: "antminer-s21-5.0.2.tar.gz", target: "Antminer S21", version: "5.0.2" },
+  { id: "f3", filename: "antminer-s21-5.0.1.tar.gz", target: "Antminer S21", version: "5.0.1" },
+  { id: "f4", filename: "antminer-s19xp-4.3.0.tar.gz", target: "Antminer S19 XP", version: "4.3.0" },
+  { id: "f5", filename: "antminer-s19xp-4.2.1.tar.gz", target: "Antminer S19 XP", version: "4.2.1" },
+  { id: "f6", filename: "whatsminer-m50s-2.8.0.zip", target: "Whatsminer M50S", version: "2.8.0" },
+];
+
+const firmwareFileOptions = firmwarePayloads.map((f) => ({
+  value: f.id,
+  label: f.filename,
+  description: `${f.target} (${f.version})`,
+}));
+
+// The two ways to supply a payload are mutually exclusive: picking one demotes
+// (hides) the other, rather than stacking an "Upload" affordance beneath an
+// always-present file list.
+type PayloadMethod = "existing" | "upload";
+
+const payloadMethodSegments = [
+  { key: "existing", title: "Choose existing" },
+  { key: "upload", title: "Upload new" },
 ];
 
 /**
@@ -85,14 +107,32 @@ const firmwarePayloads: FirmwareFile[] = [
  * file picker + "Upload new file" path) with the rollout framework's controls
  * composed below — a Storybook composition validating the integrated surface
  * without editing the shipped component or its `onConfirm` contract.
+ *
+ * Payload input: a scalable `Select` (collapses to one row, scrolls when
+ * opened) instead of an unbounded inline list, no file pre-selected, and a
+ * `SegmentedControl` (the shipped DeliveryPicker pattern) that switches between
+ * choosing an existing file and uploading a new one so the two never compete.
  */
 function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactElement {
-  const [fileId, setFileId] = useState<string | null>("f1");
-  const [showUploadZone, setShowUploadZone] = useState(false);
+  const [method, setMethod] = useState<PayloadMethod>("existing");
+  const [fileId, setFileId] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; size: number } | null>(null);
   const [firmwareVersion, setFirmwareVersion] = useState("");
   const [config, setConfig] = useState<RolloutPlanConfig>(batchedFirmwareConfig);
   const [startDate, setStartDate] = useState<Date | undefined>(new Date("2026-08-04T14:00:00"));
   const isScheduled = config.scheduleType === "scheduleForLater";
+
+  // Switching methods clears the other side so a hidden selection can't linger.
+  const selectMethod = (next: PayloadMethod) => {
+    setMethod(next);
+    if (next === "existing") {
+      setUploadedFile(null);
+    } else {
+      setFileId(null);
+    }
+  };
+
+  const hasPayload = method === "existing" ? fileId != null : uploadedFile != null;
 
   return (
     <Modal
@@ -101,7 +141,7 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
       divider={false}
       testId="firmware-rollout-modal"
       buttons={
-        fileId
+        hasPayload
           ? [
               {
                 text: isScheduled ? "Schedule rollout" : "Start rollout",
@@ -117,50 +157,26 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
         Select a firmware payload to update your miners, then choose how it rolls out.
       </div>
       <div className="mt-6 flex flex-col gap-8">
-        {/* --- existing FirmwareUpdateModal content: file picker --- */}
-        <div className="flex flex-col gap-2">
-          <div className="text-300 text-text-primary">Select an existing firmware file</div>
-          <div className="flex flex-col gap-1" role="radiogroup" aria-label="Existing firmware files">
-            {firmwarePayloads.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                role="radio"
-                aria-checked={fileId === f.id}
-                onClick={() => setFileId(f.id)}
-                className={clsx(
-                  "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-left transition-colors",
-                  fileId === f.id
-                    ? "border-border-20 bg-surface-elevated-base"
-                    : "border-border-5 hover:border-border-20",
-                )}
-              >
-                <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-border-20">
-                  {fileId === f.id ? <div className="h-2 w-2 rounded-full bg-core-primary-fill" /> : null}
-                </div>
-                <div className="flex min-w-0 flex-col">
-                  <div className="truncate text-300 text-text-primary">{f.filename}</div>
-                  <div className="text-200 text-text-primary-70">
-                    {f.target} ({f.version})
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
+        {/* --- existing FirmwareUpdateModal content: payload input --- */}
+        <div className="flex flex-col gap-3">
+          <div className="text-300 text-text-primary">Firmware payload</div>
+          <SegmentedControl
+            segments={payloadMethodSegments}
+            initialSegmentKey={method}
+            onSelect={(key) => selectMethod(key as PayloadMethod)}
+          />
 
-          {/* --- existing FirmwareUpdateModal content: "Upload new file" path --- */}
-          <div className="flex items-center gap-3 py-2">
-            <div className="h-px flex-1 bg-border-5" />
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              text={showUploadZone ? "Hide upload" : "Upload new file"}
-              onClick={() => setShowUploadZone((prev) => !prev)}
+          {method === "existing" ? (
+            <Select
+              id="fw-existing-file"
+              label="Firmware file"
+              placeholder="Select a firmware file"
+              options={firmwareFileOptions}
+              value={fileId ?? ""}
+              onChange={setFileId}
+              forceBelow
             />
-            <div className="h-px flex-1 bg-border-5" />
-          </div>
-
-          {showUploadZone ? (
+          ) : (
             <div className="flex flex-col gap-4">
               <div className="grid gap-4 tablet:grid-cols-2">
                 <Input id="fw-upload-manufacturer" label="Product" initValue="Antminer" disabled required />
@@ -173,9 +189,20 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
                 onChange={setFirmwareVersion}
                 required
               />
-              <FileDropZone extensions={[".tar.gz", ".zip"]} onFileSelect={() => undefined} />
+              {uploadedFile ? (
+                <FileSelectedStatus
+                  fileName={uploadedFile.name}
+                  fileSize={uploadedFile.size}
+                  onRemove={() => setUploadedFile(null)}
+                />
+              ) : (
+                <FileDropZone
+                  extensions={[".tar.gz", ".zip"]}
+                  onFileSelect={(file) => setUploadedFile({ name: file.name, size: file.size })}
+                />
+              )}
             </div>
-          ) : null}
+          )}
         </div>
 
         {/* --- rollout framework: pacing controls --- */}
