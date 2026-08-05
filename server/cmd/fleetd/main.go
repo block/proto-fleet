@@ -691,10 +691,7 @@ func start(config *Config) (result error) {
 		}
 	}()
 	defer func() {
-		if errors.Is(result, ha.ErrOwnershipLost) {
-			return
-		}
-		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
+		stopRuntimeJobGroupAfterRun(result, runtimeJobGroup, executionService, shutdownTimeout)
 	}()
 
 	middlewares := []server.Middleware{

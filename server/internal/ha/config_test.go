@@ -54,11 +54,12 @@ func TestHAConfigValidation(t *testing.T) {
 		wantError string
 	}{
 		{
-			name: "lease duration rounds to zero",
+			name: "lease duration has sub-millisecond precision",
 			configure: func(config *Config) {
-				config.LeaseDuration = time.Microsecond
+				config.LeaseDuration = 1500 * time.Microsecond
+				config.RenewInterval = 1200 * time.Microsecond
 			},
-			wantError: "lease duration must be at least 1ms",
+			wantError: "lease duration must be a positive whole number of milliseconds",
 		},
 		{
 			name: "renew interval is not positive",

@@ -129,8 +129,8 @@ func (config Config) Validate() error {
 		config.EtcdPasswordFile == "" || config.ServiceCAFile == "" || config.DialTimeout <= 0 {
 		return errors.New("enabled HA requires cluster path, etcd endpoints and credentials, service CA, and a positive dial timeout")
 	}
-	if config.LeaseDuration < time.Millisecond {
-		return errors.New("HA lease duration must be at least 1ms")
+	if config.LeaseDuration <= 0 || config.LeaseDuration%time.Millisecond != 0 {
+		return errors.New("HA lease duration must be a positive whole number of milliseconds")
 	}
 	if config.RenewInterval <= 0 || config.RetryInterval <= 0 {
 		return errors.New("HA renew and retry intervals must be positive")

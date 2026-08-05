@@ -14,6 +14,10 @@ const (
 	defaultCleanupTimeout      = 10 * time.Second
 )
 
+// ErrRuntimeAborted marks an HA exit that completed its bounded hard-abort
+// cleanup attempt for the active runtime job group.
+var ErrRuntimeAborted = errors.New("HA Fleet runtime aborted")
+
 var errCriticalRuntimeUnhealthy = errors.New("critical Fleet runtime is unhealthy")
 
 type RuntimeConfig struct {
@@ -28,7 +32,7 @@ type runtimeOwner interface {
 
 type runtimeGroup interface {
 	Start(ctx context.Context) error
-	Abort()
+	Abort(ctx context.Context) error
 	Stop(ctx context.Context) error
 }
 
@@ -177,8 +181,7 @@ func (r *Runtime) runHA(ctx context.Context) error {
 		return fmt.Errorf("start active Fleet runtime: %w", err)
 	}
 	if !r.healthCheck() {
-		r.group.Abort()
-		return errCriticalRuntimeUnhealthy
+		return r.abortGroup(errCriticalRuntimeUnhealthy)
 	}
 
 	r.gate.activate(activeCtx)
@@ -187,14 +190,24 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return r.stopGroupAndDrainAdmissions(admissionDrained)
 	}
-	r.group.Abort()
+	abortErr := r.abortGroup(activeErr)
 
 	select {
 	case coordinatorErr := <-coordinatorResult:
-		return errors.Join(activeErr, coordinatorErr)
+		return errors.Join(abortErr, coordinatorErr)
 	default:
-		return activeErr
+		return abortErr
 	}
+}
+
+func (r *Runtime) abortGroup(cause error) error {
+	abortCtx, cancel := context.WithTimeout(context.Background(), r.config.CleanupTimeout)
+	defer cancel()
+	cleanupErr := r.group.Abort(abortCtx)
+	if cleanupErr != nil {
+		cleanupErr = fmt.Errorf("abort Fleet runtime: %w", cleanupErr)
+	}
+	return errors.Join(ErrRuntimeAborted, cause, cleanupErr)
 }
 
 func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {

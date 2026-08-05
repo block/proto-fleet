@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
@@ -167,6 +168,19 @@ func serveFleetRuntime(
 		}
 		return fmt.Errorf("serve HTTP: %w", serverErr)
 	}
+}
+
+// stopRuntimeJobGroupAfterRun avoids repeating cleanup already completed by a fatal HA abort.
+func stopRuntimeJobGroupAfterRun(
+	runErr error,
+	group runtimeJobGroupStopper,
+	commandExecution runtimejobs.Lifecycle,
+	timeout time.Duration,
+) {
+	if errors.Is(runErr, ha.ErrRuntimeAborted) {
+		return
+	}
+	stopRuntimeJobGroup(group, commandExecution, timeout)
 }
 
 // stopRuntimeJobGroup gives the group one graceful-shutdown budget. Command

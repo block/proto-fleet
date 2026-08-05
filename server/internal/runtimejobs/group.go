@@ -194,6 +194,30 @@ func (g *Group) Stop(ctx context.Context) error {
 
 	g.endActivation()
 	g.setGroupState(StateStopping)
+	return g.finishStop(ctx)
+}
+
+// Abort cancels the current activation, hard-aborts supported jobs, and waits
+// for every job to clean up within the caller's deadline.
+func (g *Group) Abort(ctx context.Context) error {
+	g.operationMu.Lock()
+	defer g.operationMu.Unlock()
+
+	if terminalErr := g.Err(); terminalErr != nil {
+		return terminalErr
+	}
+	_, cancel := g.activation()
+	if cancel == nil {
+		return nil
+	}
+
+	g.endActivation()
+	g.setGroupState(StateStopping)
+	abortJobs(g.jobs)
+	return g.finishStop(ctx)
+}
+
+func (g *Group) finishStop(ctx context.Context) error {
 	err := g.stopJobs(ctx, g.jobs)
 	if err != nil {
 		g.setTerminalErr(err)
@@ -201,11 +225,6 @@ func (g *Group) Stop(ctx context.Context) error {
 	}
 	g.setGroupState(StateStopped)
 	return nil
-}
-
-// Abort immediately cancels work that cannot survive a fatal runtime error.
-func (g *Group) Abort() {
-	abortJobs(g.jobs)
 }
 
 func abortJobs(jobs []Job) {
