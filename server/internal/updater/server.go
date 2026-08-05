@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,12 +18,14 @@ import (
 )
 
 type Server struct {
-	manager *Manager
-	http    *http.Server
+	manager   *Manager
+	http      *http.Server
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 func NewServer(manager *Manager) *Server {
-	server := &Server{manager: manager}
+	server := &Server{manager: manager, ready: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/status", server.handleStatus)
 	mux.HandleFunc("/v1/upgrade", server.handleUpgrade)
@@ -49,10 +52,18 @@ func (s *Server) Serve(socketPath string) error {
 		listener.Close()
 		return err
 	}
+	s.readyOnce.Do(func() { close(s.ready) })
 	if err := s.http.Serve(listener); err != nil {
 		return fmt.Errorf("serve updater API: %w", err)
 	}
 	return nil
+}
+
+// Ready closes only after the Unix socket is bound and its ownership and mode
+// establish the local authentication boundary. Callers can use it as the
+// startup-commit point for a one-shot updater handoff.
+func (s *Server) Ready() <-chan struct{} {
+	return s.ready
 }
 
 // prepareUpdaterSocketDirectory establishes the filesystem authentication

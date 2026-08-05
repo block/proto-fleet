@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 )
 
 var version = "dev"
+
+const selfUpdateHandoffFlag = "self-update-handoff"
 
 func main() {
 	if err := run(); err != nil {
@@ -43,6 +46,7 @@ func run() error {
 	stateDir := flag.String("state-dir", defaultStateDir, "Durable updater state directory")
 	socketPath := flag.String("socket-path", defaultSocketPath, "Unix socket path")
 	selfUpdatePath := flag.String("self-update-path", defaultSelfUpdatePath, "Installed updater binary path to atomically refresh")
+	selfUpdateHandoff := flag.String(selfUpdateHandoffFlag, "", "Internal one-shot rollback path for a refreshed updater")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 
@@ -60,7 +64,7 @@ func run() error {
 		SelfUpdatePath: *selfUpdatePath,
 	})
 	if err != nil {
-		return fmt.Errorf("initialize updater: %w", err)
+		return handleSelfUpdateStartupFailure(*selfUpdateHandoff, fmt.Errorf("initialize updater: %w", err))
 	}
 	defer func() {
 		if err := manager.Close(); err != nil {
@@ -70,13 +74,33 @@ func run() error {
 	server := updater.NewServer(manager)
 	errs := make(chan error, 1)
 	go func() {
-		log.Printf("proto-fleet-updater %s listening on %s", version, *socketPath)
 		errs <- server.Serve(*socketPath)
 	}()
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(signals)
+
+	// A refreshed process remains rollback-eligible only until it proves real
+	// startup with the production config/state and a bound, secured socket.
+	// Signals are intentional shutdowns, not evidence that the candidate is bad.
+	select {
+	case <-server.Ready():
+		log.Printf("proto-fleet-updater %s listening on %s", version, *socketPath)
+		*selfUpdateHandoff = ""
+	case sig := <-signals:
+		log.Printf("received %s during startup, shutting down", sig)
+		if err := shutdownUpdater(server, manager); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
+		return nil
+	case err := <-errs:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return handleSelfUpdateStartupFailure(*selfUpdateHandoff, fmt.Errorf("serve updater API: %w", err))
+	}
+
 	select {
 	case sig := <-signals:
 		log.Printf("received %s, shutting down", sig)
@@ -92,7 +116,8 @@ func run() error {
 		if canonicalSelfUpdatePath == "" {
 			return fmt.Errorf("self-update completed without a configured executable path")
 		}
-		if err := syscall.Exec(canonicalSelfUpdatePath, os.Args, os.Environ()); err != nil {
+		execArgs := selfUpdateExecArgs(os.Args, canonicalSelfUpdatePath)
+		if err := syscall.Exec(canonicalSelfUpdatePath, execArgs, os.Environ()); err != nil {
 			rollbackErr := manager.RollbackSelfUpdate()
 			if rollbackErr != nil {
 				return errors.Join(
@@ -109,6 +134,39 @@ func run() error {
 		}
 		return nil
 	}
+}
+
+func handleSelfUpdateStartupFailure(handoffPath string, startupErr error) error {
+	if handoffPath == "" {
+		return startupErr
+	}
+	if rollbackErr := updater.RollbackSelfUpdateExecutable(handoffPath); rollbackErr != nil {
+		return errors.Join(
+			startupErr,
+			fmt.Errorf("restore previous updater after replacement startup failure: %w", rollbackErr),
+		)
+	}
+	return fmt.Errorf("start refreshed updater; previous executable restored: %w", startupErr)
+}
+
+func selfUpdateExecArgs(args []string, handoffPath string) []string {
+	if len(args) == 0 {
+		return []string{"proto-fleet-updater", "--" + selfUpdateHandoffFlag + "=" + handoffPath}
+	}
+	cleaned := make([]string, 0, len(args)+1)
+	cleaned = append(cleaned, args[0], "--"+selfUpdateHandoffFlag+"="+handoffPath)
+	for index := 1; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--"+selfUpdateHandoffFlag || arg == "-"+selfUpdateHandoffFlag {
+			index++
+			continue
+		}
+		if strings.HasPrefix(arg, "--"+selfUpdateHandoffFlag+"=") || strings.HasPrefix(arg, "-"+selfUpdateHandoffFlag+"=") {
+			continue
+		}
+		cleaned = append(cleaned, arg)
+	}
+	return cleaned
 }
 
 func shutdownUpdater(server *updater.Server, manager *updater.Manager) error {

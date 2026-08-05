@@ -631,6 +631,21 @@ func (m *Manager) RollbackSelfUpdate() error {
 	return restorePreviousExecutable(m.cfg.SelfUpdatePath)
 }
 
+// RollbackSelfUpdateExecutable validates the installed executable trust chain
+// before restoring its retained sibling backup. The command uses this during
+// the replacement process's one-shot startup window, including failures that
+// happen before a Manager can be constructed.
+func RollbackSelfUpdateExecutable(selfUpdatePath string) error {
+	if selfUpdatePath == "" {
+		return fmt.Errorf("self-update path is not configured")
+	}
+	canonicalPath, err := ensureTrustedSelfUpdatePath(selfUpdatePath)
+	if err != nil {
+		return fmt.Errorf("validate self-update rollback path: %w", err)
+	}
+	return restorePreviousExecutable(canonicalPath)
+}
+
 // Shutdown rejects future triggers, cancels work that has not crossed the
 // activation boundary, waits for the operation to persist a terminal state,
 // and only then releases the daemon lock. An active forward migration is not

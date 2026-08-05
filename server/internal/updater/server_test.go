@@ -1,7 +1,9 @@
 package updater
 
 import (
+	"context"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -11,6 +13,42 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestServerReadyAfterSocketIsBoundAndSecured(t *testing.T) {
+	t.Parallel()
+
+	socketPath := shortSocketPath(t)
+	server := NewServer(nil)
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(socketPath) }()
+
+	select {
+	case <-server.Ready():
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not report readiness")
+	}
+	info, err := os.Lstat(socketPath)
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode()&os.ModeSocket)
+	assert.Equal(t, os.FileMode(0o660), info.Mode().Perm())
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, server.Shutdown(shutdownCtx))
+	require.ErrorIs(t, <-done, http.ErrServerClosed)
+}
+
+func TestServerDoesNotReportReadinessWhenSocketSetupFails(t *testing.T) {
+	t.Parallel()
+
+	server := NewServer(nil)
+	require.ErrorContains(t, server.Serve("relative.sock"), "socket path must be absolute")
+	select {
+	case <-server.Ready():
+		t.Fatal("failed server startup reported readiness")
+	default:
+	}
+}
 
 func TestListenUpdaterSocketRefusesLiveListener(t *testing.T) {
 	t.Parallel()
