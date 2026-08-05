@@ -41,6 +41,16 @@ implementation, quantifies the gap, and proposes a phased plan.
 
 ---
 
+## Related discovery docs
+
+- [Backend-agnostic ProtoOS via a canonical resolver layer](./2026-07-29-protoos-backend-agnostic-abstraction-discovery.md)
+  — could one UI render from either the on-miner REST API or the fleet RPCs via
+  a resolver map? (Sound seam; blocked by missing fleet capabilities for a full
+  port.)
+- [ProtoFleet Single-Miner mode](./2026-07-29-protofleet-single-miner-mode-discovery.md)
+  — boot ProtoFleet pointed at one device as a ProtoOS-on-miner replacement.
+  (Small as a client mode over the standard server; large as a lite appliance.)
+
 ## Locked assumptions (rev 2 — 2026-07-28)
 
 Per direction, the following are now fixed and shape the plan below:
