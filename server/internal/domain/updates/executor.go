@@ -52,8 +52,8 @@ func (e *executorTransportError) Unwrap() error { return e.cause }
 
 // executorProtocolError means a successful HTTP response could not be trusted
 // (malformed, oversized, or inconsistent). The mutation may still have been
-// accepted, so callers reconcile it just like a lost transport response, but
-// report an internal protocol failure when reconciliation cannot prove that.
+// accepted, so callers reconcile it like a lost transport response and report
+// an unconfirmed outcome when reconciliation cannot prove acceptance.
 type executorProtocolError struct{ cause error }
 
 func (e *executorProtocolError) Error() string {

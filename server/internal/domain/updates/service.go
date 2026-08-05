@@ -275,8 +275,7 @@ func mapExecutorTriggerError(err error) error {
 		}
 		return fmt.Errorf("host updater rejected trigger with HTTP status %d", httpErr.StatusCode)
 	}
-	var transportErr *executorTransportError
-	if errors.As(err, &transportErr) || errors.Is(err, context.DeadlineExceeded) {
+	if ambiguousExecutorResult(err) || errors.Is(err, context.DeadlineExceeded) {
 		return fleeterror.NewUnavailableErrorf("host updater did not confirm the upgrade; check its status before retrying")
 	}
 	if errors.Is(err, context.Canceled) {

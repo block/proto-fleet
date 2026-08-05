@@ -900,7 +900,10 @@ func TestTriggerUpgradeMapsExecutorFailures(t *testing.T) {
 			name: "malformed accepted response",
 			err:  &executorProtocolError{cause: errors.New("malformed JSON")},
 			check: func(err error) bool {
-				return !fleeterror.IsUnavailableError(err) && strings.Contains(err.Error(), "malformed JSON")
+				return fleeterror.IsUnavailableError(err) &&
+					strings.Contains(err.Error(), "check its status") &&
+					!strings.Contains(err.Error(), "malformed JSON") &&
+					!strings.Contains(err.Error(), "use the install command")
 			},
 		},
 	} {
