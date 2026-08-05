@@ -40,7 +40,7 @@ func TestHandleUpgradeRejectsTrailingContentAndAllowsWhitespace(t *testing.T) {
 		},
 		{
 			name:      "trailing whitespace",
-			body:      "{\"target_version\":\"invalid\"}\n\t ",
+			body:      "{\"operation_id\":\"11111111-1111-4111-8111-111111111111\",\"target_version\":\"invalid\"}\n\t ",
 			wantError: "target version must be a stable or RC release tag",
 		},
 	} {
@@ -121,7 +121,10 @@ func TestHandleUpgradeMapsManagerStateWithoutStatusSnapshot(t *testing.T) {
 			manager.mu.Unlock()
 
 			recorder := httptest.NewRecorder()
-			body := fmt.Sprintf(`{"target_version":%q}`, test.targetVersion)
+			body := fmt.Sprintf(
+				`{"operation_id":"11111111-1111-4111-8111-111111111111","target_version":%q}`,
+				test.targetVersion,
+			)
 			request := httptest.NewRequest(http.MethodPost, "/v1/upgrade", strings.NewReader(body))
 			NewServer(manager).handleUpgrade(recorder, request)
 
@@ -168,6 +171,22 @@ func TestHandleUpgradeRejectsInvalidOperationID(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "operation id must be a canonical UUID")
 }
 
+func TestHandleUpgradeRequiresOperationID(t *testing.T) {
+	t.Parallel()
+
+	for _, body := range []string{
+		`{"target_version":"v1.1.0"}`,
+		`{"operation_id":"","target_version":"v1.1.0"}`,
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/upgrade", strings.NewReader(body))
+		NewServer(&Manager{}).handleUpgrade(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "operation id must be a canonical UUID")
+	}
+}
+
 func TestTriggerErrorHTTPStatus(t *testing.T) {
 	t.Parallel()
 
@@ -196,10 +215,13 @@ func TestHandleUpgradeSanitizesInternalManagerError(t *testing.T) {
 	manager := &Manager{cfg: Config{
 		InstallRoot: missingInstallRoot,
 		StateDir:    t.TempDir(),
-		NewID:       func() string { return "test-operation" },
 	}}
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/v1/upgrade", strings.NewReader(`{"target_version":"v1.1.0"}`))
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/upgrade",
+		strings.NewReader(`{"operation_id":"11111111-1111-4111-8111-111111111111","target_version":"v1.1.0"}`),
+	)
 	NewServer(manager).handleUpgrade(recorder, request)
 
 	assert.Equal(t, http.StatusInternalServerError, recorder.Code)

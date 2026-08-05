@@ -125,6 +125,18 @@ func run() error {
 		if err := shutdownUpdater(server, manager); err != nil {
 			log.Printf("shutdown: %v", err)
 		}
+		rolledBackPath, err := rollbackSelfUpdateQueuedDuringShutdown(
+			manager.SelfUpdateReady(),
+			manager.RollbackSelfUpdate,
+		)
+		if err != nil {
+			return fmt.Errorf("restore previous updater after shutdown interrupted self-restart: %w", err)
+		}
+		if rolledBackPath != "" {
+			log.Printf(
+				"host updater refresh completed during shutdown; restored the previous updater and deferred the refresh until a future upgrade",
+			)
+		}
 		return nil
 	case canonicalSelfUpdatePath := <-manager.SelfUpdateReady():
 		log.Printf("activating refreshed host updater")
@@ -133,6 +145,18 @@ func run() error {
 		}
 		if canonicalSelfUpdatePath == "" {
 			return fmt.Errorf("self-update completed without a configured executable path")
+		}
+		// Shutdown may have waited for activation while an intentional stop was
+		// queued. Stop channel forwarding before the final check so a later signal
+		// uses its default disposition instead of being swallowed before exec.
+		signal.Stop(signals)
+		pendingSignal, err := rollbackSelfUpdateForPendingSignal(signals, manager.RollbackSelfUpdate)
+		if err != nil {
+			return fmt.Errorf("restore previous updater after shutdown interrupted self-restart: %w", err)
+		}
+		if pendingSignal != nil {
+			log.Printf("received %s while preparing self-restart; restored the previous updater and shutting down", pendingSignal)
+			return nil
 		}
 		execArgs := selfUpdateExecArgs(os.Args, canonicalSelfUpdatePath)
 		if err := syscall.Exec(canonicalSelfUpdatePath, execArgs, os.Environ()); err != nil {
@@ -193,4 +217,41 @@ func shutdownUpdater(server *updater.Server, manager *updater.Manager) error {
 	cancelServerShutdown()
 	managerErr := manager.Shutdown(context.Background())
 	return errors.Join(serverErr, managerErr)
+}
+
+// rollbackSelfUpdateQueuedDuringShutdown must run after Manager.Shutdown. At
+// that point an activating operation has finished, so this non-blocking read
+// cannot race a later self-update notification. A signal is an intentional
+// stop, so restore the previous updater instead of execing a new process.
+func rollbackSelfUpdateQueuedDuringShutdown(
+	ready <-chan string,
+	rollback func() error,
+) (string, error) {
+	select {
+	case canonicalPath := <-ready:
+		if canonicalPath == "" {
+			return "", fmt.Errorf("self-update completed without a configured executable path")
+		}
+		if err := rollback(); err != nil {
+			return canonicalPath, err
+		}
+		return canonicalPath, nil
+	default:
+		return "", nil
+	}
+}
+
+func rollbackSelfUpdateForPendingSignal(
+	signals <-chan os.Signal,
+	rollback func() error,
+) (os.Signal, error) {
+	select {
+	case pendingSignal := <-signals:
+		if err := rollback(); err != nil {
+			return pendingSignal, err
+		}
+		return pendingSignal, nil
+	default:
+		return nil, nil
+	}
 }

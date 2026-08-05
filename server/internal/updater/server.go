@@ -250,15 +250,7 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "invalid request body"})
 		return
 	}
-	var operation updaterapi.Operation
-	if request.OperationID == "" {
-		// Backward compatibility for an older fleetd paired with a newer host
-		// updater. New callers always supply an operation ID for exact
-		// lost-response reconciliation.
-		operation, err = s.manager.Trigger(request.TargetVersion)
-	} else {
-		operation, err = s.manager.TriggerWithID(request.TargetVersion, request.OperationID)
-	}
+	operation, err := s.manager.TriggerWithID(request.TargetVersion, request.OperationID)
 	if err != nil {
 		status := triggerErrorHTTPStatus(err)
 		message := err.Error()

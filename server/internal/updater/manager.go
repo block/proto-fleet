@@ -59,6 +59,7 @@ const (
 	processLockFilename      = "updater.lock"
 	activationMarkerFilename = "activation-swap.json"
 	activationMarkerTempName = ".activation-swap.json.tmp"
+	preflightProofFilename   = ".update-preflight-complete"
 	operationArtifactPrefix  = ".proto-fleet-upgrade-"
 	selfUpdateBackupSuffix   = ".previous"
 	stateTempPrefix          = ".state-"
@@ -1140,7 +1141,16 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		// run-fleet may have applied forward-only migrations before returning an
 		// error. Keep the new deployment active for forward recovery; restoring
 		// the previous binaries could make the schema and application incompatible.
-		m.fail(operationID, fmt.Errorf("new stack failed to start: %w", err), recovery)
+		activationErr := fmt.Errorf("new stack failed to start: %w", err)
+		failureRecovery, recoveryErr := activationRecoveryCommandAfterFailure(currentDeployment)
+		if recoveryErr != nil {
+			activationErr = errors.Join(
+				activationErr,
+				fmt.Errorf("derive activation recovery command: %w", recoveryErr),
+			)
+			failureRecovery = ""
+		}
+		m.fail(operationID, activationErr, failureRecovery)
 		return
 	}
 	successMessage := fmt.Sprintf("Fleet %s is running", targetVersion)
@@ -1756,7 +1766,33 @@ func (m *Manager) loadState() error {
 		}
 	}
 	m.operation = &op
-	return m.persistLocked()
+	return m.persistReconciledState()
+}
+
+// persistReconciledState normally preserves the ordering of reconciliation,
+// durable state, then stale-artifact cleanup. If the state write itself proves
+// the filesystem is full, the exact reserved-name artifacts are the only safe
+// source of space to reclaim: layout reconciliation has already succeeded, so
+// clean them and retry the small state write once. Other persistence failures
+// leave the artifacts untouched for diagnosis.
+func (m *Manager) persistReconciledState() error {
+	persistErr := m.persistLocked()
+	if persistErr == nil || !errors.Is(persistErr, syscall.ENOSPC) {
+		return persistErr
+	}
+	if cleanupErr := m.cleanupStaleArtifacts(); cleanupErr != nil {
+		return errors.Join(
+			persistErr,
+			fmt.Errorf("clean stale upgrade artifacts after updater state exhausted storage: %w", cleanupErr),
+		)
+	}
+	if retryErr := m.persistLocked(); retryErr != nil {
+		return errors.Join(
+			persistErr,
+			fmt.Errorf("persist reconciled updater state after stale artifact cleanup: %w", retryErr),
+		)
+	}
+	return nil
 }
 
 // reconcileDeploymentLayout validates the active layout and repairs the
@@ -1783,7 +1819,7 @@ func (m *Manager) reconcileDeploymentLayout(
 		if deriveForwardRecovery {
 			op.RecoveryCommand = ""
 			if version == op.TargetVersion {
-				markerInfo, markerErr := os.Lstat(filepath.Join(current, ".update-preflight-complete"))
+				markerInfo, markerErr := os.Lstat(filepath.Join(current, preflightProofFilename))
 				if markerErr == nil {
 					if !markerInfo.Mode().IsRegular() {
 						return false, fmt.Errorf("activation preflight proof is not a regular file")
@@ -2734,6 +2770,28 @@ func shellQuote(value string) string {
 
 func activationRecoveryCommand(deploymentPath string) string {
 	return fmt.Sprintf("cd %s && ./run-fleet.sh --non-interactive --skip-build", shellQuote(deploymentPath))
+}
+
+func activationPreflightRecoveryCommand(deploymentPath string) string {
+	return fmt.Sprintf(
+		"cd %s && ./run-fleet.sh --non-interactive --preflight-only && ./run-fleet.sh --non-interactive --skip-build",
+		shellQuote(deploymentPath),
+	)
+}
+
+func activationRecoveryCommandAfterFailure(deploymentPath string) (string, error) {
+	proofPath := filepath.Join(deploymentPath, preflightProofFilename)
+	info, err := os.Lstat(proofPath)
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("activation preflight proof is not a regular file")
+		}
+		return activationRecoveryCommand(deploymentPath), nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return activationPreflightRecoveryCommand(deploymentPath), nil
+	}
+	return "", fmt.Errorf("inspect activation preflight proof: %w", err)
 }
 
 func activationRestoreCommand(current, previous string) string {

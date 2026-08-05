@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -678,28 +679,72 @@ func TestManagerFailedPreflightImageCleanupHasABoundedDeadline(t *testing.T) {
 	assert.Contains(t, mustReadFile(t, completed.LogPath), context.DeadlineExceeded.Error())
 }
 
-func TestManagerActivationFailurePreservesForwardRecovery(t *testing.T) {
+func TestManagerActivationFailurePersistsProofAwareForwardRecovery(t *testing.T) {
 	t.Parallel()
 
-	installRoot := t.TempDir()
-	writeCurrentDeployment(t, installRoot, "v1.0.0")
-	bundle := releaseBundle(t, "v1.1.0")
-	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
-	runner := &recordingRunner{activation: assert.AnError}
-	manager := newTestManager(t, installRoot, server, runner)
+	for _, test := range []struct {
+		name       string
+		proofState string
+	}{
+		{name: "retained proof uses prepared images", proofState: "retained"},
+		{name: "removed proof reruns preflight", proofState: "removed"},
+		{name: "non-regular proof fails closed", proofState: "non-regular"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err := manager.Trigger("v1.1.0")
-	require.NoError(t, err)
-	completed := waitForTerminal(t, manager)
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			bundle := releaseBundle(t, "v1.1.0")
+			server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+			runner := &recordingRunner{
+				activation: assert.AnError,
+				preflightHook: func(dir string) error {
+					return os.WriteFile(filepath.Join(dir, preflightProofFilename), []byte("proof\n"), 0o600)
+				},
+				activationHook: func(dir string) {
+					proofPath := filepath.Join(dir, preflightProofFilename)
+					switch test.proofState {
+					case "removed":
+						_ = os.Remove(proofPath)
+					case "non-regular":
+						_ = os.Remove(proofPath)
+						_ = os.Mkdir(proofPath, 0o700)
+					}
+				},
+			}
+			manager := newTestManager(t, installRoot, server, runner)
 
-	assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
-	assert.Contains(t, completed.Error, "new stack failed to start")
-	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
-	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment.previous", "version.txt")))
-	assert.Contains(t, completed.RecoveryCommand, "./run-fleet.sh --non-interactive --skip-build")
-	commands := runner.Commands()
-	require.Len(t, commands, 2)
-	assert.Equal(t, []string{"./run-fleet.sh", "--non-interactive", "--skip-build"}, commands[1].Args)
+			_, err := manager.Trigger("v1.1.0")
+			require.NoError(t, err)
+			completed := waitForTerminal(t, manager)
+
+			assert.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+			assert.Contains(t, completed.Error, "new stack failed to start")
+			assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+			assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment.previous", "version.txt")))
+			currentDeployment := filepath.Join(manager.cfg.InstallRoot, "deployment")
+			switch test.proofState {
+			case "retained":
+				assert.Equal(t, activationRecoveryCommand(currentDeployment), completed.RecoveryCommand)
+			case "removed":
+				assert.Equal(t, activationPreflightRecoveryCommand(currentDeployment), completed.RecoveryCommand)
+			case "non-regular":
+				assert.Empty(t, completed.RecoveryCommand)
+				assert.Contains(t, completed.Error, "activation preflight proof is not a regular file")
+			}
+
+			var persisted updaterapi.Operation
+			require.NoError(t, json.Unmarshal(
+				[]byte(mustReadFile(t, filepath.Join(manager.cfg.StateDir, stateFilename))),
+				&persisted,
+			))
+			assert.Equal(t, completed.RecoveryCommand, persisted.RecoveryCommand)
+			commands := runner.Commands()
+			require.Len(t, commands, 2)
+			assert.Equal(t, []string{"./run-fleet.sh", "--non-interactive", "--skip-build"}, commands[1].Args)
+		})
+	}
 }
 
 func TestManagerFailsActivationOnlyAfterRestoringPreviousDeployment(t *testing.T) {
@@ -1171,6 +1216,86 @@ func TestManagerMarksAnInterruptedPersistedOperationFailed(t *testing.T) {
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Contains(t, operation.Error, "updater restarted")
 	require.NotNil(t, operation.CompletedAt)
+}
+
+func TestManagerOnlyCleansStaleArtifactsToRetryReconciledStateAfterENOSPC(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name          string
+		persistErr    error
+		wantStarted   bool
+		wantAttempts  int
+		wantStaleFile bool
+	}{
+		{
+			name:         "ENOSPC cleans and retries once",
+			persistErr:   fmt.Errorf("state filesystem full: %w", syscall.ENOSPC),
+			wantStarted:  true,
+			wantAttempts: 2,
+		},
+		{
+			name:          "other error preserves evidence without retry",
+			persistErr:    assert.AnError,
+			wantAttempts:  1,
+			wantStaleFile: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			stateDir := filepath.Join(t.TempDir(), "state")
+			require.NoError(t, os.MkdirAll(stateDir, 0o700))
+			started := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+			interrupted := updaterapi.Operation{
+				ID:            "interrupted-before-activation",
+				TargetVersion: "v1.1.0",
+				Phase:         updaterapi.PhaseStaging,
+				Message:       "Staging release",
+				StartedAt:     started,
+				UpdatedAt:     started,
+			}
+			data, err := json.Marshal(interrupted)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+			staleArtifact := filepath.Join(stateDir, operationArtifactBase(interrupted.ID)+".tar.gz")
+			require.NoError(t, os.WriteFile(staleArtifact, []byte("crash artifact"), 0o600))
+
+			attempts := 0
+			manager, err := NewManager(Config{
+				InstallRoot: installRoot,
+				StateDir:    stateDir,
+				GOARCH:      "amd64",
+				beforePersistState: func(updaterapi.Operation) error {
+					attempts++
+					if _, statErr := os.Lstat(staleArtifact); statErr == nil {
+						return test.persistErr
+					}
+					return nil
+				},
+			})
+			assert.Equal(t, test.wantAttempts, attempts)
+			if test.wantStarted {
+				require.NoError(t, err)
+				t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+				operation := manager.Status().Operation
+				require.NotNil(t, operation)
+				assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+				assert.NoFileExists(t, staleArtifact)
+				return
+			}
+
+			if manager != nil {
+				_ = manager.Close()
+			}
+			require.Error(t, err)
+			if test.wantStaleFile {
+				assert.FileExists(t, staleArtifact)
+			}
+		})
+	}
 }
 
 func TestManagerRestoresPreviousDeploymentAfterInterruptedSwap(t *testing.T) {

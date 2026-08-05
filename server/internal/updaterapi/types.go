@@ -41,7 +41,7 @@ type StatusResponse struct {
 }
 
 type TriggerRequest struct {
-	OperationID   string `json:"operation_id,omitempty"`
+	OperationID   string `json:"operation_id"`
 	TargetVersion string `json:"target_version"`
 }
 
