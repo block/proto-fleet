@@ -44,6 +44,8 @@ type recordingRunner struct {
 	waitForCleanupCancel bool
 	releaseCleanup       chan struct{}
 	activationHook       func(string)
+	candidateVersion     string
+	candidateError       error
 }
 
 const operatorEnv = `DB_PASSWORD=secret
@@ -53,10 +55,23 @@ ENABLE_TRACING=true
 ENABLE_ONE_CLICK_UPDATES=true
 `
 
-func (r *recordingRunner) Run(ctx context.Context, dir string, _ io.Writer, name string, args ...string) error {
+func (r *recordingRunner) Run(ctx context.Context, dir string, output io.Writer, name string, args ...string) error {
 	r.mu.Lock()
 	r.commands = append(r.commands, recordedCommand{Dir: dir, Name: name, Args: append([]string(nil), args...)})
 	r.mu.Unlock()
+	if len(args) == 1 && args[0] == "--version" && name != "/bin/bash" {
+		if r.candidateError != nil {
+			return r.candidateError
+		}
+		candidateVersion := r.candidateVersion
+		if candidateVersion == "" {
+			candidateVersion = "v1.1.0"
+		}
+		if _, err := fmt.Fprintln(output, candidateVersion); err != nil {
+			return fmt.Errorf("write candidate version: %w", err)
+		}
+		return nil
+	}
 
 	if name == "/bin/bash" && len(args) > 0 && args[len(args)-1] == "--preflight-only" {
 		if r.preflightAt != nil {
@@ -196,6 +211,7 @@ func TestManagerSelfUpdateUsesVerifiedArchiveCopy(t *testing.T) {
 
 	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
 	assert.Equal(t, "updater", mustReadFile(t, installedUpdater))
+	assert.Equal(t, "old updater", mustReadFile(t, installedUpdater+selfUpdateBackupSuffix))
 	select {
 	case <-manager.SelfUpdateReady():
 	case <-time.After(time.Second):
@@ -213,6 +229,38 @@ func TestManagerSelfUpdateUsesVerifiedArchiveCopy(t *testing.T) {
 	restartedOperation := restarted.Status().Operation
 	require.NotNil(t, restartedOperation)
 	assert.Equal(t, updaterapi.PhaseSucceeded, restartedOperation.Phase)
+	assert.Equal(t, "old updater", mustReadFile(t, installedUpdater+selfUpdateBackupSuffix))
+}
+
+func TestManagerRejectsUpdaterCandidateWithUnexpectedVersionBeforeReplacement(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{candidateVersion: "v9.9.9"}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.SelfUpdatePath = installedUpdater
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	assert.Equal(t, "old updater", mustReadFile(t, installedUpdater))
+	assert.NoFileExists(t, installedUpdater+selfUpdateBackupSuffix)
+	assert.NoFileExists(t, installedUpdater+".candidate")
+	assert.Contains(t, completed.Message, "host updater refresh needs attention")
+	assert.Contains(t, mustReadFile(t, completed.LogPath), "reported version")
+	select {
+	case <-manager.SelfUpdateReady():
+		t.Fatal("invalid updater candidate must not request a self-restart")
+	default:
+	}
 }
 
 func TestManagerSelfUpdateFailureIsADegradedSuccess(t *testing.T) {
@@ -718,8 +766,12 @@ func TestManagerShutdownDuringActivationRetainsTheProcessLockUntilCompletion(t *
 	require.NoError(t, manager.Shutdown(finalShutdownCtx))
 	cancelFinalShutdown()
 
-	replacement, err := NewManager(config)
-	require.NoError(t, err)
+	var replacement *Manager
+	require.Eventually(t, func() bool {
+		var replacementErr error
+		replacement, replacementErr = NewManager(config)
+		return replacementErr == nil
+	}, 2*time.Second, 10*time.Millisecond, "replacement manager did not reacquire the released process lock")
 	t.Cleanup(func() { assert.NoError(t, replacement.Close()) })
 }
 
@@ -925,6 +977,264 @@ func TestManagerCleansCrashAbandonedArtifactsOnStartup(t *testing.T) {
 	}
 	assert.NoDirExists(t, stageRoot)
 	assert.FileExists(t, keepPath)
+}
+
+func TestManagerRejectsSymlinkedLogDirectoryWithoutTouchingItsTarget(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	externalLogDir := t.TempDir()
+	externalLog := filepath.Join(externalLogDir, operationLogFilename("external"))
+	require.NoError(t, os.WriteFile(externalLog, []byte("keep"), 0o600))
+	require.NoError(t, os.Symlink(externalLogDir, filepath.Join(stateDir, "logs")))
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	if manager != nil {
+		_ = manager.Close()
+	}
+	require.ErrorContains(t, err, "updater log path is not a directory")
+	assert.Equal(t, "keep", mustReadFile(t, externalLog))
+}
+
+func TestPruneOperationLogsRetainsCurrentAndNewestWithinBounds(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name         string
+		maxFiles     int
+		maxBytes     int64
+		reserveFiles int
+		reserveBytes int64
+		wantRemoved  []string
+		wantRetained []string
+	}{
+		{
+			name:         "count",
+			maxFiles:     3,
+			maxBytes:     100,
+			wantRemoved:  []string{"oldest"},
+			wantRetained: []string{"current", "middle", "newest"},
+		},
+		{
+			name:         "bytes",
+			maxFiles:     10,
+			maxBytes:     8,
+			wantRemoved:  []string{"oldest", "middle"},
+			wantRetained: []string{"current", "newest"},
+		},
+		{
+			name:         "reserved next operation",
+			maxFiles:     4,
+			maxBytes:     16,
+			reserveFiles: 1,
+			reserveBytes: 4,
+			wantRemoved:  []string{"oldest"},
+			wantRetained: []string{"current", "middle", "newest"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			logDir := t.TempDir()
+			baseTime := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+			for index, id := range []string{"current", "oldest", "middle", "newest"} {
+				path := filepath.Join(logDir, operationLogFilename(id))
+				require.NoError(t, os.WriteFile(path, []byte("1234"), 0o600))
+				modified := baseTime.Add(time.Duration(index) * time.Minute)
+				require.NoError(t, os.Chtimes(path, modified, modified))
+			}
+
+			require.NoError(t, pruneOperationLogs(
+				logDir,
+				operationLogFilename("current"),
+				test.maxFiles,
+				test.maxBytes,
+				test.reserveFiles,
+				test.reserveBytes,
+			))
+
+			for _, id := range test.wantRemoved {
+				assert.NoFileExists(t, filepath.Join(logDir, operationLogFilename(id)))
+			}
+			for _, id := range test.wantRetained {
+				assert.FileExists(t, filepath.Join(logDir, operationLogFilename(id)))
+			}
+		})
+	}
+}
+
+func TestPruneOperationLogsIgnoresUnownedAndNonRegularEntries(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	unrelated := filepath.Join(logDir, "operator-notes.log")
+	require.NoError(t, os.WriteFile(unrelated, []byte("keep"), 0o600))
+
+	external := filepath.Join(t.TempDir(), "external.log")
+	require.NoError(t, os.WriteFile(external, []byte("keep"), 0o600))
+	symlinkPath := filepath.Join(logDir, operationLogFilename("symlink"))
+	require.NoError(t, os.Symlink(external, symlinkPath))
+
+	directoryPath := filepath.Join(logDir, operationLogFilename("directory"))
+	require.NoError(t, os.Mkdir(directoryPath, 0o700))
+	sentinel := filepath.Join(directoryPath, "sentinel")
+	require.NoError(t, os.WriteFile(sentinel, []byte("keep"), 0o600))
+
+	require.NoError(t, pruneOperationLogs(logDir, "", 0, 0, 0, 0))
+
+	assert.FileExists(t, unrelated)
+	_, err := os.Lstat(symlinkPath)
+	assert.NoError(t, err)
+	assert.Equal(t, "keep", mustReadFile(t, external))
+	assert.FileExists(t, sentinel)
+}
+
+func TestSaturatingLogBytesCannotOverflowBelowTheQuota(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, int64(11), saturatingLogBytes(9, 2, 10))
+	assert.Equal(t, int64(11), saturatingLogBytes(0, int64(^uint64(0)>>1), 10))
+}
+
+func TestManagerRejectsTriggerWhenCurrentLogConsumesReservedCapacity(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	logDir := filepath.Join(stateDir, "logs")
+	require.NoError(t, os.MkdirAll(logDir, 0o700))
+	now := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	operation := updaterapi.Operation{
+		ID:            "current-operation",
+		TargetVersion: "v1.0.0",
+		Phase:         updaterapi.PhaseSucceeded,
+		StartedAt:     now,
+		UpdatedAt:     now,
+		CompletedAt:   &now,
+	}
+	operation.LogPath = filepath.Join(logDir, operationLogFilename(operation.ID))
+	data, err := json.Marshal(operation)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+	require.NoError(t, os.WriteFile(operation.LogPath, nil, 0o600))
+	require.NoError(t, os.Truncate(
+		operation.LogPath,
+		maxRetainedLogBytes-maxCommandLogBytes+1,
+	))
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	_, err = manager.Trigger("v1.1.0")
+	require.ErrorContains(t, err, "reserve updater operation log capacity")
+	require.ErrorContains(t, err, "current updater operation log leaves insufficient retained capacity")
+	assert.Equal(t, updaterapi.PhaseSucceeded, manager.Status().Operation.Phase)
+	assert.FileExists(t, operation.LogPath)
+}
+
+func TestManagerPreservesTerminalStatusWhenQueuedStateCannotPersist(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	logDir := filepath.Join(stateDir, "logs")
+	require.NoError(t, os.MkdirAll(logDir, 0o700))
+	now := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	previous := updaterapi.Operation{
+		ID:            "previous-operation",
+		TargetVersion: "v1.0.0",
+		Phase:         updaterapi.PhaseSucceeded,
+		StartedAt:     now,
+		UpdatedAt:     now,
+		CompletedAt:   &now,
+	}
+	previous.LogPath = filepath.Join(logDir, operationLogFilename(previous.ID))
+	data, err := json.Marshal(previous)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+	require.NoError(t, os.WriteFile(previous.LogPath, []byte("previous log"), 0o600))
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	// #nosec G302 -- these are restrictive directory modes used to force a
+	// persistence failure; no file is made group/world accessible.
+	require.NoError(t, os.Chmod(stateDir, 0o500))
+	t.Cleanup(func() {
+		// #nosec G302 -- restore owner-only directory access for TempDir cleanup.
+		_ = os.Chmod(stateDir, 0o700)
+	})
+
+	_, err = manager.Trigger("v1.1.0")
+	require.ErrorContains(t, err, "create updater state temp file")
+	status := manager.Status().Operation
+	require.NotNil(t, status)
+	assert.Equal(t, previous.ID, status.ID)
+	assert.Equal(t, updaterapi.PhaseSucceeded, status.Phase)
+}
+
+func TestManagerPostCompletionLogPruneFailureDoesNotChangeTerminalState(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	operationID := "oversized-current-log"
+	runner := &recordingRunner{
+		activationHook: func(string) {
+			require.NoError(t, os.Truncate(
+				filepath.Join(stateDir, "logs", operationLogFilename(operationID)),
+				maxRetainedLogBytes+1,
+			))
+		},
+	}
+	manager, err := NewManager(Config{
+		InstallRoot:              installRoot,
+		StateDir:                 stateDir,
+		DownloadBaseURL:          server.URL,
+		HTTPClient:               server.Client(),
+		Runner:                   runner,
+		GOARCH:                   "amd64",
+		NewID:                    func() string { return operationID },
+		allowTestDownloadBaseURL: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	_, err = manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+	require.Eventually(t, func() bool {
+		manager.mu.RLock()
+		defer manager.mu.RUnlock()
+		return !manager.operationRunning
+	}, 5*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	info, err := os.Stat(completed.LogPath)
+	require.NoError(t, err)
+	assert.Greater(t, info.Size(), maxRetainedLogBytes)
+	assert.Equal(t, updaterapi.PhaseSucceeded, manager.Status().Operation.Phase)
 }
 
 func TestManagerCleansDeferredArtifactsBeforeAcceptingAnotherUpgrade(t *testing.T) {
@@ -1144,7 +1454,7 @@ func TestExtractArchiveRejectsTraversal(t *testing.T) {
 	require.ErrorContains(t, err, "unsafe path")
 }
 
-func TestAtomicReplaceExecutableRefreshesTheInstalledUpdater(t *testing.T) {
+func TestInstallExecutableCandidateRetainsAndRestoresThePreviousUpdater(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -1154,11 +1464,32 @@ func TestAtomicReplaceExecutableRefreshesTheInstalledUpdater(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(destination), 0o750))
 	require.NoError(t, os.WriteFile(destination, []byte("old updater"), 0o755))
 
-	require.NoError(t, atomicReplaceExecutable(source, destination))
+	in, err := os.Open(source)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, in.Close()) })
+	candidatePath, err := stageExecutableCandidate(in, destination)
+	require.NoError(t, err)
+	require.NoError(t, installExecutableCandidate(candidatePath, destination))
 	assert.Equal(t, "new updater", mustReadFile(t, destination))
+	assert.Equal(t, "old updater", mustReadFile(t, destination+selfUpdateBackupSuffix))
 	info, err := os.Stat(destination)
 	require.NoError(t, err)
 	assert.NotZero(t, info.Mode().Perm()&0o111)
+
+	require.NoError(t, restorePreviousExecutable(destination))
+	assert.Equal(t, "old updater", mustReadFile(t, destination))
+	assert.NoFileExists(t, destination+selfUpdateBackupSuffix)
+}
+
+func TestValidateUpdaterCandidateRejectsAnUnrunnablePayload(t *testing.T) {
+	t.Parallel()
+
+	candidatePath := filepath.Join(t.TempDir(), "proto-fleet-updater.candidate")
+	require.NoError(t, os.WriteFile(candidatePath, []byte("not an executable format"), 0o755))
+	manager := &Manager{cfg: Config{Runner: execRunner{}}}
+
+	err := manager.validateUpdaterCandidate(context.Background(), candidatePath, "v1.1.0")
+	require.ErrorContains(t, err, "smoke-test updater candidate")
 }
 
 func TestActivationRestoreCommandQuotesEveryPathUse(t *testing.T) {

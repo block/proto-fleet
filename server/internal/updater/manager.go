@@ -2,6 +2,7 @@ package updater
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,12 +42,17 @@ const (
 	defaultPreflightTimeout  = 2 * time.Hour
 	defaultActivationTimeout = 45 * time.Minute
 	defaultCleanupTimeout    = 2 * time.Minute
+	defaultCandidateTimeout  = 10 * time.Second
 	maxCommandLogBytes       = int64(64 << 20)
+	maxCandidateVersionBytes = int64(4096)
+	maxRetainedOperationLogs = 8
+	maxRetainedLogBytes      = int64(256 << 20)
 	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
 	processLockFilename      = "updater.lock"
 	activationMarkerFilename = "activation-swap.json"
 	activationMarkerTempName = ".activation-swap.json.tmp"
 	operationArtifactPrefix  = ".proto-fleet-upgrade-"
+	selfUpdateBackupSuffix   = ".previous"
 	stateTempPrefix          = ".state-"
 )
 
@@ -52,6 +60,7 @@ var (
 	canonicalRelease         = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
 	staleStateArtifactName   = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
 	staleStagingArtifactName = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
+	operationLogNamePattern  = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
 )
 
 var releaseImageRepositories = [...]string{
@@ -129,8 +138,77 @@ type Manager struct {
 	operationWG      sync.WaitGroup
 	selfUpdateReady  chan struct{}
 	processLock      *os.File
+	logRoot          *os.Root
 	closeOnce        sync.Once
 	closeErr         error
+}
+
+func ensureUpdaterStateDirectory(stateDir string) error {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return fmt.Errorf("create updater state directory: %w", err)
+	}
+	stateInfo, err := os.Lstat(stateDir)
+	if err != nil {
+		return fmt.Errorf("inspect updater state directory: %w", err)
+	}
+	if !stateInfo.IsDir() {
+		return fmt.Errorf("updater state path is not a directory")
+	}
+	return nil
+}
+
+func openOperationLogRoot(stateDir string) (*os.Root, error) {
+	stateRoot, err := os.OpenRoot(stateDir)
+	if err != nil {
+		return nil, fmt.Errorf("open updater state root: %w", err)
+	}
+	defer stateRoot.Close()
+
+	logInfo, err := stateRoot.Lstat("logs")
+	if errors.Is(err, os.ErrNotExist) {
+		if err := stateRoot.Mkdir("logs", 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("create updater log directory: %w", err)
+		}
+		logInfo, err = stateRoot.Lstat("logs")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect updater log directory: %w", err)
+	}
+	if !logInfo.IsDir() {
+		return nil, fmt.Errorf("updater log path is not a directory")
+	}
+	logRoot, err := stateRoot.OpenRoot("logs")
+	if err != nil {
+		return nil, fmt.Errorf("open confined updater log directory: %w", err)
+	}
+	logDirectory, err := logRoot.Open(".")
+	if err != nil {
+		_ = logRoot.Close()
+		return nil, fmt.Errorf("open updater log directory handle: %w", err)
+	}
+	openedInfo, statErr := logDirectory.Stat()
+	chmodErr := logDirectory.Chmod(0o700)
+	closeErr := logDirectory.Close()
+	if statErr != nil || chmodErr != nil || closeErr != nil {
+		_ = logRoot.Close()
+		return nil, errors.Join(
+			wrapIfError("inspect opened updater log directory", statErr),
+			wrapIfError("secure updater log directory", chmodErr),
+			wrapIfError("close updater log directory handle", closeErr),
+		)
+	}
+	if !os.SameFile(logInfo, openedInfo) {
+		_ = logRoot.Close()
+		return nil, fmt.Errorf("updater log directory changed while it was opened")
+	}
+	return logRoot, nil
+}
+
+func wrapIfError(message string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", message, err)
 }
 
 func NewManager(cfg Config) (*Manager, error) {
@@ -191,11 +269,16 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.PreflightTimeout < 0 || cfg.ActivationTimeout < 0 || cfg.CleanupTimeout < 0 {
 		return nil, fmt.Errorf("updater phase timeouts must be positive")
 	}
-	if err := os.MkdirAll(filepath.Join(cfg.StateDir, "logs"), 0o700); err != nil {
-		return nil, fmt.Errorf("create updater state directory: %w", err)
+	if err := ensureUpdaterStateDirectory(cfg.StateDir); err != nil {
+		return nil, err
 	}
 	processLock, err := acquireProcessLock(cfg.StateDir)
 	if err != nil {
+		return nil, err
+	}
+	logRoot, err := openOperationLogRoot(cfg.StateDir)
+	if err != nil {
+		_ = processLock.Close()
 		return nil, err
 	}
 
@@ -203,14 +286,26 @@ func NewManager(cfg Config) (*Manager, error) {
 		cfg:             cfg,
 		selfUpdateReady: make(chan struct{}, 1),
 		processLock:     processLock,
+		logRoot:         logRoot,
 	}
 	if err := m.loadState(); err != nil {
 		_ = processLock.Close()
+		_ = logRoot.Close()
 		return nil, err
 	}
 	if err := m.cleanupStaleArtifacts(); err != nil {
 		_ = processLock.Close()
+		_ = logRoot.Close()
 		return nil, err
+	}
+	protectedLogName := ""
+	if m.operation != nil {
+		protectedLogName = operationLogFilename(m.operation.ID)
+	}
+	if err := m.pruneOperationLogs(protectedLogName, 0, 0); err != nil {
+		_ = processLock.Close()
+		_ = logRoot.Close()
+		return nil, fmt.Errorf("prune updater operation logs: %w", err)
 	}
 	return m, nil
 }
@@ -224,6 +319,16 @@ func (m *Manager) Close() error {
 // lock release, and exec so the manager remains independent of any supervisor.
 func (m *Manager) SelfUpdateReady() <-chan struct{} {
 	return m.selfUpdateReady
+}
+
+// RollbackSelfUpdate atomically restores the executable that was retained
+// before the latest self-refresh. The command process calls this only when
+// exec of the already smoke-tested replacement unexpectedly fails.
+func (m *Manager) RollbackSelfUpdate() error {
+	if m.cfg.SelfUpdatePath == "" {
+		return fmt.Errorf("self-update path is not configured")
+	}
+	return restorePreviousExecutable(m.cfg.SelfUpdatePath)
 }
 
 // Shutdown rejects future triggers, cancels work that has not crossed the
@@ -251,9 +356,14 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 			cancel()
 		}
 		m.closeOnce.Do(func() {
-			if m.processLock != nil {
-				m.closeErr = m.processLock.Close()
+			var closeErrors []error
+			if m.logRoot != nil {
+				closeErrors = append(closeErrors, m.logRoot.Close())
 			}
+			if m.processLock != nil {
+				closeErrors = append(closeErrors, m.processLock.Close())
+			}
+			m.closeErr = errors.Join(closeErrors...)
 		})
 		return m.closeErr
 	case <-ctx.Done():
@@ -369,6 +479,13 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	if err := m.cleanupStaleArtifacts(); err != nil {
 		return updaterapi.Operation{}, fmt.Errorf("clean stale upgrade artifacts: %w", err)
 	}
+	protectedLogName := ""
+	if m.operation != nil {
+		protectedLogName = operationLogFilename(m.operation.ID)
+	}
+	if err := m.pruneOperationLogs(protectedLogName, 1, maxCommandLogBytes); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("reserve updater operation log capacity: %w", err)
+	}
 	now := m.cfg.Now().UTC()
 	op := &updaterapi.Operation{
 		ID:            m.cfg.NewID(),
@@ -378,9 +495,10 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 		StartedAt:     now,
 		UpdatedAt:     now,
 	}
+	previousOperation := m.operation
 	m.operation = op
 	if err := m.persistLocked(); err != nil {
-		m.operation = nil
+		m.operation = previousOperation
 		return updaterapi.Operation{}, err
 	}
 	operationCopy := *op
@@ -404,25 +522,33 @@ func (m *Manager) finishOperation() {
 }
 
 func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
-	logPath := filepath.Join(m.cfg.StateDir, "logs", operationID+".log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	logName := operationLogFilename(operationID)
+	logPath := filepath.Join(m.cfg.StateDir, "logs", logName)
+	logFile, err := m.logRoot.OpenFile(logName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		m.fail(operationID, fmt.Errorf("open upgrade log: %w", err), "")
 		return
 	}
-	defer logFile.Close()
 	defer func() {
 		operation := m.Status().Operation
-		if operation == nil || operation.ID != operationID || !operation.Phase.Terminal() {
-			return
+		if operation != nil && operation.ID == operationID && operation.Phase.Terminal() {
+			_, _ = fmt.Fprintf(
+				logFile,
+				"[%s] terminal phase=%s error=%q\n",
+				m.cfg.Now().UTC().Format(time.RFC3339),
+				operation.Phase,
+				operation.Error,
+			)
 		}
-		_, _ = fmt.Fprintf(
-			logFile,
-			"[%s] terminal phase=%s error=%q\n",
-			m.cfg.Now().UTC().Format(time.RFC3339),
-			operation.Phase,
-			operation.Error,
-		)
+		if err := logFile.Close(); err != nil {
+			log.Printf("close updater operation log: %v", err)
+		}
+		// Terminal state is already persisted by this point. Retention is best
+		// effort here so a filesystem cleanup problem cannot rewrite an upgrade
+		// outcome after Fleet has already been activated (or failed safely).
+		if err := m.pruneOperationLogs(operationLogFilename(operationID), 0, 0); err != nil {
+			log.Printf("prune updater operation logs after completion: %v", err)
+		}
 	}()
 	commandOutput := newCappedWriter(logFile, maxCommandLogBytes)
 
@@ -577,7 +703,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	successMessage := fmt.Sprintf("Fleet %s is running", targetVersion)
 	selfUpdateSucceeded := false
 	if preparedUpdater != nil {
-		if err := atomicReplaceExecutableFromFile(preparedUpdater, m.cfg.SelfUpdatePath); err != nil {
+		if err := m.refreshSelfUpdater(ctx, preparedUpdater, m.cfg.SelfUpdatePath, targetVersion); err != nil {
 			_, _ = fmt.Fprintf(logFile, "[%s] warning: Fleet is healthy, but the host updater binary was not refreshed: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
 			successMessage += "; host updater refresh needs attention (see upgrade log)"
 		} else {
@@ -600,6 +726,10 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 func operationArtifactBase(operationID string) string {
 	digest := sha256.Sum256([]byte(operationID))
 	return operationArtifactPrefix + hex.EncodeToString(digest[:])
+}
+
+func operationLogFilename(operationID string) string {
+	return operationArtifactBase(operationID) + ".log"
 }
 
 func (m *Manager) writeActivationMarker(marker activationMarker) error {
@@ -1246,6 +1376,174 @@ func (m *Manager) cleanupStaleArtifacts() error {
 	return nil
 }
 
+// pruneOperationLogs retains the current operation log plus the newest prior
+// logs within a bounded count and aggregate size. Callers may reserve capacity
+// for an operation that has not created its log yet. The daemon-lifetime lock
+// must be held, and Trigger additionally keeps operationRunning false while it
+// prunes, so a live writer is never selected for removal.
+func (m *Manager) pruneOperationLogs(protectedName string, reserveFiles int, reserveBytes int64) error {
+	return pruneOperationLogsRoot(
+		m.logRoot,
+		protectedName,
+		maxRetainedOperationLogs,
+		maxRetainedLogBytes,
+		reserveFiles,
+		reserveBytes,
+	)
+}
+
+type operationLogEntry struct {
+	name    string
+	size    int64
+	modTime time.Time
+}
+
+func pruneOperationLogs(
+	logDir string,
+	protectedName string,
+	maxFiles int,
+	maxBytes int64,
+	reserveFiles int,
+	reserveBytes int64,
+) error {
+	logRoot, err := os.OpenRoot(logDir)
+	if err != nil {
+		return fmt.Errorf("open updater operation log root: %w", err)
+	}
+	defer logRoot.Close()
+	return pruneOperationLogsRoot(
+		logRoot,
+		protectedName,
+		maxFiles,
+		maxBytes,
+		reserveFiles,
+		reserveBytes,
+	)
+}
+
+func pruneOperationLogsRoot(
+	logRoot *os.Root,
+	protectedName string,
+	maxFiles int,
+	maxBytes int64,
+	reserveFiles int,
+	reserveBytes int64,
+) error {
+	if maxFiles < 0 || maxBytes < 0 || reserveFiles < 0 || reserveBytes < 0 ||
+		reserveFiles > maxFiles || reserveBytes > maxBytes {
+		return fmt.Errorf("invalid updater operation log retention limits")
+	}
+	logDirectory, err := logRoot.Open(".")
+	if err != nil {
+		return fmt.Errorf("open updater operation log directory: %w", err)
+	}
+	entries, readErr := logDirectory.ReadDir(-1)
+	closeErr := logDirectory.Close()
+	if readErr != nil || closeErr != nil {
+		return errors.Join(
+			wrapIfError("list updater operation logs", readErr),
+			wrapIfError("close updater operation log directory", closeErr),
+		)
+	}
+
+	logs := make([]operationLogEntry, 0, len(entries))
+	var totalBytes int64
+	for _, entry := range entries {
+		if !operationLogNamePattern.MatchString(entry.Name()) {
+			continue
+		}
+		info, err := logRoot.Lstat(entry.Name())
+		if err != nil {
+			return fmt.Errorf("inspect updater operation log %s: %w", entry.Name(), err)
+		}
+		// The updater creates regular files only. Ignore unexpected symlinks,
+		// directories, and other special entries: retention must never follow a
+		// link or recursively remove content it did not create.
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		totalBytes = saturatingLogBytes(totalBytes, info.Size(), maxBytes)
+		logs = append(logs, operationLogEntry{
+			name:    entry.Name(),
+			size:    info.Size(),
+			modTime: info.ModTime(),
+		})
+	}
+	sort.Slice(logs, func(i, j int) bool {
+		if logs[i].modTime.Equal(logs[j].modTime) {
+			return logs[i].name < logs[j].name
+		}
+		return logs[i].modTime.Before(logs[j].modTime)
+	})
+
+	allowedFiles := maxFiles - reserveFiles
+	allowedBytes := maxBytes - reserveBytes
+	removed := false
+	var pruneErr error
+	for len(logs) > allowedFiles || totalBytes > allowedBytes {
+		removeIndex := -1
+		for i := range logs {
+			if logs[i].name != protectedName {
+				removeIndex = i
+				break
+			}
+		}
+		if removeIndex == -1 {
+			pruneErr = fmt.Errorf("current updater operation log leaves insufficient retained capacity")
+			break
+		}
+		candidate := logs[removeIndex]
+		// Root.Remove confines the operation to the stable directory handle. It
+		// cannot escape through an ancestor swap or a planted symlink.
+		if err := logRoot.Remove(candidate.name); err != nil {
+			pruneErr = fmt.Errorf("remove updater operation log %s: %w", candidate.name, err)
+			break
+		}
+		removed = true
+		if totalBytes > maxBytes {
+			// Recompute after a saturated sum so later removals use exact sizes.
+			totalBytes = 0
+			for i := range logs {
+				if i != removeIndex {
+					totalBytes = saturatingLogBytes(totalBytes, logs[i].size, maxBytes)
+				}
+			}
+		} else {
+			totalBytes -= candidate.size
+		}
+		logs = append(logs[:removeIndex], logs[removeIndex+1:]...)
+	}
+	if removed {
+		if err := syncOperationLogRoot(logRoot); err != nil {
+			pruneErr = errors.Join(pruneErr, fmt.Errorf("persist updater operation log retention: %w", err))
+		}
+	}
+	return pruneErr
+}
+
+func saturatingLogBytes(total, size, limit int64) int64 {
+	if total > limit || size > limit || total > limit-size {
+		if limit == math.MaxInt64 {
+			return math.MaxInt64
+		}
+		return limit + 1
+	}
+	return total + size
+}
+
+func syncOperationLogRoot(logRoot *os.Root) error {
+	logDirectory, err := logRoot.Open(".")
+	if err != nil {
+		return fmt.Errorf("open updater operation log directory for sync: %w", err)
+	}
+	syncErr := logDirectory.Sync()
+	closeErr := logDirectory.Close()
+	return errors.Join(
+		wrapIfError("sync updater operation log directory", syncErr),
+		wrapIfError("close updater operation log sync handle", closeErr),
+	)
+}
+
 func cleanupStaleStateArtifacts(stateDir string) (bool, error) {
 	entries, err := os.ReadDir(stateDir)
 	if err != nil {
@@ -1606,51 +1904,215 @@ func copyFile(ctx context.Context, source, destination string) error {
 	return nil
 }
 
-func atomicReplaceExecutable(source, destination string) error {
-	in, err := os.Open(source)
+func (m *Manager) refreshSelfUpdater(
+	parent context.Context,
+	in *os.File,
+	destination string,
+	targetVersion string,
+) error {
+	candidatePath, err := stageExecutableCandidate(in, destination)
 	if err != nil {
-		return fmt.Errorf("open staged updater: %w", err)
+		return err
 	}
-	defer in.Close()
-	return atomicReplaceExecutableFromFile(in, destination)
+	defer os.Remove(candidatePath)
+	if err := m.validateUpdaterCandidate(parent, candidatePath, targetVersion); err != nil {
+		return err
+	}
+	return installExecutableCandidate(candidatePath, destination)
 }
 
-func atomicReplaceExecutableFromFile(in *os.File, destination string) error {
+func stageExecutableCandidate(in *os.File, destination string) (string, error) {
 	if _, err := in.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("rewind staged updater: %w", err)
+		return "", fmt.Errorf("rewind staged updater: %w", err)
 	}
 	info, err := in.Stat()
 	if err != nil {
-		return fmt.Errorf("inspect staged updater: %w", err)
+		return "", fmt.Errorf("inspect staged updater: %w", err)
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("staged updater is not executable")
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 || info.Size() == 0 {
+		return "", fmt.Errorf("staged updater is not a non-empty executable")
 	}
-	temp, err := os.CreateTemp(filepath.Dir(destination), ".proto-fleet-updater-")
+	candidatePath := destination + ".candidate"
+	if removed, err := unlinkExecutableSlot(candidatePath); err != nil {
+		return "", fmt.Errorf("clean stale updater candidate: %w", err)
+	} else if removed {
+		if err := syncDirectory(filepath.Dir(destination)); err != nil {
+			return "", fmt.Errorf("persist stale updater candidate cleanup: %w", err)
+		}
+	}
+	fd, err := syscall.Open(
+		candidatePath,
+		syscall.O_CREAT|syscall.O_EXCL|syscall.O_WRONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+		0o600,
+	)
 	if err != nil {
-		return fmt.Errorf("create updater executable temp file: %w", err)
+		return "", fmt.Errorf("create updater executable candidate: %w", err)
 	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if _, err := io.Copy(temp, in); err != nil {
-		temp.Close()
-		return fmt.Errorf("copy staged updater: %w", err)
+	candidate := os.NewFile(uintptr(fd), candidatePath)
+	if candidate == nil {
+		_ = syscall.Close(fd)
+		return "", fmt.Errorf("create updater executable candidate")
 	}
-	if err := temp.Chmod(0o755); err != nil {
-		temp.Close()
-		return fmt.Errorf("make updater executable: %w", err)
+	installed := false
+	defer func() {
+		if !installed {
+			_ = os.Remove(candidatePath)
+		}
+	}()
+	written, err := io.Copy(candidate, in)
+	if err != nil {
+		_ = candidate.Close()
+		return "", fmt.Errorf("copy staged updater: %w", err)
 	}
-	if err := temp.Sync(); err != nil {
-		temp.Close()
-		return fmt.Errorf("sync updater executable: %w", err)
+	if written == 0 {
+		_ = candidate.Close()
+		return "", fmt.Errorf("staged updater is empty")
 	}
-	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close updater executable: %w", err)
+	if err := candidate.Chmod(0o755); err != nil {
+		_ = candidate.Close()
+		return "", fmt.Errorf("make updater candidate executable: %w", err)
 	}
-	if err := os.Rename(tempPath, destination); err != nil {
-		return fmt.Errorf("replace updater executable: %w", err)
+	if err := candidate.Sync(); err != nil {
+		_ = candidate.Close()
+		return "", fmt.Errorf("sync updater executable candidate: %w", err)
 	}
-	return syncDirectory(filepath.Dir(destination))
+	if err := candidate.Close(); err != nil {
+		return "", fmt.Errorf("close updater executable candidate: %w", err)
+	}
+	installed = true
+	return candidatePath, nil
+}
+
+func (m *Manager) validateUpdaterCandidate(parent context.Context, candidatePath, targetVersion string) error {
+	info, err := os.Lstat(candidatePath)
+	if err != nil {
+		return fmt.Errorf("inspect updater candidate: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 || info.Size() == 0 {
+		return fmt.Errorf("updater candidate is not a non-empty executable")
+	}
+	var versionOutput bytes.Buffer
+	boundedOutput := newCappedWriter(&versionOutput, maxCandidateVersionBytes)
+	// Actually executing --version asks the host kernel to validate the
+	// executable format and architecture. That is stronger and more portable
+	// than parsing an ELF header while still proving the updater CLI contract.
+	if err := m.runCommand(
+		parent,
+		defaultCandidateTimeout,
+		filepath.Dir(candidatePath),
+		boundedOutput,
+		candidatePath,
+		"--version",
+	); err != nil {
+		return fmt.Errorf("smoke-test updater candidate: %w", err)
+	}
+	if boundedOutput.truncated {
+		return fmt.Errorf("updater candidate version output exceeded %d bytes", maxCandidateVersionBytes)
+	}
+	reportedVersion := strings.TrimSpace(versionOutput.String())
+	if reportedVersion != targetVersion {
+		return fmt.Errorf(
+			"updater candidate reported version %q instead of %q",
+			reportedVersion,
+			targetVersion,
+		)
+	}
+	return nil
+}
+
+func installExecutableCandidate(candidatePath, destination string) error {
+	destinationInfo, err := os.Lstat(destination)
+	if err != nil {
+		return fmt.Errorf("inspect installed updater: %w", err)
+	}
+	if !destinationInfo.Mode().IsRegular() || destinationInfo.Mode().Perm()&0o111 == 0 || destinationInfo.Size() == 0 {
+		return fmt.Errorf("installed updater is not a non-empty executable")
+	}
+	candidateInfo, err := os.Lstat(candidatePath)
+	if err != nil {
+		return fmt.Errorf("inspect validated updater candidate: %w", err)
+	}
+	if !candidateInfo.Mode().IsRegular() || candidateInfo.Mode().Perm()&0o111 == 0 || candidateInfo.Size() == 0 {
+		return fmt.Errorf("validated updater candidate is not a non-empty executable")
+	}
+
+	parent := filepath.Dir(destination)
+	backupPath := destination + selfUpdateBackupSuffix
+	if removed, err := unlinkExecutableSlot(backupPath); err != nil {
+		return fmt.Errorf("clean previous updater backup: %w", err)
+	} else if removed {
+		if err := syncDirectory(parent); err != nil {
+			return fmt.Errorf("persist previous updater backup cleanup: %w", err)
+		}
+	}
+	// A hard link preserves the running executable without creating a window
+	// where the supervised destination is absent. It remains as an explicit
+	// recovery slot until a later successful refresh replaces it.
+	if err := os.Link(destination, backupPath); err != nil {
+		return fmt.Errorf("retain previous updater executable: %w", err)
+	}
+	if err := syncDirectory(parent); err != nil {
+		cleanupErr := os.Remove(backupPath)
+		if cleanupErr == nil {
+			cleanupErr = syncDirectory(parent)
+		}
+		return errors.Join(
+			fmt.Errorf("persist previous updater executable: %w", err),
+			cleanupErr,
+		)
+	}
+	if err := os.Rename(candidatePath, destination); err != nil {
+		cleanupErr := os.Remove(backupPath)
+		if cleanupErr == nil {
+			cleanupErr = syncDirectory(parent)
+		}
+		return errors.Join(fmt.Errorf("replace updater executable: %w", err), cleanupErr)
+	}
+	if err := syncDirectory(parent); err != nil {
+		restoreErr := restorePreviousExecutable(destination)
+		return errors.Join(fmt.Errorf("persist updater executable replacement: %w", err), restoreErr)
+	}
+	return nil
+}
+
+func restorePreviousExecutable(destination string) error {
+	backupPath := destination + selfUpdateBackupSuffix
+	backupInfo, err := os.Lstat(backupPath)
+	if err != nil {
+		return fmt.Errorf("inspect previous updater executable: %w", err)
+	}
+	if !backupInfo.Mode().IsRegular() || backupInfo.Mode().Perm()&0o111 == 0 || backupInfo.Size() == 0 {
+		return fmt.Errorf("previous updater backup is not a non-empty executable")
+	}
+	if destinationInfo, err := os.Lstat(destination); err == nil && destinationInfo.IsDir() {
+		return fmt.Errorf("refusing to replace updater destination directory")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect updater destination before restoration: %w", err)
+	}
+	if err := os.Rename(backupPath, destination); err != nil {
+		return fmt.Errorf("restore previous updater executable: %w", err)
+	}
+	if err := syncDirectory(filepath.Dir(destination)); err != nil {
+		return fmt.Errorf("persist previous updater executable restoration: %w", err)
+	}
+	return nil
+}
+
+func unlinkExecutableSlot(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect executable file slot: %w", err)
+	}
+	if info.IsDir() {
+		return false, fmt.Errorf("refusing to remove directory from executable file slot")
+	}
+	if err := syscall.Unlink(path); err != nil {
+		return false, fmt.Errorf("unlink executable file slot: %w", err)
+	}
+	return true, nil
 }
 
 func syncDirectory(path string) error {

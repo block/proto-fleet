@@ -93,7 +93,14 @@ func run() error {
 			return fmt.Errorf("self-update completed without a configured executable path")
 		}
 		if err := syscall.Exec(*selfUpdatePath, os.Args, os.Environ()); err != nil {
-			return fmt.Errorf("activate refreshed updater: %w", err)
+			rollbackErr := manager.RollbackSelfUpdate()
+			if rollbackErr != nil {
+				return errors.Join(
+					fmt.Errorf("activate refreshed updater: %w", err),
+					fmt.Errorf("restore previous updater after exec failure: %w", rollbackErr),
+				)
+			}
+			return fmt.Errorf("activate refreshed updater; previous executable restored: %w", err)
 		}
 		return nil
 	case err := <-errs:
