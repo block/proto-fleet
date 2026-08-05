@@ -135,7 +135,7 @@ sudo install -D -m 0644 \
 Configure Fleet on both Fleet hosts with its local keepalived contract:
 
 ```text
-HTTP_LISTEN_ADDRESS=0.0.0.0:4000
+HTTP_LISTEN_ADDRESS=127.0.0.1:4000
 HA_SECRETS_DIR=/etc/proto-fleet/ha
 FLEET_HA_ENABLED=true
 FLEET_HA_ETCD_ENDPOINTS=https://<HA_DB_A_IP>:2379,https://<HA_DB_B_IP>:2379,https://<HA_DCS_C_IP>:2379
@@ -149,7 +149,8 @@ in backup while `/health/active` is unavailable. When Fleet becomes active,
 keepalived claims the VIP and refreshes the heartbeat. Fleet allows five seconds
 for initial VIP ownership, then exits and stops lease renewal if the VIP or
 heartbeat disappears. The database lease remains the authority that makes Fleet
-active.
+active. Clients use the existing HTTPS `fleet-client` proxy through the VIP;
+Fleet's API stays on loopback.
 
 ## Fleet connection contract
 

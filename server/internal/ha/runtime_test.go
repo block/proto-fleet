@@ -231,7 +231,13 @@ func TestEndpointMonitorAllowsStartupThenFailsClosed(t *testing.T) {
 	healthy = true
 	require.NoError(t, monitor.check(startedAt.Add(1500*time.Millisecond)))
 	healthy = false
-	require.ErrorIs(t, monitor.check(startedAt.Add(1600*time.Millisecond)), errEndpointUnavailable)
+	require.NoError(t, monitor.check(startedAt.Add(1600*time.Millisecond)))
+	healthy = true
+	require.NoError(t, monitor.check(startedAt.Add(1700*time.Millisecond)))
+	healthy = false
+	require.NoError(t, monitor.check(startedAt.Add(1800*time.Millisecond)))
+	require.NoError(t, monitor.check(startedAt.Add(1900*time.Millisecond)))
+	require.ErrorIs(t, monitor.check(startedAt.Add(2*time.Second)), errEndpointUnavailable)
 
 	neverReady := newEndpointMonitor(func() bool { return false }, startedAt, 2*time.Second)
 	require.ErrorIs(t, neverReady.check(startedAt.Add(2*time.Second)), errEndpointUnavailable)

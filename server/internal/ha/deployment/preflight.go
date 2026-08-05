@@ -60,18 +60,6 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 	if !slices.Contains(addresses, nodeIP) {
 		return NodeConfig{}, errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
 	}
-	virtualIP, _ := netip.ParseAddr(config.VirtualIP)
-	if slices.Contains(addresses, virtualIP) {
-		return NodeConfig{}, errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
-	}
-	prefixes, err := host.interfacePrefixes(config.NetworkInterface)
-	if err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
-	}
-	if err := validateVirtualIPPrefix(nodeIP, virtualIP, prefixes); err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
-	}
-
 	for _, peer := range []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP} {
 		if peer == config.NodeIP {
 			continue
@@ -85,18 +73,29 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
 		}
 	}
-	output, err := host.runCommand(ctx, "ip", "route", "get", config.VirtualIP)
-	if err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
-	}
-	source, sourceOK := routeSource(output)
-	device, deviceOK := routeDevice(output)
-	_, routedViaGateway := routeField(output, "via")
-	if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
-	}
 	if config.isDatabaseNode() {
-		output, err := host.runCommand(ctx, "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
+		virtualIP, _ := netip.ParseAddr(config.VirtualIP)
+		if slices.Contains(addresses, virtualIP) {
+			return NodeConfig{}, errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
+		}
+		prefixes, err := host.interfacePrefixes(config.NetworkInterface)
+		if err != nil {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
+		}
+		if err := validateVirtualIPPrefix(nodeIP, virtualIP, prefixes); err != nil {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+		}
+		output, err := host.runCommand(ctx, "ip", "route", "get", config.VirtualIP)
+		if err != nil {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
+		}
+		source, sourceOK := routeSource(output)
+		device, deviceOK := routeDevice(output)
+		_, routedViaGateway := routeField(output, "via")
+		if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
+		}
+		output, err = host.runCommand(ctx, "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
 		if err != nil {
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
 		}

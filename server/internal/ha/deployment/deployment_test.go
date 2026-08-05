@@ -252,6 +252,42 @@ func TestPreflight(t *testing.T) {
 	}
 	arpingConflict = false
 
+	witnessEnvPath := filepath.Join(root, "witness.env")
+	witnessEnv, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	witnessEnv = []byte(strings.NewReplacer(
+		"HA_NODE_NAME=ha-a", "HA_NODE_NAME=ha-c",
+		"HA_NODE_IP="+testHostIPs[0], "HA_NODE_IP="+testHostIPs[2],
+		filepath.Join(generated, "ha-a"), filepath.Join(generated, "ha-c"),
+	).Replace(string(witnessEnv)))
+	if err := os.WriteFile(witnessEnvPath, witnessEnv, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	host.localIPs = func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[2])}, nil }
+	host.interfacePrefixes = func(string) ([]netip.Prefix, error) {
+		t.Fatal("preflight queried the witness VIP interface")
+		return nil, nil
+	}
+	routeSource = testHostIPs[2]
+	routeViaGateway = true
+	arpingConflict = true
+	host.applyFirewall = func(_ context.Context, gotConfig NodeConfig, _ string) error {
+		if gotConfig.NodeName != "ha-c" {
+			t.Fatalf("witness preflight node = %q", gotConfig.NodeName)
+		}
+		return nil
+	}
+	if _, err := preflight(context.Background(), witnessEnvPath, firewallTemplatePath, host); err != nil {
+		t.Fatalf("preflight(off-L2 witness) error = %v", err)
+	}
+	host.localIPs = func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil }
+	host.interfacePrefixes = func(string) ([]netip.Prefix, error) { return prefixes, nil }
+	routeSource = testHostIPs[0]
+	routeViaGateway = false
+	arpingConflict = false
+
 	host.applyFirewall = func(context.Context, NodeConfig, string) error {
 		return errors.New("injected apply failure")
 	}

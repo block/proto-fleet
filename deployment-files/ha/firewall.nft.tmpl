@@ -15,6 +15,9 @@ table inet proto_fleet_ha {
         ip protocol vrrp iifname "${HA_NETWORK_INTERFACE}" ip saddr @database_nodes ip daddr ${HA_NODE_IP} accept
         ip protocol vrrp drop
 
+        iifname "lo" tcp dport 4000 accept
+        tcp dport 4000 drop
+
         tcp dport 2380 ip saddr @ha_nodes accept
         tcp dport 2380 drop
 

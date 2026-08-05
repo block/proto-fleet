@@ -236,9 +236,10 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 }
 
 type endpointMonitor struct {
-	healthy  func() bool
-	deadline time.Time
-	ready    bool
+	healthy          func() bool
+	deadline         time.Time
+	ready            bool
+	unhealthySamples int
 }
 
 func newEndpointMonitor(healthy func() bool, startedAt time.Time, timeout time.Duration) *endpointMonitor {
@@ -251,12 +252,20 @@ func (m *endpointMonitor) check(now time.Time) error {
 	}
 	if m.healthy() {
 		m.ready = true
+		m.unhealthySamples = 0
 		return nil
 	}
-	if m.ready || !now.Before(m.deadline) {
+	if !m.ready {
+		if now.Before(m.deadline) {
+			return nil
+		}
 		return errEndpointUnavailable
 	}
-	return nil
+	m.unhealthySamples++
+	if m.unhealthySamples < 3 {
+		return nil
+	}
+	return errEndpointUnavailable
 }
 
 func (r *Runtime) stopGroup() error {
