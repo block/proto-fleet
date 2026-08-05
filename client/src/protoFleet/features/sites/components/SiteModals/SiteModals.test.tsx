@@ -20,24 +20,35 @@ const makeModals = (overrides: Partial<SiteModalsApi> = {}): SiteModalsApi => ({
   manageUnassignedMinerCount: undefined,
   openCreate: vi.fn(),
   openManageEdit: vi.fn(),
+  openBuildingsPicker: vi.fn(),
   requestDeleteCurrent: vi.fn(),
   dismiss: vi.fn(),
-  cancelAll: vi.fn(),
   dismissDeleteConfirm: vi.fn(),
   detailsContinueCreate: vi.fn(),
   detailsSaveEdit: vi.fn(),
   manageEditDetails: vi.fn(),
-  manageSave: vi.fn().mockResolvedValue(null),
+  manageCreateBuilding: vi.fn().mockResolvedValue(null),
+  manageCreateBuildings: vi.fn().mockResolvedValue({ created: [], errors: [] }),
+  pickerCreateBuilding: vi.fn().mockResolvedValue(null),
+  pickerCreateBuildings: vi.fn().mockResolvedValue({ created: [], errors: [] }),
+  manageAssignBuildings: vi.fn().mockResolvedValue(true),
+  manageRemoveBuilding: vi.fn().mockResolvedValue(true),
   deleteConfirm: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
-vi.mock("@/protoFleet/api/buildings", () => ({
+vi.mock("@/protoFleet/api/buildings", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/api/buildings")>()),
   useBuildings: () => ({
     listBuildingsBySite: vi.fn().mockResolvedValue(undefined),
     listAllBuildings: vi.fn(),
     getBuilding: vi.fn(),
   }),
+}));
+
+vi.mock("@/protoFleet/api/sites", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/api/sites")>()),
+  useSites: () => ({ listSites: vi.fn() }),
 }));
 
 describe("SiteModals", () => {
@@ -85,19 +96,6 @@ describe("SiteModals", () => {
     expect(screen.getByText(/Delete site "North DC"\?/)).toBeInTheDocument();
   });
 
-  it("Delete in manageCreateEditingDetails calls cancelAll (no cascade dialog)", () => {
-    const modals = makeModals({
-      state: { kind: "manageCreateEditingDetails", draft: { ...emptySiteFormValues(), name: "Pending" } },
-    });
-
-    render(<SiteModals modals={modals} sites={undefined} />);
-
-    fireEvent.click(screen.getByTestId("site-settings-modal-delete"));
-
-    expect(modals.cancelAll).toHaveBeenCalled();
-    expect(modals.requestDeleteCurrent).not.toHaveBeenCalled();
-  });
-
   it("Cancelling the cascade dialog dismisses only the dialog, leaving the underlying modals", () => {
     const site = create(SiteSchema, { id: 42n, name: "North DC" });
     const siteWithCounts = create(SiteWithCountsSchema, {
@@ -117,5 +115,29 @@ describe("SiteModals", () => {
 
     expect(modals.dismissDeleteConfirm).toHaveBeenCalled();
     expect(modals.dismiss).not.toHaveBeenCalled();
+  });
+
+  it("buildingsPicker renders the picker with no manage surface behind it", () => {
+    const site = create(SiteSchema, { id: 42n, name: "North DC" });
+    const modals = makeModals({ state: { kind: "buildingsPicker", site, currentBuildings: [] } });
+
+    render(<SiteModals modals={modals} sites={undefined} />);
+
+    expect(screen.getByTestId("manage-buildings-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("manage-site-modal-buildings-section")).not.toBeInTheDocument();
+  });
+
+  it("New building in the standalone picker reaches a create modal that still offers Multiple", () => {
+    const site = create(SiteSchema, { id: 42n, name: "North DC" });
+    const modals = makeModals({ state: { kind: "buildingsPicker", site, currentBuildings: [] } });
+
+    render(<SiteModals modals={modals} sites={undefined} />);
+    fireEvent.click(screen.getByTestId("manage-buildings-modal-create-new"));
+
+    // The Single / Multiple toggle only appears when onSaveBulk is wired, and
+    // it's easy to lose by routing the hand-off through a host that doesn't
+    // pass it (BuildingModals doesn't).
+    expect(screen.getByTestId("building-settings-modal")).toBeInTheDocument();
+    expect(screen.getByText("Multiple")).toBeInTheDocument();
   });
 });
