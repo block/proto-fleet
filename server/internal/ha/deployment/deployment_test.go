@@ -17,6 +17,8 @@ import (
 
 var testHostIPs = [3]string{"10.40.0.11", "10.40.0.12", "10.40.0.13"}
 
+const testVirtualIP = "10.40.0.100"
+
 func TestRenderFirewall(t *testing.T) {
 	config := NodeConfig{
 		NodeIP:           testHostIPs[0],
@@ -70,7 +72,7 @@ func TestRenderKeepalivedConfig(t *testing.T) {
 
 func TestGenerateSecrets(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "generated")
-	if err := GenerateSecrets(output, testHostIPs); err != nil {
+	if err := GenerateSecrets(output, testHostIPs, testVirtualIP); err != nil {
 		t.Fatal(err)
 	}
 
@@ -97,21 +99,42 @@ func TestGenerateSecrets(t *testing.T) {
 	}
 	for i, node := range []string{"ha-a", "ha-b"} {
 		dir := filepath.Join(output, node)
-		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-db-password", "fleet-etcd-password", "patroni-etcd-password"} {
+		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-client.crt", "fleet-client.key", fleetEnvironmentFile, "fleet-db-password", "fleet-etcd-password", "patroni-etcd-password"} {
 			requireFile(t, filepath.Join(dir, name))
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "postgres.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth); err != nil {
 			t.Errorf("verify %s PostgreSQL certificate: %v", node, err)
 		}
+		if err := verifyEndpointCertificate(filepath.Join(dir, "fleet-client.crt"), testVirtualIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
+			t.Errorf("verify %s Fleet client certificate: %v", node, err)
+		}
+		if err := validateFleetEnvironment(filepath.Join(dir, fleetEnvironmentFile)); err != nil {
+			t.Errorf("validate %s Fleet environment: %v", node, err)
+		}
+	}
+	offlineFleetEnvironment, err := os.ReadFile(filepath.Join(output, "offline", fleetEnvironmentFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range []string{"ha-a", "ha-b"} {
+		nodeFleetEnvironment, err := os.ReadFile(filepath.Join(output, node, fleetEnvironmentFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(nodeFleetEnvironment) != string(offlineFleetEnvironment) {
+			t.Fatalf("%s Fleet environment differs from the offline copy", node)
+		}
 	}
 	requireMode(t, filepath.Join(output, "offline", "service-ca.key"), 0o600)
 	requireMode(t, filepath.Join(output, "ha-a", "etcd-server.key"), 0o600)
+	requireMode(t, filepath.Join(output, "offline", fleetEnvironmentFile), 0o600)
+	requireMode(t, filepath.Join(output, "ha-a", fleetEnvironmentFile), 0o600)
 
-	if err := GenerateSecrets(output, testHostIPs); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := GenerateSecrets(output, testHostIPs, testVirtualIP); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("GenerateSecrets(existing directory) error = %v", err)
 	}
 	badOutput := filepath.Join(t.TempDir(), "bad")
-	if err := GenerateSecrets(badOutput, [3]string{testHostIPs[0], testHostIPs[0], testHostIPs[2]}); err == nil {
+	if err := GenerateSecrets(badOutput, [3]string{testHostIPs[0], testHostIPs[0], testHostIPs[2]}, testVirtualIP); err == nil {
 		t.Fatal("GenerateSecrets accepted duplicate host IPs")
 	}
 	if _, err := os.Stat(badOutput); !errors.Is(err, os.ErrNotExist) {
@@ -162,7 +185,7 @@ func TestLoadNodeConfigRejectsUnsafeInput(t *testing.T) {
 func TestPreflight(t *testing.T) {
 	root := t.TempDir()
 	generated := filepath.Join(root, "generated")
-	if err := GenerateSecrets(generated, testHostIPs); err != nil {
+	if err := GenerateSecrets(generated, testHostIPs, testVirtualIP); err != nil {
 		t.Fatal(err)
 	}
 	dataDir := filepath.Join(root, "data")
@@ -335,6 +358,24 @@ func TestPreflight(t *testing.T) {
 		t.Fatalf("preflight(mismatched certificate key) error = %v", err)
 	}
 	if err := os.WriteFile(serverKeyPath, serverKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fleetCertificatePath := filepath.Join(generated, "ha-a", "fleet-client.crt")
+	fleetCertificate, err := os.ReadFile(fleetCertificatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postgresCertificate, err := os.ReadFile(filepath.Join(generated, "ha-a", "postgres.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fleetCertificatePath, postgresCertificate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "fleet-client certificate") {
+		t.Fatalf("preflight(certificate for host IP instead of VIP) error = %v", err)
+	}
+	if err := os.WriteFile(fleetCertificatePath, fleetCertificate, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

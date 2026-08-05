@@ -27,10 +27,10 @@ func run(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "generate-secrets":
-		if len(args) != 5 {
-			return errors.New("usage: fleet-ha generate-secrets OUTPUT_DIR DB_A_IP DB_B_IP DCS_C_IP")
+		if len(args) != 6 {
+			return errors.New("usage: fleet-ha generate-secrets OUTPUT_DIR DB_A_IP DB_B_IP DCS_C_IP VIRTUAL_IP")
 		}
-		return deployment.GenerateSecrets(args[1], [3]string{args[2], args[3], args[4]})
+		return deployment.GenerateSecrets(args[1], [3]string{args[2], args[3], args[4]}, args[5])
 	case "preflight":
 		if len(args) > 3 {
 			return errors.New("usage: fleet-ha preflight [node.env] [firewall.nft.tmpl]")

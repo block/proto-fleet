@@ -40,13 +40,19 @@ Run once on an offline administrator machine:
   /secure/proto-fleet-ha-secrets \
   10.40.0.11 \
   10.40.0.12 \
-  10.40.0.13
+  10.40.0.13 \
+  10.40.0.100
 ```
 
 The command creates an `offline` directory and one directory per host. Keep the
 `offline` directory away from running hosts. Copy only the matching host
 directory into that host's `HA_SECRETS_DIR`. Private keys, passwords, and
-`node.env` must be owned by the deployment user with mode `0600`.
+environment files must be owned by the deployment user with mode `0600`.
+
+The command generates Fleet's authentication and encryption values once and
+copies the same `fleet.env` into both Fleet-host bundles. It also gives each
+Fleet host a proxy certificate for the virtual IP signed by the common HA
+service CA. Preflight requires and validates these files on `ha-a` and `ha-b`.
 
 ## Bootstrap
 
@@ -142,12 +148,15 @@ sudo systemctl enable --now keepalived
 ```
 
 Start Fleet on both Fleet hosts from the deployment directory. The deployment
-`.env` supplies Fleet's existing secrets and database DSN; `node.env` supplies
-the local HA identity:
+`.env` supplies the database and other deployment settings. The generated
+`fleet.env` is passed after it so the cluster-wide authentication and encryption
+values override any independently created values. `node.env` supplies the local
+HA identity:
 
 ```bash
 docker compose \
   --env-file .env \
+  --env-file /etc/proto-fleet/ha/fleet.env \
   --env-file ha/node.env \
   --file docker-compose.yaml \
   --file ha/fleet-compose.yaml \
@@ -161,7 +170,10 @@ keepalived claims the VIP and refreshes the heartbeat. Fleet allows ten seconds
 for initial VIP ownership, then exits and stops lease renewal if the VIP is
 missing or the heartbeat is more than five seconds old. The database lease
 remains the authority that makes Fleet active. Clients use the existing HTTPS
-`fleet-client` proxy through the VIP; Fleet's API stays on loopback.
+`fleet-client` proxy through the VIP; Fleet's API stays on loopback. Install the
+generated `service-ca.crt` as a trusted CA on clients, then connect to the
+virtual IP. Both Fleet hosts present a certificate valid for that shared
+address.
 
 ## Fleet connection contract
 

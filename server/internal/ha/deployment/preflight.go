@@ -1,10 +1,12 @@
 package deployment
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/pem"
 	"errors"
@@ -198,9 +200,9 @@ func validateSecrets(config NodeConfig) error {
 	publicFiles := []string{"service-ca.crt", "etcd-server.crt", "etcd-peer.crt", "etcd-jwt.pub"}
 	keyFiles := []string{"etcd-server.key", "etcd-peer.key", "etcd-jwt.key"}
 	if config.isDatabaseNode() {
-		publicFiles = append(publicFiles, "patroni-rest.crt", "postgres.crt")
+		publicFiles = append(publicFiles, "patroni-rest.crt", "postgres.crt", "fleet-client.crt")
 		keyFiles = append(keyFiles,
-			"patroni-rest.key", "postgres.key",
+			"patroni-rest.key", "postgres.key", "fleet-client.key",
 		)
 	}
 	for _, name := range publicFiles {
@@ -228,6 +230,9 @@ func validateSecrets(config NodeConfig) error {
 		}
 	}
 	if config.isDatabaseNode() {
+		if err := validateFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile)); err != nil {
+			return fmt.Errorf("required Fleet environment file %s: %w", fleetEnvironmentFile, err)
+		}
 		for _, name := range databasePasswordFiles {
 			if _, err := readPassword(filepath.Join(config.SecretsDir, name)); err != nil {
 				return fmt.Errorf("required password file %s: %w", name, err)
@@ -253,10 +258,13 @@ func validateSecrets(config NodeConfig) error {
 				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
+		if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, "fleet-client.crt"), config.VirtualIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
+			return fmt.Errorf("fleet-client certificate: %w", err)
+		}
 	}
 	certificateNames := []string{"etcd-server", "etcd-peer"}
 	if config.isDatabaseNode() {
-		certificateNames = append(certificateNames, "patroni-rest", "postgres")
+		certificateNames = append(certificateNames, "patroni-rest", "postgres", "fleet-client")
 	}
 	for _, name := range certificateNames {
 		if err := verifyCertificateKeyPair(
@@ -271,6 +279,50 @@ func validateSecrets(config NodeConfig) error {
 		filepath.Join(config.SecretsDir, "etcd-jwt.key"),
 	); err != nil {
 		return fmt.Errorf("etcd JWT identity: %w", err)
+	}
+	return nil
+}
+
+func validateFleetEnvironment(path string) error {
+	info, err := secureFileInfo(path, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := requireCurrentOwner(info, fleetEnvironmentFile); err != nil {
+		return err
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open Fleet environment file: %w", err)
+	}
+	defer file.Close()
+
+	values := make(map[string]string, 2)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		match := envLine.FindStringSubmatch(scanner.Text())
+		if match == nil {
+			return errors.New("contains a malformed entry")
+		}
+		key := match[1]
+		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" {
+			return fmt.Errorf("contains unknown key: %s", key)
+		}
+		if _, duplicate := values[key]; duplicate {
+			return fmt.Errorf("contains duplicate key: %s", key)
+		}
+		values[key] = match[2]
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read Fleet environment file: %w", err)
+	}
+	if len(values["AUTH_CLIENT_SECRET_KEY"]) < 32 {
+		return errors.New("AUTH_CLIENT_SECRET_KEY must contain at least 32 characters")
+	}
+	masterKey, err := base64.StdEncoding.DecodeString(values["ENCRYPT_SERVICE_MASTER_KEY"])
+	if err != nil || len(masterKey) != 32 {
+		return errors.New("ENCRYPT_SERVICE_MASTER_KEY must be a base64-encoded 32-byte key")
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -20,6 +21,7 @@ const (
 	etcdRootPasswordFile    = "etcd-root-password"    //nolint:gosec // Filename, not a credential.
 	fleetEtcdPasswordFile   = "fleet-etcd-password"   //nolint:gosec // Filename, not a credential.
 	patroniEtcdPasswordFile = "patroni-etcd-password" //nolint:gosec // Filename, not a credential.
+	fleetEnvironmentFile    = "fleet.env"             //nolint:gosec // Filename, not a credential.
 )
 
 var databasePasswordFiles = []string{
@@ -39,7 +41,7 @@ type certificateAuthority struct {
 }
 
 // GenerateSecrets creates the complete offline and per-host credential layout.
-func GenerateSecrets(outputDir string, hostIPs [3]string) (err error) {
+func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err error) {
 	seen := make(map[netip.Addr]struct{}, len(hostIPs))
 	addresses := make([]netip.Addr, len(hostIPs))
 	for i, rawIP := range hostIPs {
@@ -52,6 +54,13 @@ func GenerateSecrets(outputDir string, hostIPs [3]string) (err error) {
 		}
 		seen[ip] = struct{}{}
 		addresses[i] = ip
+	}
+	vip, ok := parseRoutableIPv4(virtualIP)
+	if !ok {
+		return fmt.Errorf("invalid virtual IPv4 address: %s", virtualIP)
+	}
+	if _, duplicate := seen[vip]; duplicate {
+		return fmt.Errorf("virtual IPv4 address must differ from every host address")
 	}
 
 	if err := os.MkdirAll(filepath.Dir(outputDir), 0o700); err != nil {
@@ -94,6 +103,22 @@ func GenerateSecrets(outputDir string, hostIPs [3]string) (err error) {
 		if err := writeFile(filepath.Join(offlineDir, name), append(password, '\n'), 0o600); err != nil {
 			return err
 		}
+	}
+	authSecret, err := randomHex(32)
+	if err != nil {
+		return fmt.Errorf("generate Fleet authentication secret: %w", err)
+	}
+	masterKey := make([]byte, 32)
+	if _, err := rand.Read(masterKey); err != nil {
+		return fmt.Errorf("generate Fleet encryption master key: %w", err)
+	}
+	fleetEnvironment := []byte(fmt.Sprintf(
+		"AUTH_CLIENT_SECRET_KEY=%s\nENCRYPT_SERVICE_MASTER_KEY=%s\n",
+		authSecret,
+		base64.StdEncoding.EncodeToString(masterKey),
+	))
+	if err := writeFile(filepath.Join(offlineDir, fleetEnvironmentFile), fleetEnvironment, 0o600); err != nil {
+		return err
 	}
 
 	jwtKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -150,6 +175,12 @@ func GenerateSecrets(outputDir string, hostIPs [3]string) (err error) {
 			return err
 		}
 		if err := issueCertificate(nodeDir, "postgres", "postgres-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+			return err
+		}
+		if err := issueCertificate(nodeDir, "fleet-client", "fleet-client-"+host.name, vip, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+			return err
+		}
+		if err := writeFile(filepath.Join(nodeDir, fleetEnvironmentFile), fleetEnvironment, 0o600); err != nil {
 			return err
 		}
 		for _, name := range databasePasswordFiles {

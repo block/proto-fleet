@@ -10,3 +10,8 @@ services:
       - "${HA_SECRETS_DIR}/service-ca.crt:/etc/proto-fleet/ha/service-ca.crt:ro"
       - "${HA_SECRETS_DIR}/fleet-etcd-password:/etc/proto-fleet/ha/fleet-etcd-password:ro"
       - "/run/proto-fleet-ha:/run/proto-fleet-ha:ro"
+
+  fleet-client:
+    volumes: !override
+      - "${HA_SECRETS_DIR}/fleet-client.crt:/etc/nginx/ssl/cert.pem:ro"
+      - "${HA_SECRETS_DIR}/fleet-client.key:/etc/nginx/ssl/key.pem:ro"
