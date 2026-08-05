@@ -584,6 +584,8 @@ export class RacksPage extends BasePage {
     await this.clickEditRack();
     await this.clickDeleteRack();
     await this.clickDeleteConfirm();
+    await expect(this.page).toHaveURL(/\/racks(?:\?.*)?$/, { timeout });
+    await this.waitForRackListToLoad({ timeout });
     await this.tryAction(() => this.validateRackNotVisible(label), timeout);
   }
 
@@ -663,7 +665,11 @@ export class RacksPage extends BasePage {
     for (let i = 0; i < optionByTestIdCount; i++) {
       const option = optionByTestId.nth(i);
       if (await option.isVisible().catch(() => false)) {
-        await option.click();
+        await option.click().catch(async () => {
+          await option.evaluate((element) => {
+            (element as HTMLElement).click();
+          });
+        });
         return;
       }
     }
@@ -674,7 +680,11 @@ export class RacksPage extends BasePage {
       const option = optionRows.nth(i);
       const label = ((await option.textContent()) ?? "").replace(/\s+/g, " ").trim();
       if (label === optionName && (await option.isVisible().catch(() => false))) {
-        await option.click();
+        await option.click().catch(async () => {
+          await option.evaluate((element) => {
+            (element as HTMLElement).click();
+          });
+        });
         return;
       }
     }

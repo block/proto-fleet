@@ -31,9 +31,11 @@ test.describe("Racks - management", () => {
       await racksPage.inputRows(RACK_ROWS);
       await racksPage.clickCreateRackFromSettings();
       await racksPage.validateRackToast("A-01");
+      await racksPage.clearToasts();
       await addSelectableMinersToSlots(racksPage, 3, [1, 2, 3]);
       await racksPage.clickSaveMinerPositions();
       await racksPage.validateMinerPositionsToast("A-01");
+      await racksPage.clearToasts();
       await racksPage.clickViewGrid();
       await racksPage.validateRackCardVisible("A-01", zoneA);
       createdRackLabels.push("A-01");
@@ -45,9 +47,11 @@ test.describe("Racks - management", () => {
       await racksPage.inputRackLabel("A-02");
       await racksPage.clickCreateRackFromSettings();
       await racksPage.validateRackToast("A-02");
+      await racksPage.clearToasts();
       await addSelectableMinersToSlots(racksPage, 2, [1, 2]);
       await racksPage.clickSaveMinerPositions();
       await racksPage.validateMinerPositionsToast("A-02");
+      await racksPage.clearToasts();
       await racksPage.clickViewGrid();
       await racksPage.validateRackCardVisible("A-02", zoneA);
       createdRackLabels.push("A-02");
@@ -59,9 +63,11 @@ test.describe("Racks - management", () => {
       await racksPage.inputRackLabel("B-01");
       await racksPage.clickCreateRackFromSettings();
       await racksPage.validateRackToast("B-01");
+      await racksPage.clearToasts();
       await addSelectableMinersToSlots(racksPage, 1, [1]);
       await racksPage.clickSaveMinerPositions();
       await racksPage.validateMinerPositionsToast("B-01");
+      await racksPage.clearToasts();
       await racksPage.clickViewGrid();
       await racksPage.validateRackCardVisible("B-01", zoneB);
       createdRackLabels.push("B-01");

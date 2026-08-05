@@ -486,12 +486,12 @@ export class BasePage {
           const toasts = this.page.getByTestId("toast");
           const count = await toasts.count();
           for (let i = count - 1; i >= 0; i -= 1) {
-            const toastText = normalize(
-              await toasts
-                .nth(i)
-                .textContent()
-                .catch(() => ""),
-            );
+            const toast = toasts.nth(i);
+            if (!(await toast.isVisible().catch(() => false))) {
+              continue;
+            }
+
+            const toastText = normalize(await toast.textContent().catch(() => ""));
             if (toastText.includes(text)) {
               return true;
             }
