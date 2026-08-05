@@ -232,6 +232,70 @@ func TestManagerSelfUpdateUsesVerifiedArchiveCopy(t *testing.T) {
 	assert.Equal(t, "old updater", mustReadFile(t, installedUpdater+selfUpdateBackupSuffix))
 }
 
+func TestManagerFailsClosedWhenSuccessfulStateCannotPersist(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	manager := newTestManagerWithConfig(t, installRoot, server, &recordingRunner{}, func(cfg *Config) {
+		cfg.SelfUpdatePath = installedUpdater
+		cfg.beforePersistState = func(operation updaterapi.Operation) error {
+			if operation.Phase == updaterapi.PhaseSucceeded {
+				return assert.AnError
+			}
+			return nil
+		}
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		manager.mu.RLock()
+		defer manager.mu.RUnlock()
+		return !manager.operationRunning
+	}, 5*time.Second, 10*time.Millisecond, "upgrade worker did not finish")
+
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.Equal(t, updaterapi.PhaseActivating, operation.Phase)
+	assert.NotEmpty(t, operation.RecoveryCommand)
+	assert.Nil(t, operation.CompletedAt)
+	assert.NotContains(t, operation.Message, "is running")
+	assert.Equal(t, "updater", mustReadFile(t, installedUpdater), "self-update must reach the signal gate")
+	assert.Contains(t, mustReadFile(t, operation.LogPath), "further upgrades remain blocked")
+	select {
+	case <-manager.SelfUpdateReady():
+		t.Fatal("non-durable success must not request a self-restart")
+	default:
+	}
+
+	var persisted updaterapi.Operation
+	require.NoError(t, json.Unmarshal(
+		[]byte(mustReadFile(t, filepath.Join(manager.cfg.StateDir, stateFilename))),
+		&persisted,
+	))
+	assert.Equal(t, updaterapi.PhaseActivating, persisted.Phase)
+	assert.Equal(t, operation.RecoveryCommand, persisted.RecoveryCommand)
+	assert.Nil(t, persisted.CompletedAt)
+
+	_, err = manager.Trigger("v1.2.0")
+	require.ErrorContains(t, err, "already in progress")
+
+	// A restart reconciles the durable activation state into a terminal failure;
+	// until then, both the in-memory and persisted non-terminal state fail closed.
+	require.NoError(t, manager.Close())
+	restarted, err := NewManager(manager.cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, restarted.Close()) })
+	restartedOperation := restarted.Status().Operation
+	require.NotNil(t, restartedOperation)
+	assert.Equal(t, updaterapi.PhaseFailed, restartedOperation.Phase)
+}
+
 func TestManagerRejectsUpdaterCandidateWithUnexpectedVersionBeforeReplacement(t *testing.T) {
 	t.Parallel()
 

@@ -71,7 +71,7 @@ func TestPrepareUpdaterSocketDirectoryRefusesSymlink(t *testing.T) {
 	symlinkDirectory := filepath.Join(root, "socket-dir")
 	require.NoError(t, os.Symlink(realDirectory, symlinkDirectory))
 
-	err = prepareUpdaterSocketDirectory(filepath.Join(symlinkDirectory, "updater.sock"))
+	_, err = prepareUpdaterSocketDirectory(filepath.Join(symlinkDirectory, "updater.sock"))
 	require.ErrorContains(t, err, "must not be a symlink")
 }
 
@@ -91,7 +91,7 @@ func TestPrepareUpdaterSocketDirectoryRefusesWritableDirectory(t *testing.T) {
 			socketPath := shortSocketPath(t)
 			require.NoError(t, os.Chmod(filepath.Dir(socketPath), test.mode))
 
-			err := prepareUpdaterSocketDirectory(socketPath)
+			_, err := prepareUpdaterSocketDirectory(socketPath)
 			require.ErrorContains(t, err, "must not be group- or world-writable")
 		})
 	}
@@ -109,7 +109,60 @@ func TestPrepareUpdaterSocketDirectoryAllowsStickySharedAncestor(t *testing.T) {
 	socketDirectory := filepath.Join(sharedDirectory, "socket-dir")
 	require.NoError(t, os.Mkdir(socketDirectory, 0o700))
 
-	require.NoError(t, prepareUpdaterSocketDirectory(filepath.Join(socketDirectory, "updater.sock")))
+	_, err = prepareUpdaterSocketDirectory(filepath.Join(socketDirectory, "updater.sock"))
+	require.NoError(t, err)
+}
+
+func TestValidateUpdaterSocketPathComponentRefusesUntrustedAncestorSymlink(t *testing.T) {
+	t.Parallel()
+
+	daemonUID := uint32(os.Geteuid()) //nolint:gosec // Effective UIDs are non-negative on supported Unix hosts.
+	untrustedUID := uint32(1)
+	if daemonUID == untrustedUID {
+		untrustedUID++
+	}
+
+	err := validateUpdaterSocketPathComponent(
+		"/shared/attacker-link",
+		os.ModeSymlink,
+		untrustedUID,
+		daemonUID,
+		false,
+	)
+	require.ErrorContains(t, err, "owner uid")
+}
+
+func TestPrepareUpdaterSocketDirectoryReturnsCanonicalPath(t *testing.T) {
+	t.Parallel()
+
+	root, err := os.MkdirTemp("/tmp", "proto-fleet-updater-dir-test-") //nolint:usetesting
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(root)) })
+	originalParent := filepath.Join(root, "original")
+	replacementParent := filepath.Join(root, "replacement")
+	for _, parent := range []string{originalParent, replacementParent} {
+		require.NoError(t, os.MkdirAll(filepath.Join(parent, "socket-dir"), 0o700))
+	}
+	linkedParent := filepath.Join(root, "linked")
+	require.NoError(t, os.Symlink(originalParent, linkedParent))
+	configuredSocketPath := filepath.Join(linkedParent, "socket-dir", "updater.sock")
+
+	canonicalSocketPath, err := prepareUpdaterSocketDirectory(configuredSocketPath)
+	require.NoError(t, err)
+	canonicalOriginalDirectory, err := filepath.EvalSymlinks(filepath.Join(originalParent, "socket-dir"))
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(canonicalOriginalDirectory, "updater.sock"), canonicalSocketPath)
+
+	// Once validation is complete, later operations use the canonical path and
+	// cannot be redirected by resolving the configured symlink again.
+	require.NoError(t, os.Remove(linkedParent))
+	require.NoError(t, os.Symlink(replacementParent, linkedParent))
+	listener, err := listenUpdaterSocket(canonicalSocketPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+	require.NoError(t, secureUpdaterSocket(canonicalSocketPath))
+	assert.FileExists(t, filepath.Join(canonicalOriginalDirectory, "updater.sock"))
+	assert.NoFileExists(t, filepath.Join(replacementParent, "socket-dir", "updater.sock"))
 }
 
 func TestSecureUpdaterSocketOverridesSetgidDirectoryAndSetsMode(t *testing.T) {
@@ -123,21 +176,22 @@ func TestSecureUpdaterSocketOverridesSetgidDirectoryAndSetsMode(t *testing.T) {
 	directoryInfo, err := os.Lstat(directory)
 	require.NoError(t, err)
 	require.NotZero(t, directoryInfo.Mode()&os.ModeSetgid)
-	require.NoError(t, prepareUpdaterSocketDirectory(socketPath))
+	canonicalSocketPath, err := prepareUpdaterSocketDirectory(socketPath)
+	require.NoError(t, err)
 
-	listener, err := listenUpdaterSocket(socketPath)
+	listener, err := listenUpdaterSocket(canonicalSocketPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, listener.Close()) })
 	if inheritedGID != os.Getegid() {
-		inheritedInfo, err := os.Lstat(socketPath)
+		inheritedInfo, err := os.Lstat(canonicalSocketPath)
 		require.NoError(t, err)
 		inheritedStat, ok := inheritedInfo.Sys().(*syscall.Stat_t)
 		require.True(t, ok)
 		require.Equal(t, uint32(inheritedGID), inheritedStat.Gid) //nolint:gosec // Test GIDs are non-negative.
 	}
 
-	require.NoError(t, secureUpdaterSocket(socketPath))
-	info, err := os.Lstat(socketPath)
+	require.NoError(t, secureUpdaterSocket(canonicalSocketPath))
+	info, err := os.Lstat(canonicalSocketPath)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o660), info.Mode().Perm())
 	stat, ok := info.Sys().(*syscall.Stat_t)

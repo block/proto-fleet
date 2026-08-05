@@ -120,6 +120,9 @@ type Config struct {
 	// Tests inject an httptest TLS endpoint without opening a production
 	// configuration path for alternate release mirrors.
 	allowTestDownloadBaseURL bool
+	// Tests inject deterministic state-write failures without weakening the
+	// production state-directory trust boundary.
+	beforePersistState func(updaterapi.Operation) error
 }
 
 type activationMarker struct {
@@ -833,9 +836,16 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	}
 
 	if err := m.succeed(operationID, successMessage, selfUpdateSucceeded); err != nil {
-		_, _ = fmt.Fprintf(logFile, "[%s] warning: persist successful terminal state: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
-		log.Printf("persist successful upgrade state: %v", err)
-	} else if selfUpdateSucceeded {
+		_, _ = fmt.Fprintf(
+			logFile,
+			"[%s] error: Fleet is running, but updater completion was not persisted; further upgrades remain blocked until startup reconciliation: %v\n",
+			m.cfg.Now().UTC().Format(time.RFC3339),
+			err,
+		)
+		log.Printf("persist successful upgrade state; further upgrades remain blocked until startup reconciliation: %v", err)
+		return
+	}
+	if selfUpdateSucceeded {
 		select {
 		case m.selfUpdateReady <- struct{}{}:
 		default:
@@ -1285,6 +1295,7 @@ func (m *Manager) succeed(id, message string, closeForSelfUpdate bool) error {
 	if m.operation == nil || m.operation.ID != id {
 		return fmt.Errorf("operation %s is no longer current", id)
 	}
+	previous := *m.operation
 	now := m.cfg.Now().UTC()
 	m.operation.Phase = updaterapi.PhaseSucceeded
 	m.operation.Message = message
@@ -1292,6 +1303,10 @@ func (m *Manager) succeed(id, message string, closeForSelfUpdate bool) error {
 	m.operation.UpdatedAt = now
 	m.operation.CompletedAt = &now
 	if err := m.persistLocked(); err != nil {
+		// Keep the last durable, non-terminal activation state (including its
+		// recovery command) visible in memory. That fails closed: Trigger rejects
+		// another upgrade until a restart reconciles and persists the outcome.
+		*m.operation = previous
 		return err
 	}
 	if closeForSelfUpdate {
@@ -1724,6 +1739,11 @@ func cleanupStaleStageDirectories(installRoot string) (bool, error) {
 func (m *Manager) persistLocked() error {
 	if m.operation == nil {
 		return nil
+	}
+	if m.cfg.beforePersistState != nil {
+		if err := m.cfg.beforePersistState(*m.operation); err != nil {
+			return fmt.Errorf("persist updater state: %w", err)
+		}
 	}
 	data, err := json.MarshalIndent(m.operation, "", "  ")
 	if err != nil {

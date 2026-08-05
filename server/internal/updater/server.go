@@ -37,14 +37,15 @@ func (s *Server) Serve(socketPath string) error {
 	if !filepath.IsAbs(socketPath) {
 		return fmt.Errorf("socket path must be absolute")
 	}
-	if err := prepareUpdaterSocketDirectory(socketPath); err != nil {
-		return err
-	}
-	listener, err := listenUpdaterSocket(socketPath)
+	canonicalSocketPath, err := prepareUpdaterSocketDirectory(socketPath)
 	if err != nil {
 		return err
 	}
-	if err := secureUpdaterSocket(socketPath); err != nil {
+	listener, err := listenUpdaterSocket(canonicalSocketPath)
+	if err != nil {
+		return err
+	}
+	if err := secureUpdaterSocket(canonicalSocketPath); err != nil {
 		listener.Close()
 		return err
 	}
@@ -58,39 +59,54 @@ func (s *Server) Serve(socketPath string) error {
 // boundary for the updater API. The socket is not network-reachable and its
 // intended caller is the root fleet-api process, so a trusted directory chain
 // plus a daemon-owned 0660 socket is sufficient without a second application
-// authentication protocol.
-func prepareUpdaterSocketDirectory(socketPath string) error {
+// authentication protocol. It returns a canonical path so binding and
+// permission changes never resolve configured ancestor symlinks again.
+func prepareUpdaterSocketDirectory(socketPath string) (string, error) {
+	socketPath = filepath.Clean(socketPath)
 	socketDir := filepath.Dir(socketPath)
 	if err := os.MkdirAll(socketDir, 0o750); err != nil {
-		return fmt.Errorf("create updater socket directory: %w", err)
+		return "", fmt.Errorf("create updater socket directory: %w", err)
 	}
-	if err := validateUpdaterSocketDirectoryChain(socketDir); err != nil {
-		return fmt.Errorf("validate updater socket directory: %w", err)
+	canonicalSocketDir, err := validateUpdaterSocketDirectoryChain(socketDir)
+	if err != nil {
+		return "", fmt.Errorf("validate updater socket directory: %w", err)
 	}
-	return nil
+	return filepath.Join(canonicalSocketDir, filepath.Base(socketPath)), nil
 }
 
 // validateUpdaterSocketDirectoryChain checks both the configured and resolved
 // paths. A protected symlink in an ancestor (for example, /tmp on macOS) is
 // safe once its containing and target directory chains are both trusted, but
 // the socket directory itself must never be a symlink.
-func validateUpdaterSocketDirectoryChain(socketDir string) error {
-	if err := walkUpdaterSocketDirectoryChain(socketDir, true); err != nil {
-		return err
+func validateUpdaterSocketDirectoryChain(socketDir string) (string, error) {
+	if err := walkUpdaterSocketDirectoryChain(socketDir); err != nil {
+		return "", err
 	}
 	resolvedDir, err := filepath.EvalSymlinks(socketDir)
 	if err != nil {
-		return fmt.Errorf("resolve %s: %w", socketDir, err)
+		return "", fmt.Errorf("resolve %s: %w", socketDir, err)
 	}
 	if resolvedDir != socketDir {
-		if err := walkUpdaterSocketDirectoryChain(resolvedDir, true); err != nil {
-			return err
+		if err := walkUpdaterSocketDirectoryChain(resolvedDir); err != nil {
+			return "", err
 		}
 	}
-	return nil
+
+	configuredInfo, err := os.Lstat(socketDir)
+	if err != nil {
+		return "", fmt.Errorf("inspect configured socket directory: %w", err)
+	}
+	canonicalInfo, err := os.Lstat(resolvedDir)
+	if err != nil {
+		return "", fmt.Errorf("inspect canonical socket directory: %w", err)
+	}
+	if !os.SameFile(configuredInfo, canonicalInfo) {
+		return "", fmt.Errorf("updater socket directory changed while it was validated")
+	}
+	return resolvedDir, nil
 }
 
-func walkUpdaterSocketDirectoryChain(path string, rejectFirstSymlink bool) error {
+func walkUpdaterSocketDirectoryChain(path string) error {
 	euid := uint32(os.Geteuid()) //nolint:gosec // Effective UIDs are non-negative on supported Unix hosts.
 	current := filepath.Clean(path)
 	first := true
@@ -99,27 +115,12 @@ func walkUpdaterSocketDirectoryChain(path string, rejectFirstSymlink bool) error
 		if err != nil {
 			return fmt.Errorf("inspect path component %s: %w", current, err)
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			if first && rejectFirstSymlink {
-				return fmt.Errorf("socket directory %s must not be a symlink", current)
-			}
-			// The containing directory is checked below and the symlink target
-			// is checked by the resolved-path walk above.
-		} else {
-			if !info.IsDir() {
-				return fmt.Errorf("path component %s is not a directory", current)
-			}
-			stat, ok := info.Sys().(*syscall.Stat_t)
-			if !ok {
-				return fmt.Errorf("path component %s has unsupported stat type %T", current, info.Sys())
-			}
-			if stat.Uid != 0 && stat.Uid != euid {
-				return fmt.Errorf("path component %s owner uid %d must be root or daemon uid %d", current, stat.Uid, euid)
-			}
-			mode := info.Mode()
-			if mode.Perm()&0o022 != 0 && (first || mode&os.ModeSticky == 0) {
-				return fmt.Errorf("path component %s mode %#o must not be group- or world-writable", current, mode.Perm())
-			}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return fmt.Errorf("path component %s has unsupported stat type %T", current, info.Sys())
+		}
+		if err := validateUpdaterSocketPathComponent(current, info.Mode(), stat.Uid, euid, first); err != nil {
+			return err
 		}
 
 		parent := filepath.Dir(current)
@@ -128,6 +129,27 @@ func walkUpdaterSocketDirectoryChain(path string, rejectFirstSymlink bool) error
 		}
 		current = parent
 		first = false
+	}
+	return nil
+}
+
+func validateUpdaterSocketPathComponent(path string, mode os.FileMode, ownerUID, daemonUID uint32, isSocketDirectory bool) error {
+	if ownerUID != 0 && ownerUID != daemonUID {
+		return fmt.Errorf("path component %s owner uid %d must be root or daemon uid %d", path, ownerUID, daemonUID)
+	}
+	if mode&os.ModeSymlink != 0 {
+		if isSocketDirectory {
+			return fmt.Errorf("socket directory %s must not be a symlink", path)
+		}
+		// The containing directory is checked by this walk and the symlink
+		// target is checked by the resolved-path walk above.
+		return nil
+	}
+	if !mode.IsDir() {
+		return fmt.Errorf("path component %s is not a directory", path)
+	}
+	if mode.Perm()&0o022 != 0 && (isSocketDirectory || mode&os.ModeSticky == 0) {
+		return fmt.Errorf("path component %s mode %#o must not be group- or world-writable", path, mode.Perm())
 	}
 	return nil
 }
