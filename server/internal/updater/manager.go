@@ -139,7 +139,7 @@ type Manager struct {
 	operationRunning bool
 	cancelOperation  context.CancelFunc
 	operationWG      sync.WaitGroup
-	selfUpdateReady  chan struct{}
+	selfUpdateReady  chan string
 	processLock      *os.File
 	logRoot          *os.Root
 	closeOnce        sync.Once
@@ -216,51 +216,22 @@ func nearestExistingPath(path string) (string, error) {
 }
 
 func validateTrustedUpdaterPath(path string, finalIsStateDir bool) error {
-	components := pathComponents(path)
-	for index, component := range components {
-		info, err := os.Lstat(component)
-		if err != nil {
-			return fmt.Errorf("inspect updater state path component %q: %w", component, err)
-		}
-		isFinal := index == len(components)-1
-		if info.Mode()&os.ModeSymlink != 0 {
-			if finalIsStateDir && isFinal {
-				return fmt.Errorf("updater state directory must not be a symlink: %q", component)
-			}
-			if err := validateTrustedUpdaterOwner(component, info); err != nil {
-				return err
-			}
-			continue
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("updater state path component is not a directory: %q", component)
-		}
-		if err := validateTrustedUpdaterOwner(component, info); err != nil {
-			return err
-		}
-		if info.Mode().Perm()&0o022 == 0 {
-			continue
-		}
-		if finalIsStateDir && isFinal {
-			return fmt.Errorf("updater state directory must not be group- or world-writable: %q", component)
-		}
-		if info.Mode()&os.ModeSticky == 0 {
-			return fmt.Errorf("updater state ancestor is group- or world-writable without the sticky bit: %q", component)
-		}
-	}
-	return nil
+	return validateTrustedDirectoryChain(
+		path,
+		"updater state",
+		"updater state directory",
+		finalIsStateDir,
+		validateTrustedUpdaterOwner,
+	)
 }
 
 func validateTrustedUpdaterOwner(path string, info os.FileInfo) error {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fmt.Errorf("inspect owner of updater state path component %q", path)
+	uid, err := updaterPathOwnerUID(path, "updater state", info)
+	if err != nil {
+		return err
 	}
 	euid := uint32(os.Geteuid()) //nolint:gosec // Effective UIDs are non-negative on supported Unix hosts.
-	if stat.Uid != 0 && stat.Uid != euid {
-		return fmt.Errorf("updater state path component %q is owned by untrusted UID %d", path, stat.Uid)
-	}
-	return nil
+	return validateRootOrDaemonPathUID("updater state", path, uid, euid)
 }
 
 func pathComponents(path string) []string {
@@ -277,6 +248,198 @@ func pathComponents(path string) []string {
 		components[index] = reversed[len(reversed)-1-index]
 	}
 	return components
+}
+
+type installRootTrust struct {
+	adminUID uint32
+}
+
+func (trust *installRootTrust) validateOwner(path string, info os.FileInfo) error {
+	uid, err := updaterPathOwnerUID(path, "install root", info)
+	if err != nil {
+		return err
+	}
+	return trust.validateUID(path, uid)
+}
+
+func (trust *installRootTrust) validateUID(path string, uid uint32) error {
+	if uid == 0 {
+		return nil
+	}
+	if trust.adminUID == 0 {
+		trust.adminUID = uid
+		return nil
+	}
+	if trust.adminUID != uid {
+		return fmt.Errorf("install root path component %q is owned by UID %d, but trusted install-admin UID is %d", path, uid, trust.adminUID)
+	}
+	return nil
+}
+
+// ensureTrustedInstallRoot makes the installer-selected deployment owner an
+// explicit trust principal. The installer enables this root daemon only when
+// that one owner controls the same rootful Docker daemon and is therefore
+// already host-administrator-equivalent. Root and at most that single UID may
+// own path components; unrelated owners and writable paths fail closed.
+func ensureTrustedInstallRoot(installRoot string) (string, error) {
+	installRoot = filepath.Clean(installRoot)
+	trust := &installRootTrust{}
+	if err := validateTrustedDirectoryChain(installRoot, "install root", "install root", true, trust.validateOwner); err != nil {
+		return "", err
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(installRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve install root: %w", err)
+	}
+	if err := validateTrustedDirectoryChain(canonicalRoot, "install root", "install root", true, trust.validateOwner); err != nil {
+		return "", err
+	}
+	configuredInfo, err := os.Lstat(installRoot)
+	if err != nil {
+		return "", fmt.Errorf("inspect install root: %w", err)
+	}
+	canonicalInfo, err := os.Lstat(canonicalRoot)
+	if err != nil {
+		return "", fmt.Errorf("inspect canonical install root: %w", err)
+	}
+	if !os.SameFile(configuredInfo, canonicalInfo) {
+		return "", fmt.Errorf("install root changed while it was validated")
+	}
+	for _, name := range []string{"deployment", "deployment.previous"} {
+		deploymentPath := filepath.Join(canonicalRoot, name)
+		if _, err := os.Lstat(deploymentPath); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return "", fmt.Errorf("inspect %s directory: %w", name, err)
+		}
+		label := name + " directory"
+		if err := validateTrustedDirectoryChain(deploymentPath, label, label, true, trust.validateOwner); err != nil {
+			return "", err
+		}
+	}
+	return canonicalRoot, nil
+}
+
+// ensureTrustedSelfUpdatePath is intentionally stricter than InstallRoot. The
+// service executable and its path chain must be controlled by root or the
+// daemon UID, and later mutations use the validated canonical path.
+func ensureTrustedSelfUpdatePath(selfUpdatePath string) (string, error) {
+	selfUpdatePath = filepath.Clean(selfUpdatePath)
+	configuredInfo, err := os.Lstat(selfUpdatePath)
+	if err != nil {
+		return "", fmt.Errorf("inspect self-update path: %w", err)
+	}
+	if err := validateSelfUpdateExecutable(selfUpdatePath, configuredInfo); err != nil {
+		return "", err
+	}
+	configuredParent := filepath.Dir(selfUpdatePath)
+	if err := validateTrustedDirectoryChain(configuredParent, "self-update path", "", false, validateDaemonPathOwner); err != nil {
+		return "", err
+	}
+	canonicalParent, err := filepath.EvalSymlinks(configuredParent)
+	if err != nil {
+		return "", fmt.Errorf("resolve self-update parent: %w", err)
+	}
+	if err := validateTrustedDirectoryChain(canonicalParent, "self-update path", "", false, validateDaemonPathOwner); err != nil {
+		return "", err
+	}
+	canonicalPath := filepath.Join(canonicalParent, filepath.Base(selfUpdatePath))
+	canonicalInfo, err := os.Lstat(canonicalPath)
+	if err != nil {
+		return "", fmt.Errorf("inspect canonical self-update path: %w", err)
+	}
+	if err := validateSelfUpdateExecutable(canonicalPath, canonicalInfo); err != nil {
+		return "", err
+	}
+	if !os.SameFile(configuredInfo, canonicalInfo) {
+		return "", fmt.Errorf("self-update path changed while it was validated")
+	}
+	return canonicalPath, nil
+}
+
+func validateTrustedDirectoryChain(
+	path string,
+	pathName string,
+	finalName string,
+	protectFinal bool,
+	validateOwner func(string, os.FileInfo) error,
+) error {
+	components := pathComponents(path)
+	for index, component := range components {
+		info, err := os.Lstat(component)
+		if err != nil {
+			return fmt.Errorf("inspect %s path component %q: %w", pathName, component, err)
+		}
+		isFinal := index == len(components)-1
+		if info.Mode()&os.ModeSymlink != 0 {
+			if protectFinal && isFinal {
+				return fmt.Errorf("%s must not be a symlink: %q", finalName, component)
+			}
+			if err := validateOwner(component, info); err != nil {
+				return err
+			}
+			continue
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s path component is not a directory: %q", pathName, component)
+		}
+		if err := validateOwner(component, info); err != nil {
+			return err
+		}
+		if info.Mode().Perm()&0o022 == 0 {
+			continue
+		}
+		if protectFinal && isFinal {
+			return fmt.Errorf("%s must not be group- or world-writable: %q", finalName, component)
+		}
+		if info.Mode()&os.ModeSticky == 0 {
+			return fmt.Errorf("%s ancestor is group- or world-writable without the sticky bit: %q", pathName, component)
+		}
+	}
+	return nil
+}
+
+func updaterPathOwnerUID(path, name string, info os.FileInfo) (uint32, error) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, fmt.Errorf("inspect owner of %s path component %q", name, path)
+	}
+	return stat.Uid, nil
+}
+
+func validateDaemonPathUID(path string, ownerUID, daemonUID uint32) error {
+	return validateRootOrDaemonPathUID("self-update", path, ownerUID, daemonUID)
+}
+
+func validateRootOrDaemonPathUID(pathName, path string, ownerUID, daemonUID uint32) error {
+	if ownerUID != 0 && ownerUID != daemonUID {
+		return fmt.Errorf("%s path component %q is owned by untrusted UID %d", pathName, path, ownerUID)
+	}
+	return nil
+}
+
+func validateDaemonPathOwner(path string, info os.FileInfo) error {
+	uid, err := updaterPathOwnerUID(path, "self-update path", info)
+	if err != nil {
+		return err
+	}
+	return validateDaemonPathUID(path, uid, uint32(os.Geteuid())) //nolint:gosec // Effective UIDs are non-negative on supported Unix hosts.
+}
+
+func validateSelfUpdateExecutable(path string, info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("self-update path must not be a symlink: %q", path)
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 || info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("self-update path must be a non-empty executable regular file: %q", path)
+	}
+	if err := validateDaemonPathOwner(path, info); err != nil {
+		return err
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("self-update path must not be group- or world-writable: %q", path)
+	}
+	return nil
 }
 
 func openOperationLogRoot(stateDir string) (*os.Root, error) {
@@ -391,6 +554,18 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.PreflightTimeout < 0 || cfg.ActivationTimeout < 0 || cfg.CleanupTimeout < 0 {
 		return nil, fmt.Errorf("updater phase timeouts must be positive")
 	}
+	canonicalInstallRoot, err := ensureTrustedInstallRoot(cfg.InstallRoot)
+	if err != nil {
+		return nil, err
+	}
+	cfg.InstallRoot = canonicalInstallRoot
+	if cfg.SelfUpdatePath != "" {
+		canonicalSelfUpdatePath, err := ensureTrustedSelfUpdatePath(cfg.SelfUpdatePath)
+		if err != nil {
+			return nil, err
+		}
+		cfg.SelfUpdatePath = canonicalSelfUpdatePath
+	}
 	canonicalStateDir, err := ensureUpdaterStateDirectory(cfg.StateDir)
 	if err != nil {
 		return nil, err
@@ -408,7 +583,7 @@ func NewManager(cfg Config) (*Manager, error) {
 
 	m := &Manager{
 		cfg:             cfg,
-		selfUpdateReady: make(chan struct{}, 1),
+		selfUpdateReady: make(chan string, 1),
 		processLock:     processLock,
 		logRoot:         logRoot,
 	}
@@ -438,10 +613,11 @@ func (m *Manager) Close() error {
 	return m.Shutdown(context.Background())
 }
 
-// SelfUpdateReady is signaled once the replacement executable and successful
-// terminal state are both durable. The command process owns listener draining,
-// lock release, and exec so the manager remains independent of any supervisor.
-func (m *Manager) SelfUpdateReady() <-chan struct{} {
+// SelfUpdateReady yields the validated canonical executable path once the
+// replacement and successful terminal state are both durable. The command
+// process owns listener draining, lock release, and exec so the manager remains
+// independent of any supervisor.
+func (m *Manager) SelfUpdateReady() <-chan string {
 	return m.selfUpdateReady
 }
 
@@ -847,7 +1023,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	}
 	if selfUpdateSucceeded {
 		select {
-		case m.selfUpdateReady <- struct{}{}:
+		case m.selfUpdateReady <- m.cfg.SelfUpdatePath:
 		default:
 		}
 	}

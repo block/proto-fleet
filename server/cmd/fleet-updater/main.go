@@ -84,15 +84,15 @@ func run() error {
 			log.Printf("shutdown: %v", err)
 		}
 		return nil
-	case <-manager.SelfUpdateReady():
+	case canonicalSelfUpdatePath := <-manager.SelfUpdateReady():
 		log.Printf("activating refreshed host updater")
 		if err := shutdownUpdater(server, manager); err != nil {
 			return fmt.Errorf("drain updater before self-restart: %w", err)
 		}
-		if *selfUpdatePath == "" {
+		if canonicalSelfUpdatePath == "" {
 			return fmt.Errorf("self-update completed without a configured executable path")
 		}
-		if err := syscall.Exec(*selfUpdatePath, os.Args, os.Environ()); err != nil {
+		if err := syscall.Exec(canonicalSelfUpdatePath, os.Args, os.Environ()); err != nil {
 			rollbackErr := manager.RollbackSelfUpdate()
 			if rollbackErr != nil {
 				return errors.Join(

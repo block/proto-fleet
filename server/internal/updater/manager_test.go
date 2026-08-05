@@ -149,7 +149,7 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	require.Len(t, commands, 2)
 	assert.Equal(t, []string{"./run-fleet.sh", "--non-interactive", "--preflight-only"}, commands[0].Args)
 	assert.Contains(t, commands[0].Dir, ".proto-fleet-upgrade-")
-	assert.Equal(t, filepath.Join(installRoot, "deployment"), commands[1].Dir)
+	assert.Equal(t, filepath.Join(manager.cfg.InstallRoot, "deployment"), commands[1].Dir)
 	assert.Equal(t, []string{"./run-fleet.sh", "--non-interactive", "--skip-build"}, commands[1].Args)
 	assert.FileExists(t, completed.LogPath)
 	assert.Empty(t, completed.RecoveryCommand)
@@ -188,8 +188,18 @@ func TestManagerSelfUpdateUsesVerifiedArchiveCopy(t *testing.T) {
 
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
-	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
+	updaterRoot := t.TempDir()
+	originalParent := filepath.Join(updaterRoot, "original")
+	replacementParent := filepath.Join(updaterRoot, "replacement")
+	require.NoError(t, os.Mkdir(originalParent, 0o700))
+	require.NoError(t, os.Mkdir(replacementParent, 0o700))
+	installedUpdater := filepath.Join(originalParent, "proto-fleet-updater")
+	replacementUpdater := filepath.Join(replacementParent, "proto-fleet-updater")
 	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
+	require.NoError(t, os.WriteFile(replacementUpdater, []byte("replacement path"), 0o755))
+	linkedParent := filepath.Join(updaterRoot, "linked")
+	require.NoError(t, os.Symlink(originalParent, linkedParent))
+	configuredUpdater := filepath.Join(linkedParent, "proto-fleet-updater")
 	bundle := releaseBundle(t, "v1.1.0")
 	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
 	runner := &recordingRunner{
@@ -199,10 +209,12 @@ func TestManagerSelfUpdateUsesVerifiedArchiveCopy(t *testing.T) {
 				[]byte("operator replacement"),
 				0o755,
 			))
+			require.NoError(t, os.Remove(linkedParent))
+			require.NoError(t, os.Symlink(replacementParent, linkedParent))
 		},
 	}
 	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
-		cfg.SelfUpdatePath = installedUpdater
+		cfg.SelfUpdatePath = configuredUpdater
 	})
 
 	_, err := manager.Trigger("v1.1.0")
@@ -211,9 +223,12 @@ func TestManagerSelfUpdateUsesVerifiedArchiveCopy(t *testing.T) {
 
 	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
 	assert.Equal(t, "updater", mustReadFile(t, installedUpdater))
+	assert.Equal(t, "replacement path", mustReadFile(t, replacementUpdater))
 	assert.Equal(t, "old updater", mustReadFile(t, installedUpdater+selfUpdateBackupSuffix))
 	select {
-	case <-manager.SelfUpdateReady():
+	case readyPath := <-manager.SelfUpdateReady():
+		assert.Equal(t, manager.cfg.SelfUpdatePath, readyPath)
+		assert.NotEqual(t, configuredUpdater, readyPath)
 	case <-time.After(time.Second):
 		t.Fatal("successful updater replacement did not request a self-restart")
 	}
@@ -334,10 +349,15 @@ func TestManagerSelfUpdateFailureIsADegradedSuccess(t *testing.T) {
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	bundle := releaseBundle(t, "v1.1.0")
 	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
-	runner := &recordingRunner{}
-	missingParent := filepath.Join(t.TempDir(), "missing", "proto-fleet-updater")
+	updaterParent := filepath.Join(t.TempDir(), "updater")
+	require.NoError(t, os.Mkdir(updaterParent, 0o700))
+	installedUpdater := filepath.Join(updaterParent, "proto-fleet-updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
+	runner := &recordingRunner{activationHook: func(string) {
+		require.NoError(t, os.RemoveAll(updaterParent))
+	}}
 	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
-		cfg.SelfUpdatePath = missingParent
+		cfg.SelfUpdatePath = installedUpdater
 	})
 
 	_, err := manager.Trigger("v1.1.0")
@@ -348,7 +368,7 @@ func TestManagerSelfUpdateFailureIsADegradedSuccess(t *testing.T) {
 	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.Contains(t, completed.Message, "host updater refresh needs attention")
 	assert.Contains(t, mustReadFile(t, completed.LogPath), "host updater binary was not refreshed")
-	assert.NoFileExists(t, missingParent)
+	assert.NoFileExists(t, installedUpdater)
 	select {
 	case <-manager.SelfUpdateReady():
 		t.Fatal("failed updater replacement must not request a self-restart")
@@ -1465,6 +1485,301 @@ func TestManagerRejectsUnrecoverableInterruptedActivationLayout(t *testing.T) {
 		GOARCH:      "amd64",
 	})
 	require.ErrorContains(t, err, "both deployment and deployment.previous are missing")
+}
+
+func TestInstallRootTrustAllowsOnlyOneNonRootAdmin(t *testing.T) {
+	t.Parallel()
+
+	rootAndB := &installRootTrust{}
+	require.NoError(t, rootAndB.validateUID("/", 0))
+	require.NoError(t, rootAndB.validateUID("/srv/fleet/deployment", 1002))
+
+	aAndB := &installRootTrust{}
+	require.NoError(t, aAndB.validateUID("/srv/admin-a", 1001))
+	require.ErrorContains(t, aAndB.validateUID("/srv/fleet/deployment", 1002), "trusted install-admin UID is 1001")
+}
+
+func TestManagerRejectsUnsafeInstallRoot(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		prepare   func(*testing.T) string
+		wantError string
+	}{
+		{
+			name: "missing",
+			prepare: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "missing")
+			},
+			wantError: "install root path component",
+		},
+		{
+			name: "regular file",
+			prepare: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "install")
+				require.NoError(t, os.WriteFile(path, []byte("not a directory"), 0o600))
+				return path
+			},
+			wantError: "install root path component is not a directory",
+		},
+		{
+			name: "final symlink",
+			prepare: func(t *testing.T) string {
+				root := t.TempDir()
+				target := filepath.Join(root, "target")
+				require.NoError(t, os.Mkdir(target, 0o700))
+				path := filepath.Join(root, "install")
+				require.NoError(t, os.Symlink(target, path))
+				return path
+			},
+			wantError: "install root must not be a symlink",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewManager(Config{
+				InstallRoot: test.prepare(t),
+				StateDir:    filepath.Join(t.TempDir(), "state"),
+				GOARCH:      "amd64",
+			})
+			require.ErrorContains(t, err, test.wantError)
+		})
+	}
+}
+
+func TestManagerRejectsWritableInstallRoot(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []os.FileMode{0o770, 0o707, os.ModeSticky | 0o707} {
+		installRoot := t.TempDir()
+		require.NoError(t, os.Chmod(installRoot, mode))
+		_, err := NewManager(Config{
+			InstallRoot: installRoot,
+			StateDir:    filepath.Join(t.TempDir(), "state"),
+			GOARCH:      "amd64",
+		})
+		require.ErrorContains(t, err, "install root must not be group- or world-writable")
+	}
+}
+
+func TestManagerRejectsWritableInstallRootAncestor(t *testing.T) {
+	t.Parallel()
+
+	unsafeAncestor := filepath.Join(t.TempDir(), "unsafe")
+	require.NoError(t, os.Mkdir(unsafeAncestor, 0o700))
+	require.NoError(t, os.Chmod(unsafeAncestor, 0o770)) //nolint:gosec // Deliberately unsafe mode exercises fail-closed validation.
+	t.Cleanup(func() {
+		// #nosec G302 -- directories require execute permission for cleanup.
+		assert.NoError(t, os.Chmod(unsafeAncestor, 0o700))
+	})
+	installRoot := filepath.Join(unsafeAncestor, "install")
+	require.NoError(t, os.Mkdir(installRoot, 0o700))
+
+	_, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    filepath.Join(t.TempDir(), "state"),
+		GOARCH:      "amd64",
+	})
+	require.ErrorContains(t, err, "install root ancestor is group- or world-writable")
+}
+
+func TestManagerRejectsUnsafeExistingDeploymentDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"deployment", "deployment.previous"} {
+		t.Run(name+" symlink", func(t *testing.T) {
+			t.Parallel()
+			installRoot := t.TempDir()
+			target := filepath.Join(t.TempDir(), "target")
+			require.NoError(t, os.Mkdir(target, 0o700))
+			require.NoError(t, os.Symlink(target, filepath.Join(installRoot, name)))
+			_, err := NewManager(Config{InstallRoot: installRoot, StateDir: filepath.Join(t.TempDir(), "state"), GOARCH: "amd64"})
+			require.ErrorContains(t, err, name+" directory must not be a symlink")
+		})
+		t.Run(name+" writable", func(t *testing.T) {
+			t.Parallel()
+			installRoot := t.TempDir()
+			path := filepath.Join(installRoot, name)
+			require.NoError(t, os.Mkdir(path, 0o700))
+			require.NoError(t, os.Chmod(path, 0o770)) //nolint:gosec // Deliberately unsafe mode exercises fail-closed validation.
+			_, err := NewManager(Config{InstallRoot: installRoot, StateDir: filepath.Join(t.TempDir(), "state"), GOARCH: "amd64"})
+			require.ErrorContains(t, err, name+" directory must not be group- or world-writable")
+		})
+	}
+}
+
+func TestManagerCanonicalizesTrustedInstallRootAncestor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	originalParent := filepath.Join(root, "original")
+	replacementParent := filepath.Join(root, "replacement")
+	for _, parent := range []string{originalParent, replacementParent} {
+		require.NoError(t, os.Mkdir(parent, 0o700))
+	}
+	originalRoot := filepath.Join(originalParent, "install")
+	require.NoError(t, os.Mkdir(originalRoot, 0o700))
+	writeCurrentDeployment(t, originalRoot, "v1.0.0")
+	replacementRoot := filepath.Join(replacementParent, "install")
+	require.NoError(t, os.Mkdir(replacementRoot, 0o700))
+	writeCurrentDeployment(t, replacementRoot, "v9.9.9")
+	linkedParent := filepath.Join(root, "linked")
+	require.NoError(t, os.Symlink(originalParent, linkedParent))
+
+	manager, err := NewManager(Config{
+		InstallRoot: filepath.Join(linkedParent, "install"),
+		StateDir:    filepath.Join(t.TempDir(), "state"),
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	canonicalRoot, err := filepath.EvalSymlinks(originalRoot)
+	require.NoError(t, err)
+	require.Equal(t, canonicalRoot, manager.cfg.InstallRoot)
+
+	require.NoError(t, os.Remove(linkedParent))
+	require.NoError(t, os.Symlink(replacementParent, linkedParent))
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(manager.cfg.InstallRoot, "deployment", "version.txt")))
+}
+
+func TestManagerRejectsUnsafeSelfUpdatePath(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		prepare   func(*testing.T) string
+		wantError string
+	}{
+		{
+			name: "missing",
+			prepare: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "missing")
+			},
+			wantError: "inspect self-update path",
+		},
+		{
+			name: "non-executable",
+			prepare: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "updater")
+				require.NoError(t, os.WriteFile(path, []byte("updater"), 0o600))
+				return path
+			},
+			wantError: "executable regular file",
+		},
+		{
+			name: "writable executable",
+			prepare: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "updater")
+				require.NoError(t, os.WriteFile(path, []byte("updater"), 0o755))
+				require.NoError(t, os.Chmod(path, 0o775)) //nolint:gosec // Deliberately unsafe mode exercises fail-closed validation.
+				return path
+			},
+			wantError: "must not be group- or world-writable",
+		},
+		{
+			name: "writable parent",
+			prepare: func(t *testing.T) string {
+				parent := filepath.Join(t.TempDir(), "updater-parent")
+				require.NoError(t, os.Mkdir(parent, 0o700))
+				require.NoError(t, os.Chmod(parent, 0o770)) //nolint:gosec // Deliberately unsafe mode exercises fail-closed validation.
+				path := filepath.Join(parent, "updater")
+				require.NoError(t, os.WriteFile(path, []byte("updater"), 0o755))
+				return path
+			},
+			wantError: "self-update path ancestor is group- or world-writable",
+		},
+		{
+			name: "final symlink",
+			prepare: func(t *testing.T) string {
+				root := t.TempDir()
+				target := filepath.Join(root, "target")
+				require.NoError(t, os.WriteFile(target, []byte("updater"), 0o755))
+				path := filepath.Join(root, "updater")
+				require.NoError(t, os.Symlink(target, path))
+				return path
+			},
+			wantError: "self-update path must not be a symlink",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			_, err := NewManager(Config{
+				InstallRoot:    installRoot,
+				StateDir:       filepath.Join(t.TempDir(), "state"),
+				SelfUpdatePath: test.prepare(t),
+				GOARCH:         "amd64",
+			})
+			require.ErrorContains(t, err, test.wantError)
+		})
+	}
+}
+
+func TestSelfUpdateTrustRejectsUntrustedOwner(t *testing.T) {
+	t.Parallel()
+
+	require.ErrorContains(t, validateDaemonPathUID("/usr/local/bin/updater", 1002, 1001), "untrusted UID 1002")
+}
+
+func TestManagerAllowsStickySharedSelfUpdateAncestor(t *testing.T) {
+	t.Parallel()
+
+	sharedParent := filepath.Join(t.TempDir(), "shared")
+	require.NoError(t, os.Mkdir(sharedParent, 0o700))
+	require.NoError(t, os.Chmod(sharedParent, os.ModeSticky|0o777))
+	installedUpdater := filepath.Join(sharedParent, "updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("updater"), 0o755))
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+
+	manager, err := NewManager(Config{
+		InstallRoot:    installRoot,
+		StateDir:       filepath.Join(t.TempDir(), "state"),
+		SelfUpdatePath: installedUpdater,
+		GOARCH:         "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+}
+
+func TestManagerCanonicalizesTrustedSelfUpdateAncestor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	originalParent := filepath.Join(root, "original")
+	replacementParent := filepath.Join(root, "replacement")
+	for _, parent := range []string{originalParent, replacementParent} {
+		require.NoError(t, os.Mkdir(parent, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(parent, "updater"), []byte("current"), 0o755))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(originalParent, "updater.previous"), []byte("previous"), 0o755))
+	linkedParent := filepath.Join(root, "linked")
+	require.NoError(t, os.Symlink(originalParent, linkedParent))
+	configuredPath := filepath.Join(linkedParent, "updater")
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+
+	manager, err := NewManager(Config{
+		InstallRoot:    installRoot,
+		StateDir:       filepath.Join(t.TempDir(), "state"),
+		SelfUpdatePath: configuredPath,
+		GOARCH:         "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	configuredInfo, err := os.Lstat(configuredPath)
+	require.NoError(t, err)
+	canonicalInfo, err := os.Lstat(manager.cfg.SelfUpdatePath)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(configuredInfo, canonicalInfo))
+
+	require.NoError(t, os.Remove(linkedParent))
+	require.NoError(t, os.Symlink(replacementParent, linkedParent))
+	require.NoError(t, manager.RollbackSelfUpdate())
+	assert.Equal(t, "previous", mustReadFile(t, filepath.Join(originalParent, "updater")))
+	assert.Equal(t, "current", mustReadFile(t, filepath.Join(replacementParent, "updater")))
 }
 
 func TestManagerRejectsWritableStateDirectory(t *testing.T) {
