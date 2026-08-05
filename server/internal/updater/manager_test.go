@@ -330,6 +330,60 @@ func TestManagerFailsClosedWhenSuccessfulStateCannotPersist(t *testing.T) {
 	assert.Equal(t, updaterapi.PhaseFailed, restartedOperation.Phase)
 }
 
+func TestManagerFailsClosedWhenFailedStateCannotPersist(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	rejectFailedStateOnce := true
+	manager := newTestManagerWithConfig(t, installRoot, server, &recordingRunner{activation: assert.AnError}, func(cfg *Config) {
+		cfg.beforePersistState = func(operation updaterapi.Operation) error {
+			if operation.Phase == updaterapi.PhaseFailed && rejectFailedStateOnce {
+				rejectFailedStateOnce = false
+				return assert.AnError
+			}
+			return nil
+		}
+	})
+
+	_, err := manager.Trigger("v1.1.0")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		manager.mu.RLock()
+		defer manager.mu.RUnlock()
+		return !manager.operationRunning
+	}, 5*time.Second, 10*time.Millisecond, "upgrade worker did not finish")
+
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.Equal(t, updaterapi.PhaseActivating, operation.Phase)
+	assert.NotEmpty(t, operation.RecoveryCommand)
+	assert.Nil(t, operation.CompletedAt)
+	assert.NotContains(t, mustReadFile(t, operation.LogPath), "terminal phase=failed")
+
+	var persisted updaterapi.Operation
+	require.NoError(t, json.Unmarshal(
+		[]byte(mustReadFile(t, filepath.Join(manager.cfg.StateDir, stateFilename))),
+		&persisted,
+	))
+	assert.Equal(t, updaterapi.PhaseActivating, persisted.Phase)
+	assert.Equal(t, operation.RecoveryCommand, persisted.RecoveryCommand)
+	assert.Nil(t, persisted.CompletedAt)
+
+	_, err = manager.Trigger("v1.2.0")
+	require.ErrorContains(t, err, "already in progress")
+
+	require.NoError(t, manager.Close())
+	restarted, err := NewManager(manager.cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, restarted.Close()) })
+	restartedOperation := restarted.Status().Operation
+	require.NotNil(t, restartedOperation)
+	assert.Equal(t, updaterapi.PhaseFailed, restartedOperation.Phase)
+}
+
 func TestManagerRejectsUpdaterCandidateWithUnexpectedVersionBeforeReplacement(t *testing.T) {
 	t.Parallel()
 

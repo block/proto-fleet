@@ -1453,6 +1453,7 @@ func (m *Manager) fail(id string, err error, recovery string) {
 	if m.operation == nil || m.operation.ID != id {
 		return
 	}
+	previous := *m.operation
 	now := m.cfg.Now().UTC()
 	m.operation.Phase = updaterapi.PhaseFailed
 	m.operation.Message = "Upgrade failed"
@@ -1461,7 +1462,11 @@ func (m *Manager) fail(id string, err error, recovery string) {
 	m.operation.UpdatedAt = now
 	m.operation.CompletedAt = &now
 	if persistErr := m.persistLocked(); persistErr != nil {
-		log.Printf("persist failed upgrade state: %v", persistErr)
+		// Keep the last durable non-terminal state visible in memory so Trigger
+		// cannot replace its recovery context. Startup reconciliation will turn
+		// that durable state into a terminal failure once persistence recovers.
+		*m.operation = previous
+		log.Printf("upgrade failed (%v), but its terminal state was not persisted; further upgrades remain blocked until startup reconciliation: %v", err, persistErr)
 	}
 }
 
