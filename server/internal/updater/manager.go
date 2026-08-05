@@ -35,7 +35,7 @@ import (
 const (
 	stateFilename            = "state.json"
 	maxChecksumBytes         = 4096
-	maxDownloadBytes         = int64(8 << 30) // 8 GiB hard stop for a corrupt or hostile response.
+	maxDownloadBytes         = int64(1 << 30) // Larger bundles require an explicit updater contract change.
 	maxExtractedBytes        = int64(16 << 30)
 	maxArchiveEntries        = 100_000
 	defaultHTTPTimeout       = 30 * time.Minute
