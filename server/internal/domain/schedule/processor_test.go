@@ -296,6 +296,31 @@ func TestProcessor_StopDeadlineForceCancelsAdmittedWork(t *testing.T) {
 	assert.NoError(t, p.Stop(context.Background()))
 }
 
+func TestProcessor_AbortCancelsAdmittedWork(t *testing.T) {
+	// Arrange
+	run := newProcessorActivation(t.Context())
+	close(run.startupDone)
+	p := &Processor{
+		activation: run,
+		jobs:       make(map[int64]jobEntry),
+	}
+	workCanceled := make(chan struct{})
+	run.wg.Add(1)
+	go func() {
+		defer run.wg.Done()
+		<-run.workCtx.Done()
+		close(workCanceled)
+	}()
+
+	// Act
+	p.Abort()
+
+	// Assert
+	waitForSignal(t, run.admissionCtx.Done(), "Abort did not close schedule admission")
+	waitForSignal(t, workCanceled, "Abort did not cancel admitted schedule work")
+	assert.NoError(t, p.Stop(t.Context()))
+}
+
 func TestProcessor_ActivationCancellationPreventsNewTimerWork(t *testing.T) {
 	p, _, _, _, _ := newTestProcessor(t, time.Now())
 	run := newProcessorActivation(t.Context())

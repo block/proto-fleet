@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	"github.com/stretchr/testify/require"
 )
@@ -231,6 +232,39 @@ func TestStopRuntimeJobGroupDoesNotRetrySuccessfulStop(t *testing.T) {
 	require.Len(t, group.contexts, 1)
 	_, hasDeadline := group.contexts[0].Deadline()
 	require.True(t, hasDeadline)
+}
+
+func TestStopRuntimeJobGroupAfterRunOnlySkipsHAAbort(t *testing.T) {
+	t.Run("HA abort", func(t *testing.T) {
+		// Arrange
+		group := &scriptedRuntimeJobGroupStopper{
+			stop: func(context.Context) error { return nil },
+		}
+
+		// Act
+		stopRuntimeJobGroupAfterRun(
+			errors.Join(errors.New("runtime failed"), ha.ErrRuntimeAborted),
+			group,
+			noopLifecycle{},
+			time.Second,
+		)
+
+		// Assert
+		require.Empty(t, group.contexts)
+	})
+
+	t.Run("standalone failure", func(t *testing.T) {
+		// Arrange
+		group := &scriptedRuntimeJobGroupStopper{
+			stop: func(context.Context) error { return nil },
+		}
+
+		// Act
+		stopRuntimeJobGroupAfterRun(errors.New("runtime failed"), group, noopLifecycle{}, time.Second)
+
+		// Assert
+		require.Len(t, group.contexts, 1)
+	})
 }
 
 func TestStopRuntimeJobGroupStopsCommandAfterGroupFailure(t *testing.T) {

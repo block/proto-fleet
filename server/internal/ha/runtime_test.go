@@ -2,6 +2,7 @@ package ha
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -63,24 +64,27 @@ type runtimeTestGroup struct {
 	aborted   int
 	startErr  error
 	stopErr   error
+	abortErr  error
 	startedCh chan context.Context
 	stoppedCh chan struct{}
-	abortedCh chan struct{}
+	abortedCh chan context.Context
 }
 
 func newRuntimeTestGroup() *runtimeTestGroup {
 	return &runtimeTestGroup{
 		startedCh: make(chan context.Context, 1),
 		stoppedCh: make(chan struct{}, 1),
-		abortedCh: make(chan struct{}, 1),
+		abortedCh: make(chan context.Context, 1),
 	}
 }
 
-func (g *runtimeTestGroup) Abort() {
+func (g *runtimeTestGroup) Abort(ctx context.Context) error {
 	g.mu.Lock()
 	g.aborted++
+	err := g.abortErr
 	g.mu.Unlock()
-	g.abortedCh <- struct{}{}
+	g.abortedCh <- ctx
+	return err
 }
 
 func (g *runtimeTestGroup) Start(ctx context.Context) error {
@@ -148,7 +152,7 @@ func TestHARuntimeReturnsWhenOwnershipEndsBeforeActivationIsObserved(t *testing.
 	require.False(t, runtime.Active())
 }
 
-func TestHARuntimeExitsOnOwnershipLossWithoutInProcessCleanup(t *testing.T) {
+func TestHARuntimeAbortsOnOwnershipLoss(t *testing.T) {
 	// Arrange
 	owner := newRuntimeTestOwner()
 	group := newRuntimeTestGroup()
@@ -167,16 +171,15 @@ func TestHARuntimeExitsOnOwnershipLossWithoutInProcessCleanup(t *testing.T) {
 	cancelActive(ErrOwnershipLost)
 
 	// Assert
-	require.ErrorContains(t, <-runResult, "active lifetime ended")
-	requireReceive(t, group.abortedCh)
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, ErrRuntimeAborted)
+	require.ErrorIs(t, runErr, ErrOwnershipLost)
+	abortCtx := requireReceiveContext(t, group.abortedCh)
+	_, hasDeadline := abortCtx.Deadline()
+	require.True(t, hasDeadline)
 	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
 	require.False(t, runtime.Active())
 	require.Error(t, jobCtx.Err())
-	select {
-	case <-group.stoppedCh:
-		t.Fatal("ownership loss performed graceful in-process cleanup")
-	default:
-	}
 }
 
 func TestHARuntimeExitsWhenCriticalHealthFails(t *testing.T) {
@@ -198,14 +201,35 @@ func TestHARuntimeExitsWhenCriticalHealthFails(t *testing.T) {
 	healthy.Store(false)
 
 	// Assert
-	require.ErrorIs(t, <-runResult, errCriticalRuntimeUnhealthy)
-	requireReceive(t, group.abortedCh)
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, ErrRuntimeAborted)
+	require.ErrorIs(t, runErr, errCriticalRuntimeUnhealthy)
+	requireReceiveContext(t, group.abortedCh)
 	require.False(t, runtime.Active())
-	select {
-	case <-group.stoppedCh:
-		t.Fatal("critical failure performed graceful in-process cleanup")
-	default:
-	}
+}
+
+func TestHARuntimeJoinsAbortCleanupError(t *testing.T) {
+	// Arrange
+	owner := newRuntimeTestOwner()
+	group := newRuntimeTestGroup()
+	cleanupErr := errors.New("cleanup failed")
+	group.abortErr = cleanupErr
+	runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
+	runResult := make(chan error, 1)
+	go func() { runResult <- runtime.Run(t.Context()) }()
+	activeCtx, cancelActive := context.WithCancelCause(t.Context())
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+	requireReceiveContext(t, group.startedCh)
+	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
+
+	// Act
+	cancelActive(ErrOwnershipLost)
+
+	// Assert
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, ErrRuntimeAborted)
+	require.ErrorIs(t, runErr, ErrOwnershipLost)
+	require.ErrorIs(t, runErr, cleanupErr)
 }
 
 func TestStandaloneRuntimePreservesGracefulLifecycle(t *testing.T) {
