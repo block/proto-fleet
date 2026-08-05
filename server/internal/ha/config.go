@@ -115,7 +115,7 @@ func NewConfiguredRuntime(
 		_ = cleanup()
 		return nil, nil, err
 	}
-	endpointHealthy := newEndpointHealth(netip.MustParseAddr(config.EndpointIP), EndpointHeartbeatFile, endpointOwnershipTimeout)
+	endpointHealthy := newEndpointHealth(netip.MustParseAddr(config.EndpointIP), EndpointHeartbeatFile, endpointHeartbeatTimeout)
 	runtime := newRuntime(coordinator, group, healthy, RuntimeConfig{
 		EndpointHealthy: endpointHealthy,
 	})

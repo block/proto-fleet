@@ -220,27 +220,27 @@ func TestHARuntimeExitsWhenCriticalHealthFails(t *testing.T) {
 	require.False(t, runtime.Active())
 }
 
-func TestEndpointMonitorAllowsStartupThenFailsClosed(t *testing.T) {
+func TestEndpointMonitorAllowsDelayedStartupThenFailsClosed(t *testing.T) {
 	// Arrange
 	healthy := false
 	startedAt := time.Unix(100, 0)
-	monitor := newEndpointMonitor(func() bool { return healthy }, startedAt, 2*time.Second)
+	monitor := newEndpointMonitor(func() bool { return healthy }, startedAt, endpointStartupTimeout)
 
 	// Act and assert
-	require.NoError(t, monitor.check(startedAt.Add(time.Second)))
+	require.NoError(t, monitor.check(startedAt.Add(endpointHeartbeatTimeout)))
 	healthy = true
-	require.NoError(t, monitor.check(startedAt.Add(1500*time.Millisecond)))
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout-time.Second)))
 	healthy = false
-	require.NoError(t, monitor.check(startedAt.Add(1600*time.Millisecond)))
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout)))
 	healthy = true
-	require.NoError(t, monitor.check(startedAt.Add(1700*time.Millisecond)))
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout+time.Second)))
 	healthy = false
-	require.NoError(t, monitor.check(startedAt.Add(1800*time.Millisecond)))
-	require.NoError(t, monitor.check(startedAt.Add(1900*time.Millisecond)))
-	require.ErrorIs(t, monitor.check(startedAt.Add(2*time.Second)), errEndpointUnavailable)
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout+2*time.Second)))
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout+3*time.Second)))
+	require.ErrorIs(t, monitor.check(startedAt.Add(endpointStartupTimeout+4*time.Second)), errEndpointUnavailable)
 
-	neverReady := newEndpointMonitor(func() bool { return false }, startedAt, 2*time.Second)
-	require.ErrorIs(t, neverReady.check(startedAt.Add(2*time.Second)), errEndpointUnavailable)
+	neverReady := newEndpointMonitor(func() bool { return false }, startedAt, endpointStartupTimeout)
+	require.ErrorIs(t, neverReady.check(startedAt.Add(endpointStartupTimeout)), errEndpointUnavailable)
 }
 
 func TestEndpointLossStopsLeaseRenewalBeforeAbortCleanup(t *testing.T) {

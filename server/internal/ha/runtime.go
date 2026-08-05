@@ -12,7 +12,8 @@ import (
 const (
 	defaultHealthCheckInterval = 100 * time.Millisecond
 	defaultCleanupTimeout      = 10 * time.Second
-	endpointOwnershipTimeout   = 5 * time.Second
+	endpointStartupTimeout     = 10 * time.Second
+	endpointHeartbeatTimeout   = 5 * time.Second
 )
 
 // ErrRuntimeAborted marks an HA exit that completed its bounded hard-abort
@@ -217,7 +218,7 @@ func (r *Runtime) abortGroup(cause error) error {
 func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 	ticker := time.NewTicker(r.config.HealthCheckInterval)
 	defer ticker.Stop()
-	endpoint := newEndpointMonitor(r.config.EndpointHealthy, time.Now(), endpointOwnershipTimeout)
+	endpoint := newEndpointMonitor(r.config.EndpointHealthy, time.Now(), endpointStartupTimeout)
 	for {
 		select {
 		case <-parent.Done():

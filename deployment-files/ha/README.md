@@ -157,11 +157,11 @@ docker compose \
 The overlay mounts only Fleet's CA, etcd password, and heartbeat directory into
 `fleet-api`. Keepalived remains in backup while the HTTPS proxy or active-health
 check is unavailable. When Fleet becomes active,
-keepalived claims the VIP and refreshes the heartbeat. Fleet allows five seconds
-for initial VIP ownership, then exits and stops lease renewal if the VIP or
-heartbeat disappears. The database lease remains the authority that makes Fleet
-active. Clients use the existing HTTPS `fleet-client` proxy through the VIP;
-Fleet's API stays on loopback.
+keepalived claims the VIP and refreshes the heartbeat. Fleet allows ten seconds
+for initial VIP ownership, then exits and stops lease renewal if the VIP is
+missing or the heartbeat is more than five seconds old. The database lease
+remains the authority that makes Fleet active. Clients use the existing HTTPS
+`fleet-client` proxy through the VIP; Fleet's API stays on loopback.
 
 ## Fleet connection contract
 

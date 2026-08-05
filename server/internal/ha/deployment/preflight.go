@@ -106,7 +106,7 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 	}
 	ports := []int{2379, 2380}
 	if config.isDatabaseNode() {
-		ports = append(ports, 4000, 5432, 8008)
+		ports = append(ports, 80, 443, 4000, 5432, 8008)
 	}
 	for _, port := range ports {
 		if portIsListening(string(listeners), port) {

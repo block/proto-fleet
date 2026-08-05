@@ -178,6 +178,7 @@ func TestPreflight(t *testing.T) {
 	routeSource := testHostIPs[0]
 	routeViaGateway := false
 	arpingConflict := false
+	listeners := ""
 	var arpingArgs []string
 	prefixes := []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
 	host := hostEnvironment{
@@ -197,6 +198,9 @@ func TestPreflight(t *testing.T) {
 					return []byte(fmt.Sprintf("%s via 10.40.0.1 dev eth0 src %s\n", args[2], routeSource)), nil
 				}
 				return []byte(fmt.Sprintf("%s dev eth0 src %s\n", args[2], routeSource)), nil
+			}
+			if name == "ss" {
+				return []byte(listeners), nil
 			}
 			return nil, nil
 		},
@@ -222,6 +226,13 @@ func TestPreflight(t *testing.T) {
 	if !slices.Equal(arpingArgs, []string{"-D", "-I", "eth0", "-c", "2", "10.40.0.100"}) {
 		t.Fatalf("arping arguments = %q", arpingArgs)
 	}
+	for _, port := range []int{80, 443} {
+		listeners = fmt.Sprintf("LISTEN 0 4096 0.0.0.0:%d 0.0.0.0:*\n", port)
+		if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("TCP port %d is already occupied", port)) {
+			t.Fatalf("preflight(occupied Fleet port %d) error = %v", port, err)
+		}
+	}
+	listeners = ""
 
 	host.localIPs = func() ([]netip.Addr, error) {
 		return []netip.Addr{netip.MustParseAddr(testHostIPs[0]), netip.MustParseAddr("10.40.0.100")}, nil
@@ -273,6 +284,7 @@ func TestPreflight(t *testing.T) {
 	routeSource = testHostIPs[2]
 	routeViaGateway = true
 	arpingConflict = true
+	listeners = "LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*\nLISTEN 0 4096 0.0.0.0:443 0.0.0.0:*\n"
 	host.applyFirewall = func(_ context.Context, gotConfig NodeConfig, _ string) error {
 		if gotConfig.NodeName != "ha-c" {
 			t.Fatalf("witness preflight node = %q", gotConfig.NodeName)
@@ -287,6 +299,7 @@ func TestPreflight(t *testing.T) {
 	routeSource = testHostIPs[0]
 	routeViaGateway = false
 	arpingConflict = false
+	listeners = ""
 
 	host.applyFirewall = func(context.Context, NodeConfig, string) error {
 		return errors.New("injected apply failure")
