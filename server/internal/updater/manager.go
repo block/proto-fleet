@@ -2130,12 +2130,12 @@ func validateStagedRelease(deploymentPath, targetVersion string) error {
 }
 
 func preserveDeploymentState(ctx context.Context, current, staged string) error {
-	for _, path := range []string{".env", "server/influx_config/.env"} {
+	for _, path := range []string{".env", "server/influx_config/.env", "ha/node.env"} {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("preserve deployment configuration: %w", err)
 		}
 		source := filepath.Join(current, path)
-		if _, err := os.Stat(source); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Lstat(source); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
 			return fmt.Errorf("inspect preserved file %s: %w", path, err)

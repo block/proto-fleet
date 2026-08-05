@@ -128,6 +128,9 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	haNodeEnvPath := filepath.Join(installRoot, "deployment", "ha", "node.env")
+	require.NoError(t, os.MkdirAll(filepath.Dir(haNodeEnvPath), 0o750))
+	require.NoError(t, os.WriteFile(haNodeEnvPath, []byte("HA_NODE_NAME=ha-a\n"), 0o600))
 	bundle := releaseBundle(t, "v1.1.0")
 	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
 	runner := &recordingRunner{}
@@ -144,6 +147,10 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	assert.Equal(t, operatorEnv, mustReadFile(t, filepath.Join(installRoot, "deployment", ".env")))
 	assert.Equal(t, "certificate\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "ssl", "cert.pem")))
 	assert.Equal(t, "influx-secret\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "server", "influx_config", ".env")))
+	assert.Equal(t, "HA_NODE_NAME=ha-a\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "ha", "node.env")))
+	haNodeEnv, err := os.Stat(filepath.Join(installRoot, "deployment", "ha", "node.env"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), haNodeEnv.Mode().Perm())
 
 	commands := runner.Commands()
 	require.Len(t, commands, 2)
@@ -154,6 +161,18 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	assert.FileExists(t, completed.LogPath)
 	assert.Empty(t, completed.RecoveryCommand)
 	assert.NoFileExists(t, filepath.Join(manager.cfg.StateDir, activationMarkerFilename))
+}
+
+func TestPreserveDeploymentStateRejectsDanglingSymlink(t *testing.T) {
+	t.Parallel()
+
+	current := t.TempDir()
+	staged := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(current, "ha"), 0o750))
+	require.NoError(t, os.Symlink("missing-node.env", filepath.Join(current, "ha", "node.env")))
+
+	err := preserveDeploymentState(context.Background(), current, staged)
+	require.ErrorContains(t, err, "refusing to copy non-regular file")
 }
 
 func TestManagerDefersSelfUpdateUntilActivationSucceeds(t *testing.T) {
