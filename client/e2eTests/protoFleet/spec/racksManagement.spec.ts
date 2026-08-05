@@ -17,7 +17,7 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - management", () => {
   useRacksHooks();
 
-  test("Multiple racks support zone filtering and miner sorting", async ({ racksPage }) => {
+  test("Multiple racks support zone filtering and miner sorting", async ({ homePage, racksPage }) => {
     const zoneA = createZoneName("A");
     const zoneB = createZoneName("B");
     const createdRackLabels: string[] = [];
@@ -103,6 +103,7 @@ test.describe("Racks - management", () => {
     });
 
     await test.step("Validate default grid order and miners sort order", async () => {
+      await homePage.dismissCompleteSetupIfVisible();
       await expectGridRackLabels(racksPage, ["A-01", "A-02", "B-01"]);
       await racksPage.selectGridSort("Miners");
       await expectGridRackLabels(racksPage, ["B-01", "A-02", "A-01"]);

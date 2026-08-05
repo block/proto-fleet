@@ -665,11 +665,7 @@ export class RacksPage extends BasePage {
     for (let i = 0; i < optionByTestIdCount; i++) {
       const option = optionByTestId.nth(i);
       if (await option.isVisible().catch(() => false)) {
-        await option.click().catch(async () => {
-          await option.evaluate((element) => {
-            (element as HTMLElement).click();
-          });
-        });
+        await option.click();
         return;
       }
     }
@@ -680,11 +676,7 @@ export class RacksPage extends BasePage {
       const option = optionRows.nth(i);
       const label = ((await option.textContent()) ?? "").replace(/\s+/g, " ").trim();
       if (label === optionName && (await option.isVisible().catch(() => false))) {
-        await option.click().catch(async () => {
-          await option.evaluate((element) => {
-            (element as HTMLElement).click();
-          });
-        });
+        await option.click();
         return;
       }
     }
