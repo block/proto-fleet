@@ -237,46 +237,6 @@ func TestEndpointMonitorAllowsStartupThenFailsClosed(t *testing.T) {
 	require.ErrorIs(t, neverReady.check(startedAt.Add(2*time.Second)), errEndpointUnavailable)
 }
 
-func TestHARuntimeAbortsWhenEndpointOwnershipIsLost(t *testing.T) {
-	// Arrange
-	owner := newRuntimeTestOwner()
-	group := newRuntimeTestGroup()
-	var endpointHealthy atomic.Bool
-	endpointChecked := make(chan struct{}, 1)
-	endpointHealthy.Store(true)
-	config := runtimeTestConfig()
-	config.EndpointHealthy = func() bool {
-		healthy := endpointHealthy.Load()
-		if healthy {
-			select {
-			case endpointChecked <- struct{}{}:
-			default:
-			}
-		}
-		return healthy
-	}
-	config.EndpointTimeout = time.Second
-	runtime := newRuntime(owner, group, alwaysHealthy, config)
-	runResult := make(chan error, 1)
-	go func() { runResult <- runtime.Run(t.Context()) }()
-	activeCtx, cancelActive := context.WithCancel(t.Context())
-	defer cancelActive()
-	owner.activations <- runtimeTestActivation{ctx: activeCtx}
-	requireReceiveContext(t, group.startedCh)
-	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
-	requireReceive(t, endpointChecked)
-
-	// Act
-	endpointHealthy.Store(false)
-
-	// Assert
-	runErr := <-runResult
-	require.ErrorIs(t, runErr, ErrRuntimeAborted)
-	require.ErrorIs(t, runErr, errEndpointUnavailable)
-	requireReceiveContext(t, group.abortedCh)
-	require.False(t, runtime.Active())
-}
-
 func TestEndpointLossStopsLeaseRenewalBeforeAbortCleanup(t *testing.T) {
 	// Arrange
 	owner := newRuntimeTestOwner()
@@ -315,7 +275,10 @@ func TestEndpointLossStopsLeaseRenewalBeforeAbortCleanup(t *testing.T) {
 	// Assert
 	requireReceive(t, owner.stopped)
 	close(abortWait)
-	require.ErrorIs(t, <-runResult, errEndpointUnavailable)
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, ErrRuntimeAborted)
+	require.ErrorIs(t, runErr, errEndpointUnavailable)
+	require.False(t, runtime.Active())
 }
 
 func TestHARuntimeJoinsAbortCleanupError(t *testing.T) {
