@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -127,6 +128,83 @@ func TestHandleUpgradeMapsManagerStateWithoutStatusSnapshot(t *testing.T) {
 			assert.Equal(t, test.wantStatus, recorder.Code)
 		})
 	}
+}
+
+func TestHandleUpgradeUsesCallerOperationID(t *testing.T) {
+	t.Parallel()
+
+	operationID := "11111111-1111-4111-8111-111111111111"
+	manager := &Manager{operation: &updaterapi.Operation{
+		ID:            operationID,
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseQueued,
+	}}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/upgrade",
+		strings.NewReader(fmt.Sprintf(`{"operation_id":%q,"target_version":"v1.1.0"}`, operationID)),
+	)
+	NewServer(manager).handleUpgrade(recorder, request)
+
+	assert.Equal(t, http.StatusAccepted, recorder.Code)
+	var response updaterapi.TriggerResponse
+	require.NoError(t, json.NewDecoder(recorder.Body).Decode(&response))
+	assert.Equal(t, operationID, response.Operation.ID)
+}
+
+func TestHandleUpgradeRejectsInvalidOperationID(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/upgrade",
+		strings.NewReader(`{"operation_id":"not-a-uuid","target_version":"v1.1.0"}`),
+	)
+	NewServer(&Manager{}).handleUpgrade(recorder, request)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "operation id must be a canonical UUID")
+}
+
+func TestTriggerErrorHTTPStatus(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "invalid", err: newTriggerError(errTriggerInvalid, "invalid"), want: http.StatusBadRequest},
+		{name: "precondition", err: newTriggerError(errTriggerPrecondition, "precondition"), want: http.StatusPreconditionFailed},
+		{name: "busy", err: newTriggerError(errTriggerBusy, "busy"), want: http.StatusConflict},
+		{name: "closing", err: errTriggerClosing, want: http.StatusServiceUnavailable},
+		{name: "internal", err: assert.AnError, want: http.StatusInternalServerError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.want, triggerErrorHTTPStatus(test.err))
+		})
+	}
+}
+
+func TestHandleUpgradeSanitizesInternalManagerError(t *testing.T) {
+	t.Parallel()
+
+	missingInstallRoot := filepath.Join(t.TempDir(), "privileged-host-path")
+	manager := &Manager{cfg: Config{
+		InstallRoot: missingInstallRoot,
+		StateDir:    t.TempDir(),
+		NewID:       func() string { return "test-operation" },
+	}}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/upgrade", strings.NewReader(`{"target_version":"v1.1.0"}`))
+	NewServer(manager).handleUpgrade(recorder, request)
+
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "host updater failed to start upgrade")
+	assert.NotContains(t, recorder.Body.String(), missingInstallRoot)
 }
 
 func TestServerReadyAfterSocketIsBoundAndSecured(t *testing.T) {

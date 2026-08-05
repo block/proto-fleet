@@ -69,6 +69,8 @@ var (
 	staleStateArtifactName   = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
 	staleStagingArtifactName = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
 	operationLogNamePattern  = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
+	errTriggerInvalid        = errors.New("invalid updater trigger")
+	errTriggerPrecondition   = errors.New("updater trigger precondition failed")
 	errTriggerBusy           = errors.New("updater is busy")
 	errTriggerClosing        = errors.New("updater is shutting down")
 )
@@ -793,8 +795,56 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 
 func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	if !canonicalRelease.MatchString(targetVersion) || !semver.IsValid(targetVersion) {
-		return updaterapi.Operation{}, fmt.Errorf("target version must be a stable or RC release tag")
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerInvalid,
+			"target version must be a stable or RC release tag",
+		)
 	}
+	if m.cfg.NewID == nil {
+		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: generator is not configured")
+	}
+	return m.trigger(targetVersion, m.cfg.NewID(), false)
+}
+
+// TriggerWithID accepts a caller-generated UUID so a client that loses the
+// HTTP response can reconcile the durable operation through Status without
+// guessing by target or time. Reusing the ID for the same target is
+// idempotent; reusing it for another target is rejected.
+func (m *Manager) TriggerWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
+	parsedID, err := uuid.Parse(operationID)
+	if err != nil || parsedID.String() != operationID {
+		return updaterapi.Operation{}, newTriggerError(errTriggerInvalid, "operation id must be a canonical UUID")
+	}
+	return m.trigger(targetVersion, operationID, true)
+}
+
+func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (updaterapi.Operation, error) {
+	if operationID == "" {
+		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: empty value")
+	}
+	if !canonicalRelease.MatchString(targetVersion) || !semver.IsValid(targetVersion) {
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerInvalid,
+			"target version must be a stable or RC release tag",
+		)
+	}
+	// Check before host-state validation so a retry can recover the original
+	// response even after that operation has completed and changed the
+	// installed version. The write-locked check below closes the race with a
+	// first request that is still being admitted.
+	m.mu.RLock()
+	if idempotent && m.operation != nil && m.operation.ID == operationID {
+		existing := *m.operation
+		m.mu.RUnlock()
+		if existing.TargetVersion != targetVersion {
+			return updaterapi.Operation{}, newTriggerError(
+				errTriggerInvalid,
+				"operation id is already associated with another target",
+			)
+		}
+		return existing, nil
+	}
+	m.mu.RUnlock()
 	marker, err := m.readActivationMarker()
 	if err != nil {
 		return updaterapi.Operation{}, fmt.Errorf("inspect pending activation recovery: %w", err)
@@ -813,14 +863,29 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 		return updaterapi.Operation{}, err
 	}
 	if !semver.IsValid(currentVersion) {
-		return updaterapi.Operation{}, fmt.Errorf("installed version %q is not upgradeable", currentVersion)
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerPrecondition,
+			fmt.Sprintf("installed version %q is not upgradeable", currentVersion),
+		)
 	}
 	if semver.Compare(targetVersion, currentVersion) <= 0 {
-		return updaterapi.Operation{}, fmt.Errorf("target version %s must be newer than installed version %s", targetVersion, currentVersion)
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerPrecondition,
+			fmt.Sprintf("target version %s must be newer than installed version %s", targetVersion, currentVersion),
+		)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if idempotent && m.operation != nil && m.operation.ID == operationID {
+		if m.operation.TargetVersion != targetVersion {
+			return updaterapi.Operation{}, newTriggerError(
+				errTriggerInvalid,
+				"operation id is already associated with another target",
+			)
+		}
+		return *m.operation, nil
+	}
 	if m.closing {
 		return updaterapi.Operation{}, errTriggerClosing
 	}
@@ -848,7 +913,7 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	}
 	now := m.cfg.Now().UTC()
 	op := &updaterapi.Operation{
-		ID:            m.cfg.NewID(),
+		ID:            operationID,
 		TargetVersion: targetVersion,
 		Phase:         updaterapi.PhaseQueued,
 		Message:       "Upgrade queued",

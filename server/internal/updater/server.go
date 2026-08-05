@@ -250,9 +250,25 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "invalid request body"})
 		return
 	}
-	operation, err := s.manager.Trigger(request.TargetVersion)
+	var operation updaterapi.Operation
+	if request.OperationID == "" {
+		// Backward compatibility for an older fleetd paired with a newer host
+		// updater. New callers always supply an operation ID for exact
+		// lost-response reconciliation.
+		operation, err = s.manager.Trigger(request.TargetVersion)
+	} else {
+		operation, err = s.manager.TriggerWithID(request.TargetVersion, request.OperationID)
+	}
 	if err != nil {
-		writeJSON(w, triggerErrorHTTPStatus(err), updaterapi.ErrorResponse{Error: err.Error()})
+		status := triggerErrorHTTPStatus(err)
+		message := err.Error()
+		if status == http.StatusInternalServerError {
+			// Manager errors can contain privileged host paths and filesystem
+			// details. Keep those in daemon logs, not the Fleet API response.
+			log.Printf("trigger updater operation: %v", err)
+			message = "host updater failed to start upgrade"
+		}
+		writeJSON(w, status, updaterapi.ErrorResponse{Error: message})
 		return
 	}
 	writeJSON(w, http.StatusAccepted, updaterapi.TriggerResponse{Operation: operation})
@@ -276,12 +292,16 @@ func decodeTriggerRequest(body io.Reader) (updaterapi.TriggerRequest, error) {
 
 func triggerErrorHTTPStatus(err error) int {
 	switch {
+	case errors.Is(err, errTriggerInvalid):
+		return http.StatusBadRequest
+	case errors.Is(err, errTriggerPrecondition):
+		return http.StatusPreconditionFailed
 	case errors.Is(err, errTriggerClosing):
 		return http.StatusServiceUnavailable
 	case errors.Is(err, errTriggerBusy):
 		return http.StatusConflict
 	default:
-		return http.StatusBadRequest
+		return http.StatusInternalServerError
 	}
 }
 

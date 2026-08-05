@@ -142,8 +142,10 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	runner := &recordingRunner{}
 	manager := newTestManager(t, installRoot, server, runner)
 
-	operation, err := manager.Trigger("v1.1.0")
+	operationID := "11111111-1111-4111-8111-111111111111"
+	operation, err := manager.TriggerWithID("v1.1.0", operationID)
 	require.NoError(t, err)
+	assert.Equal(t, operationID, operation.ID)
 	assert.Equal(t, updaterapi.PhaseQueued, operation.Phase)
 
 	completed := waitForTerminal(t, manager)
@@ -167,6 +169,64 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	assert.FileExists(t, completed.LogPath)
 	assert.Empty(t, completed.RecoveryCommand)
 	assert.NoFileExists(t, filepath.Join(manager.cfg.StateDir, activationMarkerFilename))
+
+	// A lost-response retry returns the durable operation even after the
+	// installed version changed, while ID reuse for another target is rejected.
+	retried, err := manager.TriggerWithID("v1.1.0", operationID)
+	require.NoError(t, err)
+	assert.Equal(t, updaterapi.PhaseSucceeded, retried.Phase)
+	_, err = manager.TriggerWithID("v1.2.0", operationID)
+	require.ErrorIs(t, err, errTriggerInvalid)
+}
+
+func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &recordingRunner{}
+	admissionStarted := make(chan struct{})
+	releaseAdmission := make(chan struct{})
+	var blockQueuedPersist sync.Once
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.beforePersistState = func(operation updaterapi.Operation) error {
+			if operation.Phase == updaterapi.PhaseQueued {
+				blockQueuedPersist.Do(func() {
+					close(admissionStarted)
+					<-releaseAdmission
+				})
+			}
+			return nil
+		}
+	})
+
+	type triggerResult struct {
+		operation updaterapi.Operation
+		err       error
+	}
+	results := make(chan triggerResult, 2)
+	operationID := "11111111-1111-4111-8111-111111111111"
+	trigger := func() {
+		operation, err := manager.TriggerWithID("v1.1.0", operationID)
+		results <- triggerResult{operation: operation, err: err}
+	}
+	go trigger()
+	<-admissionStarted
+	go trigger()
+	close(releaseAdmission)
+
+	first := <-results
+	second := <-results
+	require.NoError(t, first.err)
+	require.NoError(t, second.err)
+	assert.Equal(t, first.operation, second.operation)
+	assert.Equal(t, operationID, first.operation.ID)
+
+	completed := waitForTerminal(t, manager)
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	assert.Len(t, runner.Commands(), 2, "concurrent same-ID admission must launch exactly one upgrade worker")
 }
 
 func TestPreserveDeploymentStateRejectsDanglingSymlink(t *testing.T) {
