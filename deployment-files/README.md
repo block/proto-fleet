@@ -287,14 +287,21 @@ policy that way rather than by view name.
 
 A `job_status` of `Paused`, or a `last_successful_finish` well in the past,
 confirms it. Resume the job with the `job_id` from above and backfill enough
-buckets to clear the alert (the `CALL` must not run inside a transaction):
+buckets to clear the alert:
 
-```sql
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
 SELECT alter_job(<job_id>, scheduled => true);
 CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat',
                                   now() - INTERVAL '2 hours',
                                   now() - INTERVAL '1 minute');
+SQL
 ```
+
+Keep this on psql's default autocommit — `refresh_continuous_aggregate()`
+cannot run inside a transaction block, so adding `--single-transaction` (or
+wrapping the statements in `BEGIN`) fails with that error.
 
 ### Enabling system monitoring
 
