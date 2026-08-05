@@ -21,8 +21,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
-const minimumEndpointTimeout = 5 * time.Second
-
 // Config keeps HA opt-in so existing single-instance deployments remain
 // standalone and do not need etcd or Patroni credentials.
 type Config struct {
@@ -37,7 +35,6 @@ type Config struct {
 	RetryInterval    time.Duration `help:"Passive ownership retry interval." default:"1s" env:"RETRY_INTERVAL"`
 	DialTimeout      time.Duration `help:"etcd connection timeout." default:"5s" env:"DIAL_TIMEOUT"`
 	EndpointIP       string        `help:"Stable endpoint IPv4 address owned by keepalived." env:"ENDPOINT_IP"`
-	EndpointTimeout  time.Duration `help:"Maximum time for keepalived to establish or refresh endpoint ownership." default:"5s" env:"ENDPOINT_TIMEOUT"`
 }
 
 // NewConfiguredRuntime creates a standalone runtime unless HA is explicitly
@@ -118,14 +115,9 @@ func NewConfiguredRuntime(
 		_ = cleanup()
 		return nil, nil, err
 	}
-	endpointHealthy, err := newEndpointHealth(config.EndpointIP, EndpointHeartbeatFile, config.EndpointTimeout)
-	if err != nil {
-		_ = cleanup()
-		return nil, nil, err
-	}
+	endpointHealthy := newEndpointHealth(netip.MustParseAddr(config.EndpointIP), EndpointHeartbeatFile, endpointOwnershipTimeout)
 	runtime := newRuntime(coordinator, group, healthy, RuntimeConfig{
 		EndpointHealthy: endpointHealthy,
-		EndpointTimeout: config.EndpointTimeout,
 	})
 	return runtime, cleanup, nil
 }
@@ -151,14 +143,8 @@ func (config Config) Validate() error {
 	if err != nil || !endpointIP.Is4() || !endpointIP.IsGlobalUnicast() || endpointIP.As4()[0] == 0 {
 		return errors.New("HA endpoint IP must be a routable literal IPv4 address")
 	}
-	if config.EndpointTimeout <= 0 {
-		return errors.New("enabled HA requires a positive endpoint timeout")
-	}
-	if config.EndpointTimeout < minimumEndpointTimeout {
-		return fmt.Errorf("HA endpoint timeout must be at least %s", minimumEndpointTimeout)
-	}
-	if config.EndpointTimeout >= config.LeaseDuration {
-		return errors.New("HA endpoint timeout must be less than the lease duration")
+	if config.LeaseDuration <= endpointOwnershipTimeout {
+		return fmt.Errorf("HA lease duration must be greater than the %s endpoint ownership timeout", endpointOwnershipTimeout)
 	}
 	for _, endpoint := range config.EtcdEndpoints {
 		parsed, err := url.Parse(endpoint)

@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,8 +14,7 @@ func TestEndpointHealthRequiresLocalAddressAndFreshHeartbeat(t *testing.T) {
 	// Arrange
 	heartbeat := filepath.Join(t.TempDir(), "endpoint-heartbeat")
 	require.NoError(t, os.WriteFile(heartbeat, nil, 0o600))
-	healthy, err := newEndpointHealth("127.0.0.1", heartbeat, time.Second)
-	require.NoError(t, err)
+	healthy := newEndpointHealth(netip.MustParseAddr("127.0.0.1"), heartbeat, time.Second)
 
 	// Act and assert
 	require.True(t, healthy())
@@ -26,7 +26,6 @@ func TestEndpointHealthRequiresLocalAddressAndFreshHeartbeat(t *testing.T) {
 	require.NoError(t, os.Chtimes(heartbeat, future, future))
 	require.False(t, healthy())
 
-	unassigned, err := newEndpointHealth("192.0.2.1", heartbeat, time.Second)
-	require.NoError(t, err)
+	unassigned := newEndpointHealth(netip.MustParseAddr("192.0.2.1"), heartbeat, time.Second)
 	require.False(t, unassigned())
 }

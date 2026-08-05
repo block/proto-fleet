@@ -123,6 +123,10 @@ unicast VRRP configuration, then install the health check and configuration:
   node.env \
   keepalived.conf.tmpl \
   /var/lib/proto-fleet/ha/keepalived/keepalived.conf
+./fleet-ha render-keepalived \
+  node.env \
+  keepalived-systemd.conf.tmpl \
+  /var/lib/proto-fleet/ha/keepalived/override.conf
 sudo install -D -m 0755 \
   scripts/check-fleet-active.sh \
   /usr/local/libexec/proto-fleet/check-fleet-active
@@ -130,22 +134,29 @@ sudo install -d -m 0755 /run/proto-fleet-ha
 sudo install -D -m 0644 \
   /var/lib/proto-fleet/ha/keepalived/keepalived.conf \
   /etc/keepalived/keepalived.conf
+sudo install -D -m 0644 \
+  /var/lib/proto-fleet/ha/keepalived/override.conf \
+  /etc/systemd/system/keepalived.service.d/override.conf
+sudo systemctl daemon-reload
+sudo systemctl enable --now keepalived
 ```
 
-Configure Fleet on both Fleet hosts with its local keepalived contract:
+Start Fleet on both Fleet hosts from the deployment directory. The deployment
+`.env` supplies Fleet's existing secrets and database DSN; `node.env` supplies
+the local HA identity:
 
-```text
-HTTP_LISTEN_ADDRESS=127.0.0.1:4000
-HA_SECRETS_DIR=/etc/proto-fleet/ha
-FLEET_HA_ENABLED=true
-FLEET_HA_ETCD_ENDPOINTS=https://<HA_DB_A_IP>:2379,https://<HA_DB_B_IP>:2379,https://<HA_DCS_C_IP>:2379
-FLEET_HA_ENDPOINT_IP=<HA_VIRTUAL_IP>
-FLEET_HA_ENDPOINT_TIMEOUT=5s
+```bash
+docker compose \
+  --env-file .env \
+  --env-file ha/node.env \
+  --file docker-compose.yaml \
+  --file ha/fleet-compose.yaml \
+  up -d --no-build fleet-api fleet-client
 ```
 
-These values are read by `docker compose`; the HA secrets and heartbeat directory
-are mounted read-only into `fleet-api`. Start keepalived before Fleet; it remains
-in backup while `/health/active` is unavailable. When Fleet becomes active,
+The overlay mounts only Fleet's CA, etcd password, and heartbeat directory into
+`fleet-api`. Keepalived remains in backup while the HTTPS proxy or active-health
+check is unavailable. When Fleet becomes active,
 keepalived claims the VIP and refreshes the heartbeat. Fleet allows five seconds
 for initial VIP ownership, then exits and stops lease renewal if the VIP or
 heartbeat disappears. The database lease remains the authority that makes Fleet

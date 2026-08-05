@@ -1,0 +1,4 @@
+[Service]
+Restart=on-failure
+RestartSec=2s
+ExecStopPost=-/usr/sbin/ip address delete ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}

@@ -1,7 +1,6 @@
 package ha
 
 import (
-	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -11,11 +10,7 @@ import (
 // EndpointHeartbeatFile is the local keepalived-to-Fleet liveness contract.
 const EndpointHeartbeatFile = "/run/proto-fleet-ha/endpoint-heartbeat"
 
-func newEndpointHealth(rawIP, heartbeatFile string, timeout time.Duration) (func() bool, error) {
-	endpointIP, err := netip.ParseAddr(rawIP)
-	if err != nil {
-		return nil, fmt.Errorf("parse HA endpoint IP: %w", err)
-	}
+func newEndpointHealth(endpointIP netip.Addr, heartbeatFile string, timeout time.Duration) func() bool {
 	return func() bool {
 		if !localAddressAssigned(endpointIP) {
 			return false
@@ -26,7 +21,7 @@ func newEndpointHealth(rawIP, heartbeatFile string, timeout time.Duration) (func
 		}
 		age := time.Since(info.ModTime())
 		return age >= 0 && age <= timeout
-	}, nil
+	}
 }
 
 func localAddressAssigned(want netip.Addr) bool {

@@ -84,7 +84,51 @@ test_patroni_contract() {
     ' "$compose" || fail "Patroni must start as root before its entrypoint drops privileges"
 }
 
+test_fleet_ha_contract() {
+    local rendered release_dir secret_mount_count
+    rendered="$(mktemp)"
+    release_dir="$(mktemp -d)"
+    trap 'rm -f "$rendered"; rm -rf "$release_dir"' RETURN
+
+    mkdir -p "${release_dir}/ha" "${release_dir}/server"
+    cp "${HA_DIR}/../docker-compose.yaml" "${release_dir}/docker-compose.yaml"
+    cp "${HA_DIR}/fleet-compose.yaml" "${release_dir}/ha/fleet-compose.yaml"
+    cp "${HA_DIR}/../../server/docker-compose.base.yaml" "${release_dir}/server/docker-compose.base.yaml"
+
+    AUTH_CLIENT_SECRET_KEY=test-auth-secret \
+    DB_USERNAME=fleet \
+    DB_PASSWORD=test-db-password \
+    DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet \
+    ENCRYPT_SERVICE_MASTER_KEY=test-master-key \
+    HA_DB_A_IP=10.40.0.11 \
+    HA_DB_B_IP=10.40.0.12 \
+    HA_DCS_C_IP=10.40.0.13 \
+    HA_VIRTUAL_IP=10.40.0.100 \
+    HA_SECRETS_DIR=/etc/proto-fleet/ha \
+        docker compose \
+        --file "${release_dir}/docker-compose.yaml" \
+        --file "${release_dir}/ha/fleet-compose.yaml" \
+        config fleet-api fleet-client >"$rendered"
+
+    if grep -q '^  timescaledb:$' "$rendered"; then
+        fail "HA Fleet targets must not include the standalone database service"
+    fi
+    assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
+    assert_contains "$rendered" "FLEET_HA_ENABLED: \"true\""
+    assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/service-ca.crt"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-etcd-password"
+    secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
+    [[ "$secret_mount_count" -eq 2 ]] || fail "Fleet must mount only its two HA secret files"
+
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" "https://localhost/api-proxy/health/active"
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" "Restart=on-failure"
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=-/usr/sbin/ip address delete ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
+}
+
 test_compose_uses_one_host_identity
 test_patroni_contract
+test_fleet_ha_contract
 
 echo "HA deployment profile checks passed"

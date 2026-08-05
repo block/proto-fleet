@@ -263,7 +263,6 @@ func TestEndpointLossStopsLeaseRenewalBeforeAbortCleanup(t *testing.T) {
 		}
 		return healthy
 	}
-	config.EndpointTimeout = 5 * time.Second
 	runtime := newRuntime(owner, group, alwaysHealthy, config)
 	runResult := make(chan error, 1)
 	go func() { runResult <- runtime.Run(t.Context()) }()
