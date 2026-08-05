@@ -6,12 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
+	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/mod/semver"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/admissionctx"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 // Channel is an org's release channel in its persisted (DB string) form; the
@@ -24,17 +31,27 @@ const (
 	ChannelStable Channel = "stable"
 	// ChannelStableAndRC also offers release candidates.
 	ChannelStableAndRC Channel = "stable_and_rc"
+
+	executorStatusTimeout  = 2 * time.Second
+	executorTriggerTimeout = 6 * time.Second
+	upgradeAuditTimeout    = 5 * time.Second
 )
 
 // UpdateStatus is the gated, channel-filtered update offer for one org.
 // LatestEligible is nil — and InstallCommand empty — unless UpdateAvailable.
 type UpdateStatus struct {
-	CurrentVersion  string
-	Channel         Channel
-	LatestEligible  *Release
-	StatusAvailable bool
-	UpdateAvailable bool
-	InstallCommand  string
+	CurrentVersion    string
+	Channel           Channel
+	LatestEligible    *Release
+	StatusAvailable   bool
+	UpdateAvailable   bool
+	InstallCommand    string
+	OneClickAvailable bool
+}
+
+type UpgradeStatus struct {
+	ExecutorAvailable bool
+	Operation         *updaterapi.Operation
 }
 
 // snapshotProvider is the narrow slice of the Checker the service reads;
@@ -60,12 +77,26 @@ type Service struct {
 	snapshots      snapshotProvider
 	queries        channelSettingQuerier
 	logger         *slog.Logger
+	executor       executorClient
+	activitySvc    *activity.Service
 }
 
 // NewService creates the updates domain service. serverVersion is the running
 // fleetd build (the ldflags main.version) — never a client bundle version.
-func NewService(cfg Config, serverVersion string, snapshots snapshotProvider, queries channelSettingQuerier) *Service {
-	return newService(cfg, serverVersion, snapshots, queries, slog.Default())
+func NewService(
+	cfg Config,
+	serverVersion string,
+	snapshots snapshotProvider,
+	queries channelSettingQuerier,
+	activityServices ...*activity.Service,
+) *Service {
+	var activitySvc *activity.Service
+	if len(activityServices) > 0 {
+		activitySvc = activityServices[0]
+	}
+	service := newService(cfg, serverVersion, snapshots, queries, slog.Default())
+	service.activitySvc = activitySvc
+	return service
 }
 
 func newService(cfg Config, serverVersion string, snapshots snapshotProvider, queries channelSettingQuerier, logger *slog.Logger) *Service {
@@ -75,6 +106,7 @@ func newService(cfg Config, serverVersion string, snapshots snapshotProvider, qu
 		snapshots:      snapshots,
 		queries:        queries,
 		logger:         logger,
+		executor:       newExecutorClient(cfg.UpdaterSocketPath),
 	}
 }
 
@@ -89,8 +121,9 @@ func (s *Service) GetUpdateStatus(ctx context.Context, organizationID int64) (Up
 	}
 	snapshot := s.snapshots.Snapshot()
 	status := UpdateStatus{
-		CurrentVersion: s.currentVersion,
-		Channel:        channel,
+		CurrentVersion:    s.currentVersion,
+		Channel:           channel,
+		OneClickAvailable: s.executorAvailable(ctx),
 	}
 	if !semver.IsValid(s.currentVersion) {
 		s.logger.Debug("update check skipped: running version is not semver", "version", s.currentVersion)
@@ -119,6 +152,169 @@ func (s *Service) GetUpdateStatus(ctx context.Context, organizationID int64) (Up
 	return status, nil
 }
 
+func (s *Service) executorAvailable(ctx context.Context) bool {
+	if s.executor == nil {
+		return false
+	}
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
+	defer cancel()
+	_, err := s.executor.Status(statusCtx)
+	return err == nil
+}
+
+// TriggerUpgrade re-derives the eligible offer at mutation time. The browser
+// cannot ask the privileged host executor to run a URL, command, downgrade,
+// or stale release that is no longer offered by the selected channel.
+func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targetVersion string) (updaterapi.Operation, error) {
+	status, err := s.GetUpdateStatus(ctx, organizationID)
+	if err != nil {
+		return updaterapi.Operation{}, err
+	}
+	if !status.UpdateAvailable || status.LatestEligible == nil {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("no eligible update is available")
+	}
+	if targetVersion != status.LatestEligible.Version {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionErrorf(
+			"target %q is no longer the eligible update", targetVersion)
+	}
+	if s.executor == nil {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("one-click updates are not installed on this host")
+	}
+	if err := ctx.Err(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
+	}
+
+	// Authorization and target validation are complete. Detach the privileged
+	// local mutation from browser cancellation while preserving the exact
+	// active-runtime lifetime that admitted this request. A missing lifetime
+	// means the active gate was bypassed, so no host mutation is allowed.
+	operationCtx, cancelOperation, ok := admissionctx.DetachRequestCancellation(ctx)
+	if !ok {
+		return updaterapi.Operation{}, fleeterror.NewInternalError("upgrade request is missing active-runtime admission")
+	}
+	defer cancelOperation()
+	if err := operationCtx.Err(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
+	}
+
+	operationID := uuid.NewString()
+	operation, err := s.triggerUpgrade(operationCtx, operationID, targetVersion)
+	if err == nil {
+		s.logUpgradeTriggered(operationCtx, organizationID, operation)
+		return operation, nil
+	}
+	if cancelErr := operationCtx.Err(); cancelErr != nil {
+		return updaterapi.Operation{}, fmt.Errorf("trigger canceled during host mutation: %w", cancelErr)
+	}
+
+	// A reset, timeout, or malformed accepted response does not prove that the
+	// mutation failed. Retry once with the same caller-supplied operation ID so
+	// a request still finishing admission can return its durable operation, or
+	// a request that never arrived can be safely admitted. If that response is
+	// also inconclusive, an exact status match is authoritative and cannot be
+	// confused with another operator's same-target request.
+	if ambiguousExecutorResult(err) {
+		operation, retryErr := s.triggerUpgrade(operationCtx, operationID, targetVersion)
+		if retryErr == nil {
+			s.logUpgradeTriggered(operationCtx, organizationID, operation)
+			return operation, nil
+		}
+		if cancelErr := operationCtx.Err(); cancelErr != nil {
+			return updaterapi.Operation{}, fmt.Errorf("trigger canceled during host mutation retry: %w", cancelErr)
+		}
+		if reconciled, ok := s.reconcileUpgrade(operationCtx, operationID, targetVersion); ok {
+			s.logUpgradeTriggered(operationCtx, organizationID, reconciled)
+			return reconciled, nil
+		}
+		if cancelErr := operationCtx.Err(); cancelErr != nil {
+			return updaterapi.Operation{}, fmt.Errorf("trigger canceled during host mutation reconciliation: %w", cancelErr)
+		}
+	}
+	return updaterapi.Operation{}, mapExecutorTriggerError(err)
+}
+
+func (s *Service) triggerUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
+	triggerCtx, cancel := context.WithTimeout(ctx, executorTriggerTimeout)
+	defer cancel()
+	return s.executor.Trigger(triggerCtx, operationID, targetVersion)
+}
+
+func ambiguousExecutorResult(err error) bool {
+	var transportErr *executorTransportError
+	var protocolErr *executorProtocolError
+	return errors.As(err, &transportErr) || errors.As(err, &protocolErr)
+}
+
+func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, bool) {
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
+	defer cancel()
+	status, err := s.executor.Status(statusCtx)
+	if err != nil || status.Operation == nil {
+		return updaterapi.Operation{}, false
+	}
+	operation := *status.Operation
+	if operation.ID != operationID || operation.TargetVersion != targetVersion {
+		return updaterapi.Operation{}, false
+	}
+	return operation, true
+}
+
+func mapExecutorTriggerError(err error) error {
+	if errors.Is(err, errExecutorUnavailable) {
+		return fleeterror.NewUnavailableErrorf("host updater is unavailable; use the install command instead")
+	}
+	var httpErr *executorHTTPError
+	if errors.As(err, &httpErr) {
+		switch httpErr.StatusCode {
+		case http.StatusConflict:
+			return fleeterror.NewAlreadyExistsError(httpErr.Message)
+		case http.StatusBadRequest, http.StatusPreconditionFailed:
+			return fleeterror.NewFailedPreconditionError(httpErr.Message)
+		case http.StatusServiceUnavailable:
+			return fleeterror.NewUnavailableErrorf("host updater is temporarily unavailable; use the install command instead")
+		}
+		return fmt.Errorf("host updater rejected trigger with HTTP status %d", httpErr.StatusCode)
+	}
+	if ambiguousExecutorResult(err) || errors.Is(err, context.DeadlineExceeded) {
+		return fleeterror.NewUnavailableErrorf("host updater did not confirm the upgrade; check its status before retrying")
+	}
+	if errors.Is(err, context.Canceled) {
+		return fleeterror.NewUnavailableErrorf("host updater canceled the upgrade request before confirming it")
+	}
+	return fmt.Errorf("trigger host upgrade: %w", err)
+}
+
+func (s *Service) logUpgradeTriggered(ctx context.Context, organizationID int64, operation updaterapi.Operation) {
+	orgID := organizationID
+	event := activitymodels.Event{
+		Category:       activitymodels.CategorySystem,
+		Type:           "instance_upgrade_triggered",
+		OrganizationID: &orgID,
+		Description:    fmt.Sprintf("Triggered instance upgrade to %s", operation.TargetVersion),
+		Metadata: map[string]any{
+			"operation_id":   operation.ID,
+			"target_version": operation.TargetVersion,
+		},
+	}
+	activity.StampActor(ctx, &event)
+	auditCtx, cancel := context.WithTimeout(ctx, upgradeAuditTimeout)
+	defer cancel()
+	s.activitySvc.Log(auditCtx, event)
+}
+
+func (s *Service) GetUpgradeStatus(ctx context.Context) UpgradeStatus {
+	if s.executor == nil {
+		return UpgradeStatus{}
+	}
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
+	defer cancel()
+	status, err := s.executor.Status(statusCtx)
+	if err != nil {
+		return UpgradeStatus{}
+	}
+	return UpgradeStatus{ExecutorAvailable: true, Operation: status.Operation}
+}
+
 // SetReleaseChannel persists the org's release channel. Values outside the
 // two known channels are rejected as invalid argument (the handler already
 // screens the proto enum; this keeps the DB CHECK constraint unreachable).
@@ -134,6 +330,16 @@ func (s *Service) SetReleaseChannel(ctx context.Context, organizationID int64, c
 	}); err != nil {
 		return fmt.Errorf("upsert release channel setting: %w", err)
 	}
+	orgID := organizationID
+	event := activitymodels.Event{
+		Category:       activitymodels.CategorySystem,
+		Type:           "release_channel_updated",
+		OrganizationID: &orgID,
+		Description:    fmt.Sprintf("Changed instance release channel to %s", channel),
+		Metadata:       map[string]any{"channel": channel},
+	}
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 	return nil
 }
 

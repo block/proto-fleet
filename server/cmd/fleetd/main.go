@@ -618,7 +618,7 @@ func start(config *Config) error {
 	// answers version/status calls, reading the zero snapshot as "no offer".
 	releaseChecker := updatesDomain.NewChecker(config.Updates, version)
 	updatesSvc := updatesDomain.NewService(config.Updates, version, releaseChecker,
-		db.NewFailoverResettingQuerier(db.NewRetryDB(conn)))
+		db.NewFailoverResettingQuerier(db.NewRetryDB(conn)), activitySvc)
 
 	// The public listener is bound before this group starts. This channel keeps
 	// the first system heartbeat from clearing its stale alert before then.

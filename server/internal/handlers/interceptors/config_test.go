@@ -192,6 +192,8 @@ func TestInstanceUpdateProceduresAreSessionOnly(t *testing.T) {
 	procedures := []string{
 		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
 		instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure,
+		instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
+		instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
 	}
 	for _, procedure := range procedures {
 		assert.Contains(t, SessionOnlyProcedures, procedure,
@@ -207,12 +209,18 @@ func TestInstanceUpdateProceduresAreSessionOnly(t *testing.T) {
 	}
 }
 
-func TestInstanceUpdateStatusResponseIsRedacted(t *testing.T) {
+func TestInstanceUpdateResponsesAreRedacted(t *testing.T) {
 	t.Parallel()
 
-	assert.Contains(t, RedactedResponseProcedures,
+	procedures := []string{
 		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
-		"update status exposes patch metadata and a host command that should not land in debug logs")
+		instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
+		instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, RedactedResponseProcedures, procedure,
+			"update responses expose host operational metadata that should not land in debug logs")
+	}
 }
 
 // API-key auth on AdminTerminateEvent returns PermissionDenied. nil service

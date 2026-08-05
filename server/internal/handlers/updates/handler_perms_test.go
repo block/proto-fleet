@@ -1,6 +1,9 @@
 package updates
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -21,8 +24,8 @@ func requirePermissionDenied(t *testing.T, err error) {
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }
 
-// Update status and channel mutation are gated on org-wide
-// instance:update before the service is touched (svc is nil).
+// Every update RPC is gated on org-wide instance:update before the service is
+// touched (svc is nil).
 func TestGetUpdateStatusRequiresInstanceUpdate(t *testing.T) {
 	t.Parallel()
 
@@ -43,6 +46,48 @@ func TestSetReleaseChannelRequiresInstanceUpdate(t *testing.T) {
 		Channel: instancev1.ReleaseChannel_RELEASE_CHANNEL_STABLE,
 	}))
 	requirePermissionDenied(t, err)
+}
+
+func TestTriggerUpgradeRequiresInstanceUpdate(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermMinerRead)
+
+	_, err := h.TriggerUpgrade(ctx, connect.NewRequest(&instancev1.TriggerUpgradeRequest{
+		TargetVersion: "v1.1.0",
+	}))
+	requirePermissionDenied(t, err)
+}
+
+func TestGetUpgradeStatusRequiresInstanceUpdate(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermMinerRead)
+
+	_, err := h.GetUpgradeStatus(ctx, connect.NewRequest(&instancev1.GetUpgradeStatusRequest{}))
+	requirePermissionDenied(t, err)
+}
+
+func TestMapErrPreservesContextCodes(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		err  error
+		code connect.Code
+	}{
+		{name: "canceled", err: fmt.Errorf("trigger stopped: %w", context.Canceled), code: connect.CodeCanceled},
+		{name: "deadline", err: fmt.Errorf("trigger stopped: %w", context.DeadlineExceeded), code: connect.CodeDeadlineExceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			mapped := mapErr(test.err)
+			assert.Equal(t, test.code, connect.CodeOf(mapped))
+			assert.True(t, errors.Is(mapped, test.err))
+		})
+	}
 }
 
 // instance:update narrowed to a site scope must not satisfy the org-wide gate.
