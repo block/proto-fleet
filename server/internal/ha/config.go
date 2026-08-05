@@ -1,11 +1,13 @@
 package ha
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,7 +36,7 @@ type Config struct {
 }
 
 // NewConfiguredRuntime creates a standalone runtime unless HA is explicitly
-// enabled. In HA mode, cleanup closes the etcd client.
+// enabled. In HA mode, cleanup closes the prepared queries and etcd client.
 func NewConfiguredRuntime(
 	config Config,
 	conn *sql.DB,
@@ -75,15 +77,28 @@ func NewConfiguredRuntime(
 	}
 	patroniTransport := transport.Clone()
 	patroniTransport.TLSClientConfig = tlsConfig.Clone()
-	cleanup := func() error {
-		patroniTransport.CloseIdleConnections()
-		return etcd.Close()
-	}
 	patroni := NewPatroniHTTPClient(&http.Client{
 		Transport: patroniTransport,
 		Timeout:   defaultHAHTTPTimeout,
 	})
-	queries := db.NewFailoverResettingQuerier(db.NewRetryDB(conn))
+	queries, err := db.NewPreparedQuerier(context.Background(), conn)
+	if err != nil {
+		patroniTransport.CloseIdleConnections()
+		_ = etcd.Close()
+		return nil, nil, fmt.Errorf("prepare HA database queries: %w", err)
+	}
+	cleanup := func() error {
+		patroniTransport.CloseIdleConnections()
+		queriesErr := queries.Close()
+		if queriesErr != nil {
+			queriesErr = fmt.Errorf("close HA prepared queries: %w", queriesErr)
+		}
+		etcdErr := etcd.Close()
+		if etcdErr != nil {
+			etcdErr = fmt.Errorf("close HA etcd client: %w", etcdErr)
+		}
+		return errors.Join(queriesErr, etcdErr)
+	}
 	observer, err := NewObserver(config.ClusterPath, etcd, queries, patroni)
 	if err != nil {
 		_ = cleanup()
@@ -114,10 +129,22 @@ func (config Config) Validate() error {
 		config.EtcdPasswordFile == "" || config.ServiceCAFile == "" || config.DialTimeout <= 0 {
 		return errors.New("enabled HA requires cluster path, etcd endpoints and credentials, service CA, and a positive dial timeout")
 	}
+	if config.LeaseDuration < time.Millisecond {
+		return errors.New("HA lease duration must be at least 1ms")
+	}
+	if config.RenewInterval <= 0 || config.RetryInterval <= 0 {
+		return errors.New("HA renew and retry intervals must be positive")
+	}
+	if config.RenewInterval >= config.LeaseDuration {
+		return errors.New("HA renew interval must be less than the lease duration")
+	}
 	for _, endpoint := range config.EtcdEndpoints {
 		parsed, err := url.Parse(endpoint)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
 			return fmt.Errorf("HA etcd endpoint must be an HTTPS URL: %q", endpoint)
+		}
+		if net.ParseIP(parsed.Hostname()) == nil {
+			return fmt.Errorf("HA etcd endpoint must use an IP address: %q", endpoint)
 		}
 	}
 	return nil

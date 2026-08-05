@@ -178,9 +178,14 @@ var reflectEnabledServices = []string{
 	instancev1connect.InstanceUpdateServiceName,
 }
 
-func start(config *Config) error {
+func start(config *Config) (result error) {
 	if err := config.HA.Validate(); err != nil {
 		return fmt.Errorf("invalid HA configuration: %w", err)
+	}
+	if config.HA.Enabled {
+		if err := config.DB.ValidateHA(); err != nil {
+			return fmt.Errorf("invalid HA database configuration: %w", err)
+		}
 	}
 	// Construct one configured registry before starting services. The CRUD
 	// service uses it now; the Phase 5 reconciler will share this same instance.
@@ -686,6 +691,9 @@ func start(config *Config) error {
 		}
 	}()
 	defer func() {
+		if errors.Is(result, ha.ErrOwnershipLost) {
+			return
+		}
 		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
 	}()
 
