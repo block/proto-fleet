@@ -150,8 +150,8 @@ detect_previous_install() {
 
 parse_compose_env_value() {
   local value="$1"
-  local double_quoted='^"(.*)"[[:space:]]*(#.*)?$'
-  local single_quoted="^'(.*)'[[:space:]]*(#.*)?$"
+  local double_quoted='^"([^"\\]*)"[[:space:]]*(#.*)?$'
+  local single_quoted="^'([^']*)'[[:space:]]*(#.*)?$"
 
   value=$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
   case "$value" in
@@ -429,8 +429,6 @@ Options:
   --install-dir PATH       Use PATH without prompting.
   --non-interactive        Fail instead of prompting; for an existing install
                            with a complete deployment .env.
-  --skip-updater-service   Do not install/reconfigure the host updater.
-                           Reserved for updater-driven internal workflows.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
@@ -490,6 +488,16 @@ resolve_latest_nightly_version() {
   echo "${nightly_version}"
 }
 
+validate_release_version() {
+  local version="$1"
+  if [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]] \
+    || [[ "$version" =~ ^nightly-[0-9]{8}-[0-9a-f]{12}$ ]]; then
+    return 0
+  fi
+  echo "❌ Invalid Proto Fleet release version: $version" >&2
+  exit 1
+}
+
 check_page_size() {
   local page_size=$(getconf PAGE_SIZE)
   local os_type=$(uname -s)
@@ -521,7 +529,6 @@ check_page_size() {
 }
 
 NON_INTERACTIVE=0
-SKIP_UPDATER_SERVICE=0
 REQUESTED_INSTALL_DIR=""
 REQUESTED_VERSION=""
 
@@ -534,10 +541,6 @@ while [ "$#" -gt 0 ]; do
       ;;
     --non-interactive)
       NON_INTERACTIVE=1
-      shift
-      ;;
-    --skip-updater-service)
-      SKIP_UPDATER_SERVICE=1
       shift
       ;;
     -h|--help)
@@ -585,6 +588,7 @@ case "${REQUESTED_VERSION:-latest}" in
     VERSION="$REQUESTED_VERSION"
     ;;
 esac
+validate_release_version "$VERSION"
 
 # Detect architecture
 case "$(uname -m)" in
@@ -595,24 +599,29 @@ esac
 
 TAR_NAME="proto-fleet-${VERSION}-${ARCH}.tar.gz"
 URL="${GITHUB_RELEASES_URL}/download/${VERSION}/${TAR_NAME}"
-
-# Clean up the downloaded tarball on any exit path. extract_and_cd also rm's
-# it on the happy path, but early-exit paths (download retry, sudo-mismatch
-# abort, future guards added below) would otherwise leak release-sized files
-# into /tmp on every aborted attempt.
-trap 'rm -f "/tmp/${TAR_NAME}"' EXIT
+DOWNLOAD_DIR=$(mktemp -d /tmp/proto-fleet-install.XXXXXX) || {
+  echo "❌ Could not create a private release-download directory." >&2
+  exit 1
+}
+trap 'rm -rf -- "$DOWNLOAD_DIR"' EXIT
+chmod 700 "$DOWNLOAD_DIR" || {
+  echo "❌ Could not secure the release-download directory." >&2
+  exit 1
+}
+TAR_PATH="${DOWNLOAD_DIR}/${TAR_NAME}"
 
 echo "🛰  Fetching proto-fleet ${VERSION} from ${URL}"
-if ! curl -fsSL "${URL}" -o "/tmp/${TAR_NAME}"; then
+if ! curl -fsSL "${URL}" -o "$TAR_PATH"; then
   echo "❌ Failed to download ${TAR_NAME} from GitHub Releases — does that release asset exist?"
   usage
 fi
 
-CHECKSUM_PATH="/tmp/${TAR_NAME}.sha256"
-trap 'rm -f "/tmp/${TAR_NAME}" "${CHECKSUM_PATH}"' EXIT
+CHECKSUM_PATH="${DOWNLOAD_DIR}/${TAR_NAME}.sha256"
 echo "🔐 Fetching and verifying ${TAR_NAME}.sha256"
 if ! curl -fsSL "${URL}.sha256" -o "${CHECKSUM_PATH}"; then
   echo "❌ This release does not provide the required SHA-256 integrity file."
+  echo "   For a legacy release, run the installer published with that exact tag:"
+  echo "   bash <(curl -fsSL ${GITHUB_RELEASES_URL}/download/${VERSION}/install.sh) ${VERSION}"
   exit 1
 fi
 checksum_fields=$(wc -w < "${CHECKSUM_PATH}" | tr -d '[:space:]')
@@ -622,10 +631,10 @@ if [ "$checksum_fields" != "2" ] || [ "$checksum_name" != "$TAR_NAME" ]; then
   exit 1
 fi
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd /tmp && sha256sum -c "${TAR_NAME}.sha256")
+  (cd "$DOWNLOAD_DIR" && sha256sum -c "${TAR_NAME}.sha256")
 elif command -v shasum >/dev/null 2>&1; then
   expected_checksum=$(awk '{print $1}' "${CHECKSUM_PATH}")
-  actual_checksum=$(shasum -a 256 "/tmp/${TAR_NAME}" | awk '{print $1}')
+  actual_checksum=$(shasum -a 256 "$TAR_PATH" | awk '{print $1}')
   [ "$expected_checksum" = "$actual_checksum" ] || { echo "❌ Release checksum verification failed."; exit 1; }
 else
   echo "❌ Neither sha256sum nor shasum is available to verify the release."
@@ -785,7 +794,7 @@ if ! capture_previous_run_options "$INSTALL_DIR" "$EXISTING_DEPLOYMENT" \
   exit 1
 fi
 
-extract_and_cd "/tmp/${TAR_NAME}" "$INSTALL_DIR"
+extract_and_cd "$TAR_PATH" "$INSTALL_DIR"
 # The system service starts with / as its working directory, so persist the
 # canonical absolute install root even when the interactive installer was
 # given a relative path.
@@ -816,8 +825,57 @@ for plugin in "${REQUIRED_PLUGINS[@]}"; do
 done
 echo "✅ Plugin binaries validated"
 
+UPDATER_CLEANUP_FAILED=0
+
+disable_updater_service_with() {
+  local privilege=("$@")
+  local load_state active_state unit_file_state
+  command -v systemctl >/dev/null 2>&1 || return 0
+
+  # A missing unit is already safe. For a known unit, query final state with
+  # checked commands so a sudo/systemctl failure cannot masquerade as
+  # inactive merely because `is-active` returned nonzero.
+  if ! load_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
+      --property=LoadState --value proto-fleet-updater.service 2>/dev/null); then
+    echo "❌ Could not inspect the host updater while disabling it." >&2
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  if [ "$load_state" = "not-found" ]; then
+    return 0
+  fi
+
+  ${privilege[@]+"${privilege[@]}"} systemctl disable --now \
+    proto-fleet-updater.service >/dev/null 2>&1 || true
+  if ! active_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
+      --property=ActiveState --value proto-fleet-updater.service 2>/dev/null) \
+    || ! unit_file_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
+      --property=UnitFileState --value proto-fleet-updater.service 2>/dev/null); then
+    echo "❌ Could not stop and disable the host updater safely." >&2
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  case "$active_state" in
+    inactive|failed) ;;
+    *)
+      echo "❌ Could not stop and disable the host updater safely." >&2
+      UPDATER_CLEANUP_FAILED=1
+      return 1
+      ;;
+  esac
+  case "$unit_file_state" in
+    disabled|masked|masked-runtime|static) ;;
+    *)
+      echo "❌ Could not stop and disable the host updater safely." >&2
+      UPDATER_CLEANUP_FAILED=1
+      return 1
+      ;;
+  esac
+  return 0
+}
+
 install_updater_service() {
-  if [ "$SKIP_UPDATER_SERVICE" = "1" ] || [ "$(uname -s)" != "Linux" ]; then
+  if [ "$(uname -s)" != "Linux" ]; then
     return 1
   fi
   if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
@@ -851,45 +909,92 @@ install_updater_service() {
   # The service runs as root. Only enable it when root sees the same Docker
   # daemon as the current installation; rootless Docker needs a future
   # user-service adapter and must keep the manual fallback.
-  local current_docker_id root_docker_id
+  local current_docker_id root_docker_id attempt
   current_docker_id=$(docker info --format '{{.ID}}' 2>/dev/null || true)
+  if [ -z "$current_docker_id" ] && command -v docker >/dev/null 2>&1; then
+    # Docker is an installer prerequisite, but tolerate an installed rootful
+    # daemon that is merely stopped so a single manual install still enables
+    # one-click upgrades. A rootless DOCKER_HOST remains distinct and will
+    # fail the daemon-identity comparison below.
+    ${privilege[@]+"${privilege[@]}"} systemctl start docker.service >/dev/null 2>&1 || true
+    for attempt in {1..20}; do
+      current_docker_id=$(docker info --format '{{.ID}}' 2>/dev/null || true)
+      [ -z "$current_docker_id" ] || break
+      sleep 0.25
+    done
+  fi
   root_docker_id=$(${privilege[@]+"${privilege[@]}"} docker info --format '{{.ID}}' 2>/dev/null || true)
   if [ -z "$current_docker_id" ] || [ "$current_docker_id" != "$root_docker_id" ]; then
     echo "ℹ️  Root does not manage this installation's Docker daemon; keeping copy-command upgrades."
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
 
   local env_temp escaped_install escaped_download
-  env_temp=$(mktemp)
+  if ! env_temp=$(mktemp); then
+    echo "⚠️  Could not create the host updater environment file." >&2
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
   escaped_install=${INSTALL_DIR//\\/\\\\}
   escaped_install=${escaped_install//\"/\\\"}
   escaped_download=${GITHUB_RELEASES_URL//\\/\\\\}
   escaped_download=${escaped_download//\"/\\\"}
-  {
+  if ! {
     printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_install"
     printf 'PROTO_FLEET_DOWNLOAD_BASE_URL="%s/download"\n' "$escaped_download"
     printf 'PROTO_FLEET_UPDATER_STATE_DIR="/var/lib/proto-fleet-updater"\n'
     printf 'PROTO_FLEET_UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"\n'
     printf 'PROTO_FLEET_UPDATER_BINARY_PATH="/usr/local/libexec/proto-fleet/proto-fleet-updater"\n'
-  } > "$env_temp"
+  } > "$env_temp"; then
+    echo "⚠️  Could not write the host updater environment file." >&2
+    rm -f "$env_temp"
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
 
   if ! ${privilege[@]+"${privilege[@]}"} install -d -m 0755 /usr/local/libexec/proto-fleet /etc/proto-fleet; then
     rm -f "$env_temp"
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
   if ! ${privilege[@]+"${privilege[@]}"} install -m 0755 updater/proto-fleet-updater /usr/local/libexec/proto-fleet/proto-fleet-updater \
     || ! ${privilege[@]+"${privilege[@]}"} install -m 0644 updater/proto-fleet-updater.service /etc/systemd/system/proto-fleet-updater.service \
     || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 "$env_temp" /etc/proto-fleet/updater.env; then
     rm -f "$env_temp"
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
   rm -f "$env_temp"
-  ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload
-  ${privilege[@]+"${privilege[@]}"} systemctl enable proto-fleet-updater.service
+  if ! ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload \
+    || ! ${privilege[@]+"${privilege[@]}"} systemctl enable proto-fleet-updater.service; then
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
   # A manual install can safely restart an already-running updater; the
   # updater-driven path never invokes install.sh and refreshes its on-disk
   # binary for the next service start instead.
-  ${privilege[@]+"${privilege[@]}"} systemctl restart proto-fleet-updater.service
+  if ! ${privilege[@]+"${privilege[@]}"} systemctl restart proto-fleet-updater.service; then
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
+
+  # Type=simple reports the restart as soon as the process is spawned. Wait
+  # for the updater to finish validating its privileged configuration and
+  # bind the secured API socket before exposing that socket to fleet-api.
+  local ready_deadline=$((SECONDS + 60))
+  while [ "$SECONDS" -lt "$ready_deadline" ]; do
+    if ${privilege[@]+"${privilege[@]}"} curl -fsS --max-time 1 \
+      --unix-socket /run/proto-fleet-updater/updater.sock \
+      http://localhost/v1/status >/dev/null 2>&1 \
+      && ${privilege[@]+"${privilege[@]}"} systemctl is-active --quiet proto-fleet-updater.service; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "⚠️  Host updater did not become ready; keeping copy-command upgrades." >&2
+  disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
+  return 1
 }
 
 RUN_FLEET_ARGS=()
@@ -906,11 +1011,22 @@ if install_updater_service; then
   echo "✅ Host updater installed; one-click upgrades are enabled."
   RUN_FLEET_ARGS+=(--enable-one-click-updates)
 else
+  if [ "$UPDATER_CLEANUP_FAILED" = "1" ]; then
+    echo "❌ Installation stopped because the host updater could not be left in a safe state." >&2
+    exit 1
+  fi
   echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
+  RUN_FLEET_ARGS+=(--disable-one-click-updates)
 fi
 
 echo "🔧 Running deployment script..."
 if [ "$NON_INTERACTIVE" = "1" ]; then
   RUN_FLEET_ARGS+=(--non-interactive)
 fi
+# run-fleet persists the selected overlay before later build/start work. If a
+# later deployment step fails, keep the already-verified updater service ready
+# so that persisted true state never points fleet-api at a dead socket. A fresh
+# installation cannot expose the socket until run-fleet successfully starts
+# the overlay; an existing socket-enabled deployment already owned this
+# service before the manual retry.
 ./run-fleet.sh "${RUN_FLEET_ARGS[@]}"

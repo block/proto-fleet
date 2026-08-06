@@ -47,7 +47,8 @@ bash <(curl -fsSL https://fleet.proto.xyz/install.sh)
 #### Specific Version
 
 ```bash
-bash <(curl -fsSL https://fleet.proto.xyz/install.sh) v0.1.0
+VERSION=v0.2.10-rc.2
+bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/${VERSION}/install.sh") "${VERSION}"
 ```
 
 On Linux/systemd hosts with rootful Docker, this install also bootstraps the

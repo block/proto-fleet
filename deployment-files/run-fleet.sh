@@ -10,6 +10,7 @@ COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
+COMPOSE_UPDATER_FILE="$PROJECT_ROOT/docker-compose.updater.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 VERSION_FILE="$PROJECT_ROOT/version.txt"
 RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
@@ -21,7 +22,7 @@ NGINX_CONFIG_TEMP=""
 # runtime flags with the same names. Plain shell assignment keeps an inherited
 # variable's export bit, so inspecting those names later would otherwise see
 # the script default instead of the invoking environment.
-OVERLAY_FLAG_KEYS=(ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING)
+OVERLAY_FLAG_KEYS=(ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING ENABLE_ONE_CLICK_UPDATES)
 for overlay_key in "${OVERLAY_FLAG_KEYS[@]}"; do
     printf -v "INVOKING_${overlay_key}_SET" '%s' "${!overlay_key+x}"
     printf -v "INVOKING_${overlay_key}_VALUE" '%s' "${!overlay_key-}"
@@ -31,6 +32,8 @@ unset overlay_key
 ENABLE_BETA_ALERTS=false
 ENABLE_SYSTEM_MONITORING=false
 ENABLE_TRACING=false
+ENABLE_ONE_CLICK_UPDATES=false
+ONE_CLICK_UPDATES_OVERRIDE=""
 NON_INTERACTIVE=false
 PREFLIGHT_ONLY=false
 SKIP_BUILD=false
@@ -67,7 +70,7 @@ env_last_value() {
     # overlay flags read their pre-initialization snapshot because the script
     # reuses their names for its runtime defaults.
     case "$key" in
-        ENABLE_BETA_ALERTS|ENABLE_SYSTEM_MONITORING|ENABLE_TRACING)
+        ENABLE_BETA_ALERTS|ENABLE_SYSTEM_MONITORING|ENABLE_TRACING|ENABLE_ONE_CLICK_UPDATES)
             snapshot_set="INVOKING_${key}_SET"
             snapshot_value="INVOKING_${key}_VALUE"
             if [ "${!snapshot_set}" = "x" ]; then
@@ -173,6 +176,7 @@ validate_runner_env_values() {
         ENABLE_BETA_ALERTS
         ENABLE_SYSTEM_MONITORING
         ENABLE_TRACING
+        ENABLE_ONE_CLICK_UPDATES
         FLEET_PROFILE
         DB_USERNAME
         DB_PASSWORD
@@ -337,6 +341,12 @@ Options:
                                 the .env file. Off by default. Can also be
                                 enabled by setting ENABLE_TRACING=true in
                                 the .env file.
+  --enable-one-click-updates    Connect fleet-api to the host updater Unix
+                                socket. The installer sets this only after
+                                the systemd updater starts successfully.
+  --disable-one-click-updates   Disconnect fleet-api from the host updater.
+                                The installer uses this when host bootstrap
+                                is unavailable or fails.
   --non-interactive              Reuse complete persisted configuration and
                                 fail instead of prompting. Intended for the
                                 host updater, not first-time setup.
@@ -361,6 +371,14 @@ while [ $# -gt 0 ]; do
             ;;
         --enable-tracing)
             ENABLE_TRACING=true
+            shift
+            ;;
+        --enable-one-click-updates)
+            ONE_CLICK_UPDATES_OVERRIDE=true
+            shift
+            ;;
+        --disable-one-click-updates)
+            ONE_CLICK_UPDATES_OVERRIDE=false
             shift
             ;;
         --non-interactive)
@@ -424,6 +442,12 @@ fi
 if env_boolean_is_true ENABLE_TRACING; then
     ENABLE_TRACING=true
 fi
+if env_boolean_is_true ENABLE_ONE_CLICK_UPDATES; then
+    ENABLE_ONE_CLICK_UPDATES=true
+fi
+if [ -n "$ONE_CLICK_UPDATES_OVERRIDE" ]; then
+    ENABLE_ONE_CLICK_UPDATES="$ONE_CLICK_UPDATES_OVERRIDE"
+fi
 # System monitoring rides the alerts stack (the in-process metrics writer,
 # Grafana rule evaluation, and webhook delivery are all alerts-gated), so it
 # cannot run alone.
@@ -462,6 +486,11 @@ if [ "$ENABLE_TRACING" = "true" ]; then
     ensure_dd_hostname
 fi
 
+if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ] && [ ! -f "$COMPOSE_UPDATER_FILE" ]; then
+    echo "Error: one-click updates are enabled but $COMPOSE_UPDATER_FILE is missing." >&2
+    exit 1
+fi
+
 if [ "$PREFLIGHT_ONLY" = "true" ]; then
     # A failed retry must not leave an older success marker reusable.
     if ! rm -f "$PREFLIGHT_MARKER"; then
@@ -482,6 +511,9 @@ refresh_compose_files() {
     fi
     if [ "$ENABLE_TRACING" = "true" ] && [ -f "$COMPOSE_TRACING_FILE" ]; then
         COMPOSE_FILES+=(-f "$COMPOSE_TRACING_FILE")
+    fi
+    if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
+        COMPOSE_FILES+=(-f "$COMPOSE_UPDATER_FILE")
     fi
 }
 refresh_compose_files
@@ -1836,7 +1868,8 @@ fi
 if ! atomic_set_env_values \
     ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS" \
     ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING" \
-    ENABLE_TRACING "$ENABLE_TRACING"; then
+    ENABLE_TRACING "$ENABLE_TRACING" \
+    ENABLE_ONE_CLICK_UPDATES "$ENABLE_ONE_CLICK_UPDATES"; then
     echo "Error: could not persist deployment overlay settings; aborting before Compose validation or service changes." >&2
     exit 1
 fi
