@@ -392,6 +392,50 @@ else
   fail "fresh path resolution should not create directories"
 fi
 
+# If the root-daemon probe was blocked, an explicit on-disk deployment must
+# not become writable merely because all persisted overlay values are already
+# complete and no later migration lookup would touch Docker.
+if (
+  root="$TEST_TMP/sudo-blocked-existing"
+  make_install "$root"
+  printf '%s\n' \
+    'ENABLE_BETA_ALERTS=false' \
+    'ENABLE_SYSTEM_MONITORING=false' \
+    'ENABLE_TRACING=false' > "$root/deployment/.env"
+  FAKE_UID=1000
+  ! guard_selected_install_when_sudo_blocked "$root" 1 v1.2.3 \
+    > /dev/null 2> "$TEST_TMP/sudo-blocked-existing.err" \
+    && grep -q 'Re-run the installer as root' "$TEST_TMP/sudo-blocked-existing.err"
+); then
+  pass "blocked root-daemon discovery rejects an existing selected deployment"
+else
+  fail "blocked root-daemon discovery must fail before replacing an existing deployment"
+fi
+
+if (
+  root="$TEST_TMP/sudo-blocked-fresh"
+  mkdir -p "$root"
+  FAKE_UID=1000
+  guard_selected_install_when_sudo_blocked "$root" 1 v1.2.3 \
+    > /dev/null 2> "$TEST_TMP/sudo-blocked-fresh.err" \
+    && grep -q "couldn't check whether a" "$TEST_TMP/sudo-blocked-fresh.err"
+); then
+  pass "blocked root-daemon discovery still permits a fresh selected path with warning"
+else
+  fail "fresh installs should remain available when the root daemon cannot be probed"
+fi
+
+# Keep the fail-closed check ahead of every operation that can inspect,
+# disable, or replace the existing deployment.
+guard_line=$(grep -n '^if ! guard_selected_install_when_sudo_blocked' "$INSTALL_SCRIPT" | cut -d: -f1)
+capture_line=$(grep -n '^if ! capture_previous_run_options' "$INSTALL_SCRIPT" | cut -d: -f1)
+extract_line=$(grep -n '^extract_and_cd ' "$INSTALL_SCRIPT" | cut -d: -f1)
+if [ -n "$guard_line" ] && [ "$guard_line" -lt "$capture_line" ] && [ "$guard_line" -lt "$extract_line" ]; then
+  pass "blocked root-daemon guard runs before migration and extraction"
+else
+  fail "blocked root-daemon guard must precede deployment mutation"
+fi
+
 # A root caller may carry Docker selectors that point at a custom or rootless
 # daemon. The system-service probe must discard every endpoint/TLS selector so
 # equality cannot be proven against an environment the unit will not receive.

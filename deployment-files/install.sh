@@ -430,6 +430,35 @@ resolve_selected_install_path() {
   printf '%s' "$canonical_selected"
 }
 
+# If sudo refused a non-interactive Docker probe, an unprivileged caller
+# cannot prove that an on-disk deployment belongs to the daemon it can
+# manage. Never replace an existing deployment in that state: complete
+# persisted overlay values can otherwise bypass every later Docker lookup.
+# Fresh installs remain allowed, with a warning that a root-managed install
+# could not be ruled out.
+guard_selected_install_when_sudo_blocked() {
+  local install_dir="$1"
+  local sudo_blocked="${2:-0}"
+  local quoted_version="$3"
+
+  [ "$sudo_blocked" = "1" ] || return 0
+  [ "$(id -u)" -ne 0 ] || return 0
+
+  if [ -f "${install_dir%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; then
+    echo "❌ Cannot safely replace the existing Proto Fleet deployment at ${install_dir}." >&2
+    echo "   The root Docker daemon could not be inspected because sudo requires authorization." >&2
+    echo "   Re-run the installer as root before any deployment files are replaced:" >&2
+    echo "" >&2
+    echo "     curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${quoted_version}" >&2
+    return 1
+  fi
+
+  echo "" >&2
+  echo "   (Note: sudo required authorization, so we couldn't check whether a" >&2
+  echo "    root-managed fleet install also exists. If one might, re-run as root:" >&2
+  echo "      curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${quoted_version})" >&2
+}
+
 # Keep the privileged bootstrap payload inside the private, checksum-verified
 # download directory. The deployment tree is operator-controlled after
 # extraction, so it must never be the source for files copied into /etc or
@@ -905,18 +934,6 @@ else
   echo "   Suggested installation location: ${SUGGESTED_DIR}"
 fi
 
-# When sudo would have prompted for a password, we couldn't probe the root
-# daemon at all — a parallel root-managed install would otherwise stay
-# invisible. Print this whenever the sudo probe was blocked, even if the
-# on-disk fallback found an unprivileged install (the two installs could
-# coexist on the same host).
-if [ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" = "1" ]; then
-  echo ""
-  echo "   (Note: sudo required a password, so we couldn't check whether a"
-  echo "    root-managed fleet install also exists. If one might, re-run as root:"
-  echo "      curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${QUOTED_VERSION})"
-fi
-
 if [ -n "$REQUESTED_INSTALL_DIR" ]; then
   INSTALL_DIR="$REQUESTED_INSTALL_DIR"
 elif [ "$NON_INTERACTIVE" = "1" ]; then
@@ -944,6 +961,10 @@ case "$INSTALL_DIR" in
 esac
 
 if ! INSTALL_DIR=$(resolve_selected_install_path "$INSTALL_DIR" "${PREVIOUS_INSTALL_DIR:-}"); then
+  exit 1
+fi
+if ! guard_selected_install_when_sudo_blocked \
+  "$INSTALL_DIR" "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" "$QUOTED_VERSION"; then
   exit 1
 fi
 if [ "$NON_INTERACTIVE" = "1" ] && [ ! -f "${INSTALL_DIR}/${DEPLOYMENT_DIR}/.env" ]; then
