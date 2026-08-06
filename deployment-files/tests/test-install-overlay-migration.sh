@@ -7,9 +7,51 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 INSTALL_SCRIPT="$REPO_ROOT/deployment-files/install.sh"
-TEST_TMP=$(mktemp -d)
-TEST_TMP=$(cd "$TEST_TMP" && pwd -P)
-trap 'rm -rf "$TEST_TMP"' EXIT
+TEST_TMP=""
+TEST_TMP_RESOLVED=""
+TEST_TMP_PARENT=""
+TEST_TMP_PREFIX=""
+
+cleanup_test_tmp() {
+  case "${TEST_TMP:-}" in
+    "$TEST_TMP_PREFIX".*)
+      [[ -d "$TEST_TMP" && ! -L "$TEST_TMP" ]] \
+        && rm -rf -- "${TEST_TMP:?}"
+      ;;
+  esac
+}
+
+if ! TEST_TMP_PARENT=$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P); then
+  echo "FAIL: could not resolve the temporary-directory parent" >&2
+  exit 1
+fi
+TEST_TMP_PREFIX="${TEST_TMP_PARENT%/}/proto-fleet-install-overlay"
+if ! TEST_TMP=$(mktemp -d "$TEST_TMP_PREFIX.XXXXXX"); then
+  echo "FAIL: could not create the test temporary directory" >&2
+  exit 1
+fi
+case "$TEST_TMP" in
+  "$TEST_TMP_PREFIX".*) ;;
+  *)
+    echo "FAIL: mktemp returned an unexpected path: $TEST_TMP" >&2
+    exit 1
+    ;;
+esac
+if ! TEST_TMP_RESOLVED=$(cd "$TEST_TMP" 2>/dev/null && pwd -P); then
+  echo "FAIL: could not resolve the test temporary directory" >&2
+  rm -rf -- "${TEST_TMP:?}"
+  TEST_TMP=""
+  exit 1
+fi
+TEST_TMP="$TEST_TMP_RESOLVED"
+case "$TEST_TMP" in
+  "$TEST_TMP_PREFIX".*) ;;
+  *)
+    echo "FAIL: temporary directory escaped its expected parent: $TEST_TMP" >&2
+    exit 1
+    ;;
+esac
+trap cleanup_test_tmp EXIT
 
 # install.sh is intentionally standalone because it is executed directly from
 # curl before a release bundle exists. Extract its testable helper definitions

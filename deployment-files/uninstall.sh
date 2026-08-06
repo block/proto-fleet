@@ -15,6 +15,7 @@ DRY_RUN=false
 HOST_UPDATER_PRESENT=false
 HOST_UPDATER_PRIVILEGE=()
 HOST_UPDATER_STAGING_NAME_RE='^\.proto-fleet-upgrade-[a-f0-9]{64}$'
+HOST_UPDATER_ENV_PATH=/etc/proto-fleet/updater.env
 HOST_UPDATER_BINARY_PATHS=(
   /usr/local/libexec/proto-fleet/proto-fleet-updater
   /usr/local/libexec/proto-fleet-updater
@@ -500,6 +501,76 @@ remove_host_updater_binary_artifacts_with() {
   ${privilege[@]+"${privilege[@]}"} rm -f -- "${artifacts[@]}"
 }
 
+parse_host_updater_install_root() {
+  local contents="$1"
+  local key_re='^[[:space:]]*PROTO_FLEET_INSTALL_ROOT[[:space:]]*='
+  local assignment_re='^PROTO_FLEET_INSTALL_ROOT="(([^"\\]|\\["\\])*)"$'
+  local line encoded decoded char
+  local found=0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ $key_re ]] || continue
+    [[ "$found" -eq 0 ]] || return 1
+    [[ "$line" =~ $assignment_re ]] || return 1
+    encoded="${BASH_REMATCH[1]}"
+    decoded=""
+    while [[ -n "$encoded" ]]; do
+      char="${encoded:0:1}"
+      encoded="${encoded:1}"
+      if [[ "$char" == '\' ]]; then
+        [[ -n "$encoded" ]] || return 1
+        char="${encoded:0:1}"
+        encoded="${encoded:1}"
+        [[ "$char" == '\' || "$char" == '"' ]] || return 1
+      fi
+      decoded="${decoded}${char}"
+    done
+    [[ -n "$decoded" ]] || return 1
+    found=1
+  done <<< "$contents"
+
+  [[ "$found" -eq 1 ]] || return 1
+  printf '%s\n' "$decoded"
+}
+
+read_host_updater_install_root_with() {
+  local privilege=("$@")
+  local contents
+  if ! contents="$(${privilege[@]+"${privilege[@]}"} \
+      cat -- "$HOST_UPDATER_ENV_PATH" 2>/dev/null)"; then
+    return 1
+  fi
+  parse_host_updater_install_root "$contents"
+}
+
+verify_host_updater_ownership_with() {
+  local privilege=("$@")
+  local configured_root configured_resolved selected_resolved
+  if ! configured_root="$(read_host_updater_install_root_with \
+      ${privilege[@]+"${privilege[@]}"})"; then
+    print_error "Could not read a valid updater install root from $HOST_UPDATER_ENV_PATH."
+    print_error "No updater, Docker, or deployment files were removed."
+    return 1
+  fi
+  if ! configured_resolved="$(canonicalize_existing_dir "$configured_root")"; then
+    print_error "The updater install root cannot be resolved: $configured_root"
+    print_error "No updater, Docker, or deployment files were removed."
+    return 1
+  fi
+  if ! selected_resolved="$(canonicalize_existing_dir "$INSTALL_ROOT")"; then
+    print_error "The selected install root cannot be resolved: $INSTALL_ROOT"
+    print_error "No updater, Docker, or deployment files were removed."
+    return 1
+  fi
+  if [[ "${configured_resolved%/}" != "${selected_resolved%/}" ]]; then
+    print_error "The host updater belongs to a different Proto Fleet installation."
+    print_error "  Updater install root: $configured_resolved"
+    print_error "  Selected install root: $selected_resolved"
+    print_error "No updater, Docker, or deployment files were removed."
+    return 1
+  fi
+}
+
 host_updater_staging_artifacts_present() {
   local path name
   [[ -n "$INSTALL_ROOT" ]] || return 1
@@ -516,7 +587,7 @@ host_updater_artifacts_present() {
   host_updater_binary_artifacts_present && return 0
   for path in \
     /etc/systemd/system/proto-fleet-updater.service \
-    /etc/proto-fleet/updater.env \
+    "$HOST_UPDATER_ENV_PATH" \
     /var/lib/proto-fleet-updater \
     /run/proto-fleet-updater; do
     [[ -e "$path" || -L "$path" ]] && return 0
@@ -561,6 +632,11 @@ prepare_host_updater_removal() {
       return 1
     fi
     HOST_UPDATER_PRIVILEGE=(sudo -n)
+  fi
+
+  if ! verify_host_updater_ownership_with \
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"}; then
+    return 1
   fi
 
   if command -v systemctl &>/dev/null && [[ -d /run/systemd/system ]]; then
@@ -612,7 +688,7 @@ remove_host_updater() {
   fi
   if ! ${privilege[@]+"${privilege[@]}"} rm -f -- \
     /etc/systemd/system/proto-fleet-updater.service \
-    /etc/proto-fleet/updater.env; then
+    "$HOST_UPDATER_ENV_PATH"; then
     print_error "Could not remove host updater files; deployment removal was aborted."
     return 1
   fi
@@ -659,7 +735,7 @@ remove_host_updater() {
   done < <(host_updater_binary_artifact_paths)
   for path in \
     /etc/systemd/system/proto-fleet-updater.service \
-    /etc/proto-fleet/updater.env \
+    "$HOST_UPDATER_ENV_PATH" \
     /var/lib/proto-fleet-updater \
     /run/proto-fleet-updater; do
     if ${privilege[@]+"${privilege[@]}"} test -e "$path" \
