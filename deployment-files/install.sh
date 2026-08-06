@@ -2,10 +2,15 @@
 set -euo pipefail
 
 DEPLOYMENT_DIR="deployment"
+DOWNLOAD_DIR=""
 UPDATER_BOOTSTRAP_DIR=""
 UPDATER_CLEANUP_FAILED=0
 UPDATER_PRIVILEGE=()
 UPDATER_PRIVILEGE_AVAILABLE=1
+UPDATER_DISABLE_ON_EXIT=0
+UPDATER_RESTART_ON_EXIT=0
+UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
+UPDATER_VALIDATION_SOCKET_PATH="/run/proto-fleet-updater/installer-validation.sock"
 
 # Probe docker for an existing fleet-api container and return the install
 # directory inferred from its bind mount. Echoes the path on success; returns
@@ -576,6 +581,109 @@ prepare_existing_updater_service() {
   disable_updater_service_with ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}
 }
 
+write_updater_environment_file() {
+  local target="$1"
+  local install_root="$2"
+  local download_base="$3"
+  local socket_path="$4"
+  local escaped_install escaped_download escaped_socket
+
+  escaped_install=${install_root//\\/\\\\}
+  escaped_install=${escaped_install//\"/\\\"}
+  escaped_download=${download_base//\\/\\\\}
+  escaped_download=${escaped_download//\"/\\\"}
+  escaped_socket=${socket_path//\\/\\\\}
+  escaped_socket=${escaped_socket//\"/\\\"}
+  {
+    printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_install"
+    printf 'PROTO_FLEET_DOWNLOAD_BASE_URL="%s/download"\n' "$escaped_download"
+    printf 'PROTO_FLEET_UPDATER_STATE_DIR="/var/lib/proto-fleet-updater"\n'
+    printf 'PROTO_FLEET_UPDATER_SOCKET_PATH="%s"\n' "$escaped_socket"
+    printf 'PROTO_FLEET_UPDATER_BINARY_PATH="/usr/local/libexec/proto-fleet/proto-fleet-updater"\n'
+  } > "$target"
+}
+
+restart_updater_service_with() {
+  local socket_path="$1"
+  shift
+  local privilege=("$@")
+  if ! ${privilege[@]+"${privilege[@]}"} systemctl restart \
+    proto-fleet-updater.service; then
+    return 1
+  fi
+
+  # Type=simple reports the restart as soon as the process is spawned. Wait
+  # for the updater to validate its privileged configuration and bind the
+  # secured API socket before considering it available to fleet-api.
+  local ready_deadline=$((SECONDS + 60))
+  while [ "$SECONDS" -lt "$ready_deadline" ]; do
+    if ${privilege[@]+"${privilege[@]}"} curl -fsS --max-time 1 \
+      --unix-socket "$socket_path" \
+      http://localhost/v1/status >/dev/null 2>&1 \
+      && ${privilege[@]+"${privilege[@]}"} systemctl is-active --quiet \
+        proto-fleet-updater.service; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "⚠️  Host updater did not become ready." >&2
+  return 1
+}
+
+# A manual install replaces the same deployment tree as the host updater.
+# Keep the enabled, validated service stopped while run-fleet operates so an
+# old fleet-api container cannot submit a concurrent upgrade through its
+# preserved socket mount. systemctl stop waits for the process and its
+# daemon-lifetime lock to exit; the checked state prevents a live listener
+# from being mistaken for a successful quiesce.
+quiesce_updater_service_for_manual_run_with() {
+  local privilege=("$@")
+  local active_state
+  if ! ${privilege[@]+"${privilege[@]}"} systemctl stop \
+    proto-fleet-updater.service; then
+    echo "⚠️  Could not stop the host updater before the manual deployment run." >&2
+    return 1
+  fi
+  if ! active_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
+      --property=ActiveState --value proto-fleet-updater.service 2>/dev/null); then
+    echo "⚠️  Could not verify the stopped host updater before the manual deployment run." >&2
+    return 1
+  fi
+  case "$active_state" in
+    inactive|failed) return 0 ;;
+    *)
+      echo "⚠️  Host updater remained active before the manual deployment run." >&2
+      return 1
+      ;;
+  esac
+}
+
+installer_exit_cleanup() {
+  local status=$?
+  trap - EXIT
+  if [ "${UPDATER_DISABLE_ON_EXIT:-0}" = "1" ]; then
+    echo "🔒 Disabling the host updater after interrupted validation..." >&2
+    if ! disable_updater_service_with \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+      status=1
+    fi
+  fi
+  if [ "${UPDATER_RESTART_ON_EXIT:-0}" = "1" ]; then
+    echo "🔄 Restoring the host updater after the interrupted manual deployment..." >&2
+    if ! restart_updater_service_with "$UPDATER_SOCKET_PATH" \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+      echo "❌ Could not restore the host updater after the manual deployment stopped." >&2
+      disable_updater_service_with \
+        ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
+      status=1
+    fi
+  fi
+  if [ -n "${DOWNLOAD_DIR:-}" ]; then
+    rm -rf -- "$DOWNLOAD_DIR"
+  fi
+  exit "$status"
+}
+
 # Match the Docker CLI environment the system service is guaranteed to use.
 # The unit also unsets these variables, so neither an invoking root shell nor
 # the systemd manager can redirect upgrades to a different daemon.
@@ -803,7 +911,7 @@ DOWNLOAD_DIR=$(mktemp -d /tmp/proto-fleet-install.XXXXXX) || {
   echo "❌ Could not create a private release-download directory." >&2
   exit 1
 }
-trap 'rm -rf -- "$DOWNLOAD_DIR"' EXIT
+trap installer_exit_cleanup EXIT
 chmod 700 "$DOWNLOAD_DIR" || {
   echo "❌ Could not secure the release-download directory." >&2
   exit 1
@@ -1089,23 +1197,17 @@ install_updater_service() {
     return 1
   fi
 
-  local env_temp escaped_install escaped_download
+  local env_temp
   if ! env_temp=$(mktemp); then
     echo "⚠️  Could not create the host updater environment file." >&2
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-  escaped_install=${INSTALL_DIR//\\/\\\\}
-  escaped_install=${escaped_install//\"/\\\"}
-  escaped_download=${GITHUB_RELEASES_URL//\\/\\\\}
-  escaped_download=${escaped_download//\"/\\\"}
-  if ! {
-    printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_install"
-    printf 'PROTO_FLEET_DOWNLOAD_BASE_URL="%s/download"\n' "$escaped_download"
-    printf 'PROTO_FLEET_UPDATER_STATE_DIR="/var/lib/proto-fleet-updater"\n'
-    printf 'PROTO_FLEET_UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"\n'
-    printf 'PROTO_FLEET_UPDATER_BINARY_PATH="/usr/local/libexec/proto-fleet/proto-fleet-updater"\n'
-  } > "$env_temp"; then
+  # Validate against a socket name the old fleet-api does not know. Its
+  # preserved directory bind mount therefore cannot reach /v1/upgrade while
+  # the replacement updater is briefly running for its health check.
+  if ! write_updater_environment_file "$env_temp" "$INSTALL_DIR" \
+    "$GITHUB_RELEASES_URL" "$UPDATER_VALIDATION_SOCKET_PATH"; then
     echo "⚠️  Could not write the host updater environment file." >&2
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
@@ -1124,35 +1226,42 @@ install_updater_service() {
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-  rm -f "$env_temp"
   if ! ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload \
     || ! ${privilege[@]+"${privilege[@]}"} systemctl enable proto-fleet-updater.service; then
+    rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-  # The old updater was drained before extraction. Start the newly installed
-  # binary only after its unit and environment have been replaced atomically.
-  if ! ${privilege[@]+"${privilege[@]}"} systemctl restart proto-fleet-updater.service; then
+  UPDATER_DISABLE_ON_EXIT=1
+  if ! restart_updater_service_with "$UPDATER_VALIDATION_SOCKET_PATH" \
+    ${privilege[@]+"${privilege[@]}"}; then
+    rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-
-  # Type=simple reports the restart as soon as the process is spawned. Wait
-  # for the updater to finish validating its privileged configuration and
-  # bind the secured API socket before exposing that socket to fleet-api.
-  local ready_deadline=$((SECONDS + 60))
-  while [ "$SECONDS" -lt "$ready_deadline" ]; do
-    if ${privilege[@]+"${privilege[@]}"} curl -fsS --max-time 1 \
-      --unix-socket /run/proto-fleet-updater/updater.sock \
-      http://localhost/v1/status >/dev/null 2>&1 \
-      && ${privilege[@]+"${privilege[@]}"} systemctl is-active --quiet proto-fleet-updater.service; then
-      return 0
-    fi
-    sleep 1
-  done
-  echo "⚠️  Host updater did not become ready; keeping copy-command upgrades." >&2
-  disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
-  return 1
+  if ! quiesce_updater_service_for_manual_run_with \
+    ${privilege[@]+"${privilege[@]}"}; then
+    rm -f "$env_temp"
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
+  # The validated service is now stopped. Persist its production socket only
+  # after the temporary listener is gone, and do not start it until run-fleet
+  # has finished replacing the deployment.
+  if ! write_updater_environment_file "$env_temp" "$INSTALL_DIR" \
+      "$GITHUB_RELEASES_URL" "$UPDATER_SOCKET_PATH" \
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 \
+      "$env_temp" /etc/proto-fleet/updater.env; then
+    rm -f "$env_temp"
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
+  rm -f "$env_temp"
+  # From this point until the explicit post-run restart, every unexpected exit
+  # must restore the validated service for the existing deployment.
+  UPDATER_DISABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=1
+  return 0
 }
 
 RUN_FLEET_ARGS=()
@@ -1166,7 +1275,7 @@ if [ "$PREVIOUS_TRACING" = "1" ]; then
   RUN_FLEET_ARGS+=(--enable-tracing)
 fi
 if install_updater_service; then
-  echo "✅ Host updater installed; one-click upgrades are enabled."
+  echo "✅ Host updater installed and validated; one-click upgrades will be enabled after deployment."
   RUN_FLEET_ARGS+=(--enable-one-click-updates)
 else
   # Keep every fallback fail-closed, including returns that happen before the
@@ -1181,6 +1290,7 @@ else
     echo "❌ Installation stopped because the host updater could not be left in a safe state." >&2
     exit 1
   fi
+  UPDATER_DISABLE_ON_EXIT=0
   echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
   RUN_FLEET_ARGS+=(--disable-one-click-updates)
 fi
@@ -1189,10 +1299,33 @@ echo "🔧 Running deployment script..."
 if [ "$NON_INTERACTIVE" = "1" ]; then
   RUN_FLEET_ARGS+=(--non-interactive)
 fi
-# run-fleet persists the selected overlay before later build/start work. If a
-# later deployment step fails, keep the already-verified updater service ready
-# so that persisted true state never points fleet-api at a dead socket. A fresh
-# installation cannot expose the socket until run-fleet successfully starts
-# the overlay; an existing socket-enabled deployment already owned this
-# service before the manual retry.
-./run-fleet.sh "${RUN_FLEET_ARGS[@]}"
+RUN_FLEET_STATUS=0
+if ./run-fleet.sh "${RUN_FLEET_ARGS[@]}"; then
+  RUN_FLEET_STATUS=0
+else
+  RUN_FLEET_STATUS=$?
+fi
+
+UPDATER_RESTART_FAILED=0
+if [ "$UPDATER_RESTART_ON_EXIT" = "1" ]; then
+  echo "🔄 Restoring the host updater after the manual deployment run..."
+  # run-fleet is finished, so the old API can no longer race this deployment.
+  # systemd owns the service lifecycle once the restart is issued.
+  UPDATER_RESTART_ON_EXIT=0
+  if restart_updater_service_with "$UPDATER_SOCKET_PATH" \
+    ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+    :
+  else
+    echo "❌ Could not restore the host updater after the manual deployment run." >&2
+    disable_updater_service_with \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
+    UPDATER_RESTART_FAILED=1
+  fi
+fi
+
+if [ "$RUN_FLEET_STATUS" -ne 0 ]; then
+  exit "$RUN_FLEET_STATUS"
+fi
+if [ "$UPDATER_RESTART_FAILED" -ne 0 ]; then
+  exit 1
+fi

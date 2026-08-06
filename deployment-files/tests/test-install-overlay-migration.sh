@@ -505,6 +505,111 @@ else
   fail "deployment extraction can run before updater shutdown"
 fi
 
+# The replacement updater is validated first, then stopped while run-fleet
+# owns the deployment tree, and restored only after that manual run returns.
+# Arming the EXIT cleanup before the installer function returns covers signals
+# and other failures during run-fleet as well as its ordinary nonzero result.
+validation_restart_line=$(awk '/^  if ! restart_updater_service_with/ { print NR; exit }' "$INSTALL_SCRIPT")
+quiesce_line=$(awk '/^  if ! quiesce_updater_service_for_manual_run_with/ { print NR; exit }' "$INSTALL_SCRIPT")
+production_socket_line=$(awk '/^      "\$GITHUB_RELEASES_URL" "\$UPDATER_SOCKET_PATH"/ { print NR; exit }' "$INSTALL_SCRIPT")
+restart_arm_line=$(awk '/^  UPDATER_RESTART_ON_EXIT=1$/ { print NR; exit }' "$INSTALL_SCRIPT")
+run_fleet_line=$(awk '/^if \.\/run-fleet\.sh / { print NR; exit }' "$INSTALL_SCRIPT")
+post_run_restart_line=$(awk -v start="$run_fleet_line" 'NR > start && /^  if restart_updater_service_with/ { print NR; exit }' "$INSTALL_SCRIPT")
+if [ -n "$validation_restart_line" ] \
+  && [ "$validation_restart_line" -lt "$quiesce_line" ] \
+  && [ "$quiesce_line" -lt "$production_socket_line" ] \
+  && [ "$production_socket_line" -lt "$restart_arm_line" ] \
+  && [ "$quiesce_line" -lt "$restart_arm_line" ] \
+  && [ "$restart_arm_line" -lt "$run_fleet_line" ] \
+  && [ "$run_fleet_line" -lt "$post_run_restart_line" ]; then
+  pass "host updater stays quiesced for the complete manual deployment run"
+else
+  fail "host updater lifecycle does not serialize the manual deployment run"
+fi
+
+if (
+  lifecycle_log="$TEST_TMP/updater-lifecycle-calls"
+  : > "$lifecycle_log"
+  systemctl() {
+    printf '%s\n' "$*" >> "$lifecycle_log"
+    case "${1:-}" in
+      restart|stop|is-active) return 0 ;;
+      show) printf 'inactive\n' ;;
+      *) return 1 ;;
+    esac
+  }
+  curl() {
+    printf 'curl %s\n' "$*" >> "$lifecycle_log"
+    return 0
+  }
+  restart_updater_service_with /run/proto-fleet-updater/test-validation.sock \
+    && quiesce_updater_service_for_manual_run_with \
+    && [ "$(sed -n '1p' "$lifecycle_log")" = 'restart proto-fleet-updater.service' ] \
+    && grep -q -- '--unix-socket /run/proto-fleet-updater/test-validation.sock' "$lifecycle_log" \
+    && grep -q '^stop proto-fleet-updater.service$' "$lifecycle_log" \
+    && grep -q '^show --property=ActiveState --value proto-fleet-updater.service$' "$lifecycle_log"
+); then
+  pass "validated updater is stopped and verified before manual deployment"
+else
+  fail "updater validation and quiesce helpers do not enforce the lifecycle boundary"
+fi
+
+if (
+  updater_env="$TEST_TMP/updater.env"
+  write_updater_environment_file "$updater_env" '/srv/proto fleet' \
+    'https://github.com/block/proto-fleet/releases' \
+    /run/proto-fleet-updater/installer-validation.sock \
+    && grep -q 'PROTO_FLEET_INSTALL_ROOT="/srv/proto fleet"' "$updater_env" \
+    && grep -q 'PROTO_FLEET_UPDATER_SOCKET_PATH="/run/proto-fleet-updater/installer-validation.sock"' "$updater_env" \
+    && write_updater_environment_file "$updater_env" '/srv/proto fleet' \
+      'https://github.com/block/proto-fleet/releases' \
+      /run/proto-fleet-updater/updater.sock \
+    && grep -q 'PROTO_FLEET_UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"' "$updater_env" \
+    && ! grep -q 'installer-validation.sock' "$updater_env"
+); then
+  pass "updater validation uses a private socket name before production activation"
+else
+  fail "updater validation socket can leak into the production environment"
+fi
+
+if (
+  restore_log="$TEST_TMP/updater-exit-restore"
+  DOWNLOAD_DIR="$TEST_TMP/updater-exit-download"
+  mkdir -p "$DOWNLOAD_DIR"
+  UPDATER_DISABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=1
+  restart_updater_service_with() {
+    printf '%s\n' "$1" > "$restore_log"
+    return 0
+  }
+  (trap installer_exit_cleanup EXIT; exit 7)
+  cleanup_status=$?
+  [ "$cleanup_status" -eq 7 ] \
+    && [ "$(cat "$restore_log")" = '/run/proto-fleet-updater/updater.sock' ] \
+    && [ ! -e "$DOWNLOAD_DIR" ]
+); then
+  pass "interrupted manual deployment restores the production updater socket"
+else
+  fail "installer exit cleanup did not restore the updater after interruption"
+fi
+
+if (
+  systemctl() {
+    case "${1:-}" in
+      stop) return 0 ;;
+      show) printf 'active\n' ;;
+      *) return 1 ;;
+    esac
+  }
+  ! quiesce_updater_service_for_manual_run_with \
+    2> "$TEST_TMP/updater-remained-active.err" \
+    && grep -q 'remained active' "$TEST_TMP/updater-remained-active.err"
+); then
+  pass "manual deployment rejects an updater that did not stop"
+else
+  fail "manual deployment must not proceed while the updater remains active"
+fi
+
 # A systemctl/query failure must never be interpreted as proof that the
 # privileged updater is inactive. Conversely, a genuinely absent unit and a
 # verified inactive+disabled unit are safe terminal states.
