@@ -22,7 +22,8 @@ jobs:
             deployment-files/uninstall.sh \
             deployment-files/tests/test-install-overlay-migration.sh \
             deployment-files/tests/test-profiles.sh \
-            deployment-files/tests/test-run-fleet-upgrade.sh; do
+            deployment-files/tests/test-run-fleet-upgrade.sh \
+            deployment-files/tests/test-uninstall-updater-cleanup.sh; do
             bash -n "$script"
           done
 
@@ -37,3 +38,6 @@ jobs:
 
       - name: Validate installer overlay migration
         run: ./deployment-files/tests/test-install-overlay-migration.sh
+
+      - name: Validate uninstaller updater cleanup
+        run: ./deployment-files/tests/test-uninstall-updater-cleanup.sh

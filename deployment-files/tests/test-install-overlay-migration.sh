@@ -12,14 +12,10 @@ TEST_TMP=$(cd "$TEST_TMP" && pwd -P)
 trap 'rm -rf "$TEST_TMP"' EXIT
 
 # install.sh is intentionally standalone because it is executed directly from
-# curl before a release bundle exists. Extract just its discovery/migration
-# definitions instead of adding a production-only source-mode escape hatch.
-sed '/^# END INSTALL DISCOVERY AND LEGACY MIGRATION HELPERS$/q' \
+# curl before a release bundle exists. Extract its testable helper definitions
+# instead of adding a production-only source-mode escape hatch.
+sed '/^# END INSTALLER TESTABLE HELPERS$/q' \
   "$INSTALL_SCRIPT" > "$TEST_TMP/install-functions.sh"
-# The privileged service fallback lives after the installer's main download
-# path. Extract just that function as a second focused unit under test.
-sed -n '/^disable_updater_service_with()/,/^}/p' \
-  "$INSTALL_SCRIPT" >> "$TEST_TMP/install-functions.sh"
 # shellcheck source=/dev/null
 source "$TEST_TMP/install-functions.sh"
 
@@ -51,6 +47,9 @@ FAKE_SUDO_IDS=""
 FAKE_MOUNT_PATH=""
 FAKE_CONFIG_FILES=""
 FAKE_INSPECT_FAILURE=0
+FAKE_UID=1000
+FAKE_SELECTED_DOCKER_ID="selected-daemon"
+FAKE_SERVICE_DOCKER_ID="service-daemon"
 DOCKER_CALL_LOG="$TEST_TMP/docker-calls"
 
 docker() {
@@ -73,6 +72,13 @@ docker() {
         *) return 1 ;;
       esac
       ;;
+    info)
+      if [ -n "${DOCKER_HOST+x}${DOCKER_CONTEXT+x}${DOCKER_CONFIG+x}${DOCKER_TLS+x}${DOCKER_TLS_VERIFY+x}${DOCKER_CERT_PATH+x}" ]; then
+        printf '%s\n' "$FAKE_SELECTED_DOCKER_ID"
+      else
+        printf '%s\n' "$FAKE_SERVICE_DOCKER_ID"
+      fi
+      ;;
     version) return 0 ;;
     *) return 1 ;;
   esac
@@ -86,7 +92,7 @@ sudo() {
 
 id() {
   if [ "${1:-}" = "-u" ]; then
-    printf '1000\n'
+    printf '%s\n' "$FAKE_UID"
     return 0
   fi
   command id "$@"
@@ -342,6 +348,117 @@ if (
   pass "explicit install paths retain root-daemon ownership discovery"
 else
   fail "explicit install path discovery missed the root-managed deployment"
+fi
+
+# The final selected path must remain tied to the Docker-discovered install.
+# Canonical aliases are accepted, but a typo or attempted relocation fails
+# before any extraction can target the shared default Compose project.
+if (
+  root="$TEST_TMP/path-alias"
+  mkdir -p "$root/existing"
+  ln -s "$root/existing" "$root/alias"
+  resolved=$(resolve_selected_install_path "$root/alias/" "$root/existing") \
+    && [ "$resolved" = "$(cd "$root/existing" && pwd -P)" ]
+); then
+  pass "canonical aliases of the discovered install are accepted"
+else
+  fail "canonical install path comparison rejected an equivalent alias"
+fi
+
+if (
+  root="$TEST_TMP/path-mismatch"
+  mkdir -p "$root/existing" "$root/other"
+  ! resolve_selected_install_path "$root/other" "$root/existing" \
+    > /dev/null 2> "$TEST_TMP/path-mismatch.err" \
+    && grep -q 'Relocation is not supported' "$TEST_TMP/path-mismatch.err" \
+    && ! resolve_selected_install_path "$root/typo" "$root/existing" \
+      > /dev/null 2> "$TEST_TMP/path-typo.err" \
+    && grep -q 'does not resolve to that installation' "$TEST_TMP/path-typo.err"
+); then
+  pass "relocation and path typos are rejected when an install was discovered"
+else
+  fail "mismatched install path should fail closed"
+fi
+
+if (
+  root="$TEST_TMP/fresh-path"
+  mkdir -p "$root"
+  resolved=$(resolve_selected_install_path "$root/not-created/child" "") \
+    && [ "$resolved" = "$root/not-created/child" ] \
+    && [ ! -e "$root/not-created" ]
+); then
+  pass "fresh install paths remain unchanged without filesystem mutation"
+else
+  fail "fresh path resolution should not create directories"
+fi
+
+# A root caller may carry Docker selectors that point at a custom or rootless
+# daemon. The system-service probe must discard every endpoint/TLS selector so
+# equality cannot be proven against an environment the unit will not receive.
+if (
+  FAKE_UID=0
+  export DOCKER_HOST='unix:///run/user/1000/docker.sock'
+  export DOCKER_CONTEXT='rootless'
+  export DOCKER_CONFIG="$TEST_TMP/docker-config"
+  export DOCKER_TLS=1
+  export DOCKER_TLS_VERIFY=1
+  export DOCKER_CERT_PATH="$TEST_TMP/certs"
+  current_id=$(docker info --format '{{.ID}}')
+  service_id=$(service_docker_id_with)
+  [ "$current_id" = "$FAKE_SELECTED_DOCKER_ID" ] \
+    && [ "$service_id" = "$FAKE_SERVICE_DOCKER_ID" ] \
+    && [ "$current_id" != "$service_id" ]
+); then
+  pass "system-service Docker probe drops inherited daemon selectors"
+else
+  fail "system-service Docker probe inherited a caller selector"
+fi
+
+if grep -Fq \
+  'UnsetEnvironment=DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH' \
+  "$REPO_ROOT/deployment-files/updater/proto-fleet-updater.service"; then
+  pass "systemd unit enforces the same selector-free Docker environment"
+else
+  fail "systemd unit does not clear every Docker selector"
+fi
+
+# The two files copied into privileged host locations are extracted directly
+# from the verified archive into its private download tree. A mutable copy in
+# the final deployment is never used as the bootstrap source.
+if (
+  payload="$TEST_TMP/bootstrap-payload"
+  archive="$TEST_TMP/bootstrap.tar.gz"
+  destination="$TEST_TMP/private-bootstrap"
+  mkdir -p "$payload/deployment/updater"
+  printf 'verified updater\n' > "$payload/deployment/updater/proto-fleet-updater"
+  chmod +x "$payload/deployment/updater/proto-fleet-updater"
+  printf 'verified unit\n' > "$payload/deployment/updater/proto-fleet-updater.service"
+  tar -czf "$archive" -C "$payload" deployment
+  extract_updater_bootstrap "$archive" "$destination" \
+    && [ "$(cat "$destination/proto-fleet-updater")" = 'verified updater' ] \
+    && [ "$(cat "$destination/proto-fleet-updater.service")" = 'verified unit' ] \
+    && [ ! -L "$destination/proto-fleet-updater" ] \
+    && [ ! -L "$destination/proto-fleet-updater.service" ]
+); then
+  pass "privileged updater inputs are staged from the verified archive"
+else
+  fail "verified updater bootstrap extraction failed"
+fi
+
+if [ "$(grep -c 'tar --no-same-owner -xzvf' "$INSTALL_SCRIPT")" -eq 2 ] \
+  && grep -Fq 'install -m 0755 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater"' "$INSTALL_SCRIPT" \
+  && grep -Fq 'install -m 0644 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service"' "$INSTALL_SCRIPT"; then
+  pass "deployment extraction normalizes archive ownership and privileged copies use private sources"
+else
+  fail "installer still trusts archive ownership or mutable deployment bootstrap files"
+fi
+
+prepare_line=$(awk '/^if ! prepare_existing_updater_service; then$/ { print NR; exit }' "$INSTALL_SCRIPT")
+extract_line=$(awk '/^extract_and_cd "\$TAR_PATH" "\$INSTALL_DIR"$/ { print NR; exit }' "$INSTALL_SCRIPT")
+if [ -n "$prepare_line" ] && [ -n "$extract_line" ] && [ "$prepare_line" -lt "$extract_line" ]; then
+  pass "existing updater is drained before deployment extraction"
+else
+  fail "deployment extraction can run before updater shutdown"
 fi
 
 # A systemctl/query failure must never be interpreted as proof that the

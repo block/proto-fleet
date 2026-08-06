@@ -2,6 +2,10 @@
 set -euo pipefail
 
 DEPLOYMENT_DIR="deployment"
+UPDATER_BOOTSTRAP_DIR=""
+UPDATER_CLEANUP_FAILED=0
+UPDATER_PRIVILEGE=()
+UPDATER_PRIVILEGE_AVAILABLE=1
 
 # Probe docker for an existing fleet-api container and return the install
 # directory inferred from its bind mount. Echoes the path on success; returns
@@ -390,7 +394,169 @@ capture_previous_run_options() {
   [ "$tracing_state" != "missing" ] || [ "$inferred_tracing" != "true" ] || PREVIOUS_TRACING=1
 }
 
-# END INSTALL DISCOVERY AND LEGACY MIGRATION HELPERS
+resolve_selected_install_path() {
+  local selected="$1"
+  local discovered="${2:-}"
+  local canonical_selected canonical_discovered
+
+  [ -n "$selected" ] || {
+    echo "❌ Installation path cannot be empty." >&2
+    return 1
+  }
+  # A fresh path has nothing to compare yet and is made absolute after
+  # extraction. When Docker or the on-disk fallback found an installation,
+  # both paths already exist and can be canonicalized without filesystem
+  # mutation or non-portable realpath flags.
+  if [ -z "$discovered" ]; then
+    printf '%s' "$selected"
+    return 0
+  fi
+  canonical_discovered=$(cd "$discovered" 2>/dev/null && pwd -P) || {
+    echo "❌ Discovered installation path cannot be accessed: $discovered" >&2
+    return 1
+  }
+  canonical_selected=$(cd "$selected" 2>/dev/null && pwd -P) || {
+    echo "❌ An existing Proto Fleet installation was discovered at ${canonical_discovered}." >&2
+    echo "   The selected path ${selected} does not resolve to that installation." >&2
+    echo "   Relocation is not supported; use the discovered installation path or uninstall it first." >&2
+    return 1
+  }
+  if [ "$canonical_selected" != "$canonical_discovered" ]; then
+    echo "❌ An existing Proto Fleet installation was discovered at ${canonical_discovered}." >&2
+    echo "   Installing to ${canonical_selected} would target the same default Compose project from a different directory." >&2
+    echo "   Relocation is not supported; use the discovered installation path or uninstall it first." >&2
+    return 1
+  fi
+  printf '%s' "$canonical_selected"
+}
+
+# Keep the privileged bootstrap payload inside the private, checksum-verified
+# download directory. The deployment tree is operator-controlled after
+# extraction, so it must never be the source for files copied into /etc or
+# /usr/local and then executed by systemd as root.
+extract_updater_bootstrap() {
+  local tar_path="$1"
+  local target_dir="$2"
+  local binary="$target_dir/proto-fleet-updater"
+  local unit="$target_dir/proto-fleet-updater.service"
+
+  mkdir -m 0700 "$target_dir" || return 1
+  if ! tar --no-same-owner --strip-components=2 -xzf "$tar_path" -C "$target_dir" \
+    deployment/updater/proto-fleet-updater \
+    deployment/updater/proto-fleet-updater.service; then
+    return 1
+  fi
+  if [ -L "$binary" ] || [ ! -f "$binary" ] || [ ! -x "$binary" ] \
+    || [ -L "$unit" ] || [ ! -f "$unit" ]; then
+    echo "⚠️  The release host-updater bootstrap payload is invalid." >&2
+    return 1
+  fi
+}
+
+disable_updater_service_with() {
+  local privilege=("$@")
+  local load_state active_state unit_file_state
+  command -v systemctl >/dev/null 2>&1 || return 0
+
+  # A missing unit is already safe. For a known unit, query final state with
+  # checked commands so a sudo/systemctl failure cannot masquerade as
+  # inactive merely because `is-active` returned nonzero.
+  if ! load_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
+      --property=LoadState --value proto-fleet-updater.service 2>/dev/null); then
+    echo "❌ Could not inspect the host updater while disabling it." >&2
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  if [ "$load_state" = "not-found" ]; then
+    return 0
+  fi
+
+  ${privilege[@]+"${privilege[@]}"} systemctl disable --now \
+    proto-fleet-updater.service >/dev/null 2>&1 || true
+  if ! active_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
+      --property=ActiveState --value proto-fleet-updater.service 2>/dev/null) \
+    || ! unit_file_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
+      --property=UnitFileState --value proto-fleet-updater.service 2>/dev/null); then
+    echo "❌ Could not stop and disable the host updater safely." >&2
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  case "$active_state" in
+    inactive|failed) ;;
+    *)
+      echo "❌ Could not stop and disable the host updater safely." >&2
+      UPDATER_CLEANUP_FAILED=1
+      return 1
+      ;;
+  esac
+  case "$unit_file_state" in
+    disabled|masked|masked-runtime|static) ;;
+    *)
+      echo "❌ Could not stop and disable the host updater safely." >&2
+      UPDATER_CLEANUP_FAILED=1
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+resolve_updater_privilege() {
+  UPDATER_PRIVILEGE=()
+  UPDATER_PRIVILEGE_AVAILABLE=1
+  if [ "$(id -u)" -eq 0 ]; then
+    return 0
+  fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    UPDATER_PRIVILEGE_AVAILABLE=0
+    return 0
+  fi
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    UPDATER_PRIVILEGE=(sudo -n)
+  else
+    UPDATER_PRIVILEGE=(sudo)
+  fi
+}
+
+# Stop the existing updater before the release tree can be replaced. systemd's
+# inactive state proves the supervised process has exited, which also releases
+# the updater's lifetime flock. A missing unit needs no privilege or prompt.
+prepare_existing_updater_service() {
+  if [ "$(uname -s)" != "Linux" ] \
+    || ! command -v systemctl >/dev/null 2>&1 \
+    || [ ! -d /run/systemd/system ]; then
+    return 0
+  fi
+
+  local load_state
+  if ! load_state=$(systemctl show --property=LoadState --value \
+      proto-fleet-updater.service 2>/dev/null); then
+    echo "❌ Could not inspect the existing host updater before installation." >&2
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  if [ "$load_state" = "not-found" ]; then
+    return 0
+  fi
+  if [ "$UPDATER_PRIVILEGE_AVAILABLE" != "1" ]; then
+    echo "❌ The existing host updater must be stopped, but sudo is unavailable." >&2
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  disable_updater_service_with ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}
+}
+
+# Match the Docker CLI environment the system service is guaranteed to use.
+# The unit also unsets these variables, so neither an invoking root shell nor
+# the systemd manager can redirect upgrades to a different daemon.
+service_docker_id_with() {
+  local privilege=("$@")
+  (
+    unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH
+    ${privilege[@]+"${privilege[@]}"} docker info --format '{{.ID}}' 2>/dev/null || true
+  )
+}
+
+# END INSTALLER TESTABLE HELPERS
 
 # Function to extract files to the installation directory and cd to it
 extract_and_cd() {
@@ -404,11 +570,14 @@ extract_and_cd() {
   mkdir -p "$target_dir"
   
   # Check if we need to preserve existing .env file
+  # Never preserve the release builder's numeric UID/GID. Files should belong
+  # to the invoking install administrator (or root for a root-run install),
+  # matching the updater's root-plus-one-admin ownership trust model.
   if [ -f "$env_file" ]; then
     echo "📦 Preserving existing $env_file file"
-    tar -xzvf "$tar_path" -C "$target_dir" --exclude="${DEPLOYMENT_DIR}/server/influx_config/.env"
+    tar --no-same-owner -xzvf "$tar_path" -C "$target_dir" --exclude="${DEPLOYMENT_DIR}/server/influx_config/.env"
   else
-    tar -xzvf "$tar_path" -C "$target_dir"
+    tar --no-same-owner -xzvf "$tar_path" -C "$target_dir"
   fi
   
   # Clean up the tarball
@@ -642,6 +811,12 @@ else
 fi
 rm -f "${CHECKSUM_PATH}"
 
+UPDATER_BOOTSTRAP_DIR="${DOWNLOAD_DIR}/updater-bootstrap"
+if ! extract_updater_bootstrap "$TAR_PATH" "$UPDATER_BOOTSTRAP_DIR"; then
+  echo "ℹ️  This release has no valid host-updater bootstrap payload; one-click upgrades will remain disabled."
+  UPDATER_BOOTSTRAP_DIR=""
+fi
+
 # Function to determine default installation directory based on OS.
 # When invoked under sudo on Linux, prefer the invoking user's home over
 # /root — fleet is normally installed under the user account, and falling
@@ -761,16 +936,20 @@ else
   fi
 fi
 
-if [ "$NON_INTERACTIVE" = "1" ] && [ ! -f "${INSTALL_DIR}/${DEPLOYMENT_DIR}/.env" ]; then
-  echo "❌ Non-interactive mode requires an existing configured deployment at ${INSTALL_DIR}/${DEPLOYMENT_DIR}." >&2
-  exit 1
-fi
 case "$INSTALL_DIR" in
   *$'\n'*|*$'\r'*)
     echo "❌ Installation paths cannot contain newline characters." >&2
     exit 1
     ;;
 esac
+
+if ! INSTALL_DIR=$(resolve_selected_install_path "$INSTALL_DIR" "${PREVIOUS_INSTALL_DIR:-}"); then
+  exit 1
+fi
+if [ "$NON_INTERACTIVE" = "1" ] && [ ! -f "${INSTALL_DIR}/${DEPLOYMENT_DIR}/.env" ]; then
+  echo "❌ Non-interactive mode requires an existing configured deployment at ${INSTALL_DIR}/${DEPLOYMENT_DIR}." >&2
+  exit 1
+fi
 
 echo "📌 Will install to: ${INSTALL_DIR}"
 
@@ -788,6 +967,15 @@ fi
 if ! capture_previous_run_options "$INSTALL_DIR" "$EXISTING_DEPLOYMENT" \
   ${CAPTURE_PRIVILEGE[@]+"${CAPTURE_PRIVILEGE[@]}"}; then
   echo "❌ Existing deployment options could not be migrated safely; no files were replaced." >&2
+  exit 1
+fi
+
+# A manual install and the privileged updater both replace the deployment tree.
+# Drain and disable the service before extraction so those writers can never
+# overlap. Any failure here leaves the existing Fleet containers untouched.
+resolve_updater_privilege
+if ! prepare_existing_updater_service; then
+  echo "❌ Existing host updater could not be stopped safely; no files were replaced." >&2
   exit 1
 fi
 
@@ -822,55 +1010,6 @@ for plugin in "${REQUIRED_PLUGINS[@]}"; do
 done
 echo "✅ Plugin binaries validated"
 
-UPDATER_CLEANUP_FAILED=0
-
-disable_updater_service_with() {
-  local privilege=("$@")
-  local load_state active_state unit_file_state
-  command -v systemctl >/dev/null 2>&1 || return 0
-
-  # A missing unit is already safe. For a known unit, query final state with
-  # checked commands so a sudo/systemctl failure cannot masquerade as
-  # inactive merely because `is-active` returned nonzero.
-  if ! load_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
-      --property=LoadState --value proto-fleet-updater.service 2>/dev/null); then
-    echo "❌ Could not inspect the host updater while disabling it." >&2
-    UPDATER_CLEANUP_FAILED=1
-    return 1
-  fi
-  if [ "$load_state" = "not-found" ]; then
-    return 0
-  fi
-
-  ${privilege[@]+"${privilege[@]}"} systemctl disable --now \
-    proto-fleet-updater.service >/dev/null 2>&1 || true
-  if ! active_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
-      --property=ActiveState --value proto-fleet-updater.service 2>/dev/null) \
-    || ! unit_file_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
-      --property=UnitFileState --value proto-fleet-updater.service 2>/dev/null); then
-    echo "❌ Could not stop and disable the host updater safely." >&2
-    UPDATER_CLEANUP_FAILED=1
-    return 1
-  fi
-  case "$active_state" in
-    inactive|failed) ;;
-    *)
-      echo "❌ Could not stop and disable the host updater safely." >&2
-      UPDATER_CLEANUP_FAILED=1
-      return 1
-      ;;
-  esac
-  case "$unit_file_state" in
-    disabled|masked|masked-runtime|static) ;;
-    *)
-      echo "❌ Could not stop and disable the host updater safely." >&2
-      UPDATER_CLEANUP_FAILED=1
-      return 1
-      ;;
-  esac
-  return 0
-}
-
 install_updater_service() {
   if [ "$(uname -s)" != "Linux" ]; then
     return 1
@@ -885,28 +1024,28 @@ install_updater_service() {
       return 1
       ;;
   esac
-  if [ ! -x "updater/proto-fleet-updater" ] || [ ! -f "updater/proto-fleet-updater.service" ]; then
+  if [ -z "$UPDATER_BOOTSTRAP_DIR" ] \
+    || [ -L "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater" ] \
+    || [ ! -x "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater" ] \
+    || [ -L "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service" ] \
+    || [ ! -f "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service" ]; then
     echo "⚠️  This release does not contain the host updater payload."
     return 1
   fi
 
   local privilege=()
-  if [ "$(id -u)" -ne 0 ]; then
-    command -v sudo >/dev/null 2>&1 || {
-      echo "⚠️  sudo is unavailable; one-click upgrades cannot be enabled."
-      return 1
-    }
-    if [ "$NON_INTERACTIVE" = "1" ]; then
-      privilege=(sudo -n)
-    else
-      privilege=(sudo)
-    fi
+  if [ "$UPDATER_PRIVILEGE_AVAILABLE" != "1" ]; then
+    echo "⚠️  sudo is unavailable; one-click upgrades cannot be enabled."
+    return 1
+  fi
+  if (( ${#UPDATER_PRIVILEGE[@]} )); then
+    privilege=("${UPDATER_PRIVILEGE[@]}")
   fi
 
-  # The service runs as root. Only enable it when root sees the same Docker
-  # daemon as the current installation; rootless Docker needs a future
-  # user-service adapter and must keep the manual fallback.
-  local current_docker_id root_docker_id attempt
+  # The service runs with Docker selector variables removed. Only enable it
+  # when that exact environment sees the same daemon as the current install;
+  # rootless/custom-daemon support needs a future service adapter.
+  local current_docker_id service_docker_id attempt
   current_docker_id=$(docker info --format '{{.ID}}' 2>/dev/null || true)
   if [ -z "$current_docker_id" ] && command -v docker >/dev/null 2>&1; then
     # Docker is an installer prerequisite, but tolerate an installed rootful
@@ -920,9 +1059,9 @@ install_updater_service() {
       sleep 0.25
     done
   fi
-  root_docker_id=$(${privilege[@]+"${privilege[@]}"} docker info --format '{{.ID}}' 2>/dev/null || true)
-  if [ -z "$current_docker_id" ] || [ "$current_docker_id" != "$root_docker_id" ]; then
-    echo "ℹ️  Root does not manage this installation's Docker daemon; keeping copy-command upgrades."
+  service_docker_id=$(service_docker_id_with ${privilege[@]+"${privilege[@]}"})
+  if [ -z "$current_docker_id" ] || [ "$current_docker_id" != "$service_docker_id" ]; then
+    echo "ℹ️  The host updater service does not manage this installation's Docker daemon; keeping copy-command upgrades."
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
@@ -955,8 +1094,8 @@ install_updater_service() {
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-  if ! ${privilege[@]+"${privilege[@]}"} install -m 0755 updater/proto-fleet-updater /usr/local/libexec/proto-fleet/proto-fleet-updater \
-    || ! ${privilege[@]+"${privilege[@]}"} install -m 0644 updater/proto-fleet-updater.service /etc/systemd/system/proto-fleet-updater.service \
+  if ! ${privilege[@]+"${privilege[@]}"} install -m 0755 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater" /usr/local/libexec/proto-fleet/proto-fleet-updater \
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0644 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service" /etc/systemd/system/proto-fleet-updater.service \
     || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 "$env_temp" /etc/proto-fleet/updater.env; then
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
@@ -968,9 +1107,8 @@ install_updater_service() {
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-  # A manual install can safely restart an already-running updater; the
-  # updater-driven path never invokes install.sh and refreshes its on-disk
-  # binary for the next service start instead.
+  # The old updater was drained before extraction. Start the newly installed
+  # binary only after its unit and environment have been replaced atomically.
   if ! ${privilege[@]+"${privilege[@]}"} systemctl restart proto-fleet-updater.service; then
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
@@ -1008,6 +1146,14 @@ if install_updater_service; then
   echo "✅ Host updater installed; one-click upgrades are enabled."
   RUN_FLEET_ARGS+=(--enable-one-click-updates)
 else
+  # Keep every fallback fail-closed, including returns that happen before the
+  # service payload is copied. Unsupported non-systemd hosts have no system
+  # updater to reconcile.
+  if [ "$(uname -s)" = "Linux" ] \
+    && command -v systemctl >/dev/null 2>&1 \
+    && [ -d /run/systemd/system ]; then
+    disable_updater_service_with ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
+  fi
   if [ "$UPDATER_CLEANUP_FAILED" = "1" ]; then
     echo "❌ Installation stopped because the host updater could not be left in a safe state." >&2
     exit 1

@@ -15,6 +15,17 @@ DRY_RUN=false
 HOST_UPDATER_PRESENT=false
 HOST_UPDATER_PRIVILEGE=()
 HOST_UPDATER_STAGING_NAME_RE='^\.proto-fleet-upgrade-[a-f0-9]{64}$'
+HOST_UPDATER_BINARY_PATHS=(
+  /usr/local/libexec/proto-fleet/proto-fleet-updater
+  /usr/local/libexec/proto-fleet-updater
+)
+HOST_UPDATER_SELF_UPDATE_SUFFIXES=(
+  .previous
+  .candidate
+  .handoff
+  .handoff.tmp
+  .restore
+)
 
 # =====================================================================
 # Output Helpers
@@ -460,6 +471,35 @@ remove_systemd_units() {
   print_success "Systemd user units cleaned up."
 }
 
+host_updater_binary_artifact_paths() {
+  local binary_path suffix
+  for binary_path in "${HOST_UPDATER_BINARY_PATHS[@]}"; do
+    printf '%s\n' "$binary_path"
+    for suffix in "${HOST_UPDATER_SELF_UPDATE_SUFFIXES[@]}"; do
+      printf '%s%s\n' "$binary_path" "$suffix"
+    done
+  done
+}
+
+host_updater_binary_artifacts_present() {
+  local path
+  while IFS= read -r path; do
+    [[ -e "$path" || -L "$path" ]] && return 0
+  done < <(host_updater_binary_artifact_paths)
+  return 1
+}
+
+remove_host_updater_binary_artifacts_with() {
+  local privilege=("$@")
+  local path
+  local artifacts=()
+  while IFS= read -r path; do
+    artifacts+=("$path")
+  done < <(host_updater_binary_artifact_paths)
+
+  ${privilege[@]+"${privilege[@]}"} rm -f -- "${artifacts[@]}"
+}
+
 host_updater_staging_artifacts_present() {
   local path name
   [[ -n "$INSTALL_ROOT" ]] || return 1
@@ -473,10 +513,9 @@ host_updater_staging_artifacts_present() {
 
 host_updater_artifacts_present() {
   local path load_state
+  host_updater_binary_artifacts_present && return 0
   for path in \
     /etc/systemd/system/proto-fleet-updater.service \
-    /usr/local/libexec/proto-fleet/proto-fleet-updater \
-    /usr/local/libexec/proto-fleet-updater \
     /etc/proto-fleet/updater.env \
     /var/lib/proto-fleet-updater \
     /run/proto-fleet-updater; do
@@ -567,10 +606,12 @@ remove_host_updater() {
   if (( ${#HOST_UPDATER_PRIVILEGE[@]} )); then
     privilege=("${HOST_UPDATER_PRIVILEGE[@]}")
   fi
-  if ! ${privilege[@]+"${privilege[@]}"} rm -f \
+  if ! remove_host_updater_binary_artifacts_with ${privilege[@]+"${privilege[@]}"}; then
+    print_error "Could not remove host updater binaries; deployment removal was aborted."
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} rm -f -- \
     /etc/systemd/system/proto-fleet-updater.service \
-    /usr/local/libexec/proto-fleet/proto-fleet-updater \
-    /usr/local/libexec/proto-fleet-updater \
     /etc/proto-fleet/updater.env; then
     print_error "Could not remove host updater files; deployment removal was aborted."
     return 1
@@ -609,10 +650,15 @@ remove_host_updater() {
   fi
 
   local path
+  while IFS= read -r path; do
+    if ${privilege[@]+"${privilege[@]}"} test -e "$path" \
+      || ${privilege[@]+"${privilege[@]}"} test -L "$path"; then
+      print_error "Host updater artifact remains after cleanup: $path"
+      return 1
+    fi
+  done < <(host_updater_binary_artifact_paths)
   for path in \
     /etc/systemd/system/proto-fleet-updater.service \
-    /usr/local/libexec/proto-fleet/proto-fleet-updater \
-    /usr/local/libexec/proto-fleet-updater \
     /etc/proto-fleet/updater.env \
     /var/lib/proto-fleet-updater \
     /run/proto-fleet-updater; do
