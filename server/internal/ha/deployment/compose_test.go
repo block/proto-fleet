@@ -1,1 +1,28 @@
-m«ëˆ§½©buªàºg§¶Ç«½êÿŠ{^®v¥ş¿uêe£)ßÜ¢jh±ë^²Ø(RÆ y¶¬{®vçºh¢ø¥zŠ.µø¥y¶ëy©­æ¤zw(uçhºÚn¶êbÚ%Šw¬¡ù^aéƒu×œ¡×yÊz)éºØazZ]ŠÊek+aŠÉ²Æ z(§¦ëb›­~)^uçÚº[_¢»-v)è¢ëiºÚ.¶›­~)^uçÚº[_¢»-v‹­
+package deployment
+
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestRunComposeRejectsParentOverrides(t *testing.T) {
+	for _, key := range []string{"AUTH_CLIENT_SECRET_KEY", "HA_NODE_IP"} {
+		t.Run(key, func(t *testing.T) {
+			// Arrange
+			const value = "must-not-appear-in-errors"
+			t.Setenv(key, value)
+
+			// Act
+			err := RunCompose(context.Background(), []string{"config"})
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), key) {
+				t.Fatalf("RunCompose() error = %v", err)
+			}
+			if strings.Contains(err.Error(), value) {
+				t.Fatal("RunCompose() exposed the parent value")
+			}
+		})
+	}
+}
