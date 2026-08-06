@@ -77,8 +77,10 @@ write_valid_env() {
         'ENABLE_BETA_ALERTS=true' \
         'ENABLE_BETA_ALERTS="false"' \
         'ENABLE_SYSTEM_MONITORING=false' \
-        'ENABLE_TRACING=true' > "$env_file"
+        'ENABLE_TRACING=true' \
+        'ENABLE_ONE_CLICK_UPDATES=true' > "$env_file"
     printf 'ENABLE_TRACING="FALSE" \r\n' >> "$env_file"
+    printf 'ENABLE_ONE_CLICK_UPDATES="FALSE" \r\n' >> "$env_file"
 }
 
 # Build a minimal docker-save-shaped archive whose manifest carries the given
@@ -141,6 +143,7 @@ make_stage() {
     cp "$DEPLOY_DIR/docker-compose.alerts.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.system-monitoring.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.tracing.yaml" "$STAGE/"
+    cp "$DEPLOY_DIR/docker-compose.updater.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/ha/compose.yaml" "$STAGE/ha/"
     cp "$DEPLOY_DIR/profiles/mini.env" "$STAGE/profiles/"
     cp "$DEPLOY_DIR/client/nginx.http.conf" "$STAGE/client/"
@@ -454,11 +457,12 @@ run_stage() {
     /bin/bash "$stage/run-fleet.sh" "$@" > "$HARNESS_OUTPUT_LOG" 2>&1
 }
 
-# The updater-specific option is intentionally deferred until its Compose
-# overlay is shipped and packaged later in the stack.
+# The packaged updater overlay is activated only after the installer has
+# successfully started the host service.
 make_stage help
 if run_stage "$STAGE" --help; then
-    assert_not_contains "help omits the unavailable updater overlay" "$HARNESS_OUTPUT_LOG" "enable-one-click-updates"
+    assert_contains "help documents the updater overlay" "$HARNESS_OUTPUT_LOG" "enable-one-click-updates"
+    assert_contains "help documents the updater fallback" "$HARNESS_OUTPUT_LOG" "disable-one-click-updates"
 else
     fail "--help should succeed"
 fi
@@ -513,13 +517,14 @@ printf 'DD_API_KEY=test-datadog-key\n' >> "$STAGE/.env"
 printf '%s\n' \
     'export ENABLE_BETA_ALERTS: true # preserve alerts' \
     'ENABLE_SYSTEM_MONITORING: "true"' \
-    'ENABLE_TRACING: TRUE' >> "$STAGE/.env"
+    'ENABLE_TRACING: TRUE' \
+    'ENABLE_ONE_CLICK_UPDATES: "true"' >> "$STAGE/.env"
 if run_stage "$STAGE" --non-interactive --preflight-only; then
     pass "Compose colon-form overlay settings preflight"
 else
     fail "Compose colon-form overlay settings should be preserved"
 fi
-for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING; do
+for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING ENABLE_ONE_CLICK_UPDATES; do
     if [ "$(grep -Ec "^[[:space:]]*(export[[:space:]]+)?${persisted_boolean}[[:space:]]*[:=]" "$STAGE/.env")" -eq 1 ] \
         && grep -q "^${persisted_boolean}=true$" "$STAGE/.env"; then
         pass "$persisted_boolean normalizes Compose colon syntax without changing its value"
@@ -527,6 +532,62 @@ for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRAC
         fail "$persisted_boolean did not preserve its Compose colon-form true value"
     fi
 done
+assert_contains "enabled one-click updates layer the socket overlay" "$HARNESS_CALL_LOG" "-f $STAGE/docker-compose.updater.yaml"
+
+# Exercise the exact installer contract: a successful service bootstrap must
+# override a persisted false value, layer the socket overlay, and survive the
+# preflight-to-activation handoff.
+make_stage enable-updater-overlay
+if run_stage "$STAGE" --enable-one-click-updates --non-interactive --preflight-only; then
+    pass "installer updater enablement preflights"
+else
+    fail "installer updater enablement should override persisted false state"
+fi
+assert_contains "installer updater enablement layers the socket overlay" "$HARNESS_CALL_LOG" "-f $STAGE/docker-compose.updater.yaml"
+if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
+    && grep -q '^ENABLE_ONE_CLICK_UPDATES=true$' "$STAGE/.env"; then
+    pass "installer updater enablement persists enabled state"
+else
+    fail "installer updater enablement did not normalize persisted state to true"
+fi
+: > "$HARNESS_CALL_LOG"
+if run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "enabled updater activation succeeds"
+else
+    fail "enabled updater state should survive activation"
+fi
+assert_contains "enabled updater activation retains the socket overlay" "$HARNESS_CALL_LOG" "-f $STAGE/docker-compose.updater.yaml"
+
+# An installer bootstrap failure must explicitly override previously persisted
+# state so fleet-api does not advertise or mount a dead host updater.
+make_stage disable-updater-overlay
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+if run_stage "$STAGE" --disable-one-click-updates --non-interactive --preflight-only; then
+    pass "explicit updater fallback preflights"
+else
+    fail "explicit updater fallback should override persisted true state"
+fi
+assert_not_contains "explicit updater fallback omits the socket overlay" "$HARNESS_CALL_LOG" "docker-compose.updater.yaml"
+if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
+    && grep -q '^ENABLE_ONE_CLICK_UPDATES=false$' "$STAGE/.env"; then
+    pass "explicit updater fallback persists disabled state"
+else
+    fail "explicit updater fallback did not normalize persisted state to false"
+fi
+
+# Persisted one-click state must fail before Docker activity when its release
+# bundle is incomplete; silently omitting the socket would expose a false
+# upgrade capability state to Fleet API.
+make_stage missing-updater-overlay
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+rm -f "$STAGE/docker-compose.updater.yaml"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "missing updater overlay should fail preflight"
+else
+    pass "missing updater overlay fails closed"
+fi
+assert_contains "missing updater overlay is diagnosed" "$HARNESS_OUTPUT_LOG" "one-click updates are enabled but $STAGE/docker-compose.updater.yaml is missing"
+assert_not_contains "missing updater overlay prevents Docker activity" "$HARNESS_CALL_LOG" "docker "
 
 # Required credentials use the same literal dotenv forms accepted for project
 # identity and booleans. Mixed duplicate delimiters, export prefixes, quoting,
@@ -582,6 +643,7 @@ else
 fi
 assert_not_contains "disabled tracing omits its Compose overlay" "$HARNESS_CALL_LOG" "docker-compose.tracing.yaml"
 assert_not_contains "disabled alerts omit their Compose overlay" "$HARNESS_CALL_LOG" "docker-compose.alerts.yaml"
+assert_not_contains "disabled one-click updates omit the socket overlay" "$HARNESS_CALL_LOG" "docker-compose.updater.yaml"
 assert_contains "dormant tracing value is preserved" "$STAGE/.env" 'DD_API_KEY=${DATADOG_API_KEY}'
 assert_contains "dormant alert value is preserved" "$STAGE/.env" 'GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD_FROM_VAULT}'
 
@@ -789,7 +851,7 @@ if [ "$marker_mode" = "600" ]; then
 else
     fail "preflight marker mode should be 600, got $marker_mode"
 fi
-for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING SESSION_COOKIE_SECURE; do
+for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING ENABLE_ONE_CLICK_UPDATES SESSION_COOKIE_SECURE; do
     if [ "$(grep -c "^${persisted_boolean}=" "$STAGE/.env")" -eq 1 ] && \
         grep -q "^${persisted_boolean}=false$" "$STAGE/.env"; then
         pass "$persisted_boolean uses one normalized last-value assignment"

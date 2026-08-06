@@ -14,6 +14,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Validate deployment shell syntax
+        run: |
+          for script in \
+            deployment-files/install.sh \
+            deployment-files/run-fleet.sh \
+            deployment-files/uninstall.sh \
+            deployment-files/tests/test-install-overlay-migration.sh \
+            deployment-files/tests/test-profiles.sh \
+            deployment-files/tests/test-run-fleet-upgrade.sh; do
+            bash -n "$script"
+          done
+
       - name: Validate host profiles and compose interpolation
         run: ./deployment-files/tests/test-profiles.sh
 

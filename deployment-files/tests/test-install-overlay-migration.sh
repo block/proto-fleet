@@ -16,6 +16,10 @@ trap 'rm -rf "$TEST_TMP"' EXIT
 # definitions instead of adding a production-only source-mode escape hatch.
 sed '/^# END INSTALL DISCOVERY AND LEGACY MIGRATION HELPERS$/q' \
   "$INSTALL_SCRIPT" > "$TEST_TMP/install-functions.sh"
+# The privileged service fallback lives after the installer's main download
+# path. Extract just that function as a second focused unit under test.
+sed -n '/^disable_updater_service_with()/,/^}/p' \
+  "$INSTALL_SCRIPT" >> "$TEST_TMP/install-functions.sh"
 # shellcheck source=/dev/null
 source "$TEST_TMP/install-functions.sh"
 
@@ -47,7 +51,7 @@ FAKE_INSPECT_FAILURE=0
 DOCKER_CALL_LOG="$TEST_TMP/docker-calls"
 
 docker() {
-  printf '%s\n' "$*" >> "$DOCKER_CALL_LOG"
+  printf '%s docker %s\n' "${FAKE_DOCKER_CONTEXT:-direct}" "$*" >> "$DOCKER_CALL_LOG"
   case "${1:-}" in
     ps)
       printf '%s\n' "$FAKE_IDS"
@@ -67,7 +71,7 @@ docker() {
 sudo() {
   printf 'sudo %s\n' "$*" >> "$DOCKER_CALL_LOG"
   [ "${1:-}" != "-n" ] || shift
-  "$@"
+  FAKE_DOCKER_CONTEXT=sudo "$@"
 }
 
 # Explicit settings are authoritative, including false, and avoid Docker
@@ -77,7 +81,7 @@ if (
   make_install "$root"
   printf '%s\n' \
     'ENABLE_BETA_ALERTS=true' \
-    'export ENABLE_BETA_ALERTS: "false" # last value wins' \
+    'export ENABLE_BETA_ALERTS: "false" # says "disabled"; last value wins' \
     'ENABLE_SYSTEM_MONITORING: false' \
     $'ENABLE_TRACING: TRUE # explicit\r' > "$root/deployment/.env"
   : > "$DOCKER_CALL_LOG"
@@ -175,8 +179,8 @@ if (
   : > "$DOCKER_CALL_LOG"
   FAKE_CONFIG_FILES="$root/deployment/docker-compose.yaml,$root/deployment/docker-compose.alerts.yaml"
   capture_previous_run_options "$root" 1 || exit 1
-  grep -q -- '--filter label=com.docker.compose.service=fleet-api' "$DOCKER_CALL_LOG"
-  ! grep -q -- '--filter name=' "$DOCKER_CALL_LOG"
+  grep -q -- '--filter label=com.docker.compose.service=fleet-api' "$DOCKER_CALL_LOG" \
+    && ! grep -q -- '--filter name=' "$DOCKER_CALL_LOG"
 ); then
   pass "container discovery uses exact Compose service labels"
 else
@@ -191,8 +195,8 @@ if (
   : > "$root/deployment/.env"
   FAKE_IDS=""
   FAKE_CONFIG_FILES="$root/deployment/docker-compose.yaml"
-  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/no-container.err"
-  grep -q 'No existing fleet-api container matches' "$TEST_TMP/no-container.err"
+  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/no-container.err" \
+    && grep -q 'No existing fleet-api container matches' "$TEST_TMP/no-container.err"
 ); then
   pass "missing legacy source fails closed"
 else
@@ -206,8 +210,8 @@ if (
   make_install "$root"
   : > "$root/deployment/.env"
   FAKE_INSPECT_FAILURE=1
-  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/inspect-failure.err"
-  grep -q 'Could not inspect Docker' "$TEST_TMP/inspect-failure.err"
+  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/inspect-failure.err" \
+    && grep -q 'Could not inspect Docker' "$TEST_TMP/inspect-failure.err"
 ); then
   pass "Docker inspection failures fail closed"
 else
@@ -222,8 +226,8 @@ if (
   : > "$root/deployment/.env"
   FAKE_IDS=$'first\nsecond'
   FAKE_CONFIG_FILES="$root/deployment/docker-compose.yaml"
-  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/ambiguous.err"
-  grep -q 'Multiple fleet-api containers match' "$TEST_TMP/ambiguous.err"
+  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/ambiguous.err" \
+    && grep -q 'Multiple fleet-api containers match' "$TEST_TMP/ambiguous.err"
 ); then
   pass "ambiguous matching containers fail closed"
 else
@@ -238,8 +242,8 @@ if (
   : > "$root/deployment/.env"
   FAKE_IDS="fleet-container"
   FAKE_CONFIG_FILES="/other/deployment/docker-compose.yaml,/other/deployment/docker-compose.alerts.yaml"
-  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/wrong-label.err"
-  grep -q 'No existing fleet-api container matches' "$TEST_TMP/wrong-label.err"
+  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/wrong-label.err" \
+    && grep -q 'No existing fleet-api container matches' "$TEST_TMP/wrong-label.err"
 ); then
   pass "foreign Compose config-files label is rejected"
 else
@@ -255,8 +259,8 @@ if (
     'ENABLE_BETA_ALERTS=maybe' \
     'ENABLE_SYSTEM_MONITORING=false' \
     'ENABLE_TRACING=false' > "$root/deployment/.env"
-  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/invalid-env.err"
-  grep -q 'must be true or false' "$TEST_TMP/invalid-env.err"
+  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/invalid-env.err" \
+    && grep -q 'must be true or false' "$TEST_TMP/invalid-env.err"
 ); then
   pass "invalid explicit overlay value is rejected"
 else
@@ -273,8 +277,8 @@ if (
     'ENABLE_TRACING=false' > "$root/deployment/.env"
   FAKE_IDS="fleet-container"
   FAKE_CONFIG_FILES="$root/deployment/docker-compose.yaml,$root/deployment/docker-compose.alerts.yaml,$root/deployment/docker-compose.system-monitoring.yaml"
-  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/inconsistent.err"
-  grep -q 'system monitoring without beta alerts' "$TEST_TMP/inconsistent.err"
+  ! capture_previous_run_options "$root" 1 2> "$TEST_TMP/inconsistent.err" \
+    && grep -q 'system monitoring without beta alerts' "$TEST_TMP/inconsistent.err"
 ); then
   pass "inconsistent explicit and inferred dependencies fail closed"
 else
@@ -290,12 +294,80 @@ if (
   : > "$DOCKER_CALL_LOG"
   FAKE_CONFIG_FILES="$root/deployment/docker-compose.yaml"
   capture_previous_run_options "$root" 1 sudo -n || exit 1
-  grep -q '^sudo -n docker ps -a ' "$DOCKER_CALL_LOG"
-  grep -q '^sudo -n docker inspect ' "$DOCKER_CALL_LOG"
+  grep -q '^sudo -n docker ps -a ' "$DOCKER_CALL_LOG" \
+    && grep -q '^sudo -n docker inspect ' "$DOCKER_CALL_LOG" \
+    && grep -q '^sudo docker ps -a ' "$DOCKER_CALL_LOG" \
+    && grep -q '^sudo docker inspect ' "$DOCKER_CALL_LOG" \
+    && ! grep -q '^direct docker ' "$DOCKER_CALL_LOG"
 ); then
   pass "overlay migration reuses the detected Docker privilege"
 else
   fail "overlay migration did not use the selected Docker privilege"
+fi
+
+# A systemctl/query failure must never be interpreted as proof that the
+# privileged updater is inactive. Conversely, a genuinely absent unit and a
+# verified inactive+disabled unit are safe terminal states.
+systemctl() {
+  case "$FAKE_SYSTEMCTL_MODE:$*" in
+    missing:*--property=LoadState*) printf 'not-found\n' ;;
+    safe:*--property=LoadState*) printf 'loaded\n' ;;
+    safe:*'disable --now'*) return 0 ;;
+    safe:*--property=ActiveState*) printf 'inactive\n' ;;
+    safe:*--property=UnitFileState*) printf 'disabled\n' ;;
+    unsafe:*--property=LoadState*) printf 'loaded\n' ;;
+    unsafe:*'disable --now'*) return 1 ;;
+    unsafe:*--property=ActiveState*) printf 'active\n' ;;
+    unsafe:*--property=UnitFileState*) printf 'enabled\n' ;;
+    query-failure:*) return 1 ;;
+    *) return 1 ;;
+  esac
+}
+
+if (
+  UPDATER_CLEANUP_FAILED=0
+  FAKE_SYSTEMCTL_MODE=missing
+  disable_updater_service_with \
+    && [ "$UPDATER_CLEANUP_FAILED" = 0 ]
+); then
+  pass "missing updater unit is already a safe fallback state"
+else
+  fail "missing updater unit should not make installer fallback fatal"
+fi
+
+if (
+  UPDATER_CLEANUP_FAILED=0
+  FAKE_SYSTEMCTL_MODE=safe
+  disable_updater_service_with \
+    && [ "$UPDATER_CLEANUP_FAILED" = 0 ]
+); then
+  pass "updater fallback verifies inactive and disabled service state"
+else
+  fail "verified inactive and disabled updater should be a safe fallback"
+fi
+
+if (
+  UPDATER_CLEANUP_FAILED=0
+  FAKE_SYSTEMCTL_MODE=query-failure
+  ! disable_updater_service_with 2> "$TEST_TMP/systemctl-query.err" \
+    && [ "$UPDATER_CLEANUP_FAILED" = 1 ] \
+    && grep -q 'Could not inspect the host updater' "$TEST_TMP/systemctl-query.err"
+); then
+  pass "updater fallback fails closed when systemctl inspection fails"
+else
+  fail "systemctl inspection failure should make updater fallback fatal"
+fi
+
+if (
+  UPDATER_CLEANUP_FAILED=0
+  FAKE_SYSTEMCTL_MODE=unsafe
+  ! disable_updater_service_with 2> "$TEST_TMP/systemctl-unsafe.err" \
+    && [ "$UPDATER_CLEANUP_FAILED" = 1 ] \
+    && grep -q 'Could not stop and disable' "$TEST_TMP/systemctl-unsafe.err"
+); then
+  pass "updater fallback rejects an active or enabled final state"
+else
+  fail "active or enabled updater state should make fallback fatal"
 fi
 
 if [ "$FAILURES" -ne 0 ]; then
