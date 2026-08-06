@@ -17,7 +17,7 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - management", () => {
   useRacksHooks();
 
-  test("Multiple racks support zone filtering and miner sorting", async ({ racksPage }) => {
+  test("Multiple racks support zone filtering and miner sorting", async ({ homePage, racksPage }) => {
     const zoneA = createZoneName("A");
     const zoneB = createZoneName("B");
     const createdRackLabels: string[] = [];
@@ -31,9 +31,11 @@ test.describe("Racks - management", () => {
       await racksPage.inputRows(RACK_ROWS);
       await racksPage.clickCreateRackFromSettings();
       await racksPage.validateRackToast("A-01");
+      await racksPage.clearToasts();
       await addSelectableMinersToSlots(racksPage, 3, [1, 2, 3]);
       await racksPage.clickSaveMinerPositions();
       await racksPage.validateMinerPositionsToast("A-01");
+      await racksPage.clearToasts();
       await racksPage.clickViewGrid();
       await racksPage.validateRackCardVisible("A-01", zoneA);
       createdRackLabels.push("A-01");
@@ -45,9 +47,11 @@ test.describe("Racks - management", () => {
       await racksPage.inputRackLabel("A-02");
       await racksPage.clickCreateRackFromSettings();
       await racksPage.validateRackToast("A-02");
+      await racksPage.clearToasts();
       await addSelectableMinersToSlots(racksPage, 2, [1, 2]);
       await racksPage.clickSaveMinerPositions();
       await racksPage.validateMinerPositionsToast("A-02");
+      await racksPage.clearToasts();
       await racksPage.clickViewGrid();
       await racksPage.validateRackCardVisible("A-02", zoneA);
       createdRackLabels.push("A-02");
@@ -59,9 +63,11 @@ test.describe("Racks - management", () => {
       await racksPage.inputRackLabel("B-01");
       await racksPage.clickCreateRackFromSettings();
       await racksPage.validateRackToast("B-01");
+      await racksPage.clearToasts();
       await addSelectableMinersToSlots(racksPage, 1, [1]);
       await racksPage.clickSaveMinerPositions();
       await racksPage.validateMinerPositionsToast("B-01");
+      await racksPage.clearToasts();
       await racksPage.clickViewGrid();
       await racksPage.validateRackCardVisible("B-01", zoneB);
       createdRackLabels.push("B-01");
@@ -97,6 +103,7 @@ test.describe("Racks - management", () => {
     });
 
     await test.step("Validate default grid order and miners sort order", async () => {
+      await homePage.dismissCompleteSetupIfVisible();
       await expectGridRackLabels(racksPage, ["A-01", "A-02", "B-01"]);
       await racksPage.selectGridSort("Miners");
       await expectGridRackLabels(racksPage, ["B-01", "A-02", "A-01"]);

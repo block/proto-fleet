@@ -465,16 +465,33 @@ export class BasePage {
     await expect
       .poll(
         async () => {
+          const normalize = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
+
+          const groupedHeader = this.page.getByTestId("grouped-toaster-header");
+          if (await groupedHeader.isVisible().catch(() => false)) {
+            const headerText = normalize(await groupedHeader.textContent().catch(() => ""));
+            if (headerText.includes(text)) {
+              return true;
+            }
+          }
+
+          const toastContainer = this.page.getByTestId("toaster-container");
+          if (await toastContainer.isVisible().catch(() => false)) {
+            const containerText = normalize(await toastContainer.textContent().catch(() => ""));
+            if (containerText.includes(text)) {
+              return true;
+            }
+          }
+
           const toasts = this.page.getByTestId("toast");
           const count = await toasts.count();
-
           for (let i = count - 1; i >= 0; i -= 1) {
             const toast = toasts.nth(i);
             if (!(await toast.isVisible().catch(() => false))) {
               continue;
             }
 
-            const toastText = ((await toast.textContent().catch(() => "")) ?? "").replace(/\s+/g, " ").trim();
+            const toastText = normalize(await toast.textContent().catch(() => ""));
             if (toastText.includes(text)) {
               return true;
             }

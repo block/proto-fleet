@@ -584,7 +584,9 @@ export class RacksPage extends BasePage {
     await this.clickEditRack();
     await this.clickDeleteRack();
     await this.clickDeleteConfirm();
-    await this.tryAction(() => this.validateRackDeletedToast(timeout), timeout);
+    await expect(this.page).toHaveURL(/\/racks(?:\?.*)?$/, { timeout });
+    await this.waitForRackListToLoad({ timeout });
+    await this.tryAction(() => this.validateRackNotVisible(label), timeout);
   }
 
   async clickEditRack() {
