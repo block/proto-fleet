@@ -1,0 +1,9 @@
+services:
+  fleet-api:
+    environment:
+      UPDATES_UPDATER_SOCKET_PATH: "/run/proto-fleet-updater/updater.sock"
+    volumes:
+      # Mount only the updater's narrow Unix-socket API. Never mount the host
+      # Docker socket into fleet-api: that would turn an application
+      # compromise into unrestricted host root access.
+      - /run/proto-fleet-updater:/run/proto-fleet-updater:ro

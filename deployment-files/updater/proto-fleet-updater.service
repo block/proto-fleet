@@ -1,0 +1,38 @@
+[Unit]
+Description=Proto Fleet host updater
+Documentation=https://github.com/block/proto-fleet
+After=docker.service network-online.target
+# Docker is needed only when an upgrade runs; keep status available while the
+# daemon is down and recover automatically when Docker returns.
+Wants=docker.service network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/proto-fleet/updater.env
+ExecStart=/usr/local/libexec/proto-fleet/proto-fleet-updater
+Restart=on-failure
+RestartSec=5s
+# Signal only the daemon first so it can safely drain an activation that has
+# already stopped Fleet. Its internal activation deadline is 45 minutes.
+KillMode=mixed
+TimeoutStopSec=50min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/usr/local/libexec/proto-fleet
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+StateDirectory=proto-fleet-updater
+StateDirectoryMode=0700
+RuntimeDirectory=proto-fleet-updater
+RuntimeDirectoryMode=0750
+# Keep Docker's bind mount attached to the same directory inode across service
+# stops and restarts. /run still clears the directory on host reboot.
+RuntimeDirectoryPreserve=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
