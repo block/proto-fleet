@@ -1,0 +1,247 @@
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+
+import { instanceUpdateClient } from "@/protoFleet/api/clients";
+import {
+  GetUpgradeStatusResponseSchema,
+  TriggerUpgradeResponseSchema,
+  type UpgradeOperation,
+  UpgradeOperationSchema,
+  UpgradePhase,
+} from "@/protoFleet/api/generated/instance/v1/updates_pb";
+import { useUpgradeOperation } from "@/protoFleet/features/updates/api/useUpgradeOperation";
+
+vi.mock("@/protoFleet/api/clients", () => ({
+  instanceUpdateClient: {
+    getUpgradeStatus: vi.fn(),
+    triggerUpgrade: vi.fn(),
+  },
+}));
+
+const mockGetUpgradeStatus = vi.mocked(instanceUpdateClient.getUpgradeStatus);
+const mockTriggerUpgrade = vi.mocked(instanceUpdateClient.triggerUpgrade);
+const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
+const ACKNOWLEDGED_OPERATION_KEY = "protoFleet:acknowledged-upgrade-operation";
+
+type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
+
+const operation = (phase: UpgradePhase, overrides?: MessageOverrides<UpgradeOperation>) =>
+  create(UpgradeOperationSchema, {
+    id: "operation-1",
+    targetVersion: "v1.3.0",
+    phase,
+    message: "Preparing upgrade",
+    ...overrides,
+  });
+
+const status = (executorAvailable = true, currentOperation?: UpgradeOperation) =>
+  create(GetUpgradeStatusResponseSchema, {
+    executorAvailable,
+    operation: currentOperation,
+  });
+
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  window.sessionStorage.clear();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("useUpgradeOperation", () => {
+  it("recovers a durable active operation without a capability gate", async () => {
+    const activeOperation = operation(UpgradePhase.PREFLIGHT);
+    mockGetUpgradeStatus.mockResolvedValue(status(true, activeOperation));
+
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(result.current.operation?.id).toBe("operation-1"));
+    expect(result.current.connectionLost).toBe(false);
+    expect(mockGetUpgradeStatus).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: 10_000 }),
+    );
+  });
+
+  it("does not overlap a pending poll and aborts it on cleanup", async () => {
+    vi.useFakeTimers();
+    const request = deferred<ReturnType<typeof status>>();
+    mockGetUpgradeStatus.mockReturnValue(request.promise);
+
+    const hook = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await act(async () => Promise.resolve());
+    expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(120_000));
+    expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1);
+    const signal = mockGetUpgradeStatus.mock.calls[0]?.[1]?.signal;
+
+    hook.unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("starts the exact target and tracks the returned operation", async () => {
+    const activeOperation = operation(UpgradePhase.PREFLIGHT);
+    mockGetUpgradeStatus.mockResolvedValue(status());
+    mockTriggerUpgrade.mockResolvedValue(
+      create(TriggerUpgradeResponseSchema, {
+        operation: activeOperation,
+      }),
+    );
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+
+    expect(mockTriggerUpgrade).toHaveBeenCalledWith({ targetVersion: "v1.3.0" }, { timeoutMs: 30_000 });
+    expect(result.current.operation?.phase).toBe(UpgradePhase.PREFLIGHT);
+    expect(JSON.parse(window.sessionStorage.getItem(TRACKED_OPERATION_KEY) ?? "{}")).toEqual({
+      id: "operation-1",
+      targetVersion: "v1.3.0",
+    });
+  });
+
+  it("reconciles an ambiguous trigger rejection to the durable operation", async () => {
+    const activeOperation = operation(UpgradePhase.PREFLIGHT);
+    mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, activeOperation));
+    mockTriggerUpgrade.mockRejectedValue(new Error("response lost"));
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+    await waitFor(() => expect(result.current.operation?.id).toBe("operation-1"));
+
+    expect(result.current.reconciling).toBe(false);
+    expect(result.current.triggerError).toBeNull();
+  });
+
+  it("ends bounded reconciliation and preserves an actionable trigger error", async () => {
+    vi.useFakeTimers();
+    mockGetUpgradeStatus.mockResolvedValue(status());
+    mockTriggerUpgrade.mockRejectedValue(new Error("host did not confirm"));
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await act(async () => Promise.resolve());
+
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+    expect(result.current.reconciling).toBe(true);
+
+    await act(async () => vi.advanceTimersByTimeAsync(17_000));
+
+    expect(result.current.reconciling).toBe(false);
+    expect(result.current.triggerError).toContain("host did not confirm");
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
+  });
+
+  it("does not unlock an unknown trigger outcome while the executor is unreachable", async () => {
+    vi.useFakeTimers();
+    mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(false));
+    mockTriggerUpgrade.mockRejectedValue(new Error("host did not confirm"));
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await act(async () => Promise.resolve());
+
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+
+    expect(result.current.reconciling).toBe(true);
+    expect(result.current.connectionLost).toBe(true);
+    expect(result.current.manualFallbackReady).toBe(true);
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).not.toBeNull();
+
+    act(() => result.current.useManualFallback());
+
+    expect(result.current.reconciling).toBe(false);
+    expect(result.current.triggerError).toBeNull();
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
+  });
+
+  it("keeps progress through disconnect and accepts the terminal success", async () => {
+    vi.useFakeTimers();
+    const activeOperation = operation(UpgradePhase.ACTIVATING);
+    const succeededOperation = operation(UpgradePhase.SUCCEEDED, { message: "Upgrade complete" });
+    mockGetUpgradeStatus
+      .mockResolvedValueOnce(status(true, activeOperation))
+      .mockRejectedValueOnce(new Error("Fleet restarting"))
+      .mockResolvedValue(status(true, succeededOperation));
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await act(async () => Promise.resolve());
+    expect(result.current.operation?.phase).toBe(UpgradePhase.ACTIVATING);
+
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(result.current.connectionLost).toBe(true);
+    expect(result.current.operation?.phase).toBe(UpgradePhase.ACTIVATING);
+
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(result.current.operation?.phase).toBe(UpgradePhase.SUCCEEDED);
+    expect(result.current.connectionLost).toBe(false);
+  });
+
+  it("does not replay an untracked historical success", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.SUCCEEDED)));
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.3.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
+    expect(result.current.operation).toBeUndefined();
+  });
+
+  it("suppresses a stale failure after manual recovery installed its target", async () => {
+    window.sessionStorage.setItem(
+      TRACKED_OPERATION_KEY,
+      JSON.stringify({ id: "operation-1", targetVersion: "v1.3.0" }),
+    );
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.3.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
+    expect(result.current.operation).toBeUndefined();
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
+  });
+
+  it("rechecks an unresolved failure as soon as the current version loads", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    const initialProps: { currentVersion?: string } = {};
+    const { rerender, result } = renderHook(
+      ({ currentVersion }: { currentVersion?: string }) => useUpgradeOperation({ enabled: true, currentVersion }),
+      { initialProps },
+    );
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+    expect(result.current.operation).toBeUndefined();
+
+    rerender({ currentVersion: "v1.2.0" });
+
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+  });
+
+  it("acknowledges a terminal failure so it is not replayed", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    const { result } = renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+
+    act(() => result.current.acknowledgeOperation());
+
+    expect(result.current.operation).toBeUndefined();
+    expect(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY)).toBe("operation-1");
+  });
+
+  it("forwards poll errors for page-level auth handling", async () => {
+    const onPollError = vi.fn();
+    const pollError = new Error("permission revoked");
+    mockGetUpgradeStatus.mockRejectedValue(pollError);
+
+    renderHook(() => useUpgradeOperation({ enabled: true, currentVersion: "v1.2.0", onPollError }));
+
+    await waitFor(() => expect(onPollError).toHaveBeenCalledWith(pollError));
+  });
+});
