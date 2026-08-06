@@ -87,6 +87,8 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 		if err := validateVirtualIPPrefix(nodeIP, virtualIP, prefixes); err != nil {
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
 		}
+		// VRRP moves the VIP with ARP, so it must be directly connected rather
+		// than routed through a gateway.
 		output, err := host.runCommand(ctx, "ip", "route", "get", config.VirtualIP)
 		if err != nil {
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
@@ -97,6 +99,7 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 		if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
 		}
+		// Duplicate-address detection rejects a VIP already claimed by another host.
 		output, err = host.runCommand(ctx, "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
 		if err != nil {
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))

@@ -9,16 +9,19 @@ vrrp_script fleet_active {
     timeout 1
     rise 1
     fall 2
+    # Never advertise the VIP until the full local proxy path has passed.
     init_fail
 }
 
 vrrp_instance FLEET {
+    # Both hosts start passive; lease-backed active health controls eligibility.
     state BACKUP
     interface ${HA_NETWORK_INTERFACE}
     virtual_router_id 51
     priority 100
     advert_int 1
 
+    # Unicast does not depend on multicast support in the deployment network.
     unicast_src_ip ${HA_NODE_IP}
     unicast_peer {
         ${HA_PEER_IP}

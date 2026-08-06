@@ -1,7 +1,9 @@
 services:
   fleet-api:
+    # Patroni provides PostgreSQL in HA deployments, so remove the base dependency.
     depends_on: !reset []
     environment:
+      # External traffic reaches Fleet through local nginx and the shared VIP.
       HTTP_LISTEN_ADDRESS: "127.0.0.1:4000"
       FLEET_HA_ENABLED: "true"
       FLEET_HA_ETCD_ENDPOINTS: "https://${HA_DB_A_IP}:2379,https://${HA_DB_B_IP}:2379,https://${HA_DCS_C_IP}:2379"
@@ -12,6 +14,7 @@ services:
       - "/run/proto-fleet-ha:/run/proto-fleet-ha:ro"
 
   fleet-client:
+    # Replace the base TLS mount with this host's certificate for the shared VIP.
     volumes: !override
       - "${HA_SECRETS_DIR}/fleet-client.crt:/etc/nginx/ssl/cert.pem:ro"
       - "${HA_SECRETS_DIR}/fleet-client.key:/etc/nginx/ssl/key.pem:ro"

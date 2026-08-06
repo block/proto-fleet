@@ -104,6 +104,8 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 			return err
 		}
 	}
+	// Both Fleet hosts share application identity because they alternate against
+	// the same database and encrypted state.
 	authSecret, err := randomHex(32)
 	if err != nil {
 		return fmt.Errorf("generate Fleet authentication secret: %w", err)
@@ -177,6 +179,7 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 		if err := issueCertificate(nodeDir, "postgres", "postgres-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
 			return err
 		}
+		// Each host gets its own keypair, but both certificates identify the VIP.
 		if err := issueCertificate(nodeDir, "fleet-client", "fleet-client-"+host.name, vip, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
 			return err
 		}

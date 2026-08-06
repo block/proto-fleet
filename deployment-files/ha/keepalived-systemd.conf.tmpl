@@ -1,4 +1,5 @@
 [Service]
 Restart=on-failure
 RestartSec=2s
+# Remove a stranded VIP after keepalived exits; '-' tolerates an absent address.
 ExecStopPost=-/usr/sbin/ip address delete ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}

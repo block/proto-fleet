@@ -194,6 +194,7 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return r.stopGroupAndDrainAdmissions(admissionDrained)
 	}
+	// Stop lease renewal before cleanup so a blocked abort cannot delay takeover.
 	cancelCoordinator()
 	abortErr := r.abortGroup(activeErr)
 
@@ -236,6 +237,8 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 	}
 }
 
+// endpointMonitor gives keepalived one bounded chance to claim the VIP after
+// activation. Once ready, two missed samples are tolerated before failing closed.
 type endpointMonitor struct {
 	healthy          func() bool
 	deadline         time.Time
