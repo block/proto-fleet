@@ -46,24 +46,34 @@ make_install() {
 # Defaults consumed by the docker test double. Individual cases override only
 # the state they need.
 FAKE_IDS="fleet-container"
+FAKE_DIRECT_IDS=""
+FAKE_SUDO_IDS=""
+FAKE_MOUNT_PATH=""
 FAKE_CONFIG_FILES=""
 FAKE_INSPECT_FAILURE=0
 DOCKER_CALL_LOG="$TEST_TMP/docker-calls"
 
 docker() {
+  local ids="$FAKE_IDS"
+  case "${FAKE_DOCKER_CONTEXT:-direct}" in
+    direct) [ -z "$FAKE_DIRECT_IDS" ] || ids="$FAKE_DIRECT_IDS" ;;
+    sudo) [ -z "$FAKE_SUDO_IDS" ] || ids="$FAKE_SUDO_IDS" ;;
+  esac
   printf '%s docker %s\n' "${FAKE_DOCKER_CONTEXT:-direct}" "$*" >> "$DOCKER_CALL_LOG"
   case "${1:-}" in
     ps)
-      printf '%s\n' "$FAKE_IDS"
+      printf '%s\n' "$ids"
       ;;
     inspect)
       [ "$FAKE_INSPECT_FAILURE" != 1 ] || return 1
       case "${3:-}" in
         *com.docker.compose.service*) printf 'fleet-api\n' ;;
         *com.docker.compose.project.config_files*) printf '%s\n' "$FAKE_CONFIG_FILES" ;;
+        *'.Destination "/var/lib/fleet/start"'*) printf '%s\n' "$FAKE_MOUNT_PATH" ;;
         *) return 1 ;;
       esac
       ;;
+    version) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -72,6 +82,14 @@ sudo() {
   printf 'sudo %s\n' "$*" >> "$DOCKER_CALL_LOG"
   [ "${1:-}" != "-n" ] || shift
   FAKE_DOCKER_CONTEXT=sudo "$@"
+}
+
+id() {
+  if [ "${1:-}" = "-u" ]; then
+    printf '1000\n'
+    return 0
+  fi
+  command id "$@"
 }
 
 # Explicit settings are authoritative, including false, and avoid Docker
@@ -303,6 +321,27 @@ if (
   pass "overlay migration reuses the detected Docker privilege"
 else
   fail "overlay migration did not use the selected Docker privilege"
+fi
+
+# --install-dir chooses a destination but must not suppress root-daemon
+# discovery. The caller needs this state before extraction so it can reject a
+# mixed-privilege upgrade even when every legacy overlay value is explicit.
+if (
+  root="$TEST_TMP/explicit-root-daemon"
+  make_install "$root"
+  : > "$DOCKER_CALL_LOG"
+  FAKE_IDS=""
+  FAKE_DIRECT_IDS=""
+  FAKE_SUDO_IDS="root-fleet"
+  FAKE_MOUNT_PATH="$root/deployment/server/start"
+  detect_previous_install \
+    && [ "$PREVIOUS_INSTALL_DIR" = "$root" ] \
+    && [ "$PREVIOUS_INSTALL_NEEDS_SUDO" = 1 ] \
+    && grep -q '^sudo docker ps -a ' "$DOCKER_CALL_LOG"
+); then
+  pass "explicit install paths retain root-daemon ownership discovery"
+else
+  fail "explicit install path discovery missed the root-managed deployment"
 fi
 
 # A systemctl/query failure must never be interpreted as proof that the

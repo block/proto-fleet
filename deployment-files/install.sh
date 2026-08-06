@@ -675,13 +675,10 @@ get_default_install_dir() {
 }
 
 echo "🔍 Checking for previous ProtoFleet installations via Docker..."
-if [ -z "$REQUESTED_INSTALL_DIR" ]; then
-  detect_previous_install || true
-else
-  PREVIOUS_INSTALL_DIR=""
-  PREVIOUS_INSTALL_NEEDS_SUDO=0
-  PREVIOUS_INSTALL_SUDO_BLOCKED=0
-fi
+# An explicit target controls the destination, not the Docker ownership
+# boundary. Always probe both daemon contexts before replacing files so
+# --install-dir cannot bypass the root-daemon mismatch guard.
+detect_previous_install || true
 DEFAULT_INSTALL_DIR=$(get_default_install_dir)
 
 # If the existing containers were only visible via `sudo docker`, this script
