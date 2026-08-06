@@ -487,10 +487,12 @@ disable_updater_service_with() {
   local load_state active_state unit_file_state
   command -v systemctl >/dev/null 2>&1 || return 0
 
-  # A missing unit is already safe. For a known unit, query final state with
-  # checked commands so a sudo/systemctl failure cannot masquerade as
-  # inactive merely because `is-active` returned nonzero.
-  if ! load_state=$(${privilege[@]+"${privilege[@]}"} systemctl show \
+  # A missing unit is already safe and LoadState is readable without
+  # privilege. Check it directly before invoking sudo so a non-interactive
+  # fallback does not turn a previously proven missing unit into a fatal
+  # cleanup failure merely because sudo would require a password. For a known
+  # unit, all mutation and final-state checks still use the resolved privilege.
+  if ! load_state=$(systemctl show \
       --property=LoadState --value proto-fleet-updater.service 2>/dev/null); then
     echo "❌ Could not inspect the host updater while disabling it." >&2
     UPDATER_CLEANUP_FAILED=1

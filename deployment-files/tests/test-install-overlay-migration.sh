@@ -537,6 +537,21 @@ fi
 
 if (
   UPDATER_CLEANUP_FAILED=0
+  FAKE_SYSTEMCTL_MODE=missing
+  # Model a non-root, non-interactive install where sudo -n would require a
+  # password. The authoritative unprivileged LoadState result must make sudo
+  # unnecessary when the unit is absent.
+  sudo() { return 1; }
+  disable_updater_service_with sudo -n \
+    && [ "$UPDATER_CLEANUP_FAILED" = 0 ]
+); then
+  pass "missing updater unit bypasses unavailable non-interactive sudo"
+else
+  fail "missing updater unit should not be rechecked through sudo -n"
+fi
+
+if (
+  UPDATER_CLEANUP_FAILED=0
   FAKE_SYSTEMCTL_MODE=safe
   disable_updater_service_with \
     && [ "$UPDATER_CLEANUP_FAILED" = 0 ]
@@ -544,6 +559,20 @@ if (
   pass "updater fallback verifies inactive and disabled service state"
 else
   fail "verified inactive and disabled updater should be a safe fallback"
+fi
+
+if (
+  UPDATER_CLEANUP_FAILED=0
+  FAKE_SYSTEMCTL_MODE=safe
+  sudo() { return 1; }
+  ! disable_updater_service_with sudo -n \
+    2> "$TEST_TMP/systemctl-sudo-required.err" \
+    && [ "$UPDATER_CLEANUP_FAILED" = 1 ] \
+    && grep -q 'Could not stop and disable' "$TEST_TMP/systemctl-sudo-required.err"
+); then
+  pass "known updater unit still fails closed when privilege is unavailable"
+else
+  fail "known updater cleanup must not trust an unavailable privilege wrapper"
 fi
 
 if (
