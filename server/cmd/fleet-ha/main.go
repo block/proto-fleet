@@ -94,7 +94,7 @@ func run(ctx context.Context, args []string) error {
 }
 
 func usageError() error {
-	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status|install> ...")
+	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status|install|start|stop> ...")
 }
 
 func runInstall(ctx context.Context, args []string) error {
