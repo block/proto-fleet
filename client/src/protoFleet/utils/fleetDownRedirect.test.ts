@@ -36,7 +36,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("http://localhost:5173/settings/network");
+    expect(window.location.href).toBe(`${mockLocation.origin}/settings/network`);
   });
 
   it("redirects to home page when no from parameter exists", () => {
@@ -44,7 +44,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("http://localhost:5173/");
+    expect(window.location.href).toBe(`${mockLocation.origin}/`);
   });
 
   it("redirects to home page when from parameter is empty", () => {
@@ -52,7 +52,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("http://localhost:5173/");
+    expect(window.location.href).toBe(`${mockLocation.origin}/`);
   });
 
   it("handles complex paths with query parameters", () => {
@@ -60,7 +60,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("http://localhost:5173/miners?filter=active");
+    expect(window.location.href).toBe(`${mockLocation.origin}/miners?filter=active`);
   });
 
   it("preserves hash fragments in redirect URL", () => {
@@ -68,7 +68,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("http://localhost:5173/settings#security");
+    expect(window.location.href).toBe(`${mockLocation.origin}/settings#security`);
   });
 
   it("handles paths with query parameters and hash fragments", () => {
@@ -76,7 +76,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("http://localhost:5173/miners?filter=active#details");
+    expect(window.location.href).toBe(`${mockLocation.origin}/miners?filter=active#details`);
   });
 
   // Security tests
@@ -86,7 +86,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("http://localhost:5173/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("prevents redirect to protocol-relative URLs", () => {
@@ -94,7 +94,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("http://localhost:5173/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("prevents redirect to JavaScript URLs", () => {
@@ -102,7 +102,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("http://localhost:5173/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("prevents redirect via backslash protocol-relative URLs", () => {
@@ -111,7 +111,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("http://localhost:5173/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("prevents redirect via mixed slash-backslash URLs", () => {
@@ -120,7 +120,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("http://localhost:5173/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("prevents redirect when path contains any backslash", () => {
@@ -128,7 +128,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("http://localhost:5173/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("allows valid relative paths", () => {
@@ -136,7 +136,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("http://localhost:5173/settings");
+      expect(window.location.href).toBe(`${mockLocation.origin}/settings`);
     });
   });
 });
