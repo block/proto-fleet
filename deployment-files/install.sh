@@ -11,6 +11,7 @@ UPDATER_DISABLE_ON_EXIT=0
 UPDATER_REENABLE_ON_EXIT=0
 UPDATER_RESTART_ON_EXIT=0
 UPDATER_START_AFTER_RUN=0
+UPDATER_DEPLOYMENT_COMMITTED=0
 UPDATER_REENABLE_AFTER_FAILED_RUN=0
 UPDATER_RESTART_AFTER_FAILED_RUN=0
 UPDATER_FALLBACK_PENDING=0
@@ -1131,6 +1132,59 @@ run_disabled_updater_fallback() {
   complete_disabled_updater_fallback_after_run "$env_file" "$run_status"
 }
 
+reconcile_committed_updater_enablement() {
+  local runner="$1"
+  local env_file="$2"
+  shift 2
+  local run_args=("$@")
+  local committed_state
+
+  # The setting is written before Compose validation and startup, so only the
+  # caller's successful run-fleet completion may arm this recovery path.
+  if [ "${UPDATER_DEPLOYMENT_COMMITTED:-0}" != "1" ] \
+    || [ "${UPDATER_START_AFTER_RUN:-0}" != "1" ]; then
+    return 0
+  fi
+  if ! committed_state=$(deployment_boolean_state \
+      "$env_file" ENABLE_ONE_CLICK_UPDATES) \
+    || [ "$committed_state" != "true" ]; then
+    echo "❌ The committed deployment does not have a valid enabled one-click update setting." >&2
+    disable_updater_service_with \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
+    return 1
+  fi
+
+  echo "🔄 Starting the host updater after the committed deployment..."
+  if ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} systemctl enable \
+      proto-fleet-updater.service >/dev/null 2>&1 \
+    && restart_updater_service_with "$UPDATER_SOCKET_PATH" \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+    UPDATER_DISABLE_ON_EXIT=0
+    UPDATER_RESTART_ON_EXIT=0
+    UPDATER_REENABLE_ON_EXIT=0
+    UPDATER_START_AFTER_RUN=0
+    UPDATER_DEPLOYMENT_COMMITTED=0
+    return 0
+  fi
+
+  echo "⚠️  The host updater did not become ready; redeploying without its socket overlay." >&2
+  disable_updater_service_with \
+    ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
+  # Never let EXIT retry a service that failed readiness. Keep disablement
+  # armed until run-fleet proves the copy-command fallback is active.
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=0
+  UPDATER_DISABLE_ON_EXIT=1
+  if ! run_disabled_updater_fallback "$runner" "$env_file" \
+      "${run_args[@]}"; then
+    echo "❌ Could not deploy the copy-command fallback after the host updater failed readiness." >&2
+    return 1
+  fi
+  UPDATER_DEPLOYMENT_COMMITTED=0
+  echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
+}
+
 reconcile_updater_after_failed_deployment() {
   local env_file="$1"
   local previous_state="$2"
@@ -1399,6 +1453,15 @@ quiesce_updater_service_for_manual_run_with() {
 installer_exit_cleanup() {
   local status=$?
   trap - EXIT
+  if [ "${UPDATER_DEPLOYMENT_COMMITTED:-0}" = "1" ] \
+    && [ "${UPDATER_START_AFTER_RUN:-0}" = "1" ]; then
+    echo "🔄 Reconciling the committed updater deployment after interruption..." >&2
+    if ! reconcile_committed_updater_enablement \
+      ./run-fleet.sh "$INSTALL_DIR/$DEPLOYMENT_DIR/.env" \
+      ${RUN_FLEET_ARGS[@]+"${RUN_FLEET_ARGS[@]}"}; then
+      status=1
+    fi
+  fi
   if [ "${UPDATER_DISABLE_ON_EXIT:-0}" = "1" ]; then
     echo "🔒 Disabling the host updater after interrupted validation..." >&2
     if ! disable_updater_service_with \
@@ -2126,6 +2189,11 @@ RUN_FLEET_STATUS=0
 if PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
   ./run-fleet.sh "${RUN_FLEET_ARGS[@]}"; then
   RUN_FLEET_STATUS=0
+  if [ "$UPDATER_START_AFTER_RUN" = "1" ]; then
+    # A zero exit is the commit boundary. The .env flag is persisted earlier
+    # and cannot by itself prove that the socket-enabled topology is active.
+    UPDATER_DEPLOYMENT_COMMITTED=1
+  fi
 else
   RUN_FLEET_STATUS=$?
 fi
@@ -2161,32 +2229,9 @@ if [ "$RUN_FLEET_STATUS" -ne 0 ]; then
   exit "$RUN_FLEET_STATUS"
 fi
 
-if [ "$UPDATER_START_AFTER_RUN" = "1" ]; then
-  echo "🔄 Starting the host updater after the manual deployment run..."
-  # run-fleet is finished, so the old API can no longer race this deployment.
-  # systemd owns the service lifecycle once the restart is issued.
-  if restart_updater_service_with "$UPDATER_SOCKET_PATH" \
-    ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
-    UPDATER_DISABLE_ON_EXIT=0
-    UPDATER_RESTART_ON_EXIT=0
-    UPDATER_REENABLE_ON_EXIT=0
-    UPDATER_START_AFTER_RUN=0
-  else
-    echo "⚠️  The host updater did not become ready; redeploying without its socket overlay." >&2
-    disable_updater_service_with \
-      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
-    # Never let EXIT retry a service that failed readiness. Keep disablement
-    # armed until run-fleet proves the copy-command fallback is active.
-    UPDATER_RESTART_ON_EXIT=0
-    UPDATER_REENABLE_ON_EXIT=0
-    UPDATER_START_AFTER_RUN=0
-    UPDATER_DISABLE_ON_EXIT=1
-    if ! run_disabled_updater_fallback \
-      ./run-fleet.sh "$INSTALL_DIR/$DEPLOYMENT_DIR/.env" \
-      "${RUN_FLEET_ARGS[@]}"; then
-      echo "❌ Could not deploy the copy-command fallback after the host updater failed readiness." >&2
-      exit 1
-    fi
-    echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
-  fi
+if [ "$UPDATER_START_AFTER_RUN" = "1" ] \
+  && ! reconcile_committed_updater_enablement \
+    ./run-fleet.sh "$INSTALL_DIR/$DEPLOYMENT_DIR/.env" \
+    "${RUN_FLEET_ARGS[@]}"; then
+  exit 1
 fi

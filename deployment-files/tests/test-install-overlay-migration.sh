@@ -825,8 +825,9 @@ validation_cleanup_line=$(awk '
 production_socket_line=$(awk '/^      "\$GITHUB_RELEASES_URL" "\$UPDATER_SOCKET_PATH"/ { print NR; exit }' "$INSTALL_SCRIPT")
 start_after_run_arm_line=$(awk '/^  UPDATER_START_AFTER_RUN=1$/ { print NR; exit }' "$INSTALL_SCRIPT")
 run_fleet_line=$(awk '/^  \.\/run-fleet\.sh / { print NR; exit }' "$INSTALL_SCRIPT")
+deployment_commit_line=$(awk -v start="$run_fleet_line" 'NR > start && /^    UPDATER_DEPLOYMENT_COMMITTED=1$/ { print NR; exit }' "$INSTALL_SCRIPT")
 run_status_check_line=$(awk -v start="$run_fleet_line" 'NR > start && /^if \[ "\$RUN_FLEET_STATUS" -ne 0 \]; then$/ { print NR; exit }' "$INSTALL_SCRIPT")
-post_run_restart_line=$(awk -v start="$run_fleet_line" 'NR > start && /^  if restart_updater_service_with/ { print NR; exit }' "$INSTALL_SCRIPT")
+post_run_reconcile_line=$(awk -v start="$run_status_check_line" 'NR > start && /^  && ! reconcile_committed_updater_enablement/ { print NR; exit }' "$INSTALL_SCRIPT")
 if [ -n "$validation_restart_line" ] \
   && [ "$validation_restart_line" -lt "$quiesce_line" ] \
   && [ "$quiesce_line" -lt "$validation_cleanup_line" ] \
@@ -835,9 +836,11 @@ if [ -n "$validation_restart_line" ] \
   && [ "$production_socket_line" -lt "$start_after_run_arm_line" ] \
   && [ "$quiesce_line" -lt "$start_after_run_arm_line" ] \
   && [ "$start_after_run_arm_line" -lt "$run_fleet_line" ] \
+  && [ "$run_fleet_line" -lt "$deployment_commit_line" ] \
+  && [ "$deployment_commit_line" -lt "$run_status_check_line" ] \
   && [ "$run_fleet_line" -lt "$run_status_check_line" ] \
-  && [ "$run_status_check_line" -lt "$post_run_restart_line" ] \
-  && [ "$run_fleet_line" -lt "$post_run_restart_line" ]; then
+  && [ "$run_status_check_line" -lt "$post_run_reconcile_line" ] \
+  && [ "$run_fleet_line" -lt "$post_run_reconcile_line" ]; then
   pass "host updater stays quiesced for the complete manual deployment run"
 else
   fail "host updater lifecycle does not serialize the manual deployment run"
@@ -1121,6 +1124,104 @@ if (
   pass "interrupted installation restores updater enablement and production socket"
 else
   fail "installer exit cleanup did not restore the updater after interruption"
+fi
+
+# A successful run-fleet return commits the socket-enabled topology. Signals
+# after that boundary must finish enabling the updater instead of applying the
+# pre-deployment fail-closed cleanup policy.
+if (
+  committed_root="$TEST_TMP/updater-committed-signal"
+  committed_env="$committed_root/deployment/.env"
+  lifecycle_log="$TEST_TMP/updater-committed-signal-calls"
+  mkdir -p "$(dirname "$committed_env")"
+  printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$committed_env"
+  : > "$lifecycle_log"
+  INSTALL_DIR="$committed_root"
+  DEPLOYMENT_DIR=deployment
+  RUN_FLEET_ARGS=(--enable-one-click-updates --non-interactive)
+  UPDATER_PRIVILEGE=()
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=1
+  UPDATER_DEPLOYMENT_COMMITTED=1
+  systemctl() {
+    printf 'systemctl %s\n' "$*" >> "$lifecycle_log"
+    return 0
+  }
+  restart_updater_service_with() {
+    printf 'restart %s\n' "$1" >> "$lifecycle_log"
+    return 0
+  }
+  disable_updater_service_with() {
+    printf 'disable\n' >> "$lifecycle_log"
+    return 0
+  }
+  run_disabled_updater_fallback() {
+    printf 'fallback\n' >> "$lifecycle_log"
+    return 1
+  }
+  (trap installer_exit_cleanup EXIT; exit 143)
+  cleanup_status=$?
+  [ "$cleanup_status" -eq 143 ] \
+    && grep -q '^systemctl enable proto-fleet-updater.service$' "$lifecycle_log" \
+    && grep -q '^restart /run/proto-fleet-updater/updater.sock$' "$lifecycle_log" \
+    && ! grep -q '^disable$' "$lifecycle_log" \
+    && ! grep -q '^fallback$' "$lifecycle_log"
+); then
+  pass "signal after committed deployment starts the updater"
+else
+  fail "committed updater enablement can be disabled by interrupted cleanup"
+fi
+
+# If the signal arrives during the final readiness phase and the retry cannot
+# establish a ready updater, cleanup must replace the committed socket overlay
+# with the copy-command fallback before it exits.
+if (
+  committed_root="$TEST_TMP/updater-readiness-signal"
+  committed_env="$committed_root/deployment/.env"
+  lifecycle_log="$TEST_TMP/updater-readiness-signal-calls"
+  mkdir -p "$(dirname "$committed_env")"
+  printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$committed_env"
+  : > "$lifecycle_log"
+  INSTALL_DIR="$committed_root"
+  DEPLOYMENT_DIR=deployment
+  RUN_FLEET_ARGS=(--enable-one-click-updates --non-interactive)
+  UPDATER_PRIVILEGE=()
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=1
+  UPDATER_DEPLOYMENT_COMMITTED=1
+  systemctl() {
+    printf 'systemctl %s\n' "$*" >> "$lifecycle_log"
+    return 0
+  }
+  restart_updater_service_with() {
+    printf 'restart %s\n' "$1" >> "$lifecycle_log"
+    return 1
+  }
+  disable_updater_service_with() {
+    printf 'disable\n' >> "$lifecycle_log"
+    return 0
+  }
+  run_disabled_updater_fallback() {
+    printf 'fallback %s\n' "$*" >> "$lifecycle_log"
+    printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$committed_env"
+    UPDATER_DISABLE_ON_EXIT=0
+    return 0
+  }
+  (trap installer_exit_cleanup EXIT; exit 130)
+  cleanup_status=$?
+  [ "$cleanup_status" -eq 130 ] \
+    && grep -q '^restart /run/proto-fleet-updater/updater.sock$' "$lifecycle_log" \
+    && grep -q '^disable$' "$lifecycle_log" \
+    && grep -q '^fallback ./run-fleet.sh .*--enable-one-click-updates --non-interactive$' "$lifecycle_log" \
+    && grep -q '^ENABLE_ONE_CLICK_UPDATES=false$' "$committed_env"
+); then
+  pass "signal during final updater readiness deploys the disabled fallback"
+else
+  fail "interrupted updater readiness can leave the socket overlay committed"
 fi
 
 if (
