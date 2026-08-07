@@ -237,8 +237,8 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 	require.Len(t, commands, 5)
 	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
 	assert.Equal(t, []string{"require-passive", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[1].Args)
-	assert.Equal(t, []string{"app-stop"}, commands[2].Args)
-	assert.Equal(t, []string{"app-start", "v1.1.0"}, commands[3].Args)
+	assert.Equal(t, []string{"app-stop", "passive"}, commands[2].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "passive"}, commands[3].Args)
 	for _, command := range commands[:4] {
 		assert.Contains(t, command.Name, filepath.Join("ha", "fleet-ha"))
 		assert.NotContains(t, strings.Join(command.Args, " "), "etcd")
@@ -270,7 +270,7 @@ func TestManagerHAUpdateKeepsForwardRecoveryWhenStartupFails(t *testing.T) {
 	assert.Contains(t, completed.Error, "new stack failed to start")
 	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	commands := runner.Commands()
-	assert.Equal(t, []string{"app-start", "v1.1.0"}, commands[len(commands)-1].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "passive"}, commands[len(commands)-1].Args)
 }
 
 func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T) {
@@ -332,7 +332,7 @@ func TestManagerHARejectsUnqualifiedSourceRelease(t *testing.T) {
 	}
 }
 
-func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
+func TestManagerHAInterruptedAfterStopRestartsCurrentApplication(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
@@ -341,8 +341,9 @@ func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
 
 	// Act
+	runner := &haRecordingRunner{fail: make(map[string]error)}
 	manager, err := NewManager(Config{
-		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA,
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, manager.Close()) })
@@ -351,8 +352,91 @@ func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
 	require.Equal(t, updaterapi.PhaseFailed, operation.Phase)
-	assert.Contains(t, operation.RecoveryCommand, "app-start")
-	assert.Contains(t, operation.RecoveryCommand, "v1.0.0")
+	assert.Empty(t, operation.RecoveryCommand)
+	assert.Contains(t, operation.Message, "HA application restarted")
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
+}
+
+func TestManagerHACompletionWaitsForUpdatedPeerBeforeSwap(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: make(map[string]error)}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	commands := runner.Commands()
+	require.Len(t, commands, 5)
+	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
+	assert.Equal(t, []string{"require-active", "/etc/proto-fleet/ha/node.env"}, commands[1].Args)
+	assert.Equal(t, []string{"app-stop", "active"}, commands[2].Args)
+	assert.Equal(t, []string{"wait-takeover", "v1.1.0"}, commands[3].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "passive"}, commands[4].Args)
+}
+
+func TestManagerHACompletionRestartsOldReleaseWhenTakeoverFails(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: map[string]error{"wait-takeover": assert.AnError}}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "previous release restarted")
+	assert.Empty(t, completed.RecoveryCommand)
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	commands := runner.Commands()
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
+}
+
+func TestManagerHACompletionInterruptedAfterSwapStartsTargetRelease(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeCurrentDeployment(t, installRoot, "v1.1.0")
+	previousVersionPath := filepath.Join(installRoot, "deployment.previous", "version.txt")
+	require.NoError(t, os.MkdirAll(filepath.Dir(previousVersionPath), 0o750))
+	require.NoError(t, os.WriteFile(previousVersionPath, []byte("version: v1.0.0\n"), 0o600))
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+	runner := &haRecordingRunner{fail: make(map[string]error)}
+
+	// Act
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	// Assert
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	require.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+	require.Empty(t, operation.RecoveryCommand)
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "any"}, commands[0].Args)
 }
 
 func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
@@ -1612,6 +1696,35 @@ func TestRepairStartupRestoresInterruptedLayout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+}
+
+func TestManagerRestartsHAApplicationAfterInterruptedSwap(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	require.NoError(t, os.Rename(
+		filepath.Join(installRoot, "deployment"),
+		filepath.Join(installRoot, "deployment.previous"),
+	))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+	runner := &haRecordingRunner{}
+
+	// Act
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
+		DeploymentMode: DeploymentModeHA, Runner: runner,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	// Assert
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
+	assert.Empty(t, manager.Status().Operation.RecoveryCommand)
 }
 
 func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *testing.T) {
