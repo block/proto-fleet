@@ -754,7 +754,7 @@ func (m *Manager) restoreUpdaterFromInstalledDeployment() error {
 
 // RecoverApplication restarts an application left stopped by an interrupted HA update.
 func (m *Manager) RecoverApplication() error {
-	if m.cfg.DeploymentMode != DeploymentModeHA || m.operation == nil || m.operation.RecoveryCommand == "" {
+	if m.operation == nil || !m.operation.RecoveryPending || m.operation.RecoveryCommand == "" {
 		return nil
 	}
 	deployment := filepath.Join(m.cfg.InstallRoot, "deployment")
@@ -768,6 +768,7 @@ func (m *Manager) RecoverApplication() error {
 		return fmt.Errorf("restart interrupted HA application: %w", err)
 	}
 	m.operation.RecoveryCommand = ""
+	m.operation.RecoveryPending = false
 	m.operation.Message += "; HA application restarted"
 	m.operation.UpdatedAt = m.cfg.Now().UTC()
 	return m.persistLocked()
@@ -2003,6 +2004,7 @@ func (m *Manager) loadState() error {
 		}
 	}
 	if !wasTerminal {
+		op.RecoveryPending = m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != ""
 		now := m.cfg.Now().UTC()
 		op.Phase = updaterapi.PhaseFailed
 		if restoredPrevious {

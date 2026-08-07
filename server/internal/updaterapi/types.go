@@ -31,6 +31,7 @@ type Operation struct {
 	CompletedAt     *time.Time `json:"completed_at,omitempty"`
 	Error           string     `json:"error,omitempty"`
 	RecoveryCommand string     `json:"recovery_command,omitempty"`
+	RecoveryPending bool       `json:"recovery_pending,omitempty"`
 	LogPath         string     `json:"log_path,omitempty"`
 }
 
