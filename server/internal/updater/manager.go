@@ -1943,7 +1943,8 @@ func (m *Manager) reconcileDeploymentLayout(
 	if !previousInfo.IsDir() {
 		return false, fmt.Errorf("reconcile deployment layout: deployment.previous is not a directory")
 	}
-	if _, err := readInstalledVersion(filepath.Join(previous, "version.txt")); err != nil {
+	previousVersion, err := readInstalledVersion(filepath.Join(previous, "version.txt"))
+	if err != nil {
 		return false, fmt.Errorf("validate previous deployment during reconciliation: %w", err)
 	}
 	op.RecoveryCommand = activationRestoreCommand(current, previous)
@@ -1954,6 +1955,9 @@ func (m *Manager) reconcileDeploymentLayout(
 		return false, fmt.Errorf("persist restored deployment during reconciliation: %w", err)
 	}
 	op.RecoveryCommand = ""
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		op.RecoveryCommand = m.activationRecoveryCommand(current, previousVersion)
+	}
 	return true, nil
 }
 
