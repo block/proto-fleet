@@ -115,10 +115,11 @@ docker() {
       esac
       ;;
     info)
-      if [ -n "${DOCKER_HOST+x}${DOCKER_CONTEXT+x}${DOCKER_CONFIG+x}${DOCKER_TLS+x}${DOCKER_TLS_VERIFY+x}${DOCKER_CERT_PATH+x}" ]; then
-        printf '%s\n' "$FAKE_SELECTED_DOCKER_ID"
-      else
+      if [ "${DOCKER_HOST:-}" = "$UPDATER_DOCKER_HOST" ] \
+        && [ -z "${DOCKER_CONTEXT+x}${DOCKER_CONFIG+x}${DOCKER_TLS+x}${DOCKER_TLS_VERIFY+x}${DOCKER_CERT_PATH+x}" ]; then
         printf '%s\n' "$FAKE_SERVICE_DOCKER_ID"
+      else
+        printf '%s\n' "$FAKE_SELECTED_DOCKER_ID"
       fi
       ;;
     version) return 0 ;;
@@ -425,13 +426,112 @@ fi
 if (
   root="$TEST_TMP/fresh-path"
   mkdir -p "$root"
+  FAKE_UID=$(command id -u)
   resolved=$(resolve_selected_install_path "$root/not-created/child" "") \
-    && [ "$resolved" = "$root/not-created/child" ] \
-    && [ ! -e "$root/not-created" ]
+    && [ "$resolved" = "$(cd "$root/not-created/child" && pwd -P)" ] \
+    && [ -d "$root/not-created/child" ] \
+    && [ ! -e "$root/not-created/child/deployment" ]
 ); then
-  pass "fresh install paths remain unchanged without filesystem mutation"
+  pass "fresh install paths are created privately and canonicalized"
 else
-  fail "fresh path resolution should not create directories"
+  fail "fresh path resolution did not establish a trusted destination"
+fi
+
+if (
+  FAKE_UID=$(command id -u)
+  ! resolve_selected_install_path / "" > /dev/null 2> "$TEST_TMP/path-root.err" \
+    && grep -q 'dangerous installation root' "$TEST_TMP/path-root.err" \
+    && ! resolve_selected_install_path /etc/proto-fleet-review-test "" \
+      > /dev/null 2> "$TEST_TMP/path-etc.err" \
+    && grep -q 'protected system path' "$TEST_TMP/path-etc.err"
+); then
+  pass "fresh installs reject dangerous roots and protected system paths"
+else
+  fail "fresh install path validation accepted a dangerous system target"
+fi
+
+if (
+  root="$TEST_TMP/fresh-symlink"
+  target="$TEST_TMP/fresh-symlink-target"
+  mkdir -p "$target"
+  printf 'unchanged\n' > "$target/sentinel"
+  ln -s "$target" "$root"
+  FAKE_UID=$(command id -u)
+  ! resolve_selected_install_path "$root" "" \
+    > /dev/null 2> "$TEST_TMP/path-symlink.err" \
+    && grep -q 'must not be a symlink' "$TEST_TMP/path-symlink.err" \
+    && [ "$(cat "$target/sentinel")" = unchanged ] \
+    && [ ! -e "$target/deployment" ]
+); then
+  pass "fresh installs reject a symlinked destination without touching its target"
+else
+  fail "fresh install path validation followed a symlinked destination"
+fi
+
+if (
+  link="$TEST_TMP/protected-ancestor-link"
+  protected_target="/etc/ssl/proto-fleet-review-$$"
+  [ -d /etc/ssl ]
+  ln -s /etc "$link"
+  FAKE_UID=$(command id -u)
+  ! resolve_selected_install_path "$link/ssl/proto-fleet-review-$$" "" \
+    > /dev/null 2> "$TEST_TMP/path-protected-alias.err" \
+    && grep -q 'protected system path' "$TEST_TMP/path-protected-alias.err" \
+    && [ ! -e "$protected_target" ]
+); then
+  pass "fresh installs reject protected paths reached through an ancestor symlink"
+else
+  fail "fresh install path validation wrote through a protected ancestor alias"
+fi
+
+if (
+  root="$TEST_TMP/root-direct-foreign-owner"
+  mkdir -p "$root"
+  FAKE_UID=0
+  unset SUDO_UID
+  ! resolve_selected_install_path "$root" "" \
+    > /dev/null 2> "$TEST_TMP/path-owner.err" \
+    && grep -q 'owned by unrelated UID' "$TEST_TMP/path-owner.err"
+); then
+  pass "direct root installs reject paths owned by another user"
+else
+  fail "direct root install trusted an unrelated path owner"
+fi
+
+if (
+  root="$TEST_TMP/sudo-admin-owner/new-install"
+  FAKE_UID=0
+  SUDO_UID=$(command id -u)
+  resolved=$(resolve_selected_install_path "$root" "") \
+    && [ "$resolved" = "$(cd "$root" && pwd -P)" ]
+); then
+  pass "sudo installs trust only the invoking administrator UID"
+else
+  fail "sudo install rejected the invoking administrator's path"
+fi
+
+if (
+  root="$TEST_TMP/unrecognized-deployment"
+  mkdir -p "$root/deployment"
+  FAKE_UID=$(command id -u)
+  ! resolve_selected_install_path "$root" "" \
+    > /dev/null 2> "$TEST_TMP/path-existing-deployment.err" \
+    && grep -q 'purported fresh install already contains' \
+      "$TEST_TMP/path-existing-deployment.err"
+); then
+  pass "fresh installs reject an unrecognized existing deployment tree"
+else
+  fail "fresh install path validation accepted an existing deployment tree"
+fi
+
+if ! validate_install_path_metadata /srv/foreign 2000 755 1000 1 \
+    > /dev/null 2>&1 \
+  && validate_install_path_metadata /tmp 0 1777 1000 0 \
+  && ! validate_install_path_metadata /tmp 0 1777 1000 1 \
+    > /dev/null 2>&1; then
+  pass "path metadata permits only the trusted owner and sticky shared ancestors"
+else
+  fail "path metadata trust rules accepted an unrelated or writable install root"
 fi
 
 # If the root-daemon probe was blocked, an explicit on-disk deployment must
@@ -479,8 +579,9 @@ else
 fi
 
 # A root caller may carry Docker selectors that point at a custom or rootless
-# daemon. The system-service probe must discard every endpoint/TLS selector so
-# equality cannot be proven against an environment the unit will not receive.
+# daemon. The system-service probe must discard them and explicitly select the
+# local rootful socket so neither inherited variables nor a persisted current
+# context can redirect updater operations.
 if (
   FAKE_UID=0
   export DOCKER_HOST='unix:///run/user/1000/docker.sock'
@@ -495,17 +596,21 @@ if (
     && [ "$service_id" = "$FAKE_SERVICE_DOCKER_ID" ] \
     && [ "$current_id" != "$service_id" ]
 ); then
-  pass "system-service Docker probe drops inherited daemon selectors"
+  pass "system-service Docker probe pins the local rootful socket"
 else
-  fail "system-service Docker probe inherited a caller selector"
+  fail "system-service Docker probe was not pinned to the local rootful socket"
 fi
 
-if grep -Fq \
-  'UnsetEnvironment=DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH' \
-  "$REPO_ROOT/deployment-files/updater/proto-fleet-updater.service"; then
-  pass "systemd unit enforces the same selector-free Docker environment"
+if grep -Fq 'Environment=DOCKER_HOST=unix:///var/run/docker.sock' \
+    "$REPO_ROOT/deployment-files/updater/proto-fleet-updater.service" \
+  && grep -Fq \
+    'UnsetEnvironment=DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH' \
+    "$REPO_ROOT/deployment-files/updater/proto-fleet-updater.service" \
+  && ! grep -Eq '^UnsetEnvironment=.*DOCKER_HOST' \
+    "$REPO_ROOT/deployment-files/updater/proto-fleet-updater.service"; then
+  pass "systemd unit pins the same local rootful Docker socket"
 else
-  fail "systemd unit does not clear every Docker selector"
+  fail "systemd unit does not pin the local rootful Docker socket"
 fi
 
 # The two files copied into privileged host locations are extracted directly

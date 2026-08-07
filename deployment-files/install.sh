@@ -11,6 +11,7 @@ UPDATER_DISABLE_ON_EXIT=0
 UPDATER_RESTART_ON_EXIT=0
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
 UPDATER_VALIDATION_SOCKET_PATH="/run/proto-fleet-updater/installer-validation.sock"
+UPDATER_DOCKER_HOST="unix:///var/run/docker.sock"
 
 # Probe docker for an existing fleet-api container and return the install
 # directory inferred from its bind mount. Echoes the path on success; returns
@@ -399,6 +400,231 @@ capture_previous_run_options() {
   [ "$tracing_state" != "missing" ] || [ "$inferred_tracing" != "true" ] || PREVIOUS_TRACING=1
 }
 
+lexical_absolute_path() {
+  local selected="$1"
+  local input remainder component result="/"
+  case "$selected" in
+    /*) input="$selected" ;;
+    *) input="$(pwd -P)/$selected" ;;
+  esac
+
+  remainder="${input#/}"
+  while [ -n "$remainder" ]; do
+    component="${remainder%%/*}"
+    if [ "$component" = "$remainder" ]; then
+      remainder=""
+    else
+      remainder="${remainder#*/}"
+    fi
+    case "$component" in
+      ""|.) continue ;;
+      ..)
+        [ "$result" = "/" ] || result="${result%/*}"
+        [ -n "$result" ] || result="/"
+        ;;
+      *)
+        if [ "$result" = "/" ]; then
+          result="/$component"
+        else
+          result="$result/$component"
+        fi
+        ;;
+    esac
+  done
+  printf '%s\n' "$result"
+}
+
+reject_dangerous_install_root() {
+  local install_root="${1%/}"
+  [ -n "$install_root" ] || install_root="/"
+  case "$install_root" in
+    /|/home|/Users|/root|/opt|/usr|/var|/tmp|/srv|/mnt|/media|/private/var|/private/tmp)
+      echo "❌ Refusing dangerous installation root: $install_root" >&2
+      return 1
+      ;;
+    /etc|/etc/*|/private/etc|/private/etc/*|/bin|/bin/*|/sbin|/sbin/*|/lib|/lib/*|/lib64|/lib64/*|/sys|/sys/*|/dev|/dev/*|/proc|/proc/*|/boot|/boot/*|/run|/run/*|/usr/*|/efi|/efi/*)
+      echo "❌ Refusing installation inside a protected system path: $install_root" >&2
+      return 1
+      ;;
+  esac
+
+  local home_path="" sudo_home=""
+  if [ -n "${HOME:-}" ] && [ -d "$HOME" ]; then
+    home_path=$(cd "$HOME" 2>/dev/null && pwd -P) || home_path=""
+  fi
+  if [ -n "$home_path" ] && [ "$install_root" = "${home_path%/}" ]; then
+    echo "❌ Refusing to use the home directory itself as the installation root." >&2
+    return 1
+  fi
+  if [ "$(id -u)" -eq 0 ] \
+    && [ -n "${SUDO_USER:-}" ] \
+    && [ "$SUDO_USER" != "root" ] \
+    && command -v getent >/dev/null 2>&1; then
+    sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)
+    if [ -n "$sudo_home" ] && [ -d "$sudo_home" ]; then
+      sudo_home=$(cd "$sudo_home" 2>/dev/null && pwd -P) || sudo_home=""
+    fi
+    if [ -n "$sudo_home" ] && [ "$install_root" = "${sudo_home%/}" ]; then
+      echo "❌ Refusing to use the invoking administrator's home directory itself as the installation root." >&2
+      return 1
+    fi
+  fi
+}
+
+install_admin_uid() {
+  local current_uid
+  current_uid=$(id -u) || return 1
+  if [ "$current_uid" -ne 0 ]; then
+    printf '%s\n' "$current_uid"
+    return 0
+  fi
+  case "${SUDO_UID:-}" in
+    ""|*[!0-9]*|0) printf '0\n' ;;
+    *) printf '%s\n' "$SUDO_UID" ;;
+  esac
+}
+
+install_path_metadata() {
+  local path="$1"
+  local metadata
+  if metadata=$(stat -c '%u %a' -- "$path" 2>/dev/null); then
+    :
+  elif metadata=$(stat -f '%u %Lp' "$path" 2>/dev/null); then
+    :
+  else
+    return 1
+  fi
+  printf '%s\n' "$metadata"
+}
+
+validate_install_path_metadata() {
+  local path="$1"
+  local owner_uid="$2"
+  local mode="$3"
+  local trusted_uid="$4"
+  local is_install_root="$5"
+  case "$owner_uid" in ""|*[!0-9]*) return 1 ;; esac
+  case "$trusted_uid" in ""|*[!0-9]*) return 1 ;; esac
+  case "$mode" in ""|*[!0-7]*) return 1 ;; esac
+  if [ "$owner_uid" -ne 0 ] && [ "$owner_uid" -ne "$trusted_uid" ]; then
+    echo "❌ Installation path component is owned by unrelated UID $owner_uid: $path" >&2
+    return 1
+  fi
+
+  local numeric_mode=$((8#$mode))
+  if (( (numeric_mode & 0022) != 0 )); then
+    # Root-owned sticky directories such as /tmp are safe ancestors: another
+    # user cannot replace the trusted-owned child created beneath them. The
+    # install root itself is never allowed to be group- or world-writable.
+    if [ "$is_install_root" != "1" ] \
+      && [ "$owner_uid" -eq 0 ] \
+      && (( (numeric_mode & 01000) != 0 )); then
+      return 0
+    fi
+    echo "❌ Installation path component is group- or world-writable: $path" >&2
+    return 1
+  fi
+}
+
+validate_install_directory_chain() {
+  local path="$1"
+  local trusted_uid="$2"
+  local final_is_install_root="$3"
+  local current="/" remainder component metadata owner_uid mode is_final
+
+  remainder="${path#/}"
+  while :; do
+    is_final=0
+    [ "$current" != "$path" ] || is_final="$final_is_install_root"
+    [ -d "$current" ] || {
+      echo "❌ Installation path component is not a directory: $current" >&2
+      return 1
+    }
+    metadata=$(install_path_metadata "$current") || {
+      echo "❌ Could not inspect installation path component: $current" >&2
+      return 1
+    }
+    owner_uid="${metadata%% *}"
+    mode="${metadata#* }"
+    validate_install_path_metadata "$current" "$owner_uid" "$mode" \
+      "$trusted_uid" "$is_final" || return 1
+
+    [ -n "$remainder" ] || break
+    component="${remainder%%/*}"
+    if [ "$component" = "$remainder" ]; then
+      remainder=""
+    else
+      remainder="${remainder#*/}"
+    fi
+    [ -n "$component" ] || continue
+    if [ "$current" = "/" ]; then
+      current="/$component"
+    else
+      current="$current/$component"
+    fi
+  done
+}
+
+prepare_fresh_install_path() {
+  local selected="$1"
+  local normalized nearest_existing canonical canonical_target missing_suffix trusted_uid
+  normalized=$(lexical_absolute_path "$selected") || return 1
+  reject_dangerous_install_root "$normalized" || return 1
+  if [ -L "$normalized" ]; then
+    echo "❌ Installation root must not be a symlink: $normalized" >&2
+    return 1
+  fi
+
+  trusted_uid=$(install_admin_uid) || {
+    echo "❌ Could not determine the invoking installation administrator." >&2
+    return 1
+  }
+  if [ -e "$normalized" ]; then
+    [ -d "$normalized" ] || {
+      echo "❌ Installation root exists but is not a directory: $normalized" >&2
+      return 1
+    }
+    canonical=$(cd "$normalized" 2>/dev/null && pwd -P) || return 1
+    reject_dangerous_install_root "$canonical" || return 1
+    validate_install_directory_chain "$canonical" "$trusted_uid" 1 || return 1
+  else
+    nearest_existing="$normalized"
+    while [ ! -e "$nearest_existing" ] && [ ! -L "$nearest_existing" ]; do
+      nearest_existing="${nearest_existing%/*}"
+      [ -n "$nearest_existing" ] || nearest_existing="/"
+    done
+    [ ! -L "$nearest_existing" ] || {
+      echo "❌ Installation path ancestor must not be a symlink: $nearest_existing" >&2
+      return 1
+    }
+    canonical=$(cd "$nearest_existing" 2>/dev/null && pwd -P) || return 1
+    validate_install_directory_chain "$canonical" "$trusted_uid" 0 || return 1
+    missing_suffix="${normalized#"$nearest_existing"}"
+    canonical_target=$(lexical_absolute_path "${canonical%/}$missing_suffix") || return 1
+    reject_dangerous_install_root "$canonical_target" || return 1
+    if ! (umask 077; mkdir -p "$normalized"); then
+      echo "❌ Could not create installation root: $normalized" >&2
+      return 1
+    fi
+    [ ! -L "$normalized" ] || {
+      echo "❌ Installation root became a symlink while it was created: $normalized" >&2
+      return 1
+    }
+    canonical=$(cd "$normalized" 2>/dev/null && pwd -P) || return 1
+    reject_dangerous_install_root "$canonical" || return 1
+    validate_install_directory_chain "$canonical" "$trusted_uid" 1 || return 1
+  fi
+
+  for name in deployment deployment.previous; do
+    if [ -e "$canonical/$name" ] || [ -L "$canonical/$name" ]; then
+      echo "❌ A purported fresh install already contains $canonical/$name." >&2
+      echo "   Remove or explicitly recover that deployment before installing." >&2
+      return 1
+    fi
+  done
+  printf '%s\n' "$canonical"
+}
+
 resolve_selected_install_path() {
   local selected="$1"
   local discovered="${2:-}"
@@ -408,13 +634,9 @@ resolve_selected_install_path() {
     echo "❌ Installation path cannot be empty." >&2
     return 1
   }
-  # A fresh path has nothing to compare yet and is made absolute after
-  # extraction. When Docker or the on-disk fallback found an installation,
-  # both paths already exist and can be canonicalized without filesystem
-  # mutation or non-portable realpath flags.
   if [ -z "$discovered" ]; then
-    printf '%s' "$selected"
-    return 0
+    prepare_fresh_install_path "$selected"
+    return $?
   fi
   canonical_discovered=$(cd "$discovered" 2>/dev/null && pwd -P) || {
     echo "❌ Discovered installation path cannot be accessed: $discovered" >&2
@@ -685,14 +907,26 @@ installer_exit_cleanup() {
 }
 
 # Match the Docker CLI environment the system service is guaranteed to use.
-# The unit also unsets these variables, so neither an invoking root shell nor
-# the systemd manager can redirect upgrades to a different daemon.
+# Set the endpoint after sudo so neither sudo environment filtering nor a
+# persisted currentContext in root's Docker config can redirect the probe.
 service_docker_id_with() {
   local privilege=("$@")
-  (
-    unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH
-    ${privilege[@]+"${privilege[@]}"} docker info --format '{{.ID}}' 2>/dev/null || true
-  )
+  if (( ${#privilege[@]} )); then
+    ${privilege[@]+"${privilege[@]}"} env \
+      -u DOCKER_CONTEXT \
+      -u DOCKER_CONFIG \
+      -u DOCKER_TLS \
+      -u DOCKER_TLS_VERIFY \
+      -u DOCKER_CERT_PATH \
+      DOCKER_HOST="$UPDATER_DOCKER_HOST" \
+      docker info --format '{{.ID}}' 2>/dev/null || true
+  else
+    (
+      unset DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH
+      export DOCKER_HOST="$UPDATER_DOCKER_HOST"
+      docker info --format '{{.ID}}' 2>/dev/null || true
+    )
+  fi
 }
 
 # END INSTALLER TESTABLE HELPERS

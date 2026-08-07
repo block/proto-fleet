@@ -9,10 +9,12 @@ Wants=docker.service network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/proto-fleet/updater.env
-# One-click upgrades support the root service's default Docker daemon only.
-# Ignore selector variables inherited through the system manager so runtime
-# behavior always matches the installer's sanitized daemon-identity probe.
-UnsetEnvironment=DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH
+# One-click upgrades support only the rootful local Docker socket. Pin it
+# explicitly so root's persisted Docker currentContext cannot redirect a later
+# upgrade, while retaining normal root Docker config for registry credentials
+# and proxy settings.
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+UnsetEnvironment=DOCKER_CONTEXT DOCKER_CONFIG DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH
 ExecStart=/usr/local/libexec/proto-fleet/proto-fleet-updater
 Restart=on-failure
 RestartSec=5s
