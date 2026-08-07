@@ -60,8 +60,6 @@ func ValidatePassiveUpdate(ctx context.Context, envPath string) (string, error) 
 var releaseImageRepositories = [...]string{
 	"proto-fleet-api",
 	"proto-fleet-client",
-	"proto-fleet-timescaledb",
-	"proto-fleet-timescaledb-ha",
 }
 
 // PrepareApplicationUpdate builds only the Fleet API and client from a verified release.
@@ -77,9 +75,6 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 		if output, err := runCommand(ctx, "docker", args...); err != nil {
 			return fmt.Errorf("clean previous HA application build artifacts: %s", commandError(output, err))
 		}
-	}
-	if output, err := runCommand(ctx, "docker", "load", "--input", filepath.Join(root, "images", "timescaledb.tar.gz")); err != nil {
-		return fmt.Errorf("load HA database image for future restarts: %s", commandError(output, err))
 	}
 	nginx, err := os.ReadFile(filepath.Join(root, "client", "nginx.https.conf"))
 	if err != nil {
