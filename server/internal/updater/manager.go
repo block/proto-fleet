@@ -188,7 +188,6 @@ type Manager struct {
 	cancelOperation  context.CancelFunc
 	operationWG      sync.WaitGroup
 	selfUpdateReady  chan string
-	recoverHAOnStart bool
 	processLock      *os.File
 	logRoot          *os.Root
 	closeOnce        sync.Once
@@ -700,7 +699,7 @@ func RepairStartup(cfg Config) error {
 }
 
 func (m *Manager) recoverHAApplication() error {
-	if !m.recoverHAOnStart || m.operation == nil || m.operation.RecoveryCommand == "" {
+	if m.operation == nil || !m.operation.RecoveryPending || m.operation.RecoveryCommand == "" {
 		return nil
 	}
 	deployment := filepath.Join(m.cfg.InstallRoot, "deployment")
@@ -714,6 +713,7 @@ func (m *Manager) recoverHAApplication() error {
 		return fmt.Errorf("restart interrupted HA application: %w", err)
 	}
 	m.operation.RecoveryCommand = ""
+	m.operation.RecoveryPending = false
 	m.operation.Message += "; HA application restarted"
 	m.operation.UpdatedAt = m.cfg.Now().UTC()
 	return m.persistLocked()
@@ -1889,7 +1889,7 @@ func (m *Manager) loadState() error {
 		}
 	}
 	if !wasTerminal {
-		m.recoverHAOnStart = m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != ""
+		op.RecoveryPending = m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != ""
 		now := m.cfg.Now().UTC()
 		op.Phase = updaterapi.PhaseFailed
 		if restoredPrevious {
