@@ -131,7 +131,7 @@ func TestPassiveUpdateReportsDegradedFailoverReadiness(t *testing.T) {
 	}
 
 	// Act
-	err := runPassiveUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string) error { return nil }, client, read)
+	err := runPassiveUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string, bool) error { return nil }, client, read)
 
 	// Assert
 	require.ErrorContains(t, err, "failover readiness is degraded")
