@@ -133,8 +133,7 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		if err == nil {
 			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
 			controlReady := report.Control != nil && report.Control.ControlReady
-			roleReady := report.Runtime.Role == ha.RoleActive || report.Control != nil && report.Control.FailoverReady
-			if controlReady && roleReady && applicationReady(report.Runtime, publicStatus, targetVersion) {
+			if controlReady && applicationReady(report.Runtime, publicStatus, targetVersion) {
 				return nil
 			}
 		}
