@@ -15,7 +15,7 @@ import {
   type PerformanceAction,
   performanceActions,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
-import { batchedFirmwareConfig, batchedRebootConfig } from "@/protoFleet/features/rollout/rollout.fixtures";
+import { allAtOnceRebootConfig, batchedFirmwareConfig } from "@/protoFleet/features/rollout/rollout.fixtures";
 import RolloutConfigModal from "@/protoFleet/features/rollout/RolloutConfigModal";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
@@ -144,7 +144,7 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
         hasPayload
           ? [
               {
-                text: isScheduled ? "Schedule rollout" : "Start rollout",
+                text: isScheduled ? "Schedule update" : "Start update",
                 variant: variants.primary,
                 onClick: onDismiss,
                 dismissModalOnClick: false,
@@ -206,7 +206,7 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
         </div>
 
         {/* --- rollout framework: pacing controls --- */}
-        <RolloutControls config={config} onChange={setConfig} />
+        <RolloutControls config={config} onChange={setConfig} inScopeCount={222} />
 
         {/* --- rollout framework: date and time --- */}
         <section className="grid gap-3">
@@ -278,8 +278,10 @@ function BulkActionsStory(): ReactElement {
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
 
   // Reboot has no bespoke product modal, so it uses the generic
-  // RolloutConfigModal — one config-state hook kept at the top level.
-  const rebootState = useRolloutConfigModalState(batchedRebootConfig);
+  // RolloutConfigModal. Its default is "all at once" (immediate) per the design
+  // review — a plain reboot needs zero pacing setup; batching/scheduling are
+  // available as advanced options the operator can opt into.
+  const rebootState = useRolloutConfigModalState(allAtOnceRebootConfig);
 
   const open = (action: SupportedAction, modal: Exclude<OpenModal, null>) => {
     setCurrentAction(action);
@@ -353,6 +355,7 @@ function BulkActionsStory(): ReactElement {
           description="222 miners in scope"
           config={rebootState.config}
           onConfigChange={rebootState.setConfig}
+          inScopeCount={222}
           onDismiss={() => setOpenModal(null)}
           onSubmit={() => setOpenModal(null)}
           startDate={rebootState.startDate}

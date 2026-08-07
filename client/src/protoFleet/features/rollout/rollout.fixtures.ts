@@ -43,6 +43,21 @@ export const batchedRebootConfig: RolloutPlanConfig = {
   scheduleType: "startNow",
 };
 
+/**
+ * The **default** reboot plan config — "all at once", immediate. Per the
+ * rollout design review, a plain reboot should need zero pacing setup and match
+ * today's behavior (everything reboots together); batching/scheduling stay
+ * available as advanced options a user can opt into. This is what the reboot
+ * bulk action seeds its config modal with.
+ */
+export const allAtOnceRebootConfig: RolloutPlanConfig = {
+  processType: "reboot",
+  strategy: "allAtOnce",
+  order: "lowestPerformersFirst",
+  maxConcurrentOffline: 40,
+  scheduleType: "startNow",
+};
+
 /** Base batched curtailment plan config, for the generic config modal. */
 export const batchedCurtailmentConfig: RolloutPlanConfig = {
   processType: "curtailment",
@@ -70,6 +85,18 @@ export const inProgressFirmwareEvent: RolloutEvent = {
   totalBatches: 12,
   startedAt: new Date(Date.now() - 372_000).toISOString(),
   estimatedSecondsRemaining: 420,
+  // Cohort holding its pre-rollout performance — the mid-flight deltas are all
+  // small: hashrate/power read a slight red "−", efficiency/temp a slight green
+  // "+". The healthy mid-flight case.
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 1596 },
+      { label: "Power", unit: "power", baseline: 28.0, current: 27.9 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.55 },
+      // Temperature stored in Celsius; rendered in the operator's °C/°F preference.
+      { label: "Avg temp", unit: "temperature", baseline: 62.0, current: 62.4 },
+    ],
+  },
   rollups: [
     { phase: "done", count: 96 },
     { phase: "inProgress", count: 24 },
@@ -96,6 +123,19 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
   currentBatch: 1,
   totalBatches: 10,
   startedAt: new Date(Date.now() - 180_000).toISOString(),
+  // Baseline captured when the rollout started, against the pilot cohort's
+  // current telemetry. Hashrate/power dipped slightly (red "−"); efficiency has
+  // crept up ~1.3% and avg temp ~1.9% (green "+"). Option A only surfaces the
+  // numbers — the Continue/Cancel call stays with the operator.
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 1593 },
+      { label: "Power", unit: "power", baseline: 28.0, current: 27.8 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.72 },
+      // Temperature stored in Celsius; rendered in the operator's °C/°F preference.
+      { label: "Avg temp", unit: "temperature", baseline: 63.0, current: 64.2 },
+    ],
+  },
   rollups: [
     { phase: "done", count: 8 },
     { phase: "failed", count: 2 },

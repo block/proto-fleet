@@ -15,8 +15,9 @@ export const releaseChannels: ReleaseChannel[] = [
 ];
 
 const devChannelFiles: ReleaseChannelFile[] = [
-  { id: "rig", type: "Rig", file: "miner-image-release-123", uploaded: "11/7/25 9:01 PM" },
-  { id: "s19", type: "Antminer S19", file: "miner-image-release-456", uploaded: "11/7/25 9:01 PM" },
+  { id: "s21", model: "Antminer S21", file: "miner-image-release-123", uploaded: "11/7/25 9:01 PM" },
+  { id: "s19xp", model: "Antminer S19 XP", file: "miner-image-release-456", uploaded: "11/7/25 9:01 PM" },
+  { id: "m50s", model: "Whatsminer M50S", file: "miner-image-release-789", uploaded: "11/7/25 9:01 PM" },
 ];
 
 const devChannelScope: ReleaseChannelScope = {
@@ -41,7 +42,7 @@ const devChannelConfig: RolloutPlanConfig = {
 /** The coverage preview shown in the modal's right pane for the Dev channel. */
 export const devChannelPreview: ReleaseChannelPreview = {
   minerCount: 240,
-  modelCount: 2,
+  modelCount: 3,
   siteCount: 1,
   buildingCount: 8,
   rackCount: 40,

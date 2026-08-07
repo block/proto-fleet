@@ -62,6 +62,38 @@ export interface RolloutPhaseRollup {
   count: number;
 }
 
+/** Which telemetry a perf metric reports, so the card can format the raw value
+ * with the shared telemetry formatters rather than carrying a formatter in the
+ * (eventually RPC-backed) data. Temperature is display-unit-aware (°C/°F per the
+ * user's preference); the other three are single-scale. */
+export type RolloutMetricUnit = "hashrate" | "power" | "efficiency" | "temperature";
+
+/**
+ * One tracked metric for the pilot-review performance readout: its value at
+ * rollout start (`baseline`, captured when the rollout began) against the
+ * current pilot-cohort value, so an operator can see whether the change moved
+ * the fleet before continuing. Per the design review (Caleb + Rongxin). The
+ * delta is colored purely by sign (a rise reads positive, a drop negative) —
+ * the readout shows the direction of movement and leaves the judgement to the
+ * operator, so no per-metric "good direction" is carried.
+ */
+export interface RolloutPerfMetric {
+  label: string;
+  unit: RolloutMetricUnit;
+  /** Value at rollout start, in the unit's base scale (hashrate TH, power kW,
+   * efficiency J/TH, temperature °C — always Celsius, converted for display). */
+  baseline: number;
+  /** Current pilot-cohort value, same scale as `baseline`. */
+  current: number;
+}
+
+/** Baseline-vs-current performance for a rollout's acted-on cohort. Optional on
+ * a `RolloutEvent` — only live/pilot states that have captured a baseline carry
+ * it; states without it render no readout. */
+export interface RolloutPerformance {
+  metrics: RolloutPerfMetric[];
+}
+
 /** The live/finished rollout an ActiveRolloutStatus card renders. */
 export interface RolloutEvent {
   processType: RolloutProcessType;
@@ -82,5 +114,9 @@ export interface RolloutEvent {
   scheduledStartAt?: string;
   /** Seconds remaining, for the ETA line. */
   estimatedSecondsRemaining?: number;
+  /** Baseline-vs-current telemetry for the acted-on cohort. Present only once a
+   * rollout has captured a baseline (in-progress / pilot review); drives the
+   * "Performance vs baseline" strip. */
+  performance?: RolloutPerformance;
   rollups: RolloutPhaseRollup[];
 }

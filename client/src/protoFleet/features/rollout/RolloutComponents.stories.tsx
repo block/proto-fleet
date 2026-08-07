@@ -31,7 +31,7 @@ function RolloutControlsStory(): ReactElement {
   const [config, setConfig] = useState<RolloutPlanConfig>(batchedFirmwareConfig);
   return (
     <div className="w-[520px] max-w-full rounded-xl bg-surface-elevated-base p-8 shadow-100">
-      <RolloutControls config={config} onChange={setConfig} />
+      <RolloutControls config={config} onChange={setConfig} inScopeCount={222} />
     </div>
   );
 }

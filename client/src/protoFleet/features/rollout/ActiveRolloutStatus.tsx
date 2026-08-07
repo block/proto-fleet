@@ -2,17 +2,22 @@ import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import {
+  formatRolloutMetric,
   orderLabels,
   pacingSummary,
   phaseLabel,
   rolloutCompletionPercent,
   rolloutLifecycleActions,
+  rolloutMetricDelta,
+  type RolloutMetricDelta,
+  type RolloutMetricDeltaIntent,
   rolloutPhaseCount,
   rolloutProgressSegments,
   rolloutStageLabel,
 } from "./rolloutDisplayUtils";
 import type { RolloutEvent } from "./rolloutTypes";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
@@ -102,6 +107,72 @@ function StatRow({ label, value, detail, divider }: StatBlockProps & { divider: 
         </span>
       </div>
     </Row>
+  );
+}
+
+// A metric's move off baseline colors its delta purely by sign: a rise reads
+// success (the standard green, `-fill`), a drop reads critical (the standard
+// red). No arrow icons, no "±" — just the signed "+"/"−" magnitude in the
+// matching color, at the same size as the value it sits beside. The delta only
+// shows which way the value moved — it does NOT judge good/bad or infer whether
+// to continue (per the design review: show the numbers, don't decide the
+// operator's action).
+const deltaTextColor: Record<RolloutMetricDeltaIntent, string> = {
+  positive: "text-intent-success-fill",
+  negative: "text-intent-critical-fill",
+};
+
+/**
+ * Small signed-delta beside a metric's current value: a "+" for a rise, a "−"
+ * for a drop, followed by the magnitude, in the standard green for a rise and
+ * red for a drop. No size class of its own — it inherits the value's
+ * `text-emphasis-300` from the row so the sign reads at the same size as the
+ * number it annotates. Just the sign and the number — no arrow glyph, no "±".
+ */
+function DeltaChip({ delta }: { delta: RolloutMetricDelta }): ReactElement {
+  return <span className={deltaTextColor[delta.intent]}>{delta.deltaText}</span>;
+}
+
+/**
+ * Baseline-vs-current performance readout — the Option-A strip from the design
+ * review (Caleb's "confirm no adverse effects" + Rongxin's baseline capture).
+ * Each tracked metric shows its current value (formatted with the shared
+ * telemetry formatters) alongside a colored Δ-vs-baseline chip, so at the
+ * pilot-review gate an operator can see whether the change moved the fleet
+ * before continuing. It's a plain readout: no header label, no guardrail
+ * verdict, no inferred continue/review action — the numbers, with the decision
+ * left to the operator. The metric lockups match the card's `StatBlock` stat
+ * grid so the readout reads as one more content grouping — and it shares the
+ * grid's `tablet:grid-cols-5` / `gap-x-12` template so each metric column sits
+ * directly under a stat column above (Hashrate under Scope, etc.) rather than
+ * floating in its own out-of-register grid. Renders only when the event carries
+ * a captured baseline.
+ */
+function PerformanceStrip({ event }: { event: RolloutEvent }): ReactElement | null {
+  const temperatureUnit = useTemperatureUnit();
+  if (!event.performance || event.performance.metrics.length === 0) {
+    return null;
+  }
+  return (
+    <div
+      className="mt-6 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5"
+      data-testid="active-rollout-performance"
+    >
+      {event.performance.metrics.map((metric) => {
+        const value = formatRolloutMetric(metric, temperatureUnit);
+        return (
+          <div key={metric.label} className="min-w-0">
+            <div className="text-200 text-text-primary-50">{metric.label}</div>
+            <div className="mt-1 flex items-baseline gap-2 text-emphasis-300 text-text-primary">
+              <span className="min-w-0 truncate" title={value}>
+                {value}
+              </span>
+              <DeltaChip delta={rolloutMetricDelta(metric)} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -277,10 +348,17 @@ function ActiveRolloutStatus({
           </div>
         )}
 
+        {/* Performance vs baseline (Option A): current hashrate / power /
+            efficiency with a Δ-vs-baseline chip, so the operator can confirm
+            the change isn't hurting the acted-on cohort — most consequential at
+            the pilot-review gate. Renders only when a baseline was captured. */}
+        <PerformanceStrip event={event} />
+
         {/* Progress section mirrors ActiveCurtailmentStatus' ProgressSection:
             summary line on the left + right-aligned elapsed above the bar,
-            then the CompositionBar, then the legend. */}
-        <div className="mt-8 grid gap-3" data-testid="active-rollout-progress">
+            then the CompositionBar, then the legend. 24px (mt-6) above, matching
+            the tightened content-grouping rhythm from the design review. */}
+        <div className="mt-6 grid gap-3" data-testid="active-rollout-progress">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
             <div className="text-200 text-text-primary-50">{progressSummary}</div>
             {event.startedAt ? (
