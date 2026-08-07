@@ -1107,13 +1107,6 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("preserve deployment configuration: %w", err), recovery)
 		return
 	}
-	if m.cfg.DeploymentMode == DeploymentModeHA {
-		if err := preserveHAInfrastructure(ctx, currentDeployment, stageDeployment); err != nil {
-			m.fail(operationID, err, recovery)
-			return
-		}
-	}
-
 	if err := m.advance(operationID, updaterapi.PhasePreflight, "Building and validating the new stack while Fleet stays online"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist preflight phase: %w", err), recovery)
 		return
@@ -1124,6 +1117,12 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		}
 		m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
 		return
+	}
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		if err := preserveHAInfrastructure(ctx, currentDeployment, stageDeployment); err != nil {
+			m.fail(operationID, err, recovery)
+			return
+		}
 	}
 	// Preflight runs as the root updater and creates the proof consumed by
 	// --skip-build. Restore the deployment owner after preflight so that proof,
