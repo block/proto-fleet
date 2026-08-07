@@ -264,6 +264,7 @@ func TestManagerHAUpdateKeepsForwardRecoveryWhenStartupFails(t *testing.T) {
 
 	// Assert
 	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.RecoveryCommand, "sudo --")
 	assert.Contains(t, completed.RecoveryCommand, "app-start")
 	assert.Contains(t, completed.RecoveryCommand, "v1.1.0")
 	assert.Contains(t, completed.Error, "new stack failed to start")
