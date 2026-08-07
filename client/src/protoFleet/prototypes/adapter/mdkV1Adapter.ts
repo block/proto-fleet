@@ -9,6 +9,7 @@
  * gets real per-chip readings in one call.
  */
 import type { SingleMinerAdapter } from "../shared/adapter";
+import { type FlowTracer, NO_TRACE } from "../shared/flowTrace";
 import type {
   AsicCell,
   AsicHealth,
@@ -18,6 +19,21 @@ import type {
   SingleMinerSnapshot,
 } from "../shared/types";
 import { getJson, hostOf, postJson } from "./http";
+
+/** Wrap a fetch so it appears in the data-flow pane as a traced request. */
+function traced<T>(tracer: FlowTracer, title: string, detail: string, p: Promise<T>): Promise<T> {
+  const req = tracer.request("miner", title, detail);
+  return p.then(
+    (v) => {
+      req.ok();
+      return v;
+    },
+    (e) => {
+      req.fail(e instanceof Error ? e.message : String(e));
+      throw e;
+    },
+  );
+}
 
 interface V1Login {
   access_token: string;
@@ -92,23 +108,52 @@ export class MdkV1Adapter implements SingleMinerAdapter {
     private readonly password: string,
   ) {}
 
-  private async ensureToken(signal?: AbortSignal): Promise<string> {
+  private async ensureToken(signal?: AbortSignal, tracer: FlowTracer = NO_TRACE): Promise<string> {
     if (this.token) return this.token;
-    const res = await postJson<V1Login>(`${this.baseUrl}/api/v1/auth/login`, { password: this.password }, { signal });
-    this.token = res.access_token;
+    const login = await traced(
+      tracer,
+      "POST /api/v1/auth/login",
+      "password grant",
+      postJson<V1Login>(`${this.baseUrl}/api/v1/auth/login`, { password: this.password }, { signal }),
+    );
+    this.token = login.access_token;
     return this.token;
   }
 
-  async fetchSnapshot(signal?: AbortSignal): Promise<SingleMinerSnapshot> {
-    const token = await this.ensureToken(signal);
+  async fetchSnapshot(signal?: AbortSignal, tracer: FlowTracer = NO_TRACE): Promise<SingleMinerSnapshot> {
+    // The adapter layer: the view calls one generic "get snapshot", and this
+    // adapter maps it onto v1's specific REST surface (many endpoints). Not a
+    // network call itself — it's the translation the abstraction buys you.
+    tracer.adapter("Adapter → v1 REST", "generic snapshot getter mapped to login + system + mining + hashboards");
 
-    // v1 requires several round trips — a real cost the data-path ribbon shows.
+    const token = await this.ensureToken(signal, tracer);
+
+    // v1 requires several round trips — a real cost the data-flow pane shows.
     const [system, mining, boards] = await Promise.all([
-      getJson<V1System>(`${this.baseUrl}/api/v1/system`, { signal, token }),
-      getJson<V1Mining>(`${this.baseUrl}/api/v1/mining`, { signal, token }),
-      getJson<V1Hashboards>(`${this.baseUrl}/api/v1/hashboards`, { signal, token }),
+      traced(
+        tracer,
+        "GET /api/v1/system",
+        "identity",
+        getJson<V1System>(`${this.baseUrl}/api/v1/system`, { signal, token }),
+      ),
+      traced(
+        tracer,
+        "GET /api/v1/mining",
+        "kpis",
+        getJson<V1Mining>(`${this.baseUrl}/api/v1/mining`, { signal, token }),
+      ),
+      traced(
+        tracer,
+        "GET /api/v1/hashboards",
+        "board list",
+        getJson<V1Hashboards>(`${this.baseUrl}/api/v1/hashboards`, { signal, token }),
+      ),
     ]);
 
+    // Folding v1's three REST docs into the shared view model (renames, unit
+    // conversions, status mapping) and synthesizing the grid is plain
+    // application logic — not traced. "Adapter" in the flow narration refers to
+    // the version-aware seam (probe.ts), not this per-field mapping.
     const s = system["system-info"];
     const m = mining["mining-status"];
     const boardList = boards["hashboards-info"] ?? [];
@@ -146,21 +191,21 @@ export class MdkV1Adapter implements SingleMinerAdapter {
       dataPath: [
         { label: "Browser", detail: "ProtoFleet client" },
         { label: "MDK v1 REST", detail: "login + system + mining + hashboards" },
-        { label: "Adapter", detail: "maps + synthesizes ASIC grid" },
+        { label: "Adapter", detail: "maps v1 docs → view model" },
       ],
       source: this.source,
       updatedAt: new Date().toISOString(),
     };
   }
 
-  async control(action: MinerControlAction): Promise<void> {
-    const token = await this.ensureToken();
+  async control(action: MinerControlAction, tracer: FlowTracer = NO_TRACE): Promise<void> {
+    const token = await this.ensureToken(undefined, tracer);
     const path =
       action === "reboot"
         ? "/api/v1/system/reboot"
         : action === "pause"
           ? "/api/v1/mining/stop"
           : "/api/v1/mining/start";
-    await postJson(`${this.baseUrl}${path}`, {}, { token });
+    await traced(tracer, `POST ${path}`, action, postJson(`${this.baseUrl}${path}`, {}, { token }));
   }
 }

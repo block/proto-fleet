@@ -67,6 +67,13 @@ export interface SingleMinerSnapshot {
   hashboards: HashboardSummary[];
   /** Left→right chain rendered by the data-path ribbon. */
   dataPath: DataPathStep[];
+  /**
+   * Optional caveat rendered beneath the data-path ribbon — used to flag an
+   * FPO (for-placement-only) step, e.g. a synthesized ASIC grid, and what a
+   * production build would actually require. Mark the step it refers to with a
+   * trailing "*".
+   */
+  dataPathNote?: string;
   /** Human label for where this snapshot came from, e.g. "Fleet server". */
   source: string;
   /** ISO timestamp of the reading, if known. */

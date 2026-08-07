@@ -17,6 +17,7 @@
  * lossy DB); the mechanism exists (interfaces/miner.go:59), it's just unwired.
  */
 import type { SingleMinerAdapter } from "../shared/adapter";
+import { type FlowTracer, NO_TRACE } from "../shared/flowTrace";
 import type { AsicCell, AsicHealth, HashboardSummary, MinerStatus, SingleMinerSnapshot } from "../shared/types";
 import { fleetManagementClient } from "@/protoFleet/api/clients";
 import {
@@ -85,13 +86,36 @@ export class FleetAdapter implements SingleMinerAdapter {
   /** `target` is an IP (matched as /32) — the single-miner-mode entry value. */
   constructor(private readonly target: string) {}
 
-  async fetchSnapshot(signal?: AbortSignal): Promise<SingleMinerSnapshot> {
-    const res = await fleetManagementClient.listMinerStateSnapshots(
-      { filter: { ipCidrs: [this.target] }, pageSize: 1 },
-      { signal },
-    );
+  async fetchSnapshot(signal?: AbortSignal, tracer: FlowTracer = NO_TRACE): Promise<SingleMinerSnapshot> {
+    // The adapter layer: the view's generic "get snapshot" maps onto the fleet
+    // backend's RPC. Shown in S3 (fleet is one adapter among three); suppressed
+    // in S1, where the view is framed as reading the fleet proto directly.
+    tracer.adapter("Adapter → fleet RPC", "generic snapshot getter mapped to ListMinerStateSnapshots (by IP)");
+
+    const req = tracer.request("fleet", "ListMinerStateSnapshots", `Connect RPC · ipCidrs=[${this.target}/32]`);
+    let res;
+    try {
+      res = await fleetManagementClient.listMinerStateSnapshots(
+        { filter: { ipCidrs: [this.target] }, pageSize: 1 },
+        { signal },
+      );
+      req.ok(`${res.miners.length} miner(s)`);
+    } catch (e) {
+      req.fail(e instanceof Error ? e.message : String(e));
+      throw e;
+    }
     const m = res.miners[0];
     if (!m) throw new Error(`No fleet miner found at ${this.target}`);
+
+    // Fleet-native has no adapter: the view is built directly on the fleet proto.
+    // Per-ASIC data isn't in the snapshot today, but in production the collector
+    // would persist it — so for the demo we treat the grid as fleet-sourced and
+    // don't call out the gap in the flow narration.
+    tracer.note(
+      "fleet-miner",
+      "Fleet server ⇽ miner",
+      "device telemetry collected out-of-band; the RPC reads the stored snapshot",
+    );
 
     const hashrateThs = current(m.hashrate);
     const tempC = current(m.temperature);
@@ -118,8 +142,10 @@ export class FleetAdapter implements SingleMinerAdapter {
         { label: "ProtoFleet client", detail: "React" },
         { label: "Fleet server", detail: "ListMinerStateSnapshots (Connect)" },
         { label: "TimescaleDB", detail: "device-level scalars" },
-        { label: "Adapter", detail: "synthesizes ASIC grid" },
+        { label: "ASIC grid *", detail: "FPO — placeholder grid" },
       ],
+      dataPathNote:
+        "* For-placement-only: the ASIC grid is faked from the device temperature. Fleet stores only device-level scalars, so going fleet-native for real requires adding per-ASIC collection + persistence (or an on-demand metrics RPC) on the server.",
       source: this.source,
       updatedAt: new Date().toISOString(),
     };
