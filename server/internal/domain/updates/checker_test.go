@@ -78,6 +78,24 @@ func stableEntry(tag string) githubRelease {
 	}
 }
 
+func TestValidateAdjacentStableReleaseRejectsSkippedRelease(t *testing.T) {
+	// Arrange
+	gh := newGHServer(t)
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{
+		stableEntry("v1.2.0"),
+		stableEntry("v1.1.0"),
+		stableEntry("v1.0.0"),
+	}))
+
+	// Act
+	adjacentErr := validateAdjacentStableRelease(t.Context(), gh.srv.URL, "v1.0.0", "v1.1.0")
+	skippedErr := validateAdjacentStableRelease(t.Context(), gh.srv.URL, "v1.0.0", "v1.2.0")
+
+	// Assert
+	require.NoError(t, adjacentErr)
+	require.ErrorContains(t, skippedErr, "next stable release v1.1.0")
+}
+
 type ghRequest struct {
 	path   string
 	query  url.Values
