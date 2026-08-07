@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -68,6 +69,22 @@ func TestApplicationConvergenceRequiresExpectedRuntimeRole(t *testing.T) {
 	}
 }
 
+func TestRecoveryAcceptsHealthyActiveApplication(t *testing.T) {
+	// Arrange
+	report := StatusReport{
+		Runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent},
+		Control: &ControlStatus{ControlReady: true},
+	}
+	public := fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}
+
+	// Act
+	ready, err := updatedApplicationReady(report, public, "v1.1.0", false)
+
+	// Assert
+	require.NoError(t, err)
+	require.True(t, ready)
+}
+
 func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -94,4 +111,21 @@ func TestValidateInfrastructureGenerationRejectsChainedUpdate(t *testing.T) {
 
 	// Assert
 	require.ErrorContains(t, err, "chained HA application updates are not supported")
+}
+
+func TestAcceptVIPVersionRejectsWrongPeerRelease(t *testing.T) {
+	// Act
+	ready, err := acceptVIPVersion(http.StatusOK, "v1.0.0", "v1.1.0")
+
+	// Assert
+	require.False(t, ready)
+	require.ErrorContains(t, err, "v1.0.0")
+}
+
+func TestUpdatedPassivePeerReady(t *testing.T) {
+	// Act and assert
+	require.True(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, passive: true, version: "v1.1.0"}, "v1.1.0"))
+	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, version: "v1.1.0"}, "v1.1.0"))
+	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}, "v1.1.0"))
+	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, passive: true, version: "v1.0.0"}, "v1.1.0"))
 }

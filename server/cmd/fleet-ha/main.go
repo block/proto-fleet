@@ -14,6 +14,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/google/uuid"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -36,9 +37,11 @@ type cli struct {
 	Start             startCmd             `cmd:"" help:"start installed HA services"`
 	Stop              stopCmd              `cmd:"" help:"stop installed HA services"`
 	RequirePassive    requirePassiveCmd    `cmd:"" help:"verify that the local Fleet instance is passive"`
+	RequireActive     requireActiveCmd     `cmd:"" help:"verify that the local Fleet instance is active"`
 	UpdatePreflight   updatePreflightCmd   `cmd:"" help:"prepare the current release for an application update"`
 	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
 	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
+	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the VIP to serve an application version"`
 }
 
 type preflightCmd struct {
@@ -110,11 +113,12 @@ func (c *installCmd) Run(ctx context.Context) error {
 }
 
 type updateCmd struct {
-	Version string `arg:"" help:"target application version"`
+	Version  string `arg:"" help:"target application version"`
+	Complete bool   `help:"complete the update through failover from the active host"`
 }
 
 func (c *updateCmd) Run(ctx context.Context) error {
-	return runPassiveUpdate(ctx, c.Version, os.Stdout, deployment.ValidatePassiveUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
+	return runPassiveUpdate(ctx, c.Version, c.Complete, os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
 }
 
 type startCmd struct {
@@ -143,6 +147,14 @@ func (c *requirePassiveCmd) Run(ctx context.Context) error {
 	return deployment.ValidatePassiveUpdate(ctx, c.NodeEnv, c.Version)
 }
 
+type requireActiveCmd struct {
+	NodeEnv string `arg:"" type:"path" help:"node environment file"`
+}
+
+func (c *requireActiveCmd) Run(ctx context.Context) error {
+	return deployment.RequireActive(ctx, c.NodeEnv)
+}
+
 type updatePreflightCmd struct{}
 
 func (*updatePreflightCmd) Run(ctx context.Context) error {
@@ -153,19 +165,21 @@ func (*updatePreflightCmd) Run(ctx context.Context) error {
 	return deployment.PrepareApplicationUpdate(ctx, root)
 }
 
-type appStopCmd struct{}
+type appStopCmd struct {
+	Role ha.RuntimeRole `arg:"" enum:"passive,active" help:"expected local HA role"`
+}
 
-func (*appStopCmd) Run(ctx context.Context) error {
+func (c *appStopCmd) Run(ctx context.Context) error {
 	root, err := deployment.ReleaseRoot()
 	if err != nil {
 		return err
 	}
-	return deployment.StopApplication(ctx, root)
+	return deployment.StopApplication(ctx, root, c.Role)
 }
 
 type appStartCmd struct {
 	Version string `arg:"" help:"application version to start"`
-	Mode    string `arg:"" optional:"" default:"passive" enum:"passive,any" help:"required HA role after startup"`
+	Mode    string `arg:"" enum:"passive,any" help:"required HA role after startup"`
 }
 
 func (c *appStartCmd) Run(ctx context.Context) error {
@@ -174,6 +188,14 @@ func (c *appStartCmd) Run(ctx context.Context) error {
 		return err
 	}
 	return deployment.StartApplication(ctx, root, c.Version, c.Mode == "passive")
+}
+
+type waitTakeoverCmd struct {
+	Version string `arg:"" help:"application version expected on the VIP"`
+}
+
+func (c *waitTakeoverCmd) Run(ctx context.Context) error {
+	return deployment.WaitForVIPVersion(ctx, installedNodeEnv, c.Version)
 }
 
 func main() {
@@ -214,6 +236,7 @@ func runStatus(ctx context.Context, envPath string, output io.Writer, read statu
 type updaterClient interface {
 	Status(ctx context.Context) (updaterapi.StatusResponse, error)
 	Trigger(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+	TriggerComplete(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
 }
 
 const (
@@ -223,17 +246,26 @@ const (
 
 type updateTrigger func(context.Context, string, string) (updaterapi.Operation, error)
 
-type updatePreflight func(context.Context, string, string) error
+type updatePreflight func(context.Context, string, string, bool) error
+
+func validateHAUpdate(ctx context.Context, envPath, targetVersion string, complete bool) error {
+	if complete {
+		_, err := deployment.ValidateActiveUpdate(ctx, envPath, targetVersion)
+		return err
+	}
+	return deployment.ValidatePassiveUpdate(ctx, envPath, targetVersion)
+}
 
 func runPassiveUpdate(
 	ctx context.Context,
 	targetVersion string,
+	complete bool,
 	output io.Writer,
 	preflight updatePreflight,
 	client updaterClient,
 	read statusReader,
 ) error {
-	if err := runUpdate(ctx, targetVersion, output, preflight, client); err != nil {
+	if err := runUpdate(ctx, targetVersion, complete, output, preflight, client); err != nil {
 		return err
 	}
 	report, err := read(ctx, installedNodeEnv)
@@ -259,15 +291,20 @@ func runPassiveUpdate(
 func runUpdate(
 	ctx context.Context,
 	targetVersion string,
+	complete bool,
 	output io.Writer,
 	preflight updatePreflight,
 	client updaterClient,
 ) error {
-	if err := preflight(ctx, installedNodeEnv, targetVersion); err != nil {
+	if err := preflight(ctx, installedNodeEnv, targetVersion, complete); err != nil {
 		return err
 	}
 	operationID := uuid.NewString()
-	operation, err := triggerUpdate(ctx, operationID, targetVersion, client.Trigger)
+	trigger := updateTrigger(client.Trigger)
+	if complete {
+		trigger = client.TriggerComplete
+	}
+	operation, err := triggerUpdate(ctx, operationID, targetVersion, trigger)
 	if err != nil {
 		return err
 	}
