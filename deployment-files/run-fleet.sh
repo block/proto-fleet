@@ -358,6 +358,28 @@ env_boolean_is_true() {
     esac
 }
 
+dotenv_boolean_is_true() {
+    local key="$1" value read_status
+    value=$(compose_env_last_value "$key")
+    read_status=$?
+    if [ "$read_status" -ne 0 ]; then
+        if [ "$read_status" -eq 1 ]; then
+            return 1
+        fi
+        echo "Error: $key in $ENV_FILE uses unsupported or malformed Compose dotenv syntax." >&2
+        exit 1
+    fi
+    value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+    case "$value" in
+        true) return 0 ;;
+        false|'') return 1 ;;
+        *)
+            echo "Error: persisted $key in $ENV_FILE must be true or false." >&2
+            exit 1
+            ;;
+    esac
+}
+
 resolve_compose_project_name() {
     local project_name persisted_status
 
@@ -572,8 +594,10 @@ if env_boolean_is_true ENABLE_TRACING; then
     ENABLE_TRACING=true
 fi
 ONE_CLICK_UPDATES_WAS_CONFIGURED=false
-if env_boolean_is_true ENABLE_ONE_CLICK_UPDATES; then
+if dotenv_boolean_is_true ENABLE_ONE_CLICK_UPDATES; then
     ONE_CLICK_UPDATES_WAS_CONFIGURED=true
+fi
+if env_boolean_is_true ENABLE_ONE_CLICK_UPDATES; then
     ENABLE_ONE_CLICK_UPDATES=true
 fi
 if [ -n "$ONE_CLICK_UPDATES_OVERRIDE" ]; then

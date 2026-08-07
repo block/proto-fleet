@@ -12,8 +12,13 @@ UPDATER_REENABLE_ON_EXIT=0
 UPDATER_RESTART_ON_EXIT=0
 UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
 UPDATER_ENV_RESTORE_FILE=""
-UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
-UPDATER_VALIDATION_SOCKET_PATH="/run/proto-fleet-updater/installer-validation.sock"
+UPDATER_BINARY_PATH="/usr/local/libexec/proto-fleet/proto-fleet-updater"
+UPDATER_UNIT_PATH="/etc/systemd/system/proto-fleet-updater.service"
+UPDATER_RUNTIME_DIR="/run/proto-fleet-updater"
+UPDATER_SOCKET_PATH="$UPDATER_RUNTIME_DIR/updater.sock"
+UPDATER_VALIDATION_RUNTIME_DIR="/run/proto-fleet-updater-validation"
+UPDATER_VALIDATION_SOCKET_PATH="$UPDATER_VALIDATION_RUNTIME_DIR/updater.sock"
+UPDATER_VALIDATION_RUNTIME_ON_EXIT=0
 UPDATER_DOCKER_HOST="unix:///var/run/docker.sock"
 
 # Probe docker for an existing fleet-api container and return the install
@@ -914,6 +919,56 @@ restore_updater_environment_with() {
     "$UPDATER_ENV_RESTORE_FILE" "$UPDATER_ENV_PATH"
 }
 
+install_updater_bootstrap_files_with() {
+  local env_source="$1"
+  shift
+  local privilege=("$@")
+
+  if ! ${privilege[@]+"${privilege[@]}"} install -d -m 0755 \
+      "$(dirname "$UPDATER_ENV_PATH")"; then
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  # Persist the selected installation root before any other global artifact.
+  # A later partial failure therefore remains attributable and removable by
+  # the supported uninstaller instead of becoming ownerless host state.
+  if ! ${privilege[@]+"${privilege[@]}"} install -m 0600 \
+      "$env_source" "$UPDATER_ENV_PATH"; then
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} install -d -m 0755 \
+      "$(dirname "$UPDATER_BINARY_PATH")" \
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0755 \
+      "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater" "$UPDATER_BINARY_PATH" \
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0644 \
+      "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service" "$UPDATER_UNIT_PATH"; then
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+}
+
+cleanup_updater_validation_runtime_with() {
+  local privilege=("$@")
+  if ! ${privilege[@]+"${privilege[@]}"} test -e \
+      "$UPDATER_VALIDATION_RUNTIME_DIR" \
+    && ! ${privilege[@]+"${privilege[@]}"} test -L \
+      "$UPDATER_VALIDATION_RUNTIME_DIR"; then
+    return 0
+  fi
+  if ${privilege[@]+"${privilege[@]}"} test -L \
+      "$UPDATER_VALIDATION_RUNTIME_DIR" \
+    || ! ${privilege[@]+"${privilege[@]}"} test -d \
+      "$UPDATER_VALIDATION_RUNTIME_DIR"; then
+    echo "❌ Refusing invalid updater validation runtime path: $UPDATER_VALIDATION_RUNTIME_DIR" >&2
+    return 1
+  fi
+  ${privilege[@]+"${privilege[@]}"} rm -f -- \
+    "$UPDATER_VALIDATION_SOCKET_PATH" || return 1
+  ${privilege[@]+"${privilege[@]}"} rmdir \
+    "$UPDATER_VALIDATION_RUNTIME_DIR"
+}
+
 # Stop the existing updater before the release tree can be replaced. systemd's
 # inactive state proves the supervised process has exited, which also releases
 # the updater's lifetime flock. A missing unit needs no privilege or prompt.
@@ -990,7 +1045,7 @@ write_updater_environment_file() {
     printf 'PROTO_FLEET_DOWNLOAD_BASE_URL="%s/download"\n' "$escaped_download"
     printf 'PROTO_FLEET_UPDATER_STATE_DIR="/var/lib/proto-fleet-updater"\n'
     printf 'PROTO_FLEET_UPDATER_SOCKET_PATH="%s"\n' "$escaped_socket"
-    printf 'PROTO_FLEET_UPDATER_BINARY_PATH="/usr/local/libexec/proto-fleet/proto-fleet-updater"\n'
+    printf 'PROTO_FLEET_UPDATER_BINARY_PATH="%s"\n' "$UPDATER_BINARY_PATH"
   } > "$target"
 }
 
@@ -1058,6 +1113,12 @@ installer_exit_cleanup() {
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
       status=1
     fi
+  fi
+  if [ "${UPDATER_VALIDATION_RUNTIME_ON_EXIT:-0}" = "1" ] \
+    && ! cleanup_updater_validation_runtime_with \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+    echo "❌ Could not remove the private updater validation runtime." >&2
+    status=1
   fi
   if [ -n "${UPDATER_ENV_RESTORE_FILE:-}" ]; then
     echo "🔄 Restoring the prior host updater configuration..." >&2
@@ -1634,9 +1695,9 @@ install_updater_service() {
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-  # Validate against a socket name the old fleet-api does not know. Its
-  # preserved directory bind mount therefore cannot reach /v1/upgrade while
-  # the replacement updater is briefly running for its health check.
+  # Validate in a root-only runtime directory that is never bind-mounted into
+  # fleet-api. A different filename inside the production directory would not
+  # be isolation: read-only bind mounts still permit Unix-socket connections.
   if ! write_updater_environment_file "$env_temp" "$INSTALL_DIR" \
     "$GITHUB_RELEASES_URL" "$UPDATER_VALIDATION_SOCKET_PATH"; then
     echo "⚠️  Could not write the host updater environment file." >&2
@@ -1645,40 +1706,54 @@ install_updater_service() {
     return 1
   fi
 
-  if ! ${privilege[@]+"${privilege[@]}"} install -d -m 0755 /usr/local/libexec/proto-fleet /etc/proto-fleet; then
+  UPDATER_VALIDATION_RUNTIME_ON_EXIT=1
+  if ! cleanup_updater_validation_runtime_with \
+      ${privilege[@]+"${privilege[@]}"} \
+    || ! ${privilege[@]+"${privilege[@]}"} install -d -m 0700 \
+      "$UPDATER_VALIDATION_RUNTIME_DIR"; then
+    echo "⚠️  Could not establish the private updater validation runtime." >&2
+    UPDATER_CLEANUP_FAILED=1
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-  if ! ${privilege[@]+"${privilege[@]}"} install -m 0755 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater" /usr/local/libexec/proto-fleet/proto-fleet-updater \
-    || ! ${privilege[@]+"${privilege[@]}"} install -m 0644 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service" /etc/systemd/system/proto-fleet-updater.service \
-    || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 "$env_temp" "$UPDATER_ENV_PATH"; then
+  if ! install_updater_bootstrap_files_with "$env_temp" \
+      ${privilege[@]+"${privilege[@]}"}; then
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
   if ! ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload \
     || ! ${privilege[@]+"${privilege[@]}"} systemctl enable proto-fleet-updater.service; then
+    UPDATER_CLEANUP_FAILED=1
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
-  # The replacement unit now owns its boot enablement. EXIT cleanup only
-  # needs to stop a failed validation or restart the validated service.
-  UPDATER_REENABLE_ON_EXIT=0
   UPDATER_DISABLE_ON_EXIT=1
   if ! restart_updater_service_with "$UPDATER_VALIDATION_SOCKET_PATH" \
     ${privilege[@]+"${privilege[@]}"}; then
+    UPDATER_CLEANUP_FAILED=1
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
   if ! quiesce_updater_service_for_manual_run_with \
     ${privilege[@]+"${privilege[@]}"}; then
+    UPDATER_CLEANUP_FAILED=1
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
+  if ! cleanup_updater_validation_runtime_with \
+      ${privilege[@]+"${privilege[@]}"}; then
+    echo "⚠️  Could not remove the private updater validation runtime." >&2
+    UPDATER_CLEANUP_FAILED=1
+    rm -f "$env_temp"
+    disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
+  UPDATER_VALIDATION_RUNTIME_ON_EXIT=0
   # The validated service is now stopped. Persist its production socket only
   # after the temporary listener is gone, and do not start it until run-fleet
   # has finished replacing the deployment.
@@ -1686,6 +1761,7 @@ install_updater_service() {
       "$GITHUB_RELEASES_URL" "$UPDATER_SOCKET_PATH" \
     || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 \
       "$env_temp" "$UPDATER_ENV_PATH"; then
+    UPDATER_CLEANUP_FAILED=1
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
@@ -1695,6 +1771,7 @@ install_updater_service() {
   # installation root. Interrupted cleanup can safely restart it without
   # restoring the pre-validation file.
   UPDATER_ENV_RESTORE_FILE=""
+  UPDATER_REENABLE_ON_EXIT=0
   # From this point until the explicit post-run restart, every unexpected exit
   # must restore the validated service for the existing deployment.
   UPDATER_DISABLE_ON_EXIT=0

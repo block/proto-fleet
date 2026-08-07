@@ -728,11 +728,42 @@ else
 fi
 
 if [ "$(grep -c 'tar --no-same-owner -xzvf' "$INSTALL_SCRIPT")" -eq 2 ] \
-  && grep -Fq 'install -m 0755 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater"' "$INSTALL_SCRIPT" \
-  && grep -Fq 'install -m 0644 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service"' "$INSTALL_SCRIPT"; then
+  && grep -Fq '"$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater" "$UPDATER_BINARY_PATH"' "$INSTALL_SCRIPT" \
+  && grep -Fq '"$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service" "$UPDATER_UNIT_PATH"' "$INSTALL_SCRIPT"; then
   pass "deployment extraction normalizes archive ownership and privileged copies use private sources"
 else
   fail "installer still trusts archive ownership or mutable deployment bootstrap files"
+fi
+
+# Persist updater ownership before copying the binary or unit. If a later copy
+# fails, the installer aborts but the supported uninstaller can still identify
+# which deployment owns the partial host bootstrap.
+if (
+  bootstrap_root="$TEST_TMP/partial-bootstrap"
+  UPDATER_BOOTSTRAP_DIR="$bootstrap_root/payload"
+  UPDATER_ENV_PATH="$bootstrap_root/etc/updater.env"
+  UPDATER_BINARY_PATH="$bootstrap_root/libexec/proto-fleet-updater"
+  UPDATER_UNIT_PATH="$bootstrap_root/systemd/proto-fleet-updater.service"
+  env_source="$bootstrap_root/updater.env.pending"
+  mkdir -p "$UPDATER_BOOTSTRAP_DIR"
+  printf 'PROTO_FLEET_INSTALL_ROOT="/srv/proto-fleet"\n' > "$env_source"
+  printf 'verified updater\n' > "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater"
+  printf 'verified unit\n' > "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service"
+  UPDATER_CLEANUP_FAILED=0
+  install() {
+    local destination="${!#}"
+    [ "$destination" != "$UPDATER_BINARY_PATH" ] || return 1
+    command install "$@"
+  }
+  ! install_updater_bootstrap_files_with "$env_source" \
+    && [ "$UPDATER_CLEANUP_FAILED" = 1 ] \
+    && cmp -s "$env_source" "$UPDATER_ENV_PATH" \
+    && [ ! -e "$UPDATER_BINARY_PATH" ] \
+    && [ ! -e "$UPDATER_UNIT_PATH" ]
+); then
+  pass "partial updater bootstrap retains ownership proof and fails closed"
+else
+  fail "partial updater bootstrap can leave ownerless global artifacts"
 fi
 
 prepare_line=$(awk '/^if ! prepare_existing_updater_service "\$INSTALL_DIR"; then$/ { print NR; exit }' "$INSTALL_SCRIPT")
@@ -763,12 +794,21 @@ fi
 # and other failures during run-fleet as well as its ordinary nonzero result.
 validation_restart_line=$(awk '/^  if ! restart_updater_service_with/ { print NR; exit }' "$INSTALL_SCRIPT")
 quiesce_line=$(awk '/^  if ! quiesce_updater_service_for_manual_run_with/ { print NR; exit }' "$INSTALL_SCRIPT")
+validation_cleanup_line=$(awk '
+  /^install_updater_service\(\)/ { in_install = 1 }
+  in_install && /^  if ! cleanup_updater_validation_runtime_with/ {
+    count++
+    if (count == 2) { print NR; exit }
+  }
+' "$INSTALL_SCRIPT")
 production_socket_line=$(awk '/^      "\$GITHUB_RELEASES_URL" "\$UPDATER_SOCKET_PATH"/ { print NR; exit }' "$INSTALL_SCRIPT")
 restart_arm_line=$(awk '/^  UPDATER_RESTART_ON_EXIT=1$/ { print NR; exit }' "$INSTALL_SCRIPT")
 run_fleet_line=$(awk '/^if \.\/run-fleet\.sh / { print NR; exit }' "$INSTALL_SCRIPT")
 post_run_restart_line=$(awk -v start="$run_fleet_line" 'NR > start && /^  if restart_updater_service_with/ { print NR; exit }' "$INSTALL_SCRIPT")
 if [ -n "$validation_restart_line" ] \
   && [ "$validation_restart_line" -lt "$quiesce_line" ] \
+  && [ "$quiesce_line" -lt "$validation_cleanup_line" ] \
+  && [ "$validation_cleanup_line" -lt "$production_socket_line" ] \
   && [ "$quiesce_line" -lt "$production_socket_line" ] \
   && [ "$production_socket_line" -lt "$restart_arm_line" ] \
   && [ "$quiesce_line" -lt "$restart_arm_line" ] \
@@ -794,10 +834,10 @@ if (
     printf 'curl %s\n' "$*" >> "$lifecycle_log"
     return 0
   }
-  restart_updater_service_with /run/proto-fleet-updater/test-validation.sock \
+  restart_updater_service_with /run/proto-fleet-updater-validation/test.sock \
     && quiesce_updater_service_for_manual_run_with \
     && [ "$(sed -n '1p' "$lifecycle_log")" = 'restart proto-fleet-updater.service' ] \
-    && grep -q -- '--unix-socket /run/proto-fleet-updater/test-validation.sock' "$lifecycle_log" \
+    && grep -q -- '--unix-socket /run/proto-fleet-updater-validation/test.sock' "$lifecycle_log" \
     && grep -q '^stop proto-fleet-updater.service$' "$lifecycle_log" \
     && grep -q '^show --property=ActiveState --value proto-fleet-updater.service$' "$lifecycle_log"
 ); then
@@ -810,18 +850,35 @@ if (
   updater_env="$TEST_TMP/updater.env"
   write_updater_environment_file "$updater_env" '/srv/proto fleet' \
     'https://github.com/block/proto-fleet/releases' \
-    /run/proto-fleet-updater/installer-validation.sock \
+    "$UPDATER_VALIDATION_SOCKET_PATH" \
     && grep -q 'PROTO_FLEET_INSTALL_ROOT="/srv/proto fleet"' "$updater_env" \
-    && grep -q 'PROTO_FLEET_UPDATER_SOCKET_PATH="/run/proto-fleet-updater/installer-validation.sock"' "$updater_env" \
+    && grep -Fq "PROTO_FLEET_UPDATER_SOCKET_PATH=\"$UPDATER_VALIDATION_SOCKET_PATH\"" "$updater_env" \
+    && [ "$(dirname "$UPDATER_VALIDATION_SOCKET_PATH")" = "$UPDATER_VALIDATION_RUNTIME_DIR" ] \
+    && [ "$UPDATER_VALIDATION_RUNTIME_DIR" != "$UPDATER_RUNTIME_DIR" ] \
+    && ! grep -Fq "$UPDATER_VALIDATION_RUNTIME_DIR" \
+      "$REPO_ROOT/deployment-files/docker-compose.updater.yaml" \
     && write_updater_environment_file "$updater_env" '/srv/proto fleet' \
       'https://github.com/block/proto-fleet/releases' \
-      /run/proto-fleet-updater/updater.sock \
-    && grep -q 'PROTO_FLEET_UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"' "$updater_env" \
-    && ! grep -q 'installer-validation.sock' "$updater_env"
+      "$UPDATER_SOCKET_PATH" \
+    && grep -Fq "PROTO_FLEET_UPDATER_SOCKET_PATH=\"$UPDATER_SOCKET_PATH\"" "$updater_env" \
+    && ! grep -Fq "$UPDATER_VALIDATION_RUNTIME_DIR" "$updater_env"
 ); then
-  pass "updater validation uses a private socket name before production activation"
+  pass "updater validation uses a separate unmounted runtime before production activation"
 else
-  fail "updater validation socket can leak into the production environment"
+  fail "updater validation socket is exposed to fleet-api or leaks into production"
+fi
+
+if (
+  UPDATER_VALIDATION_RUNTIME_DIR="$TEST_TMP/validation-runtime"
+  UPDATER_VALIDATION_SOCKET_PATH="$UPDATER_VALIDATION_RUNTIME_DIR/updater.sock"
+  mkdir -m 0700 "$UPDATER_VALIDATION_RUNTIME_DIR"
+  : > "$UPDATER_VALIDATION_SOCKET_PATH"
+  cleanup_updater_validation_runtime_with \
+    && [ ! -e "$UPDATER_VALIDATION_RUNTIME_DIR" ]
+); then
+  pass "private updater validation runtime is removed after validation"
+else
+  fail "private updater validation runtime cleanup is incomplete"
 fi
 
 if (

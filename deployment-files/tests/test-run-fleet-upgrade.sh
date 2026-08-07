@@ -623,6 +623,28 @@ else
     fail "failed direct run left the updater stopped"
 fi
 
+# Process-level Compose overrides select the new effective state, but cannot
+# erase evidence that the running deployment was wired to the updater. The
+# active daemon must be quiesced before a persisted true value is changed.
+make_stage process-disable-active-updater
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if ENABLE_ONE_CLICK_UPDATES=false \
+    run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "process override can disable a persisted updater safely"
+else
+    fail "process override failed while disabling a persisted updater"
+fi
+assert_contains "persisted updater state survives process override for serialization" \
+    "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
+if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
+    && grep -q '^ENABLE_ONE_CLICK_UPDATES=false$' "$STAGE/.env" \
+    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ]; then
+    pass "process disable persists false after updater serialization"
+else
+    fail "process disable did not persist or restore updater state correctly"
+fi
+
 make_stage updater-managed-runner
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
