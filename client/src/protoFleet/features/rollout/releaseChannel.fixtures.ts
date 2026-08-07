@@ -32,7 +32,7 @@ const devChannelScope: ReleaseChannelScope = {
 const devChannelConfig: RolloutPlanConfig = {
   processType: "firmware",
   strategy: "batched",
-  order: "lowestPerformersFirst",
+  order: "leastEfficientFirst",
   maxConcurrentOffline: 50,
   batchSize: 20,
   batchIntervalSec: 60,
