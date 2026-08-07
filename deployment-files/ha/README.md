@@ -209,3 +209,6 @@ the resulting `ha_update_from` field, and the updater rejects every other source
 version. Because the updater accepts only the fixed official release origin,
 exact-byte qualification starts after publication; do not run the update until
 its report passes. A qualified RC-to-stable pair can name the RC explicitly.
+After the baseline passes, use the
+[update qualification procedure](UPDATE_QUALIFICATION.md) for each adjacent
+release pair supported by the HA application updater.
