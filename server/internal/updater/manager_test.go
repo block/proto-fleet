@@ -292,6 +292,7 @@ func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
 	installRoot := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	require.NoError(t, os.Rename(filepath.Join(installRoot, "deployment"), filepath.Join(installRoot, "deployment.previous")))
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
 
 	// Act

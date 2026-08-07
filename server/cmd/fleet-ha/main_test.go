@@ -16,6 +16,7 @@ import (
 type fakeUpdaterClient struct {
 	triggered  bool
 	triggerErr error
+	operation  updaterapi.Operation
 }
 
 func (f *fakeUpdaterClient) Status(context.Context) (updaterapi.StatusResponse, error) {
@@ -26,6 +27,11 @@ func (f *fakeUpdaterClient) Trigger(_ context.Context, operationID, targetVersio
 	f.triggered = true
 	if f.triggerErr != nil {
 		return updaterapi.Operation{}, f.triggerErr
+	}
+	if f.operation.Phase != "" {
+		f.operation.ID = operationID
+		f.operation.TargetVersion = targetVersion
+		return f.operation, nil
 	}
 	return updaterapi.Operation{ID: operationID, TargetVersion: targetVersion, Phase: updaterapi.PhaseSucceeded}, nil
 }
@@ -105,4 +111,21 @@ func TestUpdateReturnsWhenUpdaterIsUnavailable(t *testing.T) {
 
 	// Assert
 	require.ErrorIs(t, err, updaterapi.ErrUnavailable)
+}
+
+func TestUpdateFailureIncludesRecoveryDetails(t *testing.T) {
+	// Arrange
+	client := &fakeUpdaterClient{operation: updaterapi.Operation{
+		Phase: updaterapi.PhaseFailed, Error: "startup failed",
+		RecoveryCommand: "fleet-ha app-start v1.2.3", LogPath: "/var/log/proto-fleet-updater/update.log",
+	}}
+	var output bytes.Buffer
+
+	// Act
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string) error { return nil }, client)
+
+	// Assert
+	require.ErrorContains(t, err, "Recovery: fleet-ha app-start v1.2.3")
+	require.ErrorContains(t, err, "Log: /var/log/proto-fleet-updater/update.log")
+	require.Contains(t, output.String(), "Update operation")
 }
