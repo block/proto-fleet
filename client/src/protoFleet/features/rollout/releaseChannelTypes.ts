@@ -24,11 +24,14 @@ export interface ReleaseChannel {
   lastUpdated: string;
 }
 
-/** A firmware file published to a channel, shown in the modal's Firmware table. */
+/** A firmware file published to a channel, shown in the modal's Firmware table.
+ * A channel can carry one file per hardware model, so a single channel spans
+ * multiple models (the design-review heterogeneity requirement) rather than
+ * forcing a separate channel per model. */
 export interface ReleaseChannelFile {
   id: string;
-  /** Miner type the image targets, e.g. "Rig" or "Antminer S19". */
-  type: string;
+  /** Hardware model the image targets, e.g. "Antminer S21". */
+  model: string;
   /** Image file name, e.g. "miner-image-release-123". */
   file: string;
   /** Human-formatted upload timestamp. */

@@ -1,23 +1,23 @@
 import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 
-import { pacingSummary, phaseLabel, rolloutPhaseCount } from "./rolloutDisplayUtils";
+import { pacingSummary, phaseLabel, rolloutActionNoun, rolloutPhaseCount } from "./rolloutDisplayUtils";
 import type { RolloutEvent, RolloutProcessType } from "./rolloutTypes";
 import PageHeaderPopoverPill from "@/protoFleet/components/PageHeader/PageHeaderPopoverPill";
 
 interface RolloutPillProps {
   event: RolloutEvent;
-  /** Route to the rollout detail; renders the "View rollout" link when set and
+  /** Route to the process detail; renders the "View {action}" link when set and
    * no `onViewRollout` handler is provided. */
   detailsPath?: string;
-  /** When set, "View rollout" is a button that calls this (e.g. to open the
+  /** When set, "View {action}" is a button that calls this (e.g. to open the
    * ViewRolloutModal in place) instead of navigating. Takes precedence over
    * `detailsPath`. */
   onViewRollout?: () => void;
 }
 
 const processNoun: Record<RolloutProcessType, string> = {
-  firmware: "Firmware rollout",
+  firmware: "Firmware update",
   reboot: "Reboot",
   curtailment: "Curtailment",
 };
@@ -74,9 +74,11 @@ function RolloutPill({ event, detailsPath, onViewRollout }: RolloutPillProps): R
     ...(batchDetail ? [{ id: "batch", value: batchDetail }] : []),
   ];
 
+  const viewLabel = `View ${rolloutActionNoun(event.processType)}`;
+
   return (
     <PageHeaderPopoverPill
-      ariaLabel={`View rollout details for ${event.title}`}
+      ariaLabel={`${viewLabel} details for ${event.title}`}
       dotClassName={pillDotClass(event)}
       triggerClassName="rollout-pill-trigger"
       triggerLabel={`${processNoun[event.processType]} ${pillStateWord(event)}`}
@@ -102,7 +104,7 @@ function RolloutPill({ event, detailsPath, onViewRollout }: RolloutPillProps): R
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-left text-emphasis-300 text-text-primary transition-[background-color] duration-200 ease-in-out hover:bg-core-primary-5"
               >
-                View rollout
+                {viewLabel}
               </button>
             </div>
           ) : detailsPath ? (
@@ -112,7 +114,7 @@ function RolloutPill({ event, detailsPath, onViewRollout }: RolloutPillProps): R
                 onClick={closePopover}
                 className="block rounded-xl px-3 py-2.5 text-emphasis-300 text-text-primary transition-[background-color] duration-200 ease-in-out hover:bg-core-primary-5"
               >
-                View rollout
+                {viewLabel}
               </Link>
             </div>
           ) : null}

@@ -59,12 +59,12 @@ function Section({
 
 // ---- Firmware file table (inside the modal) --------------------------------
 
-type FirmwareFileColumn = "type" | "file" | "uploaded" | "actions";
+type FirmwareFileColumn = "model" | "file" | "uploaded" | "actions";
 
-const firmwareFileColumns: FirmwareFileColumn[] = ["type", "file", "uploaded", "actions"];
+const firmwareFileColumns: FirmwareFileColumn[] = ["model", "file", "uploaded", "actions"];
 
 const firmwareFileColTitles: ColTitles<FirmwareFileColumn> = {
-  type: "Type",
+  model: "Model",
   file: "File",
   uploaded: "Uploaded",
   actions: "",
@@ -139,8 +139,8 @@ function ReleaseChannelModal({
   const closeAriaLabel = mode === "create" ? "Close release channel creator" : "Close release channel editor";
 
   const firmwareFileColConfig: ColConfig<ReleaseChannelFile, string, FirmwareFileColumn> = {
-    type: {
-      component: (file) => <span className="text-emphasis-300 text-text-primary">{file.type}</span>,
+    model: {
+      component: (file) => <span className="text-emphasis-300 text-text-primary">{file.model}</span>,
       width: "w-40",
     },
     file: { component: (file) => file.file, width: "w-64" },
@@ -205,6 +205,10 @@ function ReleaseChannelModal({
             title="Firmware"
             action={<Button text="Add file" variant={variants.secondary} size={sizes.compact} onClick={onAddFile} />}
           >
+            <div className="text-300 text-text-primary-70">
+              Add one file per hardware model. A channel can span multiple models — subscribed miners each receive the
+              file that matches their model.
+            </div>
             <List<ReleaseChannelFile, string, FirmwareFileColumn>
               activeCols={firmwareFileColumns}
               colTitles={firmwareFileColTitles}

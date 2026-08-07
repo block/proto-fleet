@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 
 import RolloutControls from "./RolloutControls";
+import { rolloutSubmitLabel } from "./rolloutDisplayUtils";
 import type { RolloutPlanConfig } from "./rolloutTypes";
 import TargetSelectButton from "@/protoFleet/components/TargetSelectButton";
 import { sizes, variants } from "@/shared/components/Button";
@@ -22,6 +23,9 @@ interface RolloutConfigModalProps {
    * hide the "Apply to" section entirely — e.g. a bulk action whose scope is
    * already fixed by the current selection. */
   scopeTargets?: Array<{ label: string; value: string; onClick: () => void }>;
+  /** In-scope target count, forwarded to RolloutControls for its live plan
+   * readout ("≈ 12 batches over ~11m"). Omit to hide the readout. */
+  inScopeCount?: number;
   startDate?: Date;
   onStartDateChange?: (date: Date) => void;
   startTime?: string;
@@ -57,6 +61,7 @@ function RolloutConfigModal({
   onDismiss,
   onSubmit,
   scopeTargets,
+  inScopeCount,
   startDate,
   onStartDateChange,
   startTime = DEFAULT_TIME_OPTIONS[0].value,
@@ -76,7 +81,7 @@ function RolloutConfigModal({
       // dismissal after the submit resolves.
       buttons={[
         {
-          text: isScheduled ? "Schedule rollout" : "Start rollout",
+          text: rolloutSubmitLabel(config.processType, isScheduled),
           variant: variants.primary,
           onClick: onSubmit,
           dismissModalOnClick: false,
@@ -101,7 +106,7 @@ function RolloutConfigModal({
           </section>
         ) : null}
 
-        <RolloutControls config={config} onChange={onConfigChange} />
+        <RolloutControls config={config} onChange={onConfigChange} inScopeCount={inScopeCount} />
 
         <section className="grid gap-3">
           <SectionTitle>Date and time</SectionTitle>

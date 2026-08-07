@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 
-import { phaseLabel, rolloutPhaseCount } from "./rolloutDisplayUtils";
+import { phaseLabel, rolloutActionNoun, rolloutPhaseCount } from "./rolloutDisplayUtils";
 import type { RolloutEvent, RolloutProcessType } from "./rolloutTypes";
 import { Download, LightningAlt, Reboot } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
@@ -71,7 +71,7 @@ export function ActiveRolloutBanner({ event, onView }: ActiveRolloutBannerProps)
       prefixIcon={<ProcessIcon processType={event.processType} />}
       title={bannerTitle(event)}
       subtitle={bannerSubtitle(event)}
-      buttonText={onView ? "View rollout" : undefined}
+      buttonText={onView ? `View ${rolloutActionNoun(event.processType)}` : undefined}
       buttonOnClick={onView}
       testId="active-rollout-banner"
     />
