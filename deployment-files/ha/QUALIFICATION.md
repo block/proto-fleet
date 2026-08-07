@@ -51,6 +51,7 @@ time and a short redacted evidence reference.
 | Power off active host | Peer serves VIP within 15s | Pending | Pending | Pending |
 | Stop database primary | Writable primary recovers within 30s | Pending | Pending | Pending |
 | Commit uniquely identified state, then abruptly stop its acknowledged primary | The exact state exists on the promoted writer | Pending | Pending | Pending |
+| Partition the current Patroni primary from DCS quorum while continuously probing pinned connections to both database hosts | At most one host accepts writes; the isolated primary is read-only or unreachable before promotion; it rejoins without divergent acknowledged state | Pending | Pending | Pending |
 | Stop database standby | Service remains usable; failover readiness is degraded | Pending | Pending | Pending |
 | Stop etcd witness | Service remains usable; failover readiness is degraded | Pending | Pending | Pending |
 | Break active DCS path | Old active stops serving; peer takes over | Pending | Pending | Pending |
@@ -66,6 +67,7 @@ time and a short redacted evidence reference.
 | Attempt TCP connections from a non-peer to ports 2379, 2380, 5432, 8008, and 40000 before and after reboot | TCP establishment fails against the installed firewall while the configured peer connects to every required HA port | Pending | Pending | Pending |
 | Send an unauthorized VRRP protocol-112 advertisement from the non-peer | The firewall drops it and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over during curtailment | Telemetry or independent power measurement proves load shedding within 180s | Pending | Pending | Pending |
+| After takeover, publish a uniquely identified MQTT curtailment target and then its restoration target | The new active persists both source updates and physical measurement proves shedding and restoration within 180s | Pending | Pending | Pending |
 
 ## Repetition and soak
 
