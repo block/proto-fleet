@@ -20,7 +20,9 @@ NGINX_CONFIG_TEMP=""
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
 DIRECT_UPDATER_PRIVILEGE=()
 DIRECT_UPDATER_WAS_ACTIVE=false
+DIRECT_UPDATER_SERVICE_PRESENT=false
 DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
+DEPLOYMENT_MUTATION_STARTED=false
 
 # Preserve process-level Compose overrides before the script initializes its
 # runtime flags with the same names. Plain shell assignment keeps an inherited
@@ -58,18 +60,31 @@ PREVIOUS_RELEASE_IMAGE_TAGS=()
 RELEASE_IMAGE_CLEANUP_SAFE=true
 DD_HOSTNAME_DEFAULTED=false
 
-restore_direct_run_updater() {
-    local run_status="$1"
-    [ "$DIRECT_UPDATER_WAS_ACTIVE" = "true" ] || return 0
-    # A successful disable intentionally leaves the daemon stopped. On a
-    # failed run, restore only the service state that matched the previously
-    # persisted deployment configuration.
-    if [ "$run_status" -eq 0 ]; then
-        [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ] || return 0
-    else
-        [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" = "true" ] || return 0
+resolve_direct_updater_privilege() {
+    DIRECT_UPDATER_PRIVILEGE=()
+    if [ "$(id -u)" -eq 0 ]; then
+        return 0
     fi
+    command -v sudo >/dev/null 2>&1 || {
+        echo "Error: sudo is required to manage the host updater during this manual deployment run." >&2
+        return 1
+    }
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        DIRECT_UPDATER_PRIVILEGE=(sudo -n)
+    else
+        DIRECT_UPDATER_PRIVILEGE=(sudo)
+    fi
+}
+
+restart_direct_run_updater() {
+    local enable_at_boot="$1"
     DIRECT_UPDATER_WAS_ACTIVE=false
+    if [ "$enable_at_boot" = "true" ] \
+      && ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl enable proto-fleet-updater.service; then
+        echo "Error: could not enable proto-fleet-updater.service after the manual deployment run." >&2
+        return 1
+    fi
     echo "Restoring the host updater after the manual deployment run..."
     if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
         systemctl restart proto-fleet-updater.service; then
@@ -91,6 +106,54 @@ restore_direct_run_updater() {
     return 1
 }
 
+disable_direct_run_updater() {
+    DIRECT_UPDATER_WAS_ACTIVE=false
+    # An unavailable systemd manager cannot have a supervised updater to
+    # disable. This preserves the supported WSL fallback to copy-command
+    # upgrades when systemd has been turned off.
+    if ! systemctl show --property=Version --value >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "Disabling the host updater after the manual deployment run..."
+    if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl disable --now proto-fleet-updater.service; then
+        echo "Error: could not disable proto-fleet-updater.service after the manual deployment run." >&2
+        return 1
+    fi
+    return 0
+}
+
+reconcile_direct_run_updater() {
+    local run_status="$1"
+    local committed_state="$ENABLE_ONE_CLICK_UPDATES"
+    [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] || return 0
+    [ "${PROTO_FLEET_INSTALLER_MANAGED_RUN:-0}" != "1" ] || return 0
+
+    # Before Compose mutation, failure leaves the old topology running and
+    # therefore restores its updater state. Once teardown begins, topology is
+    # uncertain and the persisted desired state is the only safe authority.
+    if [ "$run_status" -ne 0 ] \
+      && [ "$DEPLOYMENT_MUTATION_STARTED" != "true" ]; then
+        committed_state="$ONE_CLICK_UPDATES_WAS_CONFIGURED"
+    fi
+
+    if [ "$committed_state" = "true" ]; then
+        if [ "$DIRECT_UPDATER_WAS_ACTIVE" = "true" ]; then
+            restart_direct_run_updater false || return 1
+        elif [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ] \
+          && [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "true" ]; then
+            restart_direct_run_updater true || return 1
+        fi
+        return 0
+    fi
+    if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ] \
+      && { [ "$DIRECT_UPDATER_WAS_ACTIVE" = "true" ] \
+        || [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" = "true" ]; }; then
+        disable_direct_run_updater || return 1
+    fi
+    return 0
+}
+
 run_fleet_exit_cleanup() {
     local run_status=$?
     local status="$run_status"
@@ -103,6 +166,7 @@ run_fleet_exit_cleanup() {
         cleanup_env_rewrite || status=1
     fi
     if [ "$run_status" -ne 0 ] \
+      && [ "$DEPLOYMENT_MUTATION_STARTED" != "true" ] \
       && [ "$DIRECT_UPDATER_ENV_ROLLBACK_PENDING" = "true" ]; then
         echo "Restoring the previous one-click update setting after the failed deployment run..." >&2
         if atomic_set_env_values \
@@ -113,11 +177,12 @@ run_fleet_exit_cleanup() {
             env_rollback_failed=true
             status=1
         fi
-    elif [ "$run_status" -eq 0 ]; then
+    elif [ "$run_status" -eq 0 ] \
+      || [ "$DEPLOYMENT_MUTATION_STARTED" = "true" ]; then
         DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
     fi
     if [ "$env_rollback_failed" != "true" ] \
-      && ! restore_direct_run_updater "$run_status"; then
+      && ! reconcile_direct_run_updater "$run_status"; then
         status=1
     fi
     exit "$status"
@@ -167,16 +232,21 @@ quiesce_updater_for_direct_run() {
         return 1
     fi
     if ! active_state=$(systemctl show --property=ActiveState --value \
-        proto-fleet-updater.service 2>/dev/null); then
+      proto-fleet-updater.service 2>/dev/null); then
         echo "Error: could not inspect proto-fleet-updater.service state before the manual deployment run." >&2
         return 1
     fi
+    [ "$load_state" = "not-found" ] || DIRECT_UPDATER_SERVICE_PRESENT=true
     case "$active_state" in
         inactive|failed)
             if [ "$load_state" = "not-found" ] \
               && [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
                 echo "Error: one-click updates are enabled, but proto-fleet-updater.service is not installed." >&2
                 return 1
+            fi
+            if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ] \
+              && [ "$one_click_was_configured" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
+                resolve_direct_updater_privilege || return 1
             fi
             return 0
             ;;
@@ -187,18 +257,7 @@ quiesce_updater_for_direct_run() {
             ;;
     esac
 
-    DIRECT_UPDATER_PRIVILEGE=()
-    if [ "$(id -u)" -ne 0 ]; then
-        command -v sudo >/dev/null 2>&1 || {
-            echo "Error: sudo is required to stop the host updater before this manual deployment run." >&2
-            return 1
-        }
-        if [ "$NON_INTERACTIVE" = "true" ]; then
-            DIRECT_UPDATER_PRIVILEGE=(sudo -n)
-        else
-            DIRECT_UPDATER_PRIVILEGE=(sudo)
-        fi
-    fi
+    resolve_direct_updater_privilege || return 1
     echo "Stopping the host updater for this manual deployment run..."
     if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
         systemctl stop proto-fleet-updater.service; then
@@ -643,6 +702,12 @@ if env_boolean_is_true ENABLE_ONE_CLICK_UPDATES; then
 fi
 if [ -n "$ONE_CLICK_UPDATES_OVERRIDE" ]; then
     ENABLE_ONE_CLICK_UPDATES="$ONE_CLICK_UPDATES_OVERRIDE"
+fi
+if [ "$PREFLIGHT_ONLY" = "true" ] \
+  && [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] \
+  && [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
+    echo "Error: --preflight-only cannot change one-click update state for the active deployment; run the complete deployment with the same enable/disable option." >&2
+    exit 1
 fi
 # System monitoring rides the alerts stack (the in-process metrics writer,
 # Grafana rule evaluation, and webhook delivery are all alerts-gated), so it
@@ -2380,7 +2445,11 @@ fi
 
 echo "Stopping any running services..."
 capture_previous_release_image_tags
-compose down --remove-orphans
+DEPLOYMENT_MUTATION_STARTED=true
+if ! compose down --remove-orphans; then
+    echo "Error: could not stop the existing services cleanly." >&2
+    exit 1
+fi
 
 echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).

@@ -1105,10 +1105,11 @@ complete_disabled_updater_fallback_after_run() {
 
 reconcile_updater_after_failed_deployment() {
   local env_file="$1"
-  local expected_state="$2"
-  local reenable_after_failure="$3"
-  local restart_after_failure="$4"
-  shift 4
+  local previous_state="$2"
+  local desired_state="$3"
+  local reenable_after_failure="$4"
+  local restart_after_failure="$5"
+  shift 5
   local privilege=("$@")
   local restored_state
 
@@ -1129,8 +1130,9 @@ reconcile_updater_after_failed_deployment() {
     return 1
   fi
   [ "$restored_state" != "missing" ] || restored_state=false
-  if [ "$restored_state" != "$expected_state" ]; then
-    echo "❌ The failed deployment did not restore the prior one-click update setting." >&2
+  if [ "$restored_state" != "$previous_state" ] \
+    && [ "$restored_state" != "$desired_state" ]; then
+    echo "❌ The failed deployment left an unknown one-click update setting." >&2
     disable_updater_service_with \
       ${privilege[@]+"${privilege[@]}"} || true
     return 1
@@ -1140,7 +1142,16 @@ reconcile_updater_after_failed_deployment() {
       ${privilege[@]+"${privilege[@]}"}; then
     return 1
   fi
-  if [ "$expected_state" = "true" ]; then
+  if [ "$restored_state" = "$desired_state" ] \
+    && [ "$desired_state" != "$previous_state" ]; then
+    if ! ${privilege[@]+"${privilege[@]}"} systemctl enable \
+        proto-fleet-updater.service >/dev/null 2>&1 \
+      || ! restart_updater_service_with "$UPDATER_SOCKET_PATH" \
+        ${privilege[@]+"${privilege[@]}"}; then
+      echo "❌ Could not retain the host updater after the deployment topology changed." >&2
+      return 1
+    fi
+  elif [ "$previous_state" = "true" ]; then
     if [ "$reenable_after_failure" = "1" ] \
       && ! ${privilege[@]+"${privilege[@]}"} systemctl enable \
         proto-fleet-updater.service >/dev/null 2>&1; then
@@ -2084,7 +2095,8 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
   RUN_FLEET_ARGS+=(--non-interactive)
 fi
 RUN_FLEET_STATUS=0
-if ./run-fleet.sh "${RUN_FLEET_ARGS[@]}"; then
+if PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
+  ./run-fleet.sh "${RUN_FLEET_ARGS[@]}"; then
   RUN_FLEET_STATUS=0
 else
   RUN_FLEET_STATUS=$?
@@ -2111,6 +2123,7 @@ if [ "$RUN_FLEET_STATUS" -ne 0 ]; then
     && ! reconcile_updater_after_failed_deployment \
       "$INSTALL_DIR/$DEPLOYMENT_DIR/.env" \
       "$PREVIOUS_ONE_CLICK_UPDATES" \
+      true \
       "$UPDATER_REENABLE_AFTER_FAILED_RUN" \
       "$UPDATER_RESTART_AFTER_FAILED_RUN" \
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then

@@ -325,6 +325,8 @@ case " $* " in
                 ;;
             'stop proto-fleet-updater.service') printf 'inactive\n' > "$UPDATER_STATE_FILE" ;;
             'restart proto-fleet-updater.service') printf 'active\n' > "$UPDATER_STATE_FILE" ;;
+            'enable proto-fleet-updater.service') ;;
+            'disable --now proto-fleet-updater.service') printf 'inactive\n' > "$UPDATER_STATE_FILE" ;;
             'is-active --quiet proto-fleet-updater.service') [ "$updater_state" = "active" ] ;;
             *) exit 1 ;;
         esac
@@ -567,14 +569,15 @@ done
 assert_contains "enabled one-click updates layer the socket overlay" "$HARNESS_CALL_LOG" "-f $STAGE/docker-compose.updater.yaml"
 
 # Exercise the exact installer contract: a successful service bootstrap must
-# override a persisted false value, layer the socket overlay, and survive the
-# preflight-to-activation handoff.
+# override a persisted false value and layer the socket overlay in the same
+# deployment run. Unmanaged preflight cannot commit this transition.
 make_stage enable-updater-overlay
 # The installer validates and then stops the loaded service while run-fleet
 # changes the deployment; it restarts the updater only after this handoff.
 printf 'inactive\n' > "$HARNESS_UPDATER_STATE_FILE"
-if run_stage "$STAGE" --enable-one-click-updates --non-interactive --preflight-only; then
-    pass "installer updater enablement preflights"
+if PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
+    run_stage "$STAGE" --enable-one-click-updates --non-interactive; then
+    pass "installer updater enablement deploys"
 else
     fail "installer updater enablement should override persisted false state"
 fi
@@ -585,13 +588,8 @@ if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
 else
     fail "installer updater enablement did not normalize persisted state to true"
 fi
-: > "$HARNESS_CALL_LOG"
-if run_stage "$STAGE" --non-interactive --skip-build; then
-    pass "enabled updater activation succeeds"
-else
-    fail "enabled updater state should survive activation"
-fi
-assert_contains "enabled updater activation retains the socket overlay" "$HARNESS_CALL_LOG" "-f $STAGE/docker-compose.updater.yaml"
+assert_not_contains "installer retains updater lifecycle ownership after deployment" \
+    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
 
 # A manual runner operating on a deployment whose fleet-api can still reach
 # the updater must stop that writer before Compose teardown and restore it on
@@ -635,29 +633,27 @@ else
     fail "failed direct run left the updater stopped"
 fi
 
-# Process-level Compose overrides select the new effective state, but cannot
-# erase evidence that the running deployment was wired to the updater. The
-# active daemon must be quiesced before a persisted true value is changed.
+# Preflight prepares images but leaves the active topology untouched. Reject
+# an unmanaged updater-state transition before persisting or quiescing it.
 make_stage process-disable-active-updater
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
 if ENABLE_ONE_CLICK_UPDATES=false \
     run_stage "$STAGE" --non-interactive --preflight-only; then
-    pass "process override can disable a persisted updater safely"
+    fail "preflight should reject an updater-state transition"
 else
-    fail "process override failed while disabling a persisted updater"
+    pass "preflight rejects an updater-state transition"
 fi
-assert_contains "persisted updater state survives process override for serialization" \
+assert_not_contains "rejected preflight does not stop the active updater" \
     "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
-if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
-    && grep -q '^ENABLE_ONE_CLICK_UPDATES=false$' "$STAGE/.env" \
-    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = inactive ]; then
-    pass "process disable persists false after updater serialization"
+if [ "$(grep '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env" | tail -n 1)" = 'ENABLE_ONE_CLICK_UPDATES=true' ] \
+    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ]; then
+    pass "rejected preflight preserves active updater state"
 else
-    fail "process disable did not persist state or leave the updater stopped"
+    fail "rejected preflight changed updater configuration or runtime state"
 fi
-assert_not_contains "successful process disable does not restart the updater" \
-    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+assert_contains "rejected preflight explains the lifecycle boundary" \
+    "$HARNESS_OUTPUT_LOG" "--preflight-only cannot change one-click update state"
 
 # Persisting the desired flag is not deployment success. A later failure must
 # restore both the prior flag and the updater that served the still-running
@@ -666,7 +662,7 @@ make_stage failed-process-disable-active-updater
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
 if ENABLE_ONE_CLICK_UPDATES=false FAKE_COMPOSE_CONFIG_FAILURE=true \
-    run_stage "$STAGE" --non-interactive --preflight-only; then
+    run_stage "$STAGE" --non-interactive; then
     fail "failed process disable should propagate its Compose failure"
 else
     pass "failed process disable exercises updater configuration rollback"
@@ -683,6 +679,52 @@ else
     fail "failed process disable left updater configuration and runtime state inconsistent"
 fi
 
+# Once Compose teardown begins, the old topology can no longer be assumed.
+# Failures after the replacement starts retain the desired setting and align
+# the service with whichever new containers were created.
+make_stage post-compose-disable-failure
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if FLEET_API_READY_ATTEMPTS=1 FAKE_API_READINESS_FAILURE=true \
+    run_stage "$STAGE" --disable-one-click-updates --non-interactive; then
+    fail "post-Compose disable fixture should fail readiness"
+else
+    pass "post-Compose disable failure preserves the new lifecycle boundary"
+fi
+assert_contains "post-Compose disable reaches replacement startup" \
+    "$HARNESS_CALL_LOG" " up --remove-orphans"
+assert_contains "post-Compose disable disables the updater unit" \
+    "$HARNESS_CALL_LOG" "systemctl disable --now proto-fleet-updater.service"
+assert_not_contains "post-Compose disable does not restore the old updater" \
+    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+if [ "$(grep '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env" | tail -n 1)" = 'ENABLE_ONE_CLICK_UPDATES=false' ] \
+    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = inactive ]; then
+    pass "post-Compose disable keeps configuration and service disabled"
+else
+    fail "post-Compose disable restored state for a topology that was already replaced"
+fi
+
+make_stage post-compose-enable-failure
+printf 'inactive\n' > "$HARNESS_UPDATER_STATE_FILE"
+if FLEET_API_READY_ATTEMPTS=1 FAKE_API_READINESS_FAILURE=true \
+    run_stage "$STAGE" --enable-one-click-updates --non-interactive; then
+    fail "post-Compose enable fixture should fail readiness"
+else
+    pass "post-Compose enable failure preserves the new lifecycle boundary"
+fi
+assert_contains "post-Compose enable reaches replacement startup" \
+    "$HARNESS_CALL_LOG" " up --remove-orphans"
+assert_contains "post-Compose enable enables the updater unit" \
+    "$HARNESS_CALL_LOG" "systemctl enable proto-fleet-updater.service"
+assert_contains "post-Compose enable starts the updater" \
+    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+if [ "$(grep '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env" | tail -n 1)" = 'ENABLE_ONE_CLICK_UPDATES=true' ] \
+    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ]; then
+    pass "post-Compose enable keeps configuration and service enabled"
+else
+    fail "post-Compose enable restored state for a topology that was already replaced"
+fi
+
 # Desired flags cannot prove that the daemon is stopped. An unmanaged retry
 # must drain a stale active updater even when the persisted and effective
 # settings are already false.
@@ -697,6 +739,8 @@ assert_contains "disabled retry stops a stale active updater" \
     "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
 assert_not_contains "disabled retry does not restart a stale updater" \
     "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+assert_contains "disabled retry disables a stale updater unit" \
+    "$HARNESS_CALL_LOG" "systemctl disable --now proto-fleet-updater.service"
 if [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = inactive ]; then
     pass "disabled retry leaves the stale updater stopped"
 else
@@ -725,10 +769,10 @@ assert_not_contains "managed activation leaves lifecycle ownership with the daem
 # state so fleet-api does not advertise or mount a dead host updater.
 make_stage disable-updater-overlay
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
-if run_stage "$STAGE" --disable-one-click-updates --non-interactive --preflight-only; then
-    pass "explicit updater fallback preflights"
+if run_stage "$STAGE" --disable-one-click-updates --non-interactive; then
+    pass "explicit updater fallback deploys"
 else
-    fail "explicit updater fallback should override persisted true state"
+    fail "explicit updater fallback should deploy with persisted false state"
 fi
 assert_not_contains "explicit updater fallback omits the socket overlay" "$HARNESS_CALL_LOG" "docker-compose.updater.yaml"
 if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
@@ -745,7 +789,7 @@ fi
 make_stage disable-updater-without-systemd
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 if FAKE_WSL=true FAKE_SYSTEMD_UNAVAILABLE=true \
-    run_stage "$STAGE" --disable-one-click-updates --non-interactive --preflight-only; then
+    run_stage "$STAGE" --disable-one-click-updates --non-interactive; then
     pass "explicit updater fallback survives an unavailable systemd manager"
 else
     fail "unavailable systemd manager blocked the explicit updater fallback"
