@@ -121,6 +121,7 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
+    assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
     assert_contains "$rendered" "sleep 15; exec /app/fleetd"
     [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 2 ]] ||
         fail "Fleet services must restart process failures without bypassing the systemd start gate"
@@ -134,6 +135,7 @@ test_fleet_ha_contract() {
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
     [[ "$secret_mount_count" -eq 4 ]] || fail "Fleet services must mount only their required HA secret files"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
+    assert_not_contains "$rendered" "/run/proto-fleet-updater"
 
     assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--cacert "$service_ca"'
     assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--connect-to "${virtual_ip}:443:127.0.0.1:443"'

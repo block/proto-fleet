@@ -90,7 +90,7 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 		terminal: func() bool {
 			return term.IsTerminal(int(os.Stdin.Fd()))
 		},
-		sourceRoot: releaseRoot,
+		sourceRoot: ReleaseRoot,
 		primaryIdentity: func(ctx context.Context, peer string) (hostIdentity, error) {
 			output, err := runCommand(ctx, "ip", "route", "get", peer)
 			if err != nil {

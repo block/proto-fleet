@@ -63,6 +63,7 @@ const (
 	operationArtifactPrefix  = ".proto-fleet-upgrade-"
 	selfUpdateBackupSuffix   = ".previous"
 	stateTempPrefix          = ".state-"
+	haNodeEnvPath            = "/etc/proto-fleet/ha/node.env"
 )
 
 var (
@@ -152,6 +153,7 @@ type Config struct {
 	PreflightTimeout  time.Duration
 	ActivationTimeout time.Duration
 	CleanupTimeout    time.Duration
+	DeploymentMode    DeploymentMode
 
 	// Tests inject an httptest TLS endpoint without opening a production
 	// configuration path for alternate release mirrors.
@@ -169,6 +171,13 @@ type Config struct {
 	// admission so a completed concurrent upgrade can change the installed version.
 	beforeTriggerAdmission func(string)
 }
+
+type DeploymentMode string
+
+const (
+	DeploymentModeStandalone DeploymentMode = "standalone"
+	DeploymentModeHA         DeploymentMode = "ha"
+)
 
 type activationMarker struct {
 	OperationID   string `json:"operation_id"`
@@ -562,6 +571,17 @@ func NewManager(cfg Config) (*Manager, error) {
 	}
 	if cfg.SelfUpdatePath != "" && !filepath.IsAbs(cfg.SelfUpdatePath) {
 		return nil, fmt.Errorf("self-update path must be absolute")
+	}
+	if cfg.DeploymentMode == "" {
+		cfg.DeploymentMode = DeploymentModeStandalone
+	}
+	if cfg.DeploymentMode != DeploymentModeStandalone && cfg.DeploymentMode != DeploymentModeHA {
+		return nil, fmt.Errorf("deployment mode must be standalone or ha")
+	}
+	if cfg.DeploymentMode == DeploymentModeHA {
+		if cfg.SelfUpdatePath != "" {
+			return nil, fmt.Errorf("HA application updates do not replace the host updater")
+		}
 	}
 	if cfg.DownloadBaseURL == "" {
 		cfg.DownloadBaseURL = canonicalDownloadBaseURL
@@ -1103,7 +1123,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("persist preflight phase: %w", err), recovery)
 		return
 	}
-	if err := m.runCommand(ctx, m.cfg.PreflightTimeout, stageDeployment, commandOutput, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only"); err != nil {
+	if err := m.runPreflight(ctx, stageDeployment, commandOutput); err != nil {
 		if ctx.Err() == nil {
 			m.removeFailedPreflightImages(ctx, stageDeployment, commandOutput, logFile, targetVersion)
 		}
@@ -1133,16 +1153,41 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 
-	if err := m.beginActivation(operationID, "Restarting Fleet; the client may disconnect for several minutes"); err != nil {
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "require-passive", haNodeEnvPath); err != nil {
+			m.fail(operationID, fmt.Errorf("local Fleet is not passive immediately before activation: %w", err), recovery)
+			return
+		}
+	}
+	previousVersion := ""
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		previousVersion, err = readInstalledVersion(filepath.Join(currentDeployment, "version.txt"))
+		if err != nil {
+			m.fail(operationID, fmt.Errorf("read passive HA application version: %w", err), recovery)
+			return
+		}
+	}
+	if err := m.beginActivation(operationID, "Restarting the local Fleet application"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation phase: %w", err), recovery)
 		return
 	}
 	backupDeployment := filepath.Join(m.cfg.InstallRoot, "deployment.previous")
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		recovery = m.activationRecoveryCommand(currentDeployment, previousVersion)
+		if err := m.setRecoveryCommand(operationID, recovery); err != nil {
+			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile)
+			return
+		}
+		if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop"); err != nil {
+			m.failActivation(operationID, targetVersion, fmt.Errorf("stop passive HA application: %w", err), logFile)
+			return
+		}
+	}
 	if err := activateDeployment(stageDeployment, currentDeployment, backupDeployment); err != nil {
 		m.failActivation(operationID, targetVersion, err, logFile)
 		return
 	}
-	recovery = activationRecoveryCommand(currentDeployment)
+	recovery = m.activationRecoveryCommand(currentDeployment, targetVersion)
 	if err := m.setRecoveryCommand(operationID, recovery); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation recovery command: %w", err), recovery)
 		return
@@ -1152,12 +1197,15 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 
-	if err := m.runCommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--skip-build"); err != nil {
-		// run-fleet may have applied forward-only migrations before returning an
-		// error. Keep the new deployment active for forward recovery; restoring
-		// the previous binaries could make the schema and application incompatible.
+	if err := m.runActivation(ctx, currentDeployment, targetVersion, commandOutput); err != nil {
 		activationErr := fmt.Errorf("new stack failed to start: %w", err)
-		failureRecovery, recoveryErr := activationRecoveryCommandAfterFailure(currentDeployment)
+		// Migrations may already have run, so keep the new deployment active for
+		// forward recovery instead of starting an older binary against its schema.
+		failureRecovery := m.activationRecoveryCommand(currentDeployment, targetVersion)
+		var recoveryErr error
+		if m.cfg.DeploymentMode == DeploymentModeStandalone {
+			failureRecovery, recoveryErr = activationRecoveryCommandAfterFailure(currentDeployment)
+		}
 		if recoveryErr != nil {
 			activationErr = errors.Join(
 				activationErr,
@@ -1196,6 +1244,31 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		}
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] upgrade completed\n", m.cfg.Now().UTC().Format(time.RFC3339))
+}
+
+func (m *Manager) runPreflight(ctx context.Context, deployment string, output io.Writer) error {
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		return m.runHACommand(ctx, m.cfg.PreflightTimeout, deployment, output, "update-preflight")
+	}
+	return m.runCommand(ctx, m.cfg.PreflightTimeout, deployment, output, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only")
+}
+
+func (m *Manager) runActivation(ctx context.Context, deployment, targetVersion string, output io.Writer) error {
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		return m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, output, "app-start", targetVersion)
+	}
+	return m.runCommand(ctx, m.cfg.ActivationTimeout, deployment, output, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--skip-build")
+}
+
+func (m *Manager) runHACommand(ctx context.Context, timeout time.Duration, deployment string, output io.Writer, args ...string) error {
+	return m.runCommand(ctx, timeout, deployment, output, filepath.Join(deployment, "ha", "fleet-ha"), args...)
+}
+
+func (m *Manager) activationRecoveryCommand(deployment, targetVersion string) string {
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		return fmt.Sprintf("%s app-start %s", shellQuote(filepath.Join(deployment, "ha", "fleet-ha")), shellQuote(targetVersion))
+	}
+	return activationRecoveryCommand(deployment)
 }
 
 func operationArtifactBase(operationID string) string {
@@ -1833,7 +1906,9 @@ func (m *Manager) reconcileDeploymentLayout(
 		}
 		if deriveForwardRecovery {
 			op.RecoveryCommand = ""
-			if version == op.TargetVersion {
+			if m.cfg.DeploymentMode == DeploymentModeHA {
+				op.RecoveryCommand = m.activationRecoveryCommand(current, version)
+			} else if version == op.TargetVersion {
 				markerInfo, markerErr := os.Lstat(filepath.Join(current, preflightProofFilename))
 				if markerErr == nil {
 					if !markerInfo.Mode().IsRegular() {

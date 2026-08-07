@@ -49,12 +49,17 @@ func run() error {
 		defaultSocketPath = "/run/proto-fleet-updater/updater.sock"
 	}
 	defaultSelfUpdatePath := os.Getenv("PROTO_FLEET_UPDATER_BINARY_PATH")
+	defaultDeploymentMode := os.Getenv("PROTO_FLEET_UPDATER_DEPLOYMENT_MODE")
+	if defaultDeploymentMode == "" {
+		defaultDeploymentMode = string(updater.DeploymentModeStandalone)
+	}
 
 	installRoot := flag.String("install-root", defaultInstallRoot, "Proto Fleet installation root")
 	stateDir := flag.String("state-dir", defaultStateDir, "Durable updater state directory")
 	socketPath := flag.String("socket-path", defaultSocketPath, "Unix socket path")
 	selfUpdatePath := flag.String("self-update-path", defaultSelfUpdatePath, "Installed updater binary path to atomically refresh")
 	selfUpdateHandoff := flag.String(selfUpdateHandoffFlag, "", "Internal one-shot rollback path for a refreshed updater")
+	deploymentMode := flag.String("deployment-mode", defaultDeploymentMode, "Deployment mode: standalone or ha")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 
@@ -74,6 +79,7 @@ func run() error {
 		InstallRoot:    absoluteInstallRoot,
 		StateDir:       *stateDir,
 		SelfUpdatePath: *selfUpdatePath,
+		DeploymentMode: updater.DeploymentMode(*deploymentMode),
 	})
 	if err != nil {
 		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("initialize updater: %w", err))
