@@ -47,14 +47,9 @@ type ControlStatus struct {
 }
 
 func Status(ctx context.Context, envPath string, check bool) (StatusReport, error) {
-	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return StatusReport{}, errors.New("default HTTP transport is not configurable for HA status")
-	}
-	transport := defaultTransport.Clone()
-	transport.Proxy = nil
-	defer transport.CloseIdleConnections()
-	report, err := readLocalStatus(ctx, &http.Client{Transport: transport}, localHAStatusURL)
+	client, cleanup := newProbeHTTPClient(nil, nil)
+	defer cleanup()
+	report, err := readLocalStatus(ctx, client, localHAStatusURL)
 	if err != nil {
 		return StatusReport{}, err
 	}
@@ -127,31 +122,33 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport) 
 		vipReady           bool
 		probes             sync.WaitGroup
 	)
-	probes.Add(5)
-	go func() {
-		defer probes.Done()
+	probes.Go(func() {
 		etcdStatus = probeEtcdMembers(ctx, etcdConfig)
-	}()
-	go func() {
-		defer probes.Done()
+	})
+	probes.Go(func() {
 		primary, synchronous = patroniRoles(ctx, tlsConfig, config)
-	}()
-	go func() {
-		defer probes.Done()
-		writerReady = writerObservationReady(ctx, tlsConfig, password, endpoints, config)
-	}()
-	go func() {
-		defer probes.Done()
-		vipReady = endpointReady(ctx, tlsConfig, "https://"+config.VirtualIP+"/api-proxy/health/active")
-	}()
-	go func() {
-		defer probes.Done()
-		statuses := probeFleetHosts(ctx, tlsConfig, config)
-		_, fleetActive = summarizeFleetHosts(statuses)
+	})
+	probes.Go(func() {
+		writerReady = writerObservationReady(ctx, etcdConfig, config)
+	})
+	probes.Go(func() {
+		client, cleanup := newProbeHTTPClient(tlsConfig, nil)
+		defer cleanup()
+		vipReady = endpointReadyWithClient(ctx, client, "https://"+config.VirtualIP+"/api-proxy/health/active")
+	})
+	probes.Go(func() {
+		statuses := gather([]string{config.DatabaseAIP, config.DatabaseBIP}, func(address string) fleetHostStatus {
+			return probeFleetHost(ctx, tlsConfig, config.VirtualIP, address)
+		})
+		for _, status := range statuses {
+			if status.active {
+				fleetActive++
+			}
+		}
 		fleetRedundant = fleetRedundancyReady(statuses)
 		fleetVersionsMatch = matchingFleetVersions(statuses)
 		fleetReady = fleetRedundant && fleetVersionsMatch
-	}()
+	})
 	probes.Wait()
 
 	localRuntimeReady := report.Runtime.Observation == ha.ObservationCurrent &&
@@ -193,38 +190,28 @@ type etcdReadiness struct {
 }
 
 func probeEtcdMembers(ctx context.Context, config clientv3.Config) etcdReadiness {
-	results := make(chan etcdMemberIdentity, len(config.Endpoints))
-	for _, endpoint := range config.Endpoints {
-		go func() {
-			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			memberConfig := config
-			memberConfig.Endpoints = []string{endpoint}
-			if config.TLS != nil {
-				memberConfig.TLS = config.TLS.Clone()
-			}
-			client, err := clientv3.New(memberConfig)
-			if err != nil {
-				results <- etcdMemberIdentity{}
-				return
-			}
-			defer client.Close()
-			response, err := client.Status(probeCtx, endpoint)
-			if err != nil || response.Header == nil {
-				results <- etcdMemberIdentity{}
-				return
-			}
-			if _, err := client.Get(probeCtx, patroniDCSPath, clientv3.WithPrefix(), clientv3.WithLimit(1)); err != nil {
-				results <- etcdMemberIdentity{}
-				return
-			}
-			results <- etcdMemberIdentity{clusterID: response.Header.ClusterId, memberID: response.Header.MemberId}
-		}()
-	}
-	identities := make([]etcdMemberIdentity, 0, len(config.Endpoints))
-	for range config.Endpoints {
-		identities = append(identities, <-results)
-	}
+	identities := gather(config.Endpoints, func(endpoint string) etcdMemberIdentity {
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		memberConfig := config
+		memberConfig.Endpoints = []string{endpoint}
+		if config.TLS != nil {
+			memberConfig.TLS = config.TLS.Clone()
+		}
+		client, err := clientv3.New(memberConfig)
+		if err != nil {
+			return etcdMemberIdentity{}
+		}
+		defer client.Close()
+		response, err := client.Status(probeCtx, endpoint)
+		if err != nil || response.Header == nil {
+			return etcdMemberIdentity{}
+		}
+		if _, err := client.Get(probeCtx, patroniDCSPath, clientv3.WithPrefix(), clientv3.WithLimit(1)); err != nil {
+			return etcdMemberIdentity{}
+		}
+		return etcdMemberIdentity{clusterID: response.Header.ClusterId, memberID: response.Header.MemberId}
+	})
 	return summarizeEtcdMembers(identities, len(config.Endpoints))
 }
 
@@ -252,29 +239,21 @@ func summarizeEtcdMembers(identities []etcdMemberIdentity, expected int) etcdRea
 }
 
 func patroniRoles(ctx context.Context, tlsConfig *tls.Config, config NodeConfig) (primary, synchronous int) {
-	transport := &http.Transport{TLSClientConfig: tlsConfig.Clone(), Proxy: nil}
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   2 * time.Second, CheckRedirect: transportguard.RejectRedirect,
-	}
-	defer transport.CloseIdleConnections()
+	client, cleanup := newProbeHTTPClient(tlsConfig, nil)
+	defer cleanup()
 	type roleResult struct {
 		primary     bool
 		synchronous bool
 	}
-	results := make(chan roleResult, 2)
-	for _, address := range []string{config.DatabaseAIP, config.DatabaseBIP} {
-		go func() {
-			baseURL := "https://" + address + ":8008"
-			results <- roleResult{
-				primary: endpointReadyWithClient(ctx, client, baseURL+"/primary"),
-				synchronous: endpointReadyWithClient(ctx, client, baseURL+"/synchronous") &&
-					endpointReadyWithClient(ctx, client, baseURL+"/readiness?lag=0&mode=apply"),
-			}
-		}()
-	}
-	for range 2 {
-		result := <-results
+	results := gather([]string{config.DatabaseAIP, config.DatabaseBIP}, func(address string) roleResult {
+		baseURL := "https://" + address + ":8008"
+		return roleResult{
+			primary: endpointReadyWithClient(ctx, client, baseURL+"/primary"),
+			synchronous: endpointReadyWithClient(ctx, client, baseURL+"/synchronous") &&
+				endpointReadyWithClient(ctx, client, baseURL+"/readiness?lag=0&mode=apply"),
+		}
+	})
+	for _, result := range results {
 		if result.primary {
 			primary++
 		}
@@ -292,32 +271,12 @@ type fleetHostStatus struct {
 	version   string
 }
 
-func probeFleetHosts(ctx context.Context, tlsConfig *tls.Config, config NodeConfig) []fleetHostStatus {
-	addresses := []string{config.DatabaseAIP, config.DatabaseBIP}
-	results := make(chan fleetHostStatus, len(addresses))
-	for _, address := range addresses {
-		go func() {
-			results <- probeFleetHost(ctx, tlsConfig, config.VirtualIP, address)
-		}()
-	}
-	statuses := make([]fleetHostStatus, 0, len(addresses))
-	for range addresses {
-		statuses = append(statuses, <-results)
-	}
-	return statuses
-}
-
 func probeFleetHost(ctx context.Context, tlsConfig *tls.Config, virtualIP, address string) fleetHostStatus {
 	dialer := &net.Dialer{Timeout: 2 * time.Second}
-	transport := &http.Transport{
-		TLSClientConfig: tlsConfig.Clone(),
-		Proxy:           nil,
-		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, network, net.JoinHostPort(address, "443"))
-		},
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, Timeout: 2 * time.Second, CheckRedirect: transportguard.RejectRedirect}
+	client, cleanup := newProbeHTTPClient(tlsConfig, func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, net.JoinHostPort(address, "443"))
+	})
+	defer cleanup()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+virtualIP+"/api-proxy/health", nil)
 	if err != nil {
 		return fleetHostStatus{}
@@ -336,18 +295,6 @@ func probeFleetHost(ctx context.Context, tlsConfig *tls.Config, virtualIP, addre
 		passive:   endpointReadyWithClient(ctx, client, "https://"+virtualIP+"/api-proxy/health/passive"),
 		version:   response.Header.Get("X-Proto-Fleet-Version"),
 	}
-}
-
-func summarizeFleetHosts(statuses []fleetHostStatus) (reachable, active int) {
-	for _, status := range statuses {
-		if status.reachable {
-			reachable++
-		}
-		if status.active {
-			active++
-		}
-	}
-	return reachable, active
 }
 
 func fleetRedundancyReady(statuses []fleetHostStatus) bool {
@@ -369,7 +316,7 @@ func matchingFleetVersions(statuses []fleetHostStatus) bool {
 	return len(statuses) == 2 && statuses[0].version != "" && statuses[0].version == statuses[1].version
 }
 
-func writerObservationReady(ctx context.Context, tlsConfig *tls.Config, password string, endpoints []string, config NodeConfig) bool {
+func writerObservationReady(ctx context.Context, etcdConfig clientv3.Config, config NodeConfig) bool {
 	values, err := loadFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile))
 	if err != nil {
 		return false
@@ -395,19 +342,17 @@ func writerObservationReady(ctx context.Context, tlsConfig *tls.Config, password
 	}
 	defer pinned.Close()
 	queries := sqlc.New(pinned)
-	etcd, err := ha.NewEtcdClient(clientv3.Config{
-		Endpoints: endpoints, Username: "fleet-observer", Password: password,
-		TLS: tlsConfig.Clone(), DialTimeout: 2 * time.Second,
-	})
+	if etcdConfig.TLS != nil {
+		etcdConfig.TLS = etcdConfig.TLS.Clone()
+	}
+	etcd, err := ha.NewEtcdClient(etcdConfig)
 	if err != nil {
 		return false
 	}
 	defer etcd.Close()
-	transport := &http.Transport{TLSClientConfig: tlsConfig.Clone(), Proxy: nil}
-	defer transport.CloseIdleConnections()
-	observer, err := ha.NewObserver("/service/proto-fleet", etcd, queries, ha.NewPatroniHTTPClient(&http.Client{
-		Transport: transport, Timeout: 2 * time.Second,
-	}))
+	client, cleanup := newProbeHTTPClient(etcdConfig.TLS, nil)
+	defer cleanup()
+	observer, err := ha.NewObserver("/service/proto-fleet", etcd, queries, ha.NewPatroniHTTPClient(client))
 	if err != nil {
 		return false
 	}
@@ -427,12 +372,31 @@ func hostProbeDSN(raw, secretsDir string) (string, error) {
 	return dsn.String(), nil
 }
 
-func endpointReady(ctx context.Context, tlsConfig *tls.Config, endpoint string) bool {
-	transport := &http.Transport{TLSClientConfig: tlsConfig.Clone(), Proxy: nil}
-	defer transport.CloseIdleConnections()
-	return endpointReadyWithClient(ctx, &http.Client{
-		Transport: transport, Timeout: 2 * time.Second, CheckRedirect: transportguard.RejectRedirect,
-	}, endpoint)
+func gather[T, R any](items []T, probe func(T) R) []R {
+	results := make(chan R, len(items))
+	for _, item := range items {
+		go func(item T) {
+			results <- probe(item)
+		}(item)
+	}
+	gathered := make([]R, 0, len(items))
+	for range items {
+		gathered = append(gathered, <-results)
+	}
+	return gathered
+}
+
+func newProbeHTTPClient(tlsConfig *tls.Config, dialContext func(context.Context, string, string) (net.Conn, error)) (*http.Client, func()) {
+	transport := &http.Transport{Proxy: nil, DialContext: dialContext}
+	if tlsConfig != nil {
+		transport.TLSClientConfig = tlsConfig.Clone()
+	}
+	client := &http.Client{
+		Transport:     transport,
+		Timeout:       2 * time.Second,
+		CheckRedirect: transportguard.RejectRedirect,
+	}
+	return client, transport.CloseIdleConnections
 }
 
 func endpointReadyWithClient(ctx context.Context, client *http.Client, endpoint string) bool {
