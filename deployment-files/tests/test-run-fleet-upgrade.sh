@@ -136,11 +136,20 @@ make_stage() {
     HARNESS_CALL_LOG="$runtime/calls.log"
     HARNESS_OUTPUT_LOG="$runtime/output.log"
     HARNESS_UPDATER_STATE_FILE="$runtime/updater-state"
+    HARNESS_UPDATER_ENV_FILE="$runtime/updater.env"
     mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
     : > "$HARNESS_CALL_LOG"
     : > "$HARNESS_OUTPUT_LOG"
     printf 'not-found\n' > "$HARNESS_UPDATER_STATE_FILE"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
+    "$REAL_AWK" -v env_path="$HARNESS_UPDATER_ENV_FILE" '
+        /^HOST_UPDATER_ENV_PATH=/ {
+            printf "HOST_UPDATER_ENV_PATH=\"%s\"\n", env_path
+            next
+        }
+        { print }
+    ' "$STAGE/run-fleet.sh" > "$runtime/run-fleet.sh"
+    /bin/mv "$runtime/run-fleet.sh" "$STAGE/run-fleet.sh"
     cp "$DEPLOY_DIR/docker-compose.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.alerts.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.system-monitoring.yaml" "$STAGE/"
@@ -153,6 +162,7 @@ make_stage() {
     cp "$DEPLOY_DIR/server/otel-collector-config.datadog.yaml" "$STAGE/server/"
     printf 'apiVersion: 1\n' > "$STAGE/server/monitoring/grafana/provisioning/datasources/base.yaml"
     printf '%s\n' "version: $RELEASE_TAG" 'commit: test-release' > "$STAGE/version.txt"
+    printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$TMP_DIR" > "$HARNESS_UPDATER_ENV_FILE"
     "$DEPLOY_DIR/scripts/pin-release-images.sh" "$STAGE" "$RELEASE_TAG"
     write_tsdb_archive "$STAGE" "\"$TIMESCALEDB_IMAGE\",\"$TIMESCALEDB_HA_IMAGE\""
     write_valid_env "$STAGE/.env"
@@ -616,6 +626,31 @@ if [ -n "$direct_stop_line" ] \
 else
     fail "direct runner did not serialize its complete mutation window"
 fi
+
+# A stale or alternate deployment tree must not control the fixed global
+# updater service owned by another installation.
+make_stage foreign-updater-owner
+foreign_install_root="$TMP_DIR/foreign-install"
+mkdir -p "$foreign_install_root"
+printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$foreign_install_root" \
+    > "$HARNESS_UPDATER_ENV_FILE"
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if run_stage "$STAGE" --non-interactive; then
+    fail "runner should reject an updater owned by another installation"
+else
+    pass "runner rejects an updater owned by another installation"
+fi
+assert_contains "ownership mismatch is diagnosed" "$HARNESS_OUTPUT_LOG" \
+    "belongs to a different Proto Fleet installation"
+assert_not_contains "ownership mismatch prevents updater stop" \
+    "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
+assert_not_contains "ownership mismatch prevents updater restart" \
+    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+assert_not_contains "ownership mismatch prevents updater disable" \
+    "$HARNESS_CALL_LOG" "systemctl disable --now proto-fleet-updater.service"
+assert_not_contains "ownership mismatch prevents deployment mutation" \
+    "$HARNESS_CALL_LOG" "docker "
 
 make_stage direct-updater-failure
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"

@@ -18,9 +18,11 @@ TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 NGINX_CONFIG_TEMP=""
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
+HOST_UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
 DIRECT_UPDATER_PRIVILEGE=()
 DIRECT_UPDATER_WAS_ACTIVE=false
 DIRECT_UPDATER_SERVICE_PRESENT=false
+DIRECT_UPDATER_OWNERSHIP_VERIFIED=false
 DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
 DEPLOYMENT_MUTATION_STARTED=false
 
@@ -60,10 +62,70 @@ PREVIOUS_RELEASE_IMAGE_TAGS=()
 RELEASE_IMAGE_CLEANUP_SAFE=true
 DD_HOSTNAME_DEFAULTED=false
 
+parse_direct_updater_install_root() {
+    local contents="$1"
+    local key_re='^[[:space:]]*PROTO_FLEET_INSTALL_ROOT[[:space:]]*='
+    local assignment_re='^PROTO_FLEET_INSTALL_ROOT="(([^"\\]|\\["\\])*)"$'
+    local line encoded decoded char
+    local found=0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ "$line" =~ $key_re ]] || continue
+        [ "$found" -eq 0 ] || return 1
+        [[ "$line" =~ $assignment_re ]] || return 1
+        encoded="${BASH_REMATCH[1]}"
+        decoded=""
+        while [ -n "$encoded" ]; do
+            char="${encoded:0:1}"
+            encoded="${encoded:1}"
+            if [ "$char" = '\' ]; then
+                [ -n "$encoded" ] || return 1
+                char="${encoded:0:1}"
+                encoded="${encoded:1}"
+                [ "$char" = '\' ] || [ "$char" = '"' ] || return 1
+            fi
+            decoded="${decoded}${char}"
+        done
+        [ -n "$decoded" ] || return 1
+        found=1
+    done <<< "$contents"
+
+    [ "$found" -eq 1 ] || return 1
+    printf '%s\n' "$decoded"
+}
+
+verify_direct_updater_ownership() {
+    local contents configured_root configured_resolved expected_resolved
+
+    [ "$DIRECT_UPDATER_OWNERSHIP_VERIFIED" != "true" ] || return 0
+    if ! contents="$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        cat -- "$HOST_UPDATER_ENV_PATH" 2>/dev/null)" \
+      || ! configured_root="$(parse_direct_updater_install_root "$contents")"; then
+        echo "Error: could not read a valid updater install root from $HOST_UPDATER_ENV_PATH; refusing to control the global updater service." >&2
+        return 1
+    fi
+    if ! configured_resolved="$(cd "$configured_root" 2>/dev/null && pwd -P)"; then
+        echo "Error: the configured updater install root cannot be resolved: $configured_root" >&2
+        return 1
+    fi
+    if ! expected_resolved="$(cd "$PROJECT_ROOT/.." 2>/dev/null && pwd -P)"; then
+        echo "Error: the current Proto Fleet install root cannot be resolved from $PROJECT_ROOT." >&2
+        return 1
+    fi
+    if [ "${configured_resolved%/}" != "${expected_resolved%/}" ]; then
+        echo "Error: proto-fleet-updater.service belongs to a different Proto Fleet installation; refusing to change it." >&2
+        echo "  Updater install root: $configured_resolved" >&2
+        echo "  Current install root: $expected_resolved" >&2
+        return 1
+    fi
+    DIRECT_UPDATER_OWNERSHIP_VERIFIED=true
+}
+
 resolve_direct_updater_privilege() {
     DIRECT_UPDATER_PRIVILEGE=()
     if [ "$(id -u)" -eq 0 ]; then
-        return 0
+        verify_direct_updater_ownership
+        return
     fi
     command -v sudo >/dev/null 2>&1 || {
         echo "Error: sudo is required to manage the host updater during this manual deployment run." >&2
@@ -74,6 +136,7 @@ resolve_direct_updater_privilege() {
     else
         DIRECT_UPDATER_PRIVILEGE=(sudo)
     fi
+    verify_direct_updater_ownership
 }
 
 restart_direct_run_updater() {

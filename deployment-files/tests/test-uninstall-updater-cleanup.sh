@@ -60,6 +60,10 @@ sed -n \
   -e '/^HOST_UPDATER_RUNTIME_DIR=/p' \
   -e '/^HOST_UPDATER_LOCK_PATH=/p' \
   -e '/^HOST_UPDATER_SYSTEMD_RUNTIME_DIR=/p' \
+  -e '/^HOST_UPDATER_RESTORE_PENDING=/p' \
+  -e '/^HOST_UPDATER_REMOVAL_STARTED=/p' \
+  -e '/^HOST_UPDATER_ORIGINAL_ACTIVE=/p' \
+  -e '/^HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE=/p' \
   -e '/^HOST_UPDATER_BINARY_PATHS=(/,/^)/p' \
   -e '/^HOST_UPDATER_SELF_UPDATE_SUFFIXES=(/,/^)/p' \
   -e '/^canonicalize_existing_dir()/,/^}/p' \
@@ -71,7 +75,9 @@ sed -n \
   -e '/^verify_host_updater_ownership_with()/,/^}/p' \
   -e '/^host_updater_staging_artifacts_present()/,/^}/p' \
   -e '/^host_updater_artifacts_present()/,/^}/p' \
+  -e '/^validate_host_updater_process_lock_prerequisites_with()/,/^}/p' \
   -e '/^verify_host_updater_process_lock_free_with()/,/^}/p' \
+  -e '/^restore_host_updater_service_if_needed()/,/^}/p' \
   -e '/^prepare_host_updater_removal()/,/^}/p' \
   "$UNINSTALL_SCRIPT" > "$TEST_TMP/uninstall-updater-functions.sh"
 # shellcheck source=/dev/null
@@ -180,6 +186,31 @@ if (
   INSTALL_ROOT="$owned_root"
   HOST_UPDATER_PRESENT=false
   HOST_UPDATER_PRIVILEGE=()
+  HOST_UPDATER_STATE_DIR="$TEST_TMP/missing-flock-state"
+  HOST_UPDATER_RUNTIME_DIR="$TEST_TMP/missing-flock-runtime"
+  HOST_UPDATER_LOCK_PATH="$HOST_UPDATER_STATE_DIR/updater.lock"
+  HOST_UPDATER_SYSTEMD_RUNTIME_DIR="$TEST_TMP/missing-flock-systemd"
+  missing_flock_log="$TEST_TMP/missing-flock-service.log"
+  mkdir -p "$HOST_UPDATER_STATE_DIR" "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR" "$TEST_TMP/no-tools"
+  : > "$HOST_UPDATER_LOCK_PATH"
+  id() { printf '0\n'; }
+  cat() { /bin/cat "$@"; }
+  systemctl() { printf '%s\n' "$*" >> "$missing_flock_log"; }
+  PATH="$TEST_TMP/no-tools"
+  LAST_ERROR=""
+  ! prepare_host_updater_removal \
+    && [[ "$LAST_ERROR" == *"flock is unavailable"* ]] \
+    && [[ ! -e "$missing_flock_log" ]]
+); then
+  pass "missing flock aborts before updater service mutation"
+else
+  fail "missing flock left the updater service changed"
+fi
+
+if (
+  INSTALL_ROOT="$owned_root"
+  HOST_UPDATER_PRESENT=false
+  HOST_UPDATER_PRIVILEGE=()
   HOST_UPDATER_STATE_DIR="$TEST_TMP/not-found-active-state"
   HOST_UPDATER_RUNTIME_DIR="$TEST_TMP/not-found-active-runtime"
   HOST_UPDATER_LOCK_PATH="$HOST_UPDATER_STATE_DIR/updater.lock"
@@ -239,6 +270,49 @@ if (
   pass "uninstaller fails closed while any updater process holds the lifetime lock"
 else
   fail "uninstaller can remove state while the updater lifetime lock is held"
+fi
+
+if (
+  INSTALL_ROOT="$owned_root"
+  HOST_UPDATER_PRESENT=false
+  HOST_UPDATER_PRIVILEGE=()
+  HOST_UPDATER_RESTORE_PENDING=false
+  HOST_UPDATER_REMOVAL_STARTED=false
+  HOST_UPDATER_STATE_DIR="$TEST_TMP/restore-state"
+  HOST_UPDATER_RUNTIME_DIR="$TEST_TMP/restore-runtime"
+  HOST_UPDATER_LOCK_PATH="$HOST_UPDATER_STATE_DIR/updater.lock"
+  HOST_UPDATER_SYSTEMD_RUNTIME_DIR="$TEST_TMP/restore-systemd"
+  mkdir -p "$HOST_UPDATER_STATE_DIR" "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR"
+  : > "$HOST_UPDATER_LOCK_PATH"
+  service_state=active
+  mock_unit_file_state=enabled
+  lifecycle_log="$TEST_TMP/restore-service.log"
+  id() { printf '0\n'; }
+  systemctl() {
+    printf 'systemctl %s\n' "$*" >> "$lifecycle_log"
+    case "$*" in
+      *'--property=LoadState --value'*) printf 'loaded\n' ;;
+      *'--property=ActiveState --value'*) printf '%s\n' "$service_state" ;;
+      *'--property=UnitFileState --value'*) printf '%s\n' "$mock_unit_file_state" ;;
+      'stop proto-fleet-updater.service') service_state=inactive ;;
+      'disable proto-fleet-updater.service') mock_unit_file_state=disabled ;;
+      'enable proto-fleet-updater.service') mock_unit_file_state=enabled ;;
+      'start proto-fleet-updater.service') service_state=active ;;
+      *) return 1 ;;
+    esac
+  }
+  flock() { return 1; }
+  ! prepare_host_updater_removal \
+    && [[ "$HOST_UPDATER_RESTORE_PENDING" == true ]] \
+    && restore_host_updater_service_if_needed \
+    && [[ "$service_state" == active ]] \
+    && [[ "$mock_unit_file_state" == enabled ]] \
+    && grep -q '^systemctl enable proto-fleet-updater.service$' "$lifecycle_log" \
+    && grep -q '^systemctl start proto-fleet-updater.service$' "$lifecycle_log"
+); then
+  pass "failed lock verification restores the updater's active and enabled state"
+else
+  fail "failed lock verification stranded the updater disabled"
 fi
 
 canonical="$TEST_TMP/canonical/proto-fleet-updater"

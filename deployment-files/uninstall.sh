@@ -14,6 +14,10 @@ INSTALL_ROOT=""
 DRY_RUN=false
 HOST_UPDATER_PRESENT=false
 HOST_UPDATER_PRIVILEGE=()
+HOST_UPDATER_RESTORE_PENDING=false
+HOST_UPDATER_REMOVAL_STARTED=false
+HOST_UPDATER_ORIGINAL_ACTIVE=false
+HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE=disabled
 HOST_UPDATER_STAGING_NAME_RE='^\.proto-fleet-upgrade-[a-f0-9]{64}$'
 HOST_UPDATER_ENV_PATH=/etc/proto-fleet/updater.env
 HOST_UPDATER_STATE_DIR=/var/lib/proto-fleet-updater
@@ -610,6 +614,24 @@ host_updater_artifacts_present() {
 verify_host_updater_process_lock_free_with() {
   local privilege=("$@")
 
+  if ! validate_host_updater_process_lock_prerequisites_with \
+      ${privilege[@]+"${privilege[@]}"}; then
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} test -e "$HOST_UPDATER_LOCK_PATH" \
+    && ! ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_LOCK_PATH"; then
+    return 0
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} flock -n \
+      "$HOST_UPDATER_LOCK_PATH" true; then
+    print_error "The host updater still holds its lifetime lock; no files were removed."
+    return 1
+  fi
+}
+
+validate_host_updater_process_lock_prerequisites_with() {
+  local privilege=("$@")
+
   if ! ${privilege[@]+"${privilege[@]}"} test -e "$HOST_UPDATER_LOCK_PATH" \
     && ! ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_LOCK_PATH"; then
     return 0
@@ -623,11 +645,42 @@ verify_host_updater_process_lock_free_with() {
     print_error "Cannot verify the updater lifetime lock because flock is unavailable; no files were removed."
     return 1
   fi
-  if ! ${privilege[@]+"${privilege[@]}"} flock -n \
-      "$HOST_UPDATER_LOCK_PATH" true; then
-    print_error "The host updater still holds its lifetime lock; no files were removed."
+}
+
+restore_host_updater_service_if_needed() {
+  [[ "$HOST_UPDATER_RESTORE_PENDING" == true ]] || return 0
+  [[ "$HOST_UPDATER_REMOVAL_STARTED" != true ]] || return 0
+
+  local status=0
+  case "$HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE" in
+    enabled)
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+        systemctl enable proto-fleet-updater.service || status=1
+      ;;
+    enabled-runtime)
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+        systemctl enable --runtime proto-fleet-updater.service || status=1
+      ;;
+  esac
+  if [[ "$HOST_UPDATER_ORIGINAL_ACTIVE" == true ]]; then
+    ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+      systemctl start proto-fleet-updater.service || status=1
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    print_error "Could not restore the host updater after uninstall aborted; manual systemd recovery may be required."
     return 1
   fi
+  HOST_UPDATER_RESTORE_PENDING=false
+}
+
+uninstall_exit_cleanup() {
+  local run_status=$?
+  local status="$run_status"
+  trap - EXIT HUP INT TERM
+  if ! restore_host_updater_service_if_needed; then
+    status=1
+  fi
+  exit "$status"
 }
 
 # Acquire all privilege and stop the updater before Docker or deployment
@@ -636,6 +689,10 @@ verify_host_updater_process_lock_free_with() {
 prepare_host_updater_removal() {
   HOST_UPDATER_PRESENT=false
   HOST_UPDATER_PRIVILEGE=()
+  HOST_UPDATER_RESTORE_PENDING=false
+  HOST_UPDATER_REMOVAL_STARTED=false
+  HOST_UPDATER_ORIGINAL_ACTIVE=false
+  HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE=disabled
   local artifact_status
   if host_updater_artifacts_present; then
     :
@@ -665,9 +722,15 @@ prepare_host_updater_removal() {
       ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"}; then
     return 1
   fi
+  # Validate the lock path and flock availability before changing systemd.
+  # The lock cannot be required to be free until the updater has stopped.
+  if ! validate_host_updater_process_lock_prerequisites_with \
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"}; then
+    return 1
+  fi
 
   if command -v systemctl &>/dev/null && [[ -d "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR" ]]; then
-    local load_state active_state
+    local load_state active_state unit_file_state=disabled
     if ! load_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
       systemctl show --property=LoadState --value proto-fleet-updater.service 2>/dev/null)"; then
       print_error "Could not inspect the host updater service; no Docker or deployment files were removed."
@@ -682,9 +745,26 @@ prepare_host_updater_removal() {
       print_error "Could not inspect the host updater process; no Docker or deployment files were removed."
       return 1
     fi
+    if [[ "$load_state" != "not-found" ]]; then
+      if ! unit_file_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+        systemctl show --property=UnitFileState --value proto-fleet-updater.service 2>/dev/null)"; then
+        print_error "Could not inspect whether the host updater is enabled; no Docker or deployment files were removed."
+        return 1
+      fi
+      case "$unit_file_state" in
+        enabled|enabled-runtime|disabled) ;;
+        *)
+          print_error "The host updater has an unsupported unit-file state '$unit_file_state'; no Docker or deployment files were removed."
+          return 1
+          ;;
+      esac
+    fi
+    HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE="$unit_file_state"
     case "$active_state" in
       inactive|failed) ;;
       active|activating|reloading|deactivating)
+        HOST_UPDATER_ORIGINAL_ACTIVE=true
+        HOST_UPDATER_RESTORE_PENDING=true
         if ! ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
           systemctl stop proto-fleet-updater.service; then
           print_error "Could not stop the host updater; no Docker or deployment files were removed."
@@ -696,6 +776,9 @@ prepare_host_updater_removal() {
         return 1
         ;;
     esac
+    if [[ "$unit_file_state" == "enabled" || "$unit_file_state" == "enabled-runtime" ]]; then
+      HOST_UPDATER_RESTORE_PENDING=true
+    fi
     if [[ "$load_state" != "not-found" ]] \
       && ! ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
         systemctl disable proto-fleet-updater.service; then
@@ -731,6 +814,10 @@ remove_host_updater() {
   if (( ${#HOST_UPDATER_PRIVILEGE[@]} )); then
     privilege=("${HOST_UPDATER_PRIVILEGE[@]}")
   fi
+  # Past this point privileged artifacts may be partially removed, so
+  # restarting the old service is no longer safe or reliably possible.
+  HOST_UPDATER_REMOVAL_STARTED=true
+  HOST_UPDATER_RESTORE_PENDING=false
   if ! remove_host_updater_binary_artifacts_with ${privilege[@]+"${privilege[@]}"}; then
     print_error "Could not remove host updater binaries; deployment removal was aborted."
     return 1
@@ -874,6 +961,10 @@ if ! $DRY_RUN; then
     echo "Uninstall canceled."
     exit 0
   fi
+  trap uninstall_exit_cleanup EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   prepare_host_updater_removal || exit 1
 fi
 
