@@ -431,6 +431,14 @@ if (
   make_install "$root"
   FAKE_UID=0
   unset SUDO_UID
+  stat() {
+    local path="${!#}"
+    if [ "$path" = "$root" ]; then
+      printf '1234 755\n'
+      return 0
+    fi
+    command stat "$@"
+  }
   ! resolve_selected_install_path "$root" "$root" \
     > /dev/null 2> "$TEST_TMP/docker-discovered-foreign-owner.err" \
     && grep -q 'owned by unrelated UID' \
@@ -507,6 +515,14 @@ if (
   mkdir -p "$root"
   FAKE_UID=0
   unset SUDO_UID
+  stat() {
+    local path="${!#}"
+    if [ "$path" = "$root" ]; then
+      printf '1234 755\n'
+      return 0
+    fi
+    command stat "$@"
+  }
   ! resolve_selected_install_path "$root" "" \
     > /dev/null 2> "$TEST_TMP/path-owner.err" \
     && grep -q 'owned by unrelated UID' "$TEST_TMP/path-owner.err"
