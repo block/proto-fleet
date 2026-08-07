@@ -43,6 +43,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	docker := callIndex(calls, "sudo systemctl start docker.service")
 	start := callIndex(calls, "sudo systemctl start proto-fleet-ha.service")
 	enable := callIndex(calls, "sudo systemctl enable proto-fleet-ha.service")
+	updater := callIndex(calls, "sudo systemctl enable --now proto-fleet-updater.service")
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
@@ -53,8 +54,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < start && start < enable && enable < dockerRecovery && rootPasswordInstall < start) {
+	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || updater < 0 || keepalived < 0 ||
+		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < start && start < enable && enable < dockerRecovery && dockerRecovery < updater && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -177,7 +178,7 @@ func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
 	if !strings.Contains(joined, "sudo systemctl disable --now keepalived.service") {
 		t.Fatalf("witness did not disable keepalived:\n%s", joined)
 	}
-	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "proto-fleet-ha.service.d/keepalived.conf", " arping "} {
+	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "proto-fleet-updater.service", "proto-fleet-ha.service.d/keepalived.conf", " arping "} {
 		if strings.Contains(joined, unexpected) {
 			t.Fatalf("witness installed database-host service %q:\n%s", unexpected, joined)
 		}
@@ -392,6 +393,8 @@ func testInstallRelease(t *testing.T) string {
 		"client/protoFleet/assets/app.js":                        "asset",
 		"client/docker-entrypoint.d/40-render-runtime-config.sh": "#!/bin/sh\n",
 		"client/nginx.https.conf":                                "server {}\n",
+		"updater/proto-fleet-updater":                            "updater\n",
+		"updater/proto-fleet-updater.service":                    "[Service]\n",
 	}
 	for name, contents := range required {
 		path := filepath.Join(root, name)
