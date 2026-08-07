@@ -114,6 +114,18 @@ quiesce_updater_for_direct_run() {
         echo "Error: one-click updates are configured, but systemctl is unavailable to serialize this manual run." >&2
         return 1
     }
+    # A host that previously supported the updater may later lose its systemd
+    # manager (notably WSL after an init configuration change). The installer
+    # must still be able to persist its explicit fallback to copy-command
+    # upgrades. Keep enabled runs fail-closed, and distinguish manager absence
+    # from a later failure to inspect the updater unit itself.
+    if ! systemctl show --property=Version --value >/dev/null 2>&1; then
+        if [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
+            return 0
+        fi
+        echo "Error: one-click updates are enabled, but the systemd manager is unavailable to serialize this manual run." >&2
+        return 1
+    fi
     if ! load_state=$(systemctl show --property=LoadState --value \
         proto-fleet-updater.service 2>/dev/null); then
         echo "Error: could not inspect proto-fleet-updater.service before the manual deployment run." >&2

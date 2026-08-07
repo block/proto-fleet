@@ -658,6 +658,38 @@ else
     fail "explicit updater fallback did not normalize persisted state to false"
 fi
 
+# Once one-click updates ship, a host may lose its systemd manager before a
+# later installer run. An explicit disable remains safe because no systemd
+# updater can be active, while leaving the feature enabled must still fail
+# before any deployment mutation.
+make_stage disable-updater-without-systemd
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+if FAKE_WSL=true FAKE_SYSTEMD_UNAVAILABLE=true \
+    run_stage "$STAGE" --disable-one-click-updates --non-interactive --preflight-only; then
+    pass "explicit updater fallback survives an unavailable systemd manager"
+else
+    fail "unavailable systemd manager blocked the explicit updater fallback"
+fi
+if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
+    && grep -q '^ENABLE_ONE_CLICK_UPDATES=false$' "$STAGE/.env"; then
+    pass "non-systemd fallback persists disabled updater state"
+else
+    fail "non-systemd fallback did not normalize persisted updater state"
+fi
+
+make_stage enabled-updater-without-systemd
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+if FAKE_WSL=true FAKE_SYSTEMD_UNAVAILABLE=true \
+    run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "enabled updater should not proceed without a systemd manager"
+else
+    pass "enabled updater fails closed without a systemd manager"
+fi
+assert_contains "missing updater manager is diagnosed" "$HARNESS_OUTPUT_LOG" \
+    "systemd manager is unavailable"
+assert_not_contains "missing updater manager prevents Docker activity" \
+    "$HARNESS_CALL_LOG" "docker "
+
 # Persisted one-click state must fail before Docker activity when its release
 # bundle is incomplete; silently omitting the socket would expose a false
 # upgrade capability state to Fleet API.
