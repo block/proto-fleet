@@ -415,7 +415,7 @@ const ManageSiteModal = ({
                 {sortedEntries === undefined ? (
                   <PlaceholderBlock label="Loading buildings…" className="h-20 w-[120px]" />
                 ) : sortedEntries.length === 0 ? (
-                  <PlaceholderBlock label="No buildings in this site" className="h-20 w-[120px]" />
+                  <p className="text-200 whitespace-nowrap text-text-primary-50">No buildings in this site</p>
                 ) : (
                   sortedEntries.map((b) => (
                     <PlaceholderBlock key={b.buildingId.toString()} label={b.label} className="h-20 w-[120px]" />
