@@ -8,6 +8,7 @@ UPDATER_CLEANUP_FAILED=0
 UPDATER_PRIVILEGE=()
 UPDATER_PRIVILEGE_AVAILABLE=1
 UPDATER_DISABLE_ON_EXIT=0
+UPDATER_REENABLE_ON_EXIT=0
 UPDATER_RESTART_ON_EXIT=0
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
 UPDATER_VALIDATION_SOCKET_PATH="/run/proto-fleet-updater/installer-validation.sock"
@@ -625,6 +626,52 @@ prepare_fresh_install_path() {
   printf '%s\n' "$canonical"
 }
 
+# Recognize an explicitly selected, stopped deployment without weakening the
+# fresh-install path boundary. Docker cannot identify a deployment after its
+# containers have been removed, so the on-disk marker is accepted only after
+# the root, deployment directory, and marker have all passed the same trusted
+# owner and non-symlink checks used by the privileged updater.
+canonical_existing_install_path() {
+  local selected="$1"
+  local normalized canonical trusted_uid deployment_dir marker metadata owner_uid mode
+  normalized=$(lexical_absolute_path "$selected") || return 1
+  reject_dangerous_install_root "$normalized" || return 1
+  if [ -L "$normalized" ] || [ ! -d "$normalized" ]; then
+    echo "❌ Existing installation root must be a real directory, not a symlink: $normalized" >&2
+    return 1
+  fi
+
+  canonical=$(cd "$normalized" 2>/dev/null && pwd -P) || {
+    echo "❌ Existing installation root cannot be accessed: $normalized" >&2
+    return 1
+  }
+  reject_dangerous_install_root "$canonical" || return 1
+  trusted_uid=$(install_admin_uid) || {
+    echo "❌ Could not determine the invoking installation administrator." >&2
+    return 1
+  }
+  validate_install_directory_chain "$canonical" "$trusted_uid" 1 || return 1
+
+  deployment_dir="$canonical/$DEPLOYMENT_DIR"
+  marker="$deployment_dir/docker-compose.yaml"
+  if [ -L "$deployment_dir" ] || [ ! -d "$deployment_dir" ]; then
+    echo "❌ Existing deployment directory must be a real directory, not a symlink: $deployment_dir" >&2
+    return 1
+  fi
+  validate_install_directory_chain "$deployment_dir" "$trusted_uid" 1 || return 1
+  if [ -L "$marker" ] || [ ! -f "$marker" ]; then
+    echo "❌ Existing deployment marker must be a regular, non-symlink file: $marker" >&2
+    return 1
+  fi
+  metadata=$(install_path_metadata "$marker") || {
+    echo "❌ Could not inspect existing deployment marker metadata: $marker" >&2
+    return 1
+  }
+  read -r owner_uid mode <<< "$metadata"
+  validate_install_path_metadata "$marker" "$owner_uid" "$mode" "$trusted_uid" 1 || return 1
+  printf '%s\n' "$canonical"
+}
+
 resolve_selected_install_path() {
   local selected="$1"
   local discovered="${2:-}"
@@ -775,6 +822,17 @@ resolve_updater_privilege() {
   fi
 }
 
+arm_existing_updater_restoration() {
+  local active_state="$1"
+  local unit_file_state="$2"
+  case "$unit_file_state" in
+    enabled|enabled-runtime) UPDATER_REENABLE_ON_EXIT=1 ;;
+  esac
+  case "$active_state" in
+    active|activating|reloading) UPDATER_RESTART_ON_EXIT=1 ;;
+  esac
+}
+
 # Stop the existing updater before the release tree can be replaced. systemd's
 # inactive state proves the supervised process has exited, which also releases
 # the updater's lifetime flock. A missing unit needs no privilege or prompt.
@@ -785,7 +843,7 @@ prepare_existing_updater_service() {
     return 0
   fi
 
-  local load_state
+  local load_state active_state unit_file_state
   if ! load_state=$(systemctl show --property=LoadState --value \
       proto-fleet-updater.service 2>/dev/null); then
     echo "❌ Could not inspect the existing host updater before installation." >&2
@@ -800,7 +858,23 @@ prepare_existing_updater_service() {
     UPDATER_CLEANUP_FAILED=1
     return 1
   fi
-  disable_updater_service_with ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}
+  if ! active_state=$(systemctl show --property=ActiveState --value \
+      proto-fleet-updater.service 2>/dev/null) \
+    || ! unit_file_state=$(systemctl show --property=UnitFileState --value \
+      proto-fleet-updater.service 2>/dev/null); then
+    echo "❌ Could not inspect the existing host updater state before installation." >&2
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  # Arm restoration before the stop/disable call. Even if its final-state
+  # verification fails after systemd performed the mutation, EXIT cleanup can
+  # still return the service to the state observed above.
+  arm_existing_updater_restoration "$active_state" "$unit_file_state"
+  if ! disable_updater_service_with \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+    return 1
+  fi
+  return 0
 }
 
 write_updater_environment_file() {
@@ -887,6 +961,14 @@ installer_exit_cleanup() {
     echo "🔒 Disabling the host updater after interrupted validation..." >&2
     if ! disable_updater_service_with \
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+      status=1
+    fi
+  fi
+  if [ "${UPDATER_REENABLE_ON_EXIT:-0}" = "1" ]; then
+    echo "🔄 Restoring host updater boot enablement after the interrupted installation..." >&2
+    if ! ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} systemctl enable \
+        proto-fleet-updater.service >/dev/null 2>&1; then
+      echo "❌ Could not restore host updater boot enablement." >&2
       status=1
     fi
   fi
@@ -1260,9 +1342,19 @@ fi
 # this really is a ProtoFleet install (and not some unrelated 'deployment/'
 # tree the user happened to create).
 if [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
+  && [ -n "$REQUESTED_INSTALL_DIR" ] \
+  && { [ -e "${REQUESTED_INSTALL_DIR%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ] \
+    || [ -L "${REQUESTED_INSTALL_DIR%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; }; then
+  if ! PREVIOUS_INSTALL_DIR=$(canonical_existing_install_path "$REQUESTED_INSTALL_DIR"); then
+    exit 1
+  fi
+  echo "📁 No running fleet containers, but found requested install on disk at: ${PREVIOUS_INSTALL_DIR}"
+elif [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
   && [ -d "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}" ] \
   && [ -f "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; then
-  PREVIOUS_INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+  if ! PREVIOUS_INSTALL_DIR=$(canonical_existing_install_path "$DEFAULT_INSTALL_DIR"); then
+    exit 1
+  fi
   echo "📁 No running fleet containers, but found existing install on disk at: ${PREVIOUS_INSTALL_DIR}"
 fi
 
@@ -1466,6 +1558,9 @@ install_updater_service() {
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
+  # The replacement unit now owns its boot enablement. EXIT cleanup only
+  # needs to stop a failed validation or restart the validated service.
+  UPDATER_REENABLE_ON_EXIT=0
   UPDATER_DISABLE_ON_EXIT=1
   if ! restart_updater_service_with "$UPDATER_VALIDATION_SOCKET_PATH" \
     ${privilege[@]+"${privilege[@]}"}; then
@@ -1525,6 +1620,8 @@ else
     exit 1
   fi
   UPDATER_DISABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
   echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
   RUN_FLEET_ARGS+=(--disable-one-click-updates)
 fi
@@ -1546,6 +1643,7 @@ if [ "$UPDATER_RESTART_ON_EXIT" = "1" ]; then
   # run-fleet is finished, so the old API can no longer race this deployment.
   # systemd owns the service lifecycle once the restart is issued.
   UPDATER_RESTART_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=0
   if restart_updater_service_with "$UPDATER_SOCKET_PATH" \
     ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
     :

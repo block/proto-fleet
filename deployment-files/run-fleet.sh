@@ -17,6 +17,9 @@ RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 NGINX_CONFIG_TEMP=""
+UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
+DIRECT_UPDATER_PRIVILEGE=()
+DIRECT_UPDATER_RESTART_ON_EXIT=false
 
 # Preserve process-level Compose overrides before the script initializes its
 # runtime flags with the same names. Plain shell assignment keeps an inherited
@@ -53,6 +56,120 @@ PROTO_FLEET_IMAGE_REPOSITORIES=(
 PREVIOUS_RELEASE_IMAGE_TAGS=()
 RELEASE_IMAGE_CLEANUP_SAFE=true
 DD_HOSTNAME_DEFAULTED=false
+
+restore_direct_run_updater() {
+    [ "$DIRECT_UPDATER_RESTART_ON_EXIT" = "true" ] || return 0
+    DIRECT_UPDATER_RESTART_ON_EXIT=false
+    echo "Restoring the host updater after the manual deployment run..."
+    if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl restart proto-fleet-updater.service; then
+        echo "Error: could not restart proto-fleet-updater.service after the manual deployment run." >&2
+        return 1
+    fi
+    local ready_deadline=$((SECONDS + 60))
+    while [ "$SECONDS" -lt "$ready_deadline" ]; do
+        if ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+            curl -fsS --max-time 1 --unix-socket "$UPDATER_SOCKET_PATH" \
+            http://localhost/v1/status >/dev/null 2>&1 \
+          && ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+            systemctl is-active --quiet proto-fleet-updater.service; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Error: proto-fleet-updater.service did not become ready after the manual deployment run." >&2
+    return 1
+}
+
+run_fleet_exit_cleanup() {
+    local status=$?
+    trap - EXIT
+    if declare -F cleanup_nginx_config_temp >/dev/null 2>&1; then
+        cleanup_nginx_config_temp || status=1
+    fi
+    if declare -F cleanup_env_rewrite >/dev/null 2>&1; then
+        cleanup_env_rewrite || status=1
+    fi
+    if ! restore_direct_run_updater; then
+        status=1
+    fi
+    exit "$status"
+}
+
+# The updater daemon owns serialization for its staged preflight and activation
+# children. A human running this script against the active deployment must
+# instead stop the daemon before any environment or Compose mutation so the
+# deployment directory cannot be renamed out from under the shell.
+quiesce_updater_for_direct_run() {
+    local one_click_was_configured="$1"
+    local load_state active_state
+
+    [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] || return 0
+    if [ "$one_click_was_configured" != "true" ] \
+        && [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
+        return 0
+    fi
+    [ "$(uname -s)" = "Linux" ] || return 0
+    command -v systemctl >/dev/null 2>&1 || {
+        echo "Error: one-click updates are configured, but systemctl is unavailable to serialize this manual run." >&2
+        return 1
+    }
+    if ! load_state=$(systemctl show --property=LoadState --value \
+        proto-fleet-updater.service 2>/dev/null); then
+        echo "Error: could not inspect proto-fleet-updater.service before the manual deployment run." >&2
+        return 1
+    fi
+    [ "$load_state" != "not-found" ] || return 0
+    if ! active_state=$(systemctl show --property=ActiveState --value \
+        proto-fleet-updater.service 2>/dev/null); then
+        echo "Error: could not inspect proto-fleet-updater.service state before the manual deployment run." >&2
+        return 1
+    fi
+    case "$active_state" in
+        inactive|failed) return 0 ;;
+        active|activating|reloading) ;;
+        *)
+            echo "Error: proto-fleet-updater.service has unexpected state '$active_state'." >&2
+            return 1
+            ;;
+    esac
+
+    DIRECT_UPDATER_PRIVILEGE=()
+    if [ "$(id -u)" -ne 0 ]; then
+        command -v sudo >/dev/null 2>&1 || {
+            echo "Error: sudo is required to stop the host updater before this manual deployment run." >&2
+            return 1
+        }
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            DIRECT_UPDATER_PRIVILEGE=(sudo -n)
+        else
+            DIRECT_UPDATER_PRIVILEGE=(sudo)
+        fi
+    fi
+    echo "Stopping the host updater for this manual deployment run..."
+    if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl stop proto-fleet-updater.service; then
+        echo "Error: could not stop proto-fleet-updater.service before mutating the deployment." >&2
+        return 1
+    fi
+    # Arm restoration as soon as systemd reports a successful stop. If the
+    # checked inactive-state query fails, EXIT cleanup still repairs service
+    # availability rather than leaving the updater accidentally stopped.
+    DIRECT_UPDATER_RESTART_ON_EXIT=true
+    if ! active_state=$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl show --property=ActiveState --value \
+        proto-fleet-updater.service 2>/dev/null); then
+        echo "Error: could not verify that proto-fleet-updater.service stopped." >&2
+        return 1
+    fi
+    case "$active_state" in
+        inactive|failed) return 0 ;;
+        *)
+            echo "Error: proto-fleet-updater.service remained active; refusing to mutate the deployment." >&2
+            return 1
+            ;;
+    esac
+}
 
 # How long the post-start steps wait for fleet-api to finish its migrations.
 # 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
@@ -442,7 +559,9 @@ fi
 if env_boolean_is_true ENABLE_TRACING; then
     ENABLE_TRACING=true
 fi
+ONE_CLICK_UPDATES_WAS_CONFIGURED=false
 if env_boolean_is_true ENABLE_ONE_CLICK_UPDATES; then
+    ONE_CLICK_UPDATES_WAS_CONFIGURED=true
     ENABLE_ONE_CLICK_UPDATES=true
 fi
 if [ -n "$ONE_CLICK_UPDATES_OVERRIDE" ]; then
@@ -488,6 +607,16 @@ fi
 
 if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ] && [ ! -f "$COMPOSE_UPDATER_FILE" ]; then
     echo "Error: one-click updates are enabled but $COMPOSE_UPDATER_FILE is missing." >&2
+    exit 1
+fi
+
+# Install cleanup before quiescing the updater so every later validation,
+# configuration, build, and Compose failure restores the service.
+trap run_fleet_exit_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if ! quiesce_updater_for_direct_run "$ONE_CLICK_UPDATES_WAS_CONFIGURED"; then
     exit 1
 fi
 
@@ -1551,13 +1680,6 @@ abort_env_rewrite() {
     cleanup_env_rewrite || true
     return 1
 }
-
-# Keep cleanup in the main shell so a supervisor signalling only the runner
-# cannot leave a partial generated config or environment rewrite behind.
-trap 'cleanup_nginx_config_temp || true; cleanup_env_rewrite || true' EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 atomic_set_env_values() {
     local key value key_csv original_owner temp_owner last_byte assignment

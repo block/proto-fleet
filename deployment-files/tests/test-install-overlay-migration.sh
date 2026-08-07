@@ -524,6 +524,63 @@ else
   fail "fresh install path validation accepted an existing deployment tree"
 fi
 
+if (
+  root="$TEST_TMP/stopped-custom-install"
+  make_install "$root"
+  FAKE_UID=$(command id -u)
+  recognized=$(canonical_existing_install_path "$root") \
+    && resolved=$(resolve_selected_install_path "$root" "$recognized") \
+    && [ "$recognized" = "$(cd "$root" && pwd -P)" ] \
+    && [ "$resolved" = "$recognized" ]
+); then
+  pass "trusted stopped custom-path deployments are recognized on disk"
+else
+  fail "explicit stopped custom-path deployment was treated as a fresh install"
+fi
+
+if (
+  root="$TEST_TMP/stopped-custom-symlink-marker"
+  marker_target="$TEST_TMP/stopped-custom-marker-target"
+  make_install "$root"
+  : > "$marker_target"
+  rm "$root/deployment/docker-compose.yaml"
+  ln -s "$marker_target" "$root/deployment/docker-compose.yaml"
+  FAKE_UID=$(command id -u)
+  ! canonical_existing_install_path "$root" \
+    > /dev/null 2> "$TEST_TMP/stopped-custom-symlink-marker.err" \
+    && grep -q 'regular, non-symlink file' \
+      "$TEST_TMP/stopped-custom-symlink-marker.err"
+); then
+  pass "on-disk deployment recognition rejects a symlink marker"
+else
+  fail "on-disk deployment recognition trusted a symlink marker"
+fi
+
+if (
+  root="$TEST_TMP/stopped-custom-writable-marker"
+  make_install "$root"
+  chmod 666 "$root/deployment/docker-compose.yaml"
+  FAKE_UID=$(command id -u)
+  ! canonical_existing_install_path "$root" \
+    > /dev/null 2> "$TEST_TMP/stopped-custom-writable-marker.err" \
+    && grep -q 'group- or world-writable' \
+      "$TEST_TMP/stopped-custom-writable-marker.err"
+); then
+  pass "on-disk deployment recognition rejects a writable marker"
+else
+  fail "on-disk deployment recognition trusted a writable marker"
+fi
+
+requested_disk_line=$(grep -n '&& \[ -n "\$REQUESTED_INSTALL_DIR" \]' "$INSTALL_SCRIPT" | cut -d: -f1)
+resolve_selected_line=$(grep -n '^if ! INSTALL_DIR=$(resolve_selected_install_path' "$INSTALL_SCRIPT" | cut -d: -f1)
+if [ -n "$requested_disk_line" ] \
+  && [ -n "$resolve_selected_line" ] \
+  && [ "$requested_disk_line" -lt "$resolve_selected_line" ]; then
+  pass "explicit on-disk deployment recognition precedes fresh-path resolution"
+else
+  fail "explicit custom-path installs are not promoted before fresh validation"
+fi
+
 if ! validate_install_path_metadata /srv/foreign 2000 755 1000 1 \
     > /dev/null 2>&1 \
   && validate_install_path_metadata /tmp 0 1777 1000 0 \
@@ -652,6 +709,20 @@ else
   fail "deployment extraction can run before updater shutdown"
 fi
 
+if (
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
+  arm_existing_updater_restoration active enabled \
+    && [ "$UPDATER_REENABLE_ON_EXIT" = 1 ] \
+    && [ "$UPDATER_RESTART_ON_EXIT" = 1 ] \
+    && grep -q 'arm_existing_updater_restoration "\$active_state" "\$unit_file_state"' \
+      "$INSTALL_SCRIPT"
+); then
+  pass "quiescing an active enabled updater immediately arms exact restoration"
+else
+  fail "pre-bootstrap failures can leave the prior updater disabled"
+fi
+
 # The replacement updater is validated first, then stopped while run-fleet
 # owns the deployment tree, and restored only after that manual run returns.
 # Arming the EXIT cleanup before the installer function returns covers signals
@@ -724,18 +795,24 @@ if (
   DOWNLOAD_DIR="$TEST_TMP/updater-exit-download"
   mkdir -p "$DOWNLOAD_DIR"
   UPDATER_DISABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=1
   UPDATER_RESTART_ON_EXIT=1
+  systemctl() {
+    printf '%s\n' "$*" >> "$restore_log"
+    return 0
+  }
   restart_updater_service_with() {
-    printf '%s\n' "$1" > "$restore_log"
+    printf 'restart-socket %s\n' "$1" >> "$restore_log"
     return 0
   }
   (trap installer_exit_cleanup EXIT; exit 7)
   cleanup_status=$?
   [ "$cleanup_status" -eq 7 ] \
-    && [ "$(cat "$restore_log")" = '/run/proto-fleet-updater/updater.sock' ] \
+    && grep -q '^enable proto-fleet-updater.service$' "$restore_log" \
+    && grep -q '^restart-socket /run/proto-fleet-updater/updater.sock$' "$restore_log" \
     && [ ! -e "$DOWNLOAD_DIR" ]
 ); then
-  pass "interrupted manual deployment restores the production updater socket"
+  pass "interrupted installation restores updater enablement and production socket"
 else
   fail "installer exit cleanup did not restore the updater after interruption"
 fi

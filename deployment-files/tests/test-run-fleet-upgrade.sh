@@ -135,9 +135,11 @@ make_stage() {
     HARNESS_BIN_DIR="$runtime/bin"
     HARNESS_CALL_LOG="$runtime/calls.log"
     HARNESS_OUTPUT_LOG="$runtime/output.log"
+    HARNESS_UPDATER_STATE_FILE="$runtime/updater-state"
     mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
     : > "$HARNESS_CALL_LOG"
     : > "$HARNESS_OUTPUT_LOG"
+    printf 'not-found\n' > "$HARNESS_UPDATER_STATE_FILE"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.yaml" "$STAGE/"
     cp "$DEPLOY_DIR/docker-compose.alerts.yaml" "$STAGE/"
@@ -302,7 +304,27 @@ EOF
     cat > "$HARNESS_BIN_DIR/systemctl" <<'EOF'
 #!/bin/bash
 printf 'systemctl %s\n' "$*" >> "$CALL_LOG"
-[ "${FAKE_SYSTEMD_UNAVAILABLE:-false}" != "true" ]
+[ "${FAKE_SYSTEMD_UNAVAILABLE:-false}" != "true" ] || exit 1
+case " $* " in
+    *" proto-fleet-updater.service "*)
+        updater_state=$(cat "$UPDATER_STATE_FILE")
+        case "$*" in
+            *'--property=LoadState --value'*)
+                if [ "$updater_state" = "not-found" ]; then
+                    printf 'not-found\n'
+                else
+                    printf 'loaded\n'
+                fi
+                ;;
+            *'--property=ActiveState --value'*) printf '%s\n' "$updater_state" ;;
+            'stop proto-fleet-updater.service') printf 'inactive\n' > "$UPDATER_STATE_FILE" ;;
+            'restart proto-fleet-updater.service') printf 'active\n' > "$UPDATER_STATE_FILE" ;;
+            'is-active --quiet proto-fleet-updater.service') [ "$updater_state" = "active" ] ;;
+            *) exit 1 ;;
+        esac
+        ;;
+esac
+exit 0
 EOF
 
     cat > "$HARNESS_BIN_DIR/id" <<'EOF'
@@ -453,6 +475,7 @@ run_stage() {
     REAL_MKTEMP="$REAL_MKTEMP" \
     REAL_MV="$REAL_MV" \
     REAL_STAT="$REAL_STAT" \
+    UPDATER_STATE_FILE="$HARNESS_UPDATER_STATE_FILE" \
     PATH="$HARNESS_BIN_DIR:$PATH" \
     /bin/bash "$stage/run-fleet.sh" "$@" > "$HARNESS_OUTPUT_LOG" 2>&1
 }
@@ -557,6 +580,66 @@ else
     fail "enabled updater state should survive activation"
 fi
 assert_contains "enabled updater activation retains the socket overlay" "$HARNESS_CALL_LOG" "-f $STAGE/docker-compose.updater.yaml"
+
+# A manual runner operating on a deployment whose fleet-api can still reach
+# the updater must stop that writer before Compose teardown and restore it on
+# every exit. Updater-owned children identify themselves explicitly and the
+# staged preflight remains non-mutating with respect to the active tree.
+make_stage direct-updater-serialization
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if run_stage "$STAGE" --non-interactive; then
+    pass "direct deployment run serializes with the active host updater"
+else
+    fail "direct deployment run should stop and restore the host updater"
+fi
+direct_stop_line=$(grep -n '^systemctl stop proto-fleet-updater.service$' "$HARNESS_CALL_LOG" | cut -d: -f1)
+direct_down_line=$(grep -n ' compose .* down --remove-orphans$' "$HARNESS_CALL_LOG" | cut -d: -f1)
+direct_restart_line=$(grep -n '^systemctl restart proto-fleet-updater.service$' "$HARNESS_CALL_LOG" | cut -d: -f1)
+if [ -n "$direct_stop_line" ] \
+    && [ -n "$direct_down_line" ] \
+    && [ -n "$direct_restart_line" ] \
+    && [ "$direct_stop_line" -lt "$direct_down_line" ] \
+    && [ "$direct_down_line" -lt "$direct_restart_line" ] \
+    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ]; then
+    pass "direct runner holds the updater quiesced across deployment mutation"
+else
+    fail "direct runner did not serialize its complete mutation window"
+fi
+
+make_stage direct-updater-failure
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if FAKE_COMPOSE_CONFIG_FAILURE=true run_stage "$STAGE" --non-interactive; then
+    fail "direct runner fixture should fail after updater quiescing"
+else
+    pass "direct runner failure exercises updater EXIT restoration"
+fi
+assert_contains "failed direct run stops the updater first" "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
+assert_contains "failed direct run restores the updater" "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+if [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ]; then
+    pass "failed direct run leaves the updater active"
+else
+    fail "failed direct run left the updater stopped"
+fi
+
+make_stage updater-managed-runner
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if PROTO_FLEET_UPDATER_MANAGED_RUN=1 run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "updater preflight remains available while the daemon is active"
+else
+    fail "preflight should not attempt to stop its owning updater"
+fi
+assert_not_contains "preflight does not stop its updater" "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
+: > "$HARNESS_CALL_LOG"
+if PROTO_FLEET_UPDATER_MANAGED_RUN=1 run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "updater-managed activation bypasses direct-run quiescing"
+else
+    fail "updater-managed activation should not stop its parent daemon"
+fi
+assert_not_contains "managed activation does not stop its updater" "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
+assert_not_contains "managed activation leaves lifecycle ownership with the daemon" "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
 
 # An installer bootstrap failure must explicitly override previously persisted
 # state so fleet-api does not advertise or mount a dead host updater.

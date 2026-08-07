@@ -111,7 +111,15 @@ func (execRunner) Run(ctx context.Context, dir string, output io.Writer, name st
 	cmd.Dir = dir
 	cmd.Stdout = output
 	cmd.Stderr = output
-	cmd.Env = append(os.Environ(), "CI=1", "TERM=dumb")
+	cmd.Env = append(
+		os.Environ(),
+		"CI=1",
+		"TERM=dumb",
+		// run-fleet uses this marker to distinguish updater-owned preflight and
+		// activation children from a human invoking the mutable deployment
+		// runner directly. It is a coordination signal, not an auth boundary.
+		"PROTO_FLEET_UPDATER_MANAGED_RUN=1",
+	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
