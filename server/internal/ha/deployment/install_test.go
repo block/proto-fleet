@@ -267,6 +267,7 @@ func testInstallRelease(t *testing.T) string {
 	required := map[string]string{
 		"version.txt":                        "version: test\n",
 		"docker-compose.yaml":                "services: {}\n",
+		"server/docker-compose.base.yaml":    "services: {}\n",
 		"images/timescaledb.tar.gz":          "image",
 		"ha/fleet-ha":                        "binary",
 		"ha/compose.yaml":                    "services: {}\n",
