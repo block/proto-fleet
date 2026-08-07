@@ -1,5 +1,8 @@
-/** Minimal chrome for the Prototype Lab — a header + back link + <Outlet />. */
+/** Minimal chrome for the Prototype Lab — a header + tab nav + data-flow pane. */
+import { useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
+
+import { FlowPane, FlowTraceProvider, useFlowTrace } from "../shared/FlowPane";
 
 const TABS = [
   { path: "/lab", label: "Overview", exact: true },
@@ -9,9 +12,21 @@ const TABS = [
 ];
 
 export default function LabLayout() {
-  const { pathname } = useLocation();
   return (
-    <div className="min-h-screen bg-surface-base text-text-primary">
+    <FlowTraceProvider>
+      <LabShell />
+    </FlowTraceProvider>
+  );
+}
+
+function LabShell() {
+  const { pathname } = useLocation();
+  const { open, reset } = useFlowTrace();
+  // Clear the data-flow trace when switching prototypes — each tab starts clean.
+  useEffect(() => () => reset(), [pathname, reset]);
+  return (
+    <div className={`min-h-screen bg-surface-2 text-text-primary transition-[padding] ${open ? "pr-80" : ""}`}>
+      <FlowPane />
       <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
         <header className="flex flex-col gap-3">
           <div className="flex items-center gap-2">

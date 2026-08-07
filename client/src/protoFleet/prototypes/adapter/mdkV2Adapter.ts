@@ -9,6 +9,7 @@
  * two very different wire formats, one view.
  */
 import type { SingleMinerAdapter } from "../shared/adapter";
+import { type FlowTracer, NO_TRACE } from "../shared/flowTrace";
 import type { AsicHealth, HashboardSummary, MinerStatus, SingleMinerSnapshot } from "../shared/types";
 import { getJson, hostOf } from "./http";
 
@@ -81,10 +82,25 @@ export class MdkV2Adapter implements SingleMinerAdapter {
 
   constructor(private readonly baseUrl: string) {}
 
-  async fetchSnapshot(signal?: AbortSignal): Promise<SingleMinerSnapshot> {
-    const env = await getJson<V2Envelope>(`${this.baseUrl}/api/v2/miner`, { signal });
+  async fetchSnapshot(signal?: AbortSignal, tracer: FlowTracer = NO_TRACE): Promise<SingleMinerSnapshot> {
+    // The adapter layer: the view's one generic "get snapshot" maps onto v2's
+    // single consolidated endpoint. Not a network call itself — the translation.
+    tracer.adapter("Adapter → v2 consolidated", "generic snapshot getter mapped to GET /api/v2/miner");
+
+    const req = tracer.request("miner", "GET /api/v2/miner", "one consolidated envelope");
+    let env: V2Envelope;
+    try {
+      env = await getJson<V2Envelope>(`${this.baseUrl}/api/v2/miner`, { signal });
+      req.ok(`${env.data.boards.length} boards · per-chip`);
+    } catch (e) {
+      req.fail(e instanceof Error ? e.message : String(e));
+      throw e;
+    }
     const d = env.data;
 
+    // Folding v2's envelope into the shared view model is plain application
+    // logic — not traced. "Adapter" in the flow narration means the
+    // version-aware seam (probe.ts), not this per-field mapping.
     const hashboards: HashboardSummary[] = d.boards.map((b) => ({
       serialNumber: b.serial,
       index: b.slot,

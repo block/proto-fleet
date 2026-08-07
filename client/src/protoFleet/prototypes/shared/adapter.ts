@@ -6,13 +6,20 @@
  * consolidated) and map it into the single `SingleMinerSnapshot` contract that
  * <SingleMinerView> renders. Everything downstream is identical.
  */
+import type { FlowTracer } from "./flowTrace";
 import type { MinerControlAction, SingleMinerSnapshot } from "./types";
 
 export interface SingleMinerAdapter {
   /** Human label for the backend, surfaced in the data-path ribbon. */
   readonly source: string;
-  /** One read → one normalized snapshot. */
-  fetchSnapshot(signal?: AbortSignal): Promise<SingleMinerSnapshot>;
-  /** Optional — not every backend exposes controls to the prototype. */
-  control?(action: MinerControlAction): Promise<void>;
+  /**
+   * One read → one normalized snapshot. Pass a `tracer` to narrate the calls
+   * and transforms into the data-flow pane (optional; defaults to no tracing).
+   */
+  fetchSnapshot(signal?: AbortSignal, tracer?: FlowTracer): Promise<SingleMinerSnapshot>;
+  /**
+   * Optional — not every backend exposes controls to the prototype. Pass a
+   * `tracer` to narrate the POST into the data-flow pane.
+   */
+  control?(action: MinerControlAction, tracer?: FlowTracer): Promise<void>;
 }
