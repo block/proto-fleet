@@ -275,7 +275,7 @@ func parseOSRelease(contents string) map[string]string {
 
 func validateRelease(ctx context.Context, source string, deps installDependencies) error {
 	required := []string{
-		"deployment-manifest.sha256", "version.txt", "docker-compose.yaml", "images/timescaledb.tar.gz",
+		"deployment-manifest.sha256", "version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/timescaledb.tar.gz",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service",
 		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/scripts/check-fleet-active.sh",
