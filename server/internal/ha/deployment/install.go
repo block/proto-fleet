@@ -195,6 +195,7 @@ func copiedSecretEntries(config NodeConfig) ([]os.DirEntry, error) {
 func copiedSecretFiles(config NodeConfig) []string {
 	files := []string{
 		"service-ca.crt", "etcd-server.crt", "etcd-server.key", "etcd-peer.crt", "etcd-peer.key", "etcd-jwt.pub", "etcd-jwt.key",
+		fleetEtcdPasswordFile,
 	}
 	if config.isDatabaseNode() {
 		files = append(files,

@@ -253,6 +253,9 @@ func validateSecrets(config NodeConfig) error {
 			return fmt.Errorf("%s must have mode 0600", name)
 		}
 	}
+	if _, err := readPassword(filepath.Join(config.SecretsDir, fleetEtcdPasswordFile)); err != nil {
+		return fmt.Errorf("required password file %s: %w", fleetEtcdPasswordFile, err)
+	}
 	if config.isDatabaseNode() {
 		if err := validateFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile)); err != nil {
 			return fmt.Errorf("required Fleet environment file %s: %w", fleetEnvironmentFile, err)
