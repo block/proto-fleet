@@ -132,7 +132,7 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"), true)
 		if err == nil {
 			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
-			if passiveUpdateControlReady(report.Control) && applicationReady(report.Runtime, publicStatus, targetVersion) {
+			if rollingUpdateControlReady(report.Control) && applicationReady(report.Runtime, publicStatus, targetVersion) {
 				return nil
 			}
 		}
@@ -144,7 +144,7 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 	}
 }
 
-func passiveUpdateControlReady(control *ControlStatus) bool {
+func rollingUpdateControlReady(control *ControlStatus) bool {
 	if control == nil || !control.ControlReady {
 		return false
 	}
