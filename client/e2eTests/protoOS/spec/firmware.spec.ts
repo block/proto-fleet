@@ -57,7 +57,11 @@ async function validateInstallingState(
 
   await generalPage.reloadPage();
   await generalPage.validateTitle("General");
-  await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
+  // The install can finish while the page reloads, so the widget may already
+  // show the terminal "Reboot required" state instead of the transient
+  // "Installing" one. The next test step validates the reboot-required UI
+  // deterministically after waiting for the installed status.
+  await headerComponent.validateFirmwareStatusWidgetText(/Installing|Reboot required/);
 }
 
 test.describe("Firmware updates", () => {
