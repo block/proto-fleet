@@ -209,6 +209,32 @@ else
   fail "updater cleanup removed the wrong paths or left an exact artifact"
 fi
 
+state_remove_line=$(awk '
+  /^remove_host_updater\(\)/ { in_remove=1 }
+  in_remove && /\/var\/lib\/proto-fleet-updater \/run\/proto-fleet-updater/ { print NR; exit }
+' "$UNINSTALL_SCRIPT")
+staging_verify_line=$(awk '
+  /^remove_host_updater\(\)/ { in_remove=1 }
+  in_remove && /if host_updater_staging_artifacts_present; then/ { print NR; exit }
+' "$UNINSTALL_SCRIPT")
+daemon_reload_line=$(awk '
+  /^remove_host_updater\(\)/ { in_remove=1 }
+  in_remove && /systemctl daemon-reload/ { print NR; exit }
+' "$UNINSTALL_SCRIPT")
+env_remove_line=$(awk '
+  /^remove_host_updater\(\)/ { in_remove=1 }
+  in_remove && /rm -f -- "\$HOST_UPDATER_ENV_PATH"/ { print NR; exit }
+' "$UNINSTALL_SCRIPT")
+if [[ -n "$state_remove_line" && -n "$staging_verify_line" \
+    && -n "$daemon_reload_line" && -n "$env_remove_line" ]] \
+  && [[ "$state_remove_line" -lt "$staging_verify_line" ]] \
+  && [[ "$staging_verify_line" -lt "$daemon_reload_line" ]] \
+  && [[ "$daemon_reload_line" -lt "$env_remove_line" ]]; then
+  pass "updater ownership proof is retained until state and service cleanup succeed"
+else
+  fail "updater cleanup can erase its ownership proof before a retry is safe"
+fi
+
 if [[ "$FAILURES" -ne 0 ]]; then
   echo "$FAILURES failure(s)"
   exit 1

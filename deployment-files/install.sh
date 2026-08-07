@@ -10,6 +10,8 @@ UPDATER_PRIVILEGE_AVAILABLE=1
 UPDATER_DISABLE_ON_EXIT=0
 UPDATER_REENABLE_ON_EXIT=0
 UPDATER_RESTART_ON_EXIT=0
+UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
+UPDATER_ENV_RESTORE_FILE=""
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
 UPDATER_VALIDATION_SOCKET_PATH="/run/proto-fleet-updater/installer-validation.sock"
 UPDATER_DOCKER_HOST="unix:///var/run/docker.sock"
@@ -685,10 +687,11 @@ resolve_selected_install_path() {
     prepare_fresh_install_path "$selected"
     return $?
   fi
-  canonical_discovered=$(cd "$discovered" 2>/dev/null && pwd -P) || {
-    echo "❌ Discovered installation path cannot be accessed: $discovered" >&2
-    return 1
-  }
+  # Docker proves which deployment tree is active, but not who owns that
+  # tree. Apply the same administrator-bound ownership, permission, and
+  # non-symlink checks used for stopped on-disk installations before a root
+  # updater is allowed to trust it.
+  canonical_discovered=$(canonical_existing_install_path "$discovered") || return 1
   canonical_selected=$(cd "$selected" 2>/dev/null && pwd -P) || {
     echo "❌ An existing Proto Fleet installation was discovered at ${canonical_discovered}." >&2
     echo "   The selected path ${selected} does not resolve to that installation." >&2
@@ -833,10 +836,89 @@ arm_existing_updater_restoration() {
   esac
 }
 
+parse_updater_install_root() {
+  local contents="$1"
+  local key_re='^[[:space:]]*PROTO_FLEET_INSTALL_ROOT[[:space:]]*='
+  local assignment_re='^PROTO_FLEET_INSTALL_ROOT="(([^"\\]|\\["\\])*)"$'
+  local line encoded decoded char
+  local found=0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ $key_re ]] || continue
+    [ "$found" -eq 0 ] || return 1
+    [[ "$line" =~ $assignment_re ]] || return 1
+    encoded="${BASH_REMATCH[1]}"
+    decoded=""
+    while [ -n "$encoded" ]; do
+      char="${encoded:0:1}"
+      encoded="${encoded:1}"
+      if [ "$char" = '\' ]; then
+        [ -n "$encoded" ] || return 1
+        char="${encoded:0:1}"
+        encoded="${encoded:1}"
+        [ "$char" = '\' ] || [ "$char" = '"' ] || return 1
+      fi
+      decoded="${decoded}${char}"
+    done
+    [ -n "$decoded" ] || return 1
+    found=1
+  done <<< "$contents"
+
+  [ "$found" -eq 1 ] || return 1
+  printf '%s\n' "$decoded"
+}
+
+read_updater_install_root_with() {
+  local privilege=("$@")
+  local contents
+  if ! contents=$(${privilege[@]+"${privilege[@]}"} \
+      cat -- "$UPDATER_ENV_PATH" 2>/dev/null); then
+    return 1
+  fi
+  parse_updater_install_root "$contents"
+}
+
+verify_existing_updater_ownership_with() {
+  local selected_root="$1"
+  shift
+  local privilege=("$@")
+  local configured_root configured_resolved selected_resolved
+  if ! configured_root=$(read_updater_install_root_with \
+      ${privilege[@]+"${privilege[@]}"}); then
+    echo "❌ Could not read a valid install root from the existing host updater configuration." >&2
+    echo "   Refusing to replace the global updater; repair or uninstall it first." >&2
+    return 1
+  fi
+  configured_resolved=$(cd "$configured_root" 2>/dev/null && pwd -P) || {
+    echo "❌ Existing host updater install root cannot be resolved: $configured_root" >&2
+    return 1
+  }
+  selected_resolved=$(cd "$selected_root" 2>/dev/null && pwd -P) || {
+    echo "❌ Selected installation root cannot be resolved: $selected_root" >&2
+    return 1
+  }
+  if [ "${configured_resolved%/}" != "${selected_resolved%/}" ]; then
+    echo "❌ The global host updater belongs to a different Proto Fleet installation." >&2
+    echo "   Updater install root: $configured_resolved" >&2
+    echo "   Selected install root: $selected_resolved" >&2
+    echo "   Relocation is not supported; uninstall the existing deployment before installing elsewhere." >&2
+    return 1
+  fi
+}
+
+restore_updater_environment_with() {
+  local privilege=("$@")
+  [ -n "${UPDATER_ENV_RESTORE_FILE:-}" ] || return 0
+  [ -f "$UPDATER_ENV_RESTORE_FILE" ] || return 1
+  ${privilege[@]+"${privilege[@]}"} install -m 0600 \
+    "$UPDATER_ENV_RESTORE_FILE" "$UPDATER_ENV_PATH"
+}
+
 # Stop the existing updater before the release tree can be replaced. systemd's
 # inactive state proves the supervised process has exited, which also releases
 # the updater's lifetime flock. A missing unit needs no privilege or prompt.
 prepare_existing_updater_service() {
+  local selected_root="$1"
   if [ "$(uname -s)" != "Linux" ] \
     || ! command -v systemctl >/dev/null 2>&1 \
     || [ ! -d /run/systemd/system ]; then
@@ -858,6 +940,19 @@ prepare_existing_updater_service() {
     UPDATER_CLEANUP_FAILED=1
     return 1
   fi
+  if ! verify_existing_updater_ownership_with "$selected_root" \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  local restore_file="${DOWNLOAD_DIR%/}/updater.env.previous"
+  if ! ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} install -m 0600 \
+      "$UPDATER_ENV_PATH" "$restore_file"; then
+    echo "❌ Could not preserve the existing host updater configuration." >&2
+    UPDATER_CLEANUP_FAILED=1
+    return 1
+  fi
+  UPDATER_ENV_RESTORE_FILE="$restore_file"
   if ! active_state=$(systemctl show --property=ActiveState --value \
       proto-fleet-updater.service 2>/dev/null) \
     || ! unit_file_state=$(systemctl show --property=UnitFileState --value \
@@ -961,6 +1056,16 @@ installer_exit_cleanup() {
     echo "🔒 Disabling the host updater after interrupted validation..." >&2
     if ! disable_updater_service_with \
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+      status=1
+    fi
+  fi
+  if [ -n "${UPDATER_ENV_RESTORE_FILE:-}" ]; then
+    echo "🔄 Restoring the prior host updater configuration..." >&2
+    if ! restore_updater_environment_with \
+        ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+      echo "❌ Could not restore the prior host updater configuration." >&2
+      UPDATER_REENABLE_ON_EXIT=0
+      UPDATER_RESTART_ON_EXIT=0
       status=1
     fi
   fi
@@ -1431,7 +1536,7 @@ fi
 # Drain and disable the service before extraction so those writers can never
 # overlap. Any failure here leaves the existing Fleet containers untouched.
 resolve_updater_privilege
-if ! prepare_existing_updater_service; then
+if ! prepare_existing_updater_service "$INSTALL_DIR"; then
   echo "❌ Existing host updater could not be stopped safely; no files were replaced." >&2
   exit 1
 fi
@@ -1547,7 +1652,7 @@ install_updater_service() {
   fi
   if ! ${privilege[@]+"${privilege[@]}"} install -m 0755 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater" /usr/local/libexec/proto-fleet/proto-fleet-updater \
     || ! ${privilege[@]+"${privilege[@]}"} install -m 0644 "$UPDATER_BOOTSTRAP_DIR/proto-fleet-updater.service" /etc/systemd/system/proto-fleet-updater.service \
-    || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 "$env_temp" /etc/proto-fleet/updater.env; then
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 "$env_temp" "$UPDATER_ENV_PATH"; then
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
@@ -1580,12 +1685,16 @@ install_updater_service() {
   if ! write_updater_environment_file "$env_temp" "$INSTALL_DIR" \
       "$GITHUB_RELEASES_URL" "$UPDATER_SOCKET_PATH" \
     || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 \
-      "$env_temp" /etc/proto-fleet/updater.env; then
+      "$env_temp" "$UPDATER_ENV_PATH"; then
     rm -f "$env_temp"
     disable_updater_service_with ${privilege[@]+"${privilege[@]}"} || true
     return 1
   fi
   rm -f "$env_temp"
+  # The replacement now has a production configuration for the same validated
+  # installation root. Interrupted cleanup can safely restart it without
+  # restoring the pre-validation file.
+  UPDATER_ENV_RESTORE_FILE=""
   # From this point until the explicit post-run restart, every unexpected exit
   # must restore the validated service for the existing deployment.
   UPDATER_DISABLE_ON_EXIT=0

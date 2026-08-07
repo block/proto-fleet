@@ -398,8 +398,9 @@ fi
 # before any extraction can target the shared default Compose project.
 if (
   root="$TEST_TMP/path-alias"
-  mkdir -p "$root/existing"
+  make_install "$root/existing"
   ln -s "$root/existing" "$root/alias"
+  FAKE_UID=$(command id -u)
   resolved=$(resolve_selected_install_path "$root/alias/" "$root/existing") \
     && [ "$resolved" = "$(cd "$root/existing" && pwd -P)" ]
 ); then
@@ -410,7 +411,9 @@ fi
 
 if (
   root="$TEST_TMP/path-mismatch"
-  mkdir -p "$root/existing" "$root/other"
+  make_install "$root/existing"
+  mkdir -p "$root/other"
+  FAKE_UID=$(command id -u)
   ! resolve_selected_install_path "$root/other" "$root/existing" \
     > /dev/null 2> "$TEST_TMP/path-mismatch.err" \
     && grep -q 'Relocation is not supported' "$TEST_TMP/path-mismatch.err" \
@@ -421,6 +424,21 @@ if (
   pass "relocation and path typos are rejected when an install was discovered"
 else
   fail "mismatched install path should fail closed"
+fi
+
+if (
+  root="$TEST_TMP/docker-discovered-foreign-owner"
+  make_install "$root"
+  FAKE_UID=0
+  unset SUDO_UID
+  ! resolve_selected_install_path "$root" "$root" \
+    > /dev/null 2> "$TEST_TMP/docker-discovered-foreign-owner.err" \
+    && grep -q 'owned by unrelated UID' \
+      "$TEST_TMP/docker-discovered-foreign-owner.err"
+); then
+  pass "Docker-discovered installs enforce the invoking administrator ownership boundary"
+else
+  fail "Docker discovery bypassed trusted install-root ownership validation"
 fi
 
 if (
@@ -701,7 +719,7 @@ else
   fail "installer still trusts archive ownership or mutable deployment bootstrap files"
 fi
 
-prepare_line=$(awk '/^if ! prepare_existing_updater_service; then$/ { print NR; exit }' "$INSTALL_SCRIPT")
+prepare_line=$(awk '/^if ! prepare_existing_updater_service "\$INSTALL_DIR"; then$/ { print NR; exit }' "$INSTALL_SCRIPT")
 extract_line=$(awk '/^extract_and_cd "\$TAR_PATH" "\$INSTALL_DIR"$/ { print NR; exit }' "$INSTALL_SCRIPT")
 if [ -n "$prepare_line" ] && [ -n "$extract_line" ] && [ "$prepare_line" -lt "$extract_line" ]; then
   pass "existing updater is drained before deployment extraction"
@@ -791,6 +809,31 @@ else
 fi
 
 if (
+  configured_root="$TEST_TMP/configured-updater-root"
+  selected_root="$TEST_TMP/selected-updater-root"
+  updater_env="$TEST_TMP/existing-updater.env"
+  mkdir -p "$configured_root" "$selected_root"
+  UPDATER_ENV_PATH="$updater_env"
+  escaped_configured_root=${configured_root//\\/\\\\}
+  escaped_configured_root=${escaped_configured_root//\"/\\\"}
+  printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_configured_root" > "$updater_env"
+  verify_existing_updater_ownership_with "$configured_root" \
+    && ! verify_existing_updater_ownership_with "$selected_root" \
+      > /dev/null 2> "$TEST_TMP/updater-owner-mismatch.err" \
+    && grep -q 'belongs to a different Proto Fleet installation' \
+      "$TEST_TMP/updater-owner-mismatch.err" \
+    && printf 'PROTO_FLEET_INSTALL_ROOT=/tmp/unquoted\n' > "$updater_env" \
+    && ! verify_existing_updater_ownership_with "$configured_root" \
+      > /dev/null 2> "$TEST_TMP/updater-owner-malformed.err" \
+    && grep -q 'Could not read a valid install root' \
+      "$TEST_TMP/updater-owner-malformed.err"
+); then
+  pass "existing global updater can only be replaced by its configured installation"
+else
+  fail "installer can silently rebind an unrelated or malformed global updater"
+fi
+
+if (
   restore_log="$TEST_TMP/updater-exit-restore"
   DOWNLOAD_DIR="$TEST_TMP/updater-exit-download"
   mkdir -p "$DOWNLOAD_DIR"
@@ -815,6 +858,39 @@ if (
   pass "interrupted installation restores updater enablement and production socket"
 else
   fail "installer exit cleanup did not restore the updater after interruption"
+fi
+
+if (
+  restore_log="$TEST_TMP/updater-validation-restore"
+  DOWNLOAD_DIR="$TEST_TMP/updater-validation-download"
+  mkdir -p "$DOWNLOAD_DIR"
+  UPDATER_ENV_PATH="$TEST_TMP/updater-validation-current.env"
+  UPDATER_ENV_RESTORE_FILE="$DOWNLOAD_DIR/updater.env.previous"
+  printf 'production socket\n' > "$UPDATER_ENV_RESTORE_FILE"
+  printf 'validation socket\n' > "$UPDATER_ENV_PATH"
+  UPDATER_PRIVILEGE=()
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=1
+  disable_updater_service_with() {
+    printf 'disable\n' >> "$restore_log"
+    return 0
+  }
+  restart_updater_service_with() {
+    printf 'restart-socket %s\n' "$1" >> "$restore_log"
+    [ "$(cat "$UPDATER_ENV_PATH")" = 'production socket' ]
+  }
+  (trap installer_exit_cleanup EXIT; exit 7)
+  cleanup_status=$?
+  [ "$cleanup_status" -eq 7 ] \
+    && [ "$(cat "$UPDATER_ENV_PATH")" = 'production socket' ] \
+    && [ "$(sed -n '1p' "$restore_log")" = disable ] \
+    && grep -q '^restart-socket /run/proto-fleet-updater/updater.sock$' "$restore_log" \
+    && [ ! -e "$DOWNLOAD_DIR" ]
+); then
+  pass "interrupted validation restores production configuration before restart"
+else
+  fail "validation interruption can restart the updater with its private socket configuration"
 fi
 
 if (

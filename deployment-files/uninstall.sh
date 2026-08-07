@@ -687,9 +687,8 @@ remove_host_updater() {
     return 1
   fi
   if ! ${privilege[@]+"${privilege[@]}"} rm -f -- \
-    /etc/systemd/system/proto-fleet-updater.service \
-    "$HOST_UPDATER_ENV_PATH"; then
-    print_error "Could not remove host updater files; deployment removal was aborted."
+    /etc/systemd/system/proto-fleet-updater.service; then
+    print_error "Could not remove the host updater unit; deployment removal was aborted."
     return 1
   fi
   if ! ${privilege[@]+"${privilege[@]}"} rm -rf \
@@ -717,7 +716,6 @@ remove_host_updater() {
   fi
 
   ${privilege[@]+"${privilege[@]}"} rmdir /usr/local/libexec/proto-fleet 2>/dev/null || true
-  ${privilege[@]+"${privilege[@]}"} rmdir /etc/proto-fleet 2>/dev/null || true
   if command -v systemctl &>/dev/null && [[ -d /run/systemd/system ]]; then
     if ! ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload; then
       print_error "Could not finalize host updater removal; deployment removal was aborted."
@@ -735,7 +733,6 @@ remove_host_updater() {
   done < <(host_updater_binary_artifact_paths)
   for path in \
     /etc/systemd/system/proto-fleet-updater.service \
-    "$HOST_UPDATER_ENV_PATH" \
     /var/lib/proto-fleet-updater \
     /run/proto-fleet-updater; do
     if ${privilege[@]+"${privilege[@]}"} test -e "$path" \
@@ -744,6 +741,21 @@ remove_host_updater() {
       return 1
     fi
   done
+
+  # Keep the configured install root as durable ownership proof until every
+  # other privileged artifact has been removed and verified. If an earlier
+  # cleanup step fails, a retry can still prove that this updater belongs to
+  # the selected deployment rather than becoming stranded on missing metadata.
+  if ! ${privilege[@]+"${privilege[@]}"} rm -f -- "$HOST_UPDATER_ENV_PATH"; then
+    print_error "Could not remove the host updater ownership configuration; deployment removal was aborted."
+    return 1
+  fi
+  if ${privilege[@]+"${privilege[@]}"} test -e "$HOST_UPDATER_ENV_PATH" \
+    || ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_ENV_PATH"; then
+    print_error "Host updater ownership configuration remains after cleanup: $HOST_UPDATER_ENV_PATH"
+    return 1
+  fi
+  ${privilege[@]+"${privilege[@]}"} rmdir /etc/proto-fleet 2>/dev/null || true
   print_success "Host updater service and state removed."
 }
 
