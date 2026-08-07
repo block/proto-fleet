@@ -154,4 +154,5 @@ go test ./server/internal/ha -run '^TestProductionHAProfile$' -v
 Repeat on `ha-b` without `HA_PROFILE_MIGRATE`. The emitted
 `HA_PROFILE_EVIDENCE` line proves that the deployment artifacts, etcd leader,
 Patroni primary, and connected PostgreSQL writer agree.
-The qualification workflow owns the complete failure matrix and evidence.
+The [qualification procedure](QUALIFICATION.md) owns the release qualification
+matrix and redacted evidence.
