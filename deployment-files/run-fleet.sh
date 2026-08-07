@@ -160,7 +160,9 @@ restart_direct_run_updater() {
             curl -fsS --max-time 1 --unix-socket "$UPDATER_SOCKET_PATH" \
             http://localhost/v1/status >/dev/null 2>&1 \
           && ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
-            systemctl is-active --quiet proto-fleet-updater.service; then
+            systemctl is-active --quiet proto-fleet-updater.service \
+          && ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+            systemctl is-enabled --quiet proto-fleet-updater.service; then
             return 0
         fi
         sleep 1
@@ -183,6 +185,23 @@ disable_direct_run_updater() {
         echo "Error: could not disable proto-fleet-updater.service after the manual deployment run." >&2
         return 1
     fi
+    local active_state unit_file_state
+    if ! active_state="$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl show --property=ActiveState --value \
+        proto-fleet-updater.service 2>/dev/null)" \
+      || ! unit_file_state="$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl show --property=UnitFileState --value \
+        proto-fleet-updater.service 2>/dev/null)"; then
+        echo "Error: could not verify that proto-fleet-updater.service is stopped and disabled." >&2
+        return 1
+    fi
+    case "$active_state:$unit_file_state" in
+        inactive:disabled|failed:disabled) ;;
+        *)
+            echo "Error: proto-fleet-updater.service did not reach the stopped and disabled state." >&2
+            return 1
+            ;;
+    esac
     return 0
 }
 
@@ -201,17 +220,21 @@ reconcile_direct_run_updater() {
     fi
 
     if [ "$committed_state" = "true" ]; then
-        if [ "$DIRECT_UPDATER_WAS_ACTIVE" = "true" ]; then
-            restart_direct_run_updater false || return 1
-        elif [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ] \
-          && [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "true" ]; then
-            restart_direct_run_updater true || return 1
+        if [ "$DIRECT_UPDATER_SERVICE_PRESENT" != "true" ]; then
+            echo "Error: one-click updates are enabled, but proto-fleet-updater.service cannot be reconciled." >&2
+            return 1
         fi
+        resolve_direct_updater_privilege || return 1
+        # Enforce the persisted contract even when systemd drifted before this
+        # run: enabled configuration always ends with a boot-enabled, ready
+        # service rather than relying on its state at admission time.
+        restart_direct_run_updater true || return 1
         return 0
     fi
-    if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ] \
-      && { [ "$DIRECT_UPDATER_WAS_ACTIVE" = "true" ] \
-        || [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" = "true" ]; }; then
+    if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ]; then
+        resolve_direct_updater_privilege || return 1
+        # Likewise, disabled configuration always removes boot enablement and
+        # stops a stale process, even when both desired flags were already false.
         disable_direct_run_updater || return 1
     fi
     return 0

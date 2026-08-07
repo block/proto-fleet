@@ -136,11 +136,13 @@ make_stage() {
     HARNESS_CALL_LOG="$runtime/calls.log"
     HARNESS_OUTPUT_LOG="$runtime/output.log"
     HARNESS_UPDATER_STATE_FILE="$runtime/updater-state"
+    HARNESS_UPDATER_ENABLED_FILE="$runtime/updater-enabled"
     HARNESS_UPDATER_ENV_FILE="$runtime/updater.env"
     mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
     : > "$HARNESS_CALL_LOG"
     : > "$HARNESS_OUTPUT_LOG"
     printf 'not-found\n' > "$HARNESS_UPDATER_STATE_FILE"
+    printf 'false\n' > "$HARNESS_UPDATER_ENABLED_FILE"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
     "$REAL_AWK" -v env_path="$HARNESS_UPDATER_ENV_FILE" '
         /^HOST_UPDATER_ENV_PATH=/ {
@@ -318,6 +320,7 @@ printf 'systemctl %s\n' "$*" >> "$CALL_LOG"
 case " $* " in
     *" proto-fleet-updater.service "*)
         updater_state=$(cat "$UPDATER_STATE_FILE")
+        updater_enabled=$(cat "$UPDATER_ENABLED_FILE")
         case "$*" in
             *'--property=LoadState --value'*)
                 if [ "$updater_state" = "not-found" ]; then
@@ -333,11 +336,24 @@ case " $* " in
                     printf '%s\n' "$updater_state"
                 fi
                 ;;
+            *'--property=UnitFileState --value'*)
+                if [ "$updater_state" = "not-found" ]; then
+                    printf 'not-found\n'
+                elif [ "$updater_enabled" = "true" ]; then
+                    printf 'enabled\n'
+                else
+                    printf 'disabled\n'
+                fi
+                ;;
             'stop proto-fleet-updater.service') printf 'inactive\n' > "$UPDATER_STATE_FILE" ;;
             'restart proto-fleet-updater.service') printf 'active\n' > "$UPDATER_STATE_FILE" ;;
-            'enable proto-fleet-updater.service') ;;
-            'disable --now proto-fleet-updater.service') printf 'inactive\n' > "$UPDATER_STATE_FILE" ;;
+            'enable proto-fleet-updater.service') printf 'true\n' > "$UPDATER_ENABLED_FILE" ;;
+            'disable --now proto-fleet-updater.service')
+                printf 'inactive\n' > "$UPDATER_STATE_FILE"
+                printf 'false\n' > "$UPDATER_ENABLED_FILE"
+                ;;
             'is-active --quiet proto-fleet-updater.service') [ "$updater_state" = "active" ] ;;
+            'is-enabled --quiet proto-fleet-updater.service') [ "$updater_enabled" = "true" ] ;;
             *) exit 1 ;;
         esac
         ;;
@@ -494,6 +510,7 @@ run_stage() {
     REAL_MV="$REAL_MV" \
     REAL_STAT="$REAL_STAT" \
     UPDATER_STATE_FILE="$HARNESS_UPDATER_STATE_FILE" \
+    UPDATER_ENABLED_FILE="$HARNESS_UPDATER_ENABLED_FILE" \
     PATH="$HARNESS_BIN_DIR:$PATH" \
     /bin/bash "$stage/run-fleet.sh" "$@" > "$HARNESS_OUTPUT_LOG" 2>&1
 }
@@ -621,10 +638,53 @@ if [ -n "$direct_stop_line" ] \
     && [ -n "$direct_restart_line" ] \
     && [ "$direct_stop_line" -lt "$direct_down_line" ] \
     && [ "$direct_down_line" -lt "$direct_restart_line" ] \
-    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ]; then
+    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ] \
+    && [ "$(cat "$HARNESS_UPDATER_ENABLED_FILE")" = true ]; then
     pass "direct runner holds the updater quiesced across deployment mutation"
 else
     fail "direct runner did not serialize its complete mutation window"
+fi
+assert_contains "direct runner repairs missing boot enablement" \
+    "$HARNESS_CALL_LOG" "systemctl enable proto-fleet-updater.service"
+
+# Persisted configuration is authoritative even when the service was already
+# inactive before the direct run, so successful deployment repairs runtime and
+# boot state instead of preserving a broken socket overlay.
+make_stage configured-updater-inactive
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'inactive\n' > "$HARNESS_UPDATER_STATE_FILE"
+printf 'false\n' > "$HARNESS_UPDATER_ENABLED_FILE"
+if run_stage "$STAGE" --non-interactive; then
+    pass "configured updater drift is reconciled"
+else
+    fail "configured updater drift should be repaired after deployment"
+fi
+assert_contains "inactive configured updater is enabled" \
+    "$HARNESS_CALL_LOG" "systemctl enable proto-fleet-updater.service"
+assert_contains "inactive configured updater is started" \
+    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+if [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ] \
+    && [ "$(cat "$HARNESS_UPDATER_ENABLED_FILE")" = true ]; then
+    pass "configured updater finishes active and boot-enabled"
+else
+    fail "configured updater retained its inactive or boot-disabled drift"
+fi
+
+make_stage disabled-updater-still-enabled
+printf 'inactive\n' > "$HARNESS_UPDATER_STATE_FILE"
+printf 'true\n' > "$HARNESS_UPDATER_ENABLED_FILE"
+if run_stage "$STAGE" --non-interactive; then
+    pass "disabled updater boot drift is reconciled"
+else
+    fail "disabled updater boot drift should be repaired after deployment"
+fi
+assert_contains "disabled configuration removes stale boot enablement" \
+    "$HARNESS_CALL_LOG" "systemctl disable --now proto-fleet-updater.service"
+if [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = inactive ] \
+    && [ "$(cat "$HARNESS_UPDATER_ENABLED_FILE")" = false ]; then
+    pass "disabled updater finishes inactive and boot-disabled"
+else
+    fail "disabled updater retained active or boot-enabled drift"
 fi
 
 # A stale or alternate deployment tree must not control the fixed global
