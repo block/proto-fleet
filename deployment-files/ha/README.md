@@ -112,6 +112,11 @@ Only allowlisted host secret files are installed. A successful install consumes
 the copied inputs. The one-time etcd root password is also removed from
 `/etc/proto-fleet/ha` after authentication is enabled.
 
+If installation fails after changing the host, the copied inputs are retained
+for diagnosis. The first installer intentionally has no resume or rollback
+state machine: restore a clean host image, copy the retained inputs back, and
+run the install again.
+
 `ha-a` waits for etcd quorum before enabling authentication. The other hosts
 wait for that one-time bootstrap before continuing. Installation finishes only
 after a database host passes `fleet-ha status --check`, or after the witness
