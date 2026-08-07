@@ -124,8 +124,10 @@ verify_direct_updater_ownership() {
 resolve_direct_updater_privilege() {
     DIRECT_UPDATER_PRIVILEGE=()
     if [ "$(id -u)" -eq 0 ]; then
-        verify_direct_updater_ownership
-        return
+        if ! verify_direct_updater_ownership; then
+            return 1
+        fi
+        return 0
     fi
     command -v sudo >/dev/null 2>&1 || {
         echo "Error: sudo is required to manage the host updater during this manual deployment run." >&2
