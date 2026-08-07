@@ -8,6 +8,9 @@ and telemetry or independent power measurement for curtailment. Do not include
 addresses, certificates, passwords, device names, or customer data in the
 committed report.
 
+Use a fourth, non-peer host on the same L2 network only for the firewall gate;
+it must not be one of the three configured HA addresses.
+
 ## Test identity
 
 | Field | Value |
@@ -47,6 +50,7 @@ time and a short redacted evidence reference.
 | Kill active Fleet process | Peer serves VIP within 15s | Pending | Pending | Pending |
 | Power off active host | Peer serves VIP within 15s | Pending | Pending | Pending |
 | Stop database primary | Writable primary recovers within 30s | Pending | Pending | Pending |
+| Commit uniquely identified state, then abruptly stop its acknowledged primary | The exact state exists on the promoted writer | Pending | Pending | Pending |
 | Stop database standby | Service remains usable; failover readiness is degraded | Pending | Pending | Pending |
 | Stop etcd witness | Service remains usable; failover readiness is degraded | Pending | Pending | Pending |
 | Break active DCS path | Old active stops serving; peer takes over | Pending | Pending | Pending |
@@ -54,8 +58,11 @@ time and a short redacted evidence reference.
 | Remove active VIP/interface path | Old active stops serving; peer takes over | Pending | Pending | Pending |
 | Fail over with PENDING command | New active dispatches the command | Pending | Pending | Pending |
 | Fail over with PROCESSING command | Interrupted attempt fails and later work resumes | Pending | Pending | Pending |
+| Stall a PROCESSING device call, break the active DCS path, wait for takeover, then release the old call | The stale transition is rejected; one device effect and one terminal result remain | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
+| Send active-only API and streaming traffic directly to the passive host | Requests are rejected as not active; streams accepted before demotion close after ownership loss | Pending | Pending | Pending |
+| Probe etcd, Patroni, and PostgreSQL from a non-peer host before and after reboot | Every management port rejects the non-peer while configured peers remain connected | Pending | Pending | Pending |
 | Fail over during curtailment | Telemetry or independent power measurement proves load shedding within 180s | Pending | Pending | Pending |
 
 ## Repetition and soak
