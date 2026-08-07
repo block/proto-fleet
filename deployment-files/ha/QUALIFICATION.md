@@ -61,8 +61,10 @@ time and a short redacted evidence reference.
 | Stall a PROCESSING device call, break the active DCS path, wait for takeover, then release the old call | The stale transition is rejected; one device effect and one terminal result remain | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
-| Send active-only API and streaming traffic directly to the passive host | Requests are rejected as not active; streams accepted before demotion close after ownership loss | Pending | Pending | Pending |
-| Probe etcd, Patroni, and PostgreSQL from a non-peer host before and after reboot | Every management port rejects the non-peer while configured peers remain connected | Pending | Pending | Pending |
+| Pin an authenticated active-only API request to the passive host while retaining the VIP URL and TLS SNI | Fleet returns its machine-readable `NOT_ACTIVE` response, not a TLS or transport error | Pending | Pending | Pending |
+| Open an authenticated long-lived stream on the active host, then induce demotion | The established stream closes promptly after ownership loss | Pending | Pending | Pending |
+| Attempt TCP connections from a non-peer to ports 2379, 2380, 5432, and 8008 before and after reboot | TCP establishment fails at the firewall while the configured peer connects to every required port | Pending | Pending | Pending |
+| Send an unauthorized VRRP protocol-112 advertisement from the non-peer | The firewall drops it and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over during curtailment | Telemetry or independent power measurement proves load shedding within 180s | Pending | Pending | Pending |
 
 ## Repetition and soak
