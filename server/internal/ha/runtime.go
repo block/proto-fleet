@@ -12,6 +12,8 @@ import (
 const (
 	defaultHealthCheckInterval = 100 * time.Millisecond
 	defaultCleanupTimeout      = 10 * time.Second
+	endpointStartupTimeout     = 10 * time.Second
+	endpointHeartbeatTimeout   = 5 * time.Second
 )
 
 // ErrRuntimeAborted marks an HA exit that completed its bounded hard-abort
@@ -19,10 +21,12 @@ const (
 var ErrRuntimeAborted = errors.New("HA Fleet runtime aborted")
 
 var errCriticalRuntimeUnhealthy = errors.New("critical Fleet runtime is unhealthy")
+var errEndpointUnavailable = errors.New("active Fleet endpoint is unavailable")
 
 type RuntimeConfig struct {
 	HealthCheckInterval time.Duration
 	CleanupTimeout      time.Duration
+	EndpointHealthy     func() bool
 }
 
 type runtimeOwner interface {
@@ -190,6 +194,8 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return r.stopGroupAndDrainAdmissions(admissionDrained)
 	}
+	// Stop lease renewal before cleanup so a blocked abort cannot delay takeover.
+	cancelCoordinator()
 	abortErr := r.abortGroup(activeErr)
 
 	select {
@@ -213,6 +219,7 @@ func (r *Runtime) abortGroup(cause error) error {
 func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 	ticker := time.NewTicker(r.config.HealthCheckInterval)
 	defer ticker.Stop()
+	endpoint := newEndpointMonitor(r.config.EndpointHealthy, time.Now(), endpointStartupTimeout)
 	for {
 		select {
 		case <-parent.Done():
@@ -223,8 +230,46 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 			if !r.healthCheck() {
 				return errCriticalRuntimeUnhealthy
 			}
+			if err := endpoint.check(time.Now()); err != nil {
+				return err
+			}
 		}
 	}
+}
+
+// endpointMonitor gives keepalived one bounded chance to claim the VIP after
+// activation. Once ready, two missed samples are tolerated before failing closed.
+type endpointMonitor struct {
+	healthy          func() bool
+	deadline         time.Time
+	ready            bool
+	unhealthySamples int
+}
+
+func newEndpointMonitor(healthy func() bool, startedAt time.Time, timeout time.Duration) *endpointMonitor {
+	return &endpointMonitor{healthy: healthy, deadline: startedAt.Add(timeout)}
+}
+
+func (m *endpointMonitor) check(now time.Time) error {
+	if m.healthy == nil {
+		return nil
+	}
+	if m.healthy() {
+		m.ready = true
+		m.unhealthySamples = 0
+		return nil
+	}
+	if !m.ready {
+		if now.Before(m.deadline) {
+			return nil
+		}
+		return errEndpointUnavailable
+	}
+	m.unhealthySamples++
+	if m.unhealthySamples < 3 {
+		return nil
+	}
+	return errEndpointUnavailable
 }
 
 func (r *Runtime) stopGroup() error {

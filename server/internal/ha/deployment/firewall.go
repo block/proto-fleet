@@ -31,6 +31,8 @@ func renderFirewall(template string, config NodeConfig) (string, error) {
 		"${HA_DB_A_IP}", config.DatabaseAIP,
 		"${HA_DB_B_IP}", config.DatabaseBIP,
 		"${HA_DCS_C_IP}", config.WitnessIP,
+		"${HA_NODE_IP}", config.NodeIP,
+		"${HA_NETWORK_INTERFACE}", config.NetworkInterface,
 	).Replace(template)
 	if strings.Contains(rules, "${") {
 		return "", fmt.Errorf("firewall template contains an unresolved placeholder")
