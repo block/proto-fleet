@@ -301,7 +301,7 @@ func validateFleetEnvironment(path string) error {
 	}
 	defer file.Close()
 
-	values := make(map[string]string, 2)
+	values := make(map[string]string, 3)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		match := envLine.FindStringSubmatch(scanner.Text())
@@ -309,7 +309,7 @@ func validateFleetEnvironment(path string) error {
 			return errors.New("contains a malformed entry")
 		}
 		key := match[1]
-		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" {
+		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" && key != "DB_DSN" {
 			return fmt.Errorf("contains unknown key: %s", key)
 		}
 		if _, duplicate := values[key]; duplicate {
@@ -319,6 +319,9 @@ func validateFleetEnvironment(path string) error {
 	}
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("read Fleet environment file: %w", err)
+	}
+	if values["DB_DSN"] == "" {
+		return errors.New("DB_DSN is required")
 	}
 	if len(values["AUTH_CLIENT_SECRET_KEY"]) < 32 {
 		return errors.New("AUTH_CLIENT_SECRET_KEY must contain at least 32 characters")

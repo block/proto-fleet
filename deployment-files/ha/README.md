@@ -49,10 +49,11 @@ The command creates an `offline` directory and one directory per host. Keep the
 directory into that host's `HA_SECRETS_DIR`. Private keys, passwords, and
 environment files must be owned by the deployment user with mode `0600`.
 
-The command generates Fleet's authentication and encryption values once and
-copies the same `fleet.env` into both Fleet-host bundles. It also gives each
-Fleet host a proxy certificate for the virtual IP signed by the common HA
-service CA. Preflight requires and validates these files on `ha-a` and `ha-b`.
+The command generates Fleet's database connection, authentication, and
+encryption values once and copies the same `fleet.env` into both Fleet-host
+bundles. It also gives each Fleet host a proxy certificate for the virtual IP
+signed by the common HA service CA. Preflight requires and validates these
+files on `ha-a` and `ha-b`.
 
 ## Bootstrap
 
@@ -148,12 +149,12 @@ sudo systemctl enable --now keepalived
 ```
 
 Start Fleet on both Fleet hosts from the deployment directory. The deployment
-`.env` supplies the database and other deployment settings. The generated
-`fleet.env` is passed after it so the cluster-wide authentication and encryption
-values override any independently created values. `node.env` supplies the local
-HA identity. Use the HA wrapper so exported parent variables cannot override the
-generated secrets or node identity. Select the HTTPS proxy configuration before
-building and starting the Fleet images:
+`.env` supplies the other deployment settings. The generated `fleet.env`
+supplies the multi-host database connection and cluster-wide authentication and
+encryption values. `node.env` supplies the local HA identity. Use the HA wrapper
+so exported parent variables cannot override the generated secrets or node
+identity. Select the HTTPS proxy configuration before building and starting the
+Fleet images:
 
 ```bash
 cp client/nginx.https.conf client/nginx.conf

@@ -104,6 +104,10 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 			return err
 		}
 	}
+	fleetDatabasePassword, err := readPassword(filepath.Join(offlineDir, "fleet-db-password"))
+	if err != nil {
+		return fmt.Errorf("read generated Fleet database password: %w", err)
+	}
 	// Both Fleet hosts share application identity because they alternate against
 	// the same database and encrypted state.
 	authSecret, err := randomHex(32)
@@ -115,9 +119,12 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 		return fmt.Errorf("generate Fleet encryption master key: %w", err)
 	}
 	fleetEnvironment := []byte(fmt.Sprintf(
-		"AUTH_CLIENT_SECRET_KEY=%s\nENCRYPT_SERVICE_MASTER_KEY=%s\n",
+		"AUTH_CLIENT_SECRET_KEY=%s\nENCRYPT_SERVICE_MASTER_KEY=%s\nDB_DSN=postgresql://fleet:%s@%s:5432,%s:5432/fleet?target_session_attrs=read-write&sslmode=verify-full&sslrootcert=/etc/proto-fleet/ha/service-ca.crt\n",
 		authSecret,
 		base64.StdEncoding.EncodeToString(masterKey),
+		fleetDatabasePassword,
+		hostIPs[0],
+		hostIPs[1],
 	))
 	if err := writeFile(filepath.Join(offlineDir, fleetEnvironmentFile), fleetEnvironment, 0o600); err != nil {
 		return err

@@ -119,6 +119,8 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
+    assert_contains "$rendered" "sleep 15; exec /app/fleetd"
+    assert_not_contains "$rendered" "/app/dlv"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/service-ca.crt"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-etcd-password"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.crt"
@@ -134,7 +136,8 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" "--noproxy '*'"
     assert_not_contains "${HA_DIR}/scripts/check-fleet-active.sh" "--insecure"
     assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" "Restart=on-failure"
-    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=-/usr/sbin/ip address delete ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=/usr/sbin/ip address flush to ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
+    assert_contains "${HA_DIR}/firewall.nft.tmpl" "tcp dport 40000 drop"
 }
 
 test_compose_uses_one_host_identity

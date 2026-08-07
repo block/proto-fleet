@@ -20,6 +20,9 @@ table inet proto_fleet_ha {
         iifname "lo" tcp dport 4000 accept
         tcp dport 4000 drop
 
+        # The HA image runs fleetd directly; never expose the image's debug port.
+        tcp dport 40000 drop
+
         tcp dport 2380 ip saddr @ha_nodes accept
         tcp dport 2380 drop
 

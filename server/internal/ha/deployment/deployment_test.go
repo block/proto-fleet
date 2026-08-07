@@ -117,6 +117,19 @@ func TestGenerateSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fleetDatabasePassword, err := readPassword(filepath.Join(output, "offline", "fleet-db-password"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDatabaseDSN := fmt.Sprintf(
+		"DB_DSN=postgresql://fleet:%s@%s:5432,%s:5432/fleet?target_session_attrs=read-write&sslmode=verify-full&sslrootcert=/etc/proto-fleet/ha/service-ca.crt\n",
+		fleetDatabasePassword,
+		testHostIPs[0],
+		testHostIPs[1],
+	)
+	if !strings.Contains(string(offlineFleetEnvironment), wantDatabaseDSN) {
+		t.Fatal("generated Fleet environment does not contain the HA database DSN")
+	}
 	for _, node := range []string{"ha-a", "ha-b"} {
 		nodeFleetEnvironment, err := os.ReadFile(filepath.Join(output, node, fleetEnvironmentFile))
 		if err != nil {

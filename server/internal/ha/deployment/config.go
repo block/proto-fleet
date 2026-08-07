@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-var envLine = regexp.MustCompile(`^([A-Z][A-Z0-9_]*)=([A-Za-z0-9._/:@+=-]+)$`)
+var envLine = regexp.MustCompile(`^([A-Z][A-Z0-9_]*)=([A-Za-z0-9._/:@+=?,&-]+)$`)
 
 var allowedEnvKeys = map[string]func(*NodeConfig, string){
 	"HA_NODE_NAME":         func(c *NodeConfig, v string) { c.NodeName = v },

@@ -2,6 +2,8 @@ services:
   fleet-api:
     # Patroni provides PostgreSQL in HA deployments, so remove the base dependency.
     depends_on: !reset []
+    # The 15s delay exceeds the 10s lease, giving the passive peer first chance after a restart.
+    command: ["/bin/sh", "-c", "sleep 15; exec /app/fleetd"]
     environment:
       # External traffic reaches Fleet through local nginx and the shared VIP.
       HTTP_LISTEN_ADDRESS: "127.0.0.1:4000"
