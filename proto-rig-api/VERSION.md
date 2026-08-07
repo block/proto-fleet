@@ -2,24 +2,26 @@
 
 ## Source
 - Repository: miner-firmware (private)
-  - Commit SHA: b093c1e0652164373c963046b152ad3ee29c6be6
-  - Commit Date: 2026-07-17
-  - Extraction Date: 2026-07-20
+  - Commit SHA: 5fbc89f08df97ff4dab19f0ae122d1c72d6b581c
+  - Commit Date: 2026-08-07
+  - Extraction Date: 2026-08-07
 
 The hashboard proto files live in the `external/hashboard` submodule, pinned by
 the superproject commit above to:
 - Submodule: external/hashboard (github.com/btc-mining/hashboard)
   - Commit SHA: 068732a3eac94ce3cf98ea65bcf2d2dc50075837
 
-The OpenAPI spec was extracted from the same miner-firmware commit and verified
-byte-identical to the previous snapshot. At this revision,
-`TemperatureGradient`, `AutoTune`, and F1 values are gRPC-only; the generated
-ProtoOS REST types and fake-proto-rig simulator intentionally remain unchanged
-until `MDK-API.json` exposes them.
+The OpenAPI spec and all previously vendored proto files were extracted from
+the same miner-firmware commit and verified byte-identical to the previous
+snapshot. This revision adds the `mdk_hashboard_identity_v1.proto` observation
+contract. `TemperatureGradient`, `AutoTune`, and F1 values remain gRPC-only; the
+ProtoOS REST API surface and fake-proto-rig simulator behavior intentionally
+remain unchanged until `MDK-API.json` exposes them.
 
 ## Files Extracted
 
 ### gRPC Proto Files (from `crates/rpc/protos/`)
+- mdk_hashboard_identity_v1.proto
 - mfgtool_api.proto
 - mfgtool_test_commands.proto
 - miner_command_api.proto
