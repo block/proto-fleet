@@ -42,10 +42,14 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	docker := callIndex(calls, "sudo systemctl start docker.service")
 	start := callIndex(calls, "sudo systemctl enable --now proto-fleet-ha.service")
 	keepalived := callIndex(calls, "sudo systemctl enable --now keepalived.service")
-	if firewall < 0 || docker < 0 || start < 0 || keepalived < 0 || !(firewall < docker && docker < start && start < keepalived) {
+	vipCheck := callIndex(calls, "verify-vip")
+	packages := callIndex(calls, "iputils-arping")
+	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
+	if packages < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || start < 0 || keepalived < 0 ||
+		!(packages < vipCheck && vipCheck < firewall && firewall < docker && rootPasswordInstall < start && start < keepalived) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
-	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 || callIndex(calls, configRoot+"/etcd-root-password") < 0 {
+	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
 		t.Fatalf("root password was not installed with protected permissions:\n%s", strings.Join(calls, "\n"))
 	}
 	if _, err := os.Stat(rootPassword); !os.IsNotExist(err) {
@@ -54,6 +58,35 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	if _, err := os.Stat(secrets); !os.IsNotExist(err) {
 		t.Fatalf("copied host secret bundle still exists: %v", err)
 	}
+}
+
+func TestInstallCredentialCleanupFailsBeforeServicesStart(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	secrets := t.TempDir()
+	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
+	require.NoError(t, os.WriteFile(rootPassword, []byte("root-password\n"), 0o600))
+	config := NodeConfig{
+		NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: secrets,
+	}
+	writeTestSecretBundle(t, config)
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	deps.verifyVIP = func(context.Context, NodeConfig) error {
+		calls = append(calls, "verify-vip")
+		return os.WriteFile(filepath.Join(secrets, "late-unexpected-secret"), []byte("secret"), 0o600)
+	}
+
+	// Act
+	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "unexpected entry")
+	require.Contains(t, strings.Join(calls, "\n"), configRoot+"/etcd-root-password")
+	require.NotContains(t, strings.Join(calls, "\n"), "systemctl start docker.service")
+	require.NotContains(t, strings.Join(calls, "\n"), "enable --now proto-fleet-ha.service")
 }
 
 func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
@@ -204,6 +237,10 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 		},
 		requireEmpty: func(string, string) error { return nil },
 		validateHost: func(context.Context, string) (NodeConfig, error) { return config, nil },
+		verifyVIP: func(context.Context, NodeConfig) error {
+			record("verify-vip")
+			return nil
+		},
 		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			record(name, args...)
 			if name == "curl" {

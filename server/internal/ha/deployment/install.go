@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/ha"
 )
 
 const (
@@ -41,6 +43,7 @@ type installDependencies struct {
 	runInput     func(context.Context, string, string, ...string) error
 	runDir       func(context.Context, string, string, ...string) ([]byte, error)
 	sourceRoot   func() (string, error)
+	verifyVIP    func(context.Context, NodeConfig) error
 	sleep        func(time.Duration)
 }
 
@@ -49,7 +52,7 @@ func defaultInstallDependencies() installDependencies {
 		goos: runtime.GOOS, goarch: runtime.GOARCH, pageSize: os.Getpagesize(),
 		readFile: os.ReadFile, lstat: os.Lstat, lookPath: exec.LookPath, requireEmpty: requireEmptyDir, validateHost: ValidateHost,
 		run: runCommand, runInput: runWithInput, runDir: runCommandInDir,
-		sourceRoot: releaseRoot, sleep: time.Sleep,
+		sourceRoot: releaseRoot, verifyVIP: verifyInstallVirtualIP, sleep: time.Sleep,
 	}
 }
 
@@ -106,6 +109,11 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := installPackages(ctx, deps); err != nil {
 		return err
 	}
+	if config.isDatabaseNode() {
+		if err := deps.verifyVIP(ctx, config); err != nil {
+			return err
+		}
+	}
 	if err := installRelease(ctx, source, config, deps); err != nil {
 		return err
 	}
@@ -117,16 +125,22 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 			return err
 		}
 	}
+	if err := installRootPassword(ctx, options, deps); err != nil {
+		return err
+	}
+	if err := consumeInstallCredentials(options, config); err != nil {
+		return err
+	}
 	if err := activateInstallPrerequisites(ctx, deps); err != nil {
 		return err
 	}
 	if err := prepareImages(ctx, config, deps); err != nil {
 		return err
 	}
-	if err := initialStart(ctx, options, config, deps); err != nil {
+	if err := initialStart(ctx, config, deps); err != nil {
 		return err
 	}
-	return consumeInstallCredentials(options, config)
+	return nil
 }
 
 func consumeInstallCredentials(options InstallOptions, config NodeConfig) error {
@@ -258,7 +272,8 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 		"deployment-manifest.sha256", "version.txt", "docker-compose.yaml", "images/timescaledb.tar.gz",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service",
-		"ha/proto-fleet-ha-firewall.service",
+		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/scripts/check-fleet-active.sh",
+		"client/nginx.https.conf",
 	}
 	for _, name := range required {
 		info, err := os.Lstat(filepath.Join(source, name))
@@ -365,7 +380,7 @@ func installPackages(ctx context.Context, deps installDependencies) error {
 	}
 	for _, args := range [][]string{
 		{"apt-get", "update"},
-		{"apt-get", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin", "keepalived", "nftables", "arping"},
+		{"apt-get", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin", "keepalived", "nftables", "iputils-arping"},
 	} {
 		if output, err := deps.run(ctx, "sudo", args...); err != nil {
 			return fmt.Errorf("install HA packages: %s", commandError(output, err))
@@ -378,6 +393,23 @@ func installPackages(ctx context.Context, deps installDependencies) error {
 		return fmt.Errorf("disable keepalived until the database role is ready: %s", commandError(output, err))
 	}
 	return nil
+}
+
+func verifyInstallVirtualIP(ctx context.Context, config NodeConfig) error {
+	output, err := runCommand(ctx, "sudo", "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
+	if err == nil {
+		return nil
+	}
+
+	tlsConfig, tlsErr := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	peer := config.DatabaseAIP
+	if config.NodeIP == peer {
+		peer = config.DatabaseBIP
+	}
+	if tlsErr == nil && probeFleetHost(ctx, tlsConfig, config.VirtualIP, peer).active {
+		return nil
+	}
+	return fmt.Errorf("HA virtual IP is owned by an unexpected host or cannot be checked: %s", commandError(output, err))
 }
 
 func installRelease(ctx context.Context, source string, config NodeConfig, deps installDependencies) error {
@@ -527,13 +559,18 @@ func activateInstallPrerequisites(ctx context.Context, deps installDependencies)
 	return nil
 }
 
-func initialStart(ctx context.Context, options InstallOptions, config NodeConfig, deps installDependencies) error {
-	if options.EtcdRootPasswordFile != "" {
-		const installedRootPassword = configRoot + "/etcd-root-password" //nolint:gosec // Credential file path, not a credential.
-		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0600", options.EtcdRootPasswordFile, installedRootPassword); err != nil {
-			return fmt.Errorf("install etcd root password: %s", commandError(output, err))
-		}
+func installRootPassword(ctx context.Context, options InstallOptions, deps installDependencies) error {
+	if options.EtcdRootPasswordFile == "" {
+		return nil
 	}
+	const installedRootPassword = configRoot + "/etcd-root-password" //nolint:gosec // Credential file path, not a credential.
+	if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0600", options.EtcdRootPasswordFile, installedRootPassword); err != nil {
+		return fmt.Errorf("install etcd root password: %s", commandError(output, err))
+	}
+	return nil
+}
+
+func initialStart(ctx context.Context, config NodeConfig, deps installDependencies) error {
 	if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "--now", "proto-fleet-ha.service"); err != nil {
 		return fmt.Errorf("enable HA services: %s", commandError(output, err))
 	}
