@@ -5,6 +5,7 @@
 # ============================================================================
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUN_FLEET_ORIGINAL_ARGS=("$@")
 FLEET_COMPOSE_PROJECT_NAME=""
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
@@ -119,6 +120,20 @@ verify_direct_updater_ownership() {
         return 1
     fi
     DIRECT_UPDATER_OWNERSHIP_VERIFIED=true
+}
+
+deployment_directory_identity() {
+    local identity
+
+    # GNU and BSD stat spell the device/inode format differently. Directory
+    # identity, rather than a content hash, detects an updater activation that
+    # exchanged the complete deployment tree while this shell waited for the
+    # daemon to stop.
+    identity=$(stat -Lc '%d:%i' -- "$PROJECT_ROOT" 2>/dev/null) \
+      || identity=$(stat -f '%d:%i' "$PROJECT_ROOT" 2>/dev/null) \
+      || return 1
+    [ -n "$identity" ] || return 1
+    printf '%s\n' "$identity"
 }
 
 resolve_direct_updater_privilege() {
@@ -282,7 +297,7 @@ run_fleet_exit_cleanup() {
 # deployment directory cannot be renamed out from under the shell.
 quiesce_updater_for_direct_run() {
     local one_click_was_configured="$1"
-    local load_state active_state
+    local load_state active_state identity_before_stop identity_after_stop
 
     [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] || return 0
     [ "$(uname -s)" = "Linux" ] || return 0
@@ -325,16 +340,18 @@ quiesce_updater_for_direct_run() {
         return 1
     fi
     [ "$load_state" = "not-found" ] || DIRECT_UPDATER_SERVICE_PRESENT=true
+    # A loaded updater is a global privileged resource even while inactive or
+    # failed. Verify its durable ownership before any branch can return and
+    # before this deployment can mount its socket directory into Fleet API.
+    if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ]; then
+        resolve_direct_updater_privilege || return 1
+    fi
     case "$active_state" in
         inactive|failed)
             if [ "$load_state" = "not-found" ] \
               && [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
                 echo "Error: one-click updates are enabled, but proto-fleet-updater.service is not installed." >&2
                 return 1
-            fi
-            if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ] \
-              && [ "$one_click_was_configured" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
-                resolve_direct_updater_privilege || return 1
             fi
             return 0
             ;;
@@ -346,6 +363,10 @@ quiesce_updater_for_direct_run() {
     esac
 
     resolve_direct_updater_privilege || return 1
+    if ! identity_before_stop=$(deployment_directory_identity); then
+        echo "Error: could not identify the current deployment before stopping the host updater." >&2
+        return 1
+    fi
     echo "Stopping the host updater for this manual deployment run..."
     if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
         systemctl stop proto-fleet-updater.service; then
@@ -356,6 +377,16 @@ quiesce_updater_for_direct_run() {
     # checked inactive-state query fails, EXIT cleanup still repairs service
     # availability rather than leaving the updater accidentally stopped.
     DIRECT_UPDATER_WAS_ACTIVE=true
+    if ! identity_after_stop=$(deployment_directory_identity); then
+        echo "Error: could not identify the current deployment after stopping the host updater." >&2
+        return 1
+    fi
+    if [ "$identity_before_stop" != "$identity_after_stop" ]; then
+        echo "The host updater activated a new deployment while stopping; restarting with the current release runner..."
+        exec /bin/bash "$PROJECT_ROOT/run-fleet.sh" "${RUN_FLEET_ORIGINAL_ARGS[@]}"
+        echo "Error: could not restart with the current release runner after the deployment changed." >&2
+        return 1
+    fi
     if ! active_state=$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
         systemctl show --property=ActiveState --value \
         proto-fleet-updater.service 2>/dev/null); then

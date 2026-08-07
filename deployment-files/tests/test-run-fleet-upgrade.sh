@@ -345,7 +345,14 @@ case " $* " in
                     printf 'disabled\n'
                 fi
                 ;;
-            'stop proto-fleet-updater.service') printf 'inactive\n' > "$UPDATER_STATE_FILE" ;;
+            'stop proto-fleet-updater.service')
+                if [ "${FAKE_SWAP_DEPLOYMENT_ON_STOP:-false}" = "true" ] \
+                  && [ -d "$STAGE_ROOT.replacement" ]; then
+                    /bin/mv "$STAGE_ROOT" "$STAGE_ROOT.previous"
+                    /bin/mv "$STAGE_ROOT.replacement" "$STAGE_ROOT"
+                fi
+                printf 'inactive\n' > "$UPDATER_STATE_FILE"
+                ;;
             'restart proto-fleet-updater.service') printf 'active\n' > "$UPDATER_STATE_FILE" ;;
             'enable proto-fleet-updater.service') printf 'true\n' > "$UPDATER_ENABLED_FILE" ;;
             'disable --now proto-fleet-updater.service')
@@ -647,6 +654,29 @@ fi
 assert_contains "direct runner repairs missing boot enablement" \
     "$HARNESS_CALL_LOG" "systemctl enable proto-fleet-updater.service"
 
+# systemctl stop drains an activation that has already crossed its commit
+# boundary. If that activation swaps deployment/ while the old runner waits,
+# the old shell must re-exec the newly active release before touching Compose.
+make_stage direct-updater-deployment-swap
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+cp -R "$STAGE" "$STAGE.replacement"
+printf 'COMPOSE_PROJECT_NAME=reexecuted-release\n' >> "$STAGE.replacement/.env"
+if FAKE_SWAP_DEPLOYMENT_ON_STOP=true run_stage "$STAGE" --non-interactive; then
+    pass "direct runner re-executes after an updater deployment swap"
+else
+    fail "direct runner should continue through the newly activated release"
+fi
+assert_contains "deployment swap is detected after updater drain" \
+    "$HARNESS_OUTPUT_LOG" "restarting with the current release runner"
+assert_contains "replacement runner recomputes deployment configuration" \
+    "$HARNESS_CALL_LOG" "--project-name reexecuted-release"
+if [ "$(grep -c '^systemctl stop proto-fleet-updater.service$' "$HARNESS_CALL_LOG")" -eq 1 ]; then
+    pass "replacement runner does not repeat updater shutdown"
+else
+    fail "replacement runner repeated or skipped updater shutdown"
+fi
+
 # Persisted configuration is authoritative even when the service was already
 # inactive before the direct run, so successful deployment repairs runtime and
 # boot state instead of preserving a broken socket overlay.
@@ -689,28 +719,30 @@ fi
 
 # A stale or alternate deployment tree must not control the fixed global
 # updater service owned by another installation.
-make_stage foreign-updater-owner
-foreign_install_root="$TMP_DIR/foreign-install"
-mkdir -p "$foreign_install_root"
-printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$foreign_install_root" \
-    > "$HARNESS_UPDATER_ENV_FILE"
-printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
-printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
-if run_stage "$STAGE" --non-interactive; then
-    fail "runner should reject an updater owned by another installation"
-else
-    pass "runner rejects an updater owned by another installation"
-fi
-assert_contains "ownership mismatch is diagnosed" "$HARNESS_OUTPUT_LOG" \
-    "belongs to a different Proto Fleet installation"
-assert_not_contains "ownership mismatch prevents updater stop" \
-    "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
-assert_not_contains "ownership mismatch prevents updater restart" \
-    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
-assert_not_contains "ownership mismatch prevents updater disable" \
-    "$HARNESS_CALL_LOG" "systemctl disable --now proto-fleet-updater.service"
-assert_not_contains "ownership mismatch prevents deployment mutation" \
-    "$HARNESS_CALL_LOG" "docker "
+for foreign_updater_state in active inactive failed; do
+    make_stage "foreign-updater-owner-$foreign_updater_state"
+    foreign_install_root="$TMP_DIR/foreign-install-$foreign_updater_state"
+    mkdir -p "$foreign_install_root"
+    printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$foreign_install_root" \
+        > "$HARNESS_UPDATER_ENV_FILE"
+    printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+    printf '%s\n' "$foreign_updater_state" > "$HARNESS_UPDATER_STATE_FILE"
+    if run_stage "$STAGE" --non-interactive; then
+        fail "runner should reject a $foreign_updater_state updater owned by another installation"
+    else
+        pass "runner rejects a $foreign_updater_state updater owned by another installation"
+    fi
+    assert_contains "$foreign_updater_state ownership mismatch is diagnosed" \
+        "$HARNESS_OUTPUT_LOG" "belongs to a different Proto Fleet installation"
+    assert_not_contains "$foreign_updater_state ownership mismatch prevents updater stop" \
+        "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
+    assert_not_contains "$foreign_updater_state ownership mismatch prevents updater restart" \
+        "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+    assert_not_contains "$foreign_updater_state ownership mismatch prevents updater disable" \
+        "$HARNESS_CALL_LOG" "systemctl disable --now proto-fleet-updater.service"
+    assert_not_contains "$foreign_updater_state ownership mismatch prevents deployment mutation" \
+        "$HARNESS_CALL_LOG" "docker "
+done
 
 make_stage direct-updater-failure
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
