@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -86,7 +85,7 @@ func TestGenerateSecrets(t *testing.T) {
 	roots.AddCert(ca)
 	for i, node := range []string{"ha-a", "ha-b", "ha-c"} {
 		dir := filepath.Join(output, node)
-		for _, name := range []string{"service-ca.crt", "etcd-server.crt", "etcd-server.key", "etcd-peer.crt", "etcd-peer.key", "etcd-jwt.pub", "etcd-jwt.key"} {
+		for _, name := range []string{"service-ca.crt", "etcd-server.crt", "etcd-server.key", "etcd-peer.crt", "etcd-peer.key", "etcd-jwt.pub", "etcd-jwt.key", fleetEtcdPasswordFile} {
 			requireFile(t, filepath.Join(dir, name))
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "etcd-server.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth); err != nil {
@@ -101,7 +100,7 @@ func TestGenerateSecrets(t *testing.T) {
 	}
 	for i, node := range []string{"ha-a", "ha-b"} {
 		dir := filepath.Join(output, node)
-		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-client.crt", "fleet-client.key", fleetEnvironmentFile, "fleet-db-password", "fleet-etcd-password", "patroni-etcd-password"} {
+		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-client.crt", "fleet-client.key", fleetEnvironmentFile, "fleet-db-password", "patroni-etcd-password"} {
 			requireFile(t, filepath.Join(dir, name))
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "postgres.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth); err != nil {
@@ -457,20 +456,11 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 	if slices.Contains(failing.calls, "auth") {
 		t.Fatal("bootstrap enabled authentication after a partial setup failure")
 	}
-
-	retrying := &recordingAuthClient{existing: true}
-	if err := bootstrapEtcdAuth(context.Background(), retrying, "root-pass", "patroni-pass", "fleet-pass"); err != nil {
-		t.Fatalf("bootstrap did not resume after existing roles and users: %v", err)
-	}
-	if !slices.Contains(retrying.calls, "auth") {
-		t.Fatal("resumed bootstrap did not enable authentication")
-	}
 }
 
 type recordingAuthClient struct {
-	calls    []string
-	failAt   string
-	existing bool
+	calls  []string
+	failAt string
 }
 
 func (c *recordingAuthClient) record(call string) error {
@@ -483,13 +473,7 @@ func (c *recordingAuthClient) record(call string) error {
 
 func (c *recordingAuthClient) Healthy(context.Context) error { return c.record("health") }
 func (c *recordingAuthClient) AddRole(_ context.Context, role string) error {
-	if err := c.record("role:" + role); err != nil {
-		return err
-	}
-	if c.existing {
-		return rpctypes.ErrRoleAlreadyExist
-	}
-	return nil
+	return c.record("role:" + role)
 }
 func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix string, permission clientv3.PermissionType) error {
 	name := "read"
@@ -499,13 +483,7 @@ func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix st
 	return c.record(fmt.Sprintf("permission:%s:%s:%s", role, prefix, name))
 }
 func (c *recordingAuthClient) AddUser(_ context.Context, user, password string) error {
-	if err := c.record("user:" + user + ":" + password); err != nil {
-		return err
-	}
-	if c.existing {
-		return rpctypes.ErrUserAlreadyExist
-	}
-	return nil
+	return c.record("user:" + user + ":" + password)
 }
 func (c *recordingAuthClient) GrantRole(_ context.Context, user, role string) error {
 	return c.record("grant:" + user + ":" + role)

@@ -25,7 +25,6 @@ const (
 )
 
 var databasePasswordFiles = []string{
-	fleetEtcdPasswordFile,
 	patroniEtcdPasswordFile,
 	"patroni-rest-password",
 	"postgres-superuser-password",
@@ -94,7 +93,7 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 		return err
 	}
 
-	passwordFiles := append([]string{etcdRootPasswordFile}, databasePasswordFiles...)
+	passwordFiles := append([]string{etcdRootPasswordFile, fleetEtcdPasswordFile}, databasePasswordFiles...)
 	for _, name := range passwordFiles {
 		password, randomErr := randomHex(32)
 		if randomErr != nil {
@@ -150,6 +149,10 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 	if err := writeFile(filepath.Join(offlineDir, "etcd-jwt.pub"), jwtPublicPEM, 0o644); err != nil {
 		return err
 	}
+	fleetEtcdPassword, err := os.ReadFile(filepath.Join(offlineDir, fleetEtcdPasswordFile))
+	if err != nil {
+		return fmt.Errorf("read offline %s: %w", fleetEtcdPasswordFile, err)
+	}
 
 	hosts := []struct {
 		name     string
@@ -169,6 +172,9 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 			return err
 		}
 		if err := writeFile(filepath.Join(nodeDir, "etcd-jwt.pub"), jwtPublicPEM, 0o644); err != nil {
+			return err
+		}
+		if err := writeFile(filepath.Join(nodeDir, fleetEtcdPasswordFile), fleetEtcdPassword, 0o600); err != nil {
 			return err
 		}
 		if err := issueCertificate(nodeDir, "etcd-server", "etcd-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
