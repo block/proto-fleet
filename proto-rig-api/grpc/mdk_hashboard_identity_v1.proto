@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package mdk.device.hashboard_identity.v1;
+
+option go_package = "github.com/btc-mining/miner-firmware/services/mdk-server/internal/gen/hashboardidentity/v1;hashboardidentityv1";
+
+// Complete current physical identity for one hb.<slot>.identity_v1 subject.
+// The subject is the sole slot authority. This message is live-only and has
+// no publisher epoch, ordering metadata, wall clock, or snapshot service.
+enum HashboardIdentitySlotState {
+  HASHBOARD_IDENTITY_SLOT_STATE_UNSPECIFIED = 0;
+  HASHBOARD_IDENTITY_SLOT_STATE_UNKNOWN = 1;
+  HASHBOARD_IDENTITY_SLOT_STATE_EMPTY = 2;
+  HASHBOARD_IDENTITY_SLOT_STATE_OCCUPIED = 3;
+}
+
+message HashboardIdentityObservation {
+  HashboardIdentitySlotState state = 1;
+  reserved 2, 3;
+  string serial_number = 4;
+}
