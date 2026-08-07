@@ -240,8 +240,8 @@ func (s *Service) triggerUpgrade(ctx context.Context, operationID, targetVersion
 }
 
 func ambiguousExecutorResult(err error) bool {
-	var transportErr *executorTransportError
-	var protocolErr *executorProtocolError
+	var transportErr *updaterapi.TransportError
+	var protocolErr *updaterapi.ProtocolError
 	return errors.As(err, &transportErr) || errors.As(err, &protocolErr)
 }
 
@@ -260,10 +260,10 @@ func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersi
 }
 
 func mapExecutorTriggerError(err error) error {
-	if errors.Is(err, errExecutorUnavailable) {
+	if errors.Is(err, updaterapi.ErrUnavailable) {
 		return fleeterror.NewUnavailableErrorf("host updater is unavailable; use the install command instead")
 	}
-	var httpErr *executorHTTPError
+	var httpErr *updaterapi.HTTPError
 	if errors.As(err, &httpErr) {
 		switch httpErr.StatusCode {
 		case http.StatusConflict:
