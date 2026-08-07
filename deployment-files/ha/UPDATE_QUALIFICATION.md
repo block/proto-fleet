@@ -11,8 +11,12 @@ customer data from committed evidence.
 | --- | --- |
 | Source release (`N`) | Pending |
 | Source commit SHA | Pending |
+| Source archive filename and SHA-256 | Pending |
+| Source release workflow run | Pending |
 | Target release (`N+1`) | Pending |
 | Target commit SHA | Pending |
+| Target archive filename and SHA-256 | Pending |
+| Target release workflow run | Pending |
 | Architecture | arm64 |
 | Operating system | Debian 13 |
 | Started | Pending |
@@ -20,9 +24,14 @@ customer data from committed evidence.
 
 ## Procedure
 
-1. Install and qualify release `N` using [QUALIFICATION.md](QUALIFICATION.md).
-   Confirm `N` includes the `fleet-ha update` and `update --complete` protocol;
-   releases that predate this supported HA update baseline are out of scope.
+1. Download each arm64 archive and its `.sha256` sidecar from the published
+   release, verify the sidecar, and record the exact filename and digest above.
+   For both extracted archives, verify `deployment-manifest.sha256`, confirm
+   that `version.txt` names the recorded release and commit, and link the
+   release workflow run whose head SHA matches that commit. Install and qualify
+   release `N` using [QUALIFICATION.md](QUALIFICATION.md). Confirm `N` includes
+   the `fleet-ha update` and `update --complete` protocol; releases that predate
+   this supported HA update baseline are out of scope.
 2. Record the running etcd and Patroni/PostgreSQL container IDs on all hosts.
 3. On the passive database host, run `fleet-ha update N+1` and verify that it
    remains passive on `N+1` while the active host continues serving `N`. Fail
@@ -84,5 +93,6 @@ customer data from committed evidence.
 
 **Pending.** The HA application update path is qualified only when every result
 above is `PASS`, every successful handoff interruption is below 15 seconds,
-failed-takeover recovery is below 60 seconds, and the report identifies both
-released artifacts and commits.
+failed-takeover recovery is below 60 seconds, and the report binds both exact
+archives to their published digests, packaged commits, and release workflow
+runs.
