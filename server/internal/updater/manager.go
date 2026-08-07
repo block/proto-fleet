@@ -1124,12 +1124,6 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
 		return
 	}
-	if m.cfg.DeploymentMode == DeploymentModeHA {
-		if err := preserveHAInfrastructure(ctx, currentDeployment, stageDeployment); err != nil {
-			m.fail(operationID, err, recovery)
-			return
-		}
-	}
 	// Preflight runs as the root updater and creates the proof consumed by
 	// --skip-build. Restore the deployment owner after preflight so that proof,
 	// along with any other generated state, remains usable by the supported
@@ -2453,13 +2447,6 @@ func preserveDeploymentState(ctx context.Context, current, staged string) error 
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect preserved TLS directory: %w", err)
-	}
-	return nil
-}
-
-func preserveHAInfrastructure(ctx context.Context, current, staged string) error {
-	if err := copyFile(ctx, filepath.Join(current, "ha", "compose.yaml"), filepath.Join(staged, "ha", "compose.yaml")); err != nil {
-		return fmt.Errorf("preserve installed HA infrastructure definition: %w", err)
 	}
 	return nil
 }

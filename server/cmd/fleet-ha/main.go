@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -115,7 +116,7 @@ type updateCmd struct {
 }
 
 func (c *updateCmd) Run(ctx context.Context) error {
-	return runUpdate(ctx, c.Version, os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket))
+	return runPassiveUpdate(ctx, c.Version, os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
 }
 
 type startCmd struct {
@@ -230,6 +231,30 @@ func validateHAUpdate(ctx context.Context, envPath, targetVersion string) error 
 		return err
 	}
 	return updatesDomain.ValidateAdjacentStableRelease(ctx, currentVersion, targetVersion)
+}
+
+func runPassiveUpdate(
+	ctx context.Context,
+	targetVersion string,
+	output io.Writer,
+	preflight updatePreflight,
+	client updaterClient,
+	read statusReader,
+) error {
+	if err := runUpdate(ctx, targetVersion, output, preflight, client); err != nil {
+		return err
+	}
+	report, err := read(ctx, installedNodeEnv)
+	if err != nil {
+		return fmt.Errorf("update succeeded but local HA outcome could not be verified: %w", err)
+	}
+	if report.Runtime.Role == ha.RoleActive {
+		_, err = fmt.Fprintln(output, "Update succeeded, but this host took over as active; failover redundancy is degraded. Run fleet-ha status.")
+		if err != nil {
+			return fmt.Errorf("write update outcome: %w", err)
+		}
+	}
+	return nil
 }
 
 func runUpdate(

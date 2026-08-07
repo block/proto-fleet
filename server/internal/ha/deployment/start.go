@@ -22,7 +22,7 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 	if err != nil {
 		return err
 	}
-	if err := RunCompose(ctx, []string{"--env-file", envPath, "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "up", "-d", "--no-build", "etcd"}); err != nil {
+	if err := RunCompose(ctx, []string{"--env-file", envPath, "--file", infrastructureCompose, "up", "-d", "--no-build", "etcd"}); err != nil {
 		return fmt.Errorf("start etcd: %w", err)
 	}
 
@@ -65,7 +65,7 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 	if !config.isDatabaseNode() {
 		return nil
 	}
-	if err := RunCompose(ctx, []string{"--env-file", envPath, "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "--profile", "database", "up", "-d", "--no-build", "--pull", "never", "patroni"}); err != nil {
+	if err := RunCompose(ctx, []string{"--env-file", envPath, "--file", infrastructureCompose, "--profile", "database", "up", "-d", "--no-build", "--pull", "never", "patroni"}); err != nil {
 		return fmt.Errorf("start Patroni: %w", err)
 	}
 	if err := RunCompose(ctx, fleetComposeArgs("up", "-d", "--no-build", "--pull", "never", "fleet-api", "fleet-client")); err != nil {
@@ -244,7 +244,7 @@ func StopInstalledServices(ctx context.Context, envPath string) error {
 }
 
 func infrastructureDownArgs(envPath string, databaseNode bool) []string {
-	args := []string{"--env-file", envPath, "--file", filepath.Join(installRoot, "ha", "compose.yaml")}
+	args := []string{"--env-file", envPath, "--file", infrastructureCompose}
 	if databaseNode {
 		args = append(args, "--profile", "database")
 	}
