@@ -63,7 +63,7 @@ time and a short redacted evidence reference.
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
 | Pin an authenticated active-only API request to the passive host while retaining the VIP URL and TLS SNI | Fleet returns its machine-readable `NOT_ACTIVE` response, not a TLS or transport error | Pending | Pending | Pending |
 | Open an authenticated long-lived stream on the active host, then induce demotion | The established stream closes promptly after ownership loss | Pending | Pending | Pending |
-| Attempt TCP connections from a non-peer to ports 2379, 2380, 5432, and 8008 before and after reboot | TCP establishment fails at the firewall while the configured peer connects to every required port | Pending | Pending | Pending |
+| Attempt TCP connections from a non-peer to ports 2379, 2380, 5432, 8008, and 40000 before and after reboot | TCP establishment fails against the installed firewall while the configured peer connects to every required HA port | Pending | Pending | Pending |
 | Send an unauthorized VRRP protocol-112 advertisement from the non-peer | The firewall drops it and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over during curtailment | Telemetry or independent power measurement proves load shedding within 180s | Pending | Pending | Pending |
 
