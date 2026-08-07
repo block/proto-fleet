@@ -36,6 +36,7 @@ const (
 	ReasonWriterUnavailable          ControlReasonCode = "writer_unavailable"
 	ReasonDatabaseRedundancyDegraded ControlReasonCode = "database_redundancy_degraded"
 	ReasonFleetRedundancyDegraded    ControlReasonCode = "fleet_redundancy_degraded"
+	ReasonFleetVersionMismatch       ControlReasonCode = "fleet_version_mismatch"
 	ReasonVIPUnavailable             ControlReasonCode = "vip_unavailable"
 )
 
@@ -115,14 +116,16 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport) 
 	}
 
 	var (
-		etcdStatus  etcdReadiness
-		primary     int
-		synchronous int
-		fleetActive int
-		fleetReady  bool
-		writerReady bool
-		vipReady    bool
-		probes      sync.WaitGroup
+		etcdStatus         etcdReadiness
+		primary            int
+		synchronous        int
+		fleetActive        int
+		fleetRedundant     bool
+		fleetReady         bool
+		fleetVersionsMatch bool
+		writerReady        bool
+		vipReady           bool
+		probes             sync.WaitGroup
 	)
 	probes.Add(5)
 	go func() {
@@ -145,7 +148,9 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport) 
 		defer probes.Done()
 		statuses := probeFleetHosts(ctx, tlsConfig, config)
 		_, fleetActive = summarizeFleetHosts(statuses)
-		fleetReady = fleetRedundancyReady(statuses)
+		fleetRedundant = fleetRedundancyReady(statuses)
+		fleetVersionsMatch = matchingFleetVersions(statuses)
+		fleetReady = fleetRedundant && fleetVersionsMatch
 	}()
 	probes.Wait()
 
@@ -165,8 +170,10 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport) 
 	if synchronous != 1 {
 		control.ReasonCodes = append(control.ReasonCodes, ReasonDatabaseRedundancyDegraded)
 	}
-	if !fleetReady || !localRuntimeReady {
+	if !fleetRedundant || !localRuntimeReady {
 		control.ReasonCodes = append(control.ReasonCodes, ReasonFleetRedundancyDegraded)
+	} else if !fleetVersionsMatch {
+		control.ReasonCodes = append(control.ReasonCodes, ReasonFleetVersionMismatch)
 	}
 	if !vipReady {
 		control.ReasonCodes = append(control.ReasonCodes, ReasonVIPUnavailable)
@@ -356,6 +363,10 @@ func fleetRedundancyReady(statuses []fleetHostStatus) bool {
 		}
 	}
 	return len(statuses) == 2 && active == 1 && passive == 1
+}
+
+func matchingFleetVersions(statuses []fleetHostStatus) bool {
+	return len(statuses) == 2 && statuses[0].version != "" && statuses[0].version == statuses[1].version
 }
 
 func writerObservationReady(ctx context.Context, tlsConfig *tls.Config, password string, endpoints []string, config NodeConfig) bool {

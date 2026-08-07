@@ -45,6 +45,26 @@ func TestFleetRedundancyRequiresOneLiveActiveAndOneLivePassive(t *testing.T) {
 	}
 }
 
+func TestMatchingFleetVersions(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		statuses []fleetHostStatus
+		want     bool
+	}{
+		{name: "same version", statuses: []fleetHostStatus{{version: "v1.2.0"}, {version: "v1.2.0"}}, want: true},
+		{name: "different versions", statuses: []fleetHostStatus{{version: "v1.2.0"}, {version: "v1.1.0"}}},
+		{name: "missing version", statuses: []fleetHostStatus{{version: "v1.2.0"}, {}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			matches := matchingFleetVersions(test.statuses)
+
+			// Assert
+			require.Equal(t, test.want, matches)
+		})
+	}
+}
+
 func TestSummarizeEtcdMembersRejectsDuplicateAndSplitMembers(t *testing.T) {
 	for _, test := range []struct {
 		name       string
