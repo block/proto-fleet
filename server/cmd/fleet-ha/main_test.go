@@ -203,3 +203,11 @@ func TestCompleteUpdateRequiresActiveAndUsesCompletionRequest(t *testing.T) {
 	require.True(t, activeChecked)
 	require.True(t, client.complete)
 }
+
+func TestAppStartAcceptsPreviousUpdaterInvocation(t *testing.T) {
+	// Act
+	err := run(t.Context(), []string{"app-start", "v1.2.3"})
+
+	// Assert
+	require.ErrorContains(t, err, "packaged release")
+}

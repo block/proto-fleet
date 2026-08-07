@@ -134,7 +134,7 @@ func run(ctx context.Context, args []string) error {
 		}
 		return deployment.StopApplication(ctx, root, ha.Role(args[1]))
 	case "app-start":
-		if len(args) != 3 || (args[2] != "passive" && args[2] != "any") {
+		if len(args) != 2 && (len(args) != 3 || (args[2] != "passive" && args[2] != "any")) {
 			return errors.New("usage: fleet-ha app-start VERSION <passive|any>")
 		}
 		root, err := deployment.ReleaseRoot()
@@ -143,6 +143,10 @@ func run(ctx context.Context, args []string) error {
 		}
 <<<<<<< HEAD
 		return deployment.StartApplication(ctx, root, args[1], args[2] == "passive")
+=======
+		requirePassive := len(args) == 2 || args[2] == "passive"
+		return deployment.StartApplication(ctx, root, args[1], requirePassive)
+>>>>>>> 3296d18b6c (Address complete update review feedback (#891))
 	case "wait-takeover":
 		if len(args) != 2 {
 			return errors.New("usage: fleet-ha wait-takeover VERSION")
