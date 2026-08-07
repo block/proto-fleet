@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -83,6 +84,22 @@ func TestInfrastructureDownArgsSelectsDatabaseProfile(t *testing.T) {
 			require.Equal(t, test.want, args)
 		})
 	}
+}
+
+func TestRemoveBootstrapCredential(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "etcd-root-password")
+	require.NoError(t, os.WriteFile(path, []byte("secret"), 0o600))
+
+	// Act
+	err := removeBootstrapCredential(path)
+	missingErr := removeBootstrapCredential(path)
+
+	// Assert
+	require.NoError(t, err)
+	require.NoError(t, missingErr)
+	_, statErr := os.Stat(path)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
 func startupStatus(clusterID, memberID, leaderID uint64) *clientv3.StatusResponse {

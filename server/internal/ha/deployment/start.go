@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -54,6 +55,11 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 			return err
 		}
 	}
+	if config.NodeName == "ha-a" && rootPasswordFile != "" {
+		if err := removeBootstrapCredential(rootPasswordFile); err != nil {
+			return err
+		}
+	}
 	if !config.isDatabaseNode() {
 		return nil
 	}
@@ -62,6 +68,13 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 	}
 	if err := RunCompose(ctx, fleetComposeArgs("up", "-d", "--no-build", "--pull", "never", "fleet-api", "fleet-client")); err != nil {
 		return fmt.Errorf("start Fleet: %w", err)
+	}
+	return nil
+}
+
+func removeBootstrapCredential(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove installed etcd root password: %w", err)
 	}
 	return nil
 }
