@@ -15,7 +15,6 @@ services:
       - "${HA_SECRETS_DIR}/service-ca.crt:/etc/proto-fleet/ha/service-ca.crt:ro"
       - "${HA_SECRETS_DIR}/fleet-etcd-password:/etc/proto-fleet/ha/fleet-etcd-password:ro"
       - "/run/proto-fleet-ha:/run/proto-fleet-ha:ro"
-
   fleet-client:
     # Replace the base TLS mount with this host's certificate for the shared VIP.
     volumes: !override
