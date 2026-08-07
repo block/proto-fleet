@@ -232,6 +232,7 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 	// Assert
 	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
 	assert.Equal(t, "updater", mustReadFile(t, installedUpdater))
+	assert.Equal(t, "installed HA substrate\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "ha", "compose.yaml")))
 	commands := runner.Commands()
 	require.Len(t, commands, 5)
 	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
@@ -2815,6 +2816,7 @@ func releaseBundle(t *testing.T, version string) []byte {
 		"deployment/updater/proto-fleet-updater":         "updater",
 		"deployment/updater/proto-fleet-updater.service": "[Service]\n",
 		"deployment/ha/fleet-ha":                         "fleet-ha",
+		"deployment/ha/compose.yaml":                     "target HA substrate\n",
 	}
 	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
@@ -2872,6 +2874,7 @@ func writeCurrentDeployment(t *testing.T, installRoot, version string) {
 		"ssl/cert.pem":              "certificate\n",
 		"server/influx_config/.env": "influx-secret\n",
 		"ha/fleet-ha":               "fleet-ha",
+		"ha/compose.yaml":           "installed HA substrate\n",
 	}
 	for name, contents := range files {
 		path := filepath.Join(installRoot, "deployment", name)
