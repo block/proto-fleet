@@ -56,10 +56,16 @@ type haRecordingRunner struct {
 	fail     map[string]error
 }
 
-func (r *haRecordingRunner) Run(_ context.Context, dir string, _ io.Writer, name string, args ...string) error {
+func (r *haRecordingRunner) Run(_ context.Context, dir string, output io.Writer, name string, args ...string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.commands = append(r.commands, recordedCommand{Dir: dir, Name: name, Args: append([]string(nil), args...)})
+	if len(args) == 1 && args[0] == "--version" {
+		if _, err := fmt.Fprintln(output, "v1.1.0"); err != nil {
+			return fmt.Errorf("write candidate version: %w", err)
+		}
+		return nil
+	}
 	if len(args) > 0 {
 		err := r.fail[args[0]]
 		delete(r.fail, args[0])
@@ -208,11 +214,14 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
 	bundle := releaseBundle(t, "v1.1.0")
 	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
 	runner := &haRecordingRunner{fail: make(map[string]error)}
 	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
 		cfg.DeploymentMode = DeploymentModeHA
+		cfg.SelfUpdatePath = installedUpdater
 	})
 
 	// Act
@@ -222,13 +231,14 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 
 	// Assert
 	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	assert.Equal(t, "updater", mustReadFile(t, installedUpdater))
 	commands := runner.Commands()
-	require.Len(t, commands, 4)
+	require.Len(t, commands, 5)
 	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
 	assert.Equal(t, []string{"require-passive", "/etc/proto-fleet/ha/node.env"}, commands[1].Args)
 	assert.Equal(t, []string{"app-stop"}, commands[2].Args)
 	assert.Equal(t, []string{"app-start", "v1.1.0"}, commands[3].Args)
-	for _, command := range commands {
+	for _, command := range commands[:4] {
 		assert.Contains(t, command.Name, filepath.Join("ha", "fleet-ha"))
 		assert.NotContains(t, strings.Join(command.Args, " "), "etcd")
 		assert.NotContains(t, strings.Join(command.Args, " "), "patroni")
