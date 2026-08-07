@@ -64,7 +64,7 @@ func NewConfiguredRuntime(
 	if err != nil {
 		return nil, nil, fmt.Errorf("read HA etcd password: %w", err)
 	}
-	tlsConfig, err := loadServiceTLS(config.ServiceCAFile)
+	tlsConfig, err := LoadServiceTLS(config.ServiceCAFile)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -122,9 +122,11 @@ func NewConfiguredRuntime(
 		_ = cleanup()
 		return nil, nil, err
 	}
-	endpointHealthy := newEndpointHealth(netip.MustParseAddr(config.EndpointIP), config.EndpointInterface, EndpointHeartbeatFile, endpointHeartbeatTimeout)
+	endpointIP := netip.MustParseAddr(config.EndpointIP)
+	endpointHealthy := newEndpointHealth(endpointIP, config.EndpointInterface, EndpointHeartbeatFile, endpointHeartbeatTimeout)
 	runtime := newRuntime(coordinator, group, healthy, RuntimeConfig{
 		EndpointHealthy: endpointHealthy,
+		EndpointOwned:   newEndpointOwned(endpointIP, config.EndpointInterface),
 	})
 	return runtime, cleanup, nil
 }
@@ -177,7 +179,8 @@ func readRuntimeSecret(path string) (string, error) {
 	return secret, nil
 }
 
-func loadServiceTLS(path string) (*tls.Config, error) {
+// LoadServiceTLS loads the trust policy shared by Fleet's HA runtime and host tooling.
+func LoadServiceTLS(path string) (*tls.Config, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read HA service CA: %w", err)

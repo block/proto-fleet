@@ -15,6 +15,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/stretchr/testify/require"
 )
 
@@ -278,6 +279,33 @@ encrypt:
 	require.False(t, config.SystemMonitoring.Enabled)
 	require.Equal(t, 30*time.Second, config.SystemMonitoring.Interval)
 	require.Equal(t, "/", config.SystemMonitoring.DiskPath)
+}
+
+func TestValidateHAHTTPAddressRequiresLocalStatusAddress(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		address string
+		wantErr bool
+	}{
+		{name: "loopback", address: "127.0.0.1:4000"},
+		{name: "other loopback port", address: "127.0.0.1:8080", wantErr: true},
+		{name: "network interface", address: "0.0.0.0:4000", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			config := Config{HTTP: HTTPConfig{Address: test.address}, HA: ha.Config{Enabled: true}}
+
+			// Act
+			err := validateHAHTTPAddress(config)
+
+			// Assert
+			if test.wantErr {
+				require.ErrorContains(t, err, "HTTP listen address")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestHTTP2WriteByteTimeoutStopsNonReadingClient(t *testing.T) {

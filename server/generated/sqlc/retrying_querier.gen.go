@@ -432,6 +432,18 @@ func (q *retryingQuerier) ClaimRigConfigReconciliation(ctx context.Context) (Cur
 	return result, err
 }
 
+func (q *retryingQuerier) ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "ClassifyFleetRuntimeLeaseAcquisition", func() error {
+		callResult, callErr := q.next.ClassifyFleetRuntimeLeaseAcquisition(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearCurtailmentAutomationActiveEvent", func() error {
 		return q.next.ClearCurtailmentAutomationActiveEvent(ctx, arg)

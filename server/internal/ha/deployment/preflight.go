@@ -287,38 +287,9 @@ func validateSecrets(config NodeConfig) error {
 }
 
 func validateFleetEnvironment(path string) error {
-	info, err := secureFileInfo(path, 0o600)
+	values, err := loadFleetEnvironment(path)
 	if err != nil {
 		return err
-	}
-	if err := requireCurrentOwner(info, fleetEnvironmentFile); err != nil {
-		return err
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open Fleet environment file: %w", err)
-	}
-	defer file.Close()
-
-	values := make(map[string]string, 3)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		match := envLine.FindStringSubmatch(scanner.Text())
-		if match == nil {
-			return errors.New("contains a malformed entry")
-		}
-		key := match[1]
-		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" && key != "DB_DSN" {
-			return fmt.Errorf("contains unknown key: %s", key)
-		}
-		if _, duplicate := values[key]; duplicate {
-			return fmt.Errorf("contains duplicate key: %s", key)
-		}
-		values[key] = match[2]
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read Fleet environment file: %w", err)
 	}
 	if values["DB_DSN"] == "" {
 		return errors.New("DB_DSN is required")
@@ -331,6 +302,43 @@ func validateFleetEnvironment(path string) error {
 		return errors.New("ENCRYPT_SERVICE_MASTER_KEY must be a base64-encoded 32-byte key")
 	}
 	return nil
+}
+
+func loadFleetEnvironment(path string) (map[string]string, error) {
+	info, err := secureFileInfo(path, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireCurrentOwner(info, fleetEnvironmentFile); err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open Fleet environment file: %w", err)
+	}
+	defer file.Close()
+
+	values := make(map[string]string, 3)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		match := envLine.FindStringSubmatch(scanner.Text())
+		if match == nil {
+			return nil, errors.New("contains a malformed entry")
+		}
+		key := match[1]
+		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" && key != "DB_DSN" {
+			return nil, fmt.Errorf("contains unknown key: %s", key)
+		}
+		if _, duplicate := values[key]; duplicate {
+			return nil, fmt.Errorf("contains duplicate key: %s", key)
+		}
+		values[key] = match[2]
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read Fleet environment file: %w", err)
+	}
+	return values, nil
 }
 
 func verifyEndpointCertificate(path, ip string, roots *x509.CertPool, usages ...x509.ExtKeyUsage) error {

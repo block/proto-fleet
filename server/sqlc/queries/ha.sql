@@ -92,6 +92,33 @@ RETURNING
     expires_at,
     (SELECT database_time FROM lease_context)::TIMESTAMPTZ AS database_time;
 
+-- name: ClassifyFleetRuntimeLeaseAcquisition :one
+WITH lease_context AS (
+    SELECT
+        clock_timestamp() AS database_time,
+        (
+            NOT connected.in_recovery
+            AND connected.server_address = sqlc.arg('server_address')::TEXT
+            AND connected.server_port = sqlc.arg('server_port')::INTEGER
+            AND connected.timeline = sqlc.arg('timeline')::BIGINT
+        ) AS writer_matches
+    FROM connected_postgres_identity AS connected
+)
+SELECT CASE
+    WHEN NOT lease_context.writer_matches THEN 'writer_mismatch'
+    WHEN current_lease.lease_name IS NULL THEN 'unavailable'
+    WHEN current_lease.dcs_cluster_id IS DISTINCT FROM sqlc.arg('dcs_cluster_id') THEN 'cluster_mismatch'
+    WHEN current_lease.highest_writer_generation IS DISTINCT FROM sqlc.arg('writer_generation') THEN 'writer_changed'
+    WHEN
+        current_lease.holder_id IS DISTINCT FROM sqlc.arg('holder_id')
+        AND current_lease.expires_at > lease_context.database_time
+    THEN 'contended'
+    ELSE 'unavailable'
+END::TEXT AS acquisition_result
+FROM lease_context
+LEFT JOIN fleet_runtime_lease AS current_lease
+    ON current_lease.lease_name = 'fleet-active';
+
 -- name: RenewFleetRuntimeLease :one
 WITH lease_context AS (
     -- Capture database time once, and fail closed unless this is the expected writer.

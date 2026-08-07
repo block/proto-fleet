@@ -50,6 +50,8 @@ func (o *runtimeTestOwner) WaitForActive(ctx context.Context) (context.Context, 
 	}
 }
 
+func (o *runtimeTestOwner) Snapshot() Snapshot { return Snapshot{} }
+
 type missedActivationOwner struct{}
 
 func (missedActivationOwner) Run(context.Context) error {
@@ -60,6 +62,8 @@ func (missedActivationOwner) WaitForActive(ctx context.Context) (context.Context
 	<-ctx.Done()
 	return nil, Token{}, fmt.Errorf("wait for missed activation: %w", ctx.Err())
 }
+
+func (missedActivationOwner) Snapshot() Snapshot { return Snapshot{} }
 
 type runtimeTestGroup struct {
 	mu sync.Mutex
