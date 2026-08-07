@@ -179,7 +179,7 @@ func (c *appStopCmd) Run(ctx context.Context) error {
 
 type appStartCmd struct {
 	Version string `arg:"" help:"application version to start"`
-	Mode    string `arg:"" enum:"passive,any" help:"required HA role after startup"`
+	Mode    string `arg:"" optional:"" default:"passive" enum:"passive,any" help:"required HA role after startup"`
 }
 
 func (c *appStartCmd) Run(ctx context.Context) error {
