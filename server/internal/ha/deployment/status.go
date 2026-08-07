@@ -3,7 +3,6 @@ package deployment
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,8 +14,8 @@ import (
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
-	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
@@ -362,12 +361,18 @@ func writerObservationReady(ctx context.Context, tlsConfig *tls.Config, password
 	if err != nil {
 		return false
 	}
-	conn, err := sql.Open("pgx", values["DB_DSN"])
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	conn, err := db.ConnectToDatabase(&db.Config{ExplicitDSN: values["DB_DSN"]})
 	if err != nil {
 		return false
 	}
 	defer conn.Close()
-	queries := sqlc.New(conn)
+	queries, err := db.NewPreparedQuerier(probeCtx, conn)
+	if err != nil {
+		return false
+	}
+	defer queries.Close()
 	etcd, err := ha.NewEtcdClient(clientv3.Config{
 		Endpoints: endpoints, Username: "fleet-observer", Password: password,
 		TLS: tlsConfig.Clone(), DialTimeout: 2 * time.Second,
@@ -384,8 +389,6 @@ func writerObservationReady(ctx context.Context, tlsConfig *tls.Config, password
 	if err != nil {
 		return false
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
 	_, err = observer.Observe(probeCtx)
 	return err == nil
 }
