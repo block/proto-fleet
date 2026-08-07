@@ -260,7 +260,9 @@ function ActiveRolloutStatus({
   const statItems: StatBlockProps[] = [
     { label: "Scope", value: event.scopeLabel || "—" },
     { label: "Strategy", value: pacingSummary(event) },
-    { label: "Order", value: orderLabels[event.order] },
+    // Order only applies to a paced run — under "all at once" there's no
+    // first/last, so omit it (mirrors the config control hiding the field).
+    ...(event.strategy === "allAtOnce" ? [] : [{ label: "Order", value: orderLabels[event.order] }]),
     { label: "Est. time remaining", value: etaValue },
   ];
 

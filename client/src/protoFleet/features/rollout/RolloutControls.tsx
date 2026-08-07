@@ -64,6 +64,11 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
 
   const showBatchFields = config.strategy === "batched" || config.strategy === "pilotThenContinue";
   const showPilotFields = config.strategy === "pilotThenContinue";
+  // Order only bites when the run is paced — under "all at once" there is no
+  // first/last, so the control is meaningless and we hide it (the design-review
+  // call). When hidden, Method spans full width rather than leaving an orphaned
+  // half-row.
+  const showOrder = config.strategy !== "allAtOnce";
 
   // Live plan readout — only when the host knows the in-scope count. Reduces the
   // manual "how many waves / how long?" math the design review flagged.
@@ -130,7 +135,7 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
         <div className="text-300 text-text-primary-70">How the {verb} is paced across the selected miners.</div>
       </div>
 
-      <div className="grid gap-3 tablet:grid-cols-2">
+      <div className={showOrder ? "grid gap-3 tablet:grid-cols-2" : "grid gap-3"}>
         <Select
           id="rollout-strategy"
           label="Method"
@@ -149,15 +154,17 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
           }
         />
 
-        <Select
-          id="rollout-order"
-          label="Order"
-          options={orderOptions}
-          value={config.order}
-          onChange={(value) => patch({ order: value as RolloutOrder })}
-          disabled={disabled}
-          forceBelow
-        />
+        {showOrder ? (
+          <Select
+            id="rollout-order"
+            label="Order"
+            options={orderOptions}
+            value={config.order}
+            onChange={(value) => patch({ order: value as RolloutOrder })}
+            disabled={disabled}
+            forceBelow
+          />
+        ) : null}
       </div>
 
       {showPilotFields ? (

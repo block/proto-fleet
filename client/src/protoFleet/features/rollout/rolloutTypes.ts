@@ -19,8 +19,17 @@ export type RolloutProcessType = "firmware" | "reboot" | "curtailment";
  */
 export type RolloutStrategy = "allAtOnce" | "batched" | "pilotThenContinue";
 
-/** Order targets are worked through — reuses curtailment's ordering intent. */
-export type RolloutOrder = "lowestPerformersFirst" | "highestPerformersFirst" | "random";
+/**
+ * Order targets are worked through, on the efficiency axis (curtailment's
+ * ordering intent — it sheds least-efficient miners first). Only meaningful for
+ * a paced run (batched / pilot); under "all at once" there is no first/last, so
+ * the control is hidden. Two options:
+ *   leastEfficientFirst — default; risk your worst-efficiency miners first, so
+ *     a bad change hits the ones you can most afford to lose.
+ *   random — a representative pilot sample, for the truest read on a
+ *     heterogeneous fleet before continuing.
+ */
+export type RolloutOrder = "leastEfficientFirst" | "random";
 
 /** When the rollout begins. */
 export type RolloutScheduleType = "startNow" | "scheduleForLater";

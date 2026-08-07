@@ -63,8 +63,7 @@ export function rolloutSubmitLabel(processType: RolloutProcessType, isScheduled:
 }
 
 export const orderLabels: Record<RolloutOrder, string> = {
-  lowestPerformersFirst: "Lowest performers first",
-  highestPerformersFirst: "Highest performers first",
+  leastEfficientFirst: "Least efficient first",
   random: "Random",
 };
 
