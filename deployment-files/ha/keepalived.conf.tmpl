@@ -4,7 +4,7 @@ global_defs {
 }
 
 vrrp_script fleet_active {
-    script "/usr/local/libexec/proto-fleet/check-fleet-active ${HA_ENDPOINT_HEARTBEAT_FILE}"
+    script "/usr/local/libexec/proto-fleet/check-fleet-active ${HA_ENDPOINT_HEARTBEAT_FILE} ${HA_VIRTUAL_IP} ${HA_SECRETS_DIR}/service-ca.crt"
     interval 1
     timeout 1
     rise 1

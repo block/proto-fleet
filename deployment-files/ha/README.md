@@ -152,16 +152,18 @@ Start Fleet on both Fleet hosts from the deployment directory. The deployment
 `fleet.env` is passed after it so the cluster-wide authentication and encryption
 values override any independently created values. `node.env` supplies the local
 HA identity. Use the HA wrapper so exported parent variables cannot override the
-generated secrets or node identity:
+generated secrets or node identity. Select the HTTPS proxy configuration before
+building and starting the Fleet images:
 
 ```bash
+cp client/nginx.https.conf client/nginx.conf
 ./ha/fleet-ha compose \
   --env-file .env \
   --env-file /etc/proto-fleet/ha/fleet.env \
   --env-file ha/node.env \
   --file docker-compose.yaml \
   --file ha/fleet-compose.yaml \
-  up -d --no-build fleet-api fleet-client
+  up -d --build fleet-api fleet-client
 ```
 
 The overlay mounts only Fleet's CA, etcd password, and heartbeat directory into

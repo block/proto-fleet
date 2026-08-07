@@ -4,11 +4,15 @@ set -eu
 # Keepalived runs this once per second. A successful local active-health check
 # refreshes the heartbeat that fleetd uses to prove the endpoint adapter is alive.
 heartbeat_file="$1"
-# The deployment certificate names the public endpoint, while this probe stays
-# on loopback so it cannot accidentally follow the VIP to the peer.
+virtual_ip="$2"
+service_ca="$3"
+
+# Verify the public endpoint identity while pinning the connection to this host.
 curl --fail --silent \
-    --insecure \
+    --cacert "$service_ca" \
+    --resolve "${virtual_ip}:443:127.0.0.1" \
+    --noproxy '*' \
     --connect-timeout 1 \
     --max-time 1 \
-    https://localhost/api-proxy/health/active >/dev/null || exit 1
+    "https://${virtual_ip}/api-proxy/health/active" >/dev/null || exit 1
 touch "$heartbeat_file"

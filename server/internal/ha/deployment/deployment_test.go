@@ -51,14 +51,15 @@ func TestRenderKeepalivedConfig(t *testing.T) {
 		VirtualIP:        "10.40.0.100",
 		NetworkInterface: "eth0",
 		DataDir:          "/var/lib/proto-fleet/ha",
+		SecretsDir:       "/etc/proto-fleet/ha",
 	}
-	template := "source=${HA_NODE_IP}\npeer=${HA_PEER_IP}\nvip=${HA_VIRTUAL_IP}\ninterface=${HA_NETWORK_INTERFACE}\nheartbeat=${HA_ENDPOINT_HEARTBEAT_FILE}\n"
+	template := "source=${HA_NODE_IP}\npeer=${HA_PEER_IP}\nvip=${HA_VIRTUAL_IP}\ninterface=${HA_NETWORK_INTERFACE}\nheartbeat=${HA_ENDPOINT_HEARTBEAT_FILE}\nca=${HA_SECRETS_DIR}/service-ca.crt\n"
 
 	rendered, err := renderKeepalivedConfig(template, config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "source=10.40.0.11\npeer=10.40.0.12\nvip=10.40.0.100\ninterface=eth0\nheartbeat=/run/proto-fleet-ha/endpoint-heartbeat\n"
+	want := "source=10.40.0.11\npeer=10.40.0.12\nvip=10.40.0.100\ninterface=eth0\nheartbeat=/run/proto-fleet-ha/endpoint-heartbeat\nca=/etc/proto-fleet/ha/service-ca.crt\n"
 	if rendered != want {
 		t.Fatalf("renderKeepalivedConfig() = %q, want %q", rendered, want)
 	}

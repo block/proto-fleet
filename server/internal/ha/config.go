@@ -52,6 +52,12 @@ func NewConfiguredRuntime(
 	if err := config.Validate(); err != nil {
 		return nil, nil, err
 	}
+	if group == nil {
+		return nil, nil, errors.New("HA runtime requires a runtime job group")
+	}
+	if healthy == nil {
+		return nil, nil, errors.New("HA runtime requires a critical health check")
+	}
 
 	password, err := readRuntimeSecret(config.EtcdPasswordFile)
 	if err != nil {

@@ -54,6 +54,7 @@ func renderKeepalivedConfig(template string, config NodeConfig) (string, error) 
 		"${HA_VIRTUAL_IP}", config.VirtualIP,
 		"${HA_NETWORK_INTERFACE}", config.NetworkInterface,
 		"${HA_ENDPOINT_HEARTBEAT_FILE}", ha.EndpointHeartbeatFile,
+		"${HA_SECRETS_DIR}", config.SecretsDir,
 	).Replace(template)
 	if strings.Contains(rendered, "${") {
 		return "", errors.New("keepalived template contains an unresolved placeholder")

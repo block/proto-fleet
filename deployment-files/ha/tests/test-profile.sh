@@ -127,7 +127,10 @@ test_fleet_ha_contract() {
     [[ "$secret_mount_count" -eq 4 ]] || fail "Fleet services must mount only their required HA secret files"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
 
-    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" "https://localhost/api-proxy/health/active"
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--cacert "$service_ca"'
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--resolve "${virtual_ip}:443:127.0.0.1"'
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" "--noproxy '*'"
+    assert_not_contains "${HA_DIR}/scripts/check-fleet-active.sh" "--insecure"
     assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" "Restart=on-failure"
     assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=-/usr/sbin/ip address delete ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
 }

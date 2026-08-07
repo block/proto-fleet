@@ -23,6 +23,51 @@ func TestNewConfiguredRuntimeUsesStandaloneModeWithoutReadingHAFiles(t *testing.
 	require.NoError(t, cleanup())
 }
 
+func TestNewConfiguredRuntimeValidatesHADependenciesBeforeReadingHAFiles(t *testing.T) {
+	valid := Config{
+		Enabled:          true,
+		ClusterPath:      "/service/proto-fleet",
+		EtcdEndpoints:    []string{"https://10.0.0.1:2379"},
+		EtcdUsername:     "fleet-observer",
+		EtcdPasswordFile: filepath.Join(t.TempDir(), "missing-password"),
+		ServiceCAFile:    filepath.Join(t.TempDir(), "missing-ca"),
+		LeaseDuration:    10 * time.Second,
+		RenewInterval:    3 * time.Second,
+		RetryInterval:    time.Second,
+		DialTimeout:      5 * time.Second,
+		EndpointIP:       "10.0.0.100",
+	}
+	group, err := runtimejobs.NewGroup(nil)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		group     *runtimejobs.Group
+		healthy   func() bool
+		wantError string
+	}{
+		{
+			name:      "runtime job group is missing",
+			healthy:   alwaysHealthy,
+			wantError: "HA runtime requires a runtime job group",
+		},
+		{
+			name:      "critical health check is missing",
+			group:     group,
+			wantError: "HA runtime requires a critical health check",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			_, _, err := NewConfiguredRuntime(valid, nil, test.group, test.healthy)
+
+			// Assert
+			require.EqualError(t, err, test.wantError)
+		})
+	}
+}
+
 func TestHAConfigValidation(t *testing.T) {
 	valid := Config{
 		Enabled:          true,
