@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 
 import {
   orderLabels,
+  rolloutBehaviorLabel,
   rolloutPlanReadout,
   rolloutProcessVerb,
   strategyHelpText,
@@ -78,6 +79,9 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
   // so the section subtext and strategy help read for whichever process this
   // control is driving rather than hardcoding firmware's "update".
   const verb = rolloutProcessVerb(config.processType);
+  // Action-prefixed section title ("Update behavior" / "Reboot behavior"),
+  // adopting curtailment's "behavior" vocabulary across bulk workflows.
+  const behaviorLabel = rolloutBehaviorLabel(config.processType);
   const strategyHelp = strategyHelpText(config.processType);
 
   const pilotField = (
@@ -131,7 +135,7 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
   return (
     <section className="grid gap-3" data-testid="rollout-controls">
       <div>
-        <div className="text-emphasis-300 text-text-primary">Pacing</div>
+        <div className="text-emphasis-300 text-text-primary">{behaviorLabel}</div>
         <div className="text-300 text-text-primary-70">How the {verb} is paced across the selected miners.</div>
       </div>
 
