@@ -39,6 +39,7 @@ services:
       - ${HA_SECRETS_DIR}/etcd-jwt.pub:/run/proto-fleet-ha/etcd-jwt.pub:ro
       - ${HA_SECRETS_DIR}/etcd-jwt.key:/run/proto-fleet-ha/etcd-jwt.key:ro
     stop_grace_period: 10s
+    restart: always
     logging: *logging
 
   patroni:
@@ -80,4 +81,5 @@ services:
       retries: 24
       start_period: 60s
     stop_grace_period: 30s
+    restart: always
     logging: *logging
