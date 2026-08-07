@@ -50,6 +50,30 @@ type recordingRunner struct {
 	candidateError       error
 }
 
+type haRecordingRunner struct {
+	mu       sync.Mutex
+	commands []recordedCommand
+	fail     map[string]error
+}
+
+func (r *haRecordingRunner) Run(_ context.Context, dir string, _ io.Writer, name string, args ...string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.commands = append(r.commands, recordedCommand{Dir: dir, Name: name, Args: append([]string(nil), args...)})
+	if len(args) > 0 {
+		err := r.fail[args[0]]
+		delete(r.fail, args[0])
+		return err
+	}
+	return nil
+}
+
+func (r *haRecordingRunner) Commands() []recordedCommand {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]recordedCommand(nil), r.commands...)
+}
+
 const operatorEnv = `DB_PASSWORD=secret
 ENABLE_BETA_ALERTS=true
 ENABLE_SYSTEM_MONITORING=true
@@ -178,6 +202,111 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	assert.Equal(t, updaterapi.PhaseSucceeded, retried.Phase)
 	_, err = manager.TriggerWithID("v1.2.0", operationID)
 	require.ErrorIs(t, err, errTriggerInvalid)
+}
+
+func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: make(map[string]error)}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	commands := runner.Commands()
+	require.Len(t, commands, 4)
+	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
+	assert.Equal(t, []string{"require-passive", "/etc/proto-fleet/ha/node.env"}, commands[1].Args)
+	assert.Equal(t, []string{"app-stop"}, commands[2].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0"}, commands[3].Args)
+	for _, command := range commands {
+		assert.Contains(t, command.Name, filepath.Join("ha", "fleet-ha"))
+		assert.NotContains(t, strings.Join(command.Args, " "), "etcd")
+		assert.NotContains(t, strings.Join(command.Args, " "), "patroni")
+	}
+}
+
+func TestManagerHAUpdateKeepsForwardRecoveryWhenStartupFails(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: map[string]error{"app-start": assert.AnError}}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.RecoveryCommand, "app-start")
+	assert.Contains(t, completed.RecoveryCommand, "v1.1.0")
+	assert.Contains(t, completed.Error, "new stack failed to start")
+	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	commands := runner.Commands()
+	assert.Equal(t, []string{"app-start", "v1.1.0"}, commands[len(commands)-1].Args)
+}
+
+func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: map[string]error{"update-preflight": assert.AnError}}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	for _, command := range runner.Commands() {
+		if len(command.Args) > 0 {
+			assert.NotEqual(t, "app-stop", command.Args[0])
+		}
+	}
+}
+
+func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+
+	// Act
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	// Assert
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	require.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+	assert.Contains(t, operation.RecoveryCommand, "app-start")
+	assert.Contains(t, operation.RecoveryCommand, "v1.0.0")
 }
 
 func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
@@ -2775,13 +2904,14 @@ func releaseBundle(t *testing.T, version string) []byte {
 		"deployment/server/asicrs-plugin":                "plugin",
 		"deployment/updater/proto-fleet-updater":         "updater",
 		"deployment/updater/proto-fleet-updater.service": "[Service]\n",
+		"deployment/ha/fleet-ha":                         "fleet-ha",
 	}
 	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
 	tarWriter := tar.NewWriter(gzipWriter)
 	for name, contents := range files {
 		mode := int64(0o644)
-		if strings.HasSuffix(name, "run-fleet.sh") || strings.HasSuffix(name, "fleetd") || strings.HasSuffix(name, "-plugin") || strings.HasSuffix(name, "proto-fleet-updater") {
+		if strings.HasSuffix(name, "run-fleet.sh") || strings.HasSuffix(name, "fleetd") || strings.HasSuffix(name, "-plugin") || strings.HasSuffix(name, "proto-fleet-updater") || strings.HasSuffix(name, "fleet-ha") {
 			mode = 0o755
 		}
 		require.NoError(t, tarWriter.WriteHeader(&tar.Header{
@@ -2831,6 +2961,7 @@ func writeCurrentDeployment(t *testing.T, installRoot, version string) {
 		".env":                      operatorEnv,
 		"ssl/cert.pem":              "certificate\n",
 		"server/influx_config/.env": "influx-secret\n",
+		"ha/fleet-ha":               "fleet-ha",
 	}
 	for name, contents := range files {
 		path := filepath.Join(installRoot, "deployment", name)

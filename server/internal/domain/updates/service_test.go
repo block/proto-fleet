@@ -642,7 +642,7 @@ func TestTriggerUpgradeMapsExecutorConflict(t *testing.T) {
 	}}
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 	svc.executor = &fakeExecutor{
-		triggerErr: &executorHTTPError{
+		triggerErr: &updaterapi.HTTPError{
 			StatusCode: http.StatusConflict,
 			Message:    "upgrade already running",
 		},
@@ -732,7 +732,7 @@ func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellati
 		}
 		cancelRequest()
 		assert.NoError(t, triggerCtx.Err(), "host mutation must outlive browser cancellation")
-		return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset after accept")}
+		return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("connection reset after accept")}
 	}
 	svc.executor = executor
 
@@ -765,7 +765,7 @@ func TestTriggerUpgradeCancelsHostMutationWhenActiveRuntimeEnds(t *testing.T) {
 			close(triggerStarted)
 		}
 		<-ctx.Done()
-		return updaterapi.Operation{}, &executorTransportError{cause: ctx.Err()}
+		return updaterapi.Operation{}, &updaterapi.TransportError{Cause: ctx.Err()}
 	}
 	svc.executor = executor
 
@@ -812,7 +812,7 @@ func TestTriggerUpgradeDoesNotClaimAnotherOperationAfterAmbiguousFailure(t *test
 	}
 	executor.triggerFunc = func(context.Context, string, string) (updaterapi.Operation, error) {
 		triggered = true
-		return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset")}
+		return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("connection reset")}
 	}
 	svc.executor = executor
 
@@ -830,9 +830,9 @@ func TestTriggerUpgradePreservesUnknownOutcomeAfterDefinitiveRetryFailure(t *tes
 	executor.triggerFunc = func(context.Context, string, string) (updaterapi.Operation, error) {
 		attempt++
 		if attempt == 1 {
-			return updaterapi.Operation{}, &executorTransportError{cause: errors.New("connection reset after accept")}
+			return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("connection reset after accept")}
 		}
-		return updaterapi.Operation{}, &executorHTTPError{
+		return updaterapi.Operation{}, &updaterapi.HTTPError{
 			StatusCode: http.StatusServiceUnavailable,
 			Message:    "updater is restarting",
 		}
@@ -857,39 +857,39 @@ func TestTriggerUpgradeMapsExecutorFailures(t *testing.T) {
 	}{
 		{
 			name:  "socket unavailable",
-			err:   errExecutorUnavailable,
+			err:   updaterapi.ErrUnavailable,
 			check: fleeterror.IsUnavailableError,
 		},
 		{
 			name:  "transport timeout",
-			err:   &executorTransportError{cause: context.DeadlineExceeded},
+			err:   &updaterapi.TransportError{Cause: context.DeadlineExceeded},
 			check: fleeterror.IsUnavailableError,
 		},
 		{
 			name:  "bad request",
-			err:   &executorHTTPError{StatusCode: http.StatusBadRequest, Message: "invalid target"},
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusBadRequest, Message: "invalid target"},
 			check: fleeterror.IsFailedPreconditionError,
 		},
 		{
 			name:  "host precondition",
-			err:   &executorHTTPError{StatusCode: http.StatusPreconditionFailed, Message: "target is not newer"},
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusPreconditionFailed, Message: "target is not newer"},
 			check: fleeterror.IsFailedPreconditionError,
 		},
 		{
 			name:  "conflict",
-			err:   &executorHTTPError{StatusCode: http.StatusConflict, Message: "upgrade already running"},
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusConflict, Message: "upgrade already running"},
 			check: fleeterror.IsAlreadyExistsError,
 		},
 		{
 			name: "updater closing",
-			err:  &executorHTTPError{StatusCode: http.StatusServiceUnavailable, Message: "privileged detail"},
+			err:  &updaterapi.HTTPError{StatusCode: http.StatusServiceUnavailable, Message: "privileged detail"},
 			check: func(err error) bool {
 				return fleeterror.IsUnavailableError(err) && !strings.Contains(err.Error(), "privileged detail")
 			},
 		},
 		{
 			name: "updater internal fault",
-			err:  &executorHTTPError{StatusCode: http.StatusInternalServerError, Message: "/root/secret/path"},
+			err:  &updaterapi.HTTPError{StatusCode: http.StatusInternalServerError, Message: "/root/secret/path"},
 			check: func(err error) bool {
 				return !fleeterror.IsUnavailableError(err) &&
 					strings.Contains(err.Error(), "HTTP status 500") &&
@@ -898,7 +898,7 @@ func TestTriggerUpgradeMapsExecutorFailures(t *testing.T) {
 		},
 		{
 			name: "malformed accepted response",
-			err:  &executorProtocolError{cause: errors.New("malformed JSON")},
+			err:  &updaterapi.ProtocolError{Cause: errors.New("malformed JSON")},
 			check: func(err error) bool {
 				return fleeterror.IsUnavailableError(err) &&
 					strings.Contains(err.Error(), "check its status") &&
