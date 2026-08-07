@@ -1154,6 +1154,51 @@ else
 fi
 
 if (
+  fallback_env="$TEST_TMP/updater-restart-fallback.env"
+  fallback_log="$TEST_TMP/updater-restart-fallback-calls"
+  printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$fallback_env"
+  : > "$fallback_log"
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=0
+  updater_fallback_runner() {
+    printf '%s\n' "$*" > "$fallback_log"
+    [ "${PROTO_FLEET_INSTALLER_MANAGED_RUN:-0}" = 1 ] || return 1
+    printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$fallback_env"
+    return 0
+  }
+  run_disabled_updater_fallback updater_fallback_runner "$fallback_env" \
+    --enable-one-click-updates --non-interactive \
+    && grep -q '^--non-interactive --disable-one-click-updates$' "$fallback_log" \
+    && [ "$UPDATER_DISABLE_ON_EXIT" = 0 ]
+); then
+  pass "failed production restart deploys and commits the disabled fallback"
+else
+  fail "failed production restart can leave the socket overlay active"
+fi
+
+if (
+  fallback_env="$TEST_TMP/updater-restart-fallback-failure.env"
+  printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$fallback_env"
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=0
+  updater_fallback_failure() { return 7; }
+  fallback_status=0
+  run_disabled_updater_fallback updater_fallback_failure "$fallback_env" \
+    --enable-one-click-updates || fallback_status=$?
+  [ "$fallback_status" -eq 7 ] \
+    && grep -q '^ENABLE_ONE_CLICK_UPDATES=true$' "$fallback_env" \
+    && [ "$UPDATER_DISABLE_ON_EXIT" = 1 ]
+); then
+  pass "failed copy-command fallback keeps updater disablement armed"
+else
+  fail "failed copy-command fallback can reactivate the unready updater"
+fi
+
+if (
   restore_log="$TEST_TMP/updater-validation-restore"
   DOWNLOAD_DIR="$TEST_TMP/updater-validation-download"
   mkdir -p "$DOWNLOAD_DIR"

@@ -1103,6 +1103,34 @@ complete_disabled_updater_fallback_after_run() {
   finalize_disabled_updater_fallback_if_persisted "$env_file"
 }
 
+run_disabled_updater_fallback() {
+  local runner="$1"
+  local env_file="$2"
+  shift 2
+  local argument
+  local fallback_args=()
+  local run_status=0
+
+  # Replace any earlier updater choice instead of relying on argument order.
+  # The remaining installer options still describe the deployment that just
+  # succeeded, so the fallback only changes the socket overlay.
+  for argument in "$@"; do
+    case "$argument" in
+      --enable-one-click-updates|--disable-one-click-updates) continue ;;
+      *) fallback_args+=("$argument") ;;
+    esac
+  done
+  fallback_args+=(--disable-one-click-updates)
+
+  if PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
+    "$runner" "${fallback_args[@]}"; then
+    run_status=0
+  else
+    run_status=$?
+  fi
+  complete_disabled_updater_fallback_after_run "$env_file" "$run_status"
+}
+
 reconcile_updater_after_failed_deployment() {
   local env_file="$1"
   local previous_state="$2"
@@ -2133,26 +2161,32 @@ if [ "$RUN_FLEET_STATUS" -ne 0 ]; then
   exit "$RUN_FLEET_STATUS"
 fi
 
-UPDATER_RESTART_FAILED=0
 if [ "$UPDATER_START_AFTER_RUN" = "1" ]; then
   echo "🔄 Starting the host updater after the manual deployment run..."
   # run-fleet is finished, so the old API can no longer race this deployment.
   # systemd owns the service lifecycle once the restart is issued.
-  UPDATER_DISABLE_ON_EXIT=0
-  UPDATER_RESTART_ON_EXIT=0
-  UPDATER_REENABLE_ON_EXIT=0
-  UPDATER_START_AFTER_RUN=0
   if restart_updater_service_with "$UPDATER_SOCKET_PATH" \
     ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
-    :
+    UPDATER_DISABLE_ON_EXIT=0
+    UPDATER_RESTART_ON_EXIT=0
+    UPDATER_REENABLE_ON_EXIT=0
+    UPDATER_START_AFTER_RUN=0
   else
-    echo "❌ Could not restore the host updater after the manual deployment run." >&2
+    echo "⚠️  The host updater did not become ready; redeploying without its socket overlay." >&2
     disable_updater_service_with \
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
-    UPDATER_RESTART_FAILED=1
+    # Never let EXIT retry a service that failed readiness. Keep disablement
+    # armed until run-fleet proves the copy-command fallback is active.
+    UPDATER_RESTART_ON_EXIT=0
+    UPDATER_REENABLE_ON_EXIT=0
+    UPDATER_START_AFTER_RUN=0
+    UPDATER_DISABLE_ON_EXIT=1
+    if ! run_disabled_updater_fallback \
+      ./run-fleet.sh "$INSTALL_DIR/$DEPLOYMENT_DIR/.env" \
+      "${RUN_FLEET_ARGS[@]}"; then
+      echo "❌ Could not deploy the copy-command fallback after the host updater failed readiness." >&2
+      exit 1
+    fi
+    echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
   fi
-fi
-
-if [ "$UPDATER_RESTART_FAILED" -ne 0 ]; then
-  exit 1
 fi
