@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1853,6 +1854,39 @@ func TestManagerRestartsHAApplicationAfterInterruptedSwap(t *testing.T) {
 	require.Len(t, commands, 1)
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
 	assert.Empty(t, manager.Status().Operation.RecoveryCommand)
+	assert.False(t, manager.Status().Operation.RecoveryPending)
+}
+
+func TestManagerRetriesInterruptedHARecoveryAfterRestartFailure(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	require.NoError(t, os.Rename(
+		filepath.Join(installRoot, "deployment"),
+		filepath.Join(installRoot, "deployment.previous"),
+	))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+
+	// Act
+	_, err := NewManager(Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
+		DeploymentMode: DeploymentModeHA,
+		Runner:         &haRecordingRunner{fail: map[string]error{"app-start": errors.New("restart failed")}},
+	})
+	require.ErrorContains(t, err, "restart failed")
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
+		DeploymentMode: DeploymentModeHA, Runner: &haRecordingRunner{},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	// Assert
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.False(t, operation.RecoveryPending)
+	assert.Empty(t, operation.RecoveryCommand)
 }
 
 func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
