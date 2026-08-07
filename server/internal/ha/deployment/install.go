@@ -17,14 +17,15 @@ import (
 )
 
 const (
-	installBase          = "/opt/proto-fleet"
-	installRoot          = "/opt/proto-fleet/deployment"
-	configRoot           = "/etc/proto-fleet/ha"
-	dataRoot             = "/var/lib/proto-fleet/ha"
-	serviceUnit          = "/etc/systemd/system/proto-fleet-ha.service"
-	firewallUnit         = "/etc/systemd/system/proto-fleet-ha-firewall.service"
-	dockerDropIn         = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
-	dockerRecoveryDropIn = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	installBase           = "/opt/proto-fleet"
+	installRoot           = "/opt/proto-fleet/deployment"
+	configRoot            = "/etc/proto-fleet/ha"
+	dataRoot              = "/var/lib/proto-fleet/ha"
+	infrastructureCompose = configRoot + "/compose.yaml"
+	serviceUnit           = "/etc/systemd/system/proto-fleet-ha.service"
+	firewallUnit          = "/etc/systemd/system/proto-fleet-ha-firewall.service"
+	dockerDropIn          = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
+	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
 )
 
 type InstallOptions struct {
@@ -550,6 +551,7 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0700", configRoot},
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0750", dataRoot},
 		{"cp", filepath.Join(installRoot, "client", "nginx.https.conf"), filepath.Join(installRoot, "client", "nginx.conf")},
+		{"install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(source, "ha", "compose.yaml"), infrastructureCompose},
 	} {
 		if output, err := deps.run(ctx, "sudo", args...); err != nil {
 			return fmt.Errorf("install HA release: %s", commandError(output, err))
@@ -682,7 +684,7 @@ func installKeepalived(ctx context.Context, source string, config NodeConfig, de
 }
 
 func prepareImages(ctx context.Context, source string, config NodeConfig, deps installDependencies) error {
-	if output, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "compose", "--env-file", filepath.Join(configRoot, "node.env"), "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "pull", "etcd"); err != nil {
+	if output, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "compose", "--env-file", filepath.Join(configRoot, "node.env"), "--file", infrastructureCompose, "pull", "etcd"); err != nil {
 		return fmt.Errorf("pull etcd image: %s", commandError(output, err))
 	}
 	if config.isDatabaseNode() {

@@ -56,8 +56,9 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || updater < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < start && start < enable && enable < updater && rootPasswordInstall < start) {
+	pinnedComposeInstall := callIndex(calls, "ha/compose.yaml "+infrastructureCompose)
+	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || pinnedComposeInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || updater < 0 || keepalived < 0 ||
+		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < start && start < enable && enable < updater && rootPasswordInstall < start && pinnedComposeInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
