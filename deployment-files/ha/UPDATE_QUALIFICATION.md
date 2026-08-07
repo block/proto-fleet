@@ -34,15 +34,22 @@ customer data from committed evidence.
    swapping, restarts release `N`, serves the VIP within 45 seconds, and can
    complete a command. Restart keepalived and restore full readiness. This
    recovery bound is separate from the 15-second successful-handoff target.
-6. Retry `fleet-ha update N+1 --complete`. Measure from the first failed VIP
-   health probe until the VIP serves `N+1`.
-7. Verify the former active is now passive on `N+1`, then force an application
-   failover in each direction.
-8. Submit a command through the VIP after each failover and verify it succeeds.
-9. Reboot both database hosts, one at a time, restoring full readiness between
-   reboots. Confirm both return on `N+1`.
-10. Compare the recorded infrastructure container IDs and prove that etcd,
-   Patroni, and PostgreSQL were not replaced by the application update.
+6. Using different test devices, leave one command PENDING and one command
+   PROCESSING as described by the clean-install qualification, then retry
+   `fleet-ha update N+1 --complete`. Measure from the first failed VIP health
+   probe until the VIP serves `N+1`.
+7. Verify the PENDING command is dispatched, the interrupted PROCESSING attempt
+   reaches its documented terminal state, and a later command for that device
+   succeeds.
+8. Verify the former active is now passive on `N+1`, then force an application
+   failover in each direction. Submit a command through the VIP after each
+   failover and verify it succeeds.
+9. Compare the infrastructure container IDs recorded in step 2. Prove that the
+   application update did not replace etcd, Patroni, or PostgreSQL.
+10. Reboot both database hosts, one at a time, restoring full readiness between
+    reboots. Confirm both return on `N+1` with the same etcd membership,
+    Patroni cluster, and persisted Fleet data. Container IDs may change during
+    reboot.
 
 ## Results
 
@@ -52,11 +59,13 @@ customer data from committed evidence.
 | Mixed-version window | Authenticated reads, writes, and command completion work while peers run `N` and `N+1` | Pending | Pending | Pending |
 | Failed takeover recovery | Completion times out before swap; `N` restarts and serves commands within 45s | Pending | Pending | Pending |
 | Active completion | VIP serves `N+1` within 15s | Pending | Pending | Pending |
+| PENDING command handoff | New active dispatches the queued command | Pending | Pending | Pending |
+| PROCESSING command handoff | Interrupted attempt finishes terminally and later work resumes | Pending | Pending | Pending |
 | Failover to peer | VIP serves `N+1` within 15s | Pending | Pending | Pending |
 | Failover back | VIP serves `N+1` within 15s | Pending | Pending | Pending |
 | Command execution | Command succeeds after both failovers | N/A | Pending | Pending |
-| Reboot recovery | Both database hosts return on `N+1` | Pending | Pending | Pending |
-| Infrastructure preservation | etcd, Patroni, and PostgreSQL container IDs are unchanged | N/A | Pending | Pending |
+| Infrastructure preservation | Application update leaves etcd, Patroni, and PostgreSQL container IDs unchanged | N/A | Pending | Pending |
+| Reboot recovery | Both hosts return on `N+1` with DCS, database, and Fleet data intact | Pending | Pending | Pending |
 
 ## Verdict
 
