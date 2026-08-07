@@ -928,6 +928,48 @@ else
 fi
 
 if (
+  configured_root="$TEST_TMP/missing-unit-configured-root"
+  selected_root="$TEST_TMP/missing-unit-selected-root"
+  mkdir -p "$configured_root" "$selected_root"
+  UPDATER_ENV_PATH="$TEST_TMP/missing-unit-updater.env"
+  UPDATER_BINARY_PATH="$TEST_TMP/missing-unit-updater.bin"
+  UPDATER_UNIT_PATH="$TEST_TMP/missing-unit-updater.service"
+  UPDATER_STATE_DIR="$TEST_TMP/missing-unit-state"
+  UPDATER_RUNTIME_DIR="$TEST_TMP/missing-unit-runtime"
+  UPDATER_SYSTEMD_RUNTIME_DIR="$TEST_TMP/missing-unit-systemd"
+  mkdir -p "$UPDATER_SYSTEMD_RUNTIME_DIR"
+  escaped_configured_root=${configured_root//\\/\\\\}
+  escaped_configured_root=${escaped_configured_root//\"/\\\"}
+  printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_configured_root" \
+    > "$UPDATER_ENV_PATH"
+  UPDATER_PRIVILEGE=()
+  UPDATER_PRIVILEGE_AVAILABLE=1
+  UPDATER_CLEANUP_FAILED=0
+  service_log="$TEST_TMP/missing-unit-service.log"
+  uname() {
+    printf 'Linux\n'
+  }
+  systemctl() {
+    printf '%s\n' "$*" >> "$service_log"
+    case "$*" in
+      *'--property=LoadState --value'*) printf 'not-found\n' ;;
+      *'--property=ActiveState --value'*) printf 'inactive\n' ;;
+      *) return 1 ;;
+    esac
+  }
+  ! prepare_existing_updater_service "$selected_root" \
+    > /dev/null 2> "$TEST_TMP/missing-unit-owner.err" \
+    && [ "$UPDATER_CLEANUP_FAILED" = 1 ] \
+    && grep -q 'belongs to a different Proto Fleet installation' \
+      "$TEST_TMP/missing-unit-owner.err" \
+    && ! grep -q '^stop proto-fleet-updater.service$' "$service_log"
+); then
+  pass "durable updater artifacts enforce ownership even when the unit is missing"
+else
+  fail "missing updater unit bypassed durable artifact ownership"
+fi
+
+if (
   DOWNLOAD_DIR="$TEST_TMP/updater-artifact-backup"
   UPDATER_ENV_PATH="$TEST_TMP/updater-artifact-current.env"
   UPDATER_BINARY_PATH="$TEST_TMP/updater-artifact-current.bin"
@@ -976,6 +1018,35 @@ if (
   pass "interrupted installation restores updater enablement and production socket"
 else
   fail "installer exit cleanup did not restore the updater after interruption"
+fi
+
+if (
+  fallback_env="$TEST_TMP/updater-fallback.env"
+  printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$fallback_env"
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=1
+  UPDATER_RESTART_ON_EXIT=1
+  UPDATER_ENV_RESTORE_FILE=env-backup
+  UPDATER_BINARY_RESTORE_FILE=binary-backup
+  UPDATER_UNIT_RESTORE_FILE=unit-backup
+  UPDATER_ARTIFACT_RESTORE_PENDING=1
+  UPDATER_FALLBACK_PENDING=1
+  ! finalize_disabled_updater_fallback_if_persisted "$fallback_env" \
+    && [ "$UPDATER_REENABLE_ON_EXIT" = 1 ] \
+    && [ "$UPDATER_RESTART_ON_EXIT" = 1 ] \
+    && [ "$UPDATER_ARTIFACT_RESTORE_PENDING" = 1 ] \
+    && [ "$UPDATER_FALLBACK_PENDING" = 1 ] \
+    && printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$fallback_env" \
+    && finalize_disabled_updater_fallback_if_persisted "$fallback_env" \
+    && [ "$UPDATER_DISABLE_ON_EXIT" = 0 ] \
+    && [ "$UPDATER_REENABLE_ON_EXIT" = 0 ] \
+    && [ "$UPDATER_RESTART_ON_EXIT" = 0 ] \
+    && [ "$UPDATER_ARTIFACT_RESTORE_PENDING" = 0 ] \
+    && [ "$UPDATER_FALLBACK_PENDING" = 0 ]
+); then
+  pass "updater restoration remains armed until disabled fallback is durable"
+else
+  fail "updater fallback discards restoration before persistence"
 fi
 
 if (
@@ -1056,6 +1127,7 @@ fi
 systemctl() {
   case "$FAKE_SYSTEMCTL_MODE:$*" in
     missing:*--property=LoadState*) printf 'not-found\n' ;;
+    missing:*--property=ActiveState*) printf 'inactive\n' ;;
     safe:*--property=LoadState*) printf 'loaded\n' ;;
     safe:*'disable --now'*) return 0 ;;
     safe:*--property=ActiveState*) printf 'inactive\n' ;;

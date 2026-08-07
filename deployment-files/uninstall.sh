@@ -16,6 +16,10 @@ HOST_UPDATER_PRESENT=false
 HOST_UPDATER_PRIVILEGE=()
 HOST_UPDATER_STAGING_NAME_RE='^\.proto-fleet-upgrade-[a-f0-9]{64}$'
 HOST_UPDATER_ENV_PATH=/etc/proto-fleet/updater.env
+HOST_UPDATER_STATE_DIR=/var/lib/proto-fleet-updater
+HOST_UPDATER_RUNTIME_DIR=/run/proto-fleet-updater
+HOST_UPDATER_LOCK_PATH="$HOST_UPDATER_STATE_DIR/updater.lock"
+HOST_UPDATER_SYSTEMD_RUNTIME_DIR=/run/systemd/system
 HOST_UPDATER_BINARY_PATHS=(
   /usr/local/libexec/proto-fleet/proto-fleet-updater
   /usr/local/libexec/proto-fleet-updater
@@ -588,12 +592,12 @@ host_updater_artifacts_present() {
   for path in \
     /etc/systemd/system/proto-fleet-updater.service \
     "$HOST_UPDATER_ENV_PATH" \
-    /var/lib/proto-fleet-updater \
-    /run/proto-fleet-updater; do
+    "$HOST_UPDATER_STATE_DIR" \
+    "$HOST_UPDATER_RUNTIME_DIR"; do
     [[ -e "$path" || -L "$path" ]] && return 0
   done
   host_updater_staging_artifacts_present && return 0
-  if command -v systemctl &>/dev/null && [[ -d /run/systemd/system ]]; then
+  if command -v systemctl &>/dev/null && [[ -d "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR" ]]; then
     if ! load_state="$(systemctl show --property=LoadState --value \
       proto-fleet-updater.service 2>/dev/null)"; then
       return 2
@@ -601,6 +605,29 @@ host_updater_artifacts_present() {
     [[ "$load_state" != "not-found" ]] && return 0
   fi
   return 1
+}
+
+verify_host_updater_process_lock_free_with() {
+  local privilege=("$@")
+
+  if ! ${privilege[@]+"${privilege[@]}"} test -e "$HOST_UPDATER_LOCK_PATH" \
+    && ! ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_LOCK_PATH"; then
+    return 0
+  fi
+  if ${privilege[@]+"${privilege[@]}"} test -L "$HOST_UPDATER_LOCK_PATH" \
+    || ! ${privilege[@]+"${privilege[@]}"} test -f "$HOST_UPDATER_LOCK_PATH"; then
+    print_error "The updater lifetime lock is not a regular, non-symlink file; no files were removed."
+    return 1
+  fi
+  if ! command -v flock &>/dev/null; then
+    print_error "Cannot verify the updater lifetime lock because flock is unavailable; no files were removed."
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} flock -n \
+      "$HOST_UPDATER_LOCK_PATH" true; then
+    print_error "The host updater still holds its lifetime lock; no files were removed."
+    return 1
+  fi
 }
 
 # Acquire all privilege and stop the updater before Docker or deployment
@@ -639,7 +666,7 @@ prepare_host_updater_removal() {
     return 1
   fi
 
-  if command -v systemctl &>/dev/null && [[ -d /run/systemd/system ]]; then
+  if command -v systemctl &>/dev/null && [[ -d "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR" ]]; then
     local load_state active_state
     if ! load_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
       systemctl show --property=LoadState --value proto-fleet-updater.service 2>/dev/null)"; then
@@ -650,25 +677,47 @@ prepare_host_updater_removal() {
       print_error "Host updater service inspection returned no state; no Docker or deployment files were removed."
       return 1
     fi
-    if [[ "$load_state" != "not-found" ]]; then
-      if ! ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
-        systemctl disable --now proto-fleet-updater.service; then
-        print_error "Could not stop the host updater; no Docker or deployment files were removed."
-        return 1
-      fi
-      if ! active_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
-        systemctl show --property=ActiveState --value proto-fleet-updater.service 2>/dev/null)"; then
-        print_error "Could not verify that the host updater stopped; no Docker or deployment files were removed."
-        return 1
-      fi
-      case "$active_state" in
-        inactive|failed) ;;
-        *)
-          print_error "The host updater is still active; no Docker or deployment files were removed."
-          return 1
-          ;;
-      esac
+    if ! active_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+      systemctl show --property=ActiveState --value proto-fleet-updater.service 2>/dev/null)"; then
+      print_error "Could not inspect the host updater process; no Docker or deployment files were removed."
+      return 1
     fi
+    case "$active_state" in
+      inactive|failed) ;;
+      active|activating|reloading|deactivating)
+        if ! ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+          systemctl stop proto-fleet-updater.service; then
+          print_error "Could not stop the host updater; no Docker or deployment files were removed."
+          return 1
+        fi
+        ;;
+      *)
+        print_error "The host updater has an unexpected active state; no Docker or deployment files were removed."
+        return 1
+        ;;
+    esac
+    if [[ "$load_state" != "not-found" ]] \
+      && ! ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+        systemctl disable proto-fleet-updater.service; then
+      print_error "Could not disable the host updater; no Docker or deployment files were removed."
+      return 1
+    fi
+    if ! active_state="$(${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"} \
+      systemctl show --property=ActiveState --value proto-fleet-updater.service 2>/dev/null)"; then
+      print_error "Could not verify that the host updater stopped; no Docker or deployment files were removed."
+      return 1
+    fi
+    case "$active_state" in
+      inactive|failed) ;;
+      *)
+        print_error "The host updater is still active; no Docker or deployment files were removed."
+        return 1
+        ;;
+    esac
+  fi
+  if ! verify_host_updater_process_lock_free_with \
+      ${HOST_UPDATER_PRIVILEGE[@]+"${HOST_UPDATER_PRIVILEGE[@]}"}; then
+    return 1
   fi
 }
 
@@ -692,7 +741,7 @@ remove_host_updater() {
     return 1
   fi
   if ! ${privilege[@]+"${privilege[@]}"} rm -rf \
-    /var/lib/proto-fleet-updater /run/proto-fleet-updater; then
+    "$HOST_UPDATER_STATE_DIR" "$HOST_UPDATER_RUNTIME_DIR"; then
     print_error "Could not remove host updater state; deployment removal was aborted."
     return 1
   fi
@@ -716,7 +765,7 @@ remove_host_updater() {
   fi
 
   ${privilege[@]+"${privilege[@]}"} rmdir /usr/local/libexec/proto-fleet 2>/dev/null || true
-  if command -v systemctl &>/dev/null && [[ -d /run/systemd/system ]]; then
+  if command -v systemctl &>/dev/null && [[ -d "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR" ]]; then
     if ! ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload; then
       print_error "Could not finalize host updater removal; deployment removal was aborted."
       return 1
@@ -733,8 +782,8 @@ remove_host_updater() {
   done < <(host_updater_binary_artifact_paths)
   for path in \
     /etc/systemd/system/proto-fleet-updater.service \
-    /var/lib/proto-fleet-updater \
-    /run/proto-fleet-updater; do
+    "$HOST_UPDATER_STATE_DIR" \
+    "$HOST_UPDATER_RUNTIME_DIR"; do
     if ${privilege[@]+"${privilege[@]}"} test -e "$path" \
       || ${privilege[@]+"${privilege[@]}"} test -L "$path"; then
       print_error "Host updater artifact remains after cleanup: $path"

@@ -56,6 +56,10 @@ trap cleanup_test_tmp EXIT
 # helpers under test instead of sourcing its interactive main path.
 sed -n \
   -e '/^HOST_UPDATER_ENV_PATH=/p' \
+  -e '/^HOST_UPDATER_STATE_DIR=/p' \
+  -e '/^HOST_UPDATER_RUNTIME_DIR=/p' \
+  -e '/^HOST_UPDATER_LOCK_PATH=/p' \
+  -e '/^HOST_UPDATER_SYSTEMD_RUNTIME_DIR=/p' \
   -e '/^HOST_UPDATER_BINARY_PATHS=(/,/^)/p' \
   -e '/^HOST_UPDATER_SELF_UPDATE_SUFFIXES=(/,/^)/p' \
   -e '/^canonicalize_existing_dir()/,/^}/p' \
@@ -67,6 +71,7 @@ sed -n \
   -e '/^verify_host_updater_ownership_with()/,/^}/p' \
   -e '/^host_updater_staging_artifacts_present()/,/^}/p' \
   -e '/^host_updater_artifacts_present()/,/^}/p' \
+  -e '/^verify_host_updater_process_lock_free_with()/,/^}/p' \
   -e '/^prepare_host_updater_removal()/,/^}/p' \
   "$UNINSTALL_SCRIPT" > "$TEST_TMP/uninstall-updater-functions.sh"
 # shellcheck source=/dev/null
@@ -171,6 +176,71 @@ else
   fail "ownership mismatch reached updater service mutation"
 fi
 
+if (
+  INSTALL_ROOT="$owned_root"
+  HOST_UPDATER_PRESENT=false
+  HOST_UPDATER_PRIVILEGE=()
+  HOST_UPDATER_STATE_DIR="$TEST_TMP/not-found-active-state"
+  HOST_UPDATER_RUNTIME_DIR="$TEST_TMP/not-found-active-runtime"
+  HOST_UPDATER_LOCK_PATH="$HOST_UPDATER_STATE_DIR/updater.lock"
+  HOST_UPDATER_SYSTEMD_RUNTIME_DIR="$TEST_TMP/systemd-runtime"
+  mkdir -p "$HOST_UPDATER_STATE_DIR" "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR"
+  : > "$HOST_UPDATER_LOCK_PATH"
+  service_state=active
+  lifecycle_log="$TEST_TMP/not-found-active.log"
+  id() { printf '0\n'; }
+  systemctl() {
+    printf 'systemctl %s\n' "$*" >> "$lifecycle_log"
+    case "$*" in
+      *'--property=LoadState --value'*) printf 'not-found\n' ;;
+      *'--property=ActiveState --value'*) printf '%s\n' "$service_state" ;;
+      'stop proto-fleet-updater.service') service_state=inactive ;;
+      *) return 1 ;;
+    esac
+  }
+  flock() {
+    printf 'flock %s\n' "$*" >> "$lifecycle_log"
+    return 0
+  }
+  prepare_host_updater_removal \
+    && grep -q '^systemctl stop proto-fleet-updater.service$' "$lifecycle_log" \
+    && ! grep -q '^systemctl disable ' "$lifecycle_log" \
+    && grep -q "^flock -n $HOST_UPDATER_LOCK_PATH true$" "$lifecycle_log" \
+    && [ "$service_state" = inactive ]
+); then
+  pass "not-found updater unit still stops its active process and verifies the lifetime lock"
+else
+  fail "not-found updater unit was treated as proof that its process stopped"
+fi
+
+if (
+  INSTALL_ROOT="$owned_root"
+  HOST_UPDATER_PRESENT=false
+  HOST_UPDATER_PRIVILEGE=()
+  HOST_UPDATER_STATE_DIR="$TEST_TMP/held-lock-state"
+  HOST_UPDATER_RUNTIME_DIR="$TEST_TMP/held-lock-runtime"
+  HOST_UPDATER_LOCK_PATH="$HOST_UPDATER_STATE_DIR/updater.lock"
+  HOST_UPDATER_SYSTEMD_RUNTIME_DIR="$TEST_TMP/held-lock-systemd"
+  mkdir -p "$HOST_UPDATER_STATE_DIR" "$HOST_UPDATER_SYSTEMD_RUNTIME_DIR"
+  : > "$HOST_UPDATER_LOCK_PATH"
+  id() { printf '0\n'; }
+  systemctl() {
+    case "$*" in
+      *'--property=LoadState --value'*) printf 'not-found\n' ;;
+      *'--property=ActiveState --value'*) printf 'inactive\n' ;;
+      *) return 1 ;;
+    esac
+  }
+  flock() { return 1; }
+  LAST_ERROR=""
+  ! prepare_host_updater_removal \
+    && [[ "$LAST_ERROR" == *"still holds its lifetime lock"* ]]
+); then
+  pass "uninstaller fails closed while any updater process holds the lifetime lock"
+else
+  fail "uninstaller can remove state while the updater lifetime lock is held"
+fi
+
 canonical="$TEST_TMP/canonical/proto-fleet-updater"
 legacy="$TEST_TMP/legacy/proto-fleet-updater"
 mkdir -p "$(dirname "$canonical")" "$(dirname "$legacy")"
@@ -211,7 +281,7 @@ fi
 
 state_remove_line=$(awk '
   /^remove_host_updater\(\)/ { in_remove=1 }
-  in_remove && /\/var\/lib\/proto-fleet-updater \/run\/proto-fleet-updater/ { print NR; exit }
+  in_remove && /"\$HOST_UPDATER_STATE_DIR"/ { print NR; exit }
 ' "$UNINSTALL_SCRIPT")
 staging_verify_line=$(awk '
   /^remove_host_updater\(\)/ { in_remove=1 }

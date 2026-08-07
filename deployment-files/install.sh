@@ -10,6 +10,7 @@ UPDATER_PRIVILEGE_AVAILABLE=1
 UPDATER_DISABLE_ON_EXIT=0
 UPDATER_REENABLE_ON_EXIT=0
 UPDATER_RESTART_ON_EXIT=0
+UPDATER_FALLBACK_PENDING=0
 UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
 UPDATER_ENV_RESTORE_FILE=""
 UPDATER_BINARY_RESTORE_FILE=""
@@ -17,12 +18,22 @@ UPDATER_UNIT_RESTORE_FILE=""
 UPDATER_ARTIFACT_RESTORE_PENDING=0
 UPDATER_BINARY_PATH="/usr/local/libexec/proto-fleet/proto-fleet-updater"
 UPDATER_UNIT_PATH="/etc/systemd/system/proto-fleet-updater.service"
+UPDATER_STATE_DIR="/var/lib/proto-fleet-updater"
 UPDATER_RUNTIME_DIR="/run/proto-fleet-updater"
+UPDATER_SYSTEMD_RUNTIME_DIR="/run/systemd/system"
 UPDATER_SOCKET_PATH="$UPDATER_RUNTIME_DIR/updater.sock"
 UPDATER_VALIDATION_RUNTIME_DIR="/run/proto-fleet-updater-validation"
 UPDATER_VALIDATION_SOCKET_PATH="$UPDATER_VALIDATION_RUNTIME_DIR/updater.sock"
 UPDATER_VALIDATION_RUNTIME_ON_EXIT=0
 UPDATER_DOCKER_HOST="unix:///var/run/docker.sock"
+UPDATER_SELF_UPDATE_SUFFIXES=(
+  ""
+  .previous
+  .candidate
+  .handoff
+  .handoff.tmp
+  .restore
+)
 
 # Probe docker for an existing fleet-api container and return the install
 # directory inferred from its bind mount. Echoes the path on success; returns
@@ -786,11 +797,10 @@ disable_updater_service_with() {
   local load_state active_state unit_file_state
   command -v systemctl >/dev/null 2>&1 || return 0
 
-  # A missing unit is already safe and LoadState is readable without
-  # privilege. Check it directly before invoking sudo so a non-interactive
-  # fallback does not turn a previously proven missing unit into a fatal
-  # cleanup failure merely because sudo would require a password. For a known
-  # unit, all mutation and final-state checks still use the resolved privilege.
+  # LoadState and ActiveState are readable without privilege. A deleted unit
+  # can still have a supervised process, so not-found is safe only after the
+  # process state is also inactive. Privilege is needed only when a stop is
+  # actually required.
   if ! load_state=$(systemctl show \
       --property=LoadState --value proto-fleet-updater.service 2>/dev/null); then
     echo "❌ Could not inspect the host updater while disabling it." >&2
@@ -798,7 +808,37 @@ disable_updater_service_with() {
     return 1
   fi
   if [ "$load_state" = "not-found" ]; then
-    return 0
+    if ! active_state=$(systemctl show \
+        --property=ActiveState --value proto-fleet-updater.service 2>/dev/null); then
+      echo "❌ Could not inspect the host updater process while disabling it." >&2
+      UPDATER_CLEANUP_FAILED=1
+      return 1
+    fi
+    case "$active_state" in
+      inactive|failed) return 0 ;;
+      active|activating|reloading|deactivating) ;;
+      *)
+        echo "❌ The host updater has an unexpected active state: $active_state" >&2
+        UPDATER_CLEANUP_FAILED=1
+        return 1
+        ;;
+    esac
+    if ! ${privilege[@]+"${privilege[@]}"} systemctl stop \
+        proto-fleet-updater.service \
+      || ! active_state=$(systemctl show \
+        --property=ActiveState --value proto-fleet-updater.service 2>/dev/null); then
+      echo "❌ Could not stop the host updater process safely." >&2
+      UPDATER_CLEANUP_FAILED=1
+      return 1
+    fi
+    case "$active_state" in
+      inactive|failed) return 0 ;;
+      *)
+        echo "❌ Could not stop the host updater process safely." >&2
+        UPDATER_CLEANUP_FAILED=1
+        return 1
+        ;;
+    esac
   fi
 
   ${privilege[@]+"${privilege[@]}"} systemctl disable --now \
@@ -1005,6 +1045,43 @@ restore_updater_artifacts_with() {
   UPDATER_ARTIFACT_RESTORE_PENDING=0
 }
 
+updater_durable_artifacts_present() {
+  local path suffix
+
+  for path in \
+    "$UPDATER_ENV_PATH" \
+    "$UPDATER_UNIT_PATH" \
+    "$UPDATER_STATE_DIR" \
+    "$UPDATER_RUNTIME_DIR"; do
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      return 0
+    fi
+  done
+  for suffix in "${UPDATER_SELF_UPDATE_SUFFIXES[@]}"; do
+    path="${UPDATER_BINARY_PATH}${suffix}"
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+finalize_disabled_updater_fallback_if_persisted() {
+  local env_file="$1"
+  local state
+
+  state=$(deployment_boolean_state "$env_file" ENABLE_ONE_CLICK_UPDATES) || return 1
+  [ "$state" = "false" ] || return 1
+  UPDATER_DISABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_ENV_RESTORE_FILE=""
+  UPDATER_BINARY_RESTORE_FILE=""
+  UPDATER_UNIT_RESTORE_FILE=""
+  UPDATER_ARTIFACT_RESTORE_PENDING=0
+  UPDATER_FALLBACK_PENDING=0
+}
+
 install_updater_bootstrap_files_with() {
   local env_source="$1"
   shift
@@ -1062,7 +1139,7 @@ prepare_existing_updater_service() {
   local selected_root="$1"
   if [ "$(uname -s)" != "Linux" ] \
     || ! command -v systemctl >/dev/null 2>&1 \
-    || [ ! -d /run/systemd/system ]; then
+    || [ ! -d "$UPDATER_SYSTEMD_RUNTIME_DIR" ]; then
     return 0
   fi
 
@@ -1073,7 +1150,11 @@ prepare_existing_updater_service() {
     UPDATER_CLEANUP_FAILED=1
     return 1
   fi
-  if [ "$load_state" = "not-found" ]; then
+  local durable_artifacts=false
+  if updater_durable_artifacts_present; then
+    durable_artifacts=true
+  fi
+  if [ "$load_state" = "not-found" ] && [ "$durable_artifacts" != "true" ]; then
     return 0
   fi
   if [ "$UPDATER_PRIVILEGE_AVAILABLE" != "1" ]; then
@@ -1085,6 +1166,16 @@ prepare_existing_updater_service() {
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
     UPDATER_CLEANUP_FAILED=1
     return 1
+  fi
+  if [ "$load_state" = "not-found" ]; then
+    if ! disable_updater_service_with \
+        ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+      return 1
+    fi
+    # Matching durable artifacts without a loaded unit are a recoverable
+    # partial bootstrap/uninstall. There is no complete service to back up;
+    # the new bootstrap may repair it, but ownership cannot silently transfer.
+    return 0
   fi
   if ! active_state=$(systemctl show --property=ActiveState --value \
       proto-fleet-updater.service 2>/dev/null) \
@@ -1128,7 +1219,7 @@ write_updater_environment_file() {
   {
     printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_install"
     printf 'PROTO_FLEET_DOWNLOAD_BASE_URL="%s/download"\n' "$escaped_download"
-    printf 'PROTO_FLEET_UPDATER_STATE_DIR="/var/lib/proto-fleet-updater"\n'
+    printf 'PROTO_FLEET_UPDATER_STATE_DIR="%s"\n' "$UPDATER_STATE_DIR"
     printf 'PROTO_FLEET_UPDATER_SOCKET_PATH="%s"\n' "$escaped_socket"
     printf 'PROTO_FLEET_UPDATER_BINARY_PATH="%s"\n' "$UPDATER_BINARY_PATH"
   } > "$target"
@@ -1727,7 +1818,7 @@ install_updater_service() {
   if [ "$(uname -s)" != "Linux" ]; then
     return 1
   fi
-  if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+  if ! command -v systemctl >/dev/null 2>&1 || [ ! -d "$UPDATER_SYSTEMD_RUNTIME_DIR" ]; then
     echo "ℹ️  systemd is unavailable; keeping copy-command upgrades on this host."
     return 1
   fi
@@ -1891,16 +1982,16 @@ else
   # updater to reconcile.
   if [ "$(uname -s)" = "Linux" ] \
     && command -v systemctl >/dev/null 2>&1 \
-    && [ -d /run/systemd/system ]; then
+    && [ -d "$UPDATER_SYSTEMD_RUNTIME_DIR" ]; then
     disable_updater_service_with ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
   fi
   if [ "$UPDATER_CLEANUP_FAILED" = "1" ]; then
     echo "❌ Installation stopped because the host updater could not be left in a safe state." >&2
     exit 1
   fi
-  UPDATER_DISABLE_ON_EXIT=0
-  UPDATER_REENABLE_ON_EXIT=0
-  UPDATER_RESTART_ON_EXIT=0
+  # Keep restoration armed until run-fleet durably records the disabled
+  # fallback. If it fails earlier, EXIT restores the prior working updater.
+  UPDATER_FALLBACK_PENDING=1
   echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
   RUN_FLEET_ARGS+=(--disable-one-click-updates)
 fi
@@ -1914,6 +2005,22 @@ if ./run-fleet.sh "${RUN_FLEET_ARGS[@]}"; then
   RUN_FLEET_STATUS=0
 else
   RUN_FLEET_STATUS=$?
+fi
+
+if [ "$UPDATER_FALLBACK_PENDING" = "1" ]; then
+  if finalize_disabled_updater_fallback_if_persisted \
+      "$INSTALL_DIR/$DEPLOYMENT_DIR/.env"; then
+    :
+  elif [ "$RUN_FLEET_STATUS" -eq 0 ]; then
+    echo "❌ Deployment completed without durably disabling one-click updates." >&2
+    RUN_FLEET_STATUS=1
+  fi
+  if [ "$RUN_FLEET_STATUS" -ne 0 ]; then
+    # EXIT cleanup restores the previous updater only while the old persisted
+    # true value proves the fallback was not committed. A durable false value
+    # clears restoration above and leaves the updater safely disabled.
+    exit "$RUN_FLEET_STATUS"
+  fi
 fi
 
 UPDATER_RESTART_FAILED=0
