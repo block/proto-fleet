@@ -56,6 +56,19 @@ export function rolloutProcessVerb(processType: RolloutProcessType): string {
   return processPresentVerbs[processType];
 }
 
+/**
+ * Section title for the behavior controls, action-prefixed — "Update behavior"
+ * / "Reboot behavior" / "Curtail behavior". Adopts curtailment's "behavior"
+ * vocabulary (its Curtail/Restore behavior sections) so the paced-controls
+ * block reads the same across bulk workflows instead of the standalone
+ * "Pacing" label. Built from the present verb, so curtailment resolves to the
+ * exact "Curtail behavior" string the shipped modal already uses.
+ */
+export function rolloutBehaviorLabel(processType: RolloutProcessType): string {
+  const verb = processPresentVerbs[processType];
+  return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} behavior`;
+}
+
 /** The primary submit CTA for a config surface — "Start update" / "Schedule
  * reboot", etc. — action-specific rather than the generic "Start rollout". */
 export function rolloutSubmitLabel(processType: RolloutProcessType, isScheduled: boolean): string {
