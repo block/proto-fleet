@@ -81,5 +81,7 @@ services:
       retries: 24
       start_period: 60s
     stop_grace_period: 30s
-    restart: always
+    # Systemd reruns the quorum/auth gate after Docker restarts. This policy
+    # still recovers a failed Patroni process without bypassing that gate.
+    restart: on-failure
     logging: *logging
