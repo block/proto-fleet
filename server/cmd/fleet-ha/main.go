@@ -204,6 +204,16 @@ func runUpdate(
 				}
 				return errors.New(message)
 			}
+			if operation.Message != "" {
+				if _, err := fmt.Fprintln(output, operation.Message); err != nil {
+					return fmt.Errorf("write update result: %w", err)
+				}
+			}
+			if operation.LogPath != "" {
+				if _, err := fmt.Fprintln(output, "Log:", operation.LogPath); err != nil {
+					return fmt.Errorf("write update log path: %w", err)
+				}
+			}
 			return nil
 		}
 		select {
