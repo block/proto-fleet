@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sync"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/transportguard"
@@ -363,16 +365,25 @@ func writerObservationReady(ctx context.Context, tlsConfig *tls.Config, password
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	conn, err := db.ConnectToDatabase(&db.Config{ExplicitDSN: values["DB_DSN"]})
+	dsn, err := hostProbeDSN(values["DB_DSN"], config.SecretsDir)
+	if err != nil {
+		return false
+	}
+	conn, err := db.ConnectToDatabase(&db.Config{
+		ExplicitDSN:  dsn,
+		MaxOpenConns: 1,
+		MaxIdleConns: 1,
+	})
 	if err != nil {
 		return false
 	}
 	defer conn.Close()
-	queries, err := db.NewPreparedQuerier(probeCtx, conn)
+	pinned, err := conn.Conn(probeCtx)
 	if err != nil {
 		return false
 	}
-	defer queries.Close()
+	defer pinned.Close()
+	queries := sqlc.New(pinned)
 	etcd, err := ha.NewEtcdClient(clientv3.Config{
 		Endpoints: endpoints, Username: "fleet-observer", Password: password,
 		TLS: tlsConfig.Clone(), DialTimeout: 2 * time.Second,
@@ -391,6 +402,18 @@ func writerObservationReady(ctx context.Context, tlsConfig *tls.Config, password
 	}
 	_, err = observer.Observe(probeCtx)
 	return err == nil
+}
+
+func hostProbeDSN(raw, secretsDir string) (string, error) {
+	dsn, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse Fleet database DSN: %w", err)
+	}
+	query := dsn.Query()
+	query.Set("sslrootcert", filepath.Join(secretsDir, "service-ca.crt"))
+	query.Set("default_query_exec_mode", "cache_statement")
+	dsn.RawQuery = query.Encode()
+	return dsn.String(), nil
 }
 
 func endpointReady(ctx context.Context, tlsConfig *tls.Config, endpoint string) bool {

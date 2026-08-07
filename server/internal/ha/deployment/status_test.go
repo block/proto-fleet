@@ -1,10 +1,27 @@
 package deployment
 
 import (
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestHostProbeDSNUsesHostCAAndStatementCache(t *testing.T) {
+	// Act
+	dsn, err := hostProbeDSN(
+		"postgresql://fleet:secret@10.0.0.1:5432,10.0.0.2:5432/fleet?sslmode=verify-full&sslrootcert=/run/proto-fleet-ha/service-ca.crt&target_session_attrs=read-write",
+		"/etc/proto-fleet/ha",
+	)
+
+	// Assert
+	require.NoError(t, err)
+	parsed, err := url.Parse(dsn)
+	require.NoError(t, err)
+	require.Equal(t, "/etc/proto-fleet/ha/service-ca.crt", parsed.Query().Get("sslrootcert"))
+	require.Equal(t, "cache_statement", parsed.Query().Get("default_query_exec_mode"))
+	require.Equal(t, "read-write", parsed.Query().Get("target_session_attrs"))
+}
 
 func TestFleetRedundancyRequiresOneLiveActiveAndOneLivePassive(t *testing.T) {
 	for _, test := range []struct {
