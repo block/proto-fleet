@@ -180,6 +180,9 @@ func runUpdate(
 	if err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintf(output, "Update operation %s accepted\n", operation.ID); err != nil {
+		return fmt.Errorf("write update operation: %w", err)
+	}
 	lastPhase := updaterapi.Phase("")
 	var statusFailureSince time.Time
 	for {
@@ -191,7 +194,14 @@ func runUpdate(
 		}
 		if operation.Phase.Terminal() {
 			if operation.Phase == updaterapi.PhaseFailed {
-				return fmt.Errorf("HA application update failed: %s", operation.Error)
+				message := "HA application update failed: " + operation.Error
+				if operation.RecoveryCommand != "" {
+					message += "\nRecovery: " + operation.RecoveryCommand
+				}
+				if operation.LogPath != "" {
+					message += "\nLog: " + operation.LogPath
+				}
+				return errors.New(message)
 			}
 			return nil
 		}
