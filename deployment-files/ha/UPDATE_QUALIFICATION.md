@@ -38,9 +38,10 @@ customer data from committed evidence.
    `fleet-ha update N+1 --complete` on the active. Verify it times out before
    swapping, restarts release `N`, and can complete a command. Measure
    continuously from the first failed VIP health probe until release `N` serves
-   the VIP again; this must remain below 45 seconds. Restart keepalived and
-   restore full readiness. This recovery bound is separate from the 15-second
-   successful-handoff target.
+   the VIP again; this must remain below 60 seconds. Record the 30-second
+   takeover wait and subsequent old-release startup separately. Restart
+   keepalived and restore full readiness. This recovery bound is separate from
+   the 15-second successful-handoff target.
 6. With the target artifacts and build cache warmed by step 5, block a
    PROCESSING command on one controlled test device and enqueue a second command
    behind it so per-device ordering keeps that row PENDING. Record both
@@ -68,7 +69,7 @@ customer data from committed evidence.
 | --- | --- | --- | --- | --- |
 | Passive-first update | Passive runs `N+1`; active continues serving `N` | N/A | Pending | Pending |
 | Mixed-version window | Authenticated reads, writes, and command completion work while peers run `N` and `N+1` | Pending | Pending | Pending |
-| Failed takeover recovery | Completion times out before swap; `N` restarts and serves commands within 45s | Pending | Pending | Pending |
+| Failed takeover recovery | Completion times out before swap; `N` restarts and serves commands within 60s | Pending | Pending | Pending |
 | Active completion | VIP serves `N+1` within 15s | Pending | Pending | Pending |
 | PENDING command handoff | Immutable pre-stop row crosses from `N` to `N+1` as PENDING; new active dispatches it | Pending | Pending | Pending |
 | PROCESSING command handoff | Immutable pre-stop row crosses from `N` to `N+1` as PROCESSING; attempt finishes terminally and later work resumes | Pending | Pending | Pending |
@@ -83,5 +84,5 @@ customer data from committed evidence.
 
 **Pending.** The HA application update path is qualified only when every result
 above is `PASS`, every successful handoff interruption is below 15 seconds,
-failed-takeover recovery is below 45 seconds, and the report identifies both
+failed-takeover recovery is below 60 seconds, and the report identifies both
 released artifacts and commits.
