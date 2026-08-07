@@ -406,6 +406,46 @@ func newRelease(rel githubRelease) *Release {
 	}
 }
 
+// ValidateAdjacentStableRelease keeps HA rolling updates within the only
+// qualified compatibility boundary: the next published stable release.
+func ValidateAdjacentStableRelease(ctx context.Context, currentVersion, targetVersion string) error {
+	return validateAdjacentStableRelease(ctx, releaseAPIBaseURL, currentVersion, targetVersion)
+}
+
+func validateAdjacentStableRelease(ctx context.Context, releasesAPIURL, currentVersion, targetVersion string) error {
+	if !isCanonicalStableTag(currentVersion) || !isCanonicalStableTag(targetVersion) {
+		return errors.New("HA updates require stable release versions")
+	}
+	releases, err := newGitHubClient(releasesAPIURL, currentVersion, slog.Default()).fetchReleases(ctx)
+	if err != nil {
+		return fmt.Errorf("verify adjacent HA release: %w", err)
+	}
+	currentPublished := false
+	nextVersion := ""
+	for _, release := range releases {
+		if !isEligibleStableRelease(release) {
+			continue
+		}
+		if release.TagName == currentVersion {
+			currentPublished = true
+		}
+		if semver.Compare(release.TagName, currentVersion) > 0 &&
+			(nextVersion == "" || semver.Compare(release.TagName, nextVersion) < 0) {
+			nextVersion = release.TagName
+		}
+	}
+	if !currentPublished {
+		return fmt.Errorf("installed release %s is outside the supported adjacent-update window", currentVersion)
+	}
+	if nextVersion == "" {
+		return fmt.Errorf("no stable release is available after %s", currentVersion)
+	}
+	if targetVersion != nextVersion {
+		return fmt.Errorf("HA updates must install the next stable release %s", nextVersion)
+	}
+	return nil
+}
+
 // releaseNotesURL derives the rendered link from the fixed repository and the
 // same canonical tag grammar used for channel selection. The body-provided
 // html_url is intentionally ignored so an upstream response cannot redirect

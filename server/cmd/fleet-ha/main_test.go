@@ -80,7 +80,7 @@ func TestUpdateRequiresPassiveBeforeTriggering(t *testing.T) {
 	client := &fakeUpdaterClient{}
 
 	// Act
-	err := runUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string) error {
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string) error {
 		return errors.New("local Fleet is active")
 	}, client)
 
@@ -99,7 +99,7 @@ func TestUpdateReportsTerminalSuccess(t *testing.T) {
 	var output bytes.Buffer
 
 	// Act
-	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string) error { return nil }, client)
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string) error { return nil }, client)
 
 	// Assert
 	require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestUpdateReturnsWhenUpdaterIsUnavailable(t *testing.T) {
 	client := &fakeUpdaterClient{triggerErr: updaterapi.ErrUnavailable}
 
 	// Act
-	err := runUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string) error { return nil }, client)
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string) error { return nil }, client)
 
 	// Assert
 	require.ErrorIs(t, err, updaterapi.ErrUnavailable)
@@ -129,7 +129,7 @@ func TestUpdateFailureIncludesRecoveryDetails(t *testing.T) {
 	var output bytes.Buffer
 
 	// Act
-	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string) error { return nil }, client)
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string) error { return nil }, client)
 
 	// Assert
 	require.ErrorContains(t, err, "Recovery: fleet-ha app-start v1.2.3")

@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -97,7 +98,7 @@ func run(ctx context.Context, args []string) error {
 	case "install":
 		return runInstall(ctx, args[1:])
 	case "update":
-		return runUpdate(ctx, args[1:], os.Stdout, deployment.RequirePassive, updaterapi.NewClient(defaultUpdaterSocket))
+		return runUpdate(ctx, args[1:], os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket))
 	case "start":
 		return runStart(ctx, args[1:])
 	case "stop":
@@ -163,17 +164,27 @@ const (
 
 type updateTrigger func(context.Context, string, string) (updaterapi.Operation, error)
 
+type updatePreflight func(context.Context, string, string) error
+
+func validateHAUpdate(ctx context.Context, envPath, targetVersion string) error {
+	currentVersion, err := deployment.ValidatePassiveUpdate(ctx, envPath)
+	if err != nil {
+		return err
+	}
+	return updatesDomain.ValidateAdjacentStableRelease(ctx, currentVersion, targetVersion)
+}
+
 func runUpdate(
 	ctx context.Context,
 	args []string,
 	output io.Writer,
-	requirePassive func(context.Context, string) error,
+	preflight updatePreflight,
 	client updaterClient,
 ) error {
 	if len(args) != 1 {
 		return errors.New("usage: fleet-ha update VERSION")
 	}
-	if err := requirePassive(ctx, installedNodeEnv); err != nil {
+	if err := preflight(ctx, installedNodeEnv, args[0]); err != nil {
 		return err
 	}
 	operationID := uuid.NewString()

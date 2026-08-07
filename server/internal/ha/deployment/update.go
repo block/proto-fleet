@@ -13,17 +13,48 @@ import (
 )
 
 func RequirePassive(ctx context.Context, envPath string) error {
+	_, err := requirePassiveStatus(ctx, envPath)
+	return err
+}
+
+func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath, true)
 	if err != nil {
-		return err
+		return StatusReport{}, err
 	}
 	if report.Runtime.Observation != ha.ObservationCurrent || report.Runtime.Role != ha.RolePassive {
-		return fmt.Errorf("HA application update requires a healthy passive node; local role is %s and observation is %s", report.Runtime.Role, report.Runtime.Observation)
+		return StatusReport{}, fmt.Errorf("HA application update requires a healthy passive node; local role is %s and observation is %s", report.Runtime.Role, report.Runtime.Observation)
 	}
 	if report.Control == nil || !report.Control.FailoverReady {
-		return errors.New("HA application update requires full failover readiness")
+		return StatusReport{}, errors.New("HA application update requires full failover readiness")
 	}
-	return nil
+	return report, nil
+}
+
+// ValidatePassiveUpdate also proves that both Fleet hosts start from the same
+// release before the passive host begins a rolling update.
+func ValidatePassiveUpdate(ctx context.Context, envPath string) (string, error) {
+	report, err := requirePassiveStatus(ctx, envPath)
+	if err != nil {
+		return "", err
+	}
+	config, err := loadNodeConfig(envPath)
+	if err != nil {
+		return "", err
+	}
+	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	if err != nil {
+		return "", err
+	}
+	peerAddress := config.DatabaseAIP
+	if config.NodeIP == config.DatabaseAIP {
+		peerAddress = config.DatabaseBIP
+	}
+	peer := probeFleetHost(ctx, tlsConfig, config.VirtualIP, peerAddress)
+	if !peer.reachable || !peer.active || peer.version != report.Runtime.Version {
+		return "", fmt.Errorf("HA application update requires the active peer to run %s", report.Runtime.Version)
+	}
+	return report.Runtime.Version, nil
 }
 
 var releaseImageRepositories = [...]string{
