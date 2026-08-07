@@ -168,24 +168,46 @@ func (c *githubClient) fetchReleases(ctx context.Context) ([]githubRelease, erro
 		return nil, fmt.Errorf("GET /releases: status %d", resp.StatusCode)
 	}
 
-	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes))
+	entries, _, err := c.decodeReleases(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	c.storeReleases(resp.Header.Get("ETag"), entries)
+	return entries, nil
+}
+
+func (c *githubClient) fetchReleasePage(ctx context.Context, page int) ([]githubRelease, int, error) {
+	endpoint := fmt.Sprintf("%s/releases?per_page=%d&page=%d", c.baseURL, releasesPageSize, page)
+	resp, err := c.get(ctx, endpoint, "")
+	if err != nil {
+		return nil, 0, err
+	}
+	defer closeBody(resp)
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("GET /releases page %d: status %d", page, resp.StatusCode)
+	}
+	return c.decodeReleases(resp.Body)
+}
+
+func (c *githubClient) decodeReleases(body io.Reader) ([]githubRelease, int, error) {
+	decoder := json.NewDecoder(io.LimitReader(body, maxResponseBytes))
 	first, err := decoder.Token()
 	if err != nil {
-		return nil, fmt.Errorf("decode /releases: %w", err)
+		return nil, 0, fmt.Errorf("decode /releases: %w", err)
 	}
 	if delim, ok := first.(json.Delim); !ok || delim != '[' {
-		return nil, fmt.Errorf("decode /releases: expected JSON array")
+		return nil, 0, fmt.Errorf("decode /releases: expected JSON array")
 	}
 
 	entries := make([]githubRelease, 0, releasesPageSize)
 	rawCount := 0
 	for decoder.More() {
 		if rawCount == releasesPageSize {
-			return nil, fmt.Errorf("decode /releases: release count exceeds per-page limit %d", releasesPageSize)
+			return nil, 0, fmt.Errorf("decode /releases: release count exceeds per-page limit %d", releasesPageSize)
 		}
 		var entry json.RawMessage
 		if err := decoder.Decode(&entry); err != nil {
-			return nil, fmt.Errorf("decode /releases entry %d: %w", rawCount+1, err)
+			return nil, 0, fmt.Errorf("decode /releases entry %d: %w", rawCount+1, err)
 		}
 		rawCount++
 
@@ -197,13 +219,12 @@ func (c *githubClient) fetchReleases(ctx context.Context) ([]githubRelease, erro
 		entries = append(entries, rel)
 	}
 	if _, err := decoder.Token(); err != nil {
-		return nil, fmt.Errorf("decode /releases: %w", err)
+		return nil, 0, fmt.Errorf("decode /releases: %w", err)
 	}
 	if err := requireJSONEOF(decoder); err != nil {
-		return nil, fmt.Errorf("decode /releases: %w", err)
+		return nil, 0, fmt.Errorf("decode /releases: %w", err)
 	}
-	c.storeReleases(resp.Header.Get("ETag"), entries)
-	return entries, nil
+	return entries, rawCount, nil
 }
 
 func requireJSONEOF(decoder *json.Decoder) error {
