@@ -535,6 +535,7 @@ assert_not_contains "earlier persisted project name is ignored" "$HARNESS_CALL_L
 # Compose also accepts `KEY: value`. Read true overlay settings through that
 # syntax and atomically normalize every prior form to one final assignment.
 make_stage compose-env-booleans
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
 enable_valid_alerts "$STAGE/.env"
 printf 'DD_API_KEY=test-datadog-key\n' >> "$STAGE/.env"
 printf '%s\n' \
@@ -561,6 +562,9 @@ assert_contains "enabled one-click updates layer the socket overlay" "$HARNESS_C
 # override a persisted false value, layer the socket overlay, and survive the
 # preflight-to-activation handoff.
 make_stage enable-updater-overlay
+# The installer validates and then stops the loaded service while run-fleet
+# changes the deployment; it restarts the updater only after this handoff.
+printf 'inactive\n' > "$HARNESS_UPDATER_STATE_FILE"
 if run_stage "$STAGE" --enable-one-click-updates --non-interactive --preflight-only; then
     pass "installer updater enablement preflights"
 else
@@ -710,6 +714,18 @@ fi
 assert_contains "missing updater manager is diagnosed" "$HARNESS_OUTPUT_LOG" \
     "systemd manager is unavailable"
 assert_not_contains "missing updater manager prevents Docker activity" \
+    "$HARNESS_CALL_LOG" "docker "
+
+make_stage enabled-updater-without-service
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "enabled updater should not proceed without its systemd unit"
+else
+    pass "enabled updater fails closed when its systemd unit is missing"
+fi
+assert_contains "missing updater service is diagnosed" "$HARNESS_OUTPUT_LOG" \
+    "proto-fleet-updater.service is not installed"
+assert_not_contains "missing updater service prevents environment and Docker mutation" \
     "$HARNESS_CALL_LOG" "docker "
 
 # Persisted one-click state must fail before Docker activity when its release

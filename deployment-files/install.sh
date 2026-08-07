@@ -12,6 +12,9 @@ UPDATER_REENABLE_ON_EXIT=0
 UPDATER_RESTART_ON_EXIT=0
 UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
 UPDATER_ENV_RESTORE_FILE=""
+UPDATER_BINARY_RESTORE_FILE=""
+UPDATER_UNIT_RESTORE_FILE=""
+UPDATER_ARTIFACT_RESTORE_PENDING=0
 UPDATER_BINARY_PATH="/usr/local/libexec/proto-fleet/proto-fleet-updater"
 UPDATER_UNIT_PATH="/etc/systemd/system/proto-fleet-updater.service"
 UPDATER_RUNTIME_DIR="/run/proto-fleet-updater"
@@ -679,6 +682,20 @@ canonical_existing_install_path() {
   printf '%s\n' "$canonical"
 }
 
+promote_selected_install_if_existing() {
+  local selected="$1"
+  local marker="${selected%/}/${DEPLOYMENT_DIR}/docker-compose.yaml"
+
+  [ -z "${PREVIOUS_INSTALL_DIR:-}" ] || return 0
+  if [ ! -e "$marker" ] && [ ! -L "$marker" ]; then
+    return 0
+  fi
+  if ! PREVIOUS_INSTALL_DIR=$(canonical_existing_install_path "$selected"); then
+    return 1
+  fi
+  echo "📁 No running fleet containers, but found selected install on disk at: ${PREVIOUS_INSTALL_DIR}"
+}
+
 resolve_selected_install_path() {
   local selected="$1"
   local discovered="${2:-}"
@@ -911,12 +928,81 @@ verify_existing_updater_ownership_with() {
   fi
 }
 
-restore_updater_environment_with() {
+backup_existing_updater_artifacts_with() {
   local privilege=("$@")
-  [ -n "${UPDATER_ENV_RESTORE_FILE:-}" ] || return 0
-  [ -f "$UPDATER_ENV_RESTORE_FILE" ] || return 1
-  ${privilege[@]+"${privilege[@]}"} install -m 0600 \
-    "$UPDATER_ENV_RESTORE_FILE" "$UPDATER_ENV_PATH"
+  local env_restore binary_restore unit_restore
+
+  [ -n "${DOWNLOAD_DIR:-}" ] || return 1
+  if [ -L "$UPDATER_ENV_PATH" ] || [ ! -f "$UPDATER_ENV_PATH" ] \
+    || [ -L "$UPDATER_BINARY_PATH" ] || [ ! -f "$UPDATER_BINARY_PATH" ] \
+    || [ -L "$UPDATER_UNIT_PATH" ] || [ ! -f "$UPDATER_UNIT_PATH" ]; then
+    echo "❌ Existing host updater artifacts must be regular, non-symlink files." >&2
+    return 1
+  fi
+  env_restore="${DOWNLOAD_DIR%/}/updater.env.previous"
+  binary_restore="${DOWNLOAD_DIR%/}/proto-fleet-updater.previous"
+  unit_restore="${DOWNLOAD_DIR%/}/proto-fleet-updater.service.previous"
+  if ! ${privilege[@]+"${privilege[@]}"} install -m 0600 \
+      "$UPDATER_ENV_PATH" "$env_restore" \
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 \
+      "$UPDATER_BINARY_PATH" "$binary_restore" \
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 \
+      "$UPDATER_UNIT_PATH" "$unit_restore"; then
+    echo "❌ Could not preserve the existing host updater artifacts." >&2
+    return 1
+  fi
+  UPDATER_ENV_RESTORE_FILE="$env_restore"
+  UPDATER_BINARY_RESTORE_FILE="$binary_restore"
+  UPDATER_UNIT_RESTORE_FILE="$unit_restore"
+  UPDATER_ARTIFACT_RESTORE_PENDING=1
+}
+
+atomic_restore_file_with() {
+  local source="$1"
+  local destination="$2"
+  local mode="$3"
+  shift 3
+  local privilege=("$@")
+  local temp
+
+  if ! temp=$(${privilege[@]+"${privilege[@]}"} \
+      mktemp "${destination}.restore.XXXXXX"); then
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} install -m "$mode" \
+      "$source" "$temp" \
+    || ! ${privilege[@]+"${privilege[@]}"} mv -f -- \
+      "$temp" "$destination"; then
+    ${privilege[@]+"${privilege[@]}"} rm -f -- "$temp" || true
+    return 1
+  fi
+}
+
+restore_updater_artifacts_with() {
+  local privilege=("$@")
+
+  [ "${UPDATER_ARTIFACT_RESTORE_PENDING:-0}" = "1" ] || return 0
+  if [ -L "$UPDATER_ENV_RESTORE_FILE" ] || [ ! -f "$UPDATER_ENV_RESTORE_FILE" ] \
+    || [ -L "$UPDATER_BINARY_RESTORE_FILE" ] || [ ! -f "$UPDATER_BINARY_RESTORE_FILE" ] \
+    || [ -L "$UPDATER_UNIT_RESTORE_FILE" ] || [ ! -f "$UPDATER_UNIT_RESTORE_FILE" ]; then
+    return 1
+  fi
+  # The service is stopped before this runs. Replace each file atomically, then
+  # make systemd load the restored unit before any old enablement or active
+  # state is reinstated.
+  if ! atomic_restore_file_with \
+      "$UPDATER_ENV_RESTORE_FILE" "$UPDATER_ENV_PATH" 0600 \
+      ${privilege[@]+"${privilege[@]}"} \
+    || ! atomic_restore_file_with \
+      "$UPDATER_BINARY_RESTORE_FILE" "$UPDATER_BINARY_PATH" 0755 \
+      ${privilege[@]+"${privilege[@]}"} \
+    || ! atomic_restore_file_with \
+      "$UPDATER_UNIT_RESTORE_FILE" "$UPDATER_UNIT_PATH" 0644 \
+      ${privilege[@]+"${privilege[@]}"} \
+    || ! ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload; then
+    return 1
+  fi
+  UPDATER_ARTIFACT_RESTORE_PENDING=0
 }
 
 install_updater_bootstrap_files_with() {
@@ -1000,14 +1086,6 @@ prepare_existing_updater_service() {
     UPDATER_CLEANUP_FAILED=1
     return 1
   fi
-  local restore_file="${DOWNLOAD_DIR%/}/updater.env.previous"
-  if ! ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} install -m 0600 \
-      "$UPDATER_ENV_PATH" "$restore_file"; then
-    echo "❌ Could not preserve the existing host updater configuration." >&2
-    UPDATER_CLEANUP_FAILED=1
-    return 1
-  fi
-  UPDATER_ENV_RESTORE_FILE="$restore_file"
   if ! active_state=$(systemctl show --property=ActiveState --value \
       proto-fleet-updater.service 2>/dev/null) \
     || ! unit_file_state=$(systemctl show --property=UnitFileState --value \
@@ -1022,6 +1100,13 @@ prepare_existing_updater_service() {
   arm_existing_updater_restoration "$active_state" "$unit_file_state"
   if ! disable_updater_service_with \
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+    return 1
+  fi
+  # Snapshot a coherent stopped service. If the copy fails, the original host
+  # files are still untouched and EXIT cleanup can restart them directly.
+  if ! backup_existing_updater_artifacts_with \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+    UPDATER_CLEANUP_FAILED=1
     return 1
   fi
   return 0
@@ -1120,11 +1205,11 @@ installer_exit_cleanup() {
     echo "❌ Could not remove the private updater validation runtime." >&2
     status=1
   fi
-  if [ -n "${UPDATER_ENV_RESTORE_FILE:-}" ]; then
-    echo "🔄 Restoring the prior host updater configuration..." >&2
-    if ! restore_updater_environment_with \
+  if [ "${UPDATER_ARTIFACT_RESTORE_PENDING:-0}" = "1" ]; then
+    echo "🔄 Restoring the prior host updater artifacts..." >&2
+    if ! restore_updater_artifacts_with \
         ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
-      echo "❌ Could not restore the prior host updater configuration." >&2
+      echo "❌ Could not restore the prior host updater artifacts." >&2
       UPDATER_REENABLE_ON_EXIT=0
       UPDATER_RESTART_ON_EXIT=0
       status=1
@@ -1148,7 +1233,9 @@ installer_exit_cleanup() {
       status=1
     fi
   fi
-  if [ -n "${DOWNLOAD_DIR:-}" ]; then
+  if [ "${UPDATER_ARTIFACT_RESTORE_PENDING:-0}" = "1" ]; then
+    echo "⚠️  Preserving updater rollback artifacts after failed restoration: $DOWNLOAD_DIR" >&2
+  elif [ -n "${DOWNLOAD_DIR:-}" ]; then
     rm -rf -- "$DOWNLOAD_DIR"
   fi
   exit "$status"
@@ -1562,6 +1649,9 @@ case "$INSTALL_DIR" in
     ;;
 esac
 
+if ! promote_selected_install_if_existing "$INSTALL_DIR"; then
+  exit 1
+fi
 if ! INSTALL_DIR=$(resolve_selected_install_path "$INSTALL_DIR" "${PREVIOUS_INSTALL_DIR:-}"); then
   exit 1
 fi
@@ -1771,6 +1861,9 @@ install_updater_service() {
   # installation root. Interrupted cleanup can safely restart it without
   # restoring the pre-validation file.
   UPDATER_ENV_RESTORE_FILE=""
+  UPDATER_BINARY_RESTORE_FILE=""
+  UPDATER_UNIT_RESTORE_FILE=""
+  UPDATER_ARTIFACT_RESTORE_PENDING=0
   UPDATER_REENABLE_ON_EXIT=0
   # From this point until the explicit post-run restart, every unexpected exit
   # must restore the validated service for the existing deployment.

@@ -573,6 +573,21 @@ else
 fi
 
 if (
+  root="$TEST_TMP/interactive-stopped-custom-install"
+  make_install "$root"
+  FAKE_UID=$(command id -u)
+  PREVIOUS_INSTALL_DIR=""
+  promote_selected_install_if_existing "$root" \
+    && resolved=$(resolve_selected_install_path "$root" "$PREVIOUS_INSTALL_DIR") \
+    && [ "$PREVIOUS_INSTALL_DIR" = "$(cd "$root" && pwd -P)" ] \
+    && [ "$resolved" = "$PREVIOUS_INSTALL_DIR" ]
+); then
+  pass "interactively selected stopped deployment is promoted before fresh validation"
+else
+  fail "interactive custom-path deployment was treated as a fresh install"
+fi
+
+if (
   root="$TEST_TMP/stopped-custom-symlink-marker"
   marker_target="$TEST_TMP/stopped-custom-marker-target"
   make_install "$root"
@@ -606,13 +621,19 @@ else
 fi
 
 requested_disk_line=$(grep -n '&& \[ -n "\$REQUESTED_INSTALL_DIR" \]' "$INSTALL_SCRIPT" | cut -d: -f1)
+interactive_selection_line=$(grep -n 'INSTALL_DIR="\${custom_dir:-\$DEFAULT_INSTALL_DIR}"' "$INSTALL_SCRIPT" | cut -d: -f1)
+selected_promotion_line=$(grep -n '^if ! promote_selected_install_if_existing "\$INSTALL_DIR"; then$' "$INSTALL_SCRIPT" | cut -d: -f1)
 resolve_selected_line=$(grep -n '^if ! INSTALL_DIR=$(resolve_selected_install_path' "$INSTALL_SCRIPT" | cut -d: -f1)
 if [ -n "$requested_disk_line" ] \
+  && [ -n "$interactive_selection_line" ] \
+  && [ -n "$selected_promotion_line" ] \
   && [ -n "$resolve_selected_line" ] \
-  && [ "$requested_disk_line" -lt "$resolve_selected_line" ]; then
-  pass "explicit on-disk deployment recognition precedes fresh-path resolution"
+  && [ "$requested_disk_line" -lt "$resolve_selected_line" ] \
+  && [ "$interactive_selection_line" -lt "$selected_promotion_line" ] \
+  && [ "$selected_promotion_line" -lt "$resolve_selected_line" ]; then
+  pass "explicit and interactive on-disk recognition precede fresh-path resolution"
 else
-  fail "explicit custom-path installs are not promoted before fresh validation"
+  fail "custom-path installs are not promoted after selection and before fresh validation"
 fi
 
 if ! validate_install_path_metadata /srv/foreign 2000 755 1000 1 \
@@ -907,6 +928,30 @@ else
 fi
 
 if (
+  DOWNLOAD_DIR="$TEST_TMP/updater-artifact-backup"
+  UPDATER_ENV_PATH="$TEST_TMP/updater-artifact-current.env"
+  UPDATER_BINARY_PATH="$TEST_TMP/updater-artifact-current.bin"
+  UPDATER_UNIT_PATH="$TEST_TMP/updater-artifact-current.service"
+  mkdir -p "$DOWNLOAD_DIR"
+  printf 'old environment\n' > "$UPDATER_ENV_PATH"
+  printf 'old binary\n' > "$UPDATER_BINARY_PATH"
+  printf 'old unit\n' > "$UPDATER_UNIT_PATH"
+  UPDATER_ENV_RESTORE_FILE=""
+  UPDATER_BINARY_RESTORE_FILE=""
+  UPDATER_UNIT_RESTORE_FILE=""
+  UPDATER_ARTIFACT_RESTORE_PENDING=0
+  backup_existing_updater_artifacts_with \
+    && [ "$UPDATER_ARTIFACT_RESTORE_PENDING" = 1 ] \
+    && [ "$(cat "$UPDATER_ENV_RESTORE_FILE")" = 'old environment' ] \
+    && [ "$(cat "$UPDATER_BINARY_RESTORE_FILE")" = 'old binary' ] \
+    && [ "$(cat "$UPDATER_UNIT_RESTORE_FILE")" = 'old unit' ]
+); then
+  pass "existing updater backup preserves environment, binary, and unit"
+else
+  fail "existing updater backup omits a rollback artifact"
+fi
+
+if (
   restore_log="$TEST_TMP/updater-exit-restore"
   DOWNLOAD_DIR="$TEST_TMP/updater-exit-download"
   mkdir -p "$DOWNLOAD_DIR"
@@ -938,32 +983,54 @@ if (
   DOWNLOAD_DIR="$TEST_TMP/updater-validation-download"
   mkdir -p "$DOWNLOAD_DIR"
   UPDATER_ENV_PATH="$TEST_TMP/updater-validation-current.env"
+  UPDATER_BINARY_PATH="$TEST_TMP/updater-validation-current.bin"
+  UPDATER_UNIT_PATH="$TEST_TMP/updater-validation-current.service"
   UPDATER_ENV_RESTORE_FILE="$DOWNLOAD_DIR/updater.env.previous"
-  printf 'production socket\n' > "$UPDATER_ENV_RESTORE_FILE"
-  printf 'validation socket\n' > "$UPDATER_ENV_PATH"
+  UPDATER_BINARY_RESTORE_FILE="$DOWNLOAD_DIR/proto-fleet-updater.previous"
+  UPDATER_UNIT_RESTORE_FILE="$DOWNLOAD_DIR/proto-fleet-updater.service.previous"
+  printf 'old environment\n' > "$UPDATER_ENV_RESTORE_FILE"
+  printf 'old binary\n' > "$UPDATER_BINARY_RESTORE_FILE"
+  printf 'old unit\n' > "$UPDATER_UNIT_RESTORE_FILE"
+  printf 'new environment\n' > "$UPDATER_ENV_PATH"
+  printf 'new binary\n' > "$UPDATER_BINARY_PATH"
+  printf 'new unit\n' > "$UPDATER_UNIT_PATH"
   UPDATER_PRIVILEGE=()
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=1
   UPDATER_RESTART_ON_EXIT=1
+  UPDATER_ARTIFACT_RESTORE_PENDING=1
+  systemctl() {
+    printf '%s\n' "$*" >> "$restore_log"
+    return 0
+  }
   disable_updater_service_with() {
     printf 'disable\n' >> "$restore_log"
     return 0
   }
   restart_updater_service_with() {
     printf 'restart-socket %s\n' "$1" >> "$restore_log"
-    [ "$(cat "$UPDATER_ENV_PATH")" = 'production socket' ]
+    [ "$(cat "$UPDATER_ENV_PATH")" = 'old environment' ] \
+      && [ "$(cat "$UPDATER_BINARY_PATH")" = 'old binary' ] \
+      && [ "$(cat "$UPDATER_UNIT_PATH")" = 'old unit' ]
   }
   (trap installer_exit_cleanup EXIT; exit 7)
   cleanup_status=$?
+  reload_line=$(grep -n '^daemon-reload$' "$restore_log" | cut -d: -f1)
+  enable_line=$(grep -n '^enable proto-fleet-updater.service$' "$restore_log" | cut -d: -f1)
+  restart_line=$(grep -n '^restart-socket /run/proto-fleet-updater/updater.sock$' "$restore_log" | cut -d: -f1)
   [ "$cleanup_status" -eq 7 ] \
-    && [ "$(cat "$UPDATER_ENV_PATH")" = 'production socket' ] \
+    && [ "$(cat "$UPDATER_ENV_PATH")" = 'old environment' ] \
+    && [ "$(cat "$UPDATER_BINARY_PATH")" = 'old binary' ] \
+    && [ "$(cat "$UPDATER_UNIT_PATH")" = 'old unit' ] \
     && [ "$(sed -n '1p' "$restore_log")" = disable ] \
-    && grep -q '^restart-socket /run/proto-fleet-updater/updater.sock$' "$restore_log" \
+    && [ -n "$reload_line" ] \
+    && [ "$reload_line" -lt "$enable_line" ] \
+    && [ "$enable_line" -lt "$restart_line" ] \
     && [ ! -e "$DOWNLOAD_DIR" ]
 ); then
-  pass "interrupted validation restores production configuration before restart"
+  pass "interrupted validation atomically restores all updater artifacts before restart"
 else
-  fail "validation interruption can restart the updater with its private socket configuration"
+  fail "validation interruption can restart a partially replaced updater"
 fi
 
 if (

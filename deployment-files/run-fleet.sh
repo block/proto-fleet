@@ -131,7 +131,13 @@ quiesce_updater_for_direct_run() {
         echo "Error: could not inspect proto-fleet-updater.service before the manual deployment run." >&2
         return 1
     fi
-    [ "$load_state" != "not-found" ] || return 0
+    if [ "$load_state" = "not-found" ]; then
+        if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
+            echo "Error: one-click updates are enabled, but proto-fleet-updater.service is not installed." >&2
+            return 1
+        fi
+        return 0
+    fi
     if ! active_state=$(systemctl show --property=ActiveState --value \
         proto-fleet-updater.service 2>/dev/null); then
         echo "Error: could not inspect proto-fleet-updater.service state before the manual deployment run." >&2
