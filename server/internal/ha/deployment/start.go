@@ -71,10 +71,24 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
+	authenticated := false
 	for {
-		if startupEtcdQuorum(ctx, client, endpoints) {
+		quorum, authRequired := startupEtcdQuorum(ctx, client.Status, endpoints)
+		if quorum {
 			return nil
+		}
+		if authRequired {
+			if authenticated {
+				return errors.New("fleet etcd observer credentials were rejected")
+			}
+			_ = client.Close()
+			client, endpoints, err = authenticatedEtcdClient(config)
+			if err != nil {
+				return err
+			}
+			authenticated = true
+			continue
 		}
 		select {
 		case <-ctx.Done():
@@ -84,29 +98,39 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 	}
 }
 
+type startupEtcdStatus func(context.Context, string) (*clientv3.StatusResponse, error)
+
 type startupEtcdIdentity struct {
 	clusterID uint64
 	memberID  uint64
 	leaderID  uint64
 }
 
-func startupEtcdQuorum(ctx context.Context, client *clientv3.Client, endpoints []string) bool {
-	results := make(chan startupEtcdIdentity, len(endpoints))
+type startupEtcdResult struct {
+	identity     startupEtcdIdentity
+	authRequired bool
+}
+
+func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints []string) (bool, bool) {
+	results := make(chan startupEtcdResult, len(endpoints))
 	for _, endpoint := range endpoints {
 		go func() {
 			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			response, err := client.Status(probeCtx, endpoint)
+			response, err := status(probeCtx, endpoint)
 			if err != nil || response.Header == nil {
-				results <- startupEtcdIdentity{}
+				results <- startupEtcdResult{authRequired: etcdAuthRequired(err)}
 				return
 			}
-			results <- startupEtcdIdentity{response.Header.ClusterId, response.Header.MemberId, response.Leader}
+			results <- startupEtcdResult{identity: startupEtcdIdentity{response.Header.ClusterId, response.Header.MemberId, response.Leader}}
 		}()
 	}
 	groups := make(map[[2]uint64]map[uint64]struct{})
+	authRequired := false
 	for range endpoints {
-		identity := <-results
+		result := <-results
+		authRequired = authRequired || result.authRequired
+		identity := result.identity
 		if identity.clusterID == 0 || identity.memberID == 0 || identity.leaderID == 0 {
 			continue
 		}
@@ -118,10 +142,14 @@ func startupEtcdQuorum(ctx context.Context, client *clientv3.Client, endpoints [
 	}
 	for key, members := range groups {
 		if _, leaderResponded := members[key[1]]; leaderResponded && len(members) >= 2 {
-			return true
+			return true, authRequired
 		}
 	}
-	return false
+	return false, authRequired
+}
+
+func etcdAuthRequired(err error) bool {
+	return errors.Is(err, rpctypes.ErrPermissionDenied) || errors.Is(err, rpctypes.ErrAuthFailed) || errors.Is(err, rpctypes.ErrUserEmpty)
 }
 
 func etcdAuthEnabled(ctx context.Context, config NodeConfig) (bool, error) {
@@ -136,7 +164,7 @@ func etcdAuthEnabled(ctx context.Context, config NodeConfig) (bool, error) {
 	switch {
 	case err == nil:
 		return false, nil
-	case errors.Is(err, rpctypes.ErrPermissionDenied), errors.Is(err, rpctypes.ErrAuthFailed), errors.Is(err, rpctypes.ErrUserEmpty):
+	case etcdAuthRequired(err):
 		return true, nil
 	default:
 		return false, fmt.Errorf("check etcd authentication: %w", err)
@@ -154,10 +182,30 @@ func StopInstalledServices(ctx context.Context, envPath string) error {
 			return fmt.Errorf("stop Fleet: %w", err)
 		}
 	}
-	return RunCompose(ctx, []string{"--env-file", envPath, "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "down"})
+	return RunCompose(ctx, infrastructureDownArgs(envPath, config.isDatabaseNode()))
+}
+
+func infrastructureDownArgs(envPath string, databaseNode bool) []string {
+	args := []string{"--env-file", envPath, "--file", filepath.Join(installRoot, "ha", "compose.yaml")}
+	if databaseNode {
+		args = append(args, "--profile", "database")
+	}
+	return append(args, "down")
 }
 
 func unauthenticatedEtcdClient(config NodeConfig) (*clientv3.Client, []string, error) {
+	return startupEtcdClient(config, "", "")
+}
+
+func authenticatedEtcdClient(config NodeConfig) (*clientv3.Client, []string, error) {
+	password, err := readPassword(filepath.Join(config.SecretsDir, fleetEtcdPasswordFile))
+	if err != nil {
+		return nil, nil, fmt.Errorf("read Fleet etcd password: %w", err)
+	}
+	return startupEtcdClient(config, "fleet-observer", password)
+}
+
+func startupEtcdClient(config NodeConfig, username, password string) (*clientv3.Client, []string, error) {
 	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
 	if err != nil {
 		return nil, nil, err
@@ -169,6 +217,8 @@ func unauthenticatedEtcdClient(config NodeConfig) (*clientv3.Client, []string, e
 	}
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
+		Username:    username,
+		Password:    password,
 		TLS:         tlsConfig,
 		DialTimeout: 2 * time.Second,
 	})
