@@ -14,6 +14,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/google/uuid"
 
+	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -114,7 +115,7 @@ type updateCmd struct {
 }
 
 func (c *updateCmd) Run(ctx context.Context) error {
-	return runUpdate(ctx, c.Version, os.Stdout, deployment.RequirePassive, updaterapi.NewClient(defaultUpdaterSocket))
+	return runUpdate(ctx, c.Version, os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket))
 }
 
 type startCmd struct {
@@ -221,14 +222,24 @@ const (
 
 type updateTrigger func(context.Context, string, string) (updaterapi.Operation, error)
 
+type updatePreflight func(context.Context, string, string) error
+
+func validateHAUpdate(ctx context.Context, envPath, targetVersion string) error {
+	currentVersion, err := deployment.ValidatePassiveUpdate(ctx, envPath)
+	if err != nil {
+		return err
+	}
+	return updatesDomain.ValidateAdjacentStableRelease(ctx, currentVersion, targetVersion)
+}
+
 func runUpdate(
 	ctx context.Context,
 	targetVersion string,
 	output io.Writer,
-	requirePassive func(context.Context, string) error,
+	preflight updatePreflight,
 	client updaterClient,
 ) error {
-	if err := requirePassive(ctx, installedNodeEnv); err != nil {
+	if err := preflight(ctx, installedNodeEnv, targetVersion); err != nil {
 		return err
 	}
 	operationID := uuid.NewString()
