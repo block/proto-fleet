@@ -140,7 +140,7 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/firewall.nft.tmpl" "tcp dport 40000 drop"
 
     for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
-        assert_contains "$nginx_config" "location = /api-proxy/health/ha"
+        assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"
         assert_contains "$nginx_config" "return 404;"
     done
 }
