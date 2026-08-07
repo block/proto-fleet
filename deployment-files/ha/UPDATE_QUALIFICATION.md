@@ -41,18 +41,20 @@ customer data from committed evidence.
    the VIP again; this must remain below 45 seconds. Restart keepalived and
    restore full readiness. This recovery bound is separate from the 15-second
    successful-handoff target.
-6. Retry `fleet-ha update N+1 --complete` and measure from the first failed VIP
-   health probe until the VIP serves `N+1`. Verify the former active is now
-   passive on `N+1`, then repeat the updater version, service, socket, warning,
-   and redacted-log checks from step 3 on this host.
-7. On one controlled test device, block a PROCESSING command and enqueue a
-   second command behind it so per-device ordering keeps that row PENDING.
-   Record both immutable queue row IDs and preserve a timestamped database
-   sample no more than one second before forcing an application failover.
-8. Verify the PENDING row is dispatched, the interrupted PROCESSING attempt
-   reaches its documented terminal state, and a later command for that device
-   succeeds. Force an application failover back, submit another command through
-   the VIP, and verify it succeeds.
+6. With the target artifacts and build cache warmed by step 5, block a
+   PROCESSING command on one controlled test device and enqueue a second command
+   behind it so per-device ordering keeps that row PENDING. Record both
+   immutable queue row IDs, retry `fleet-ha update N+1 --complete`, and sample
+   both rows throughout the retry. The gate fails if either state changes before
+   `fleet-api` stops; retain a final timestamped sample no more than one second
+   before that stop. Measure until the VIP serves `N+1`.
+7. Verify those exact rows on `N+1`: the PENDING row is dispatched, the
+   interrupted PROCESSING attempt reaches its documented terminal state, and a
+   later command for that device succeeds. Verify the former active is passive
+   on `N+1`, then repeat the updater version, service, socket, warning, and
+   redacted-log checks from step 3 on this host.
+8. Force an application failover to the former active and back to its peer.
+   Submit a command through the VIP after each failover and verify it succeeds.
 9. Compare the infrastructure container IDs recorded in step 2. Prove that the
    application update did not replace etcd, Patroni, or PostgreSQL.
 10. Reboot both database hosts, one at a time, restoring full readiness between
@@ -68,8 +70,8 @@ customer data from committed evidence.
 | Mixed-version window | Authenticated reads, writes, and command completion work while peers run `N` and `N+1` | Pending | Pending | Pending |
 | Failed takeover recovery | Completion times out before swap; `N` restarts and serves commands within 45s | Pending | Pending | Pending |
 | Active completion | VIP serves `N+1` within 15s | Pending | Pending | Pending |
-| PENDING command failover | Immutable pre-stop row is PENDING; new active dispatches it | Pending | Pending | Pending |
-| PROCESSING command failover | Immutable pre-stop row is PROCESSING; attempt finishes terminally and later work resumes | Pending | Pending | Pending |
+| PENDING command handoff | Immutable pre-stop row crosses from `N` to `N+1` as PENDING; new active dispatches it | Pending | Pending | Pending |
+| PROCESSING command handoff | Immutable pre-stop row crosses from `N` to `N+1` as PROCESSING; attempt finishes terminally and later work resumes | Pending | Pending | Pending |
 | Failover to peer | VIP serves `N+1` within 15s | Pending | Pending | Pending |
 | Failover back | VIP serves `N+1` within 15s | Pending | Pending | Pending |
 | Command execution | Command succeeds after both failovers | N/A | Pending | Pending |
