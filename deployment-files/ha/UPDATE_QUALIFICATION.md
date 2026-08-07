@@ -31,13 +31,17 @@ customer data from committed evidence.
    completion while `N` remains active.
 5. Stop keepalived on the updated passive, then run
    `fleet-ha update N+1 --complete` on the active. Verify it times out before
-   swapping, restarts release `N`, serves the VIP within 45 seconds, and can
-   complete a command. Restart keepalived and restore full readiness. This
-   recovery bound is separate from the 15-second successful-handoff target.
-6. Using different test devices, leave one command PENDING and one command
-   PROCESSING as described by the clean-install qualification, then retry
-   `fleet-ha update N+1 --complete`. Measure from the first failed VIP health
-   probe until the VIP serves `N+1`.
+   swapping, restarts release `N`, and can complete a command. Measure
+   continuously from the first failed VIP health probe until release `N` serves
+   the VIP again; this must remain below 45 seconds. Restart keepalived and
+   restore full readiness. This recovery bound is separate from the 15-second
+   successful-handoff target.
+6. On one controlled test device, block a PROCESSING command and enqueue a
+   second command behind it so per-device ordering keeps that row PENDING.
+   Sample both database states with timestamps throughout update preflight and
+   preserve the final sample no more than one second before `fleet-api` stops.
+   Retry `fleet-ha update N+1 --complete` and measure from the first failed VIP
+   health probe until the VIP serves `N+1`.
 7. Verify the PENDING command is dispatched, the interrupted PROCESSING attempt
    reaches its documented terminal state, and a later command for that device
    succeeds.
@@ -59,8 +63,8 @@ customer data from committed evidence.
 | Mixed-version window | Authenticated reads, writes, and command completion work while peers run `N` and `N+1` | Pending | Pending | Pending |
 | Failed takeover recovery | Completion times out before swap; `N` restarts and serves commands within 45s | Pending | Pending | Pending |
 | Active completion | VIP serves `N+1` within 15s | Pending | Pending | Pending |
-| PENDING command handoff | New active dispatches the queued command | Pending | Pending | Pending |
-| PROCESSING command handoff | Interrupted attempt finishes terminally and later work resumes | Pending | Pending | Pending |
+| PENDING command handoff | Timestamped pre-stop evidence shows PENDING; new active dispatches it | Pending | Pending | Pending |
+| PROCESSING command handoff | Timestamped pre-stop evidence shows PROCESSING; attempt finishes terminally and later work resumes | Pending | Pending | Pending |
 | Failover to peer | VIP serves `N+1` within 15s | Pending | Pending | Pending |
 | Failover back | VIP serves `N+1` within 15s | Pending | Pending | Pending |
 | Command execution | Command succeeds after both failovers | N/A | Pending | Pending |
