@@ -90,7 +90,11 @@ func TestUpdateRequiresPassiveBeforeTriggering(t *testing.T) {
 
 func TestUpdateReportsTerminalSuccess(t *testing.T) {
 	// Arrange
-	client := &fakeUpdaterClient{}
+	client := &fakeUpdaterClient{operation: updaterapi.Operation{
+		Phase:   updaterapi.PhaseSucceeded,
+		Message: "Fleet v1.2.3 is running; host updater refresh needs attention",
+		LogPath: "/var/log/proto-fleet-updater/update.log",
+	}}
 	var output bytes.Buffer
 
 	// Act
@@ -100,6 +104,8 @@ func TestUpdateReportsTerminalSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, client.triggered)
 	require.Contains(t, output.String(), "v1.2.3: succeeded")
+	require.Contains(t, output.String(), "host updater refresh needs attention")
+	require.Contains(t, output.String(), "Log: /var/log/proto-fleet-updater/update.log")
 }
 
 func TestUpdateReturnsWhenUpdaterIsUnavailable(t *testing.T) {
