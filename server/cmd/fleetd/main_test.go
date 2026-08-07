@@ -125,6 +125,7 @@ func TestFleetdParsesHAEnabledFromEnv(t *testing.T) {
 	t.Setenv("FLEET_HA_ENABLED", "true")
 	t.Setenv("FLEET_HA_ETCD_ENDPOINTS", "https://10.0.0.1:2379,https://10.0.0.2:2379")
 	t.Setenv("FLEET_HA_ENDPOINT_IP", "10.0.0.100")
+	t.Setenv("FLEET_HA_ENDPOINT_INTERFACE", "eth0")
 
 	configPath := writeFleetdConfigFile(t, `
 auth:
@@ -147,6 +148,7 @@ encrypt:
 	require.True(t, config.HA.Enabled)
 	require.Equal(t, []string{"https://10.0.0.1:2379", "https://10.0.0.2:2379"}, config.HA.EtcdEndpoints)
 	require.Equal(t, "10.0.0.100", config.HA.EndpointIP)
+	require.Equal(t, "eth0", config.HA.EndpointInterface)
 	require.NoError(t, config.HA.Validate())
 }
 

@@ -12,9 +12,9 @@ const EndpointHeartbeatFile = "/run/proto-fleet-ha/endpoint-heartbeat"
 
 // Endpoint health requires both local VIP ownership and proof that keepalived
 // is still successfully probing the active client path.
-func newEndpointHealth(endpointIP netip.Addr, heartbeatFile string, timeout time.Duration) func() bool {
+func newEndpointHealth(endpointIP netip.Addr, endpointInterface, heartbeatFile string, timeout time.Duration) func() bool {
 	return func() bool {
-		if !localAddressAssigned(endpointIP) {
+		if !localAddressAssigned(endpointIP, endpointInterface) {
 			return false
 		}
 		info, err := os.Stat(heartbeatFile)
@@ -26,9 +26,13 @@ func newEndpointHealth(endpointIP netip.Addr, heartbeatFile string, timeout time
 	}
 }
 
-func localAddressAssigned(want netip.Addr) bool {
+func localAddressAssigned(want netip.Addr, interfaceName string) bool {
 	// Re-read every sample because keepalived can move the VIP asynchronously.
-	addresses, err := net.InterfaceAddrs()
+	networkInterface, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return false
+	}
+	addresses, err := networkInterface.Addrs()
 	if err != nil {
 		return false
 	}

@@ -25,17 +25,18 @@ func TestNewConfiguredRuntimeUsesStandaloneModeWithoutReadingHAFiles(t *testing.
 
 func TestNewConfiguredRuntimeValidatesHADependenciesBeforeReadingHAFiles(t *testing.T) {
 	valid := Config{
-		Enabled:          true,
-		ClusterPath:      "/service/proto-fleet",
-		EtcdEndpoints:    []string{"https://10.0.0.1:2379"},
-		EtcdUsername:     "fleet-observer",
-		EtcdPasswordFile: filepath.Join(t.TempDir(), "missing-password"),
-		ServiceCAFile:    filepath.Join(t.TempDir(), "missing-ca"),
-		LeaseDuration:    10 * time.Second,
-		RenewInterval:    3 * time.Second,
-		RetryInterval:    time.Second,
-		DialTimeout:      5 * time.Second,
-		EndpointIP:       "10.0.0.100",
+		Enabled:           true,
+		ClusterPath:       "/service/proto-fleet",
+		EtcdEndpoints:     []string{"https://10.0.0.1:2379"},
+		EtcdUsername:      "fleet-observer",
+		EtcdPasswordFile:  filepath.Join(t.TempDir(), "missing-password"),
+		ServiceCAFile:     filepath.Join(t.TempDir(), "missing-ca"),
+		LeaseDuration:     10 * time.Second,
+		RenewInterval:     3 * time.Second,
+		RetryInterval:     time.Second,
+		DialTimeout:       5 * time.Second,
+		EndpointIP:        "10.0.0.100",
+		EndpointInterface: "eth0",
 	}
 	group, err := runtimejobs.NewGroup(nil)
 	require.NoError(t, err)
@@ -70,17 +71,18 @@ func TestNewConfiguredRuntimeValidatesHADependenciesBeforeReadingHAFiles(t *test
 
 func TestHAConfigValidation(t *testing.T) {
 	valid := Config{
-		Enabled:          true,
-		ClusterPath:      "/service/proto-fleet",
-		EtcdEndpoints:    []string{"https://10.0.0.1:2379", "https://10.0.0.2:2379"},
-		EtcdUsername:     "fleet-observer",
-		EtcdPasswordFile: "/run/secrets/etcd-password",
-		ServiceCAFile:    "/etc/proto-fleet/ha/service-ca.crt",
-		LeaseDuration:    10 * time.Second,
-		RenewInterval:    3 * time.Second,
-		RetryInterval:    time.Second,
-		DialTimeout:      5 * time.Second,
-		EndpointIP:       "10.0.0.100",
+		Enabled:           true,
+		ClusterPath:       "/service/proto-fleet",
+		EtcdEndpoints:     []string{"https://10.0.0.1:2379", "https://10.0.0.2:2379"},
+		EtcdUsername:      "fleet-observer",
+		EtcdPasswordFile:  "/run/secrets/etcd-password",
+		ServiceCAFile:     "/etc/proto-fleet/ha/service-ca.crt",
+		LeaseDuration:     10 * time.Second,
+		RenewInterval:     3 * time.Second,
+		RetryInterval:     time.Second,
+		DialTimeout:       5 * time.Second,
+		EndpointIP:        "10.0.0.100",
+		EndpointInterface: "eth0",
 	}
 	require.NoError(t, valid.Validate())
 
@@ -105,6 +107,13 @@ func TestHAConfigValidation(t *testing.T) {
 				config.EndpointIP = "127.0.0.1"
 			},
 			wantError: "endpoint IP must be a routable literal IPv4 address",
+		},
+		{
+			name: "endpoint interface is missing",
+			configure: func(config *Config) {
+				config.EndpointInterface = ""
+			},
+			wantError: "endpoint interface is required",
 		},
 		{
 			name: "lease duration has sub-millisecond precision",

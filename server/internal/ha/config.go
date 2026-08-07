@@ -24,17 +24,18 @@ import (
 // Config keeps HA opt-in so existing single-instance deployments remain
 // standalone and do not need etcd or Patroni credentials.
 type Config struct {
-	Enabled          bool          `help:"Enable active/passive Fleet runtime ownership." default:"false" env:"ENABLED"`
-	ClusterPath      string        `help:"Patroni DCS cluster path." default:"/service/proto-fleet" env:"CLUSTER_PATH"`
-	EtcdEndpoints    []string      `help:"Comma-separated HTTPS etcd endpoints." env:"ETCD_ENDPOINTS" sep:","`
-	EtcdUsername     string        `help:"Read-only etcd observer username." default:"fleet-observer" env:"ETCD_USERNAME"`
-	EtcdPasswordFile string        `help:"Path to the etcd observer password file." default:"/etc/proto-fleet/ha/fleet-etcd-password" env:"ETCD_PASSWORD_FILE" type:"path"`
-	ServiceCAFile    string        `help:"Path to the CA that signs etcd and Patroni service certificates." default:"/etc/proto-fleet/ha/service-ca.crt" env:"SERVICE_CA_FILE" type:"path"`
-	LeaseDuration    time.Duration `help:"Fleet active lease duration." default:"10s" env:"LEASE_DURATION"`
-	RenewInterval    time.Duration `help:"Fleet active lease renewal interval." default:"3s" env:"RENEW_INTERVAL"`
-	RetryInterval    time.Duration `help:"Passive ownership retry interval." default:"1s" env:"RETRY_INTERVAL"`
-	DialTimeout      time.Duration `help:"etcd connection timeout." default:"5s" env:"DIAL_TIMEOUT"`
-	EndpointIP       string        `help:"Stable endpoint IPv4 address owned by keepalived." env:"ENDPOINT_IP"`
+	Enabled           bool          `help:"Enable active/passive Fleet runtime ownership." default:"false" env:"ENABLED"`
+	ClusterPath       string        `help:"Patroni DCS cluster path." default:"/service/proto-fleet" env:"CLUSTER_PATH"`
+	EtcdEndpoints     []string      `help:"Comma-separated HTTPS etcd endpoints." env:"ETCD_ENDPOINTS" sep:","`
+	EtcdUsername      string        `help:"Read-only etcd observer username." default:"fleet-observer" env:"ETCD_USERNAME"`
+	EtcdPasswordFile  string        `help:"Path to the etcd observer password file." default:"/etc/proto-fleet/ha/fleet-etcd-password" env:"ETCD_PASSWORD_FILE" type:"path"`
+	ServiceCAFile     string        `help:"Path to the CA that signs etcd and Patroni service certificates." default:"/etc/proto-fleet/ha/service-ca.crt" env:"SERVICE_CA_FILE" type:"path"`
+	LeaseDuration     time.Duration `help:"Fleet active lease duration." default:"10s" env:"LEASE_DURATION"`
+	RenewInterval     time.Duration `help:"Fleet active lease renewal interval." default:"3s" env:"RENEW_INTERVAL"`
+	RetryInterval     time.Duration `help:"Passive ownership retry interval." default:"1s" env:"RETRY_INTERVAL"`
+	DialTimeout       time.Duration `help:"etcd connection timeout." default:"5s" env:"DIAL_TIMEOUT"`
+	EndpointIP        string        `help:"Stable endpoint IPv4 address owned by keepalived." env:"ENDPOINT_IP"`
+	EndpointInterface string        `help:"Network interface that owns the stable endpoint IPv4 address." env:"ENDPOINT_INTERFACE"`
 }
 
 // NewConfiguredRuntime creates a standalone runtime unless HA is explicitly
@@ -121,7 +122,7 @@ func NewConfiguredRuntime(
 		_ = cleanup()
 		return nil, nil, err
 	}
-	endpointHealthy := newEndpointHealth(netip.MustParseAddr(config.EndpointIP), EndpointHeartbeatFile, endpointHeartbeatTimeout)
+	endpointHealthy := newEndpointHealth(netip.MustParseAddr(config.EndpointIP), config.EndpointInterface, EndpointHeartbeatFile, endpointHeartbeatTimeout)
 	runtime := newRuntime(coordinator, group, healthy, RuntimeConfig{
 		EndpointHealthy: endpointHealthy,
 	})
@@ -148,6 +149,9 @@ func (config Config) Validate() error {
 	endpointIP, err := netip.ParseAddr(config.EndpointIP)
 	if err != nil || !endpointIP.Is4() || !endpointIP.IsGlobalUnicast() || endpointIP.As4()[0] == 0 {
 		return errors.New("HA endpoint IP must be a routable literal IPv4 address")
+	}
+	if config.EndpointInterface == "" {
+		return errors.New("HA endpoint interface is required")
 	}
 	for _, endpoint := range config.EtcdEndpoints {
 		parsed, err := url.Parse(endpoint)

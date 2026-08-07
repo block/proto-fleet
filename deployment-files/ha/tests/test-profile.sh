@@ -104,6 +104,7 @@ test_fleet_ha_contract() {
     HA_DB_B_IP=10.40.0.12 \
     HA_DCS_C_IP=10.40.0.13 \
     HA_VIRTUAL_IP=10.40.0.100 \
+    HA_NETWORK_INTERFACE=eth0 \
     HA_SECRETS_DIR=/etc/proto-fleet/ha \
         docker compose \
         --file "${release_dir}/docker-compose.yaml" \
@@ -117,6 +118,7 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "FLEET_HA_ENABLED: \"true\""
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/service-ca.crt"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-etcd-password"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.crt"

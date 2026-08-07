@@ -8,6 +8,7 @@ services:
       FLEET_HA_ENABLED: "true"
       FLEET_HA_ETCD_ENDPOINTS: "https://${HA_DB_A_IP}:2379,https://${HA_DB_B_IP}:2379,https://${HA_DCS_C_IP}:2379"
       FLEET_HA_ENDPOINT_IP: "${HA_VIRTUAL_IP}"
+      FLEET_HA_ENDPOINT_INTERFACE: "${HA_NETWORK_INTERFACE}"
     volumes:
       - "${HA_SECRETS_DIR}/service-ca.crt:/etc/proto-fleet/ha/service-ca.crt:ro"
       - "${HA_SECRETS_DIR}/fleet-etcd-password:/etc/proto-fleet/ha/fleet-etcd-password:ro"
