@@ -57,9 +57,28 @@ files on `ha-a` and `ha-b`.
 ## Install
 
 The supported target is a clean Debian 13 host on amd64 or arm64 with a
-4096-byte page size. Copy the release bundle, a mode-`0600` `node.env`, and the
-matching generated host-secret directory to each host. In `node.env`, point
-`HA_SECRETS_DIR` at that copied input directory and keep
+4096-byte page size. Unpack the release and stage the host-specific install
+inputs in a separate directory. Files added inside the unpacked release fail
+its manifest validation.
+
+For example, on each host:
+
+```bash
+RELEASE_ROOT=/tmp/proto-fleet-release
+INSTALL_INPUT_ROOT=/var/tmp/proto-fleet-ha-install
+
+install -d -m 0700 "$INSTALL_INPUT_ROOT"
+install -m 0600 /path/to/this-host/node.env "$INSTALL_INPUT_ROOT/node.env"
+cp -a /path/to/generated/this-host-secrets "$INSTALL_INPUT_ROOT/host-secrets"
+chmod -R go-rwx "$INSTALL_INPUT_ROOT/host-secrets"
+
+# ha-a only
+install -m 0600 /path/to/offline/etcd-root-password \
+  "$INSTALL_INPUT_ROOT/etcd-root-password"
+```
+
+In the staged `node.env`, set
+`HA_SECRETS_DIR=/var/tmp/proto-fleet-ha-install/host-secrets` and keep
 `HA_DATA_DIR=/var/lib/proto-fleet/ha`.
 
 Run the installs concurrently. Only `ha-a` receives the offline etcd root
@@ -67,11 +86,11 @@ password:
 
 ```bash
 # ha-a
-./ha/fleet-ha install node.env \
-  --etcd-root-password-file /path/to/etcd-root-password
+"$RELEASE_ROOT/ha/fleet-ha" install "$INSTALL_INPUT_ROOT/node.env" \
+  --etcd-root-password-file "$INSTALL_INPUT_ROOT/etcd-root-password"
 
 # ha-b and ha-c
-./ha/fleet-ha install node.env
+"$RELEASE_ROOT/ha/fleet-ha" install "$INSTALL_INPUT_ROOT/node.env"
 ```
 
 Before changing the host, the command validates the release manifest, Debian
@@ -89,9 +108,9 @@ restarts propagate through the role-aware HA service before keepalived can
 return. That service starts etcd, then Patroni and Fleet on `ha-a` and `ha-b`.
 keepalived is enabled only on those two Fleet hosts and remains ineligible for
 the VIP until local active health passes. The witness starts etcd only.
-Only allowlisted host secret files are installed. After a successful start, the
-copied input secret directory and root-password file are removed; their
-root-owned installed copies remain under `/etc/proto-fleet/ha`.
+Only allowlisted host secret files are installed. A successful install consumes
+the copied host-secret directory and, on `ha-a`, the copied root-password file;
+their root-owned installed copies remain under `/etc/proto-fleet/ha`.
 
 `ha-a` waits for etcd quorum before enabling authentication. The other hosts
 wait for that one-time bootstrap before continuing. Installation finishes only
