@@ -232,7 +232,7 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 	// Assert
 	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
 	assert.Equal(t, "updater", mustReadFile(t, installedUpdater))
-	assert.Equal(t, "installed HA substrate\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "ha", "compose.yaml")))
+	assert.Equal(t, "target HA substrate\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "ha", "compose.yaml")))
 	commands := runner.Commands()
 	require.Len(t, commands, 5)
 	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)

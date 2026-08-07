@@ -132,7 +132,7 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"))
 		if err == nil {
 			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
-			if rollingUpdateControlReady(report.Control) && applicationReady(report.Runtime, publicStatus, targetVersion) {
+			if rollingUpdateApplicationReady(report, publicStatus, targetVersion) {
 				return nil
 			}
 		}
@@ -144,6 +144,16 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 	}
 }
 
+func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) bool {
+	if !applicationReady(report.Runtime, public, targetVersion) {
+		return false
+	}
+	if report.Runtime.Role == ha.RoleActive {
+		return report.Control != nil && report.Control.ControlReady
+	}
+	return rollingUpdateControlReady(report.Control)
+}
+
 func rollingUpdateControlReady(control *ControlStatus) bool {
 	if control == nil || !control.ControlReady {
 		return false
@@ -152,10 +162,10 @@ func rollingUpdateControlReady(control *ControlStatus) bool {
 }
 
 func applicationReady(runtime ha.Status, public fleetHostStatus, targetVersion string) bool {
+	publicRoleReady := runtime.Role == ha.RoleActive && public.active || runtime.Role == ha.RolePassive && public.passive
 	return runtime.Version == targetVersion &&
 		runtime.Observation == ha.ObservationCurrent &&
-		runtime.Role == ha.RolePassive &&
-		public.passive &&
+		publicRoleReady &&
 		public.reachable &&
 		public.version == targetVersion
 }

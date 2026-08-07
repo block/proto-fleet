@@ -52,11 +52,11 @@ func TestInfrastructureDownArgsSelectsDatabaseProfile(t *testing.T) {
 		{
 			name:         "database host",
 			databaseNode: true,
-			want:         []string{"--env-file", "node.env", "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "--profile", "database", "down"},
+			want:         []string{"--env-file", "node.env", "--file", infrastructureCompose, "--profile", "database", "down"},
 		},
 		{
 			name: "witness",
-			want: []string{"--env-file", "node.env", "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "down"},
+			want: []string{"--env-file", "node.env", "--file", infrastructureCompose, "down"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
