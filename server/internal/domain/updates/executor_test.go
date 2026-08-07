@@ -133,6 +133,31 @@ func TestUnixExecutorClientTrigger(t *testing.T) {
 	assert.NoError(t, observation.decodeErr)
 }
 
+func TestUnixExecutorClientTriggerComplete(t *testing.T) {
+	// Arrange
+	operationID := "11111111-1111-4111-8111-111111111111"
+	observed := make(chan executorRequestObservation, 1)
+	client := startExecutorTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request updaterapi.TriggerRequest
+		decodeErr := json.NewDecoder(r.Body).Decode(&request)
+		observed <- executorRequestObservation{trigger: request, decodeErr: decodeErr}
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(updaterapi.TriggerResponse{Operation: updaterapi.Operation{
+			ID: operationID, TargetVersion: "v1.2.3", Phase: updaterapi.PhaseQueued,
+		}})
+	}))
+
+	// Act
+	operation, err := client.TriggerComplete(t.Context(), operationID, "v1.2.3")
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, operationID, operation.ID)
+	observation := <-observed
+	require.NoError(t, observation.decodeErr)
+	require.True(t, observation.trigger.Complete)
+}
+
 func TestUnixExecutorClientHTTPFailures(t *testing.T) {
 	t.Parallel()
 

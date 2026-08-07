@@ -2,8 +2,10 @@ package deployment
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +13,10 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/transportguard"
 )
+
+const vipTakeoverTimeout = 15 * time.Second
 
 func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath, true)
@@ -56,6 +61,56 @@ func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) e
 var releaseImageRepositories = [...]string{
 	"proto-fleet-api",
 	"proto-fleet-client",
+}
+
+func RequireActive(ctx context.Context, envPath string) error {
+	_, err := requireActiveStatus(ctx, envPath)
+	return err
+}
+
+func requireActiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
+	report, err := Status(ctx, envPath, true)
+	if err != nil {
+		return StatusReport{}, err
+	}
+	if report.Runtime.Observation != ha.ObservationCurrent || report.Runtime.Role != ha.RoleActive || report.Runtime.Endpoint != ha.EndpointHealthy {
+		return StatusReport{}, fmt.Errorf("HA completion update requires a healthy active node; local role is %s", report.Runtime.Role)
+	}
+	if !rollingUpdateControlReady(report.Control) {
+		return StatusReport{}, errors.New("HA completion update requires rolling-update readiness")
+	}
+	return report, nil
+}
+
+func RequireUpdatedPeer(ctx context.Context, envPath, targetVersion string) error {
+	config, err := loadNodeConfig(envPath)
+	if err != nil {
+		return err
+	}
+	peerAddress := config.DatabaseAIP
+	if config.NodeIP == config.DatabaseAIP {
+		peerAddress = config.DatabaseBIP
+	}
+	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	if err != nil {
+		return err
+	}
+	status := probeFleetHost(ctx, tlsConfig, config.VirtualIP, peerAddress)
+	if !updatedPassivePeerReady(status, targetVersion) {
+		return fmt.Errorf("HA completion update requires the passive peer to run %s", targetVersion)
+	}
+	return nil
+}
+
+func ValidateActiveUpdate(ctx context.Context, envPath, targetVersion string) (string, error) {
+	report, err := requireActiveStatus(ctx, envPath)
+	if err != nil {
+		return "", err
+	}
+	if err := RequireUpdatedPeer(ctx, envPath, targetVersion); err != nil {
+		return "", err
+	}
+	return report.Runtime.Version, nil
 }
 
 // PrepareApplicationUpdate builds only the Fleet API and client from a verified release.
@@ -139,10 +194,19 @@ func pruneReleaseImages(ctx context.Context) error {
 	return nil
 }
 
-// StopApplication stops only Fleet containers; the HA substrate keeps running.
-func StopApplication(ctx context.Context, root string) error {
-	if _, err := requirePassiveStatus(ctx, filepath.Join(configRoot, "node.env")); err != nil {
-		return fmt.Errorf("refuse to stop HA application after passive role changed: %w", err)
+// StopApplication rechecks the expected role, then stops only Fleet containers.
+func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRole) error {
+	var err error
+	switch expectedRole {
+	case ha.RolePassive:
+		_, err = requirePassiveStatus(ctx, filepath.Join(configRoot, "node.env"))
+	case ha.RoleActive:
+		_, err = requireActiveStatus(ctx, filepath.Join(configRoot, "node.env"))
+	case ha.RoleInitializing, ha.RoleDegraded:
+		return fmt.Errorf("unsupported HA role %q", expectedRole)
+	}
+	if err != nil {
+		return fmt.Errorf("refuse to stop HA application after %s role changed: %w", expectedRole, err)
 	}
 	// The crash-only design intentionally has no maintenance lease. If the role
 	// changes after this final proof, normal update recovery restarts Fleet.
@@ -150,6 +214,10 @@ func StopApplication(ctx context.Context, root string) error {
 		return fmt.Errorf("stop HA application: %w", err)
 	}
 	return nil
+}
+
+func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool {
+	return status.reachable && status.passive && status.version == targetVersion
 }
 
 // StartApplication starts the target release and proves it serves its observed HA role.
@@ -192,16 +260,12 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 		return fmt.Errorf("start HA application: %w", err)
 	}
 	for {
-		report, err := Status(ctx, filepath.Join(configRoot, "node.env"), true)
-		if err == nil {
-			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
-			ready, readinessErr := updatedApplicationReady(report, publicStatus, targetVersion, requirePassive)
-			if readinessErr != nil {
-				return readinessErr
-			}
-			if ready {
-				return nil
-			}
+		ready, err := applicationIsReady(ctx, config, tlsConfig, targetVersion, requirePassive)
+		if err != nil {
+			return err
+		}
+		if ready {
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -230,16 +294,6 @@ func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, 
 		rollingUpdateControlReady(report.Control), nil
 }
 
-func updatedApplicationReady(report StatusReport, publicStatus fleetHostStatus, targetVersion string, requirePassive bool) (bool, error) {
-	if requirePassive {
-		return rollingUpdateApplicationReady(report, publicStatus, targetVersion)
-	}
-	if report.Control == nil || !report.Control.ControlReady {
-		return false, nil
-	}
-	return applicationReady(report.Runtime, publicStatus, targetVersion), nil
-}
-
 func rollingUpdateControlReady(control *ControlStatus) bool {
 	if control == nil || !control.ControlReady {
 		return false
@@ -253,6 +307,29 @@ func ExpectedRollingVersionMismatch(control *ControlStatus) bool {
 		len(control.ReasonCodes) == 1 && control.ReasonCodes[0] == ReasonFleetVersionMismatch
 }
 
+func applicationIsReady(ctx context.Context, config NodeConfig, tlsConfig *tls.Config, targetVersion string, requirePassive bool) (bool, error) {
+	report, err := Status(ctx, filepath.Join(configRoot, "node.env"), true)
+	if err != nil {
+		return false, nil //nolint:nilerr // Startup readiness is retried until the caller's deadline.
+	}
+	return updatedApplicationReady(
+		report,
+		probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP),
+		targetVersion,
+		requirePassive,
+	)
+}
+
+func updatedApplicationReady(report StatusReport, publicStatus fleetHostStatus, targetVersion string, requirePassive bool) (bool, error) {
+	if requirePassive {
+		return rollingUpdateApplicationReady(report, publicStatus, targetVersion)
+	}
+	if report.Control == nil || !report.Control.ControlReady {
+		return false, nil
+	}
+	return applicationReady(report.Runtime, publicStatus, targetVersion), nil
+}
+
 func applicationReady(runtime ha.Status, public fleetHostStatus, targetVersion string) bool {
 	publicRoleReady := runtime.Role == ha.RoleActive && public.active || runtime.Role == ha.RolePassive && public.passive
 	return runtime.Version == targetVersion &&
@@ -260,4 +337,57 @@ func applicationReady(runtime ha.Status, public fleetHostStatus, targetVersion s
 		publicRoleReady &&
 		public.reachable &&
 		public.version == targetVersion
+}
+
+func WaitForVIPVersion(ctx context.Context, envPath, targetVersion string) error {
+	config, err := loadNodeConfig(envPath)
+	if err != nil {
+		return err
+	}
+	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	if err != nil {
+		return err
+	}
+	transport := &http.Transport{TLSClientConfig: tlsConfig, Proxy: nil}
+	client := &http.Client{Transport: transport, Timeout: 2 * time.Second, CheckRedirect: transportguard.RejectRedirect}
+	defer transport.CloseIdleConnections()
+	deadline, cancel := context.WithTimeout(ctx, vipTakeoverTimeout)
+	defer cancel()
+	endpoint := "https://" + config.VirtualIP + "/api-proxy/health"
+	for {
+		request, requestErr := http.NewRequestWithContext(deadline, http.MethodGet, endpoint, nil)
+		if requestErr != nil {
+			return fmt.Errorf("create VIP takeover probe: %w", requestErr)
+		}
+		response, requestErr := client.Do(request)
+		if requestErr == nil {
+			response.Body.Close()
+			version := response.Header.Get("X-Proto-Fleet-Version")
+			ready, versionErr := acceptVIPVersion(response.StatusCode, version, targetVersion)
+			if versionErr != nil {
+				return versionErr
+			}
+			if ready {
+				return nil
+			}
+		}
+		select {
+		case <-deadline.Done():
+			return errors.New("updated peer did not serve the VIP within 15 seconds")
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+func acceptVIPVersion(status int, version, targetVersion string) (bool, error) {
+	if status != http.StatusOK {
+		return false, nil
+	}
+	if version == targetVersion {
+		return true, nil
+	}
+	if version != "" {
+		return false, fmt.Errorf("VIP is served by %s, expected %s", version, targetVersion)
+	}
+	return false, nil
 }
