@@ -30,7 +30,7 @@ func TestApplicationReadyRequiresAPIAndClientOnTargetRelease(t *testing.T) {
 	}
 }
 
-func TestPassiveUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
+func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		control *ControlStatus
@@ -42,7 +42,7 @@ func TestPassiveUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			ready := passiveUpdateControlReady(test.control)
+			ready := rollingUpdateControlReady(test.control)
 
 			// Assert
 			require.Equal(t, test.want, ready)
