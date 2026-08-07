@@ -165,6 +165,36 @@ done
 printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_owned_root" \
   > "$HOST_UPDATER_ENV_PATH"
 
+# An explicit deployment path can be readable even when the installation is
+# root-managed. Do not elevate only updater removal and then continue Docker
+# and filesystem cleanup as the invoking user; the entire uninstall must be
+# rerun through one root privilege boundary.
+if (
+  INSTALL_ROOT="$owned_root"
+  HOST_UPDATER_ENV_PATH="$TEST_TMP/non-root-updater.env"
+  HOST_UPDATER_STATE_DIR="$TEST_TMP/non-root-state"
+  HOST_UPDATER_RUNTIME_DIR="$TEST_TMP/non-root-runtime"
+  HOST_UPDATER_PRESENT=false
+  HOST_UPDATER_PRIVILEGE=()
+  mutation_log="$TEST_TMP/non-root-mutations.log"
+  printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_owned_root" \
+    > "$HOST_UPDATER_ENV_PATH"
+  id() { printf '1000\n'; }
+  quoted_rerun_argv() { printf ' --deployment-path %q' "$INSTALL_ROOT"; }
+  sudo() { printf 'sudo %s\n' "$*" >> "$mutation_log"; }
+  systemctl() { printf 'systemctl %s\n' "$*" >> "$mutation_log"; }
+  LAST_ERROR=""
+  ! prepare_host_updater_removal \
+    && [[ "$LAST_ERROR" == *"re-run the complete uninstaller as root"* ]] \
+    && [[ "$HOST_UPDATER_PRESENT" == true ]] \
+    && (( ${#HOST_UPDATER_PRIVILEGE[@]} == 0 )) \
+    && [[ ! -e "$mutation_log" ]]
+); then
+  pass "non-root uninstall aborts before mutating a root-managed updater"
+else
+  fail "non-root uninstall can remove the updater before deployment cleanup"
+fi
+
 service_mutation_log="$TEST_TMP/service-mutations"
 if (
   INSTALL_ROOT="$other_root"

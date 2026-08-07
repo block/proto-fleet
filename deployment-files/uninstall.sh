@@ -707,15 +707,15 @@ prepare_host_updater_removal() {
   HOST_UPDATER_PRESENT=true
 
   if [[ "$(id -u)" -ne 0 ]]; then
-    if ! command -v sudo &>/dev/null; then
-      print_error "The host updater is installed, but sudo is unavailable. Re-run this uninstaller as root."
-      return 1
-    fi
-    if ! sudo -v; then
-      print_error "Administrator access is required to stop and remove the host updater."
-      return 1
-    fi
-    HOST_UPDATER_PRIVILEGE=(sudo -n)
+    # Removing the updater with sudo but continuing Docker and deployment
+    # cleanup as the invoking user can strand a root-managed installation
+    # without its updater. Require one privilege boundary for the complete
+    # destructive workflow instead of elevating only its first step.
+    print_error "The host updater is installed; re-run the complete uninstaller as root (flags preserved):"
+    echo ""
+    echo "    curl -fsSL https://fleet.proto.xyz/uninstall.sh | sudo bash -s --$(quoted_rerun_argv)"
+    echo ""
+    return 1
   fi
 
   if ! verify_host_updater_ownership_with \
