@@ -10,6 +10,9 @@ UPDATER_PRIVILEGE_AVAILABLE=1
 UPDATER_DISABLE_ON_EXIT=0
 UPDATER_REENABLE_ON_EXIT=0
 UPDATER_RESTART_ON_EXIT=0
+UPDATER_START_AFTER_RUN=0
+UPDATER_REENABLE_AFTER_FAILED_RUN=0
+UPDATER_RESTART_AFTER_FAILED_RUN=0
 UPDATER_FALLBACK_PENDING=0
 UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
 UPDATER_ENV_RESTORE_FILE=""
@@ -340,8 +343,9 @@ capture_previous_run_options() {
   PREVIOUS_BETA_ALERTS=0
   PREVIOUS_SYSTEM_MONITORING=0
   PREVIOUS_TRACING=0
+  PREVIOUS_ONE_CLICK_UPDATES=false
 
-  local beta_state system_state tracing_state
+  local beta_state system_state tracing_state one_click_state
   beta_state=$(deployment_boolean_state "$env_file" ENABLE_BETA_ALERTS) || {
     echo "❌ Existing ENABLE_BETA_ALERTS in $env_file must be true or false." >&2
     return 1
@@ -354,6 +358,13 @@ capture_previous_run_options() {
     echo "❌ Existing ENABLE_TRACING in $env_file must be true or false." >&2
     return 1
   }
+  one_click_state=$(deployment_boolean_state "$env_file" ENABLE_ONE_CLICK_UPDATES) || {
+    echo "❌ Existing ENABLE_ONE_CLICK_UPDATES in $env_file must be true or false." >&2
+    return 1
+  }
+  if [ "$one_click_state" = "true" ]; then
+    PREVIOUS_ONE_CLICK_UPDATES=true
+  fi
 
   if [ "$beta_state" != "missing" ] \
     && [ "$system_state" != "missing" ] \
@@ -1092,6 +1103,62 @@ complete_disabled_updater_fallback_after_run() {
   finalize_disabled_updater_fallback_if_persisted "$env_file"
 }
 
+reconcile_updater_after_failed_deployment() {
+  local env_file="$1"
+  local expected_state="$2"
+  local reenable_after_failure="$3"
+  local restart_after_failure="$4"
+  shift 4
+  local privilege=("$@")
+  local restored_state
+
+  # The replacement service must stay fail-closed until the old deployment
+  # setting and service lifecycle have both been restored. Clear the generic
+  # EXIT restoration flags so a reconciliation error cannot accidentally
+  # start the replacement service.
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=0
+  UPDATER_DISABLE_ON_EXIT=1
+
+  if ! restored_state=$(deployment_boolean_state \
+      "$env_file" ENABLE_ONE_CLICK_UPDATES); then
+    echo "❌ Could not verify the restored one-click update setting after deployment failure." >&2
+    disable_updater_service_with \
+      ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
+  [ "$restored_state" != "missing" ] || restored_state=false
+  if [ "$restored_state" != "$expected_state" ]; then
+    echo "❌ The failed deployment did not restore the prior one-click update setting." >&2
+    disable_updater_service_with \
+      ${privilege[@]+"${privilege[@]}"} || true
+    return 1
+  fi
+
+  if ! disable_updater_service_with \
+      ${privilege[@]+"${privilege[@]}"}; then
+    return 1
+  fi
+  if [ "$expected_state" = "true" ]; then
+    if [ "$reenable_after_failure" = "1" ] \
+      && ! ${privilege[@]+"${privilege[@]}"} systemctl enable \
+        proto-fleet-updater.service >/dev/null 2>&1; then
+      echo "❌ Could not restore host updater boot enablement after deployment failure." >&2
+      return 1
+    fi
+    if [ "$restart_after_failure" = "1" ] \
+      && ! restart_updater_service_with "$UPDATER_SOCKET_PATH" \
+        ${privilege[@]+"${privilege[@]}"}; then
+      echo "❌ Could not restore the prior host updater after deployment failure." >&2
+      return 1
+    fi
+  fi
+
+  UPDATER_DISABLE_ON_EXIT=0
+  return 0
+}
+
 install_updater_bootstrap_files_with() {
   local env_source="$1"
   shift
@@ -1792,6 +1859,10 @@ if ! prepare_existing_updater_service "$INSTALL_DIR"; then
   echo "❌ Existing host updater could not be stopped safely; no files were replaced." >&2
   exit 1
 fi
+if [ "$PREVIOUS_ONE_CLICK_UPDATES" = "true" ]; then
+  UPDATER_REENABLE_AFTER_FAILED_RUN="$UPDATER_REENABLE_ON_EXIT"
+  UPDATER_RESTART_AFTER_FAILED_RUN="$UPDATER_RESTART_ON_EXIT"
+fi
 
 extract_and_cd "$TAR_PATH" "$INSTALL_DIR"
 # The system service starts with / as its working directory, so persist the
@@ -1965,11 +2036,13 @@ install_updater_service() {
   UPDATER_BINARY_RESTORE_FILE=""
   UPDATER_UNIT_RESTORE_FILE=""
   UPDATER_ARTIFACT_RESTORE_PENDING=0
-  UPDATER_REENABLE_ON_EXIT=0
-  # From this point until the explicit post-run restart, every unexpected exit
-  # must restore the validated service for the existing deployment.
-  UPDATER_DISABLE_ON_EXIT=0
-  UPDATER_RESTART_ON_EXIT=1
+  # Until run-fleet succeeds, an interrupted or failed installation must
+  # disable the replacement service and restore only the prior service state.
+  # Starting the newly validated service is a separate post-success action.
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT="$UPDATER_REENABLE_AFTER_FAILED_RUN"
+  UPDATER_RESTART_ON_EXIT="$UPDATER_RESTART_AFTER_FAILED_RUN"
+  UPDATER_START_AFTER_RUN=1
   return 0
 }
 
@@ -2033,13 +2106,29 @@ if [ "$UPDATER_FALLBACK_PENDING" = "1" ]; then
   fi
 fi
 
+if [ "$RUN_FLEET_STATUS" -ne 0 ]; then
+  if [ "$UPDATER_START_AFTER_RUN" = "1" ] \
+    && ! reconcile_updater_after_failed_deployment \
+      "$INSTALL_DIR/$DEPLOYMENT_DIR/.env" \
+      "$PREVIOUS_ONE_CLICK_UPDATES" \
+      "$UPDATER_REENABLE_AFTER_FAILED_RUN" \
+      "$UPDATER_RESTART_AFTER_FAILED_RUN" \
+      ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
+    echo "❌ Could not reconcile the host updater after deployment failure." >&2
+    exit 1
+  fi
+  exit "$RUN_FLEET_STATUS"
+fi
+
 UPDATER_RESTART_FAILED=0
-if [ "$UPDATER_RESTART_ON_EXIT" = "1" ]; then
-  echo "🔄 Restoring the host updater after the manual deployment run..."
+if [ "$UPDATER_START_AFTER_RUN" = "1" ]; then
+  echo "🔄 Starting the host updater after the manual deployment run..."
   # run-fleet is finished, so the old API can no longer race this deployment.
   # systemd owns the service lifecycle once the restart is issued.
+  UPDATER_DISABLE_ON_EXIT=0
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=0
   if restart_updater_service_with "$UPDATER_SOCKET_PATH" \
     ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
     :
@@ -2051,9 +2140,6 @@ if [ "$UPDATER_RESTART_ON_EXIT" = "1" ]; then
   fi
 fi
 
-if [ "$RUN_FLEET_STATUS" -ne 0 ]; then
-  exit "$RUN_FLEET_STATUS"
-fi
 if [ "$UPDATER_RESTART_FAILED" -ne 0 ]; then
   exit 1
 fi

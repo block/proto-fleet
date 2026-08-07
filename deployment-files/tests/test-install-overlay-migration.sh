@@ -823,21 +823,90 @@ validation_cleanup_line=$(awk '
   }
 ' "$INSTALL_SCRIPT")
 production_socket_line=$(awk '/^      "\$GITHUB_RELEASES_URL" "\$UPDATER_SOCKET_PATH"/ { print NR; exit }' "$INSTALL_SCRIPT")
-restart_arm_line=$(awk '/^  UPDATER_RESTART_ON_EXIT=1$/ { print NR; exit }' "$INSTALL_SCRIPT")
+start_after_run_arm_line=$(awk '/^  UPDATER_START_AFTER_RUN=1$/ { print NR; exit }' "$INSTALL_SCRIPT")
 run_fleet_line=$(awk '/^if \.\/run-fleet\.sh / { print NR; exit }' "$INSTALL_SCRIPT")
+run_status_check_line=$(awk -v start="$run_fleet_line" 'NR > start && /^if \[ "\$RUN_FLEET_STATUS" -ne 0 \]; then$/ { print NR; exit }' "$INSTALL_SCRIPT")
 post_run_restart_line=$(awk -v start="$run_fleet_line" 'NR > start && /^  if restart_updater_service_with/ { print NR; exit }' "$INSTALL_SCRIPT")
 if [ -n "$validation_restart_line" ] \
   && [ "$validation_restart_line" -lt "$quiesce_line" ] \
   && [ "$quiesce_line" -lt "$validation_cleanup_line" ] \
   && [ "$validation_cleanup_line" -lt "$production_socket_line" ] \
   && [ "$quiesce_line" -lt "$production_socket_line" ] \
-  && [ "$production_socket_line" -lt "$restart_arm_line" ] \
-  && [ "$quiesce_line" -lt "$restart_arm_line" ] \
-  && [ "$restart_arm_line" -lt "$run_fleet_line" ] \
+  && [ "$production_socket_line" -lt "$start_after_run_arm_line" ] \
+  && [ "$quiesce_line" -lt "$start_after_run_arm_line" ] \
+  && [ "$start_after_run_arm_line" -lt "$run_fleet_line" ] \
+  && [ "$run_fleet_line" -lt "$run_status_check_line" ] \
+  && [ "$run_status_check_line" -lt "$post_run_restart_line" ] \
   && [ "$run_fleet_line" -lt "$post_run_restart_line" ]; then
   pass "host updater stays quiesced for the complete manual deployment run"
 else
   fail "host updater lifecycle does not serialize the manual deployment run"
+fi
+
+if (
+  failed_env="$TEST_TMP/updater-failed-enable.env"
+  lifecycle_log="$TEST_TMP/updater-failed-enable-calls"
+  printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$failed_env"
+  : > "$lifecycle_log"
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=1
+  disable_updater_service_with() {
+    printf 'disable\n' >> "$lifecycle_log"
+    return 0
+  }
+  restart_updater_service_with() {
+    printf 'restart\n' >> "$lifecycle_log"
+    return 0
+  }
+  systemctl() {
+    printf 'systemctl %s\n' "$*" >> "$lifecycle_log"
+    return 0
+  }
+  reconcile_updater_after_failed_deployment \
+    "$failed_env" false 0 0 \
+    && [ "$(cat "$lifecycle_log")" = disable ] \
+    && [ "$UPDATER_DISABLE_ON_EXIT" = 0 ] \
+    && [ "$UPDATER_START_AFTER_RUN" = 0 ]
+); then
+  pass "failed first-time enablement leaves the replacement updater disabled"
+else
+  fail "failed first-time enablement can reactivate the replacement updater"
+fi
+
+if (
+  failed_env="$TEST_TMP/updater-failed-reenable.env"
+  lifecycle_log="$TEST_TMP/updater-failed-reenable-calls"
+  printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$failed_env"
+  : > "$lifecycle_log"
+  UPDATER_DISABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=1
+  UPDATER_RESTART_ON_EXIT=1
+  UPDATER_START_AFTER_RUN=1
+  disable_updater_service_with() {
+    printf 'disable\n' >> "$lifecycle_log"
+    return 0
+  }
+  restart_updater_service_with() {
+    printf 'restart %s\n' "$1" >> "$lifecycle_log"
+    return 0
+  }
+  systemctl() {
+    printf 'systemctl %s\n' "$*" >> "$lifecycle_log"
+    return 0
+  }
+  reconcile_updater_after_failed_deployment \
+    "$failed_env" true 1 1 \
+    && grep -q '^disable$' "$lifecycle_log" \
+    && grep -q '^systemctl enable proto-fleet-updater.service$' "$lifecycle_log" \
+    && grep -q '^restart /run/proto-fleet-updater/updater.sock$' "$lifecycle_log" \
+    && [ "$UPDATER_DISABLE_ON_EXIT" = 0 ] \
+    && [ "$UPDATER_START_AFTER_RUN" = 0 ]
+); then
+  pass "failed replacement restores a previously active configured updater"
+else
+  fail "failed replacement does not restore the prior updater lifecycle"
 fi
 
 if (
