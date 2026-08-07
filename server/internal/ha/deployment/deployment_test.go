@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -456,11 +457,20 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 	if slices.Contains(failing.calls, "auth") {
 		t.Fatal("bootstrap enabled authentication after a partial setup failure")
 	}
+
+	retrying := &recordingAuthClient{existing: true}
+	if err := bootstrapEtcdAuth(context.Background(), retrying, "root-pass", "patroni-pass", "fleet-pass"); err != nil {
+		t.Fatalf("bootstrap did not resume after existing roles and users: %v", err)
+	}
+	if !slices.Contains(retrying.calls, "auth") {
+		t.Fatal("resumed bootstrap did not enable authentication")
+	}
 }
 
 type recordingAuthClient struct {
-	calls  []string
-	failAt string
+	calls    []string
+	failAt   string
+	existing bool
 }
 
 func (c *recordingAuthClient) record(call string) error {
@@ -473,7 +483,13 @@ func (c *recordingAuthClient) record(call string) error {
 
 func (c *recordingAuthClient) Healthy(context.Context) error { return c.record("health") }
 func (c *recordingAuthClient) AddRole(_ context.Context, role string) error {
-	return c.record("role:" + role)
+	if err := c.record("role:" + role); err != nil {
+		return err
+	}
+	if c.existing {
+		return rpctypes.ErrRoleAlreadyExist
+	}
+	return nil
 }
 func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix string, permission clientv3.PermissionType) error {
 	name := "read"
@@ -483,7 +499,13 @@ func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix st
 	return c.record(fmt.Sprintf("permission:%s:%s:%s", role, prefix, name))
 }
 func (c *recordingAuthClient) AddUser(_ context.Context, user, password string) error {
-	return c.record("user:" + user + ":" + password)
+	if err := c.record("user:" + user + ":" + password); err != nil {
+		return err
+	}
+	if c.existing {
+		return rpctypes.ErrUserAlreadyExist
+	}
+	return nil
 }
 func (c *recordingAuthClient) GrantRole(_ context.Context, user, role string) error {
 	return c.record("grant:" + user + ":" + role)

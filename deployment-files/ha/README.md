@@ -109,8 +109,8 @@ return. That service starts etcd, then Patroni and Fleet on `ha-a` and `ha-b`.
 keepalived is enabled only on those two Fleet hosts and remains ineligible for
 the VIP until local active health passes. The witness starts etcd only.
 Only allowlisted host secret files are installed. A successful install consumes
-the copied host-secret directory and, on `ha-a`, the copied root-password file;
-their root-owned installed copies remain under `/etc/proto-fleet/ha`.
+the copied inputs. The one-time etcd root password is also removed from
+`/etc/proto-fleet/ha` after authentication is enabled.
 
 `ha-a` waits for etcd quorum before enabling authentication. The other hosts
 wait for that one-time bootstrap before continuing. Installation finishes only
