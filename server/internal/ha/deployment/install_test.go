@@ -3,6 +3,7 @@ package deployment
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,7 +61,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	}
 }
 
-func TestInstallCredentialCleanupFailsBeforeServicesStart(t *testing.T) {
+func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
 	secrets := t.TempDir()
@@ -74,19 +75,23 @@ func TestInstallCredentialCleanupFailsBeforeServicesStart(t *testing.T) {
 	writeTestSecretBundle(t, config)
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
-	deps.verifyVIP = func(context.Context, NodeConfig) error {
-		calls = append(calls, "verify-vip")
-		return os.WriteFile(filepath.Join(secrets, "late-unexpected-secret"), []byte("secret"), 0o600)
+	run := deps.run
+	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		output, err := run(ctx, name, args...)
+		if strings.Contains(strings.Join(append([]string{name}, args...), " "), "systemctl enable --now proto-fleet-ha.service") {
+			return nil, errors.New("start failed")
+		}
+		return output, err
 	}
 
 	// Act
 	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
 
 	// Assert
-	require.ErrorContains(t, err, "unexpected entry")
+	require.ErrorContains(t, err, "start failed")
 	require.Contains(t, strings.Join(calls, "\n"), configRoot+"/etcd-root-password")
-	require.NotContains(t, strings.Join(calls, "\n"), "systemctl start docker.service")
-	require.NotContains(t, strings.Join(calls, "\n"), "enable --now proto-fleet-ha.service")
+	require.FileExists(t, rootPassword)
+	require.DirExists(t, secrets)
 }
 
 func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {

@@ -136,9 +136,6 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := installRootPassword(ctx, options, deps); err != nil {
 		return err
 	}
-	if err := consumeInstallCredentials(options, config); err != nil {
-		return err
-	}
 	if err := activateInstallPrerequisites(ctx, deps); err != nil {
 		return err
 	}
@@ -148,7 +145,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := initialStart(ctx, config, deps); err != nil {
 		return err
 	}
-	return nil
+	return consumeInstallCredentials(options, config)
 }
 
 func consumeInstallCredentials(options InstallOptions, config NodeConfig) error {
