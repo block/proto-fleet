@@ -25,7 +25,12 @@ customer data from committed evidence.
    releases that predate this supported HA update baseline are out of scope.
 2. Record the running etcd and Patroni/PostgreSQL container IDs on all hosts.
 3. On the passive database host, run `fleet-ha update N+1` and verify that it
-   remains passive on `N+1` while the active host continues serving `N`.
+   remains passive on `N+1` while the active host continues serving `N`. Fail
+   if the operation reports `host updater refresh needs attention`. Require
+   `/usr/local/libexec/proto-fleet/proto-fleet-updater --version` to print
+   `N+1`, `proto-fleet-updater.service` to be active, and an authenticated local
+   request to `/v1/status` over `/run/proto-fleet-updater/updater.sock` to
+   succeed. Retain the redacted operation log.
 4. During the mixed-version window, use the authenticated VIP API to read
    existing database-backed configuration, submit a command, and verify its
    completion while `N` remains active.
@@ -38,7 +43,8 @@ customer data from committed evidence.
    successful-handoff target.
 6. Retry `fleet-ha update N+1 --complete` and measure from the first failed VIP
    health probe until the VIP serves `N+1`. Verify the former active is now
-   passive on `N+1`.
+   passive on `N+1`, then repeat the updater version, service, socket, warning,
+   and redacted-log checks from step 3 on this host.
 7. On one controlled test device, block a PROCESSING command and enqueue a
    second command behind it so per-device ordering keeps that row PENDING.
    Record both immutable queue row IDs and preserve a timestamped database
@@ -51,8 +57,8 @@ customer data from committed evidence.
    application update did not replace etcd, Patroni, or PostgreSQL.
 10. Reboot both database hosts, one at a time, restoring full readiness between
     reboots. Confirm both return on `N+1` with the same etcd membership,
-    Patroni cluster, and persisted Fleet data. Container IDs may change during
-    reboot.
+    Patroni cluster, and persisted Fleet data. On each host, repeat the updater
+    version, service, and socket checks. Container IDs may change during reboot.
 
 ## Results
 
@@ -68,6 +74,7 @@ customer data from committed evidence.
 | Failover back | VIP serves `N+1` within 15s | Pending | Pending | Pending |
 | Command execution | Command succeeds after both failovers | N/A | Pending | Pending |
 | Infrastructure preservation | Application update leaves etcd, Patroni, and PostgreSQL container IDs unchanged | N/A | Pending | Pending |
+| Host updater refresh | Both protected updater binaries report `N+1`; services and local status APIs survive reboot; no refresh warning remains | N/A | Pending | Pending |
 | Reboot recovery | Both hosts return on `N+1` with DCS, database, and Fleet data intact | Pending | Pending | Pending |
 
 ## Verdict
