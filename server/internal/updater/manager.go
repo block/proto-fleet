@@ -670,11 +670,6 @@ func NewManager(cfg Config) (*Manager, error) {
 		_ = logRoot.Close()
 		return nil, err
 	}
-	if err := m.recoverHAApplication(); err != nil {
-		_ = processLock.Close()
-		_ = logRoot.Close()
-		return nil, err
-	}
 	if err := m.cleanupStaleArtifacts(); err != nil {
 		_ = processLock.Close()
 		_ = logRoot.Close()

@@ -13,7 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
-const vipTakeoverTimeout = 15 * time.Second
+const vipTakeoverTimeout = 30 * time.Second
 
 func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath)
@@ -66,7 +66,12 @@ func requireActiveStatus(ctx context.Context, envPath string) (StatusReport, err
 		return StatusReport{}, err
 	}
 	if report.Runtime.Observation != ha.ObservationCurrent || report.Runtime.Role != ha.RoleActive || report.Runtime.Endpoint != ha.EndpointHealthy {
-		return StatusReport{}, fmt.Errorf("HA completion update requires a healthy active node; local role is %s", report.Runtime.Role)
+		return StatusReport{}, fmt.Errorf(
+			"HA completion update requires a healthy active node; local role is %s, observation is %s, and endpoint is %s",
+			report.Runtime.Role,
+			report.Runtime.Observation,
+			report.Runtime.Endpoint,
+		)
 	}
 	if !rollingUpdateControlReady(report.Control) {
 		return StatusReport{}, errors.New("HA completion update requires rolling-update readiness")
@@ -303,7 +308,7 @@ func WaitForVIPVersion(ctx context.Context, envPath, targetVersion string) error
 		}
 		select {
 		case <-deadline.Done():
-			return errors.New("updated peer did not serve the VIP within 15 seconds")
+			return fmt.Errorf("updated peer did not serve the VIP within %s", vipTakeoverTimeout)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}

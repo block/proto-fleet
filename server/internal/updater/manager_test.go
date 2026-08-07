@@ -1855,6 +1855,34 @@ func TestManagerRestartsHAApplicationAfterInterruptedSwap(t *testing.T) {
 	assert.Empty(t, manager.Status().Operation.RecoveryCommand)
 }
 
+func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	now := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	operation := updaterapi.Operation{
+		ID: "failed", TargetVersion: "v1.1.0", Phase: updaterapi.PhaseFailed,
+		RecoveryCommand: "stale", StartedAt: now, UpdatedAt: now, CompletedAt: &now,
+	}
+	data, err := json.Marshal(operation)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+	runner := &haRecordingRunner{}
+
+	// Act
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
+		DeploymentMode: DeploymentModeHA, Runner: runner,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	// Assert
+	assert.Empty(t, runner.Commands())
+}
+
 func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *testing.T) {
 	t.Parallel()
 
