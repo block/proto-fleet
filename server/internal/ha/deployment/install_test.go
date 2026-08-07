@@ -212,6 +212,30 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 	require.NotContains(t, strings.Join(calls, "\n"), "apt-get")
 }
 
+func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	config := NodeConfig{
+		NodeName: "ha-b", NodeIP: testHostIPs[1], DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
+	}
+	writeTestSecretBundle(t, config)
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	deps.verifyVIP = func(context.Context, NodeConfig) error { return fmt.Errorf("VIP is in use") }
+
+	// Act
+	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env"}, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "VIP is in use")
+	joined := strings.Join(calls, "\n")
+	require.Contains(t, joined, "iputils-arping")
+	require.NotContains(t, joined, "docker-ce")
+	require.NotContains(t, joined, "/etc/apt/keyrings/docker.asc")
+}
+
 func TestFleetComposeArgsAreRawDockerComposeArguments(t *testing.T) {
 	// Act
 	args := fleetComposeArgs("stop", "fleet-api", "fleet-client")
@@ -265,21 +289,32 @@ func testInstallRelease(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	required := map[string]string{
-		"version.txt":                        "version: test\n",
-		"docker-compose.yaml":                "services: {}\n",
-		"server/docker-compose.base.yaml":    "services: {}\n",
-		"images/timescaledb.tar.gz":          "image",
-		"ha/fleet-ha":                        "binary",
-		"ha/compose.yaml":                    "services: {}\n",
-		"ha/fleet-compose.yaml":              "services: {}\n",
-		"ha/firewall.nft.tmpl":               "${HA_NODE_IP} ${HA_DB_A_IP} ${HA_DB_B_IP} ${HA_DCS_C_IP} ${HA_NETWORK_INTERFACE}\n",
-		"ha/keepalived.conf.tmpl":            "${HA_NODE_IP} ${HA_PEER_IP} ${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE} ${HA_ENDPOINT_HEARTBEAT_FILE} ${HA_SECRETS_DIR}\n",
-		"ha/keepalived-systemd.conf.tmpl":    "${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE}\n",
-		"ha/proto-fleet-ha.service":          "[Service]\n",
-		"ha/proto-fleet-ha-firewall.service": "[Service]\n",
-		"ha/docker-systemd.conf":             "[Unit]\n",
-		"ha/scripts/check-fleet-active.sh":   "#!/bin/sh\n",
-		"client/nginx.https.conf":            "server {}\n",
+		"version.txt":                                            "version: test\n",
+		"docker-compose.yaml":                                    "services: {}\n",
+		"server/docker-compose.base.yaml":                        "services: {}\n",
+		"server/Dockerfile":                                      "FROM scratch\n",
+		"server/fleetd":                                          "binary",
+		"server/proto-plugin":                                    "binary",
+		"server/antminer-plugin":                                 "binary",
+		"server/asicrs-plugin":                                   "binary",
+		"server/asicrs-config.yaml":                              "config",
+		"server/virtual-plugin":                                  "binary",
+		"server/virtual-plugin.json":                             "config",
+		"images/timescaledb.tar.gz":                              "image",
+		"ha/fleet-ha":                                            "binary",
+		"ha/compose.yaml":                                        "services: {}\n",
+		"ha/fleet-compose.yaml":                                  "services: {}\n",
+		"ha/firewall.nft.tmpl":                                   "${HA_NODE_IP} ${HA_DB_A_IP} ${HA_DB_B_IP} ${HA_DCS_C_IP} ${HA_NETWORK_INTERFACE}\n",
+		"ha/keepalived.conf.tmpl":                                "${HA_NODE_IP} ${HA_PEER_IP} ${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE} ${HA_ENDPOINT_HEARTBEAT_FILE} ${HA_SECRETS_DIR}\n",
+		"ha/keepalived-systemd.conf.tmpl":                        "${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE}\n",
+		"ha/proto-fleet-ha.service":                              "[Service]\n",
+		"ha/proto-fleet-ha-firewall.service":                     "[Service]\n",
+		"ha/docker-systemd.conf":                                 "[Unit]\n",
+		"ha/scripts/check-fleet-active.sh":                       "#!/bin/sh\n",
+		"client/Dockerfile":                                      "FROM scratch\n",
+		"client/protoFleet/index.html":                           "index",
+		"client/docker-entrypoint.d/40-render-runtime-config.sh": "#!/bin/sh\n",
+		"client/nginx.https.conf":                                "server {}\n",
 	}
 	for name, contents := range required {
 		path := filepath.Join(root, name)

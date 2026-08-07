@@ -111,13 +111,16 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 		return err
 	}
 
-	if err := installPackages(ctx, deps); err != nil {
+	if err := installARPing(ctx, deps); err != nil {
 		return err
 	}
 	if config.isDatabaseNode() {
 		if err := deps.verifyVIP(ctx, config); err != nil {
 			return err
 		}
+	}
+	if err := installPackages(ctx, deps); err != nil {
+		return err
 	}
 	if err := installRelease(ctx, source, config, deps); err != nil {
 		return err
@@ -276,6 +279,8 @@ func parseOSRelease(contents string) map[string]string {
 func validateRelease(ctx context.Context, source string, deps installDependencies) error {
 	required := []string{
 		"deployment-manifest.sha256", "version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/timescaledb.tar.gz",
+		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
+		"client/Dockerfile", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service",
 		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/scripts/check-fleet-active.sh",
@@ -359,9 +364,20 @@ func validateReleaseTree(source string) error {
 	return nil
 }
 
+func installARPing(ctx context.Context, deps installDependencies) error {
+	for _, args := range [][]string{
+		{"apt-get", "update"},
+		{"apt-get", "install", "-y", "iputils-arping"},
+	} {
+		if output, err := deps.run(ctx, "sudo", args...); err != nil {
+			return fmt.Errorf("install HA virtual IP probe: %s", commandError(output, err))
+		}
+	}
+	return nil
+}
+
 func installPackages(ctx context.Context, deps installDependencies) error {
 	commands := [][]string{
-		{"sudo", "apt-get", "update"},
 		{"sudo", "apt-get", "install", "-y", "ca-certificates", "curl", "iproute2"},
 		{"sudo", "install", "-m", "0755", "-d", "/etc/apt/keyrings"},
 	}
@@ -386,7 +402,7 @@ func installPackages(ctx context.Context, deps installDependencies) error {
 	}
 	for _, args := range [][]string{
 		{"apt-get", "update"},
-		{"apt-get", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin", "keepalived", "nftables", "iputils-arping"},
+		{"apt-get", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin", "keepalived", "nftables"},
 	} {
 		if output, err := deps.run(ctx, "sudo", args...); err != nil {
 			return fmt.Errorf("install HA packages: %s", commandError(output, err))
