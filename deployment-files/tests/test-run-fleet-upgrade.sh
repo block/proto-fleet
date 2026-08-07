@@ -316,7 +316,13 @@ case " $* " in
                     printf 'loaded\n'
                 fi
                 ;;
-            *'--property=ActiveState --value'*) printf '%s\n' "$updater_state" ;;
+            *'--property=ActiveState --value'*)
+                if [ "$updater_state" = "not-found" ]; then
+                    printf 'inactive\n'
+                else
+                    printf '%s\n' "$updater_state"
+                fi
+                ;;
             'stop proto-fleet-updater.service') printf 'inactive\n' > "$UPDATER_STATE_FILE" ;;
             'restart proto-fleet-updater.service') printf 'active\n' > "$UPDATER_STATE_FILE" ;;
             'is-active --quiet proto-fleet-updater.service') [ "$updater_state" = "active" ] ;;
@@ -505,6 +511,8 @@ fi
 assert_contains "source-tree run targets its directory project" "$HARNESS_CALL_LOG" "compose --project-name source-layout"
 assert_not_contains "source-tree run cannot target an installed deployment project" "$HARNESS_CALL_LOG" "compose --project-name deployment "
 assert_contains "source-tree run reaches teardown in its isolated project" "$HARNESS_CALL_LOG" " down --remove-orphans"
+assert_not_contains "source-tree run does not inspect the packaged updater" \
+    "$HARNESS_CALL_LOG" "proto-fleet-updater.service"
 
 # Existing process-level overrides remain authoritative and are reused by
 # volume detection. Do not persist a new multi-install identity here: the
@@ -643,10 +651,56 @@ assert_contains "persisted updater state survives process override for serializa
     "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
 if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
     && grep -q '^ENABLE_ONE_CLICK_UPDATES=false$' "$STAGE/.env" \
-    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ]; then
+    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = inactive ]; then
     pass "process disable persists false after updater serialization"
 else
-    fail "process disable did not persist or restore updater state correctly"
+    fail "process disable did not persist state or leave the updater stopped"
+fi
+assert_not_contains "successful process disable does not restart the updater" \
+    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+
+# Persisting the desired flag is not deployment success. A later failure must
+# restore both the prior flag and the updater that served the still-running
+# socket-enabled Fleet container.
+make_stage failed-process-disable-active-updater
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if ENABLE_ONE_CLICK_UPDATES=false FAKE_COMPOSE_CONFIG_FAILURE=true \
+    run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "failed process disable should propagate its Compose failure"
+else
+    pass "failed process disable exercises updater configuration rollback"
+fi
+assert_contains "failed process disable stops the updater" \
+    "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
+assert_contains "failed process disable restores the updater" \
+    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+if [ "$(grep -c '^ENABLE_ONE_CLICK_UPDATES=' "$STAGE/.env")" -eq 1 ] \
+    && grep -q '^ENABLE_ONE_CLICK_UPDATES=true$' "$STAGE/.env" \
+    && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = active ]; then
+    pass "failed process disable restores prior updater configuration and runtime state"
+else
+    fail "failed process disable left updater configuration and runtime state inconsistent"
+fi
+
+# Desired flags cannot prove that the daemon is stopped. An unmanaged retry
+# must drain a stale active updater even when the persisted and effective
+# settings are already false.
+make_stage stale-active-disabled-updater
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "disabled retry inspects the actual updater service state"
+else
+    fail "disabled retry should quiesce a stale active updater"
+fi
+assert_contains "disabled retry stops a stale active updater" \
+    "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
+assert_not_contains "disabled retry does not restart a stale updater" \
+    "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
+if [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = inactive ]; then
+    pass "disabled retry leaves the stale updater stopped"
+else
+    fail "disabled retry left the stale updater active"
 fi
 
 make_stage updater-managed-runner

@@ -1082,6 +1082,16 @@ finalize_disabled_updater_fallback_if_persisted() {
   UPDATER_FALLBACK_PENDING=0
 }
 
+complete_disabled_updater_fallback_after_run() {
+  local env_file="$1"
+  local run_status="$2"
+
+  # run-fleet persists overlay intent before Compose validation. Only its
+  # successful exit proves that the replacement stack adopted the fallback.
+  [ "$run_status" -eq 0 ] || return "$run_status"
+  finalize_disabled_updater_fallback_if_persisted "$env_file"
+}
+
 install_updater_bootstrap_files_with() {
   local env_source="$1"
   shift
@@ -2008,18 +2018,18 @@ else
 fi
 
 if [ "$UPDATER_FALLBACK_PENDING" = "1" ]; then
-  if finalize_disabled_updater_fallback_if_persisted \
-      "$INSTALL_DIR/$DEPLOYMENT_DIR/.env"; then
-    :
-  elif [ "$RUN_FLEET_STATUS" -eq 0 ]; then
-    echo "❌ Deployment completed without durably disabling one-click updates." >&2
-    RUN_FLEET_STATUS=1
-  fi
-  if [ "$RUN_FLEET_STATUS" -ne 0 ]; then
-    # EXIT cleanup restores the previous updater only while the old persisted
-    # true value proves the fallback was not committed. A durable false value
-    # clears restoration above and leaves the updater safely disabled.
-    exit "$RUN_FLEET_STATUS"
+  UPDATER_FALLBACK_STATUS=0
+  complete_disabled_updater_fallback_after_run \
+    "$INSTALL_DIR/$DEPLOYMENT_DIR/.env" "$RUN_FLEET_STATUS" \
+    || UPDATER_FALLBACK_STATUS=$?
+  if [ "$UPDATER_FALLBACK_STATUS" -ne 0 ]; then
+    if [ "$RUN_FLEET_STATUS" -eq 0 ]; then
+      echo "❌ Deployment completed without durably disabling one-click updates." >&2
+    fi
+    # run-fleet restores the prior deployment setting on failure; the
+    # installer's EXIT cleanup then restores the prior updater artifacts and
+    # service state. Never discard those rollback assets on a failed run.
+    exit "$UPDATER_FALLBACK_STATUS"
   fi
 fi
 

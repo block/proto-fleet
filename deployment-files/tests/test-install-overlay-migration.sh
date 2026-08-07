@@ -1022,7 +1022,9 @@ fi
 
 if (
   fallback_env="$TEST_TMP/updater-fallback.env"
-  printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$fallback_env"
+  # run-fleet writes false before later deployment work can fail. The false
+  # value alone must not commit fallback or discard installer restoration.
+  printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$fallback_env"
   UPDATER_DISABLE_ON_EXIT=1
   UPDATER_REENABLE_ON_EXIT=1
   UPDATER_RESTART_ON_EXIT=1
@@ -1031,13 +1033,12 @@ if (
   UPDATER_UNIT_RESTORE_FILE=unit-backup
   UPDATER_ARTIFACT_RESTORE_PENDING=1
   UPDATER_FALLBACK_PENDING=1
-  ! finalize_disabled_updater_fallback_if_persisted "$fallback_env" \
+  ! complete_disabled_updater_fallback_after_run "$fallback_env" 1 \
     && [ "$UPDATER_REENABLE_ON_EXIT" = 1 ] \
     && [ "$UPDATER_RESTART_ON_EXIT" = 1 ] \
     && [ "$UPDATER_ARTIFACT_RESTORE_PENDING" = 1 ] \
     && [ "$UPDATER_FALLBACK_PENDING" = 1 ] \
-    && printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$fallback_env" \
-    && finalize_disabled_updater_fallback_if_persisted "$fallback_env" \
+    && complete_disabled_updater_fallback_after_run "$fallback_env" 0 \
     && [ "$UPDATER_DISABLE_ON_EXIT" = 0 ] \
     && [ "$UPDATER_REENABLE_ON_EXIT" = 0 ] \
     && [ "$UPDATER_RESTART_ON_EXIT" = 0 ] \

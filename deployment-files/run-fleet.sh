@@ -19,7 +19,8 @@ PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 NGINX_CONFIG_TEMP=""
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
 DIRECT_UPDATER_PRIVILEGE=()
-DIRECT_UPDATER_RESTART_ON_EXIT=false
+DIRECT_UPDATER_WAS_ACTIVE=false
+DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
 
 # Preserve process-level Compose overrides before the script initializes its
 # runtime flags with the same names. Plain shell assignment keeps an inherited
@@ -58,8 +59,17 @@ RELEASE_IMAGE_CLEANUP_SAFE=true
 DD_HOSTNAME_DEFAULTED=false
 
 restore_direct_run_updater() {
-    [ "$DIRECT_UPDATER_RESTART_ON_EXIT" = "true" ] || return 0
-    DIRECT_UPDATER_RESTART_ON_EXIT=false
+    local run_status="$1"
+    [ "$DIRECT_UPDATER_WAS_ACTIVE" = "true" ] || return 0
+    # A successful disable intentionally leaves the daemon stopped. On a
+    # failed run, restore only the service state that matched the previously
+    # persisted deployment configuration.
+    if [ "$run_status" -eq 0 ]; then
+        [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ] || return 0
+    else
+        [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" = "true" ] || return 0
+    fi
+    DIRECT_UPDATER_WAS_ACTIVE=false
     echo "Restoring the host updater after the manual deployment run..."
     if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
         systemctl restart proto-fleet-updater.service; then
@@ -82,7 +92,9 @@ restore_direct_run_updater() {
 }
 
 run_fleet_exit_cleanup() {
-    local status=$?
+    local run_status=$?
+    local status="$run_status"
+    local env_rollback_failed=false
     trap - EXIT
     if declare -F cleanup_nginx_config_temp >/dev/null 2>&1; then
         cleanup_nginx_config_temp || status=1
@@ -90,7 +102,22 @@ run_fleet_exit_cleanup() {
     if declare -F cleanup_env_rewrite >/dev/null 2>&1; then
         cleanup_env_rewrite || status=1
     fi
-    if ! restore_direct_run_updater; then
+    if [ "$run_status" -ne 0 ] \
+      && [ "$DIRECT_UPDATER_ENV_ROLLBACK_PENDING" = "true" ]; then
+        echo "Restoring the previous one-click update setting after the failed deployment run..." >&2
+        if atomic_set_env_values \
+            ENABLE_ONE_CLICK_UPDATES "$ONE_CLICK_UPDATES_WAS_CONFIGURED"; then
+            DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
+        else
+            echo "Error: could not restore the previous one-click update setting; leaving the updater stopped." >&2
+            env_rollback_failed=true
+            status=1
+        fi
+    elif [ "$run_status" -eq 0 ]; then
+        DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
+    fi
+    if [ "$env_rollback_failed" != "true" ] \
+      && ! restore_direct_run_updater "$run_status"; then
         status=1
     fi
     exit "$status"
@@ -105,15 +132,23 @@ quiesce_updater_for_direct_run() {
     local load_state active_state
 
     [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] || return 0
-    if [ "$one_click_was_configured" != "true" ] \
-        && [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
+    [ "$(uname -s)" = "Linux" ] || return 0
+    # A source checkout has no relationship to the packaged installation's
+    # global updater. Inspect it only for a packaged deployment, or when this
+    # runner explicitly carries updater state that must be serialized.
+    if [ ! -f "$VERSION_FILE" ] \
+      && [ "$one_click_was_configured" != "true" ] \
+      && [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
         return 0
     fi
-    [ "$(uname -s)" = "Linux" ] || return 0
-    command -v systemctl >/dev/null 2>&1 || {
+    if ! command -v systemctl >/dev/null 2>&1; then
+        if [ "$one_click_was_configured" != "true" ] \
+          && [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
+            return 0
+        fi
         echo "Error: one-click updates are configured, but systemctl is unavailable to serialize this manual run." >&2
         return 1
-    }
+    fi
     # A host that previously supported the updater may later lose its systemd
     # manager (notably WSL after an init configuration change). The installer
     # must still be able to persist its explicit fallback to copy-command
@@ -131,21 +166,21 @@ quiesce_updater_for_direct_run() {
         echo "Error: could not inspect proto-fleet-updater.service before the manual deployment run." >&2
         return 1
     fi
-    if [ "$load_state" = "not-found" ]; then
-        if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
-            echo "Error: one-click updates are enabled, but proto-fleet-updater.service is not installed." >&2
-            return 1
-        fi
-        return 0
-    fi
     if ! active_state=$(systemctl show --property=ActiveState --value \
         proto-fleet-updater.service 2>/dev/null); then
         echo "Error: could not inspect proto-fleet-updater.service state before the manual deployment run." >&2
         return 1
     fi
     case "$active_state" in
-        inactive|failed) return 0 ;;
-        active|activating|reloading) ;;
+        inactive|failed)
+            if [ "$load_state" = "not-found" ] \
+              && [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
+                echo "Error: one-click updates are enabled, but proto-fleet-updater.service is not installed." >&2
+                return 1
+            fi
+            return 0
+            ;;
+        active|activating|reloading|deactivating) ;;
         *)
             echo "Error: proto-fleet-updater.service has unexpected state '$active_state'." >&2
             return 1
@@ -173,7 +208,7 @@ quiesce_updater_for_direct_run() {
     # Arm restoration as soon as systemd reports a successful stop. If the
     # checked inactive-state query fails, EXIT cleanup still repairs service
     # availability rather than leaving the updater accidentally stopped.
-    DIRECT_UPDATER_RESTART_ON_EXIT=true
+    DIRECT_UPDATER_WAS_ACTIVE=true
     if ! active_state=$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
         systemctl show --property=ActiveState --value \
         proto-fleet-updater.service 2>/dev/null); then
@@ -2036,6 +2071,9 @@ if ! atomic_set_env_values \
     ENABLE_ONE_CLICK_UPDATES "$ENABLE_ONE_CLICK_UPDATES"; then
     echo "Error: could not persist deployment overlay settings; aborting before Compose validation or service changes." >&2
     exit 1
+fi
+if [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
+    DIRECT_UPDATER_ENV_ROLLBACK_PENDING=true
 fi
 
 # ----------------------------------------------------------------------------
