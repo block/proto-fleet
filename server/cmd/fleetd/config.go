@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/command"
@@ -26,6 +27,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
+
+func validateHAHTTPAddress(config Config) error {
+	if !config.HA.Enabled {
+		return nil
+	}
+	if config.HTTP.Address != ha.LocalStatusAddress {
+		return fmt.Errorf("HA requires HTTP listen address %q, got %q", ha.LocalStatusAddress, config.HTTP.Address)
+	}
+	return nil
+}
 
 type HTTPConfig struct {
 	Address           string        `help:"Address to listen on" default:"127.0.0.1:8080" env:"LISTEN_ADDRESS"`

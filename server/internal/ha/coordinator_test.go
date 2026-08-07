@@ -68,6 +68,28 @@ func TestCoordinatorRenewsAfterClosingDCSProof(t *testing.T) {
 	require.Equal(t, StateActive, coordinator.Snapshot().State)
 }
 
+func TestCoordinatorMarksPassiveCurrentOnlyAfterClosingDCSProof(t *testing.T) {
+	// Arrange
+	closingProofDone := false
+	coordinator := newCoordinatorWithHolder(
+		&closingProofObserver{
+			observation: coordinatorObservation("cluster-a", 41, time.Second),
+			completed:   &closingProofDone,
+		},
+		&fakeLeaseStore{acquireErr: ErrLeaseUnavailable},
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+
+	// Act
+	err := coordinator.step(t.Context())
+
+	// Assert
+	require.ErrorIs(t, err, ErrLeaseUnavailable)
+	require.True(t, closingProofDone)
+	require.True(t, coordinator.Snapshot().ObservationAvailable)
+}
+
 func TestCoordinatorWaitForActiveUnblocksOnActivationAndOwnershipLoss(t *testing.T) {
 	coordinator := newCoordinatorWithHolder(
 		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},

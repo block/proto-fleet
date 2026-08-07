@@ -27,11 +27,13 @@ type RuntimeConfig struct {
 	HealthCheckInterval time.Duration
 	CleanupTimeout      time.Duration
 	EndpointHealthy     func() bool
+	EndpointOwned       func() bool
 }
 
 type runtimeOwner interface {
 	Run(ctx context.Context) error
 	WaitForActive(ctx context.Context) (context.Context, Token, error)
+	Snapshot() Snapshot
 }
 
 type runtimeGroup interface {

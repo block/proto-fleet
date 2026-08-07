@@ -25,13 +25,14 @@ type CoordinatorConfig struct {
 
 // Snapshot is a non-authoritative view of the coordinator's current state.
 type Snapshot struct {
-	State        State
-	HolderID     uuid.UUID
-	DCSClusterID string
-	Token        Token
-	ExpiresAt    time.Time
-	LastError    string
-	UpdatedAt    time.Time
+	State                State
+	HolderID             uuid.UUID
+	DCSClusterID         string
+	Token                Token
+	ExpiresAt            time.Time
+	UpdatedAt            time.Time
+	ObservationAvailable bool
+	FreshUntil           time.Time
 }
 
 type Coordinator struct {
@@ -48,7 +49,7 @@ type Coordinator struct {
 	leaseVersion uint64
 	stateChanged chan struct{}
 	acquireAfter time.Time
-	lastError    string
+	observed     bool
 	updatedAt    time.Time
 }
 
@@ -73,14 +74,12 @@ func newCoordinatorWithHolder(
 	config CoordinatorConfig,
 	holderID uuid.UUID,
 ) *Coordinator {
-	now := time.Now()
 	return &Coordinator{
 		observer:     observer,
 		store:        store,
 		config:       config,
 		holderID:     holderID,
 		stateChanged: make(chan struct{}),
-		updatedAt:    now,
 	}
 }
 
@@ -113,10 +112,13 @@ func (c *Coordinator) Snapshot() Snapshot {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	snapshot := Snapshot{
-		State:     StatePassive,
-		HolderID:  c.holderID,
-		LastError: c.lastError,
-		UpdatedAt: c.updatedAt,
+		State:                StatePassive,
+		HolderID:             c.holderID,
+		UpdatedAt:            c.updatedAt,
+		ObservationAvailable: c.observed,
+	}
+	if !c.updatedAt.IsZero() {
+		snapshot.FreshUntil = c.updatedAt.Add(c.config.LeaseDuration + c.config.RetryInterval)
 	}
 	if c.activeCtx != nil {
 		snapshot.State = StateActive
@@ -222,6 +224,7 @@ func (c *Coordinator) tryAcquire(ctx context.Context) (bool, error) {
 	var ownership Ownership
 	var candidateExpiresAt time.Time
 	acquired := false
+	contended := false
 	observed, err := c.observer.ObserveAndRun(
 		takeoverCtx,
 		func(actionCtx context.Context, observed WriterObservation) error {
@@ -234,6 +237,10 @@ func (c *Coordinator) tryAcquire(ctx context.Context) (bool, error) {
 				c.config.LeaseDuration,
 			)
 			cancelAcquire()
+			if errors.Is(acquireErr, ErrLeaseUnavailable) {
+				contended = true
+				return nil
+			}
 			if acquireErr != nil {
 				return acquireErr
 			}
@@ -251,6 +258,10 @@ func (c *Coordinator) tryAcquire(ctx context.Context) (bool, error) {
 			c.deactivate(err)
 		}
 		return false, err
+	}
+	if contended {
+		c.deactivate(nil)
+		return false, ErrLeaseUnavailable
 	}
 	activationCtx, cancelActivation := context.WithDeadline(ctx, observed.DCSProofDeadline)
 	defer cancelActivation()
@@ -353,7 +364,7 @@ func (c *Coordinator) activate(
 	}
 	c.activeCtx, c.cancelActive = context.WithCancelCause(parent)
 	c.ownership = ownership
-	c.lastError = ""
+	c.observed = true
 	c.updatedAt = time.Now()
 	c.resetLeaseTimerLocked(deadline)
 	c.signalStateChangedLocked()
@@ -385,7 +396,7 @@ func (c *Coordinator) updateActive(
 	}
 	c.ownership = renewed
 	c.updatedAt = time.Now()
-	c.lastError = ""
+	c.observed = true
 	c.resetLeaseTimerLocked(deadline)
 	return nil
 }
@@ -464,11 +475,7 @@ func (c *Coordinator) deactivateLocked(cause error) {
 	}
 	c.ownership = Ownership{}
 	c.updatedAt = time.Now()
-	if cause != nil {
-		c.lastError = cause.Error()
-	} else {
-		c.lastError = ""
-	}
+	c.observed = cause == nil
 }
 
 func (c *Coordinator) signalStateChangedLocked() {

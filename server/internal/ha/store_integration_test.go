@@ -93,7 +93,7 @@ func TestLeaseStoreRejectsClusterIdentityMismatch(t *testing.T) {
 	_, err = store.Acquire(
 		t.Context(), databaseObservation(t, reader, "cluster-b", 42), uuid.New(), time.Minute,
 	)
-	require.ErrorIs(t, err, ErrLeaseUnavailable)
+	require.ErrorIs(t, err, ErrDCSClusterIdentityMismatch)
 }
 
 func TestLeaseStoreRejectsGenerationRegression(t *testing.T) {
@@ -106,7 +106,7 @@ func TestLeaseStoreRejectsGenerationRegression(t *testing.T) {
 	_, err = store.Acquire(
 		t.Context(), databaseObservation(t, reader, "cluster-a", 41), uuid.New(), time.Minute,
 	)
-	require.ErrorIs(t, err, ErrLeaseUnavailable)
+	require.ErrorIs(t, err, ErrWriterChanged)
 }
 
 func TestLeaseStoreSameGenerationWaitsForExpiry(t *testing.T) {
@@ -203,7 +203,7 @@ func TestLeaseStoreRejectsDifferentWritableServerIdentity(t *testing.T) {
 	observed.ServerAddress = "203.0.113.1"
 
 	_, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
-	require.ErrorIs(t, err, ErrLeaseUnavailable)
+	require.ErrorIs(t, err, ErrWriterChanged)
 
 	active, err := store.Acquire(
 		t.Context(),
