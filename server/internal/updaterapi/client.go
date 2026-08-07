@@ -72,7 +72,15 @@ func (c *Client) Status(ctx context.Context) (StatusResponse, error) {
 }
 
 func (c *Client) Trigger(ctx context.Context, operationID, targetVersion string) (Operation, error) {
-	request := TriggerRequest{OperationID: operationID, TargetVersion: targetVersion}
+	return c.trigger(ctx, operationID, targetVersion, false)
+}
+
+func (c *Client) TriggerComplete(ctx context.Context, operationID, targetVersion string) (Operation, error) {
+	return c.trigger(ctx, operationID, targetVersion, true)
+}
+
+func (c *Client) trigger(ctx context.Context, operationID, targetVersion string, complete bool) (Operation, error) {
+	request := TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, Complete: complete}
 	var response TriggerResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/upgrade", request, &response); err != nil {
 		return Operation{}, err
