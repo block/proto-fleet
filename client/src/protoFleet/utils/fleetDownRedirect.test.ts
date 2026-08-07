@@ -105,6 +105,32 @@ describe("redirectFromFleetDown", () => {
       expect(window.location.href).toBe("/");
     });
 
+    it("prevents redirect via backslash protocol-relative URLs", () => {
+      // Browsers normalize "\" to "/", so "/\evil.com" navigates to "//evil.com"
+      window.location.search = "?from=%2F%5Cevil.com";
+
+      redirectFromFleetDown();
+
+      expect(window.location.href).toBe("/");
+    });
+
+    it("prevents redirect via mixed slash-backslash URLs", () => {
+      // "/\/evil.com" also normalizes to a protocol-relative external URL
+      window.location.search = "?from=%2F%5C%2Fevil.com";
+
+      redirectFromFleetDown();
+
+      expect(window.location.href).toBe("/");
+    });
+
+    it("prevents redirect when path contains any backslash", () => {
+      window.location.search = "?from=%2Fminers%5Cpath";
+
+      redirectFromFleetDown();
+
+      expect(window.location.href).toBe("/");
+    });
+
     it("allows valid relative paths", () => {
       window.location.search = "?from=%2Fsettings";
 
