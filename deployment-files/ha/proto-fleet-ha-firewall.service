@@ -1,0 +1,11 @@
+[Unit]
+Description=Proto Fleet HA firewall
+Before=docker.service proto-fleet-ha.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft
+
+[Install]
+WantedBy=multi-user.target

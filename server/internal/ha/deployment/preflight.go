@@ -30,6 +30,17 @@ type hostEnvironment struct {
 	applyFirewall     func(context.Context, NodeConfig, string) error
 }
 
+// ValidateHost verifies the immutable host inputs before installation changes the machine.
+func ValidateHost(ctx context.Context, envPath string) (NodeConfig, error) {
+	host := hostEnvironment{
+		goos:              runtime.GOOS,
+		localIPs:          localAddresses,
+		interfacePrefixes: interfaceIPv4Prefixes,
+		runCommand:        runCommand,
+	}
+	return validateHost(ctx, envPath, host, false)
+}
+
 // Preflight checks a clean host and loads the firewall required before startup.
 func Preflight(ctx context.Context, envPath, firewallTemplatePath string) (NodeConfig, error) {
 	host := hostEnvironment{
@@ -43,6 +54,17 @@ func Preflight(ctx context.Context, envPath, firewallTemplatePath string) (NodeC
 }
 
 func preflight(ctx context.Context, envPath, firewallTemplatePath string, host hostEnvironment) (NodeConfig, error) {
+	config, err := validateHost(ctx, envPath, host, true)
+	if err != nil {
+		return NodeConfig{}, err
+	}
+	if err := host.applyFirewall(ctx, config, firewallTemplatePath); err != nil {
+		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+	}
+	return config, nil
+}
+
+func validateHost(ctx context.Context, envPath string, host hostEnvironment, probeVirtualIP bool) (NodeConfig, error) {
 	config, err := loadNodeConfig(envPath)
 	if err != nil {
 		return NodeConfig{}, err
@@ -99,10 +121,12 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 		if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
 		}
-		// The privileged duplicate-address probe rejects a VIP already claimed by another host.
-		output, err = host.runCommand(ctx, "sudo", "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
-		if err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
+		if probeVirtualIP {
+			// The privileged duplicate-address probe rejects a VIP already claimed by another host.
+			output, err = host.runCommand(ctx, "sudo", "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
+			if err != nil {
+				return NodeConfig{}, fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
+			}
 		}
 	}
 	listeners, err := host.runCommand(ctx, "ss", "-H", "-lnt")
@@ -128,9 +152,6 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 		}
 	}
 	if err := validateSecrets(config); err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
-	}
-	if err := host.applyFirewall(ctx, config, firewallTemplatePath); err != nil {
 		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
 	}
 	return config, nil
