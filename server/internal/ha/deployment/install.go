@@ -68,6 +68,11 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := validateInstallPlatform(deps); err != nil {
 		return err
 	}
+	for _, command := range []string{"ip", "ss"} {
+		if _, err := deps.lookPath(command); err != nil {
+			return fmt.Errorf("HA install requires iproute2 on the base Debian host; missing %s", command)
+		}
+	}
 	config, err := deps.validateHost(ctx, options.NodeEnvPath)
 	if err != nil {
 		return err
@@ -403,11 +408,7 @@ func verifyInstallVirtualIP(ctx context.Context, config NodeConfig) error {
 	}
 
 	tlsConfig, tlsErr := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
-	peer := config.DatabaseAIP
-	if config.NodeIP == peer {
-		peer = config.DatabaseBIP
-	}
-	if tlsErr == nil && probeFleetHost(ctx, tlsConfig, config.VirtualIP, peer).active {
+	if tlsErr == nil && probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.VirtualIP).active {
 		return nil
 	}
 	return fmt.Errorf("HA virtual IP is owned by an unexpected host or cannot be checked: %s", commandError(output, err))

@@ -195,8 +195,8 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	deps.lookPath = func(name string) (string, error) {
-		if name == "sudo" {
-			return "/usr/bin/sudo", nil
+		if name == "sudo" || name == "ip" || name == "ss" {
+			return "/usr/bin/" + name, nil
 		}
 		if name == "docker" {
 			return "/usr/bin/docker", nil
@@ -230,8 +230,8 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 		readFile: func(string) ([]byte, error) { return []byte("ID=debian\nVERSION_ID=13\n"), nil },
 		lstat:    func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
 		lookPath: func(name string) (string, error) {
-			if name == "sudo" {
-				return "/usr/bin/sudo", nil
+			if name == "sudo" || name == "ip" || name == "ss" {
+				return "/usr/bin/" + name, nil
 			}
 			return "", fmt.Errorf("not found")
 		},
