@@ -1269,7 +1269,7 @@ func (m *Manager) runHACommand(ctx context.Context, timeout time.Duration, deplo
 
 func (m *Manager) activationRecoveryCommand(deployment, targetVersion string) string {
 	if m.cfg.DeploymentMode == DeploymentModeHA {
-		return fmt.Sprintf("%s app-start %s", shellQuote(filepath.Join(deployment, "ha", "fleet-ha")), shellQuote(targetVersion))
+		return fmt.Sprintf("sudo -- %s app-start %s", shellQuote(filepath.Join(deployment, "ha", "fleet-ha")), shellQuote(targetVersion))
 	}
 	return activationRecoveryCommand(deployment)
 }
