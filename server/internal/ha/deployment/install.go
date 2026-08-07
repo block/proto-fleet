@@ -635,7 +635,10 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "updater", "proto-fleet-updater.service"), "/etc/systemd/system/proto-fleet-updater.service"); err != nil {
 			return fmt.Errorf("install host updater service: %s", commandError(output, err))
 		}
-		updaterEnv := fmt.Sprintf("PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\n", installBase)
+		updaterEnv := fmt.Sprintf(
+			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=/usr/local/libexec/proto-fleet/proto-fleet-updater\n",
+			installBase,
+		)
 		temp, err := writeInstallTemp("updater.env", updaterEnv, 0o600)
 		if err != nil {
 			return err

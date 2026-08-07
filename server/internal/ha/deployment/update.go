@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/ha"
@@ -25,13 +26,22 @@ func RequirePassive(ctx context.Context, envPath string) error {
 	return nil
 }
 
+var releaseImageRepositories = [...]string{
+	"proto-fleet-api",
+	"proto-fleet-client",
+	"proto-fleet-timescaledb",
+	"proto-fleet-timescaledb-ha",
+}
+
 // PrepareApplicationUpdate builds only the Fleet API and client from a verified release.
 func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	deps := defaultInstallDependencies()
 	if err := validateRelease(ctx, root, deps); err != nil {
 		return err
 	}
-	// Prune before building so repeated updates cannot exhaust a small HA host.
+	if err := pruneReleaseImages(ctx); err != nil {
+		return err
+	}
 	for _, args := range [][]string{{"image", "prune", "-f"}, {"builder", "prune", "-f"}} {
 		if output, err := runCommand(ctx, "docker", args...); err != nil {
 			return fmt.Errorf("clean previous HA application build artifacts: %s", commandError(output, err))
@@ -49,6 +59,20 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	}
 	if err := RunCompose(ctx, fleetComposeArgsAt(root, "build", "fleet-api", "fleet-client")); err != nil {
 		return fmt.Errorf("build HA application update: %w", err)
+	}
+	return nil
+}
+
+func pruneReleaseImages(ctx context.Context) error {
+	for _, repository := range releaseImageRepositories {
+		output, err := runCommand(ctx, "docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}", repository)
+		if err != nil {
+			return fmt.Errorf("list previous HA release images: %s", commandError(output, err))
+		}
+		for image := range strings.FieldsSeq(string(output)) {
+			// Docker refuses to remove images referenced by current or stopped containers.
+			_, _ = runCommand(ctx, "docker", "image", "rm", image)
+		}
 	}
 	return nil
 }
@@ -82,8 +106,9 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"))
 		if err == nil {
 			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
-			passiveReady := report.Control != nil && report.Control.FailoverReady
-			if (report.Runtime.Role == ha.RoleActive || passiveReady) && applicationReady(report.Runtime, publicStatus, targetVersion) {
+			controlReady := report.Control != nil && report.Control.ControlReady
+			roleReady := report.Runtime.Role == ha.RoleActive || report.Control != nil && report.Control.FailoverReady
+			if controlReady && roleReady && applicationReady(report.Runtime, publicStatus, targetVersion) {
 				return nil
 			}
 		}

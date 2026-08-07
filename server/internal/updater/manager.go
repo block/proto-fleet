@@ -578,11 +578,6 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.DeploymentMode != DeploymentModeStandalone && cfg.DeploymentMode != DeploymentModeHA {
 		return nil, fmt.Errorf("deployment mode must be standalone or ha")
 	}
-	if cfg.DeploymentMode == DeploymentModeHA {
-		if cfg.SelfUpdatePath != "" {
-			return nil, fmt.Errorf("HA application updates do not replace the host updater")
-		}
-	}
 	if cfg.DownloadBaseURL == "" {
 		cfg.DownloadBaseURL = canonicalDownloadBaseURL
 	} else if cfg.DownloadBaseURL != canonicalDownloadBaseURL && !cfg.allowTestDownloadBaseURL {
@@ -1171,6 +1166,8 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		m.fail(operationID, fmt.Errorf("persist activation phase: %w", err), recovery)
 		return
 	}
+	activationCtx, cancelActivation := context.WithTimeout(ctx, m.cfg.ActivationTimeout)
+	defer cancelActivation()
 	backupDeployment := filepath.Join(m.cfg.InstallRoot, "deployment.previous")
 	if m.cfg.DeploymentMode == DeploymentModeHA {
 		recovery = m.activationRecoveryCommand(currentDeployment, previousVersion)
@@ -1178,7 +1175,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile)
 			return
 		}
-		if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop"); err != nil {
+		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop"); err != nil {
 			m.failActivation(operationID, targetVersion, fmt.Errorf("stop passive HA application: %w", err), logFile)
 			return
 		}
@@ -1197,7 +1194,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 
-	if err := m.runActivation(ctx, currentDeployment, targetVersion, commandOutput); err != nil {
+	if err := m.runActivation(activationCtx, currentDeployment, targetVersion, commandOutput); err != nil {
 		activationErr := fmt.Errorf("new stack failed to start: %w", err)
 		// Migrations may already have run, so keep the new deployment active for
 		// forward recovery instead of starting an older binary against its schema.
@@ -1219,7 +1216,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	successMessage := fmt.Sprintf("Fleet %s is running", targetVersion)
 	selfUpdateSucceeded := false
 	if preparedUpdater != nil {
-		if err := m.refreshSelfUpdater(ctx, preparedUpdater, m.cfg.SelfUpdatePath, targetVersion); err != nil {
+		if err := m.refreshSelfUpdater(activationCtx, preparedUpdater, m.cfg.SelfUpdatePath, targetVersion); err != nil {
 			_, _ = fmt.Fprintf(logFile, "[%s] warning: Fleet is healthy, but the host updater binary was not refreshed: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
 			successMessage += "; host updater refresh needs attention (see upgrade log)"
 		} else {
