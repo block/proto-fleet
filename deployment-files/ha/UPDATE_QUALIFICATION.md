@@ -20,7 +20,7 @@ leaves the release marked prerelease and unsupported.
 | --- | --- |
 | Source release and commit (`N`) | Pending |
 | Target release and commit (`N+1`) | Pending |
-| Release artifacts and SHA-256 digests | Pending |
+| Source and target artifacts and SHA-256 digests | Pending |
 | Architecture and operating system | Pending |
 | Started and completed | Pending |
 
@@ -159,16 +159,16 @@ and run Fleet commands as
 | Updater refresh | Both updater binaries, services, and local status sockets run `N+1` | N/A | Pending | Pending |
 | Updater interruption recovery | Pre-activation, post-swap, and self-update faults recover automatically | N/A | Pending | Pending |
 | Reboot recovery | Both hosts return on `N+1` with persisted data and working failover | Pending | Pending | Pending |
-| Promotion drift guard | Source is still latest stable; target tag, commit, and asset digests still match this report | N/A | Pending | Pending |
+| Promotion drift guard | Source is still latest stable; both tags, commits, and complete asset digests still match this report | N/A | Pending | Pending |
 
 ## Verdict
 
 **Pending.** Mark the adjacent update supported only when every gate passes on
 both amd64 and arm64 and attach the redacted evidence to each report.
 Immediately before promotion, re-fetch both releases and re-download every
-target asset into a clean directory. Abort unless `SOURCE_RELEASE` is still the
-latest stable release, the target is still a prerelease, its tag resolves to
-the recorded commit, and its asset names and SHA-256 digests exactly match the
-report. Then promote it with
+source and target asset into separate clean directories. Abort unless
+`SOURCE_RELEASE` is still the latest stable release, the target is still a
+prerelease, both tags resolve to their recorded commits, and both complete
+asset name and SHA-256 digest sets exactly match the report. Then promote it with
 `gh release edit "$TARGET_RELEASE" --prerelease=false --latest`. Do not rebuild,
 retag, replace assets, or promote after any drift.
