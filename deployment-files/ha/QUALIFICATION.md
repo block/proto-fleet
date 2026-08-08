@@ -76,18 +76,19 @@ time and a short redacted evidence reference.
 | --- | --- | --- | --- |
 | Application failover | 5 consecutive passes | Pending | Pending |
 | Database failover | 3 consecutive passes | Pending | Pending |
-| Soak | 24h with no split ownership or lost failover readiness | Pending | Pending |
+| Soak | 24h with no observed dual-active state or lost failover readiness | Pending | Pending |
 
 During the soak, sample both hosts at least every two seconds to measure
 availability. Separately poll the database lease below the three-second renewal
 interval, recording database time, holder, epoch, and expiry, and retain both
-hosts' timestamped service start/exit journals. Reconstruct each active proof
-interval and fail on overlap. Record local
+hosts' timestamped service start/exit journals. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
 direct active/passive health, and VIP interface ownership with timestamps. Fail
-the soak on any dual-active, dual-VIP, or lost-readiness sample. The two-second
-samples alone are not proof against shorter ownership overlap. Redact the
-retained evidence before committing it.
+the soak on any dual-active, dual-VIP, or lost-readiness sample, and repeat the
+stale-transition gate after every application failover. These observations do
+not constitute an event-complete admission history; a durable activation-event
+ledger is outside this initial qualification. Redact the retained evidence
+before committing it.
 
 ## Verdict
 
