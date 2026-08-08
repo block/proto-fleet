@@ -42,19 +42,19 @@ certificates, device names, and customer data from committed evidence.
    three VIP probes succeed and `/api-proxy/health` reports
    `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Verify the former
    active rejoins as passive.
-6. Using a controllable test device, pause one command after its exact queue row
-   reaches PROCESSING so its successor remains PENDING, then immediately force
-   an application failover. Continuously record both rows until the old
-   `fleet-api` stops and fail if either changes before that stop. Reuse the
+6. Using a controllable test device, stall one command after its exact queue row
+   reaches PROCESSING so its successor remains PENDING. SIGSTOP the old active
+   `fleet-api`, let its lease expire, and wait for the `N+1` peer to take over
+   and recover the PROCESSING row. Queue the old plugin result while its process
+   is stopped, then SIGCONT it. Verify the old process exits, its stale database
+   transition is rejected, exactly one terminal result remains, the PENDING
+   successor dispatches, and later work for that device succeeds. Reuse the
    direct active-health and interface-address streams from step 5 through
-   convergence and fail on any active or VIP overlap. Release the test device;
-   verify the PROCESSING command reaches its expected terminal recovery state,
-   the PENDING command dispatches, and later work for that device succeeds.
-   Force a second failover in the other direction with the same ownership
-   streams. For both moves, require the former active to reject an active-only
-   request, measure usable service from the last successful pre-failover probe
-   on the same monotonic clock, require less than 15 seconds, and submit a
-   successful command.
+   convergence and fail on any active or VIP overlap. Force a second failover
+   in the other direction with the same ownership streams. For both moves,
+   require the former active to reject an active-only request, measure usable
+   service from the last successful pre-failover probe on the same monotonic
+   clock, require less than 15 seconds, and submit a successful command.
 7. Confirm the etcd and Patroni container IDs and start times, and both
    PostgreSQL postmaster start times, are unchanged from step 2. The application
    update must not replace or restart these services.
@@ -73,7 +73,7 @@ certificates, device names, and customer data from committed evidence.
 | Failed takeover recovery | No swap; `N` restores usable service and command execution | `<60s` | Pending | Pending |
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive | `<15s` | Pending | Pending |
 | Handoff fencing | High-frequency direct health and interface event streams never show active or VIP overlap | N/A | Pending | Pending |
-| Post-update failover command recovery | Exact rows stay PROCESSING/PENDING until stop, then PROCESSING recovers, PENDING dispatches, and later per-device work succeeds | N/A | Pending | Pending |
+| Post-update stale completion | Resumed old transition is rejected; exactly one terminal result remains; PENDING dispatches; later per-device work succeeds | N/A | Pending | Pending |
 | Failover to peer | No active or VIP overlap; old active rejects; VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Failover back | No active or VIP overlap; old active rejects; VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Infrastructure preserved | etcd and Patroni identity plus PostgreSQL start times are unchanged | N/A | Pending | Pending |
