@@ -68,10 +68,15 @@ without an enforced trusted segment are unsupported.
 Restore full readiness before starting each row. Run the external append-only
 recorder described under Repetition and soak from before fault injection through
 full recovery. Against a test device, continuously submit uniquely identified
-idempotent command probes and retain database results. Fail any row on possible
-active, VIP, or writable-primary overlap, a collection gap, duplicate terminal
-results, or a stale transition. Record the observed recovery time and a short
-redacted evidence reference. For database isolation and failover rows, also
+idempotent command probes and keep a controller-side ledger of every
+acknowledged or durably observed command ID. Require each ID to retain exactly
+one database record and reach SUCCESS or a documented failover-related FAILED
+state within 60 seconds. Treat missing, duplicate, PENDING, or PROCESSING rows
+after that bound as failures; record ambiguous submissions separately rather
+than counting them as acknowledged. Also fail any row on possible active, VIP,
+or writable-primary overlap, a collection gap, or a stale transition. Record
+the observed recovery time and a short redacted evidence reference. For
+database isolation and failover rows, also
 record host-pinned writable SQL probe results against both database hosts at
 100 ms or faster. Before isolating the old primary, begin a writable transaction
 on it, write a unique probe identifier, and hold the transaction open. After the
