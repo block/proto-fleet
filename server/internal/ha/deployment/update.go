@@ -63,6 +63,9 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	if err := validateRelease(ctx, root, deps); err != nil {
 		return err
 	}
+	if err := validatePinnedInfrastructureGeneration(); err != nil {
+		return err
+	}
 	if _, err := os.Stat(infrastructureCompose); errors.Is(err, os.ErrNotExist) {
 		if output, installErr := runCommand(ctx, "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "compose.yaml"), infrastructureCompose); installErr != nil {
 			return fmt.Errorf("pin current HA infrastructure Compose file: %s", commandError(output, installErr))
@@ -89,6 +92,39 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 		return fmt.Errorf("build HA application update: %w", err)
 	}
 	return nil
+}
+
+func validatePinnedInfrastructureGeneration() error {
+	currentVersion, err := deploymentVersion(filepath.Join(installRoot, "version.txt"))
+	if err != nil {
+		return err
+	}
+	pinnedImage, err := haDatabaseImage(filepath.Dir(configRoot), os.ReadFile)
+	if err != nil {
+		return fmt.Errorf("read pinned HA infrastructure version: %w", err)
+	}
+	pinnedVersion := strings.TrimPrefix(pinnedImage, "proto-fleet-timescaledb-ha:")
+	pinnedVersion, _, _ = strings.Cut(pinnedVersion, "@")
+	if currentVersion != pinnedVersion {
+		return fmt.Errorf("chained HA application updates are not supported while infrastructure updates are deferred; application is %s but pinned infrastructure is %s", currentVersion, pinnedVersion)
+	}
+	return nil
+}
+
+func deploymentVersion(path string) (string, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read installed HA application version: %w", err)
+	}
+	for line := range strings.SplitSeq(string(contents), "\n") {
+		if version, ok := strings.CutPrefix(strings.TrimSpace(line), "version:"); ok {
+			version = strings.TrimSpace(version)
+			if version != "" {
+				return version, nil
+			}
+		}
+	}
+	return "", errors.New("installed HA application version is missing")
 }
 
 func pruneReleaseImages(ctx context.Context) error {
