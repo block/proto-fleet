@@ -177,6 +177,7 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/updater-systemd.conf" "After=proto-fleet-ha.service"
     assert_contains "${HA_DIR}/updater-systemd.conf" "PartOf=proto-fleet-ha.service"
     assert_contains "${HA_DIR}/ha-updater-systemd.conf" "EnvironmentFile=-/etc/proto-fleet/updater.env"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "Wants=proto-fleet-updater.service"
     assert_contains "${HA_DIR}/ha-updater-systemd.conf" "ExecStartPre=/usr/local/libexec/proto-fleet/proto-fleet-updater --deployment-mode ha --self-update-path /usr/local/libexec/proto-fleet/proto-fleet-updater --repair-startup"
     assert_not_contains "${HA_DIR}/ha-updater-systemd.conf" "Requires=proto-fleet-updater.service"
 
