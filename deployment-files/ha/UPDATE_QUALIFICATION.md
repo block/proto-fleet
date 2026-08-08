@@ -10,13 +10,6 @@ local operator command can select this candidate. After every gate passes,
 promote that same release without changing its tag or assets. A failed report
 leaves the release marked prerelease and unsupported.
 
-This report does not claim hardware qualification of the automatic
-old-release restart when the peer fails to take over. That path is covered by
-the updater's focused tests, but making the hardware drill deterministic would
-require a production fault-injection hook. If completion times out during this
-initial release, follow the reported recovery command and verify local HA
-status before retrying.
-
 ## Test identity
 
 | Field | Value |
@@ -63,7 +56,7 @@ and run Fleet commands as
    two-second deadline, record command submission and terminal-result times,
    and require each background command to reach SUCCESS exactly once within 60
    seconds. FAILED is permitted only for the deliberately interrupted
-   PROCESSING commands in steps 4 and 6, with the expected restart interruption
+   PROCESSING commands in steps 4 and 7, with the expected restart interruption
    reason.
    Before the planned handoff, fail if successful reads or command
    submissions are more than three seconds apart. Continue these probes through
@@ -84,7 +77,16 @@ and run Fleet commands as
    perform a persisted read and a uniquely identified idempotent command against
    the `N+1` VIP. Before reinstalling for step 5, confirm the infrastructure
    identities from step 2 are unchanged.
-5. Reinstall the clean `N` baseline and repeat steps 2 and 3 for a separate
+5. Reinstall the clean `N` baseline, update the passive host to `N+1`, and keep
+   a persistent controller connection to both hosts. Start `--complete` on the
+   active `N` host while the controller polls its local updater status. As soon
+   as the operation enters the activating phase, stop the updated peer's Fleet
+   application before the old host stops. Require takeover to time out and the
+   updater to restart release `N` automatically. Within 60 seconds, require the
+   old host to serve the VIP, a persisted read, and a successful command, with
+   no manual recovery command remaining. Restart the `N+1` peer as passive and
+   restore full readiness before continuing.
+6. Reinstall the clean `N` baseline and repeat steps 2 and 3 for a separate
    mixed-version failover run. Update the passive host to `N+1`, then terminate
    the active `N` Fleet process instead of running `--complete`. Require the
    `N+1` peer to take over within 15 seconds with no possible active or VIP
@@ -93,7 +95,7 @@ and run Fleet commands as
    the `N` host as passive and update it with the ordinary passive command.
    Require both hosts to run `N+1`, full failover readiness, and unchanged
    infrastructure identities from this run's step 2.
-6. Using a controllable test device on the current active host, stall one command
+7. Using a controllable test device on the current active host, stall one command
    after its exact queue row reaches PROCESSING so its successor remains PENDING.
    SIGSTOP that active `fleet-api`, let its lease expire, and wait for the passive
    peer to take over. Queue the old plugin result while its process is stopped,
@@ -107,10 +109,10 @@ and run Fleet commands as
    require the former active to reject an active-only request, measure usable
    service from the last successful pre-failover probe on the same monotonic
    clock, require less than 15 seconds, and submit a successful command.
-7. Confirm the etcd and Patroni container IDs and start times, and both
+8. Confirm the etcd and Patroni container IDs and start times, and both
    PostgreSQL postmaster start times, are unchanged from step 2. The application
    update must not replace or restart these services.
-8. Confirm both updater binaries report `N+1` and their services and local
+9. Confirm both updater binaries report `N+1` and their services and local
    status sockets are healthy. Reboot the two application/database hosts one
    at a time, restoring full readiness between reboots. Repeat the updater
    checks and verify both hosts retain Fleet data and can serve a command.
@@ -125,6 +127,7 @@ and run Fleet commands as
 | Passive-first update | Passive runs `N+1`; active continues serving `N` | N/A | Pending | Pending |
 | Mixed-version operation | Continuous persisted reads and commands succeed throughout migration while hosts run `N` and `N+1` | N/A | Pending | Pending |
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive; cached `N` client works against `N+1` | `<15s` | Pending | Pending |
+| Takeover timeout recovery | Updated peer is unavailable; old `N` restarts automatically and serves reads and commands | `<60s` | Pending | Pending |
 | Handoff fencing | High-frequency direct health and interface event streams never show active or VIP overlap | N/A | Pending | Pending |
 | Mixed-version forced takeover | `N+1` takes over safely while its peer is `N`; the old host then completes through the ordinary passive update | `<15s` | Pending | Pending |
 | Post-update stale completion | Interrupted row is FAILED without replay; resumed old transition is rejected; PENDING successor and later work succeed | N/A | Pending | Pending |
