@@ -177,4 +177,5 @@ the resulting source tag and commit, and the updater requires both to match the
 installed release. Because the updater accepts only the fixed official release
 origin,
 exact-byte qualification starts after publication; do not run the update until
-its report passes. A qualified RC-to-stable pair can name the RC explicitly.
+its report passes. Only stable-to-stable pairs are supported; RC releases are
+clean-install-only.
