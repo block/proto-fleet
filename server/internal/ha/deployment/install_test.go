@@ -45,10 +45,13 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
+	serviceMask := callIndex(calls, "sudo systemctl mask --runtime docker.service docker.socket keepalived.service")
+	dockerPackages := callIndex(calls, "sudo apt-get install -y docker-ce")
+	serviceUnmask := callIndex(calls, "sudo systemctl unmask --runtime docker.service docker.socket keepalived.service")
 	snapshot := callIndex(calls, "dir:"+installRoot+" sha256sum --check deployment-manifest.sha256")
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
-	if packages < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || start < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && keepalived < firewall && firewall < docker && rootPasswordInstall < start) {
+	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || start < 0 || keepalived < 0 ||
+		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
