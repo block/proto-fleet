@@ -2032,7 +2032,7 @@ func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
 	assert.Empty(t, runner.Commands())
 }
 
-func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *testing.T) {
+func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *testing.T) {
 	t.Parallel()
 
 	installRoot := t.TempDir()
@@ -2071,13 +2071,28 @@ func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *tes
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, activationMarkerFilename), marker, 0o600))
 
 	runner := &haRecordingRunner{}
-	manager, err := NewManager(Config{
+	failPersist := true
+	config := Config{
 		InstallRoot:    installRoot,
 		StateDir:       stateDir,
 		GOARCH:         "amd64",
 		Runner:         runner,
 		DeploymentMode: DeploymentModeHA,
-	})
+		beforePersistState: func(operation updaterapi.Operation) error {
+			if operation.RecoveryPending && failPersist {
+				failPersist = false
+				return assert.AnError
+			}
+			return nil
+		},
+	}
+	manager, err := NewManager(config)
+	require.ErrorContains(t, err, assert.AnError.Error())
+	require.Nil(t, manager)
+	assert.FileExists(t, filepath.Join(stateDir, activationMarkerFilename))
+
+	config.beforePersistState = nil
+	manager, err = NewManager(config)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
@@ -2085,13 +2100,12 @@ func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *tes
 	require.NotNil(t, operation)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Contains(t, operation.Error, "input/output error")
-	assert.Contains(t, operation.Error, "restored the validated previous deployment")
-	assert.Contains(t, operation.Message, "Previous deployment restored")
 	assert.Equal(t, completed, *operation.CompletedAt)
 	assert.NotEmpty(t, operation.RecoveryCommand)
 	assert.True(t, operation.RecoveryPending)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+	assert.NoFileExists(t, filepath.Join(stateDir, activationMarkerFilename))
 	assert.NoDirExists(t, stageRoot)
 	require.NoError(t, manager.RecoverApplication())
 	recovered := manager.Status().Operation
