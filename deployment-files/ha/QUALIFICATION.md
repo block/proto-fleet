@@ -56,7 +56,9 @@ full recovery. Against a test device, continuously submit uniquely identified
 idempotent command probes and retain database results. Fail any row on possible
 active, VIP, or writable-primary overlap, a collection gap, duplicate terminal
 results, or a stale transition. Record the observed recovery time and a short
-redacted evidence reference.
+redacted evidence reference. For database isolation and failover rows, also
+record host-pinned writable SQL probe results against both database hosts at
+100 ms or faster; overlapping successful writes fail the gate.
 
 | Gate | Required result | Duration | Result | Evidence |
 | --- | --- | --- | --- | --- |
@@ -75,8 +77,8 @@ redacted evidence reference.
 | Hold an active-only request across demotion | The old active cancels it before the peer serves active traffic | Pending | Pending | Pending |
 | Probe public health through the VIP | Public responses reveal no HA topology and `/api-proxy/health/ha` returns 404 | Pending | Pending | Pending |
 | With Grafana and telemetry ingestion stopped, stop the etcd witness | Active health remains usable and local HA status still reports degraded failover readiness | Pending | Pending | Pending |
-| From a fourth non-peer, raw-probe each HA-only port before and after reboot after verifying its listener from a peer | The matching nftables drop counter increases while peer traffic remains healthy; use a temporary listener for the normally closed debug port | Pending | Pending | Pending |
-| Send a valid winning VRRP advertisement from a non-peer | The protocol-112 drop counter increases and VIP ownership does not change | Pending | Pending | Pending |
+| From a fourth non-peer, probe each listening HA-only service port before and after reboot | Peer traffic remains healthy and every non-peer connection is blocked | Pending | Pending | Pending |
+| Send a valid winning VRRP advertisement from a non-peer | VIP ownership does not change | Pending | Pending | Pending |
 | Fail over with PENDING command | New active dispatches the command | Pending | Pending | Pending |
 | SIGSTOP the old active with a stalled PROCESSING plugin call, let the peer recover it, queue the old result, then SIGCONT | The resumed stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
