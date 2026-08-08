@@ -1378,7 +1378,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 		return
 	}
 
-	if err := m.runActivation(activationCtx, currentDeployment, targetVersion, commandOutput); err != nil {
+	if err := m.runActivation(activationCtx, currentDeployment, targetVersion, complete, commandOutput); err != nil {
 		activationErr := fmt.Errorf("new stack failed to start: %w", err)
 		// Migrations may already have run, so keep the new deployment active for
 		// forward recovery instead of starting an older binary against its schema.
@@ -1448,9 +1448,13 @@ func (m *Manager) runPreflight(ctx context.Context, deployment string, output io
 	return m.runCommand(ctx, m.cfg.PreflightTimeout, deployment, output, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only")
 }
 
-func (m *Manager) runActivation(ctx context.Context, deployment, targetVersion string, output io.Writer) error {
+func (m *Manager) runActivation(ctx context.Context, deployment, targetVersion string, complete bool, output io.Writer) error {
 	if m.cfg.DeploymentMode == DeploymentModeHA {
-		return m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, output, "app-start", targetVersion, "passive")
+		mode := "passive"
+		if complete {
+			mode = "complete"
+		}
+		return m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, output, "app-start", targetVersion, mode)
 	}
 	return m.runCommand(ctx, m.cfg.ActivationTimeout, deployment, output, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--skip-build")
 }

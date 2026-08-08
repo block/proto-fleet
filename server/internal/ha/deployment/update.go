@@ -220,7 +220,7 @@ func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool 
 }
 
 // StartApplication starts the target release and proves it serves its observed HA role.
-func StartApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
+func StartApplication(ctx context.Context, root, targetVersion string, requirePassive, requireFailoverReady bool) error {
 	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
 	if err != nil {
 		return err
@@ -236,6 +236,7 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 			probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP),
 			targetVersion,
 			requirePassive,
+			requireFailoverReady,
 		)
 		if readinessErr != nil {
 			return readinessErr
@@ -266,7 +267,7 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"))
 		if err == nil {
 			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
-			ready, readinessErr := updatedApplicationReady(report, publicStatus, targetVersion, requirePassive)
+			ready, readinessErr := updatedApplicationReady(report, publicStatus, targetVersion, requirePassive, requireFailoverReady)
 			if readinessErr != nil {
 				return readinessErr
 			}
@@ -292,13 +293,17 @@ func applicationMayConverge(runtime ha.Status, targetVersion string, requirePass
 	return runtime.Role == ha.RoleActive || runtime.Role == ha.RolePassive
 }
 
-func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) (bool, error) {
+func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string, requireFailoverReady bool) (bool, error) {
 	if report.Runtime.Observation == ha.ObservationCurrent && report.Runtime.Role == ha.RoleActive {
 		return false, errors.New("updated node became active; inspect the peer before retrying")
 	}
+	controlReady := rollingUpdateControlReady(report.Control)
+	if requireFailoverReady {
+		controlReady = report.Control != nil && report.Control.FailoverReady
+	}
 	return report.Runtime.Role == ha.RolePassive &&
 		applicationReady(report.Runtime, public, targetVersion) &&
-		rollingUpdateControlReady(report.Control), nil
+		controlReady, nil
 }
 
 func rollingUpdateControlReady(control *ControlStatus) bool {
@@ -314,9 +319,9 @@ func ExpectedRollingVersionMismatch(control *ControlStatus) bool {
 		len(control.ReasonCodes) == 1 && control.ReasonCodes[0] == ReasonFleetVersionMismatch
 }
 
-func updatedApplicationReady(report StatusReport, publicStatus fleetHostStatus, targetVersion string, requirePassive bool) (bool, error) {
+func updatedApplicationReady(report StatusReport, publicStatus fleetHostStatus, targetVersion string, requirePassive, requireFailoverReady bool) (bool, error) {
 	if requirePassive {
-		return rollingUpdateApplicationReady(report, publicStatus, targetVersion)
+		return rollingUpdateApplicationReady(report, publicStatus, targetVersion, requireFailoverReady)
 	}
 	if report.Control == nil || !report.Control.ControlReady {
 		return false, nil

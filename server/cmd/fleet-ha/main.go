@@ -181,7 +181,7 @@ func (c *appStopCmd) Run(ctx context.Context) error {
 
 type appStartCmd struct {
 	Version string `arg:"" help:"application version to start"`
-	Mode    string `arg:"" optional:"" default:"passive" enum:"passive,any" help:"required HA role after startup"`
+	Mode    string `arg:"" optional:"" default:"passive" enum:"passive,complete,any" help:"required HA readiness after startup"`
 }
 
 func (c *appStartCmd) Run(ctx context.Context) error {
@@ -189,7 +189,7 @@ func (c *appStartCmd) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return deployment.StartApplication(ctx, root, c.Version, c.Mode == "passive")
+	return deployment.StartApplication(ctx, root, c.Version, c.Mode != "any", c.Mode == "complete")
 }
 
 type waitTakeoverCmd struct {

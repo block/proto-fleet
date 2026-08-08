@@ -444,7 +444,7 @@ func TestManagerHACompletionWaitsForUpdatedPeerBeforeSwap(t *testing.T) {
 	assert.Equal(t, []string{"require-active", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[1].Args)
 	assert.Equal(t, []string{"app-stop", "active"}, commands[2].Args)
 	assert.Equal(t, []string{"wait-takeover", "v1.1.0"}, commands[3].Args)
-	assert.Equal(t, []string{"app-start", "v1.1.0", "passive"}, commands[4].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "complete"}, commands[4].Args)
 
 	_, err = manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
 	require.ErrorContains(t, err, "operation id is already associated with another update")
