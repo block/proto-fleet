@@ -77,15 +77,17 @@ and run Fleet commands as
    perform a persisted read and a uniquely identified idempotent command against
    the `N+1` VIP. Before reinstalling for step 5, confirm the infrastructure
    identities from step 2 are unchanged.
-5. Reinstall the clean `N` baseline, update the passive host to `N+1`, and keep
-   a persistent controller connection to both hosts. Start `--complete` on the
-   active `N` host while the controller polls its local updater status. As soon
-   as the operation enters the activating phase, stop the updated peer's Fleet
-   application before the old host stops. Require takeover to time out and the
-   updater to restart release `N` automatically. Within 60 seconds, require the
-   old host to serve the VIP, a persisted read, and a successful command, with
-   no manual recovery command remaining. Restart the `N+1` peer as passive and
-   restore full readiness before continuing.
+5. Reinstall the clean `N` baseline and update the passive host to `N+1`. On the
+   active host, create the root-owned
+   `/var/lib/proto-fleet-updater/qualification-pause-before-ha-stop` file and
+   arrange to remove it on every exit. Start `--complete` and wait until updater
+   status enters the activating phase; the barrier now holds the old application
+   open after final preflight. Stop the updated peer's Fleet application and
+   confirm it is unavailable, then remove the barrier. Require takeover to time
+   out and the updater to restart release `N` automatically. Within 60 seconds,
+   require the old host to serve the VIP, a persisted read, and a successful
+   command, with no manual recovery command remaining. Restart the `N+1` peer as
+   passive and restore full readiness before continuing.
 6. Reinstall the clean `N` baseline and repeat steps 2 and 3 for a separate
    mixed-version failover run. Update the passive host to `N+1`, then terminate
    the active `N` Fleet process instead of running `--complete`. Require the
