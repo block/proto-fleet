@@ -285,6 +285,18 @@ func TestValidateReleaseRejectsSymlinks(t *testing.T) {
 	}
 }
 
+func TestValidateReleaseRequiresHAUpdaterDropIn(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	require.NoError(t, os.Remove(filepath.Join(source, "ha", "updater-systemd.conf")))
+
+	// Act
+	err := validateRelease(t.Context(), source, installDependencies{})
+
+	// Assert
+	require.ErrorContains(t, err, "release is missing ha/updater-systemd.conf")
+}
+
 func TestConsumeInstallCredentialsPreservesUnexpectedFiles(t *testing.T) {
 	// Arrange
 	secrets := t.TempDir()

@@ -120,14 +120,14 @@ func run(ctx context.Context, args []string) error {
 		}
 		return deployment.PrepareApplicationUpdate(ctx, root)
 	case "app-stop":
-		if len(args) != 2 {
-			return errors.New("usage: fleet-ha app-stop VERSION")
+		if len(args) != 1 {
+			return errors.New("usage: fleet-ha app-stop")
 		}
 		root, err := deployment.ReleaseRoot()
 		if err != nil {
 			return err
 		}
-		return deployment.StopApplication(ctx, root, args[1])
+		return deployment.StopApplication(ctx, root)
 	case "app-start":
 		if len(args) != 2 {
 			return errors.New("usage: fleet-ha app-start VERSION")
