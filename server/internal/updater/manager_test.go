@@ -272,6 +272,7 @@ func TestManagerHAUpdateKeepsForwardRecoveryWhenStartupFails(t *testing.T) {
 	assert.Contains(t, completed.RecoveryCommand, "sudo --")
 	assert.Contains(t, completed.RecoveryCommand, "app-start")
 	assert.Contains(t, completed.RecoveryCommand, "v1.1.0")
+	assert.True(t, strings.HasSuffix(completed.RecoveryCommand, " any"))
 	assert.Contains(t, completed.Error, "new stack failed to start")
 	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	commands := runner.Commands()
@@ -403,6 +404,7 @@ func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
 	require.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Contains(t, operation.RecoveryCommand, "app-start")
 	assert.Contains(t, operation.RecoveryCommand, "v1.0.0")
+	assert.True(t, strings.HasSuffix(operation.RecoveryCommand, " any"))
 }
 
 func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
