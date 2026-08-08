@@ -65,3 +65,11 @@ func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateInfrastructureGenerationRejectsChainedUpdate(t *testing.T) {
+	// Act
+	err := validateInfrastructureGeneration("v1.1.0", "proto-fleet-timescaledb-ha:v1.0.0")
+
+	// Assert
+	require.ErrorContains(t, err, "chained HA application updates are not supported")
+}
