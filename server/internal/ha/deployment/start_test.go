@@ -17,6 +17,7 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 		name             string
 		statuses         map[string]*clientv3.StatusResponse
 		errors           map[string]error
+		requiredEndpoint string
 		wantQuorum       bool
 		wantAuthRequired bool
 	}{
@@ -40,6 +41,14 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 				"b": startupStatus(1, 11, 11),
 			},
 		},
+		{
+			name:             "healthy peers do not replace local member",
+			requiredEndpoint: "local",
+			statuses: map[string]*clientv3.StatusResponse{
+				"a": startupStatus(1, 11, 11),
+				"b": startupStatus(1, 12, 11),
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -51,7 +60,11 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 			}
 
 			// Act
-			quorum, authRequired := startupEtcdQuorum(t.Context(), status, []string{"a", "b"})
+			requiredEndpoint := test.requiredEndpoint
+			if requiredEndpoint == "" {
+				requiredEndpoint = "a"
+			}
+			quorum, authRequired := startupEtcdQuorum(t.Context(), status, []string{"a", "b", "local"}, requiredEndpoint)
 
 			// Assert
 			require.Equal(t, test.wantQuorum, quorum)
