@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,11 +143,11 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := prepareImages(ctx, config, deps); err != nil {
 		return err
 	}
-	if err := consumeInstallCredentials(options, config); err != nil {
-		return err
-	}
 	if err := initialStart(ctx, config, deps); err != nil {
 		return err
+	}
+	if err := consumeInstallCredentials(options, config); err != nil {
+		slog.Warn("HA installation succeeded but staged credentials could not be removed", "error", err)
 	}
 	return nil
 }

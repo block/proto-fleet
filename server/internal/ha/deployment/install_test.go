@@ -61,7 +61,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	}
 }
 
-func TestInstallConsumesCopiedCredentialsBeforeStartingServices(t *testing.T) {
+func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
 	secrets := t.TempDir()
@@ -90,8 +90,8 @@ func TestInstallConsumesCopiedCredentialsBeforeStartingServices(t *testing.T) {
 	// Assert
 	require.ErrorContains(t, err, "start failed")
 	require.Contains(t, strings.Join(calls, "\n"), configRoot+"/etcd-root-password")
-	require.NoFileExists(t, rootPassword)
-	require.NoDirExists(t, secrets)
+	require.FileExists(t, rootPassword)
+	require.DirExists(t, secrets)
 }
 
 func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
