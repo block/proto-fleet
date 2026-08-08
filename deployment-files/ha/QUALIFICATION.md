@@ -65,8 +65,8 @@ time and a short redacted evidence reference.
 | Hold an active-only request across demotion | The old active cancels it before the peer serves active traffic | Pending | Pending | Pending |
 | Probe public health through the VIP | Public responses reveal no HA topology and `/api-proxy/health/ha` returns 404 | Pending | Pending | Pending |
 | With Grafana and telemetry ingestion stopped, stop the etcd witness | Active health remains usable and local HA status still reports degraded failover readiness | Pending | Pending | Pending |
-| Probe HA-only ports from a non-peer before and after reboot | Protected ports reject the probe while peer traffic remains healthy | Pending | Pending | Pending |
-| Send a VRRP advertisement from a non-peer | The packet is dropped and VIP ownership does not change | Pending | Pending | Pending |
+| From a fourth non-peer, raw-probe each HA-only port before and after reboot after verifying its listener from a peer | The matching nftables drop counter increases while peer traffic remains healthy; use a temporary listener for the normally closed debug port | Pending | Pending | Pending |
+| Send a valid winning VRRP advertisement from a non-peer | The protocol-112 drop counter increases and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over with PENDING command | New active dispatches the command | Pending | Pending | Pending |
 | Demote a live old active with a stalled PROCESSING plugin call, recover on the peer, then release the old call | The stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
@@ -91,11 +91,12 @@ faster; evidence stored only inside the HA database is insufficient. Treat an
 unreachable host, write failure, or gap longer than 250 ms as a failed soak.
 Also sample both hosts at least every two seconds for availability. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
-and retain the status, health, and address streams. Reconstruct each active
-interval from the first active result through the first passive result, and
-each VIP interval from address-add through address-delete. Fail on overlapping
-host intervals, any collection gap, or lost readiness. Export redacted
-evidence after the soak.
+and retain the status, health, and address streams. Conservatively reconstruct
+each active interval from its last preceding passive sample through its first
+following passive sample, and each VIP interval from address-add through
+address-delete. Fail when these uncertainty-inclusive host intervals could
+overlap, or on any collection gap or lost readiness. Export redacted evidence
+after the soak.
 
 ## Verdict
 
