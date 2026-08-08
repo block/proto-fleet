@@ -15,9 +15,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
-// Leaves room for lease expiry and acquisition before falling back to the old release.
-const vipTakeoverTimeout = 35 * time.Second
-
 func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath)
 	if err != nil {
@@ -224,10 +221,6 @@ func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool 
 
 // StartApplication starts the target release and proves it serves its observed HA role.
 func StartApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
-	return startApplication(ctx, root, targetVersion, requirePassive)
-}
-
-func startApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
 	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
 	if err != nil {
 		return err
