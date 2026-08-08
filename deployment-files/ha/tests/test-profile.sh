@@ -147,7 +147,7 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "Requires=proto-fleet-ha-firewall.service docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "PartOf=docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStart=/opt/proto-fleet/deployment/ha/fleet-ha start"
-    assert_contains "${HA_DIR}/proto-fleet-ha.service" "Restart=on-failure"
+    assert_not_contains "${HA_DIR}/proto-fleet-ha.service" "Restart=on-failure"
     assert_contains "${HA_DIR}/docker-systemd.conf" "Requires=proto-fleet-ha-firewall.service"
 
     for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
