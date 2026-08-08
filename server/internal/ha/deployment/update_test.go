@@ -30,7 +30,7 @@ func TestApplicationReadyRequiresAPIAndClientOnTargetRelease(t *testing.T) {
 	}
 }
 
-func TestRollingUpdateApplicationRequiresPassiveRole(t *testing.T) {
+func TestRollingUpdateApplicationRejectsActiveTakeover(t *testing.T) {
 	// Arrange
 	report := StatusReport{
 		Runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent},
@@ -38,8 +38,12 @@ func TestRollingUpdateApplicationRequiresPassiveRole(t *testing.T) {
 	}
 	public := fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}
 
-	// Act and assert
-	require.False(t, rollingUpdateApplicationReady(report, public, "v1.1.0"))
+	// Act
+	ready, err := rollingUpdateApplicationReady(report, public, "v1.1.0")
+
+	// Assert
+	require.False(t, ready)
+	require.ErrorContains(t, err, "became active")
 }
 
 func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
