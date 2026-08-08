@@ -109,7 +109,7 @@ func run(ctx context.Context, args []string) error {
 		if len(args) != 3 {
 			return errors.New("usage: fleet-ha require-passive NODE_ENV VERSION")
 		}
-		return deployment.RequirePassive(ctx, args[1], args[2])
+		return deployment.ValidatePassiveUpdate(ctx, args[1], args[2])
 	case "update-preflight":
 		if len(args) != 1 {
 			return errors.New("usage: fleet-ha update-preflight")
@@ -183,9 +183,7 @@ func runPassiveUpdate(
 	if report.Control != nil && report.Control.FailoverReady {
 		return nil
 	}
-	expectedVersionMismatch := report.Control != nil && report.Control.ControlReady &&
-		len(report.Control.ReasonCodes) == 1 && report.Control.ReasonCodes[0] == deployment.ReasonFleetVersionMismatch
-	if expectedVersionMismatch {
+	if deployment.ExpectedRollingVersionMismatch(report.Control) {
 		_, err = fmt.Fprintln(output, "Update succeeded; failover readiness will recover after the peer is updated.")
 		if err != nil {
 			return fmt.Errorf("write update outcome: %w", err)
