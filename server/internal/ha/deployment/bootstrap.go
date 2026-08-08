@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -89,20 +90,28 @@ func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPass
 		name string
 		run  func() error
 	}{
-		{"add Patroni role", func() error { return client.AddRole(ctx, "patroni") }},
+		{"add Patroni role", func() error { return ignoreAlreadyExists(client.AddRole(ctx, "patroni"), rpctypes.ErrRoleAlreadyExist) }},
 		{"grant Patroni DCS access", func() error {
 			return client.GrantPermission(ctx, "patroni", patroniDCSPath, clientv3.PermissionType(clientv3.PermReadWrite))
 		}},
-		{"add Patroni user", func() error { return client.AddUser(ctx, "patroni", patroniPassword) }},
+		{"add Patroni user", func() error {
+			return ignoreAlreadyExists(client.AddUser(ctx, "patroni", patroniPassword), rpctypes.ErrUserAlreadyExist)
+		}},
 		{"grant Patroni role", func() error { return client.GrantRole(ctx, "patroni", "patroni") }},
-		{"add Fleet observer role", func() error { return client.AddRole(ctx, "fleet-observer") }},
+		{"add Fleet observer role", func() error {
+			return ignoreAlreadyExists(client.AddRole(ctx, "fleet-observer"), rpctypes.ErrRoleAlreadyExist)
+		}},
 		{"grant Fleet read access", func() error {
 			return client.GrantPermission(ctx, "fleet-observer", patroniDCSPath, clientv3.PermissionType(clientv3.PermRead))
 		}},
-		{"add Fleet observer user", func() error { return client.AddUser(ctx, "fleet-observer", fleetPassword) }},
+		{"add Fleet observer user", func() error {
+			return ignoreAlreadyExists(client.AddUser(ctx, "fleet-observer", fleetPassword), rpctypes.ErrUserAlreadyExist)
+		}},
 		{"grant Fleet observer role", func() error { return client.GrantRole(ctx, "fleet-observer", "fleet-observer") }},
-		{"add root role", func() error { return client.AddRole(ctx, "root") }},
-		{"add root user", func() error { return client.AddUser(ctx, "root", rootPassword) }},
+		{"add root role", func() error { return ignoreAlreadyExists(client.AddRole(ctx, "root"), rpctypes.ErrRoleAlreadyExist) }},
+		{"add root user", func() error {
+			return ignoreAlreadyExists(client.AddUser(ctx, "root", rootPassword), rpctypes.ErrUserAlreadyExist)
+		}},
 		{"grant root role", func() error { return client.GrantRole(ctx, "root", "root") }},
 		{"enable authentication", func() error { return client.EnableAuth(ctx) }},
 	}
@@ -112,6 +121,13 @@ func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPass
 		}
 	}
 	return nil
+}
+
+func ignoreAlreadyExists(err, alreadyExists error) error {
+	if errors.Is(err, alreadyExists) {
+		return nil
+	}
+	return err
 }
 
 func readPassword(path string) (string, error) {
