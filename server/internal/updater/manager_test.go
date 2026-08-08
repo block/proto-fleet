@@ -1841,7 +1841,7 @@ func TestManagerRestartsHAApplicationAfterInterruptedSwap(t *testing.T) {
 	assert.False(t, manager.Status().Operation.RecoveryPending)
 }
 
-func TestManagerRetriesInterruptedHARecoveryAfterRestartFailure(t *testing.T) {
+func TestManagerServesRecoveryStateAfterRestartFailure(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
@@ -1853,15 +1853,10 @@ func TestManagerRetriesInterruptedHARecoveryAfterRestartFailure(t *testing.T) {
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
 
 	// Act
-	_, err := NewManager(Config{
+	manager, err := NewManager(Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
 		DeploymentMode: DeploymentModeHA,
 		Runner:         &haRecordingRunner{fail: map[string]error{"app-start": errors.New("restart failed")}},
-	})
-	require.ErrorContains(t, err, "restart failed")
-	manager, err := NewManager(Config{
-		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
-		DeploymentMode: DeploymentModeHA, Runner: &haRecordingRunner{},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
@@ -1869,8 +1864,9 @@ func TestManagerRetriesInterruptedHARecoveryAfterRestartFailure(t *testing.T) {
 	// Assert
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
-	assert.False(t, operation.RecoveryPending)
-	assert.Empty(t, operation.RecoveryCommand)
+	assert.True(t, operation.RecoveryPending)
+	assert.NotEmpty(t, operation.RecoveryCommand)
+	assert.Contains(t, operation.Error, "restart failed")
 }
 
 func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
