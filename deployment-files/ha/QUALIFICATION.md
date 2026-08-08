@@ -59,11 +59,13 @@ active, VIP, or writable-primary overlap, a collection gap, duplicate terminal
 results, or a stale transition. Record the observed recovery time and a short
 redacted evidence reference. For database isolation and failover rows, also
 record host-pinned writable SQL probe results against both database hosts at
-100 ms or faster. Record every transaction's start, commit, and failure on the
-controller's monotonic clock, conservatively treat the full start-to-result
-window as writable, and fail if those uncertainty-inclusive intervals overlap.
-After the old primary rejoins, verify every committed probe identifier exists
-exactly once.
+100 ms or faster. In each cycle, use a controller barrier to begin transactions
+on both hosts and hold them open concurrently before attempting uniquely
+identified writes. Treat an ambiguous result as potentially committed and fail
+if both hosts can commit in the same overlapping cycle. Record transaction
+start, commit, and failure bounds on the controller clock. After the old primary
+rejoins, verify every possibly committed probe identifier exists at most once
+and every acknowledged identifier exists exactly once.
 
 | Gate | Required result | Duration | Result | Evidence |
 | --- | --- | --- | --- | --- |
@@ -103,11 +105,15 @@ device effects. Device-side fencing is outside this profile's support claim.
 
 Before the soak, start an external append-only recorder on a separate
 controller. Start and confirm both host subscriptions first, buffering active
-health samples and interface-address events with synchronized monotonic
-timestamps at 100 ms or faster. Then take timestamped state snapshots, replay
-all buffered events at or after each snapshot, and begin the observation
-window. Fail if the collector cannot prove that subscription, snapshot, and
-replay were gap-free. Evidence stored only inside the HA database is
+health samples and interface-address events at 100 ms or faster. Timestamp all
+probe sends, responses, and event arrivals on that controller's monotonic clock;
+do not compare host clocks. Treat ownership as beginning no later than the last
+preceding non-owner probe started and ending no earlier than the first following
+non-owner probe completed. Include measured request and delivery error in those
+bounds. Then take timestamped state snapshots, replay all buffered
+events that can intersect each snapshot, and begin the observation window. Fail
+if the collector cannot prove that subscription, snapshot, replay, and timing
+bounds were gap-free. Evidence stored only inside the HA database is
 insufficient. Seed intervals owned at the initial snapshot from the
 observation-window start, and extend intervals still owned at the final
 snapshot through the observation-window end. Fail if either boundary state is
