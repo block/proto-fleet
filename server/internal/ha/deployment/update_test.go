@@ -31,6 +31,31 @@ func TestApplicationReadyRequiresAPIAndClientOnTargetRelease(t *testing.T) {
 	}
 }
 
+func TestRecoveryStartDoesNotRecreateRunningApplication(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		running    int
+		wantOption string
+		wantNoop   bool
+	}{
+		{name: "both services running", running: 2, wantNoop: true},
+		{name: "one service running", running: 1, wantOption: "--no-recreate"},
+		{name: "services stopped", wantOption: "--force-recreate"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			args := applicationStartArgs("/release", true, test.running)
+
+			// Assert
+			if test.wantNoop {
+				require.Nil(t, args)
+				return
+			}
+			require.Contains(t, args, test.wantOption)
+		})
+	}
+}
+
 func TestRollingUpdateApplicationRejectsActiveTakeover(t *testing.T) {
 	// Arrange
 	report := StatusReport{
