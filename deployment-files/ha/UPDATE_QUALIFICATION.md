@@ -48,6 +48,12 @@ and run Fleet commands as
    container ID and start time on both database hosts, and
    `pg_postmaster_start_time()` on both PostgreSQL members.
 3. Before running the update command on the passive application host, start
+   the external append-only recorder, gap rejection, and uncertainty-inclusive
+   interval rules from [QUALIFICATION.md](QUALIFICATION.md). Confirm initial
+   snapshots and gap-free streams, then continuously record direct active
+   health on both hosts with monotonic timestamps at 100 ms or faster. In
+   parallel, stream interface address events from both hosts and fail on any
+   active or VIP overlap. Also start
    authenticated database-backed reads and uniquely identified idempotent
    commands through the VIP at least once per second. Give each request a
    two-second deadline, record command submission and terminal-result times,
@@ -56,13 +62,8 @@ and run Fleet commands as
    submissions are more than three seconds apart. Continue these probes through
    step 4. Verify the active host continues serving `N` throughout the migration
    and mixed-version window.
-4. From a separate controller, start the external append-only recorder, gap
-   rejection, and uncertainty-inclusive interval rules from
-   [QUALIFICATION.md](QUALIFICATION.md). Confirm initial snapshots and gap-free
-   streams before continuing. Continuously record direct active health on both
-   hosts with monotonic timestamps at 100 ms or faster. In parallel, stream
-   interface address events from both hosts and fail on any active or VIP
-   overlap. Before the handoff, hold one `N` command in PROCESSING and one
+4. Keep the recorder and probes from step 3 running. Before the handoff, hold
+   one `N` command in PROCESSING and one
    successor in PENDING. Then run the completion command. Probe
    `/api-proxy/health/active`, `/api-proxy/health`, and an authenticated
    database-backed request at least once per second. On the same monotonic
@@ -74,8 +75,17 @@ and run Fleet commands as
    `N+1`, and both accepted IDs to reach exactly one terminal result within 60
    seconds. Using a client loaded from `N` before handoff,
    perform a persisted read and a uniquely identified idempotent command against
-   the `N+1` VIP.
-5. Using a controllable test device on the current active host, stall one command
+   the `N+1` VIP. Before reinstalling for step 5, confirm the infrastructure
+   identities from step 2 are unchanged.
+5. Reinstall the clean `N` baseline and repeat steps 2 and 3 for a separate
+   mixed-version failover run. Update the passive host to `N+1`, then terminate
+   the active `N` Fleet process before running `--complete`. Require the `N+1`
+   peer to take over within 15 seconds with no possible active or VIP overlap,
+   recover interrupted command state, and serve a successful command. Restart
+   the `N` host as passive and update it with the ordinary passive command.
+   Require both hosts to run `N+1`, full failover readiness, and unchanged
+   infrastructure identities from this run's step 2.
+6. Using a controllable test device on the current active host, stall one command
    after its exact queue row reaches PROCESSING so its successor remains PENDING.
    SIGSTOP that active `fleet-api`, let its lease expire, and wait for the passive
    peer to take over. Queue the old plugin result while its process is stopped,
@@ -83,16 +93,16 @@ and run Fleet commands as
    interruption reason and is never dispatched again, the old process exits, its
    stale database transition is rejected, exactly one terminal result remains,
    the PENDING successor dispatches, and later work for that device succeeds. Reuse the
-   direct active-health and interface-address streams from step 4 through
+   direct active-health and interface-address streams from step 3 through
    convergence and fail on any active or VIP overlap. Force a second failover
    in the other direction with the same ownership streams. For both moves,
    require the former active to reject an active-only request, measure usable
    service from the last successful pre-failover probe on the same monotonic
    clock, require less than 15 seconds, and submit a successful command.
-6. Confirm the etcd and Patroni container IDs and start times, and both
+7. Confirm the etcd and Patroni container IDs and start times, and both
    PostgreSQL postmaster start times, are unchanged from step 2. The application
    update must not replace or restart these services.
-7. Confirm both updater binaries report `N+1` and their services and local
+8. Confirm both updater binaries report `N+1` and their services and local
    status sockets are healthy. Reboot the two application/database hosts one
    at a time, restoring full readiness between reboots. Repeat the updater
    checks and verify both hosts retain Fleet data and can serve a command.
@@ -107,6 +117,7 @@ and run Fleet commands as
 | Mixed-version operation | Continuous persisted reads and commands succeed throughout migration while hosts run `N` and `N+1` | N/A | Pending | Pending |
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive; cached `N` client works against `N+1` | `<15s` | Pending | Pending |
 | Handoff fencing | High-frequency direct health and interface event streams never show active or VIP overlap | N/A | Pending | Pending |
+| Mixed-version forced takeover | `N+1` takes over safely while its peer is `N`; the old host then completes through the ordinary passive update | `<15s` | Pending | Pending |
 | Post-update stale completion | Interrupted row is FAILED without replay; resumed old transition is rejected; PENDING successor and later work succeed | N/A | Pending | Pending |
 | Failover to peer | No active or VIP overlap; old active rejects; VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Failover back | No active or VIP overlap; old active rejects; VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
