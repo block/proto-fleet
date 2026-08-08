@@ -143,7 +143,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := activateInstallPrerequisites(ctx, deps); err != nil {
 		return err
 	}
-	if err := prepareImages(ctx, config, deps); err != nil {
+	if err := prepareImages(ctx, source, config, deps); err != nil {
 		return err
 	}
 	if err := installDockerRecoveryHook(ctx, deps); err != nil {
@@ -616,13 +616,20 @@ func installKeepalived(ctx context.Context, source string, config NodeConfig, de
 	return nil
 }
 
-func prepareImages(ctx context.Context, config NodeConfig, deps installDependencies) error {
+func prepareImages(ctx context.Context, source string, config NodeConfig, deps installDependencies) error {
 	if output, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "compose", "--env-file", filepath.Join(configRoot, "node.env"), "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "pull", "etcd"); err != nil {
 		return fmt.Errorf("pull etcd image: %s", commandError(output, err))
 	}
 	if config.isDatabaseNode() {
 		if output, err := deps.run(ctx, "sudo", "docker", "load", "--input", filepath.Join(installRoot, "images", "timescaledb.tar.gz")); err != nil {
 			return fmt.Errorf("load HA database images: %s", commandError(output, err))
+		}
+		databaseImage, err := haDatabaseImage(source, deps.readFile)
+		if err != nil {
+			return err
+		}
+		if output, err := deps.run(ctx, "sudo", "docker", "image", "inspect", databaseImage); err != nil {
+			return fmt.Errorf("release archive did not load required HA database image %s: %s", databaseImage, commandError(output, err))
 		}
 		args := fleetComposeArgs("build", "fleet-api", "fleet-client")
 		commandArgs := append([]string{filepath.Join(installRoot, "ha", "fleet-ha"), "compose"}, args...)
@@ -631,6 +638,20 @@ func prepareImages(ctx context.Context, config NodeConfig, deps installDependenc
 		}
 	}
 	return nil
+}
+
+func haDatabaseImage(source string, readFile func(string) ([]byte, error)) (string, error) {
+	contents, err := readFile(filepath.Join(source, "ha", "compose.yaml"))
+	if err != nil {
+		return "", fmt.Errorf("read HA Compose file: %w", err)
+	}
+	for line := range strings.SplitSeq(string(contents), "\n") {
+		image := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "image:"))
+		if strings.HasPrefix(image, "proto-fleet-timescaledb-ha:") {
+			return image, nil
+		}
+	}
+	return "", errors.New("HA Compose file does not name the required database image")
 }
 
 func installDockerRecoveryHook(ctx context.Context, deps installDependencies) error {
