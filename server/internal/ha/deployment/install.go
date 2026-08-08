@@ -481,7 +481,7 @@ func snapshotRelease(ctx context.Context, source string, deps installDependencie
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0755", installRoot},
 		{"cp", "-a", source + "/.", installRoot + "/"},
 		{"chown", "-R", "root:root", installRoot},
-		{"chmod", "-R", "go-w", installRoot},
+		{"chmod", "-R", "a+rX,go-w", installRoot},
 		{"chmod", "0755", filepath.Join(installRoot, "ha", "fleet-ha")},
 	} {
 		if output, err := deps.run(ctx, "sudo", args...); err != nil {
