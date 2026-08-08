@@ -143,15 +143,6 @@ func run(ctx context.Context, args []string) error {
 		}
 		requirePassive := len(args) == 2 || args[2] == "passive"
 		return deployment.StartApplication(ctx, root, args[1], requirePassive)
-	case "app-recover":
-		if len(args) != 2 {
-			return errors.New("usage: fleet-ha app-recover VERSION")
-		}
-		root, err := deployment.ReleaseRoot()
-		if err != nil {
-			return err
-		}
-		return deployment.RecoverApplication(ctx, root, args[1])
 	case "wait-takeover":
 		if len(args) != 2 {
 			return errors.New("usage: fleet-ha wait-takeover VERSION")
@@ -188,7 +179,8 @@ type updatePreflight func(context.Context, string, string, bool) error
 
 func validateHAUpdate(ctx context.Context, envPath, targetVersion string, complete bool) error {
 	if complete {
-		return deployment.ValidateActiveUpdate(ctx, envPath, targetVersion)
+		_, err := deployment.ValidateActiveUpdate(ctx, envPath, targetVersion)
+		return err
 	}
 	return deployment.ValidatePassiveUpdate(ctx, envPath, targetVersion)
 }

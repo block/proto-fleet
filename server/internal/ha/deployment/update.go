@@ -16,9 +16,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
-// Covers one 10s lease lifetime, the coordinator's two-lease acquire budget,
-// and a small keepalived scheduling margin.
-const vipTakeoverTimeout = 35 * time.Second
+// Bounds the planned interruption promised by the HA update flow.
+const vipTakeoverTimeout = 15 * time.Second
 
 func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath, true)
@@ -230,11 +229,6 @@ func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool 
 // StartApplication starts the target release and proves it serves its observed HA role.
 func StartApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
 	return startApplication(ctx, root, targetVersion, requirePassive)
-}
-
-// RecoverApplication converges both Fleet services after interrupted activation.
-func RecoverApplication(ctx context.Context, root, targetVersion string) error {
-	return startApplication(ctx, root, targetVersion, false)
 }
 
 func startApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
