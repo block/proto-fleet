@@ -9,7 +9,7 @@
 
 Add a supported high-availability install mode for Proto Fleet where two warm Fleet app hosts share a self-managed Postgres/TimescaleDB HA cluster, but exactly one Fleet app instance is active for real-time control at a time. The active instance is selected by a Fleet-owned, epoch-fenced database lease. Postgres failover is handled by Patroni over a three-member quorum, and Fleet connects to the current writable database through a pgx/libpq-style multi-host DSN rather than a DB proxy.
 
-This RFC deliberately scopes the initial HA promise to Fleet application control. Curtailment dispatch, command execution, schedules, MQTT curtailment intake, and the database state required for those flows must recover automatically after a single failure. Local HA status must expose failover readiness and control-plane health. Fleet Node HA and reconnect-scale qualification, alert delivery, historical telemetry, Grafana dashboards, alert history, logs, and cache-like artifacts remain outside the initial supported profile.
+This RFC deliberately scopes the initial HA promise to Fleet application control. Curtailment dispatch, command execution, MQTT curtailment intake, and the database state required for those flows must recover automatically after a single failure. Local HA status must expose failover readiness and control-plane health. Schedule failover recovery, Fleet Node HA and reconnect-scale qualification, alert delivery, historical telemetry, Grafana dashboards, alert history, logs, and cache-like artifacts remain outside the initial supported profile.
 
 ## Decision summary
 
@@ -41,8 +41,8 @@ The supported HA contract is intentionally narrower than "every subsystem stays 
 
 | Class | Examples | HA guarantee |
 | ---- | -------- | ------------ |
-| Critical control state | Curtailment events and targets, command queue/status, schedules, Fleet Node auth/pairing state, MQTT curtailment source config and runtime edge state, active Fleet lease | Durable while replication is healthy; required for RTO |
-| Real-time runtime | Active Fleet app, command executor, curtailment reconciler, scheduler, MQTT subscriber | One active instance; resumes automatically on another Fleet app host |
+| Critical control state | Curtailment events and targets, command queue/status, Fleet Node auth/pairing state, MQTT curtailment source config and runtime edge state, active Fleet lease | Durable while replication is healthy; required for RTO |
+| Real-time runtime | Active Fleet app, command executor, curtailment reconciler, MQTT subscriber | One active instance; resumes automatically on another Fleet app host |
 | Local HA status | Failover readiness, active Fleet holder count, DB primary/standby health, quorum, replication lag, VIP/load-balancer target | Must be emitted independently of Grafana history; alert delivery is deferred |
 | Best-effort history | Raw telemetry samples, rollups, notification metric samples, Grafana dashboards, alert history, logs | May be stale, delayed, unavailable, or partially lost |
 | Local artifacts | Firmware files, command artifacts, cached downloads | Not v1 HA unless explicitly promoted to critical storage |
@@ -232,7 +232,7 @@ Active-only work in v1 includes:
 
 - command execution and command-state repair;
 - telemetry polling and discovery work that feeds active control;
-- schedule processing;
+- schedule processing, with failover recovery qualification deferred;
 - curtailment reconciliation and MQTT intake;
 - cleanup/sweep work that mutates shared control state or external command artifacts.
 
