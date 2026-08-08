@@ -43,6 +43,15 @@ type SelfUpdateStartup struct {
 // restarted an attempt that never reached readiness, so the previous binary is
 // restored before initialization continues.
 func PrepareSelfUpdateStartup(configuredPath, handoffPath string) (*SelfUpdateStartup, error) {
+	return prepareSelfUpdateStartup(configuredPath, handoffPath, true)
+}
+
+func prepareSelfUpdateRepair(configuredPath string) error {
+	_, err := prepareSelfUpdateStartup(configuredPath, "", false)
+	return err
+}
+
+func prepareSelfUpdateStartup(configuredPath, handoffPath string, consumeRetry bool) (*SelfUpdateStartup, error) {
 	if configuredPath != "" && !filepath.IsAbs(configuredPath) {
 		return nil, fmt.Errorf("self-update path must be absolute")
 	}
@@ -93,6 +102,9 @@ func PrepareSelfUpdateStartup(configuredPath, handoffPath string) (*SelfUpdateSt
 		return &SelfUpdateStartup{executablePath: canonicalPath, active: true}, nil
 	}
 	if marker.Retry {
+		if !consumeRetry {
+			return nil, nil
+		}
 		if _, err := ensureTrustedSelfUpdatePath(configuredPath); err != nil {
 			return nil, fmt.Errorf("validate retried updater executable: %w", err)
 		}

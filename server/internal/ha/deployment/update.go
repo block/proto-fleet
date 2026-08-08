@@ -144,6 +144,8 @@ func StopApplication(ctx context.Context, root string) error {
 	if _, err := requirePassiveStatus(ctx, filepath.Join(configRoot, "node.env")); err != nil {
 		return fmt.Errorf("refuse to stop HA application after passive role changed: %w", err)
 	}
+	// The crash-only design intentionally has no maintenance lease. If the role
+	// changes after this final proof, normal update recovery restarts Fleet.
 	if err := RunCompose(ctx, fleetComposeArgsAt(root, "stop", "fleet-api", "fleet-client")); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
 	}
