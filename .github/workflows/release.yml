@@ -68,12 +68,25 @@ jobs:
         run: |
           previous=""
           if [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
-            while IFS= read -r candidate; do
-              if [[ "$candidate" != "$TAG_NAME" ]] && [[ "$candidate" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
-                previous="$candidate"
-                break
-              fi
-            done < <(git tag --merged "$GITHUB_SHA" --sort=-v:refname)
+            previous=$(node -e '
+              const fs = require("fs");
+              const parse = (tag) => {
+                const match = tag.match(/^v(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/);
+                return match && [BigInt(match[1]), BigInt(match[2]), BigInt(match[3]), match[4] ? 0n : 1n, BigInt(match[4] || 0)];
+              };
+              const compare = (left, right) => {
+                for (let i = 0; i < left.length; i++) {
+                  if (left[i] !== right[i]) return left[i] < right[i] ? -1 : 1;
+                }
+                return 0;
+              };
+              const target = parse(process.env.TAG_NAME);
+              const candidates = fs.readFileSync(0, "utf8").trim().split(/\s+/)
+                .map((tag) => ({tag, version: parse(tag)}))
+                .filter(({version}) => version && compare(version, target) < 0)
+                .sort((a, b) => compare(b.version, a.version));
+              process.stdout.write(candidates[0]?.tag || "");
+            ' < <(git tag --merged "$GITHUB_SHA"))
           fi
           echo "version=$previous" >> "$GITHUB_OUTPUT"
 
