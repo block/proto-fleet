@@ -112,16 +112,16 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 		return err
 	}
 	if err := snapshotRelease(ctx, source, deps); err != nil {
-		return err
+		return errors.Join(err, removeReleaseSnapshot(ctx, deps))
 	}
 	source = installRoot
 
 	if err := installARPing(ctx, deps); err != nil {
-		return err
+		return errors.Join(err, removeReleaseSnapshot(ctx, deps))
 	}
 	if config.isDatabaseNode() {
 		if err := deps.verifyVIP(ctx, config); err != nil {
-			return err
+			return errors.Join(err, removeReleaseSnapshot(ctx, deps))
 		}
 	}
 	if err := installPackages(ctx, deps); err != nil {
@@ -297,6 +297,14 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 			return fmt.Errorf("release is missing %s", name)
 		}
 	}
+	assets, err := os.ReadDir(filepath.Join(source, "client", "protoFleet", "assets"))
+	hasBuiltAsset := false
+	for _, asset := range assets {
+		hasBuiltAsset = hasBuiltAsset || asset.Type().IsRegular()
+	}
+	if err != nil || !hasBuiltAsset {
+		return errors.New("release is missing built Proto Fleet client assets")
+	}
 	if err := validateReleaseTree(source); err != nil {
 		return err
 	}
@@ -450,6 +458,14 @@ func snapshotRelease(ctx context.Context, source string, deps installDependencie
 	}
 	if output, err := deps.runDir(ctx, installRoot, "sha256sum", "--check", "deployment-manifest.sha256"); err != nil {
 		return fmt.Errorf("verify installed HA release snapshot: %s", commandError(output, err))
+	}
+	return nil
+}
+
+func removeReleaseSnapshot(ctx context.Context, deps installDependencies) error {
+	output, err := deps.run(ctx, "sudo", "rm", "-rf", "--", installBase)
+	if err != nil {
+		return fmt.Errorf("remove incomplete HA release snapshot: %s", commandError(output, err))
 	}
 	return nil
 }
