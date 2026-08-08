@@ -510,7 +510,7 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0700", configRoot},
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0750", dataRoot},
 		{"cp", filepath.Join(installRoot, "client", "nginx.https.conf"), filepath.Join(installRoot, "client", "nginx.conf")},
-		{"install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(source, "ha", "compose.yaml"), infrastructureCompose},
+		{"install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "compose.yaml"), infrastructureCompose},
 	} {
 		if output, err := deps.run(ctx, "sudo", args...); err != nil {
 			return fmt.Errorf("install HA release: %s", commandError(output, err))
@@ -549,10 +549,10 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		}
 	}
 	if config.isDatabaseNode() {
-		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0755", filepath.Join(source, "updater", "proto-fleet-updater"), "/usr/local/libexec/proto-fleet/proto-fleet-updater"); err != nil {
+		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0755", filepath.Join(installRoot, "updater", "proto-fleet-updater"), "/usr/local/libexec/proto-fleet/proto-fleet-updater"); err != nil {
 			return fmt.Errorf("install host updater: %s", commandError(output, err))
 		}
-		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(source, "updater", "proto-fleet-updater.service"), "/etc/systemd/system/proto-fleet-updater.service"); err != nil {
+		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "updater", "proto-fleet-updater.service"), "/etc/systemd/system/proto-fleet-updater.service"); err != nil {
 			return fmt.Errorf("install host updater service: %s", commandError(output, err))
 		}
 		updaterEnv := fmt.Sprintf(
