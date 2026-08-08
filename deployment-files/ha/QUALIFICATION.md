@@ -9,6 +9,11 @@ and telemetry or independent power measurement for curtailment. Do not include
 addresses, certificates, passwords, device names, or customer data in the
 committed report.
 
+This report qualifies the fixed Fleet application, database, DCS, and VIP
+profile only. Adjacent application updates require
+[UPDATE_QUALIFICATION.md](UPDATE_QUALIFICATION.md). Fleet Node HA, reconnect
+scale, and alert delivery remain outside this support claim.
+
 ## Test identity
 
 | Field | Value |
@@ -56,15 +61,18 @@ time and a short redacted evidence reference.
 | Break active DCS path | Old active stops serving; peer takes over | Pending | Pending | Pending |
 | Break active database path | Old active stops serving; peer takes over | Pending | Pending | Pending |
 | Remove active VIP/interface path | Old active stops serving; peer takes over | Pending | Pending | Pending |
-| Send an active-only request directly to the passive host | Passive rejects it as not active | Pending | Pending | Pending |
+| Fail one active-runtime job without killing Fleet | Active health fails, the process exits, and the peer takes over | Pending | Pending | Pending |
+| Send Connect RPC, non-RPC HTTP, and ControlStream traffic directly to the passive host | Each product transport rejects it as not active; only health and local status remain available | Pending | Pending | Pending |
 | Hold an active-only request across demotion | The old active cancels it before the peer serves active traffic | Pending | Pending | Pending |
+| Probe public health through the VIP | Public responses reveal no HA topology and `/health/ha` returns 404 | Pending | Pending | Pending |
+| With Grafana and telemetry ingestion stopped, stop the etcd witness | Active health remains usable and local HA status still reports degraded failover readiness | Pending | Pending | Pending |
 | Probe HA-only ports from a non-peer before and after reboot | Protected ports reject the probe while peer traffic remains healthy | Pending | Pending | Pending |
 | Send a VRRP advertisement from a non-peer | The packet is dropped and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over with PENDING command | New active dispatches the command | Pending | Pending | Pending |
 | Demote a live old active with a stalled PROCESSING plugin call, recover on the peer, then release the old call | The stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
-| Publish a unique curtailment target, confirm shedding starts, fail the active before completion, then restore after takeover | The peer retains or reasserts curtailment within 180s, then measured load follows the restoration target | Pending | Pending | Pending |
+| Publish a unique MQTT curtailment target, confirm shedding starts, fail the active before completion, then restore after takeover | The peer resumes MQTT intake and retains or reasserts curtailment within 180s, then measured load follows the restoration target | Pending | Pending | Pending |
 
 The PROCESSING-command gate proves server-side recovery, not exactly-once
 device effects. Device-side fencing is outside this profile's support claim.
@@ -80,11 +88,13 @@ device effects. Device-side fencing is outside this profile's support claim.
 Before the soak, install a qualification-only database trigger that appends
 every `fleet_runtime_lease` insert and update to a separate audit table with
 database time, DCS cluster ID, writer generation, lease epoch, holder ID, and
-expiry. During the soak, retain that event-complete lease history and sample
-both hosts at least every two seconds for availability. Record local
+expiry. From one controller, continuously stream interface-address events and
+direct active-health results from both hosts with synchronized monotonic
+timestamps at 100 ms or faster. Also sample both hosts at least every two
+seconds for availability. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
-direct active/passive health, and VIP interface ownership with timestamps. Fail
-on overlap between reconstructed holder/epoch terms, a missing audit interval,
+and retain the lease, health, and address streams. Fail on overlap between
+reconstructed holder/epoch terms, a missing audit interval, dual-active,
 dual-VIP, or lost readiness. Export redacted evidence, then remove the trigger
 and audit table.
 
