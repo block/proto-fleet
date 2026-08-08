@@ -199,7 +199,9 @@ func TestInstallUpdaterFailureDisablesHA(t *testing.T) {
 
 	// Assert
 	require.ErrorContains(t, err, "enable host updater")
-	require.Contains(t, strings.Join(calls, "\n"), "sudo systemctl disable --now proto-fleet-ha.service")
+	joined := strings.Join(calls, "\n")
+	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-updater.service")
+	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 }
 
 func TestPrepareImagesRejectsMissingHADatabaseImage(t *testing.T) {
