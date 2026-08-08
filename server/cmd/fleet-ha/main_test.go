@@ -108,12 +108,15 @@ func TestUpdateReportsTerminalSuccess(t *testing.T) {
 	require.Contains(t, output.String(), "Log: /var/log/proto-fleet-updater/update.log")
 }
 
-func TestPassiveUpdateReportsActiveTakeover(t *testing.T) {
+func TestPassiveUpdateReportsDegradedFailoverReadiness(t *testing.T) {
 	// Arrange
 	client := &fakeUpdaterClient{}
 	var output bytes.Buffer
 	read := func(context.Context, string) (deployment.StatusReport, error) {
-		return deployment.StatusReport{Runtime: ha.Status{Role: ha.RoleActive}}, nil
+		return deployment.StatusReport{
+			Runtime: ha.Status{Role: ha.RolePassive},
+			Control: &deployment.ControlStatus{},
+		}, nil
 	}
 
 	// Act
@@ -121,7 +124,6 @@ func TestPassiveUpdateReportsActiveTakeover(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	require.Contains(t, output.String(), "took over as active")
 	require.Contains(t, output.String(), "failover redundancy is degraded")
 }
 
