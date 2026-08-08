@@ -166,8 +166,9 @@ rather than upgraded through this workflow.
 The updater stages everything first, stops the local Fleet containers, and
 waits for the updated peer to serve the VIP with the target version. Only then
 does it swap and restart the local application as passive. If takeover does
-not complete within 30 seconds, it restarts the old local release without
-swapping. This is a bounded interruption, not a zero-downtime update.
+not complete within 35 seconds, it restarts the old local release without
+swapping. Qualification still requires a healthy takeover in less than 15
+seconds. This is a bounded interruption, not a zero-downtime update.
 
 ## Qualification
 
