@@ -12,8 +12,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/ha"
 )
 
-func RequirePassive(ctx context.Context, envPath string) error {
-	_, err := requirePassiveStatus(ctx, envPath)
+func RequirePassive(ctx context.Context, envPath, targetVersion string) error {
+	_, err := ValidatePassiveUpdate(ctx, envPath, targetVersion)
 	return err
 }
 
@@ -25,15 +25,15 @@ func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, er
 	if report.Runtime.Observation != ha.ObservationCurrent || report.Runtime.Role != ha.RolePassive {
 		return StatusReport{}, fmt.Errorf("HA application update requires a healthy passive node; local role is %s and observation is %s", report.Runtime.Role, report.Runtime.Observation)
 	}
-	if report.Control == nil || !report.Control.FailoverReady {
-		return StatusReport{}, errors.New("HA application update requires full failover readiness")
+	if !rollingUpdateControlReady(report.Control) {
+		return StatusReport{}, errors.New("HA application update requires a healthy control path")
 	}
 	return report, nil
 }
 
-// ValidatePassiveUpdate also proves that both Fleet hosts start from the same
-// release before the passive host begins a rolling update.
-func ValidatePassiveUpdate(ctx context.Context, envPath string) (string, error) {
+// ValidatePassiveUpdate proves that the active peer runs either the local or
+// target release before the passive host changes versions.
+func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) (string, error) {
 	report, err := requirePassiveStatus(ctx, envPath)
 	if err != nil {
 		return "", err
@@ -51,8 +51,8 @@ func ValidatePassiveUpdate(ctx context.Context, envPath string) (string, error) 
 		peerAddress = config.DatabaseBIP
 	}
 	peer := probeFleetHost(ctx, tlsConfig, config.VirtualIP, peerAddress)
-	if !peer.reachable || !peer.active || peer.version != report.Runtime.Version {
-		return "", fmt.Errorf("HA application update requires the active peer to run %s", report.Runtime.Version)
+	if !peer.reachable || !peer.active || (peer.version != report.Runtime.Version && peer.version != targetVersion) {
+		return "", fmt.Errorf("HA application update requires the active peer to run %s or %s", report.Runtime.Version, targetVersion)
 	}
 	return report.Runtime.Version, nil
 }
@@ -104,8 +104,8 @@ func pruneReleaseImages(ctx context.Context) error {
 }
 
 // StopApplication stops only Fleet containers; the HA substrate keeps running.
-func StopApplication(ctx context.Context, root string) error {
-	if err := RequirePassive(ctx, filepath.Join(configRoot, "node.env")); err != nil {
+func StopApplication(ctx context.Context, root, targetVersion string) error {
+	if err := RequirePassive(ctx, filepath.Join(configRoot, "node.env"), targetVersion); err != nil {
 		return err
 	}
 	if err := RunCompose(ctx, fleetComposeArgsAt(root, "stop", "fleet-api", "fleet-client")); err != nil {

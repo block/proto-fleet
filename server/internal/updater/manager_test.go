@@ -236,8 +236,8 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 	commands := runner.Commands()
 	require.Len(t, commands, 5)
 	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
-	assert.Equal(t, []string{"require-passive", "/etc/proto-fleet/ha/node.env"}, commands[1].Args)
-	assert.Equal(t, []string{"app-stop"}, commands[2].Args)
+	assert.Equal(t, []string{"require-passive", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[1].Args)
+	assert.Equal(t, []string{"app-stop", "v1.1.0"}, commands[2].Args)
 	assert.Equal(t, []string{"app-start", "v1.1.0"}, commands[3].Args)
 	for _, command := range commands[:4] {
 		assert.Contains(t, command.Name, filepath.Join("ha", "fleet-ha"))

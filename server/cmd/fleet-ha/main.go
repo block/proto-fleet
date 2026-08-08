@@ -138,10 +138,11 @@ func (c *stopCmd) Run(ctx context.Context) error {
 
 type requirePassiveCmd struct {
 	NodeEnv string `arg:"" type:"path" help:"node environment file"`
+	Version string `arg:"" help:"target application version"`
 }
 
 func (c *requirePassiveCmd) Run(ctx context.Context) error {
-	return deployment.RequirePassive(ctx, c.NodeEnv)
+	return deployment.RequirePassive(ctx, c.NodeEnv, c.Version)
 }
 
 type updatePreflightCmd struct{}
@@ -154,14 +155,16 @@ func (*updatePreflightCmd) Run(ctx context.Context) error {
 	return deployment.PrepareApplicationUpdate(ctx, root)
 }
 
-type appStopCmd struct{}
+type appStopCmd struct {
+	Version string `arg:"" help:"target application version"`
+}
 
-func (*appStopCmd) Run(ctx context.Context) error {
+func (c *appStopCmd) Run(ctx context.Context) error {
 	root, err := deployment.ReleaseRoot()
 	if err != nil {
 		return err
 	}
-	return deployment.StopApplication(ctx, root)
+	return deployment.StopApplication(ctx, root, c.Version)
 }
 
 type appStartCmd struct {
@@ -226,7 +229,7 @@ type updateTrigger func(context.Context, string, string) (updaterapi.Operation, 
 type updatePreflight func(context.Context, string, string) error
 
 func validateHAUpdate(ctx context.Context, envPath, targetVersion string) error {
-	currentVersion, err := deployment.ValidatePassiveUpdate(ctx, envPath)
+	currentVersion, err := deployment.ValidatePassiveUpdate(ctx, envPath, targetVersion)
 	if err != nil {
 		return err
 	}
