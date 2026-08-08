@@ -74,9 +74,9 @@ injection. Require every PENDING ID to reach SUCCESS within 60 seconds. Permit
 FAILED only for an ID already PROCESSING at fault injection and only with the
 expected interruption reason. Treat missing, duplicate, PENDING, or PROCESSING
 rows after that bound as failures; record ambiguous submissions separately
-rather than counting them as acknowledged. Also fail any row on possible
-active, VIP,
-or writable-primary overlap, a collection gap, or a stale transition. Record
+rather than counting them as acknowledged. Also fail any row on possible VIP
+or writable-primary overlap, overlapping active-only device work, a collection
+gap, or a stale transition. Record
 the observed recovery time and a short redacted evidence reference. For
 the controlled test device, independently record every command, plugin, and
 curtailment request from acceptance through response or connection close,
@@ -135,24 +135,21 @@ device effects. Device-side fencing is outside this profile's support claim.
 | --- | --- | --- | --- |
 | Application failover | 5 consecutive passes | Pending | Pending |
 | Database failover | 3 consecutive passes | Pending | Pending |
-| Soak | 24h with no observed dual-active state or lost failover readiness | Pending | Pending |
+| Soak | 24h with no overlapping active-only device work, VIP overlap, or lost failover readiness | Pending | Pending |
 
 Before the soak, start an external append-only recorder on a separate
-controller. Start and confirm both host subscriptions first, buffering active
-health samples and interface-address events at 100 ms or faster. Timestamp all
+controller. Start and confirm both host subscriptions first, buffering
+interface-address events. Timestamp all
 probe sends, responses, and event arrivals on that controller's monotonic clock;
-do not compare host clocks. Treat ownership as beginning no later than the last
-preceding non-owner probe started and ending no earlier than the first following
-non-owner probe completed. Include measured request and delivery error in those
-bounds. Then take timestamped state snapshots, replay all buffered
-events that can intersect each snapshot, and begin the observation window. Fail
-if the collector cannot prove that subscription, snapshot, replay, and timing
-bounds were gap-free. Evidence stored only inside the HA database is
+do not compare host clocks. Then take timestamped state snapshots, replay all
+buffered events that can intersect each snapshot, and begin the observation
+window. Fail if the collector cannot prove that subscription, snapshot, replay,
+and timing bounds were gap-free. Evidence stored only inside the HA database is
 insufficient. Seed intervals owned at the initial snapshot from the
 observation-window start, and extend intervals still owned at the final
 snapshot through the observation-window end. Fail if either boundary state is
-unknown. Treat an
-unreachable host, write failure, or gap longer than 250 ms as a failed soak.
+unknown. Treat an unreachable host, write failure, or address-event collection
+gap as a failed soak.
 For a power-off gate, also record the switched power outlet or an independent
 power monitor on the same clock. The first confirmed power-off sample closes
 that host's possible active and VIP intervals; network unreachability alone
@@ -160,13 +157,13 @@ does not. Stream termination after that sample is expected, not a collection
 gap. Fail the gate if independent power-state evidence is unavailable.
 Also sample both hosts at least every two seconds for availability. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
-and retain the status, health, and address streams. Conservatively reconstruct
-each active interval from its last preceding passive sample through its first
-following passive sample, and each VIP interval from address-add through
-address-delete. Fail when these uncertainty-inclusive host intervals could
-overlap, or on any collection gap or lost readiness. Keep the controlled test
-device recorder running and apply the same old-holder versus new-holder work
-interval rule throughout the soak. Export redacted evidence after the soak.
+and retain the status, health, and address streams. Reconstruct each VIP
+interval from address-add through address-delete and fail if host intervals
+overlap. Health polling is availability evidence, not proof that every runtime
+transition was observed. Prove effect exclusivity with the controlled test
+device recorder instead: it must capture every request, and no old-holder work
+may remain in flight when new-holder work begins. Any recorder gap fails the
+soak. Export redacted evidence after the soak.
 
 ## Verdict
 
