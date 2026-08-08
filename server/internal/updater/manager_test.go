@@ -80,6 +80,11 @@ func (r *haRecordingRunner) Commands() []recordedCommand {
 	return append([]recordedCommand(nil), r.commands...)
 }
 
+const (
+	sourceReleaseCommit = "1111111111111111111111111111111111111111"
+	targetReleaseCommit = "2222222222222222222222222222222222222222"
+)
+
 const operatorEnv = `DB_PASSWORD=secret
 ENABLE_BETA_ALERTS=true
 ENABLE_SYSTEM_MONITORING=true
@@ -301,16 +306,25 @@ func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T
 
 func TestManagerHARejectsUnqualifiedSourceRelease(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		source string
+		name             string
+		source           string
+		mismatchedCommit bool
 	}{
 		{name: "missing source"},
 		{name: "different source", source: "v0.9.0"},
+		{name: "different source build", source: "v1.0.0", mismatchedCommit: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			installRoot := t.TempDir()
 			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			if test.mismatchedCommit {
+				require.NoError(t, os.WriteFile(
+					filepath.Join(installRoot, "deployment", "version.txt"),
+					[]byte("version: v1.0.0\ncommit: 3333333333333333333333333333333333333333\n"),
+					0o600,
+				))
+			}
 			bundle := releaseBundleFrom(t, "v1.1.0", test.source)
 			server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
 			runner := &haRecordingRunner{fail: make(map[string]error)}
@@ -325,7 +339,7 @@ func TestManagerHARejectsUnqualifiedSourceRelease(t *testing.T) {
 
 			// Assert
 			require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
-			assert.Contains(t, completed.Error, "does not allow HA updates from v1.0.0")
+			assert.Contains(t, completed.Error, "does not allow HA updates")
 			assert.Empty(t, runner.Commands())
 			assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 		})
@@ -1010,16 +1024,19 @@ func TestManagerActivationFailurePersistsProofAwareForwardRecovery(t *testing.T)
 	}
 }
 
-func TestManagerFailsActivationOnlyAfterRestoringPreviousDeployment(t *testing.T) {
+func TestManagerHAFailedActivationRestartsRestoredDeployment(t *testing.T) {
 	t.Parallel()
 
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	stateDir := filepath.Join(t.TempDir(), "state")
+	runner := &haRecordingRunner{fail: make(map[string]error)}
 	manager, err := NewManager(Config{
-		InstallRoot: installRoot,
-		StateDir:    stateDir,
-		GOARCH:      "amd64",
+		InstallRoot:    installRoot,
+		StateDir:       stateDir,
+		GOARCH:         "amd64",
+		Runner:         runner,
+		DeploymentMode: DeploymentModeHA,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
@@ -1044,7 +1061,7 @@ func TestManagerFailsActivationOnlyAfterRestoringPreviousDeployment(t *testing.T
 		filepath.Join(installRoot, "deployment.previous"),
 	))
 
-	manager.failActivation("activation-error", "v1.1.0", assert.AnError, io.Discard)
+	manager.failActivation("activation-error", "v1.1.0", assert.AnError, io.Discard, true)
 
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
@@ -1057,6 +1074,9 @@ func TestManagerFailsActivationOnlyAfterRestoringPreviousDeployment(t *testing.T
 	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &persisted))
 	assert.Equal(t, updaterapi.PhaseFailed, persisted.Phase)
 	assert.Empty(t, persisted.RecoveryCommand)
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.0.0"}, commands[0].Args)
 }
 
 func TestActivationMarkerWriteIsAtomicAndExclusive(t *testing.T) {
@@ -2866,9 +2886,9 @@ func releaseBundle(t *testing.T, version string) []byte {
 
 func releaseBundleFrom(t *testing.T, version, haUpdateFrom string) []byte {
 	t.Helper()
-	versionFile := "version: " + version + "\n"
+	versionFile := "version: " + version + "\ncommit: " + targetReleaseCommit + "\n"
 	if haUpdateFrom != "" {
-		versionFile += "ha_update_from: " + haUpdateFrom + "\n"
+		versionFile += "ha_update_from: " + haUpdateFrom + "\nha_update_from_commit: " + sourceReleaseCommit + "\n"
 	}
 	files := map[string]string{
 		"deployment/version.txt":                         versionFile,
@@ -2934,7 +2954,7 @@ func writeInterruptedOperationState(t *testing.T, stateDir, targetVersion string
 func writeCurrentDeployment(t *testing.T, installRoot, version string) {
 	t.Helper()
 	files := map[string]string{
-		"version.txt":               "version: " + version + "\n",
+		"version.txt":               "version: " + version + "\ncommit: " + sourceReleaseCommit + "\n",
 		".env":                      operatorEnv,
 		"ssl/cert.pem":              "certificate\n",
 		"server/influx_config/.env": "influx-secret\n",

@@ -211,7 +211,8 @@ baseline. HA deployments on an earlier experimental release must be reinstalled
 instead of upgraded through this path. Release metadata allows no HA source by
 default. To qualify an adjacent pair, set its one exact source tag in
 `qualified-update-from.txt` before publishing the target. The manifest covers
-the resulting `ha_update_from` field, and the updater rejects every other source
-version. Because the updater accepts only the fixed official release origin,
+the resulting source tag and commit, and the updater requires both to match the
+installed release. Because the updater accepts only the fixed official release
+origin,
 exact-byte qualification starts after publication; do not run the update until
 its report passes. A qualified RC-to-stable pair can name the RC explicitly.
