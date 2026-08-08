@@ -443,6 +443,30 @@ func TestManagerHACompletionRestartsOldReleaseWhenTakeoverFails(t *testing.T) {
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
 }
 
+func TestManagerHACompletionRestartsOldReleaseWhenStopFails(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: map[string]error{"app-stop": assert.AnError}}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "previous release restarted")
+	assert.Empty(t, completed.RecoveryCommand)
+	commands := runner.Commands()
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
+}
+
 func TestManagerHACompletionInterruptedAfterSwapStartsTargetRelease(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
