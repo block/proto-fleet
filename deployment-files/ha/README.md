@@ -156,3 +156,9 @@ Repeat on `ha-b` without `HA_PROFILE_MIGRATE`. The emitted
 Patroni primary, and connected PostgreSQL writer agree.
 The [qualification procedure](QUALIFICATION.md) owns the release qualification
 matrix and redacted evidence.
+
+Application-only HA updates support adjacent releases only. Every target
+migration must be expand-only and remain compatible with the running release;
+destructive contract migrations require a later release after both hosts have
+advanced. Do not use `fleet-ha update` for a release pair that has not passed
+separate adjacent-release migration and mixed-version qualification.
