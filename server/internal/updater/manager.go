@@ -1312,7 +1312,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 		requireArgs := []string{"require-passive", haNodeEnvPath, targetVersion}
 		if complete {
 			requiredRole = "active"
-			requireArgs = []string{"require-active", haNodeEnvPath}
+			requireArgs = []string{"require-active", haNodeEnvPath, targetVersion}
 		}
 		if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, requireArgs...); err != nil {
 			m.fail(operationID, fmt.Errorf("local Fleet is not %s immediately before activation: %w", requiredRole, err), recovery)

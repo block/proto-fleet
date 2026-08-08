@@ -64,11 +64,6 @@ var releaseImageRepositories = [...]string{
 	"proto-fleet-client",
 }
 
-func RequireActive(ctx context.Context, envPath string) error {
-	_, err := requireActiveStatus(ctx, envPath)
-	return err
-}
-
 func requireActiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath, true)
 	if err != nil {
