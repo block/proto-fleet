@@ -143,4 +143,6 @@ and run Fleet commands as
 
 **Pending.** Mark the adjacent update supported only when every gate passes,
 attach the redacted evidence to this report, and promote the unchanged `N+1`
-GitHub release from prerelease to stable.
+GitHub release with
+`gh release edit "$TARGET_RELEASE" --prerelease=false --latest`. Do not rebuild,
+retag, or replace its assets.
