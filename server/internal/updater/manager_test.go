@@ -1957,7 +1957,25 @@ func TestRepairStartupRestoresInterruptedSelfUpdateBeforeState(t *testing.T) {
 	// Assert
 	require.ErrorIs(t, err, ErrInterruptedSelfUpdateRestored)
 	assert.Equal(t, "old updater", mustReadFile(t, destination))
-	assert.NoDirExists(t, stateDir)
+	assert.DirExists(t, stateDir)
+}
+
+func TestRepairStartupDoesNotTouchSelfUpdateWhileManagerRuns(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	destination := installSelfUpdateForHandoffTest(t)
+	stateDir := filepath.Join(t.TempDir(), "state")
+	manager, err := NewManager(Config{InstallRoot: installRoot, StateDir: stateDir})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	// Act
+	err = RepairStartup(Config{InstallRoot: installRoot, StateDir: stateDir, SelfUpdatePath: destination})
+
+	// Assert
+	require.ErrorContains(t, err, "another updater process is already running")
+	assert.Equal(t, "new updater", mustReadFile(t, destination))
 }
 
 func TestManagerFailsStartupWhenHARecoveryFails(t *testing.T) {
