@@ -147,10 +147,12 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "Before=docker.service proto-fleet-ha.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "Requires=proto-fleet-ha-firewall.service docker.service"
-    assert_contains "${HA_DIR}/proto-fleet-ha.service" "PartOf=docker.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "BindsTo=docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStart=/opt/proto-fleet/deployment/ha/fleet-ha start"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStopPost=/opt/proto-fleet/deployment/ha/fleet-ha stop"
     assert_not_contains "${HA_DIR}/proto-fleet-ha.service" "Restart=on-failure"
     assert_contains "${HA_DIR}/docker-systemd.conf" "Requires=proto-fleet-ha-firewall.service"
+    assert_contains "${HA_DIR}/docker-systemd.conf" "Wants=proto-fleet-ha.service"
 
     for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
         assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"
