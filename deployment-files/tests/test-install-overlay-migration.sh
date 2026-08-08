@@ -796,15 +796,15 @@ else
 fi
 
 if (
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
-  arm_existing_updater_restoration active enabled \
-    && [ "$UPDATER_REENABLE_ON_EXIT" = 1 ] \
+  arm_existing_updater_restoration active enabled-runtime \
+    && [ "$UPDATER_REENABLE_ON_EXIT" = enabled-runtime ] \
     && [ "$UPDATER_RESTART_ON_EXIT" = 1 ] \
     && grep -q 'arm_existing_updater_restoration "\$active_state" "\$unit_file_state"' \
       "$INSTALL_SCRIPT"
 ); then
-  pass "quiescing an active enabled updater immediately arms exact restoration"
+  pass "quiescing an active runtime-enabled updater arms exact restoration"
 else
   fail "pre-bootstrap failures can leave the prior updater disabled"
 fi
@@ -852,7 +852,7 @@ if (
   printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$failed_env"
   : > "$lifecycle_log"
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_START_AFTER_RUN=1
   disable_updater_service_with() {
@@ -868,7 +868,7 @@ if (
     return 0
   }
   reconcile_updater_after_failed_deployment \
-    "$failed_env" false true 0 0 \
+    "$failed_env" false true disabled 0 \
     && [ "$(cat "$lifecycle_log")" = disable ] \
     && [ "$UPDATER_DISABLE_ON_EXIT" = 0 ] \
     && [ "$UPDATER_START_AFTER_RUN" = 0 ]
@@ -884,7 +884,7 @@ if (
   printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$failed_env"
   : > "$lifecycle_log"
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=enabled-runtime
   UPDATER_RESTART_ON_EXIT=1
   UPDATER_START_AFTER_RUN=1
   disable_updater_service_with() {
@@ -900,14 +900,14 @@ if (
     return 0
   }
   reconcile_updater_after_failed_deployment \
-    "$failed_env" true true 1 1 \
+    "$failed_env" true true enabled-runtime 1 \
     && grep -q '^disable$' "$lifecycle_log" \
-    && grep -q '^systemctl enable proto-fleet-updater.service$' "$lifecycle_log" \
+    && grep -q '^systemctl enable --runtime proto-fleet-updater.service$' "$lifecycle_log" \
     && grep -q '^restart /run/proto-fleet-updater/updater.sock$' "$lifecycle_log" \
     && [ "$UPDATER_DISABLE_ON_EXIT" = 0 ] \
     && [ "$UPDATER_START_AFTER_RUN" = 0 ]
 ); then
-  pass "failed replacement restores a previously active configured updater"
+  pass "failed replacement restores runtime-only updater enablement"
 else
   fail "failed replacement does not restore the prior updater lifecycle"
 fi
@@ -918,7 +918,7 @@ if (
   printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$failed_env"
   : > "$lifecycle_log"
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_START_AFTER_RUN=1
   disable_updater_service_with() {
@@ -934,7 +934,7 @@ if (
     return 0
   }
   reconcile_updater_after_failed_deployment \
-    "$failed_env" false true 0 0 \
+    "$failed_env" false true disabled 0 \
     && grep -q '^disable$' "$lifecycle_log" \
     && grep -q '^systemctl enable proto-fleet-updater.service$' "$lifecycle_log" \
     && grep -q '^restart /run/proto-fleet-updater/updater.sock$' "$lifecycle_log" \
@@ -1104,7 +1104,7 @@ if (
   DOWNLOAD_DIR="$TEST_TMP/updater-exit-download"
   mkdir -p "$DOWNLOAD_DIR"
   UPDATER_DISABLE_ON_EXIT=0
-  UPDATER_REENABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=enabled
   UPDATER_RESTART_ON_EXIT=1
   systemctl() {
     printf '%s\n' "$*" >> "$restore_log"
@@ -1126,6 +1126,33 @@ else
   fail "installer exit cleanup did not restore the updater after interruption"
 fi
 
+if (
+  restore_log="$TEST_TMP/updater-runtime-enable-restore"
+  DOWNLOAD_DIR="$TEST_TMP/updater-runtime-enable-download"
+  mkdir -p "$DOWNLOAD_DIR"
+  UPDATER_DISABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=enabled-runtime
+  UPDATER_RESTART_ON_EXIT=0
+  UPDATER_START_AFTER_RUN=0
+  UPDATER_DEPLOYMENT_COMMITTED=0
+  UPDATER_VALIDATION_RUNTIME_ON_EXIT=0
+  UPDATER_ARTIFACT_RESTORE_PENDING=0
+  systemctl() {
+    printf '%s\n' "$*" >> "$restore_log"
+    return 0
+  }
+  (trap installer_exit_cleanup EXIT; exit 7)
+  cleanup_status=$?
+  [ "$cleanup_status" -eq 7 ] \
+    && [ "$(cat "$restore_log")" = \
+      'enable --runtime proto-fleet-updater.service' ] \
+    && [ ! -e "$DOWNLOAD_DIR" ]
+); then
+  pass "interrupted installation preserves runtime-only updater enablement"
+else
+  fail "installer exit cleanup made runtime-only enablement persistent"
+fi
+
 # A successful run-fleet return commits the socket-enabled topology. Signals
 # after that boundary must finish enabling the updater instead of applying the
 # pre-deployment fail-closed cleanup policy.
@@ -1141,7 +1168,7 @@ if (
   RUN_FLEET_ARGS=(--enable-one-click-updates --non-interactive)
   UPDATER_PRIVILEGE=()
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_START_AFTER_RUN=1
   UPDATER_DEPLOYMENT_COMMITTED=1
@@ -1189,7 +1216,7 @@ if (
   RUN_FLEET_ARGS=(--enable-one-click-updates --non-interactive)
   UPDATER_PRIVILEGE=()
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_START_AFTER_RUN=1
   UPDATER_DEPLOYMENT_COMMITTED=1
@@ -1230,7 +1257,7 @@ if (
   # value alone must not commit fallback or discard installer restoration.
   printf 'ENABLE_ONE_CLICK_UPDATES=false\n' > "$fallback_env"
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=enabled
   UPDATER_RESTART_ON_EXIT=1
   UPDATER_ENV_RESTORE_FILE=env-backup
   UPDATER_BINARY_RESTORE_FILE=binary-backup
@@ -1238,13 +1265,13 @@ if (
   UPDATER_ARTIFACT_RESTORE_PENDING=1
   UPDATER_FALLBACK_PENDING=1
   ! complete_disabled_updater_fallback_after_run "$fallback_env" 1 \
-    && [ "$UPDATER_REENABLE_ON_EXIT" = 1 ] \
+    && [ "$UPDATER_REENABLE_ON_EXIT" = enabled ] \
     && [ "$UPDATER_RESTART_ON_EXIT" = 1 ] \
     && [ "$UPDATER_ARTIFACT_RESTORE_PENDING" = 1 ] \
     && [ "$UPDATER_FALLBACK_PENDING" = 1 ] \
     && complete_disabled_updater_fallback_after_run "$fallback_env" 0 \
     && [ "$UPDATER_DISABLE_ON_EXIT" = 0 ] \
-    && [ "$UPDATER_REENABLE_ON_EXIT" = 0 ] \
+    && [ "$UPDATER_REENABLE_ON_EXIT" = disabled ] \
     && [ "$UPDATER_RESTART_ON_EXIT" = 0 ] \
     && [ "$UPDATER_ARTIFACT_RESTORE_PENDING" = 0 ] \
     && [ "$UPDATER_FALLBACK_PENDING" = 0 ]
@@ -1260,7 +1287,7 @@ if (
   printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$fallback_env"
   : > "$fallback_log"
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_START_AFTER_RUN=0
   updater_fallback_runner() {
@@ -1283,7 +1310,7 @@ if (
   fallback_env="$TEST_TMP/updater-restart-fallback-failure.env"
   printf 'ENABLE_ONE_CLICK_UPDATES=true\n' > "$fallback_env"
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_START_AFTER_RUN=0
   updater_fallback_failure() { return 7; }
@@ -1317,7 +1344,7 @@ if (
   printf 'new unit\n' > "$UPDATER_UNIT_PATH"
   UPDATER_PRIVILEGE=()
   UPDATER_DISABLE_ON_EXIT=1
-  UPDATER_REENABLE_ON_EXIT=1
+  UPDATER_REENABLE_ON_EXIT=enabled
   UPDATER_RESTART_ON_EXIT=1
   UPDATER_ARTIFACT_RESTORE_PENDING=1
   systemctl() {

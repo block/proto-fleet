@@ -64,6 +64,9 @@ sed -n \
   -e '/^HOST_UPDATER_REMOVAL_STARTED=/p' \
   -e '/^HOST_UPDATER_ORIGINAL_ACTIVE=/p' \
   -e '/^HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE=/p' \
+  -e '/^USER_SYSTEMD_UID=/p' \
+  -e '/^USER_SYSTEMD_NAME=/p' \
+  -e '/^USER_SYSTEMD_HOME=/p' \
   -e '/^HOST_UPDATER_BINARY_PATHS=(/,/^)/p' \
   -e '/^HOST_UPDATER_SELF_UPDATE_SUFFIXES=(/,/^)/p' \
   -e '/^canonicalize_existing_dir()/,/^}/p' \
@@ -79,6 +82,9 @@ sed -n \
   -e '/^verify_host_updater_process_lock_free_with()/,/^}/p' \
   -e '/^restore_host_updater_service_if_needed()/,/^}/p' \
   -e '/^prepare_host_updater_removal()/,/^}/p' \
+  -e '/^resolve_user_systemd_context()/,/^}/p' \
+  -e '/^user_systemctl()/,/^}/p' \
+  -e '/^remove_systemd_units()/,/^}/p' \
   "$UNINSTALL_SCRIPT" > "$TEST_TMP/uninstall-updater-functions.sh"
 # shellcheck source=/dev/null
 source "$TEST_TMP/uninstall-updater-functions.sh"
@@ -193,6 +199,66 @@ if (
   pass "non-root uninstall aborts before mutating a root-managed updater"
 else
   fail "non-root uninstall can remove the updater before deployment cleanup"
+fi
+
+if (
+  invoking_name=operator
+  invoking_uid=1000
+  invoking_home="$TEST_TMP/invoking-home"
+  systemd_log="$TEST_TMP/invoking-user-systemd.log"
+  mkdir -p "$invoking_home/.config/systemd/user"
+  : > "$systemd_log"
+  SUDO_USER="$invoking_name"
+  SUDO_UID="$invoking_uid"
+  HOME=/root
+  USER_SYSTEMD_UID=""
+  USER_SYSTEMD_NAME=""
+  USER_SYSTEMD_HOME=""
+  id() {
+    if [[ "${1:-}" == -u && $# -eq 1 ]]; then
+      printf '0\n'
+    elif [[ "${1:-}" == -u && "${2:-}" == "$invoking_name" ]]; then
+      printf '%s\n' "$invoking_uid"
+    elif [[ "${1:-}" == -un ]]; then
+      printf 'root\n'
+    else
+      return 1
+    fi
+  }
+  getent() {
+    [[ "${1:-}" == passwd && "${2:-}" == "$invoking_uid" ]] || return 1
+    printf '%s:x:%s:20::%s:/bin/bash\n' \
+      "$invoking_name" "$invoking_uid" "$invoking_home"
+  }
+  sudo() {
+    printf 'sudo %s\n' "$*" >> "$systemd_log"
+    if [[ "$*" == *'list-unit-files'* ]]; then
+      printf 'protofleet.service enabled\n'
+    fi
+    return 0
+  }
+  systemctl() {
+    printf 'root-systemctl %s\n' "$*" >> "$systemd_log"
+    return 1
+  }
+  rm() {
+    printf 'rm %s\n' "$*" >> "$systemd_log"
+    return 0
+  }
+  print_success() { :; }
+  print_warn() { printf 'warn %s\n' "$*" >> "$systemd_log"; }
+  LAST_ERROR=""
+  resolve_user_systemd_context \
+    && remove_systemd_units \
+    && grep -q "sudo -n -u $invoking_name env HOME=$invoking_home XDG_RUNTIME_DIR=/run/user/$invoking_uid systemctl --user list-unit-files" \
+      "$systemd_log" \
+    && grep -q "rm -f $invoking_home/.config/systemd/user/protofleet" \
+      "$systemd_log" \
+    && ! grep -q 'root-systemctl\|/root' "$systemd_log"
+); then
+  pass "root rerun cleans the invoking user's systemd units"
+else
+  fail "root rerun targets root instead of the invoking user's systemd units"
 fi
 
 service_mutation_log="$TEST_TMP/service-mutations"

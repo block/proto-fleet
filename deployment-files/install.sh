@@ -8,11 +8,11 @@ UPDATER_CLEANUP_FAILED=0
 UPDATER_PRIVILEGE=()
 UPDATER_PRIVILEGE_AVAILABLE=1
 UPDATER_DISABLE_ON_EXIT=0
-UPDATER_REENABLE_ON_EXIT=0
+UPDATER_REENABLE_ON_EXIT=disabled
 UPDATER_RESTART_ON_EXIT=0
 UPDATER_START_AFTER_RUN=0
 UPDATER_DEPLOYMENT_COMMITTED=0
-UPDATER_REENABLE_AFTER_FAILED_RUN=0
+UPDATER_REENABLE_AFTER_FAILED_RUN=disabled
 UPDATER_RESTART_AFTER_FAILED_RUN=0
 UPDATER_FALLBACK_PENDING=0
 UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
@@ -902,10 +902,32 @@ arm_existing_updater_restoration() {
   local active_state="$1"
   local unit_file_state="$2"
   case "$unit_file_state" in
-    enabled|enabled-runtime) UPDATER_REENABLE_ON_EXIT=1 ;;
+    enabled|enabled-runtime) UPDATER_REENABLE_ON_EXIT="$unit_file_state" ;;
   esac
   case "$active_state" in
     active|activating|reloading) UPDATER_RESTART_ON_EXIT=1 ;;
+  esac
+}
+
+restore_updater_enablement_with() {
+  local enablement="$1"
+  shift
+  local privilege=("$@")
+
+  case "$enablement" in
+    disabled) return 0 ;;
+    enabled)
+      ${privilege[@]+"${privilege[@]}"} systemctl enable \
+        proto-fleet-updater.service >/dev/null 2>&1
+      ;;
+    enabled-runtime)
+      ${privilege[@]+"${privilege[@]}"} systemctl enable --runtime \
+        proto-fleet-updater.service >/dev/null 2>&1
+      ;;
+    *)
+      echo "❌ Cannot restore unsupported updater enablement state: $enablement" >&2
+      return 1
+      ;;
   esac
 }
 
@@ -1084,7 +1106,7 @@ finalize_disabled_updater_fallback_if_persisted() {
   state=$(deployment_boolean_state "$env_file" ENABLE_ONE_CLICK_UPDATES) || return 1
   [ "$state" = "false" ] || return 1
   UPDATER_DISABLE_ON_EXIT=0
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_ENV_RESTORE_FILE=""
   UPDATER_BINARY_RESTORE_FILE=""
@@ -1156,7 +1178,7 @@ reconcile_committed_updater_enablement() {
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
     UPDATER_DISABLE_ON_EXIT=0
     UPDATER_RESTART_ON_EXIT=0
-    UPDATER_REENABLE_ON_EXIT=0
+    UPDATER_REENABLE_ON_EXIT=disabled
     UPDATER_START_AFTER_RUN=0
     UPDATER_DEPLOYMENT_COMMITTED=0
     return 0
@@ -1167,7 +1189,7 @@ reconcile_committed_updater_enablement() {
     ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
   # Keep disablement armed until the copy-command fallback is active.
   UPDATER_RESTART_ON_EXIT=0
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_START_AFTER_RUN=0
   UPDATER_DISABLE_ON_EXIT=1
   if ! run_disabled_updater_fallback "$runner" "$env_file" \
@@ -1183,14 +1205,14 @@ reconcile_updater_after_failed_deployment() {
   local env_file="$1"
   local previous_state="$2"
   local desired_state="$3"
-  local reenable_after_failure="$4"
+  local enablement_after_failure="$4"
   local restart_after_failure="$5"
   shift 5
   local privilege=("$@")
   local restored_state
 
   # Keep the replacement fail-closed while restoring prior state.
-  UPDATER_REENABLE_ON_EXIT=0
+  UPDATER_REENABLE_ON_EXIT=disabled
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_START_AFTER_RUN=0
   UPDATER_DISABLE_ON_EXIT=1
@@ -1225,9 +1247,8 @@ reconcile_updater_after_failed_deployment() {
       return 1
     fi
   elif [ "$previous_state" = "true" ]; then
-    if [ "$reenable_after_failure" = "1" ] \
-      && ! ${privilege[@]+"${privilege[@]}"} systemctl enable \
-        proto-fleet-updater.service >/dev/null 2>&1; then
+    if ! restore_updater_enablement_with "$enablement_after_failure" \
+        ${privilege[@]+"${privilege[@]}"}; then
       echo "❌ Could not restore host updater boot enablement after deployment failure." >&2
       return 1
     fi
@@ -1470,15 +1491,15 @@ installer_exit_cleanup() {
     if ! restore_updater_artifacts_with \
         ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
       echo "❌ Could not restore the prior host updater artifacts." >&2
-      UPDATER_REENABLE_ON_EXIT=0
+      UPDATER_REENABLE_ON_EXIT=disabled
       UPDATER_RESTART_ON_EXIT=0
       status=1
     fi
   fi
-  if [ "${UPDATER_REENABLE_ON_EXIT:-0}" = "1" ]; then
+  if [ "${UPDATER_REENABLE_ON_EXIT:-disabled}" != "disabled" ]; then
     echo "🔄 Restoring host updater boot enablement after the interrupted installation..." >&2
-    if ! ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} systemctl enable \
-        proto-fleet-updater.service >/dev/null 2>&1; then
+    if ! restore_updater_enablement_with "$UPDATER_REENABLE_ON_EXIT" \
+        ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
       echo "❌ Could not restore host updater boot enablement." >&2
       status=1
     fi

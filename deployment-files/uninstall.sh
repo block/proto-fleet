@@ -18,6 +18,9 @@ HOST_UPDATER_RESTORE_PENDING=false
 HOST_UPDATER_REMOVAL_STARTED=false
 HOST_UPDATER_ORIGINAL_ACTIVE=false
 HOST_UPDATER_ORIGINAL_UNIT_FILE_STATE=disabled
+USER_SYSTEMD_UID=""
+USER_SYSTEMD_NAME=""
+USER_SYSTEMD_HOME=""
 HOST_UPDATER_STAGING_NAME_RE='^\.proto-fleet-upgrade-[a-f0-9]{64}$'
 HOST_UPDATER_ENV_PATH=/etc/proto-fleet/updater.env
 HOST_UPDATER_STATE_DIR=/var/lib/proto-fleet-updater
@@ -452,32 +455,113 @@ teardown_docker_stack() {
   print_success "Containers, images, and volumes removed."
 }
 
+resolve_user_systemd_context() {
+  local current_uid target_uid target_name passwd_entry passwd_name passwd_uid target_home
+
+  current_uid=$(id -u) || return 1
+  target_uid="$current_uid"
+  target_name=$(id -un) || return 1
+  if [[ "$current_uid" -eq 0 && -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+    case "${SUDO_UID:-}" in
+      ""|*[!0-9]*|0)
+        print_error "Could not determine the invoking user's UID for systemd cleanup."
+        return 1
+        ;;
+    esac
+    target_uid="$SUDO_UID"
+    target_name="$SUDO_USER"
+    if [[ "$(id -u "$target_name" 2>/dev/null || true)" != "$target_uid" ]]; then
+      print_error "The invoking user's name and UID do not identify the same account."
+      return 1
+    fi
+  fi
+
+  if command -v getent &>/dev/null; then
+    passwd_entry=$(getent passwd "$target_uid" 2>/dev/null || true)
+  else
+    passwd_entry=""
+  fi
+  if [[ -n "$passwd_entry" ]]; then
+    IFS=: read -r passwd_name _ passwd_uid _ _ target_home _ <<< "$passwd_entry"
+    if [[ "$passwd_name" != "$target_name" || "$passwd_uid" != "$target_uid" ]]; then
+      print_error "Could not validate the invoking user's account for systemd cleanup."
+      return 1
+    fi
+  elif [[ "$target_uid" == "$current_uid" && -n "${HOME:-}" ]]; then
+    target_home="$HOME"
+  else
+    print_error "Could not resolve the invoking user's home for systemd cleanup."
+    return 1
+  fi
+  if [[ -z "$target_home" || "$target_home" == / || ! -d "$target_home" ]]; then
+    print_error "The invoking user's home is unavailable for systemd cleanup: $target_home"
+    return 1
+  fi
+  if [[ "$target_uid" != "$current_uid" ]] && ! command -v sudo &>/dev/null; then
+    print_error "sudo is required to clean up the invoking user's systemd units."
+    return 1
+  fi
+
+  USER_SYSTEMD_UID="$target_uid"
+  USER_SYSTEMD_NAME="$target_name"
+  USER_SYSTEMD_HOME="$target_home"
+}
+
+user_systemctl() {
+  if [[ "$USER_SYSTEMD_UID" == "$(id -u)" ]]; then
+    HOME="$USER_SYSTEMD_HOME" \
+      XDG_RUNTIME_DIR="/run/user/$USER_SYSTEMD_UID" \
+      systemctl --user "$@"
+    return
+  fi
+  sudo -n -u "$USER_SYSTEMD_NAME" env \
+    "HOME=$USER_SYSTEMD_HOME" \
+    "XDG_RUNTIME_DIR=/run/user/$USER_SYSTEMD_UID" \
+    systemctl --user "$@"
+}
+
 remove_systemd_units() {
   if ! command -v systemctl &>/dev/null; then
     print_success "systemctl not found, skipping systemd cleanup."
     return
   fi
+  if [[ -z "$USER_SYSTEMD_UID" ]] && ! resolve_user_systemd_context; then
+    return 1
+  fi
 
-  local units
-  units="$(systemctl --user list-unit-files --type=service --no-legend 2>/dev/null \
-    | awk '{print $1}' \
-    | grep -E '^(protofleet|proto-fleet|fleet).*\.service$' || true)"
+  local unit_files="" units="" systemd_cleanup_complete=true
+  if unit_files="$(user_systemctl list-unit-files \
+      --type=service --no-legend 2>/dev/null)"; then
+    units="$(printf '%s\n' "$unit_files" \
+      | awk '{print $1}' \
+      | grep -E '^(protofleet|proto-fleet|fleet).*\.service$' || true)"
+  else
+    systemd_cleanup_complete=false
+  fi
 
   if [[ -n "$units" ]]; then
     while IFS= read -r unit; do
       [[ -z "$unit" ]] && continue
-      systemctl --user disable --now "$unit" 2>/dev/null || true
+      user_systemctl disable --now "$unit" 2>/dev/null \
+        || systemd_cleanup_complete=false
     done <<< "$units"
   fi
 
-  systemctl --user daemon-reload 2>/dev/null || true
-  systemctl --user reset-failed 2>/dev/null || true
+  if ! rm -f \
+      "$USER_SYSTEMD_HOME/.config/systemd/user"/protofleet*.service \
+      "$USER_SYSTEMD_HOME/.config/systemd/user"/proto-fleet*.service \
+      "$USER_SYSTEMD_HOME/.config/systemd/user"/fleet*.service 2>/dev/null; then
+    print_error "Could not remove systemd units from $USER_SYSTEMD_HOME."
+    return 1
+  fi
+  user_systemctl daemon-reload 2>/dev/null || systemd_cleanup_complete=false
+  user_systemctl reset-failed 2>/dev/null || systemd_cleanup_complete=false
 
-  rm -f ~/.config/systemd/user/protofleet*.service \
-        ~/.config/systemd/user/proto-fleet*.service \
-        ~/.config/systemd/user/fleet*.service 2>/dev/null || true
-
-  print_success "Systemd user units cleaned up."
+  if $systemd_cleanup_complete; then
+    print_success "Systemd user units cleaned up for $USER_SYSTEMD_NAME."
+  else
+    print_warn "Unit files were removed, but $USER_SYSTEMD_NAME's systemd manager could not be fully reconciled."
+  fi
 }
 
 host_updater_binary_artifact_paths() {
@@ -957,6 +1041,9 @@ if ! $DRY_RUN; then
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  if command -v systemctl &>/dev/null; then
+    resolve_user_systemd_context || exit 1
+  fi
   prepare_host_updater_removal || exit 1
 fi
 
