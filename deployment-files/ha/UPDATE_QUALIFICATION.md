@@ -21,7 +21,7 @@ and run Fleet commands as
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha update "$TARGET_RELEASE"`.
 
 1. Verify the published `N` and `N+1` artifacts and their checksums. Confirm
-   the target release was published from a reviewed
+   the target was built from a reviewed
    `qualified-update-from.txt` containing exactly `SOURCE_RELEASE`, and that
    its manifest-covered `ha_update_from` field matches. An empty file makes the
    target clean-install-only. Confirm
@@ -35,10 +35,13 @@ and run Fleet commands as
    plus `pg_postmaster_start_time()` on both PostgreSQL members.
 3. Before running the update command on the passive application host, start
    authenticated database-backed reads and uniquely identified idempotent
-   commands through the VIP at least once per second. Continue until the host
-   is healthy and passive on `N+1`; fail on a request failure or a command that
-   does not reach terminal success. Verify the active host continues serving
-   `N` throughout this migration and mixed-version window.
+   commands through the VIP at least once per second. Give each request a
+   two-second deadline, record command submission and terminal-result times,
+   and require each accepted command to reach exactly one terminal result within
+   60 seconds. Before the planned handoff, fail if successful reads or command
+   submissions are more than three seconds apart. Continue these probes through
+   step 5. Verify the active host continues serving `N` throughout the migration
+   and mixed-version window.
 4. Start the external active-health and interface-address recorder from step 5,
    then append `--complete` to the update command on the active host. From the
    controller, poll that host's local updater status over
@@ -64,7 +67,11 @@ and run Fleet commands as
    clock, measure from the last successful pre-handoff VIP probe until all
    three VIP probes succeed and `/api-proxy/health` reports
    `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Verify the former
-   active rejoins as passive. Using a client loaded from `N` before handoff,
+   active rejoins as passive. Before the handoff, hold one `N` command in
+   PROCESSING and one successor in PENDING. After takeover, require the
+   PROCESSING row to fail once without replay, the PENDING row to dispatch on
+   `N+1`, and both accepted IDs to reach exactly one terminal result within 60
+   seconds. Using a client loaded from `N` before handoff,
    perform a persisted read and a uniquely identified idempotent command against
    the `N+1` VIP.
 6. Using a controllable test device on the current active host, stall one command
