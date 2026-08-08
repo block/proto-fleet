@@ -60,6 +60,9 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
 		t.Fatalf("root password was not installed with protected permissions:\n%s", strings.Join(calls, "\n"))
 	}
+	if callIndex(calls, "sudo chmod -R a+rX,go-w "+installRoot) < 0 {
+		t.Fatalf("installed release permissions were not normalized:\n%s", strings.Join(calls, "\n"))
+	}
 	if _, err := os.Stat(rootPassword); !os.IsNotExist(err) {
 		t.Fatalf("copied root password still exists: %v", err)
 	}
