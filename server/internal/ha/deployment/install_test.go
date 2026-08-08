@@ -15,12 +15,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testEtcdRootPassword = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
 	secrets := t.TempDir()
 	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
-	if err := os.WriteFile(rootPassword, []byte("root-password\n"), 0o600); err != nil {
+	if err := os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	config := NodeConfig{
@@ -71,12 +73,27 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	}
 }
 
+func TestEtcdRootPasswordMustBeGeneratedAndUnique(t *testing.T) {
+	// Arrange
+	secrets := t.TempDir()
+	config := NodeConfig{NodeName: "ha-a", NodeIP: testHostIPs[0], SecretsDir: secrets, DatabaseAIP: testHostIPs[0]}
+	writeTestSecretBundle(t, config)
+	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
+	require.NoError(t, os.WriteFile(rootPassword, []byte("weak\n"), 0o600))
+
+	// Act and assert
+	require.ErrorContains(t, validateEtcdRootPassword(rootPassword, secrets), "32 random bytes")
+	require.NoError(t, os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(secrets, fleetEtcdPasswordFile), []byte(testEtcdRootPassword+"\n"), 0o600))
+	require.ErrorContains(t, validateEtcdRootPassword(rootPassword, secrets), fleetEtcdPasswordFile)
+}
+
 func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
 	secrets := t.TempDir()
 	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
-	require.NoError(t, os.WriteFile(rootPassword, []byte("root-password\n"), 0o600))
+	require.NoError(t, os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600))
 	config := NodeConfig{
 		NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0],
 		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
@@ -124,7 +141,7 @@ func TestInstallReadinessFailureDisablesHA(t *testing.T) {
 	}
 	writeTestSecretBundle(t, config)
 	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
-	require.NoError(t, os.WriteFile(rootPassword, []byte("root-password\n"), 0o600))
+	require.NoError(t, os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600))
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	run := deps.run

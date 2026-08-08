@@ -3,6 +3,8 @@ package deployment
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -87,7 +89,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 		if options.EtcdRootPasswordFile == "" {
 			return errors.New("ha-a install requires --etcd-root-password-file")
 		}
-		if _, err := readPassword(options.EtcdRootPasswordFile); err != nil {
+		if err := validateEtcdRootPassword(options.EtcdRootPasswordFile, config.SecretsDir); err != nil {
 			return fmt.Errorf("validate etcd root password file: %w", err)
 		}
 	} else if options.EtcdRootPasswordFile != "" {
@@ -156,6 +158,27 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	}
 	if err := consumeInstallCredentials(options, config); err != nil {
 		slog.Warn("HA installation succeeded but staged credentials could not be removed", "error", err)
+	}
+	return nil
+}
+
+func validateEtcdRootPassword(path, secretsDir string) error {
+	rootPassword, err := readPassword(path)
+	if err != nil {
+		return err
+	}
+	decoded, err := hex.DecodeString(rootPassword)
+	if err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != rootPassword {
+		return errors.New("password must be generated as 32 random bytes encoded in lowercase hexadecimal")
+	}
+	for _, name := range append([]string{fleetEtcdPasswordFile}, databasePasswordFiles...) {
+		servicePassword, err := readPassword(filepath.Join(secretsDir, name))
+		if err != nil {
+			return fmt.Errorf("read service password %s: %w", name, err)
+		}
+		if subtle.ConstantTimeCompare([]byte(rootPassword), []byte(servicePassword)) == 1 {
+			return fmt.Errorf("password must differ from %s", name)
+		}
 	}
 	return nil
 }
