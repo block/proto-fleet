@@ -54,7 +54,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
 	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < start && start < enable && enable < dockerRecovery && rootPasswordInstall < start) {
+		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < start && start < enable && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -132,7 +132,8 @@ func TestInstallReadinessFailureDisablesHA(t *testing.T) {
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 	require.NotContains(t, joined, "sudo systemctl enable proto-fleet-ha.service")
-	require.NotContains(t, joined, "docker-ha-recovery-systemd.conf "+dockerRecoveryDropIn)
+	require.Contains(t, joined, "docker-ha-recovery-systemd.conf "+dockerRecoveryDropIn)
+	require.Contains(t, joined, "sudo rm -f "+dockerRecoveryDropIn)
 }
 
 func TestPrepareImagesRejectsMissingHADatabaseImage(t *testing.T) {

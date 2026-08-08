@@ -146,6 +146,11 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := prepareImages(ctx, source, config, deps); err != nil {
 		return err
 	}
+	// Install the Docker recovery dependency before etcd first starts so a
+	// reboot cannot restore an unauthenticated cluster without the auth gate.
+	if err := installDockerRecoveryHook(ctx, deps); err != nil {
+		return stopIncompleteHA(ctx, deps, err)
+	}
 	if err := initialStart(ctx, config, deps); err != nil {
 		return err
 	}
@@ -706,9 +711,6 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 	}
 	if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "proto-fleet-ha.service"); err != nil {
 		return stopIncompleteHA(ctx, deps, fmt.Errorf("enable HA services: %s", commandError(output, err)))
-	}
-	if err := installDockerRecoveryHook(ctx, deps); err != nil {
-		return stopIncompleteHA(ctx, deps, err)
 	}
 	return nil
 }
