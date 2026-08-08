@@ -184,12 +184,14 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		if ready {
 			return nil
 		}
-		return errors.New("running HA application is not ready; refusing to replace it")
+		if !applicationMayConverge(localReport.Runtime, targetVersion) {
+			return errors.New("running HA application is not ready; refusing to replace it")
+		}
 	}
-	if !errors.Is(statusErr, syscall.ECONNREFUSED) {
+	if statusErr != nil && !errors.Is(statusErr, syscall.ECONNREFUSED) {
 		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
-	args := fleetComposeArgsAt(root, "up", "-d", "--no-deps", "--force-recreate", "--no-build", "--pull", "never", "fleet-api", "fleet-client")
+	args := fleetComposeArgsAt(root, "up", "-d", "--no-deps", "--no-build", "--pull", "never", "fleet-api", "fleet-client")
 	if err := RunCompose(ctx, args); err != nil {
 		return fmt.Errorf("start HA application: %w", err)
 	}
@@ -211,6 +213,12 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		case <-time.After(2 * time.Second):
 		}
 	}
+}
+
+func applicationMayConverge(runtime ha.Status, targetVersion string) bool {
+	return runtime.Version == targetVersion &&
+		runtime.Observation == ha.ObservationCurrent &&
+		runtime.Role == ha.RolePassive
 }
 
 func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) (bool, error) {

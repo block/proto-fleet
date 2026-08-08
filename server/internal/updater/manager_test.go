@@ -1621,17 +1621,21 @@ func TestRepairStartupRestoresInterruptedLayout(t *testing.T) {
 	))
 	stateDir := filepath.Join(t.TempDir(), "state")
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+	runner := &haRecordingRunner{}
 
 	// Act
 	err := RepairStartup(Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
-		DeploymentMode: DeploymentModeHA,
+		DeploymentMode: DeploymentModeHA, Runner: runner,
 	})
 
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.0.0"}, commands[0].Args)
 }
 
 func TestRepairStartupRestoresUpdaterFromInstalledDeployment(t *testing.T) {
