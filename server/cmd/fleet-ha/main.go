@@ -41,7 +41,6 @@ type cli struct {
 	UpdatePreflight   updatePreflightCmd   `cmd:"" help:"prepare the current release for an application update"`
 	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
 	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
-	AppRecover        appRecoverCmd        `cmd:"" help:"recover an interrupted Fleet application update"`
 	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the VIP to serve an application version"`
 }
 
@@ -189,18 +188,6 @@ func (c *appStartCmd) Run(ctx context.Context) error {
 		return err
 	}
 	return deployment.StartApplication(ctx, root, c.Version, c.Mode == "passive")
-}
-
-type appRecoverCmd struct {
-	Version string `arg:"" help:"application version to recover"`
-}
-
-func (c *appRecoverCmd) Run(ctx context.Context) error {
-	root, err := deployment.ReleaseRoot()
-	if err != nil {
-		return err
-	}
-	return deployment.RecoverApplication(ctx, root, c.Version)
 }
 
 type waitTakeoverCmd struct {
