@@ -238,6 +238,7 @@ func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
 	require.ErrorContains(t, err, "VIP is in use")
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, "iputils-arping")
+	require.Contains(t, joined, "sudo rm -rf -- "+installBase)
 	require.NotContains(t, joined, "docker-ce")
 	require.NotContains(t, joined, "/etc/apt/keyrings/docker.asc")
 }
@@ -327,6 +328,7 @@ func testInstallRelease(t *testing.T) string {
 		"ha/scripts/check-fleet-active.sh":                       "#!/bin/sh\n",
 		"client/Dockerfile":                                      "FROM scratch\n",
 		"client/protoFleet/index.html":                           "index",
+		"client/protoFleet/assets/app.js":                        "asset",
 		"client/docker-entrypoint.d/40-render-runtime-config.sh": "#!/bin/sh\n",
 		"client/nginx.https.conf":                                "server {}\n",
 	}
