@@ -165,6 +165,7 @@ func (*appStopCmd) Run(ctx context.Context) error {
 
 type appStartCmd struct {
 	Version string `arg:"" help:"application version to start"`
+	Mode    string `arg:"" optional:"" default:"passive" enum:"passive,any" help:"required HA role after startup"`
 }
 
 func (c *appStartCmd) Run(ctx context.Context) error {
@@ -172,7 +173,7 @@ func (c *appStartCmd) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return deployment.StartApplication(ctx, root, c.Version)
+	return deployment.StartApplication(ctx, root, c.Version, c.Mode == "passive")
 }
 
 func main() {

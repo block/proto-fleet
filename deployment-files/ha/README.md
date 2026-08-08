@@ -212,11 +212,14 @@ instead of upgraded through this path. Release metadata allows no HA source by
 default. To qualify an adjacent pair, set its one exact source tag in
 `qualified-update-from.txt` before publishing the target. The manifest covers
 the resulting source tag and commit, and the updater requires both to match the
-installed release. Because the updater accepts only the fixed official release
-origin,
-exact-byte qualification starts after publication; do not run the update until
-its report passes. Only stable-to-stable pairs are supported; RC releases are
-clean-install-only.
+installed release.
+
+Production HA updates accept only a promoted GitHub release. Qualification may
+exercise one exact prerelease by setting
+`PROTO_FLEET_HA_QUALIFICATION_TARGET=vX.Y.Z` in the root-owned
+`/etc/proto-fleet/updater.env` and restarting the updater. Remove the setting
+after the qualification run. This is not a general prerelease update channel.
+Only stable-to-stable pairs are supported; RC releases are clean-install-only.
 
 A passive update rechecks the local role, active peer, and control path just
 before stopping Fleet. This crash-only profile accepts the small role-change

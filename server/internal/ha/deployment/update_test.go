@@ -46,19 +46,21 @@ func TestRollingUpdateApplicationRejectsActiveTakeover(t *testing.T) {
 	require.ErrorContains(t, err, "became active")
 }
 
-func TestApplicationConvergenceRequiresExpectedPassiveRuntime(t *testing.T) {
+func TestApplicationConvergenceRequiresExpectedRuntimeRole(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		runtime ha.Status
-		want    bool
+		name           string
+		runtime        ha.Status
+		requirePassive bool
+		want           bool
 	}{
-		{name: "expected passive", runtime: ha.Status{Version: "v1.1.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent}, want: true},
-		{name: "active", runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent}},
+		{name: "expected passive", runtime: ha.Status{Version: "v1.1.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent}, requirePassive: true, want: true},
+		{name: "active passive update", runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent}, requirePassive: true},
+		{name: "active recovery", runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent}, want: true},
 		{name: "wrong version", runtime: ha.Status{Version: "v1.0.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			got := applicationMayConverge(test.runtime, "v1.1.0")
+			got := applicationMayConverge(test.runtime, "v1.1.0", test.requirePassive)
 
 			// Assert
 			require.Equal(t, test.want, got)

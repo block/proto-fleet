@@ -304,6 +304,42 @@ func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T
 	}
 }
 
+func TestManagerHARequiresQualifiedRelease(t *testing.T) {
+	for _, test := range []struct {
+		name                string
+		qualificationTarget string
+		wantPhase           updaterapi.Phase
+	}{
+		{name: "unqualified prerelease", wantPhase: updaterapi.PhaseFailed},
+		{name: "exact qualification target", qualificationTarget: "v1.1.0", wantPhase: updaterapi.PhaseSucceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			bundle := releaseBundle(t, "v1.1.0")
+			server := releaseServerWithState(t, "v1.1.0", "amd64", bundle, "", true)
+			runner := &haRecordingRunner{fail: make(map[string]error)}
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+				cfg.DeploymentMode = DeploymentModeHA
+				cfg.QualificationTarget = test.qualificationTarget
+			})
+
+			// Act
+			_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+			require.NoError(t, err)
+			completed := waitForTerminal(t, manager)
+
+			// Assert
+			assert.Equal(t, test.wantPhase, completed.Phase, completed.Error)
+			if test.wantPhase == updaterapi.PhaseFailed {
+				assert.Contains(t, completed.Error, "has not completed qualification")
+				assert.Empty(t, runner.Commands())
+			}
+		})
+	}
+}
+
 func TestManagerHARejectsUnqualifiedSourceRelease(t *testing.T) {
 	for _, test := range []struct {
 		name             string
@@ -1646,7 +1682,7 @@ func TestRepairStartupDefersApplicationRecoveryUntilHAIsRunning(t *testing.T) {
 	require.NoError(t, err)
 	commands := runner.Commands()
 	require.Len(t, commands, 1)
-	assert.Equal(t, []string{"app-start", "v1.0.0"}, commands[0].Args)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
 }
 
 func TestRepairStartupRestoresUpdaterFromInstalledDeployment(t *testing.T) {
@@ -3002,11 +3038,13 @@ func newTestManagerWithConfig(
 		InstallRoot:              installRoot,
 		StateDir:                 filepath.Join(t.TempDir(), "state"),
 		DownloadBaseURL:          server.URL,
+		ReleaseAPIBaseURL:        server.URL + "/releases/tags",
 		HTTPClient:               server.Client(),
 		Runner:                   runner,
 		GOARCH:                   "amd64",
 		NewID:                    func() string { return "test-operation" },
 		allowTestDownloadBaseURL: true,
+		allowTestReleaseAPIBase:  true,
 	}
 	if configure != nil {
 		configure(&cfg)
@@ -3019,12 +3057,24 @@ func newTestManagerWithConfig(
 
 func releaseServer(t *testing.T, version, arch string, bundle []byte, checksumOverride string) *httptest.Server {
 	t.Helper()
+	return releaseServerWithState(t, version, arch, bundle, checksumOverride, false)
+}
+
+func releaseServerWithState(t *testing.T, version, arch string, bundle []byte, checksumOverride string, prerelease bool) *httptest.Server {
+	t.Helper()
 	archiveName := fmt.Sprintf("proto-fleet-%s-%s.tar.gz", version, arch)
 	checksum := fmt.Sprintf("%x", sha256.Sum256(bundle))
 	if checksumOverride != "" {
 		checksum = checksumOverride
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/releases/tags/"+version, func(w http.ResponseWriter, _ *http.Request) {
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"tag_name":   version,
+			"draft":      false,
+			"prerelease": prerelease,
+		}))
+	})
 	mux.HandleFunc("/"+version+"/"+archiveName, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(bundle)
 	})

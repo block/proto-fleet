@@ -153,7 +153,7 @@ func StopApplication(ctx context.Context, root string) error {
 }
 
 // StartApplication starts the target release and proves it serves its observed HA role.
-func StartApplication(ctx context.Context, root, targetVersion string) error {
+func StartApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
 	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
 	if err != nil {
 		return err
@@ -162,16 +162,13 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 	if err != nil {
 		return err
 	}
-	localReport, statusErr := Status(ctx, filepath.Join(configRoot, "node.env"), false)
+	localReport, statusErr := Status(ctx, filepath.Join(configRoot, "node.env"))
 	if statusErr == nil {
-		report, checkErr := checkControlPath(ctx, filepath.Join(configRoot, "node.env"), localReport)
-		if checkErr != nil {
-			return fmt.Errorf("verify running HA application before replacement: %w", checkErr)
-		}
-		ready, readinessErr := rollingUpdateApplicationReady(
-			report,
+		ready, readinessErr := updatedApplicationReady(
+			localReport,
 			probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP),
 			targetVersion,
+			requirePassive,
 		)
 		if readinessErr != nil {
 			return readinessErr
@@ -179,7 +176,7 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		if ready {
 			return nil
 		}
-		if !applicationMayConverge(localReport.Runtime, targetVersion) {
+		if !applicationMayConverge(localReport.Runtime, targetVersion, requirePassive) {
 			return errors.New("running HA application is not ready; refusing to replace it")
 		}
 	}
@@ -194,7 +191,7 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"))
 		if err == nil {
 			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
-			ready, readinessErr := rollingUpdateApplicationReady(report, publicStatus, targetVersion)
+			ready, readinessErr := updatedApplicationReady(report, publicStatus, targetVersion, requirePassive)
 			if readinessErr != nil {
 				return readinessErr
 			}
@@ -210,10 +207,14 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 	}
 }
 
-func applicationMayConverge(runtime ha.Status, targetVersion string) bool {
-	return runtime.Version == targetVersion &&
-		runtime.Observation == ha.ObservationCurrent &&
-		runtime.Role == ha.RolePassive
+func applicationMayConverge(runtime ha.Status, targetVersion string, requirePassive bool) bool {
+	if runtime.Version != targetVersion || runtime.Observation != ha.ObservationCurrent {
+		return false
+	}
+	if requirePassive {
+		return runtime.Role == ha.RolePassive
+	}
+	return runtime.Role == ha.RoleActive || runtime.Role == ha.RolePassive
 }
 
 func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) (bool, error) {
@@ -223,6 +224,16 @@ func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, 
 	return report.Runtime.Role == ha.RolePassive &&
 		applicationReady(report.Runtime, public, targetVersion) &&
 		rollingUpdateControlReady(report.Control), nil
+}
+
+func updatedApplicationReady(report StatusReport, publicStatus fleetHostStatus, targetVersion string, requirePassive bool) (bool, error) {
+	if requirePassive {
+		return rollingUpdateApplicationReady(report, publicStatus, targetVersion)
+	}
+	if report.Control == nil || !report.Control.ControlReady {
+		return false, nil
+	}
+	return applicationReady(report.Runtime, publicStatus, targetVersion), nil
 }
 
 func rollingUpdateControlReady(control *ControlStatus) bool {
