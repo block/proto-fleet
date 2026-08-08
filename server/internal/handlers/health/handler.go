@@ -49,22 +49,12 @@ func NewHAHandler(version string, state HAState) func(w http.ResponseWriter, r *
 
 // NewPassiveHandler reports only whether this process is ready to take over.
 func NewPassiveHandler(state PassiveState) func(w http.ResponseWriter, r *http.Request) {
-	var mu sync.Mutex
-	var lastCheck time.Time
-	var passive bool
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		mu.Lock()
-		if time.Since(lastCheck) >= readyCacheInterval {
-			passive = state.Passive(time.Now())
-			lastCheck = time.Now()
-		}
-		ready := passive
-		mu.Unlock()
-		if !ready {
+		if !state.Passive(time.Now()) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
