@@ -136,15 +136,16 @@ func run(ctx context.Context, args []string) error {
 		}
 		return deployment.StopApplication(ctx, root, ha.RuntimeRole(args[1]))
 	case "app-start":
-		if len(args) != 2 && (len(args) != 3 || (args[2] != "passive" && args[2] != "any")) {
-			return errors.New("usage: fleet-ha app-start VERSION <passive|any>")
+		if len(args) != 2 && (len(args) != 3 || (args[2] != "passive" && args[2] != "complete" && args[2] != "any")) {
+			return errors.New("usage: fleet-ha app-start VERSION <passive|complete|any>")
 		}
 		root, err := deployment.ReleaseRoot()
 		if err != nil {
 			return err
 		}
-		requirePassive := len(args) == 2 || args[2] == "passive"
-		return deployment.StartApplication(ctx, root, args[1], requirePassive)
+		requirePassive := len(args) == 2 || args[2] != "any"
+		requireFailoverReady := len(args) == 3 && args[2] == "complete"
+		return deployment.StartApplication(ctx, root, args[1], requirePassive, requireFailoverReady)
 	case "wait-takeover":
 		if len(args) != 2 {
 			return errors.New("usage: fleet-ha wait-takeover VERSION")
