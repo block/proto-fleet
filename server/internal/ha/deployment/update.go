@@ -228,6 +228,15 @@ func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool 
 
 // StartApplication starts the target release and proves it serves its observed HA role.
 func StartApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
+	return startApplication(ctx, root, targetVersion, requirePassive, false)
+}
+
+// RecoverApplication resumes interrupted activation without recreating running containers.
+func RecoverApplication(ctx context.Context, root, targetVersion string) error {
+	return startApplication(ctx, root, targetVersion, false, true)
+}
+
+func startApplication(ctx context.Context, root, targetVersion string, requirePassive, recovering bool) error {
 	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
 	if err != nil {
 		return err
