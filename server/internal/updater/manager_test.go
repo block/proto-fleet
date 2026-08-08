@@ -546,14 +546,14 @@ func TestManagerHACompletionRestartsOldReleaseWhenStopBlocks(t *testing.T) {
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
 }
 
-func TestHAQualificationBarrierPausesBeforeStop(t *testing.T) {
+func TestHAQualificationBarrierPausesUntilRemoved(t *testing.T) {
 	// Arrange
 	stateDir := t.TempDir()
-	barrier := filepath.Join(stateDir, qualificationBarrierName)
+	barrier := filepath.Join(stateDir, qualificationAfterStopBarrierName)
 	require.NoError(t, os.WriteFile(barrier, nil, 0o600))
 	manager := &Manager{cfg: Config{StateDir: stateDir}}
 	done := make(chan error, 1)
-	go func() { done <- manager.waitForQualificationBarrier(t.Context()) }()
+	go func() { done <- manager.waitForQualificationBarrier(t.Context(), qualificationAfterStopBarrierName) }()
 
 	// Act
 	select {
@@ -570,6 +570,27 @@ func TestHAQualificationBarrierPausesBeforeStop(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("barrier did not release")
 	}
+}
+
+func TestActivateDeploymentRestoresCurrentWhenQualificationPauseFails(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	current := filepath.Join(installRoot, "deployment")
+	staged := filepath.Join(installRoot, "staging", "deployment")
+	previous := filepath.Join(installRoot, "deployment.previous")
+	require.NoError(t, os.MkdirAll(current, 0o750))
+	require.NoError(t, os.MkdirAll(staged, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(current, "version.txt"), []byte("v1"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, "version.txt"), []byte("v2"), 0o600))
+
+	// Act
+	err := activateDeployment(staged, current, previous, func() error { return assert.AnError })
+
+	// Assert
+	require.ErrorIs(t, err, assert.AnError)
+	version, readErr := os.ReadFile(filepath.Join(current, "version.txt"))
+	require.NoError(t, readErr)
+	assert.Equal(t, "v1", string(version))
 }
 
 func TestManagerHACompletionInterruptedAfterSwapStartsTargetRelease(t *testing.T) {

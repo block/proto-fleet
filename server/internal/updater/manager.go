@@ -49,23 +49,25 @@ const (
 	// Activation includes migrations and multiple readiness windows after the
 	// old stack is stopped. Timing out requires forward manual recovery, making
 	// this a minimum liveness bound rather than spare retry time.
-	defaultActivationTimeout = 45 * time.Minute
-	defaultCleanupTimeout    = 2 * time.Minute
-	defaultCandidateTimeout  = 10 * time.Second
-	maxCommandLogBytes       = int64(64 << 20)
-	maxCandidateVersionBytes = int64(4096)
-	maxRetainedOperationLogs = 8
-	maxRetainedLogBytes      = int64(256 << 20)
-	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
-	processLockFilename      = "updater.lock"
-	activationMarkerFilename = "activation-swap.json"
-	activationMarkerTempName = ".activation-swap.json.tmp"
-	qualificationBarrierName = "qualification-pause-before-ha-stop"
-	preflightProofFilename   = ".update-preflight-complete"
-	operationArtifactPrefix  = ".proto-fleet-upgrade-"
-	selfUpdateBackupSuffix   = ".previous"
-	stateTempPrefix          = ".state-"
-	haNodeEnvPath            = "/etc/proto-fleet/ha/node.env"
+	defaultActivationTimeout               = 45 * time.Minute
+	defaultCleanupTimeout                  = 2 * time.Minute
+	defaultCandidateTimeout                = 10 * time.Second
+	maxCommandLogBytes                     = int64(64 << 20)
+	maxCandidateVersionBytes               = int64(4096)
+	maxRetainedOperationLogs               = 8
+	maxRetainedLogBytes                    = int64(256 << 20)
+	canonicalDownloadBaseURL               = "https://github.com/block/proto-fleet/releases/download"
+	processLockFilename                    = "updater.lock"
+	activationMarkerFilename               = "activation-swap.json"
+	activationMarkerTempName               = ".activation-swap.json.tmp"
+	qualificationBeforeStopBarrierName     = "qualification-pause-before-ha-stop"
+	qualificationAfterStopBarrierName      = "qualification-pause-after-ha-stop"
+	qualificationBetweenRenamesBarrierName = "qualification-pause-between-deployment-renames"
+	preflightProofFilename                 = ".update-preflight-complete"
+	operationArtifactPrefix                = ".proto-fleet-upgrade-"
+	selfUpdateBackupSuffix                 = ".previous"
+	stateTempPrefix                        = ".state-"
+	haNodeEnvPath                          = "/etc/proto-fleet/ha/node.env"
 )
 
 var (
@@ -1315,7 +1317,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 			return
 		}
 		if complete {
-			if err := m.waitForQualificationBarrier(activationCtx); err != nil {
+			if err := m.waitForQualificationBarrier(activationCtx, qualificationBeforeStopBarrierName); err != nil {
 				m.fail(operationID, errors.Join(err, m.clearActivationMarker()), "")
 				return
 			}
@@ -1337,6 +1339,15 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 			return
 		}
 		if complete {
+			if err := m.waitForQualificationBarrier(activationCtx, qualificationAfterStopBarrierName); err != nil {
+				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
+				if restartErr == nil {
+					m.fail(operationID, fmt.Errorf("post-stop qualification pause failed; previous release restarted: %w", err), "")
+					return
+				}
+				m.failPendingRecovery(operationID, errors.Join(err, restartErr), recovery)
+				return
+			}
 			takeoverCtx, cancelTakeover := context.WithTimeout(activationCtx, ha.UpdateTakeoverTimeout)
 			err := m.runHACommand(takeoverCtx, ha.UpdateTakeoverTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion)
 			cancelTakeover()
@@ -1351,7 +1362,13 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 			}
 		}
 	}
-	if err := activateDeployment(stageDeployment, currentDeployment, backupDeployment); err != nil {
+	betweenRenames := func() error { return nil }
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		betweenRenames = func() error {
+			return m.waitForQualificationBarrier(activationCtx, qualificationBetweenRenamesBarrierName)
+		}
+	}
+	if err := activateDeployment(stageDeployment, currentDeployment, backupDeployment, betweenRenames); err != nil {
 		m.failActivation(operationID, targetVersion, err, logFile, m.cfg.DeploymentMode == DeploymentModeHA)
 		return
 	}
@@ -1433,11 +1450,10 @@ func (m *Manager) restartHAApplication(
 	return m.clearActivationMarker()
 }
 
-// A root-created barrier lets exact release qualification stop the peer after
-// final preflight without racing the old application's stop. Normal hosts never
-// create this file and take the fast path.
-func (m *Manager) waitForQualificationBarrier(ctx context.Context) error {
-	path := filepath.Join(m.cfg.StateDir, qualificationBarrierName)
+// Root-created barriers let exact release qualification pause at otherwise
+// unobservable crash windows. Normal hosts never create them and take the fast path.
+func (m *Manager) waitForQualificationBarrier(ctx context.Context, name string) error {
+	path := filepath.Join(m.cfg.StateDir, name)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -1631,7 +1647,7 @@ func (m *Manager) failActivation(
 // portable filesystem operation, so every completed metadata step is fsynced
 // and every pre-command failure attempts a checked restoration. Startup
 // reconciliation covers a process or power loss between the renames.
-func activateDeployment(staged, current, previous string) error {
+func activateDeployment(staged, current, previous string, betweenRenames func() error) error {
 	installRoot := filepath.Dir(current)
 	stageRoot := filepath.Dir(staged)
 	if err := os.RemoveAll(previous); err != nil {
@@ -1647,6 +1663,13 @@ func activateDeployment(staged, current, previous string) error {
 		restoreErr := restorePreviousDeployment(current, previous, installRoot)
 		return errors.Join(
 			fmt.Errorf("persist current deployment backup: %w", err),
+			restoreErr,
+		)
+	}
+	if err := betweenRenames(); err != nil {
+		restoreErr := restorePreviousDeployment(current, previous, installRoot)
+		return errors.Join(
+			fmt.Errorf("pause between deployment renames: %w", err),
 			restoreErr,
 		)
 	}
