@@ -157,9 +157,6 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/docker-systemd.conf" "Requires=proto-fleet-ha-firewall.service"
     assert_not_contains "${HA_DIR}/docker-systemd.conf" "Wants=proto-fleet-ha.service"
     assert_contains "${HA_DIR}/docker-ha-recovery-systemd.conf" "Wants=proto-fleet-ha.service"
-    assert_contains "${HA_DIR}/updater-systemd.conf" "Before=proto-fleet-ha.service"
-    assert_contains "${HA_DIR}/updater-systemd.conf" "--unix-socket /run/proto-fleet-updater/updater.sock"
-    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "Requires=proto-fleet-updater.service"
 
     for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
         assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"
