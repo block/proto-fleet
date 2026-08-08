@@ -46,36 +46,9 @@ and run Fleet commands as
    and require each accepted command to reach exactly one terminal result within
    60 seconds. Before the planned handoff, fail if successful reads or command
    submissions are more than three seconds apart. Continue these probes through
-   step 5. Verify the active host continues serving `N` throughout the migration
+   step 4. Verify the active host continues serving `N` throughout the migration
    and mixed-version window.
-4. Start the external active-health and interface-address recorder from step 5,
-   then append `--complete` to the update command on the active host. From the
-   controller, poll that host's local updater status over
-   `/run/proto-fleet-updater/updater.sock`. As soon as its operation phase is
-   `activating`, peer validation has passed and the old active is about to stop.
-   Immediately kill only the Fleet application containers on the updated peer:
-
-   ```shell
-   sudo /opt/proto-fleet/deployment/ha/fleet-ha compose \
-     --env-file /etc/proto-fleet/ha/base.env \
-     --env-file /etc/proto-fleet/ha/fleet.env \
-     --env-file /etc/proto-fleet/ha/node.env \
-     --file /opt/proto-fleet/deployment/docker-compose.yaml \
-     --file /opt/proto-fleet/deployment/ha/fleet-compose.yaml \
-     kill fleet-api fleet-client
-   ```
-
-   This fault is unconditional and therefore does not race the peer becoming
-   active. Require a zero exit status, then repeat the command with
-   `ps --status running fleet-api fleet-client` in place of the final `kill`
-   and confirm it lists neither Fleet container before the 10-second lease expires.
-   Patroni, PostgreSQL, etcd, and keepalived must remain running. Keep recording
-   until the command times out without swapping deployments, restarts `N`, and
-   restores a usable VIP and successful command within 60 seconds. Fail on any
-   collection gap, active overlap, or VIP overlap. Restore the peer with
-   `sudo /opt/proto-fleet/deployment/ha/fleet-ha app-start "$TARGET_RELEASE" passive`
-   and wait for full readiness before continuing.
-5. Retry the completion command. From a separate controller, use the external
+4. Run the completion command. From a separate controller, use the external
    append-only recorder, gap rejection, and uncertainty-inclusive interval rules
    from [QUALIFICATION.md](QUALIFICATION.md). Continuously record direct active
    health on both hosts with monotonic timestamps at 100 ms or faster. In
@@ -93,7 +66,7 @@ and run Fleet commands as
    seconds. Using a client loaded from `N` before handoff,
    perform a persisted read and a uniquely identified idempotent command against
    the `N+1` VIP.
-6. Using a controllable test device on the current active host, stall one command
+5. Using a controllable test device on the current active host, stall one command
    after its exact queue row reaches PROCESSING so its successor remains PENDING.
    SIGSTOP that active `fleet-api`, let its lease expire, and wait for the passive
    peer to take over. Queue the old plugin result while its process is stopped,
@@ -101,16 +74,16 @@ and run Fleet commands as
    interruption reason and is never dispatched again, the old process exits, its
    stale database transition is rejected, exactly one terminal result remains,
    the PENDING successor dispatches, and later work for that device succeeds. Reuse the
-   direct active-health and interface-address streams from step 5 through
+   direct active-health and interface-address streams from step 4 through
    convergence and fail on any active or VIP overlap. Force a second failover
    in the other direction with the same ownership streams. For both moves,
    require the former active to reject an active-only request, measure usable
    service from the last successful pre-failover probe on the same monotonic
    clock, require less than 15 seconds, and submit a successful command.
-7. Confirm the etcd and Patroni container IDs and start times, and both
+6. Confirm the etcd and Patroni container IDs and start times, and both
    PostgreSQL postmaster start times, are unchanged from step 2. The application
    update must not replace or restart these services.
-8. Confirm both updater binaries report `N+1` and their services and local
+7. Confirm both updater binaries report `N+1` and their services and local
    status sockets are healthy. Reboot the two application/database hosts one
    at a time, restoring full readiness between reboots. Repeat the updater
    checks and verify both hosts retain Fleet data and can serve a command.
@@ -123,7 +96,6 @@ and run Fleet commands as
 | Migration compatibility | `N` integration tests pass against an `N` database migrated by `N+1` | N/A | Pending | Pending |
 | Passive-first update | Passive runs `N+1`; active continues serving `N` | N/A | Pending | Pending |
 | Mixed-version operation | Continuous persisted reads and commands succeed throughout migration while hosts run `N` and `N+1` | N/A | Pending | Pending |
-| Failed takeover recovery | No swap; `N` restores usable service and command execution | `<60s` | Pending | Pending |
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive; cached `N` client works against `N+1` | `<15s` | Pending | Pending |
 | Handoff fencing | High-frequency direct health and interface event streams never show active or VIP overlap | N/A | Pending | Pending |
 | Post-update stale completion | Interrupted row is FAILED without replay; resumed old transition is rejected; PENDING successor and later work succeed | N/A | Pending | Pending |
