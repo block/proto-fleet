@@ -235,6 +235,10 @@ case " $* " in
         echo 'Options: --wait --wait-timeout --no-build --pull string'
         ;;
     *" compose "*" config --quiet "*)
+        if [ "${FAKE_DISABLED_FALLBACK_CONFIG_FAILURE:-false}" = "true" ] \
+          && grep -q '^ENABLE_ONE_CLICK_UPDATES=false$' "$STAGE_ROOT/.env"; then
+            exit 1
+        fi
         [ "${FAKE_COMPOSE_CONFIG_FAILURE:-false}" != "true" ]
         ;;
     *" compose "*" config --images "*)
@@ -525,8 +529,7 @@ run_stage() {
     /bin/bash "$stage/run-fleet.sh" "$@" > "$HARNESS_OUTPUT_LOG" 2>&1
 }
 
-# The packaged updater overlay is activated only after the installer has
-# successfully started the host service.
+# The installer activates the overlay only after updater bootstrap.
 make_stage help
 if run_stage "$STAGE" --help; then
     assert_contains "help documents the updater overlay" "$HARNESS_OUTPUT_LOG" "enable-one-click-updates"
@@ -605,12 +608,8 @@ for persisted_boolean in ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRAC
 done
 assert_contains "enabled one-click updates layer the socket overlay" "$HARNESS_CALL_LOG" "-f $STAGE/docker-compose.updater.yaml"
 
-# Exercise the exact installer contract: a successful service bootstrap must
-# override a persisted false value and layer the socket overlay in the same
-# deployment run. Unmanaged preflight cannot commit this transition.
+# Installer bootstrap overrides persisted false and layers the socket overlay.
 make_stage enable-updater-overlay
-# The installer validates and then stops the loaded service while run-fleet
-# changes the deployment; it restarts the updater only after this handoff.
 printf 'inactive\n' > "$HARNESS_UPDATER_STATE_FILE"
 if PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
     run_stage "$STAGE" --enable-one-click-updates --non-interactive; then
@@ -628,10 +627,7 @@ fi
 assert_not_contains "installer retains updater lifecycle ownership after deployment" \
     "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
 
-# A manual runner operating on a deployment whose fleet-api can still reach
-# the updater must stop that writer before Compose teardown and restore it on
-# every exit. Updater-owned children identify themselves explicitly and the
-# staged preflight remains non-mutating with respect to the active tree.
+# A manual runner must quiesce the updater across its complete mutation window.
 make_stage direct-updater-serialization
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
@@ -657,9 +653,7 @@ fi
 assert_contains "direct runner repairs missing boot enablement" \
     "$HARNESS_CALL_LOG" "systemctl enable proto-fleet-updater.service"
 
-# A committed socket-enabled deployment must not remain active when the host
-# updater cannot restart. Degrade to the supported copy-command mode and prove
-# the second Compose transition omits the privileged socket overlay.
+# Failed updater restart must replace the socket overlay with copy-command mode.
 make_stage direct-updater-restart-fallback
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
@@ -687,9 +681,33 @@ else
     fail "copy-command fallback left updater configuration or service enabled"
 fi
 
-# systemctl stop drains an activation that has already crossed its commit
-# boundary. If that activation swaps deployment/ while the old runner waits,
-# the old shell must re-exec the newly active release before touching Compose.
+make_stage direct-updater-fallback-failure
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if FAKE_UPDATER_RESTART_FAILURE=true \
+  FAKE_DISABLED_FALLBACK_CONFIG_FAILURE=true \
+  run_stage "$STAGE" --non-interactive; then
+    fail "failed copy-command fallback should propagate its error"
+else
+    pass "failed copy-command fallback propagates its error"
+fi
+assert_contains "failed fallback reaches pre-Compose validation" \
+    "$HARNESS_OUTPUT_LOG" "could not deploy the copy-command fallback"
+if [ "$(grep -c ' compose .* up --remove-orphans' "$HARNESS_CALL_LOG")" -eq 1 ]; then
+    pass "failed fallback leaves the original topology running"
+else
+    fail "failed fallback unexpectedly replaced the original topology"
+fi
+if grep -q '^ENABLE_ONE_CLICK_UPDATES=true$' "$STAGE/.env" \
+  && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = inactive ] \
+  && [ "$(cat "$HARNESS_UPDATER_ENABLED_FILE")" = false ] \
+  && [ "$(grep -c '^systemctl restart proto-fleet-updater.service$' "$HARNESS_CALL_LOG")" -eq 1 ]; then
+    pass "failed fallback keeps the unhealthy updater disabled"
+else
+    fail "failed fallback re-enabled the unhealthy updater"
+fi
+
+# Re-exec the active release if systemctl stop drains a deployment swap.
 make_stage direct-updater-deployment-swap
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
@@ -710,9 +728,7 @@ else
     fail "replacement runner repeated or skipped updater shutdown"
 fi
 
-# Persisted configuration is authoritative even when the service was already
-# inactive before the direct run, so successful deployment repairs runtime and
-# boot state instead of preserving a broken socket overlay.
+# Successful deployment repairs updater runtime and boot-state drift.
 make_stage configured-updater-inactive
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'inactive\n' > "$HARNESS_UPDATER_STATE_FILE"
@@ -750,8 +766,7 @@ else
     fail "disabled updater retained active or boot-enabled drift"
 fi
 
-# A stale or alternate deployment tree must not control the fixed global
-# updater service owned by another installation.
+# Foreign deployment trees cannot control the global updater.
 for foreign_updater_state in active inactive failed; do
     make_stage "foreign-updater-owner-$foreign_updater_state"
     foreign_install_root="$TMP_DIR/foreign-install-$foreign_updater_state"
@@ -793,8 +808,7 @@ else
     fail "failed direct run left the updater stopped"
 fi
 
-# Preflight prepares images but leaves the active topology untouched. Reject
-# an unmanaged updater-state transition before persisting or quiescing it.
+# Unmanaged preflight cannot change active updater state.
 make_stage process-disable-active-updater
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
@@ -815,9 +829,7 @@ fi
 assert_contains "rejected preflight explains the lifecycle boundary" \
     "$HARNESS_OUTPUT_LOG" "--preflight-only cannot change one-click update state"
 
-# Persisting the desired flag is not deployment success. A later failure must
-# restore both the prior flag and the updater that served the still-running
-# socket-enabled Fleet container.
+# Pre-mutation failure restores the prior setting and updater.
 make_stage failed-process-disable-active-updater
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
@@ -839,9 +851,7 @@ else
     fail "failed process disable left updater configuration and runtime state inconsistent"
 fi
 
-# Once Compose teardown begins, the old topology can no longer be assumed.
-# Failures after the replacement starts retain the desired setting and align
-# the service with whichever new containers were created.
+# Post-teardown failure reconciles the service to persisted intent.
 make_stage post-compose-disable-failure
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
@@ -885,9 +895,7 @@ else
     fail "post-Compose enable restored state for a topology that was already replaced"
 fi
 
-# Desired flags cannot prove that the daemon is stopped. An unmanaged retry
-# must drain a stale active updater even when the persisted and effective
-# settings are already false.
+# Disabled retries still drain a stale active updater.
 make_stage stale-active-disabled-updater
 printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
 if run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -925,8 +933,7 @@ fi
 assert_not_contains "managed activation does not stop its updater" "$HARNESS_CALL_LOG" "systemctl stop proto-fleet-updater.service"
 assert_not_contains "managed activation leaves lifecycle ownership with the daemon" "$HARNESS_CALL_LOG" "systemctl restart proto-fleet-updater.service"
 
-# An installer bootstrap failure must explicitly override previously persisted
-# state so fleet-api does not advertise or mount a dead host updater.
+# Installer fallback overrides stale enabled state.
 make_stage disable-updater-overlay
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 if run_stage "$STAGE" --disable-one-click-updates --non-interactive; then
@@ -942,10 +949,7 @@ else
     fail "explicit updater fallback did not normalize persisted state to false"
 fi
 
-# Once one-click updates ship, a host may lose its systemd manager before a
-# later installer run. An explicit disable remains safe because no systemd
-# updater can be active, while leaving the feature enabled must still fail
-# before any deployment mutation.
+# A host that loses systemd may disable, but cannot keep, one-click updates.
 make_stage disable-updater-without-systemd
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 if FAKE_WSL=true FAKE_SYSTEMD_UNAVAILABLE=true \
@@ -986,9 +990,7 @@ assert_contains "missing updater service is diagnosed" "$HARNESS_OUTPUT_LOG" \
 assert_not_contains "missing updater service prevents environment and Docker mutation" \
     "$HARNESS_CALL_LOG" "docker "
 
-# Persisted one-click state must fail before Docker activity when its release
-# bundle is incomplete; silently omitting the socket would expose a false
-# upgrade capability state to Fleet API.
+# Missing updater overlay fails before Docker activity.
 make_stage missing-updater-overlay
 printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
 rm -f "$STAGE/docker-compose.updater.yaml"

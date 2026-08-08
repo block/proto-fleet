@@ -52,7 +52,6 @@ FLEET_API_IMAGE=""
 FLEET_CLIENT_IMAGE=""
 TIMESCALEDB_IMAGE=""
 TIMESCALEDB_HA_IMAGE=""
-# Every repository whose tags release retention may protect or remove.
 PROTO_FLEET_IMAGE_REPOSITORIES=(
     proto-fleet-api
     proto-fleet-client
@@ -125,10 +124,8 @@ verify_direct_updater_ownership() {
 deployment_directory_identity() {
     local identity
 
-    # GNU and BSD stat spell the device/inode format differently. Directory
-    # identity, rather than a content hash, detects an updater activation that
-    # exchanged the complete deployment tree while this shell waited for the
-    # daemon to stop.
+    # Directory identity detects an activation that swaps the tree while this
+    # shell waits; support both GNU and BSD stat.
     identity=$(stat -Lc '%d:%i' -- "$PROJECT_ROOT" 2>/dev/null) \
       || identity=$(stat -f '%d:%i' "$PROJECT_ROOT" 2>/dev/null) \
       || return 1
@@ -190,9 +187,8 @@ restart_direct_run_updater() {
 
 disable_direct_run_updater() {
     DIRECT_UPDATER_WAS_ACTIVE=false
-    # An unavailable systemd manager cannot have a supervised updater to
-    # disable. This preserves the supported WSL fallback to copy-command
-    # upgrades when systemd has been turned off.
+    # No systemd manager means no supervised updater to disable (for example,
+    # WSL after systemd is turned off).
     if ! systemctl show --property=Version --value >/dev/null 2>&1; then
         return 0
     fi
@@ -223,21 +219,28 @@ disable_direct_run_updater() {
 }
 
 deploy_direct_run_updater_fallback() {
+    local fallback_status=0
+
     echo "Warning: the host updater did not become ready; redeploying without its socket overlay." >&2
-    # A failed readiness check can leave a partially started updater behind.
-    # Stop and disable it before the fallback runner mutates the deployment so
-    # it cannot race the second Compose transition.
+    # Quiesce a partially started updater before the second Compose transition.
     if ! disable_direct_run_updater; then
         echo "Error: could not stop the unavailable host updater before deploying the copy-command fallback." >&2
         return 1
     fi
-    # The successful deployment already persisted every other overlay choice.
-    # Use only the non-interactive updater override here: preflight proof has
-    # been consumed, and carrying --skip-build would reject this recovery run.
-    if ! /bin/bash "$PROJECT_ROOT/run-fleet.sh" \
-        --non-interactive --disable-one-click-updates; then
+    # Other overlays are persisted; consumed preflight state makes carrying
+    # the original --skip-build unsafe.
+    PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
+        /bin/bash "$PROJECT_ROOT/run-fleet.sh" \
+        --non-interactive --disable-one-click-updates \
+        || fallback_status=$?
+    if [ "$fallback_status" -ne 0 ]; then
         echo "Error: could not deploy the copy-command fallback after the host updater failed readiness." >&2
-        return 1
+        # The parent retains lifecycle ownership if the nested run rolls back.
+        if ! disable_direct_run_updater; then
+            echo "Error: could not keep the unavailable host updater disabled after fallback failure." >&2
+            return 1
+        fi
+        return "$fallback_status"
     fi
     ENABLE_ONE_CLICK_UPDATES=false
     DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
@@ -250,9 +253,8 @@ reconcile_direct_run_updater() {
     [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] || return 0
     [ "${PROTO_FLEET_INSTALLER_MANAGED_RUN:-0}" != "1" ] || return 0
 
-    # Before Compose mutation, failure leaves the old topology running and
-    # therefore restores its updater state. Once teardown begins, topology is
-    # uncertain and the persisted desired state is the only safe authority.
+    # Before teardown, restore the old topology's state. After teardown starts,
+    # persisted intent is the only safe authority.
     if [ "$run_status" -ne 0 ] \
       && [ "$DEPLOYMENT_MUTATION_STARTED" != "true" ]; then
         committed_state="$ONE_CLICK_UPDATES_WAS_CONFIGURED"
@@ -264,13 +266,8 @@ reconcile_direct_run_updater() {
             return 1
         fi
         resolve_direct_updater_privilege || return 1
-        # Enforce the persisted contract even when systemd drifted before this
-        # run: enabled configuration always ends with a boot-enabled, ready
-        # service rather than relying on its state at admission time.
         if ! restart_direct_run_updater true; then
-            # Once teardown has started, Fleet may already be running with the
-            # updater socket overlay. Commit the supported copy-command mode
-            # rather than returning with a broken privileged endpoint.
+            # A committed socket overlay must degrade to copy-command mode.
             if [ "$DEPLOYMENT_MUTATION_STARTED" = "true" ]; then
                 deploy_direct_run_updater_fallback || return 1
                 return 0
@@ -281,8 +278,6 @@ reconcile_direct_run_updater() {
     fi
     if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ]; then
         resolve_direct_updater_privilege || return 1
-        # Likewise, disabled configuration always removes boot enablement and
-        # stops a stale process, even when both desired flags were already false.
         disable_direct_run_updater || return 1
     fi
     return 0
@@ -322,19 +317,15 @@ run_fleet_exit_cleanup() {
     exit "$status"
 }
 
-# The updater daemon owns serialization for its staged preflight and activation
-# children. A human running this script against the active deployment must
-# instead stop the daemon before any environment or Compose mutation so the
-# deployment directory cannot be renamed out from under the shell.
+# Updater-owned children are serialized by the daemon; manual runs must stop it
+# before mutation so deployment/ cannot be renamed out from under this shell.
 quiesce_updater_for_direct_run() {
     local one_click_was_configured="$1"
     local load_state active_state identity_before_stop identity_after_stop
 
     [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] || return 0
     [ "$(uname -s)" = "Linux" ] || return 0
-    # A source checkout has no relationship to the packaged installation's
-    # global updater. Inspect it only for a packaged deployment, or when this
-    # runner explicitly carries updater state that must be serialized.
+    # Source checkouts do not control the packaged installation's updater.
     if [ ! -f "$VERSION_FILE" ] \
       && [ "$one_click_was_configured" != "true" ] \
       && [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
@@ -348,11 +339,8 @@ quiesce_updater_for_direct_run() {
         echo "Error: one-click updates are configured, but systemctl is unavailable to serialize this manual run." >&2
         return 1
     fi
-    # A host that previously supported the updater may later lose its systemd
-    # manager (notably WSL after an init configuration change). The installer
-    # must still be able to persist its explicit fallback to copy-command
-    # upgrades. Keep enabled runs fail-closed, and distinguish manager absence
-    # from a later failure to inspect the updater unit itself.
+    # Preserve installer fallback when a host loses systemd, but keep enabled
+    # runs fail-closed.
     if ! systemctl show --property=Version --value >/dev/null 2>&1; then
         if [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
             return 0
@@ -371,9 +359,7 @@ quiesce_updater_for_direct_run() {
         return 1
     fi
     [ "$load_state" = "not-found" ] || DIRECT_UPDATER_SERVICE_PRESENT=true
-    # A loaded updater is a global privileged resource even while inactive or
-    # failed. Verify its durable ownership before any branch can return and
-    # before this deployment can mount its socket directory into Fleet API.
+    # Verify ownership before even an inactive global updater can be mounted.
     if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ]; then
         resolve_direct_updater_privilege || return 1
     fi
@@ -404,9 +390,7 @@ quiesce_updater_for_direct_run() {
         echo "Error: could not stop proto-fleet-updater.service before mutating the deployment." >&2
         return 1
     fi
-    # Arm restoration as soon as systemd reports a successful stop. If the
-    # checked inactive-state query fails, EXIT cleanup still repairs service
-    # availability rather than leaving the updater accidentally stopped.
+    # Arm restoration before the checked inactive-state query can fail.
     DIRECT_UPDATER_WAS_ACTIVE=true
     if ! identity_after_stop=$(deployment_directory_identity); then
         echo "Error: could not identify the current deployment after stopping the host updater." >&2
@@ -579,7 +563,6 @@ env_has_nonempty_value() {
     [ -n "$value" ]
 }
 
-# .env-scoped counterpart: whether a key still needs persisting, ignoring any process-level override.
 dotenv_has_nonempty_value() {
     local value
     value=$(compose_env_last_value "$1") || return 1
@@ -705,7 +688,6 @@ append_env_line() {
     echo "$1" >> "$ENV_FILE"
 }
 
-# Satisfies the tracing overlay's ${DD_HOSTNAME:?}; env_has_nonempty_value already reads the effective Compose value, so only default when that is empty.
 ensure_dd_hostname() {
     if env_has_nonempty_value DD_HOSTNAME; then
         return 0
@@ -902,8 +884,7 @@ if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ] && [ ! -f "$COMPOSE_UPDATER_FILE" ];
     exit 1
 fi
 
-# Install cleanup before quiescing the updater so every later validation,
-# configuration, build, and Compose failure restores the service.
+# Install cleanup before quiescing so every later failure restores the service.
 trap run_fleet_exit_cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -1433,7 +1414,6 @@ verify_preflight_marker() {
     fi
 }
 
-# Poll psql until the query returns true; caller owns the warning.
 wait_for_psql_true() {
     local query="$1" attempt result
     for attempt in $(seq 1 "$FLEET_API_READY_ATTEMPTS"); do

@@ -376,7 +376,6 @@ capture_previous_run_options() {
     fi
     return 0
   fi
-  # Fresh installs have no legacy state to migrate and retain false defaults.
   [ "$existing_deployment" = "1" ] || return 0
 
   local container_id find_status
@@ -1098,8 +1097,7 @@ complete_disabled_updater_fallback_after_run() {
   local env_file="$1"
   local run_status="$2"
 
-  # run-fleet persists overlay intent before Compose validation. Only its
-  # successful exit proves that the replacement stack adopted the fallback.
+  # Only a successful run proves the replacement stack adopted the fallback.
   [ "$run_status" -eq 0 ] || return "$run_status"
   finalize_disabled_updater_fallback_if_persisted "$env_file"
 }
@@ -1112,9 +1110,7 @@ run_disabled_updater_fallback() {
   local fallback_args=()
   local run_status=0
 
-  # Replace any earlier updater choice instead of relying on argument order.
-  # The remaining installer options still describe the deployment that just
-  # succeeded, so the fallback only changes the socket overlay.
+  # Preserve other installer options while replacing the updater choice.
   for argument in "$@"; do
     case "$argument" in
       --enable-one-click-updates|--disable-one-click-updates) continue ;;
@@ -1139,8 +1135,7 @@ reconcile_committed_updater_enablement() {
   local run_args=("$@")
   local committed_state
 
-  # The setting is written before Compose validation and startup, so only the
-  # caller's successful run-fleet completion may arm this recovery path.
+  # Persisted intent is not a commit until run-fleet succeeds.
   if [ "${UPDATER_DEPLOYMENT_COMMITTED:-0}" != "1" ] \
     || [ "${UPDATER_START_AFTER_RUN:-0}" != "1" ]; then
     return 0
@@ -1170,8 +1165,7 @@ reconcile_committed_updater_enablement() {
   echo "⚠️  The host updater did not become ready; redeploying without its socket overlay." >&2
   disable_updater_service_with \
     ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"} || true
-  # Never let EXIT retry a service that failed readiness. Keep disablement
-  # armed until run-fleet proves the copy-command fallback is active.
+  # Keep disablement armed until the copy-command fallback is active.
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_REENABLE_ON_EXIT=0
   UPDATER_START_AFTER_RUN=0
@@ -1195,10 +1189,7 @@ reconcile_updater_after_failed_deployment() {
   local privilege=("$@")
   local restored_state
 
-  # The replacement service must stay fail-closed until the old deployment
-  # setting and service lifecycle have both been restored. Clear the generic
-  # EXIT restoration flags so a reconciliation error cannot accidentally
-  # start the replacement service.
+  # Keep the replacement fail-closed while restoring prior state.
   UPDATER_REENABLE_ON_EXIT=0
   UPDATER_RESTART_ON_EXIT=0
   UPDATER_START_AFTER_RUN=0
@@ -1363,8 +1354,7 @@ prepare_existing_updater_service() {
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
     return 1
   fi
-  # Snapshot a coherent stopped service. If the copy fails, the original host
-  # files are still untouched and EXIT cleanup can restart them directly.
+  # Snapshot only after the service is coherently stopped.
   if ! backup_existing_updater_artifacts_with \
       ${UPDATER_PRIVILEGE[@]+"${UPDATER_PRIVILEGE[@]}"}; then
     UPDATER_CLEANUP_FAILED=1
@@ -2118,9 +2108,7 @@ install_updater_service() {
     return 1
   fi
   UPDATER_VALIDATION_RUNTIME_ON_EXIT=0
-  # The validated service is now stopped. Persist its production socket only
-  # after the temporary listener is gone, and do not start it until run-fleet
-  # has finished replacing the deployment.
+  # Switch from the private validation socket only after its listener stops.
   if ! write_updater_environment_file "$env_temp" "$INSTALL_DIR" \
       "$GITHUB_RELEASES_URL" "$UPDATER_SOCKET_PATH" \
     || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 \
@@ -2131,16 +2119,12 @@ install_updater_service() {
     return 1
   fi
   rm -f "$env_temp"
-  # The replacement now has a production configuration for the same validated
-  # installation root. Interrupted cleanup can safely restart it without
-  # restoring the pre-validation file.
+  # Production configuration now refers to the validated installation root.
   UPDATER_ENV_RESTORE_FILE=""
   UPDATER_BINARY_RESTORE_FILE=""
   UPDATER_UNIT_RESTORE_FILE=""
   UPDATER_ARTIFACT_RESTORE_PENDING=0
-  # Until run-fleet succeeds, an interrupted or failed installation must
-  # disable the replacement service and restore only the prior service state.
-  # Starting the newly validated service is a separate post-success action.
+  # Start the validated service only after run-fleet succeeds.
   UPDATER_DISABLE_ON_EXIT=1
   UPDATER_REENABLE_ON_EXIT="$UPDATER_REENABLE_AFTER_FAILED_RUN"
   UPDATER_RESTART_ON_EXIT="$UPDATER_RESTART_AFTER_FAILED_RUN"
@@ -2162,9 +2146,7 @@ if install_updater_service; then
   echo "✅ Host updater installed and validated; one-click upgrades will be enabled after deployment."
   RUN_FLEET_ARGS+=(--enable-one-click-updates)
 else
-  # Keep every fallback fail-closed, including returns that happen before the
-  # service payload is copied. Unsupported non-systemd hosts have no system
-  # updater to reconcile.
+  # Unsupported non-systemd hosts have no updater lifecycle to reconcile.
   if [ "$(uname -s)" = "Linux" ] \
     && command -v systemctl >/dev/null 2>&1 \
     && [ -d "$UPDATER_SYSTEMD_RUNTIME_DIR" ]; then
@@ -2174,8 +2156,7 @@ else
     echo "❌ Installation stopped because the host updater could not be left in a safe state." >&2
     exit 1
   fi
-  # Keep restoration armed until run-fleet durably records the disabled
-  # fallback. If it fails earlier, EXIT restores the prior working updater.
+  # Keep restoration armed until the disabled fallback commits.
   UPDATER_FALLBACK_PENDING=1
   echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
   RUN_FLEET_ARGS+=(--disable-one-click-updates)
@@ -2190,8 +2171,7 @@ if PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
   ./run-fleet.sh "${RUN_FLEET_ARGS[@]}"; then
   RUN_FLEET_STATUS=0
   if [ "$UPDATER_START_AFTER_RUN" = "1" ]; then
-    # A zero exit is the commit boundary. The .env flag is persisted earlier
-    # and cannot by itself prove that the socket-enabled topology is active.
+    # A zero exit, not the earlier .env write, commits the topology.
     UPDATER_DEPLOYMENT_COMMITTED=1
   fi
 else
@@ -2207,9 +2187,7 @@ if [ "$UPDATER_FALLBACK_PENDING" = "1" ]; then
     if [ "$RUN_FLEET_STATUS" -eq 0 ]; then
       echo "❌ Deployment completed without durably disabling one-click updates." >&2
     fi
-    # run-fleet restores the prior deployment setting on failure; the
-    # installer's EXIT cleanup then restores the prior updater artifacts and
-    # service state. Never discard those rollback assets on a failed run.
+    # Preserve rollback artifacts until run-fleet succeeds.
     exit "$UPDATER_FALLBACK_STATUS"
   fi
 fi

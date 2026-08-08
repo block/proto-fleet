@@ -115,9 +115,7 @@ func (execRunner) Run(ctx context.Context, dir string, output io.Writer, name st
 		os.Environ(),
 		"CI=1",
 		"TERM=dumb",
-		// run-fleet uses this marker to distinguish updater-owned preflight and
-		// activation children from a human invoking the mutable deployment
-		// runner directly. It is a coordination signal, not an auth boundary.
+		// Coordination marker for updater-owned run-fleet children; not auth.
 		"PROTO_FLEET_UPDATER_MANAGED_RUN=1",
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

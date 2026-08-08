@@ -707,10 +707,7 @@ prepare_host_updater_removal() {
   HOST_UPDATER_PRESENT=true
 
   if [[ "$(id -u)" -ne 0 ]]; then
-    # Removing the updater with sudo but continuing Docker and deployment
-    # cleanup as the invoking user can strand a root-managed installation
-    # without its updater. Require one privilege boundary for the complete
-    # destructive workflow instead of elevating only its first step.
+    # Use one privilege boundary for the complete destructive workflow.
     print_error "The host updater is installed; re-run the complete uninstaller as root (flags preserved):"
     echo ""
     echo "    curl -fsSL https://fleet.proto.xyz/uninstall.sh | sudo bash -s --$(quoted_rerun_argv)"
@@ -878,10 +875,7 @@ remove_host_updater() {
     fi
   done
 
-  # Keep the configured install root as durable ownership proof until every
-  # other privileged artifact has been removed and verified. If an earlier
-  # cleanup step fails, a retry can still prove that this updater belongs to
-  # the selected deployment rather than becoming stranded on missing metadata.
+  # Keep ownership proof until all other privileged cleanup succeeds.
   if ! ${privilege[@]+"${privilege[@]}"} rm -f -- "$HOST_UPDATER_ENV_PATH"; then
     print_error "Could not remove the host updater ownership configuration; deployment removal was aborted."
     return 1
@@ -905,9 +899,7 @@ remove_deployment_files() {
     print_warn "Deployment directory not found: $DEPLOYMENT_PATH"
   fi
 
-  # A successful one-click upgrade keeps one exact previous deployment next
-  # to the active one for operator recovery. It has the same trusted install
-  # root as DEPLOYMENT_PATH and is never expanded from a glob.
+  # Remove the updater's one exact recovery deployment without a glob.
   local previous_deployment="${INSTALL_ROOT%/}/deployment.previous"
   if [[ -d "$previous_deployment" ]]; then
     rm -rf "$previous_deployment"
