@@ -86,6 +86,13 @@ func TestEtcdRootPasswordMustBeGeneratedAndUnique(t *testing.T) {
 	require.NoError(t, os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(secrets, fleetEtcdPasswordFile), []byte(testEtcdRootPassword+"\n"), 0o600))
 	require.ErrorContains(t, validateEtcdRootPassword(rootPassword, secrets), fleetEtcdPasswordFile)
+	require.NoError(t, os.WriteFile(filepath.Join(secrets, fleetEtcdPasswordFile), []byte("different\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(secrets, fleetEnvironmentFile), []byte(
+		"AUTH_CLIENT_SECRET_KEY="+testEtcdRootPassword+"\n"+
+			"ENCRYPT_SERVICE_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"+
+			"DB_DSN=postgresql://fleet:test@db/fleet\n",
+	), 0o600))
+	require.ErrorContains(t, validateEtcdRootPassword(rootPassword, secrets), "AUTH_CLIENT_SECRET_KEY")
 }
 
 func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
@@ -497,7 +504,13 @@ func testInstallRelease(t *testing.T) string {
 func writeTestSecretBundle(t *testing.T, config NodeConfig) {
 	t.Helper()
 	for _, name := range copiedSecretFiles(config) {
-		require.NoError(t, os.WriteFile(filepath.Join(config.SecretsDir, name), []byte("test"), 0o600))
+		contents := "test"
+		if name == fleetEnvironmentFile {
+			contents = "AUTH_CLIENT_SECRET_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+				"ENCRYPT_SERVICE_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n" +
+				"DB_DSN=postgresql://fleet:test@db/fleet\n"
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(config.SecretsDir, name), []byte(contents), 0o600))
 	}
 }
 
