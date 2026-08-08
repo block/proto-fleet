@@ -121,6 +121,8 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
     assert_contains "$rendered" "sleep 15; exec /app/fleetd"
+    [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 2 ]] ||
+        fail "Fleet services must restart process failures without bypassing the systemd start gate"
     assert_not_contains "$rendered" "/app/dlv"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/service-ca.crt"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-etcd-password"
