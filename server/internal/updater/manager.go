@@ -715,7 +715,10 @@ func (m *Manager) recoverHAApplication() error {
 		m.operation.Message = "HA application recovery failed"
 		m.operation.Error = recoveryErr.Error()
 		m.operation.UpdatedAt = m.cfg.Now().UTC()
-		return m.persistLocked()
+		if persistErr := m.persistLocked(); persistErr != nil {
+			return errors.Join(recoveryErr, fmt.Errorf("persist HA application recovery failure: %w", persistErr))
+		}
+		return recoveryErr
 	}
 	m.operation.RecoveryCommand = ""
 	m.operation.RecoveryPending = false
@@ -917,6 +920,14 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 		}
 		return existing, nil
 	}
+	if m.operation != nil && m.operation.RecoveryPending {
+		recoveryOperationID := m.operation.ID
+		m.mu.RUnlock()
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerBusy,
+			fmt.Sprintf("HA application recovery for operation %s is pending", recoveryOperationID),
+		)
+	}
 	m.mu.RUnlock()
 	marker, err := m.readActivationMarker()
 	if err != nil {
@@ -945,6 +956,12 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 			)
 		}
 		return *m.operation, nil
+	}
+	if m.operation != nil && m.operation.RecoveryPending {
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerBusy,
+			fmt.Sprintf("HA application recovery for operation %s is pending", m.operation.ID),
+		)
 	}
 	if m.closing {
 		return updaterapi.Operation{}, errTriggerClosing
