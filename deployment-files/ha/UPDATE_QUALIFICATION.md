@@ -48,7 +48,7 @@ customer data from committed evidence.
    times out before swapping, restarts release `N`, reacquires the VIP, and can
    complete a command. Measure continuously from the first failed VIP health
    probe until release `N` serves the VIP again; this must remain below 60
-   seconds. Record the 30-second takeover wait and subsequent old-release startup
+   seconds. Record the 35-second takeover wait and subsequent old-release startup
    separately. Restart the updated peer with `fleet-ha app-start N+1 passive` and
    restore full readiness before continuing. This recovery bound is separate
    from the 15-second successful-handoff target.
