@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -360,14 +361,17 @@ func WaitForVIPVersion(ctx context.Context, envPath, targetVersion string) error
 		}
 		response, requestErr := client.Do(request)
 		if requestErr == nil {
-			response.Body.Close()
+			_, drainErr := io.Copy(io.Discard, response.Body)
+			_ = response.Body.Close()
 			version := response.Header.Get("X-Proto-Fleet-Version")
-			ready, versionErr := acceptVIPVersion(response.StatusCode, version, targetVersion)
-			if versionErr != nil {
-				return versionErr
-			}
-			if ready {
-				return nil
+			if drainErr == nil {
+				ready, versionErr := acceptVIPVersion(response.StatusCode, version, targetVersion)
+				if versionErr != nil {
+					return versionErr
+				}
+				if ready {
+					return nil
+				}
 			}
 		}
 		select {
