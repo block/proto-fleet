@@ -96,15 +96,17 @@ sudo systemctl is-active --quiet proto-fleet-updater.service
    identities from step 2 are unchanged.
 5. Reinstall the clean `N` baseline and update the passive host to `N+1`. On the
    active host, create the root-owned
-   `/var/lib/proto-fleet-updater/qualification-pause-before-ha-stop` file and
-   arrange to remove it on every exit. Start `--complete` and wait until updater
-   status enters the activating phase; the barrier now holds the old application
-   open after final preflight. Stop the updated peer's Fleet application and
-   confirm it is unavailable, then remove the barrier. Require takeover to time
-   out and the updater to restart release `N` automatically. Within 60 seconds,
-   require the old host to serve the VIP, a persisted read, and a successful
-   command, with no manual recovery command remaining. Restart the `N+1` peer as
-   passive and restore full readiness before continuing.
+   `/var/lib/proto-fleet-updater/qualification-pause-after-ha-stop` file and
+   arrange to remove it on every exit. Start `--complete`, wait until updater
+   status enters the activating phase, and prove the old Fleet containers have
+   stopped while the peer remains passive. The barrier now holds the updater
+   immediately before its takeover wait. Before the old lease can expire, stop
+   the updated peer's Fleet application and confirm it never serves the VIP,
+   then remove the barrier. Require the updater to enter the takeover wait,
+   remain there for its full timeout, and restart release `N` automatically.
+   Within 60 seconds, require the old host to serve the VIP, a persisted read,
+   and a successful command, with no manual recovery command remaining. Restart
+   the `N+1` peer as passive and restore full readiness before continuing.
 6. Reinstall the clean `N` baseline and repeat steps 2 and 3 for a separate
    mixed-version failover run. Update the passive host to `N+1`, then terminate
    the active `N` Fleet process instead of running `--complete`. Require the
@@ -136,19 +138,27 @@ sudo systemctl is-active --quiet proto-fleet-updater.service
    at a time, restoring full readiness between reboots. Repeat the updater
    checks and verify both hosts retain Fleet data and can serve a command.
 10. From a clean `N` baseline, run four separate interruption cases. First,
-    use the root-owned pre-stop barrier from step 5 and SIGKILL the updater
-    after final preflight; the old active must keep serving and the updater must
-    restart cleanly. Second, power-cycle the updating host while
-    `/var/lib/proto-fleet-updater/activation-swap.json` and
-    `/opt/proto-fleet/deployment.previous` prove a swap is in progress. Third,
-    power-cycle after that marker clears but while updater status is still
-    activating and the target application is not healthy. Require restart
-    recovery to retain `N+1`, finish startup and migrations, clear pending
-    recovery, and restore control and failover readiness. Fourth, SIGKILL the
-    updater while
-    `/usr/local/libexec/proto-fleet/proto-fleet-updater.handoff` exists during
-    self-replacement. Repeat a case if its durable marker clears before the
-    fault lands. After each restart, require one valid deployment directory,
+    create the root-owned
+    `/var/lib/proto-fleet-updater/qualification-pause-before-ha-stop` file and
+    SIGKILL the updater after final preflight; the old active must keep serving
+    and the updater must restart cleanly. Second, create the root-owned
+    `/var/lib/proto-fleet-updater/qualification-pause-between-deployment-renames`
+    file and power-cycle only after updater status is activating,
+    `/opt/proto-fleet/deployment` is absent, and
+    `/opt/proto-fleet/deployment.previous` exists. This proves the fault landed
+    between the two renames; startup must restore `N`. Third, power-cycle after
+    the activation marker clears but while updater status is still activating
+    and the target application is not healthy. Require restart recovery to
+    retain `N+1`, finish startup and migrations, clear pending recovery, and
+    restore control and failover readiness. Fourth, during self-replacement,
+    obtain the updater service's PID and require its `/proc/<pid>/cmdline` to
+    contain exactly
+    `--self-update-handoff=/usr/local/libexec/proto-fleet/proto-fleet-updater`
+    while the production updater socket is not accepting status requests, then
+    SIGKILL that process. The handoff marker alone is insufficient evidence
+    because it exists before the replacement process starts. Repeat a case if
+    its required evidence clears before the fault lands. Remove each barrier
+    after its case. After each restart, require one valid deployment directory,
     no pending recovery marker, a healthy updater socket, restored control and
     failover readiness, and either the intact old release or fully verified
     target release according to the recorded recovery state. When recovery
