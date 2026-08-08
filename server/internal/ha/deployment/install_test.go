@@ -228,6 +228,35 @@ func TestInstallRejectsUnavailableSystemdBeforeMutation(t *testing.T) {
 	require.Equal(t, []string{"systemctl show --property=Version --value"}, calls)
 }
 
+func TestInstallUpdaterFailureDisablesHA(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	config := NodeConfig{
+		NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
+	}
+	writeTestSecretBundle(t, config)
+	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
+	require.NoError(t, os.WriteFile(rootPassword, []byte("root-password\n"), 0o600))
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	run := deps.run
+	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(args, " "), "enable --now proto-fleet-updater.service") {
+			return nil, errors.New("enable failed")
+		}
+		return run(ctx, name, args...)
+	}
+
+	// Act
+	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "enable host updater")
+	require.Contains(t, strings.Join(calls, "\n"), "sudo systemctl disable --now proto-fleet-ha.service")
+}
+
 func TestPrepareImagesRejectsMissingHADatabaseImage(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
