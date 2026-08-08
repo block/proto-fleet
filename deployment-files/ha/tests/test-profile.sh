@@ -149,6 +149,7 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "Before=docker.service proto-fleet-ha.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "Requires=proto-fleet-ha-firewall.service docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "BindsTo=docker.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "PartOf=docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStart=/opt/proto-fleet/deployment/ha/fleet-ha start"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStopPost=/opt/proto-fleet/deployment/ha/fleet-ha stop"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "Restart=on-failure"
