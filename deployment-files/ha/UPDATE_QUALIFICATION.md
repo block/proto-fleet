@@ -43,15 +43,20 @@ customer data from committed evidence.
 4. During the mixed-version window, use the authenticated VIP API to read
    existing database-backed configuration, submit a command, and verify its
    completion while `N` remains active.
-5. On the updated passive, run `fleet-ha app-stop passive N` to make takeover
-   impossible, then run `fleet-ha update N+1 --complete` on the active. Verify it
-   times out before swapping, restarts release `N`, reacquires the VIP, and can
-   complete a command. Measure continuously from the first failed VIP health
-   probe until release `N` serves the VIP again; this must remain below 60
-   seconds. Record the 35-second takeover wait and subsequent old-release startup
-   separately. Restart the updated peer with `fleet-ha app-start N+1 passive` and
-   restore full readiness before continuing. This recovery bound is separate
-   from the 15-second successful-handoff target.
+5. On the updated passive, capture its running `fleet-api` and `fleet-client`
+   container IDs. Start a background watcher that polls
+   `http://127.0.0.1:4000/health/passive` at least every 100 milliseconds and
+   stops those exact containers as soon as the endpoint stops reporting
+   passive. Then run `fleet-ha update N+1 --complete` on the active. This keeps
+   the peer available for completion validation but stops it immediately after
+   it acquires the lease, before keepalived's one-second check can advertise the
+   VIP. Verify the operation log shows active validation and application stop,
+   followed by the 35-second takeover timeout and release `N` restart without a
+   deployment swap. Confirm `N` reacquires the VIP and can complete a command
+   within 60 seconds of the first failed VIP probe. Restart the updated peer
+   with `fleet-ha app-start N+1 passive` and restore full readiness before
+   continuing. This recovery bound is separate from the 15-second successful
+   handoff target.
 6. With the target artifacts and build cache warmed by step 5, block a
    PROCESSING command on one controlled test device and enqueue a second command
    behind it so per-device ordering keeps that row PENDING. Record both
