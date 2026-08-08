@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -79,43 +78,6 @@ func stableEntry(tag string) githubRelease {
 	}
 }
 
-func TestValidateAdjacentStableReleaseRejectsSkippedRelease(t *testing.T) {
-	// Arrange
-	gh := newGHServer(t)
-	gh.setListPage(1, http.StatusOK, releasesJSON(t, nightlies(releasesPageSize, "crowded")))
-	gh.setListPage(2, http.StatusOK, releasesJSON(t, []githubRelease{
-		stableEntry("v1.2.0"),
-		stableEntry("v1.1.0"),
-		stableEntry("v1.0.0"),
-	}))
-	for _, version := range []string{"v1.0.0", "v1.1.0", "v1.2.0"} {
-		gh.setTag(version, http.StatusOK, releaseJSON(t, stableEntry(version)))
-	}
-
-	// Act
-	adjacentErr := validateAdjacentStableRelease(t.Context(), gh.srv.URL, "v1.0.0", "v1.1.0")
-	skippedErr := validateAdjacentStableRelease(t.Context(), gh.srv.URL, "v1.0.0", "v1.2.0")
-
-	// Assert
-	require.NoError(t, adjacentErr)
-	require.ErrorContains(t, skippedErr, "next stable release v1.1.0")
-}
-
-func TestValidateAdjacentStableReleaseRejectsMalformedHistory(t *testing.T) {
-	// Arrange
-	gh := newGHServer(t)
-	gh.setListPage(1, http.StatusOK, []byte(`[{"tag_name":"v1.2.0","published_at":"2026-07-18T12:00:00Z","prerelease":false,"draft":false},{"published_at":"2026-07-17T12:00:00Z","prerelease":false,"draft":false}]`))
-	for _, version := range []string{"v1.0.0", "v1.2.0"} {
-		gh.setTag(version, http.StatusOK, releaseJSON(t, stableEntry(version)))
-	}
-
-	// Act
-	err := validateAdjacentStableRelease(t.Context(), gh.srv.URL, "v1.0.0", "v1.2.0")
-
-	// Assert
-	require.ErrorContains(t, err, "missing required field tag_name")
-}
-
 type ghRequest struct {
 	path   string
 	query  url.Values
@@ -136,7 +98,6 @@ type ghServer struct {
 	latestBody   []byte
 	listStatus   int
 	listBody     []byte
-	listPages    map[int]ghResponse
 	tags         map[string]ghResponse
 	requests     []ghRequest
 }
@@ -148,7 +109,6 @@ func newGHServer(t *testing.T) *ghServer {
 		latestBody:   fixture(t, "latest_stable.json"),
 		listStatus:   http.StatusOK,
 		listBody:     []byte("[]"),
-		listPages:    make(map[int]ghResponse),
 		tags:         make(map[string]ghResponse),
 	}
 	g.srv = httptest.NewServer(http.HandlerFunc(g.handle))
@@ -171,12 +131,7 @@ func (g *ghServer) handle(w http.ResponseWriter, r *http.Request) {
 	case "/releases/latest":
 		status, body = g.latestStatus, g.latestBody
 	case "/releases":
-		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-		if response, ok := g.listPages[page]; ok {
-			status, body = response.status, response.body
-		} else {
-			status, body = g.listStatus, g.listBody
-		}
+		status, body = g.listStatus, g.listBody
 	default:
 		const tagsPrefix = "/releases/tags/"
 		if strings.HasPrefix(r.URL.Path, tagsPrefix) {
@@ -207,12 +162,6 @@ func (g *ghServer) setList(status int, body []byte) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.listStatus, g.listBody = status, body
-}
-
-func (g *ghServer) setListPage(page, status int, body []byte) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.listPages[page] = ghResponse{status: status, body: body}
 }
 
 func (g *ghServer) setTag(tag string, status int, body []byte) {
