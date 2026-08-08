@@ -110,10 +110,11 @@ func run(ctx context.Context, args []string) error {
 		}
 		return deployment.ValidatePassiveUpdate(ctx, args[1], args[2])
 	case "require-active":
-		if len(args) != 2 {
-			return errors.New("usage: fleet-ha require-active NODE_ENV")
+		if len(args) != 3 {
+			return errors.New("usage: fleet-ha require-active NODE_ENV VERSION")
 		}
-		return deployment.RequireActive(ctx, args[1])
+		_, err := deployment.ValidateActiveUpdate(ctx, args[1], args[2])
+		return err
 	case "update-preflight":
 		if len(args) != 1 {
 			return errors.New("usage: fleet-ha update-preflight")
