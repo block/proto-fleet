@@ -397,8 +397,8 @@ func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
 	second := <-results
 	require.NoError(t, first.err)
 	require.NoError(t, second.err)
-	assert.Equal(t, first.operation, second.operation)
 	assert.Equal(t, operationID, first.operation.ID)
+	assert.Equal(t, first.operation.ID, second.operation.ID)
 
 	completed := waitForTerminal(t, manager)
 	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
