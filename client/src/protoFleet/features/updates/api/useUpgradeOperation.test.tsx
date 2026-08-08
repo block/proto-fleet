@@ -10,7 +10,7 @@ import {
   UpgradeOperationSchema,
   UpgradePhase,
 } from "@/protoFleet/api/generated/instance/v1/updates_pb";
-import { useUpgradeOperation } from "@/protoFleet/features/updates/api/useUpgradeOperation";
+import { isUpgradeActive, useUpgradeOperation } from "@/protoFleet/features/updates/api/useUpgradeOperation";
 
 vi.mock("@/protoFleet/api/clients", () => ({
   instanceUpdateClient: {
@@ -23,21 +23,17 @@ const mockGetUpgradeStatus = vi.mocked(instanceUpdateClient.getUpgradeStatus);
 const mockTriggerUpgrade = vi.mocked(instanceUpdateClient.triggerUpgrade);
 const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
 const ACKNOWLEDGED_OPERATION_KEY = "protoFleet:acknowledged-upgrade-operation";
-const AUTH_SESSION_IDENTITY = "operator-a:1000";
-const AUTH_SESSION_TOKEN = new Date(1_000);
+const AUTH_SESSION_IDENTITY = "operator-a:1";
 
 type TestUpgradeOperationOptions = Omit<
   Parameters<typeof useUpgradeOperation>[0],
-  "authSessionIdentity" | "authSessionToken" | "currentVersionUnavailable"
+  "authSessionIdentity" | "currentVersionUnavailable"
 > & {
   currentVersionUnavailable?: boolean;
 };
 
-const useTestUpgradeOperation = (
-  options: TestUpgradeOperationOptions,
-  authSessionIdentity = AUTH_SESSION_IDENTITY,
-  authSessionToken: object | null = AUTH_SESSION_TOKEN,
-) => useUpgradeOperation({ authSessionIdentity, authSessionToken, currentVersionUnavailable: false, ...options });
+const useTestUpgradeOperation = (options: TestUpgradeOperationOptions, authSessionIdentity = AUTH_SESSION_IDENTITY) =>
+  useUpgradeOperation({ authSessionIdentity, currentVersionUnavailable: false, ...options });
 
 type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
 
@@ -139,27 +135,21 @@ describe("useUpgradeOperation", () => {
     expect(result.current.operationStatusPending).toBe(false);
   });
 
-  it("restarts polling when a replacement session has the same serialized identity", async () => {
+  it("restarts polling when the authenticated session generation changes", async () => {
     const previousRequest = deferred<ReturnType<typeof status>>();
     const onPollError = vi.fn();
     mockGetUpgradeStatus.mockReturnValueOnce(previousRequest.promise).mockResolvedValue(status());
-    const previousSessionToken = new Date(1_000);
-    const replacementSessionToken = new Date(1_000);
 
     const { rerender, result } = renderHook(
-      ({ authSessionToken }: { authSessionToken: object }) =>
-        useTestUpgradeOperation(
-          { enabled: true, currentVersion: "v1.2.0", onPollError },
-          AUTH_SESSION_IDENTITY,
-          authSessionToken,
-        ),
-      { initialProps: { authSessionToken: previousSessionToken } },
+      ({ authSessionIdentity }: { authSessionIdentity: string }) =>
+        useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0", onPollError }, authSessionIdentity),
+      { initialProps: { authSessionIdentity: AUTH_SESSION_IDENTITY } },
     );
 
     await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
     const previousSignal = mockGetUpgradeStatus.mock.calls[0]?.[1]?.signal;
 
-    rerender({ authSessionToken: replacementSessionToken });
+    rerender({ authSessionIdentity: "operator-a:2" });
 
     await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(2));
     expect(previousSignal?.aborted).toBe(true);
@@ -194,12 +184,13 @@ describe("useUpgradeOperation", () => {
     });
   });
 
-  it("bounds reconciliation when a trigger response has an unsupported phase", async () => {
+  it("keeps an unknown phase locked until explicit host confirmation", async () => {
     vi.useFakeTimers();
-    mockGetUpgradeStatus.mockResolvedValue(status());
+    const unknownOperation = operation(UpgradePhase.UNSPECIFIED);
+    mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, unknownOperation));
     mockTriggerUpgrade.mockResolvedValue(
       create(TriggerUpgradeResponseSchema, {
-        operation: operation(UpgradePhase.UNSPECIFIED),
+        operation: unknownOperation,
       }),
     );
     const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
@@ -208,15 +199,29 @@ describe("useUpgradeOperation", () => {
     await act(async () => result.current.triggerUpgrade("v1.3.0"));
 
     expect(result.current.reconciling).toBe(true);
-    expect(result.current.triggerError).toContain("couldn't confirm the upgrade state");
+    expect(result.current.operation?.phase).toBe(UpgradePhase.UNSPECIFIED);
+    expect(isUpgradeActive(result.current.operation)).toBe(true);
+    expect(result.current.triggerError).toBeNull();
     expect(JSON.parse(window.sessionStorage.getItem(TRACKED_OPERATION_KEY) ?? "{}")).toEqual({
+      id: "operation-1",
       targetVersion: "v1.3.0",
     });
 
     await act(async () => vi.advanceTimersByTimeAsync(17_000));
 
+    expect(result.current.reconciling).toBe(true);
+    expect(result.current.manualFallbackReady).toBe(true);
+    expect(result.current.operation?.phase).toBe(UpgradePhase.UNSPECIFIED);
+
+    act(() => result.current.useManualFallback());
+
     expect(result.current.reconciling).toBe(false);
+    expect(result.current.operation).toBeUndefined();
     expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
+    expect(JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}").id).toBe("operation-1");
+
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(result.current.operation).toBeUndefined();
   });
 
   it("accepts a terminal operation returned directly by the trigger RPC", async () => {
@@ -478,7 +483,8 @@ describe("useUpgradeOperation", () => {
     act(() => firstSession.result.current.acknowledgeOperation());
 
     expect(firstSession.result.current.operation).toBeUndefined();
-    expect(JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}")).toEqual({
+    const acknowledgedRecord = JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}");
+    expect(acknowledgedRecord).toEqual({
       authSessionIdentity: AUTH_SESSION_IDENTITY,
       id: "operation-1",
     });
@@ -490,13 +496,10 @@ describe("useUpgradeOperation", () => {
     sameSession.unmount();
 
     const nextSession = renderHook(() =>
-      useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }, "operator-b:2000"),
+      useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }, "operator-a:2"),
     );
     await waitFor(() => expect(nextSession.result.current.operation?.phase).toBe(UpgradePhase.FAILED));
-    expect(JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}")).toEqual({
-      authSessionIdentity: AUTH_SESSION_IDENTITY,
-      id: "operation-1",
-    });
+    expect(JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}")).toEqual(acknowledgedRecord);
   });
 
   it("forwards poll errors for page-level auth handling", async () => {

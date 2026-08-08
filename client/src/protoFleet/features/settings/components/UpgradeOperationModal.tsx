@@ -61,14 +61,33 @@ const ProgressPanel = ({ children, heading }: ProgressPanelProps) => (
   </div>
 );
 
-const ReconciliationPanel = ({ manualFallbackReady }: Pick<UpgradeOperationModalProps, "manualFallbackReady">) => (
+interface ReconciliationPanelProps {
+  manualFallbackReady: boolean;
+  unknownPhase: boolean;
+}
+
+const ReconciliationPanel = ({ manualFallbackReady, unknownPhase }: ReconciliationPanelProps) => (
   <ProgressPanel
-    heading={manualFallbackReady ? "Fleet could not confirm the upgrade outcome" : "Checking upgrade status"}
+    heading={
+      manualFallbackReady
+        ? "Fleet could not confirm the upgrade outcome"
+        : unknownPhase
+          ? "Host updater reported an unknown upgrade state"
+          : "Checking upgrade status"
+    }
   >
     {manualFallbackReady ? (
       <p className="text-300 font-medium text-text-critical">
-        The host updater is not reporting this upgrade. Only unlock the manual command after checking the host and
-        confirming no upgrade is running. Overlapping installs can leave the deployment unusable.
+        {unknownPhase
+          ? "Fleet cannot interpret the host updater's current state. "
+          : "The host updater is not reporting this upgrade. "}
+        Only unlock the manual command after checking the host and confirming no upgrade is running. Overlapping
+        installs can leave the deployment unusable.
+      </p>
+    ) : unknownPhase ? (
+      <p className="text-300 text-text-primary-70">
+        This version of Fleet does not recognize the state returned by the host updater. Manual installation remains
+        locked while Fleet continues checking.
       </p>
     ) : (
       <p className="text-300 text-text-primary-70">
@@ -196,7 +215,12 @@ const UpgradeOperationContent = ({
   release,
 }: UpgradeOperationContentProps) => {
   if (reconciling) {
-    return <ReconciliationPanel manualFallbackReady={manualFallbackReady} />;
+    return (
+      <ReconciliationPanel
+        manualFallbackReady={manualFallbackReady}
+        unknownPhase={operation?.phase === UpgradePhase.UNSPECIFIED}
+      />
+    );
   }
   if (!operation) {
     return release ? <UpgradeConfirmationPanel release={release} /> : null;

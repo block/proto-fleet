@@ -123,6 +123,17 @@ describe("UpgradeOperationModal", () => {
     expect(screen.queryByRole("button", { name: /Confirm upgrade/ })).not.toBeInTheDocument();
   });
 
+  it("keeps an unknown host-updater phase visibly locked", () => {
+    renderModal({
+      operation: operation(UpgradePhase.UNSPECIFIED),
+      reconciling: true,
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/reported an unknown upgrade state/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/Manual installation remains locked/i);
+    expect(screen.queryByRole("button", { name: /unlock manual install/i })).not.toBeInTheDocument();
+  });
+
   it("requires explicit host confirmation before unlocking a manual fallback", () => {
     const onUseManualFallback = vi.fn();
     renderModal({

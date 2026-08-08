@@ -28,6 +28,7 @@ const permissionsMock = vi.hoisted(() => ({
   current: ["instance:update", "fleet:read"],
   isAuthenticated: true,
   sessionExpiry: new Date(1_000),
+  sessionGeneration: 1,
   setPermissions: vi.fn<(permissions: string[]) => void>(),
   username: "operator-a",
 }));
@@ -66,6 +67,7 @@ vi.mock("@/protoFleet/store", () => {
     useHasPermission: vi.fn((permission: string) => permissionsMock.current.includes(permission)),
     usePermissions: () => permissionsMock.current,
     useSessionExpiry: () => permissionsMock.sessionExpiry,
+    useSessionGeneration: () => permissionsMock.sessionGeneration,
     useSetPermissions: () => permissionsMock.setPermissions,
     useUsername: () => permissionsMock.username,
     useAuthErrors: () => authErrorsMock,
@@ -185,6 +187,7 @@ beforeEach(() => {
   permissionsMock.current = ["instance:update", "fleet:read"];
   permissionsMock.isAuthenticated = true;
   permissionsMock.sessionExpiry = new Date(1_000);
+  permissionsMock.sessionGeneration = 1;
   permissionsMock.username = "operator-a";
   permissionsMock.setPermissions.mockImplementation((permissions) => {
     permissionsMock.current = permissions;

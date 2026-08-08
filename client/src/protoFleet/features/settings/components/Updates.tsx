@@ -16,7 +16,7 @@ import {
   useFleetStore,
   useHasPermission,
   usePermissions,
-  useSessionExpiry,
+  useSessionGeneration,
   useSetPermissions,
   useUsername,
 } from "@/protoFleet/store";
@@ -95,7 +95,7 @@ const waitForReleaseChannelSave = async () => {
 const Updates = () => {
   const canUpdateInstance = useHasPermission(INSTANCE_UPDATE_PERMISSION);
   const permissions = usePermissions();
-  const sessionExpiry = useSessionExpiry();
+  const sessionGeneration = useSessionGeneration();
   const setPermissions = useSetPermissions();
   const username = useUsername();
   const { handleAuthErrors } = useAuthErrors();
@@ -143,8 +143,7 @@ const Updates = () => {
   );
 
   const upgrade = useUpgradeOperation({
-    authSessionIdentity: `${username}:${sessionExpiry?.getTime() ?? "signed-out"}`,
-    authSessionToken: sessionExpiry,
+    authSessionIdentity: `${username}:${sessionGeneration}`,
     enabled: canUpdateInstance,
     currentVersion: status?.currentVersion,
     currentVersionUnavailable: Boolean(loadError && !status),
