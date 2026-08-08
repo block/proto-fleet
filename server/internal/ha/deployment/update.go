@@ -193,15 +193,15 @@ func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool 
 
 // StartApplication starts the target release and proves it serves its observed HA role.
 func StartApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
-	return startApplication(ctx, root, targetVersion, requirePassive, false)
+	return startApplication(ctx, root, targetVersion, requirePassive)
 }
 
-// RecoverApplication resumes interrupted activation without recreating running containers.
+// RecoverApplication converges both Fleet services after interrupted activation.
 func RecoverApplication(ctx context.Context, root, targetVersion string) error {
-	return startApplication(ctx, root, targetVersion, false, true)
+	return startApplication(ctx, root, targetVersion, false)
 }
 
-func startApplication(ctx context.Context, root, targetVersion string, requirePassive, recovering bool) error {
+func startApplication(ctx context.Context, root, targetVersion string, requirePassive bool) error {
 	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
 	if err != nil {
 		return err
@@ -217,17 +217,11 @@ func startApplication(ctx context.Context, root, targetVersion string, requirePa
 	if ready {
 		return nil
 	}
-	running := 0
-	if recovering {
-		running, err = runningApplicationServices(ctx, root)
-		if err != nil {
-			return err
-		}
-	}
-	if args := applicationStartArgs(root, recovering, running); args != nil {
-		if err := RunCompose(ctx, args); err != nil {
-			return fmt.Errorf("start HA application: %w", err)
-		}
+	if err := RunCompose(ctx, fleetComposeArgsAt(
+		root,
+		"up", "-d", "--no-deps", "--force-recreate", "--no-build", "--pull", "never", "fleet-api", "fleet-client",
+	)); err != nil {
+		return fmt.Errorf("start HA application: %w", err)
 	}
 	for {
 		ready, err := applicationIsReady(ctx, config, tlsConfig, targetVersion, requirePassive)
@@ -243,40 +237,6 @@ func startApplication(ctx context.Context, root, targetVersion string, requirePa
 		case <-time.After(2 * time.Second):
 		}
 	}
-}
-
-func runningApplicationServices(ctx context.Context, root string) (int, error) {
-	output, err := runCommand(
-		ctx,
-		"docker",
-		"ps",
-		"--filter", "label=com.docker.compose.project="+filepath.Base(root),
-		"--format", `{{.Label "com.docker.compose.service"}}`,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("inspect running HA application: %s", commandError(output, err))
-	}
-	running := 0
-	for service := range strings.FieldsSeq(string(output)) {
-		if service == "fleet-api" || service == "fleet-client" {
-			running++
-		}
-	}
-	return running, nil
-}
-
-func applicationStartArgs(root string, recovering bool, running int) []string {
-	if recovering && running == 2 {
-		return nil
-	}
-	options := []string{"-d", "--no-deps"}
-	if recovering && running > 0 {
-		options = append(options, "--no-recreate")
-	} else {
-		options = append(options, "--force-recreate")
-	}
-	options = append(options, "--no-build", "--pull", "never", "fleet-api", "fleet-client")
-	return fleetComposeArgsAt(root, "up", options...)
 }
 
 func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) (bool, error) {
