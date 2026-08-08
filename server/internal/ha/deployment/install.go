@@ -216,7 +216,7 @@ func copiedSecretFiles(config NodeConfig) []string {
 func inspectDedicatedHost(ctx context.Context, deps installDependencies) (installedDependencies, error) {
 	var installed installedDependencies
 	for _, path := range []string{
-		installBase, configRoot, dataRoot, "/var/lib/proto-fleet-updater",
+		installBase, configRoot, dataRoot, "/var/lib/proto-fleet-updater", "/run/proto-fleet-updater",
 		"/etc/systemd/system/proto-fleet-ha.service.d",
 		"/etc/systemd/system/proto-fleet-ha-firewall.service.d",
 	} {
@@ -227,6 +227,9 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 	for _, path := range []string{
 		serviceUnit, firewallUnit, nftablesDropIn, nftablesReloadConfig,
 		"/usr/local/libexec/proto-fleet/check-fleet-active",
+		"/usr/local/libexec/proto-fleet/proto-fleet-updater",
+		"/etc/systemd/system/proto-fleet-updater.service",
+		"/etc/proto-fleet/updater.env",
 	} {
 		if _, err := deps.lstat(path); err == nil {
 			return installedDependencies{}, fmt.Errorf("HA install requires a dedicated host without existing Proto Fleet state; found %s", path)
