@@ -67,8 +67,8 @@ without an enforced trusted segment are unsupported.
 
 Restore full readiness before starting each row. Run the external append-only
 recorder described under Repetition and soak from before fault injection through
-full recovery. Against a test device, continuously submit uniquely identified
-idempotent command probes and keep a controller-side ledger of every
+full recovery. Across the complete qualified test fleet, continuously submit
+uniquely identified idempotent command probes and keep a controller-side ledger of every
 acknowledged or durably observed command ID, including its state at fault
 injection. Require every PENDING ID to reach SUCCESS within 60 seconds. Permit
 FAILED only for an ID already PROCESSING at fault injection and only with the
@@ -76,13 +76,20 @@ expected interruption reason. Treat missing, duplicate, PENDING, or PROCESSING
 rows after that bound as failures; record ambiguous submissions separately
 rather than counting them as acknowledged. Also fail any row on possible VIP
 or writable-primary overlap, overlapping active-only device work, a collection
-gap, or a stale transition. Record
-the observed recovery time and a short redacted evidence reference. For
-the controlled test device, independently record every command, plugin, and
-curtailment request from acceptance through response or connection close,
-including its source host. Fail if work from the old holder remains in flight
-when work from the new holder begins. For
-database isolation and failover rows, also
+gap, or a stale transition. Record the observed recovery time and a short
+redacted evidence reference. Route or instrument every qualified test miner so
+the external recorder captures every command, plugin, and curtailment request
+from acceptance through response or connection close, including the device and
+source host. Fail on a recorder gap or if work from the old holder remains in
+flight when work from the new holder begins anywhere in the test fleet.
+
+For every row that requires Fleet takeover or PostgreSQL writer promotion,
+publish a unique MQTT curtailment target and confirm shedding has started before
+injecting the fault. Require MQTT intake to resume, the target to be retained or
+reasserted, and measured load to reach the exact target within 180 seconds.
+Then publish a distinct restoration target and require measured load to follow
+it within 180 seconds. Apply these bounds in addition to the row's service
+recovery bound. For database isolation and failover rows, also
 record host-pinned writable SQL probe results against both database hosts at
 100 ms or faster. Before isolating the old primary, begin a writable transaction
 on it, write a unique probe identifier, and hold the transaction open. After the
@@ -118,11 +125,6 @@ acknowledged identifier exists exactly once.
 | SIGSTOP the old active with a stalled PROCESSING plugin call, let the peer recover it, queue the old result, then SIGCONT | The resumed stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
-| Publish a unique MQTT curtailment target, confirm shedding starts, then kill the active Fleet process before completion | The peer resumes MQTT intake and retains or reasserts curtailment within 180s | Pending | Pending | Pending |
-| Publish a unique MQTT curtailment target, confirm shedding starts, then abruptly lose the database primary while Fleet remains active | A writable primary recovers and Fleet retains or reasserts curtailment within 180s | Pending | Pending | Pending |
-| Publish a unique MQTT curtailment target, confirm shedding starts, then power off a host that is both active Fleet and Patroni primary | The peer restores writable VIP service and retains or reasserts curtailment within 180s | Pending | Pending | Pending |
-| Publish a distinct MQTT restoration target after each failure above | Measured load follows the new target within 180s | Pending | Pending | Pending |
-
 The 180-second curtailment result applies only to the miner count, plugin mix,
 connection topology, and command backlog recorded above.
 
@@ -164,9 +166,10 @@ invalid JSON is a collection failure, not expected degradation. Reconstruct
 each VIP interval from address-add through address-delete and fail if host
 intervals overlap. Health polling is availability evidence, not proof that
 every runtime transition was observed. Prove effect exclusivity with the
-controlled test device recorder instead: it must capture every request, and no
-old-holder work may remain in flight when new-holder work begins. Any recorder gap fails the
-soak. Export redacted evidence after the soak.
+fleet-wide recorder instead: it must capture every request for every qualified
+test miner, and no old-holder work may remain in flight when new-holder work
+begins anywhere in the fleet. Any recorder gap fails the soak. Export redacted
+evidence after the soak.
 
 ## Verdict
 
