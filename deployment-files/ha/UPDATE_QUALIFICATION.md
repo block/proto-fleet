@@ -36,21 +36,25 @@ customer data from committed evidence.
    that the cited workflow produced the digest. This first qualification trusts
    the existing GitHub Release publishing boundary; artifact attestation is
    deferred.
-2. Record the running etcd and Patroni/PostgreSQL container IDs on all hosts.
-3. On the passive database host, run `fleet-ha update N+1` and verify that it
+2. Record the running etcd and Patroni/PostgreSQL container IDs, start times,
+   and restart counts on all hosts. Retain Docker events for those containers
+   and continuously probe etcd quorum and writable database access until both
+   application updates finish.
+3. Before starting `N+1` on a live host, review every migration between the
+   recorded commits and reject drops, renames, narrowing conversions, or newly
+   mandatory constraints that the `N` application cannot satisfy. On a
+   disposable copy of an `N` database, apply the `N+1` migrations and run the
+   `N` database and API integration tests for every affected query area.
+4. On the passive database host, run `fleet-ha update N+1` and verify that it
    remains passive on `N+1` while the active host continues serving `N`. Fail
    if the operation reports `host updater refresh needs attention`. Require
    `/usr/local/libexec/proto-fleet/proto-fleet-updater --version` to print
    `N+1`, `proto-fleet-updater.service` to be active, and an authenticated local
    request to `/v1/status` over `/run/proto-fleet-updater/updater.sock` to
-   succeed. Retain the redacted operation log.
-4. Review every migration between the recorded commits and reject drops,
-   renames, narrowing conversions, or newly mandatory constraints that the `N`
-   application cannot satisfy. On a disposable copy of an `N` database, apply
-   the `N+1` migrations and run the `N` database and API integration tests for
-   every affected query area. During the live mixed-version window, use the
-   authenticated VIP API to read existing database-backed configuration,
-   submit a command, and verify its completion while `N` remains active.
+   succeed. Retain the redacted operation log. During the live mixed-version
+   window, use the authenticated VIP API to read existing database-backed
+   configuration, submit a command, and verify its completion while `N`
+   remains active.
 5. On the updated passive, capture its running `fleet-api` and `fleet-client`
    container IDs, then stop keepalived so that host cannot advertise the VIP.
    Start a background watcher that polls the uncached
@@ -85,8 +89,11 @@ customer data from committed evidence.
    For each direction, use both 100-millisecond external probes and the
    first-failure-to-both-success interval from step 6. Submit a command through
    the VIP after each failover and verify it succeeds.
-9. Compare the infrastructure container IDs recorded in step 2. Prove that the
-   application update did not replace etcd, Patroni, or PostgreSQL.
+9. Compare the infrastructure evidence recorded in step 2. Require unchanged
+   container IDs, start times, and restart counts; no stop, die, or restart
+   events; and uninterrupted etcd quorum and writable database probes. Prove
+   that the application update neither replaced nor restarted etcd, Patroni,
+   or PostgreSQL.
 10. Reboot both database hosts, one at a time, restoring full readiness between
     reboots. Confirm both return on `N+1` with the same etcd membership,
     Patroni cluster, and persisted Fleet data. On each host, repeat the updater
@@ -105,7 +112,7 @@ customer data from committed evidence.
 | Failover to peer | VIP serves `N+1` and an authenticated database-backed request within 15s | Pending | Pending | Pending |
 | Failover back | VIP serves `N+1` and an authenticated database-backed request within 15s | Pending | Pending | Pending |
 | Command execution | Command succeeds after both failovers | N/A | Pending | Pending |
-| Infrastructure preservation | Application update leaves etcd, Patroni, and PostgreSQL container IDs unchanged | N/A | Pending | Pending |
+| Infrastructure preservation | Application update leaves etcd, Patroni, and PostgreSQL container identity and uptime unchanged, with no DCS or database probe gap | N/A | Pending | Pending |
 | Host updater refresh | Both protected updater binaries report `N+1`; services and local status APIs survive reboot; no refresh warning remains | N/A | Pending | Pending |
 | Reboot recovery | Both hosts return on `N+1` with DCS, database, and Fleet data intact | Pending | Pending | Pending |
 
