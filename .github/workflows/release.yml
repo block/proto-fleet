@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       ha_update_from_version: ${{ steps.ha-update-from.outputs.version }}
+      ha_update_from_commit: ${{ steps.ha-update-from.outputs.commit }}
     steps:
       - name: Checkout release history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,6 +91,9 @@ jobs:
             fi
           fi
           echo "version=$qualified" >> "$GITHUB_OUTPUT"
+          if [[ -n "$qualified" ]]; then
+            echo "commit=$(git rev-list -n 1 "$qualified")" >> "$GITHUB_OUTPUT"
+          fi
 
   build-artifacts:
     name: Build release artifacts
@@ -98,6 +102,7 @@ jobs:
     with:
       version: ${{ github.ref_name }}
       ha_update_from_version: ${{ needs.validate-tag.outputs.ha_update_from_version }}
+      ha_update_from_commit: ${{ needs.validate-tag.outputs.ha_update_from_commit }}
       retention_days: 1
       channel: release
       is_prerelease: ${{ contains(github.ref_name, '-') }}

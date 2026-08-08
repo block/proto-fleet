@@ -12,6 +12,11 @@ on:
         required: false
         default: ""
         type: string
+      ha_update_from_commit:
+        description: Commit of the exact prior release allowed to use this bundle for an HA application update.
+        required: false
+        default: ""
+        type: string
       build_date:
         description: Optional UTC ISO-8601 build date. Defaults to the workflow run time.
         required: false
@@ -45,6 +50,7 @@ jobs:
       channel: ${{ steps.metadata.outputs.channel }}
       is_prerelease: ${{ steps.metadata.outputs.is_prerelease }}
       ha_update_from_version: ${{ steps.metadata.outputs.ha_update_from_version }}
+      ha_update_from_commit: ${{ steps.metadata.outputs.ha_update_from_commit }}
       version: ${{ steps.metadata.outputs.version }}
     steps:
       - name: Resolve artifact metadata
@@ -54,6 +60,7 @@ jobs:
           INPUT_CHANNEL: ${{ inputs.channel }}
           INPUT_IS_PRERELEASE: ${{ inputs.is_prerelease }}
           INPUT_HA_UPDATE_FROM_VERSION: ${{ inputs.ha_update_from_version }}
+          INPUT_HA_UPDATE_FROM_COMMIT: ${{ inputs.ha_update_from_commit }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$INPUT_VERSION" == "latest" ]]; then
@@ -68,6 +75,12 @@ jobs:
 
           if [[ -n "$INPUT_HA_UPDATE_FROM_VERSION" ]] && [[ ! "$INPUT_HA_UPDATE_FROM_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
             echo "::error::HA update source '$INPUT_HA_UPDATE_FROM_VERSION' must be a stable or RC release tag."
+            exit 1
+          fi
+          if { [[ -n "$INPUT_HA_UPDATE_FROM_VERSION" ]] && [[ -z "$INPUT_HA_UPDATE_FROM_COMMIT" ]]; } || \
+             { [[ -z "$INPUT_HA_UPDATE_FROM_VERSION" ]] && [[ -n "$INPUT_HA_UPDATE_FROM_COMMIT" ]]; } || \
+             { [[ -n "$INPUT_HA_UPDATE_FROM_COMMIT" ]] && [[ ! "$INPUT_HA_UPDATE_FROM_COMMIT" =~ ^[a-f0-9]{40}$ ]]; }; then
+            echo "::error::HA update source version and 40-character commit must be provided together."
             exit 1
           fi
 
@@ -85,6 +98,7 @@ jobs:
           echo "channel=$INPUT_CHANNEL" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$INPUT_IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "ha_update_from_version=$INPUT_HA_UPDATE_FROM_VERSION" >> "$GITHUB_OUTPUT"
+          echo "ha_update_from_commit=$INPUT_HA_UPDATE_FROM_COMMIT" >> "$GITHUB_OUTPUT"
           echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
 
           {
@@ -448,6 +462,7 @@ jobs:
       BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
       CHANNEL: ${{ needs.metadata.outputs.channel }}
       HA_UPDATE_FROM_VERSION: ${{ needs.metadata.outputs.ha_update_from_version }}
+      HA_UPDATE_FROM_COMMIT: ${{ needs.metadata.outputs.ha_update_from_commit }}
       VERSION: ${{ needs.metadata.outputs.version }}
     steps:
       - name: Checkout code
@@ -546,6 +561,7 @@ jobs:
           echo "commit: ${{ github.sha }}" >> deployment/version.txt
           if [[ -n "$HA_UPDATE_FROM_VERSION" ]]; then
             echo "ha_update_from: $HA_UPDATE_FROM_VERSION" >> deployment/version.txt
+            echo "ha_update_from_commit: $HA_UPDATE_FROM_COMMIT" >> deployment/version.txt
           fi
           if [[ "$CHANNEL" == "nightly" ]]; then
             echo "channel: $CHANNEL" >> deployment/version.txt

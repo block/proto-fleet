@@ -1127,6 +1127,12 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 			m.fail(operationID, fmt.Errorf("target release does not allow HA updates from %s", previousVersion), recovery)
 			return
 		}
+		previousCommit, previousCommitErr := readVersionField(filepath.Join(currentDeployment, "version.txt"), "commit")
+		allowedCommit, allowedCommitErr := readVersionField(filepath.Join(stageDeployment, "version.txt"), "ha_update_from_commit")
+		if previousCommitErr != nil || allowedCommitErr != nil || allowedCommit != previousCommit {
+			m.fail(operationID, fmt.Errorf("target release does not allow HA updates from the installed %s build", previousVersion), recovery)
+			return
+		}
 	}
 	if err := preserveDeploymentState(ctx, currentDeployment, stageDeployment); err != nil {
 		m.fail(operationID, fmt.Errorf("preserve deployment configuration: %w", err), recovery)
@@ -1182,16 +1188,16 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	if m.cfg.DeploymentMode == DeploymentModeHA {
 		recovery = m.activationRecoveryCommand(currentDeployment, previousVersion)
 		if err := m.setRecoveryCommand(operationID, recovery); err != nil {
-			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile)
+			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile, false)
 			return
 		}
 		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop"); err != nil {
-			m.failActivation(operationID, targetVersion, fmt.Errorf("stop passive HA application: %w", err), logFile)
+			m.failActivation(operationID, targetVersion, fmt.Errorf("stop passive HA application: %w", err), logFile, true)
 			return
 		}
 	}
 	if err := activateDeployment(stageDeployment, currentDeployment, backupDeployment); err != nil {
-		m.failActivation(operationID, targetVersion, err, logFile)
+		m.failActivation(operationID, targetVersion, err, logFile, m.cfg.DeploymentMode == DeploymentModeHA)
 		return
 	}
 	recovery = m.activationRecoveryCommand(currentDeployment, targetVersion)
@@ -1200,7 +1206,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 	if err := m.clearActivationMarker(); err != nil {
-		m.failActivation(operationID, targetVersion, fmt.Errorf("complete activation swap: %w", err), logFile)
+		m.failActivation(operationID, targetVersion, fmt.Errorf("complete activation swap: %w", err), logFile, m.cfg.DeploymentMode == DeploymentModeHA)
 		return
 	}
 
@@ -1384,6 +1390,7 @@ func (m *Manager) failActivation(
 	targetVersion string,
 	activationErr error,
 	logOutput io.Writer,
+	restartHA bool,
 ) {
 	layout := &updaterapi.Operation{
 		TargetVersion: targetVersion,
@@ -1401,6 +1408,19 @@ func (m *Manager) failActivation(
 			activationErr,
 			fmt.Errorf("reconcile failed activation layout: %w", reconcileErr),
 		)
+	} else if restartHA {
+		current := filepath.Join(m.cfg.InstallRoot, "deployment")
+		version, err := readInstalledVersion(filepath.Join(current, "version.txt"))
+		if err == nil {
+			restartCtx, cancel := context.WithTimeout(context.Background(), m.cfg.ActivationTimeout)
+			err = m.runHACommand(restartCtx, m.cfg.ActivationTimeout, current, logOutput, "app-start", version)
+			cancel()
+		}
+		if err != nil {
+			activationErr = errors.Join(activationErr, fmt.Errorf("restart HA application after failed activation: %w", err))
+		} else {
+			layout.RecoveryCommand = ""
+		}
 	}
 	m.fail(operationID, activationErr, layout.RecoveryCommand)
 }
