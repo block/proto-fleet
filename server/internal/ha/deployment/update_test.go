@@ -85,6 +85,27 @@ func TestRecoveryAcceptsHealthyActiveApplication(t *testing.T) {
 	require.True(t, ready)
 }
 
+func TestApplicationConvergenceRequiresExpectedVersionAndRole(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		runtime        ha.Status
+		requirePassive bool
+		want           bool
+	}{
+		{name: "active recovery", runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent}, want: true},
+		{name: "active passive-update", runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent}, requirePassive: true},
+		{name: "wrong version", runtime: ha.Status{Version: "v1.0.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := applicationMayConverge(test.runtime, "v1.1.0", test.requirePassive)
+
+			// Assert
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 func TestCompletedUpdateRequiresFullFailoverReadiness(t *testing.T) {
 	// Arrange
 	report := StatusReport{
