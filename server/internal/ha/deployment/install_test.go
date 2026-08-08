@@ -100,6 +100,35 @@ func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	require.DirExists(t, secrets)
 }
 
+func TestInstallReadinessFailureDisablesHA(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	config := NodeConfig{
+		NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
+	}
+	writeTestSecretBundle(t, config)
+	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
+	require.NoError(t, os.WriteFile(rootPassword, []byte("root-password\n"), 0o600))
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	run := deps.run
+	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(args, " "), "fleet-ha status") {
+			return nil, errors.New("not ready")
+		}
+		return run(ctx, name, args...)
+	}
+
+	// Act
+	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "failover readiness did not become healthy")
+	require.Contains(t, strings.Join(calls, "\n"), "sudo systemctl disable --now proto-fleet-ha.service")
+}
+
 func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
