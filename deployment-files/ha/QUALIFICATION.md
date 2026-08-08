@@ -11,7 +11,8 @@ committed report.
 
 This report qualifies the fixed Fleet application, database, DCS, and VIP
 profile only. Adjacent application updates are not qualified here. Fleet Node
-HA, reconnect scale, and alert delivery remain outside this support claim.
+HA, reconnect scale, schedule recovery during failover, and alert delivery
+remain outside this support claim.
 
 ## Test identity
 
@@ -58,7 +59,11 @@ active, VIP, or writable-primary overlap, a collection gap, duplicate terminal
 results, or a stale transition. Record the observed recovery time and a short
 redacted evidence reference. For database isolation and failover rows, also
 record host-pinned writable SQL probe results against both database hosts at
-100 ms or faster; overlapping successful writes fail the gate.
+100 ms or faster. Record every transaction's start, commit, and failure on the
+controller's monotonic clock, conservatively treat the full start-to-result
+window as writable, and fail if those uncertainty-inclusive intervals overlap.
+After the old primary rejoins, verify every committed probe identifier exists
+exactly once.
 
 | Gate | Required result | Duration | Result | Evidence |
 | --- | --- | --- | --- | --- |
@@ -97,12 +102,14 @@ device effects. Device-side fencing is outside this profile's support claim.
 | Soak | 24h with no observed dual-active state or lost failover readiness | Pending | Pending |
 
 Before the soak, start an external append-only recorder on a separate
-controller. Continuously record each host's direct active-health result and
-interface-address events with synchronized monotonic timestamps at 100 ms or
-faster; evidence stored only inside the HA database is insufficient. Before
-accepting events, record a timestamped snapshot of both hosts' active health
-and configured-interface addresses. Seed intervals owned at that snapshot from
-the observation-window start, and extend intervals still owned at the final
+controller. Start and confirm both host subscriptions first, buffering active
+health samples and interface-address events with synchronized monotonic
+timestamps at 100 ms or faster. Then take timestamped state snapshots, replay
+all buffered events at or after each snapshot, and begin the observation
+window. Fail if the collector cannot prove that subscription, snapshot, and
+replay were gap-free. Evidence stored only inside the HA database is
+insufficient. Seed intervals owned at the initial snapshot from the
+observation-window start, and extend intervals still owned at the final
 snapshot through the observation-window end. Fail if either boundary state is
 unknown. Treat an
 unreachable host, write failure, or gap longer than 250 ms as a failed soak.
