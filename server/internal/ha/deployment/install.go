@@ -786,7 +786,7 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 	}
 	if config.isDatabaseNode() {
 		if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "--now", "proto-fleet-updater.service"); err != nil {
-			return fmt.Errorf("enable host updater: %s", commandError(output, err))
+			return stopIncompleteHA(ctx, deps, fmt.Errorf("enable host updater: %s", commandError(output, err)))
 		}
 	}
 	return nil
