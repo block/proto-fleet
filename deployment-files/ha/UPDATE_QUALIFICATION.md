@@ -53,10 +53,21 @@ and run Fleet commands as
    controller, poll that host's local updater status over
    `/run/proto-fleet-updater/updater.sock`. As soon as its operation phase is
    `activating`, peer validation has passed and the old active is about to stop.
-   Immediately run
-   `sudo /opt/proto-fleet/deployment/ha/fleet-ha app-stop passive` on the
-   updated peer. Require a zero exit status, then run
-   `sudo /opt/proto-fleet/deployment/ha/fleet-ha compose ps --status running fleet-api fleet-client`
+   Immediately kill only the Fleet application containers on the updated peer:
+
+   ```shell
+   sudo /opt/proto-fleet/deployment/ha/fleet-ha compose \
+     --env-file /etc/proto-fleet/ha/base.env \
+     --env-file /etc/proto-fleet/ha/fleet.env \
+     --env-file /etc/proto-fleet/ha/node.env \
+     --file /opt/proto-fleet/deployment/docker-compose.yaml \
+     --file /opt/proto-fleet/deployment/ha/fleet-compose.yaml \
+     kill fleet-api fleet-client
+   ```
+
+   This fault is unconditional and therefore does not race the peer becoming
+   active. Require a zero exit status, then repeat the command with
+   `ps --status running fleet-api fleet-client` in place of the final `kill`
    and confirm it lists neither Fleet container before the 10-second lease expires.
    Patroni, PostgreSQL, etcd, and keepalived must remain running. Keep recording
    until the command times out without swapping deployments, restarts `N`, and
