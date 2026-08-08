@@ -274,6 +274,7 @@ func TestManagerHAUpdateKeepsForwardRecoveryWhenStartupFails(t *testing.T) {
 	assert.Contains(t, completed.RecoveryCommand, "app-start")
 	assert.Contains(t, completed.RecoveryCommand, "v1.1.0")
 	assert.True(t, strings.HasSuffix(completed.RecoveryCommand, " any"))
+	assert.True(t, completed.RecoveryPending)
 	assert.Contains(t, completed.Error, "new stack failed to start")
 	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	commands := runner.Commands()
