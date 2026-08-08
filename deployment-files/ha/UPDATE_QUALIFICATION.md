@@ -43,7 +43,11 @@ and run Fleet commands as
    migrations to a representative production-size copy of an `N` database and
    run `N`'s affected database and API integration tests against it. Require
    completed baseline reports from [QUALIFICATION.md](QUALIFICATION.md) for the
-   exact `N` and `N+1` artifacts, then install `N` for this procedure.
+   exact `N` and `N+1` artifacts, then install `N` for this procedure and load
+   a sanitized production-scale `N` dataset. Record table sizes and row counts.
+   The passive-first update below must run its actual migrations against this
+   dataset while the sustained reads, writes, and commands in step 3 continue;
+   fail on a migration lock or probe gap beyond the stated bounds.
 2. Record the etcd container ID and start time on all three hosts, the Patroni
    container ID and start time on both database hosts, and
    `pg_postmaster_start_time()` on both PostgreSQL members.
@@ -57,8 +61,11 @@ and run Fleet commands as
    authenticated database-backed reads and uniquely identified idempotent
    commands through the VIP at least once per second. Give each request a
    two-second deadline, record command submission and terminal-result times,
-   and require each accepted command to reach exactly one terminal result within
-   60 seconds. Before the planned handoff, fail if successful reads or command
+   and require each background command to reach SUCCESS exactly once within 60
+   seconds. FAILED is permitted only for the deliberately interrupted
+   PROCESSING commands in steps 4 and 6, with the expected restart interruption
+   reason.
+   Before the planned handoff, fail if successful reads or command
    submissions are more than three seconds apart. Continue these probes through
    step 4. Verify the active host continues serving `N` throughout the migration
    and mixed-version window.
@@ -113,6 +120,7 @@ and run Fleet commands as
 | --- | --- | --- | --- | --- |
 | Baseline qualification | Exact `N` and `N+1` artifacts pass the clean-install HA report | N/A | Pending | Pending |
 | Migration compatibility | `N` integration tests pass against an `N` database migrated by `N+1` | N/A | Pending | Pending |
+| Live production-scale migration | The real passive updater migrates the recorded sanitized dataset without exceeding traffic or lock bounds | N/A | Pending | Pending |
 | Passive-first update | Passive runs `N+1`; active continues serving `N` | N/A | Pending | Pending |
 | Mixed-version operation | Continuous persisted reads and commands succeed throughout migration while hosts run `N` and `N+1` | N/A | Pending | Pending |
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive; cached `N` client works against `N+1` | `<15s` | Pending | Pending |
