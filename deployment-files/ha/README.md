@@ -160,11 +160,13 @@ Patroni primary, and connected PostgreSQL writer agree.
 The [qualification procedure](QUALIFICATION.md) owns the release qualification
 matrix and redacted evidence.
 
-Application-only HA updates support adjacent releases only. Every target
-migration must be expand-only and remain compatible with the running release;
-destructive contract migrations require a later release after both hosts have
-advanced. Do not use `fleet-ha update` for a release pair that has not passed
-separate adjacent-release migration and mixed-version qualification.
+This first application-only updater supports one adjacent transition from a
+clean-installed release. It rejects a chained update after the application has
+advanced beyond the pinned database and DCS substrate. Every target migration
+must be expand-only and remain compatible with the running release; destructive
+contract migrations require a later release after both hosts have advanced. Do
+not use `fleet-ha update` for a release pair that has not passed separate
+adjacent-release migration and mixed-version qualification.
 
 The first release containing this update workflow is the clean-install
 baseline. HA deployments on an earlier experimental release must be reinstalled
