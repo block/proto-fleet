@@ -48,7 +48,8 @@ time and a short redacted evidence reference.
 | Gate | Required result | Duration | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | Kill active Fleet process | Peer serves VIP within 15s | Pending | Pending | Pending |
-| Power off active host | Peer serves VIP within 15s | Pending | Pending | Pending |
+| Power off the active Fleet host after confirming it is the Patroni replica | Peer serves VIP within 15s | Pending | Pending | Pending |
+| Power off a host that is both active Fleet and Patroni primary | Writable Fleet service recovers through the VIP within 45s | Pending | Pending | Pending |
 | Stop database primary | Writable primary recovers within 30s | Pending | Pending | Pending |
 | Commit uniquely identified state, then abruptly stop its acknowledged primary | The exact state exists on the promoted writer | Pending | Pending | Pending |
 | Partition the current Patroni primary from DCS quorum while continuously probing pinned connections to both database hosts | At most one host accepts writes; the isolated primary is read-only or unreachable before promotion; it rejoins without divergent acknowledged state | Pending | Pending | Pending |
