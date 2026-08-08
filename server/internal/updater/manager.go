@@ -1600,7 +1600,6 @@ func (m *Manager) failActivation(
 	logOutput io.Writer,
 	restartHA bool,
 ) {
-	recoveryPending := false
 	layout := &updaterapi.Operation{
 		TargetVersion: targetVersion,
 		Phase:         updaterapi.PhaseActivating,
@@ -1627,12 +1626,11 @@ func (m *Manager) failActivation(
 		}
 		if err != nil {
 			activationErr = errors.Join(activationErr, fmt.Errorf("restart HA application after failed activation: %w", err))
-			recoveryPending = layout.RecoveryCommand != ""
 		} else {
 			layout.RecoveryCommand = ""
 		}
 	}
-	if recoveryPending {
+	if restartHA && layout.RecoveryCommand != "" {
 		m.failPendingRecovery(operationID, activationErr, layout.RecoveryCommand)
 		return
 	}
@@ -2141,6 +2139,9 @@ func (m *Manager) loadState() error {
 		if op.CompletedAt == nil {
 			op.CompletedAt = &now
 		}
+	}
+	if marker != nil && m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != "" {
+		op.RecoveryPending = true
 	}
 	m.operation = &op
 	return m.persistReconciledState()

@@ -209,11 +209,11 @@ func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRo
 	}
 	// The crash-only design intentionally has no maintenance lease. If the role
 	// changes after this final proof, normal update recovery restarts Fleet.
-	// Role validation runs while Fleet still serves. Bound only the crash-only
-	// kill so slow control probes cannot consume the interruption budget.
+	// Role validation runs while Fleet still serves. Give Compose one second to
+	// stop cleanly, then let the outer deadline bound forced termination.
 	stopCtx, cancel := context.WithTimeout(ctx, ha.UpdateActiveStopTimeout)
 	defer cancel()
-	if err := RunCompose(stopCtx, fleetComposeArgsAt(root, "kill", "fleet-api", "fleet-client")); err != nil {
+	if err := RunCompose(stopCtx, fleetComposeArgsAt(root, "stop", "--timeout", "1", "fleet-api", "fleet-client")); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
 	}
 	return nil
