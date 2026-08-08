@@ -86,19 +86,27 @@ func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	run := deps.run
-	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		output, err := run(ctx, name, args...)
-		if strings.Contains(strings.Join(append([]string{name}, args...), " "), "systemctl start proto-fleet-ha.service") {
-			return nil, errors.New("start failed")
+	ctx, cancel := context.WithCancel(t.Context())
+	cleanupUsedFreshContext := false
+	deps.run = func(runCtx context.Context, name string, args ...string) ([]byte, error) {
+		output, err := run(runCtx, name, args...)
+		command := strings.Join(append([]string{name}, args...), " ")
+		if strings.Contains(command, "systemctl disable --now proto-fleet-ha.service") {
+			cleanupUsedFreshContext = runCtx.Err() == nil
+		}
+		if strings.Contains(command, "systemctl start proto-fleet-ha.service") {
+			cancel()
+			return nil, context.Canceled
 		}
 		return output, err
 	}
 
 	// Act
-	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
+	err := install(ctx, InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
 
 	// Assert
-	require.ErrorContains(t, err, "start failed")
+	require.ErrorContains(t, err, context.Canceled.Error())
+	require.True(t, cleanupUsedFreshContext)
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, configRoot+"/etcd-root-password")
 	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
