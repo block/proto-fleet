@@ -190,12 +190,17 @@ func StopInstalledServices(ctx context.Context, envPath string) error {
 	if err != nil {
 		return err
 	}
+	var stopFleetErr error
 	if config.isDatabaseNode() {
 		if err := RunCompose(ctx, fleetComposeArgs("down")); err != nil {
-			return fmt.Errorf("stop Fleet: %w", err)
+			stopFleetErr = fmt.Errorf("stop Fleet: %w", err)
 		}
 	}
-	return RunCompose(ctx, infrastructureDownArgs(envPath, config.isDatabaseNode()))
+	stopInfrastructureErr := RunCompose(ctx, infrastructureDownArgs(envPath, config.isDatabaseNode()))
+	if stopInfrastructureErr != nil {
+		stopInfrastructureErr = fmt.Errorf("stop infrastructure: %w", stopInfrastructureErr)
+	}
+	return errors.Join(stopFleetErr, stopInfrastructureErr)
 }
 
 func infrastructureDownArgs(envPath string, databaseNode bool) []string {
