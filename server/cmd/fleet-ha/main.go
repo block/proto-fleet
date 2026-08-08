@@ -180,13 +180,22 @@ func runPassiveUpdate(
 	if err != nil {
 		return fmt.Errorf("update succeeded but local HA outcome could not be verified: %w", err)
 	}
-	if !report.Control.FailoverReady {
-		_, err = fmt.Fprintln(output, "Update succeeded, but failover redundancy is degraded. Run fleet-ha status --check.")
+	if report.Control != nil && report.Control.FailoverReady {
+		return nil
+	}
+	expectedVersionMismatch := report.Control != nil && report.Control.ControlReady &&
+		len(report.Control.ReasonCodes) == 1 && report.Control.ReasonCodes[0] == deployment.ReasonFleetVersionMismatch
+	if expectedVersionMismatch {
+		_, err = fmt.Fprintln(output, "Update succeeded; failover readiness will recover after the peer is updated.")
 		if err != nil {
 			return fmt.Errorf("write update outcome: %w", err)
 		}
+		return nil
 	}
-	return nil
+	if _, err = fmt.Fprintln(output, "Update succeeded, but failover redundancy is degraded. Run fleet-ha status --check."); err != nil {
+		return fmt.Errorf("write update outcome: %w", err)
+	}
+	return errors.New("update succeeded but failover readiness is degraded")
 }
 
 func runUpdate(

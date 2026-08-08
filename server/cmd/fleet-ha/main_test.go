@@ -124,8 +124,25 @@ func TestPassiveUpdateReportsDegradedFailoverReadiness(t *testing.T) {
 	err := runPassiveUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string) error { return nil }, client, read)
 
 	// Assert
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "failover readiness is degraded")
 	require.Contains(t, output.String(), "failover redundancy is degraded")
+}
+
+func TestPassiveUpdateAllowsExpectedVersionMismatch(t *testing.T) {
+	// Arrange
+	client := &fakeUpdaterClient{}
+	read := func(context.Context, string, bool) (deployment.StatusReport, error) {
+		return deployment.StatusReport{Control: &deployment.ControlStatus{
+			ControlReady: true,
+			ReasonCodes:  []deployment.ControlReasonCode{deployment.ReasonFleetVersionMismatch},
+		}}, nil
+	}
+
+	// Act
+	err := runPassiveUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string) error { return nil }, client, read)
+
+	// Assert
+	require.NoError(t, err)
 }
 
 func TestUpdateReturnsWhenUpdaterIsUnavailable(t *testing.T) {
