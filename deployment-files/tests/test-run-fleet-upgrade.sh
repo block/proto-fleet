@@ -353,7 +353,10 @@ case " $* " in
                 fi
                 printf 'inactive\n' > "$UPDATER_STATE_FILE"
                 ;;
-            'restart proto-fleet-updater.service') printf 'active\n' > "$UPDATER_STATE_FILE" ;;
+            'restart proto-fleet-updater.service')
+                [ "${FAKE_UPDATER_RESTART_FAILURE:-false}" != "true" ] || exit 1
+                printf 'active\n' > "$UPDATER_STATE_FILE"
+                ;;
             'enable proto-fleet-updater.service') printf 'true\n' > "$UPDATER_ENABLED_FILE" ;;
             'disable --now proto-fleet-updater.service')
                 printf 'inactive\n' > "$UPDATER_STATE_FILE"
@@ -653,6 +656,36 @@ else
 fi
 assert_contains "direct runner repairs missing boot enablement" \
     "$HARNESS_CALL_LOG" "systemctl enable proto-fleet-updater.service"
+
+# A committed socket-enabled deployment must not remain active when the host
+# updater cannot restart. Degrade to the supported copy-command mode and prove
+# the second Compose transition omits the privileged socket overlay.
+make_stage direct-updater-restart-fallback
+printf 'ENABLE_ONE_CLICK_UPDATES=true\n' >> "$STAGE/.env"
+printf 'active\n' > "$HARNESS_UPDATER_STATE_FILE"
+if FAKE_UPDATER_RESTART_FAILURE=true run_stage "$STAGE" --non-interactive; then
+    pass "failed updater restart deploys the copy-command fallback"
+else
+    fail "failed updater restart should degrade to copy-command updates"
+fi
+assert_contains "failed updater restart is diagnosed" "$HARNESS_OUTPUT_LOG" \
+    "redeploying without its socket overlay"
+assert_contains "failed updater restart disables the service" \
+    "$HARNESS_CALL_LOG" "systemctl disable --now proto-fleet-updater.service"
+fallback_up_line=$(grep ' compose .* up --remove-orphans' "$HARNESS_CALL_LOG" | tail -1)
+if [ "$(grep -c ' compose .* up --remove-orphans' "$HARNESS_CALL_LOG")" -eq 2 ] \
+  && [[ "$fallback_up_line" != *"docker-compose.updater.yaml"* ]]; then
+    pass "copy-command fallback replaces the socket-enabled topology"
+else
+    fail "copy-command fallback did not remove the updater overlay"
+fi
+if grep -q '^ENABLE_ONE_CLICK_UPDATES=false$' "$STAGE/.env" \
+  && [ "$(cat "$HARNESS_UPDATER_STATE_FILE")" = inactive ] \
+  && [ "$(cat "$HARNESS_UPDATER_ENABLED_FILE")" = false ]; then
+    pass "copy-command fallback commits disabled updater state"
+else
+    fail "copy-command fallback left updater configuration or service enabled"
+fi
 
 # systemctl stop drains an activation that has already crossed its commit
 # boundary. If that activation swaps deployment/ while the old runner waits,

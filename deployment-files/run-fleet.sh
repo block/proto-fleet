@@ -222,6 +222,28 @@ disable_direct_run_updater() {
     return 0
 }
 
+deploy_direct_run_updater_fallback() {
+    echo "Warning: the host updater did not become ready; redeploying without its socket overlay." >&2
+    # A failed readiness check can leave a partially started updater behind.
+    # Stop and disable it before the fallback runner mutates the deployment so
+    # it cannot race the second Compose transition.
+    if ! disable_direct_run_updater; then
+        echo "Error: could not stop the unavailable host updater before deploying the copy-command fallback." >&2
+        return 1
+    fi
+    # The successful deployment already persisted every other overlay choice.
+    # Use only the non-interactive updater override here: preflight proof has
+    # been consumed, and carrying --skip-build would reject this recovery run.
+    if ! /bin/bash "$PROJECT_ROOT/run-fleet.sh" \
+        --non-interactive --disable-one-click-updates; then
+        echo "Error: could not deploy the copy-command fallback after the host updater failed readiness." >&2
+        return 1
+    fi
+    ENABLE_ONE_CLICK_UPDATES=false
+    DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
+    echo "One-click upgrades are unavailable; the in-product copy command remains usable."
+}
+
 reconcile_direct_run_updater() {
     local run_status="$1"
     local committed_state="$ENABLE_ONE_CLICK_UPDATES"
@@ -245,7 +267,16 @@ reconcile_direct_run_updater() {
         # Enforce the persisted contract even when systemd drifted before this
         # run: enabled configuration always ends with a boot-enabled, ready
         # service rather than relying on its state at admission time.
-        restart_direct_run_updater true || return 1
+        if ! restart_direct_run_updater true; then
+            # Once teardown has started, Fleet may already be running with the
+            # updater socket overlay. Commit the supported copy-command mode
+            # rather than returning with a broken privileged endpoint.
+            if [ "$DEPLOYMENT_MUTATION_STARTED" = "true" ]; then
+                deploy_direct_run_updater_fallback || return 1
+                return 0
+            fi
+            return 1
+        fi
         return 0
     fi
     if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ]; then
