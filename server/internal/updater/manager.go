@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/mod/semver"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
@@ -1255,7 +1256,15 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile)
 			return
 		}
-		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop", requiredRole); err != nil {
+		haActivationCtx := activationCtx
+		stopTimeout := m.cfg.ActivationTimeout
+		cancelOutage := func() {}
+		if complete {
+			haActivationCtx, cancelOutage = context.WithTimeout(activationCtx, ha.UpdateTakeoverTimeout)
+			stopTimeout = ha.UpdateActiveStopTimeout
+		}
+		defer cancelOutage()
+		if err := m.runHACommand(haActivationCtx, stopTimeout, currentDeployment, commandOutput, "app-stop", requiredRole); err != nil {
 			restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
 			if restartErr == nil {
 				m.fail(operationID, fmt.Errorf("stop HA application failed; previous release restarted: %w", err), "")
@@ -1268,7 +1277,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 			return
 		}
 		if complete {
-			if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion); err != nil {
+			if err := m.runHACommand(haActivationCtx, ha.UpdateTakeoverTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion); err != nil {
 				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
 				if restartErr == nil {
 					m.fail(operationID, fmt.Errorf("updated peer did not take over; previous release restarted: %w", err), "")

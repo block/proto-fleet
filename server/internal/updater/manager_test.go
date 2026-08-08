@@ -52,27 +52,34 @@ type recordingRunner struct {
 }
 
 type haRecordingRunner struct {
-	mu       sync.Mutex
-	commands []recordedCommand
-	fail     map[string]error
+	mu        sync.Mutex
+	commands  []recordedCommand
+	fail      map[string]error
+	blockStop bool
 }
 
-func (r *haRecordingRunner) Run(_ context.Context, dir string, output io.Writer, name string, args ...string) error {
+func (r *haRecordingRunner) Run(ctx context.Context, dir string, output io.Writer, name string, args ...string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.commands = append(r.commands, recordedCommand{Dir: dir, Name: name, Args: append([]string(nil), args...)})
+	blockStop := r.blockStop && len(args) > 0 && args[0] == "app-stop"
 	if len(args) == 1 && args[0] == "--version" {
+		r.mu.Unlock()
 		if _, err := fmt.Fprintln(output, "v1.1.0"); err != nil {
 			return fmt.Errorf("write candidate version: %w", err)
 		}
 		return nil
 	}
+	var err error
 	if len(args) > 0 {
-		err := r.fail[args[0]]
+		err = r.fail[args[0]]
 		delete(r.fail, args[0])
-		return err
 	}
-	return nil
+	r.mu.Unlock()
+	if blockStop {
+		<-ctx.Done()
+		return fmt.Errorf("blocked application stop: %w", ctx.Err())
+	}
+	return err
 }
 
 func (r *haRecordingRunner) Commands() []recordedCommand {
@@ -433,6 +440,30 @@ func TestManagerHACompletionRestartsOldReleaseWhenStopFails(t *testing.T) {
 	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
 	assert.Contains(t, completed.Error, "previous release restarted")
 	assert.Empty(t, completed.RecoveryCommand)
+	commands := runner.Commands()
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
+}
+
+func TestManagerHACompletionRestartsOldReleaseWhenStopBlocks(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: make(map[string]error), blockStop: true}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+		cfg.ActivationTimeout = 250 * time.Millisecond
+	})
+
+	// Act
+	_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "previous release restarted")
 	commands := runner.Commands()
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
 }

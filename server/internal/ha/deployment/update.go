@@ -281,7 +281,7 @@ func WaitForVIPVersion(ctx context.Context, envPath, targetVersion string) error
 	transport := &http.Transport{TLSClientConfig: tlsConfig, Proxy: nil}
 	client := &http.Client{Transport: transport, Timeout: 2 * time.Second, CheckRedirect: transportguard.RejectRedirect}
 	defer transport.CloseIdleConnections()
-	deadline, cancel := context.WithTimeout(ctx, vipTakeoverTimeout)
+	deadline, cancel := context.WithTimeout(ctx, ha.UpdateTakeoverTimeout)
 	defer cancel()
 	endpoint := "https://" + config.VirtualIP + "/api-proxy/health"
 	for {
@@ -303,7 +303,7 @@ func WaitForVIPVersion(ctx context.Context, envPath, targetVersion string) error
 		}
 		select {
 		case <-deadline.Done():
-			return fmt.Errorf("updated peer did not serve the VIP within %s", vipTakeoverTimeout)
+			return fmt.Errorf("updated peer did not serve the VIP within %s", ha.UpdateTakeoverTimeout)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
