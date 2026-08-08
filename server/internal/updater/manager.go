@@ -565,10 +565,10 @@ func wrapIfError(message string, err error) error {
 }
 
 func NewManager(cfg Config) (*Manager, error) {
-	return newManager(cfg, true)
+	return newManager(cfg)
 }
 
-// RepairStartup restores a crash-interrupted deployment layout without starting Fleet.
+// RepairStartup restores crash-interrupted updater and deployment state before HA starts.
 func RepairStartup(cfg Config) error {
 	canonicalStateDir, err := ensureUpdaterStateDirectory(cfg.StateDir)
 	if err != nil {
@@ -578,21 +578,25 @@ func RepairStartup(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if _, err := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, ""); err != nil {
-		return errors.Join(err, processLock.Close())
+	_, prepareErr := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, "")
+	if prepareErr != nil && !errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored) {
+		return errors.Join(prepareErr, processLock.Close())
 	}
 	if err := processLock.Close(); err != nil {
 		return fmt.Errorf("release updater repair lock: %w", err)
 	}
 	cfg.StateDir = canonicalStateDir
-	manager, err := newManager(cfg, false)
+	manager, err := newManager(cfg)
 	if err != nil {
 		return err
 	}
-	return manager.Close()
+	if prepareErr != nil {
+		err = manager.restoreUpdaterFromInstalledDeployment()
+	}
+	return errors.Join(err, manager.Close())
 }
 
-func newManager(cfg Config, recoverApplication bool) (*Manager, error) {
+func newManager(cfg Config) (*Manager, error) {
 	if !filepath.IsAbs(cfg.InstallRoot) {
 		return nil, fmt.Errorf("install root must be absolute")
 	}
@@ -718,13 +722,6 @@ func newManager(cfg Config, recoverApplication bool) (*Manager, error) {
 		_ = processLock.Close()
 		_ = logRoot.Close()
 		return nil, err
-	}
-	if recoverApplication {
-		if err := m.recoverHAApplication(); err != nil {
-			_ = processLock.Close()
-			_ = logRoot.Close()
-			return nil, err
-		}
 	}
 	protectedLogName := ""
 	if m.operation != nil {
