@@ -102,9 +102,10 @@ interface-address events with synchronized monotonic timestamps at 100 ms or
 faster; evidence stored only inside the HA database is insufficient. Treat an
 unreachable host, write failure, or gap longer than 250 ms as a failed soak.
 For a power-off gate, also record the switched power outlet or an independent
-power monitor on the same clock. Confirmed power removal closes that host's
-possible active interval; network unreachability alone does not. Fail the gate
-if independent power-state evidence is unavailable.
+power monitor on the same clock. The first confirmed power-off sample closes
+that host's possible active and VIP intervals; network unreachability alone
+does not. Stream termination after that sample is expected, not a collection
+gap. Fail the gate if independent power-state evidence is unavailable.
 Also sample both hosts at least every two seconds for availability. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
 and retain the status, health, and address streams. Conservatively reconstruct
