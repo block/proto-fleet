@@ -96,7 +96,9 @@ func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 
 	// Assert
 	require.ErrorContains(t, err, "start failed")
-	require.Contains(t, strings.Join(calls, "\n"), configRoot+"/etcd-root-password")
+	joined := strings.Join(calls, "\n")
+	require.Contains(t, joined, configRoot+"/etcd-root-password")
+	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 	require.FileExists(t, rootPassword)
 	require.DirExists(t, secrets)
 }
