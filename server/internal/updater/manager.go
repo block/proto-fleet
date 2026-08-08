@@ -689,14 +689,47 @@ func NewManager(cfg Config) (*Manager, error) {
 
 // RepairStartup restores a crash-interrupted deployment layout without starting Fleet.
 func RepairStartup(cfg Config) error {
-	if _, err := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, ""); err != nil {
-		return err
+	_, prepareErr := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, "")
+	if prepareErr != nil && !errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored) {
+		return prepareErr
 	}
 	manager, err := NewManager(cfg)
 	if err != nil {
 		return err
 	}
-	return manager.Close()
+	if prepareErr != nil {
+		err = manager.restoreUpdaterFromInstalledDeployment()
+	}
+	return errors.Join(err, manager.Close())
+}
+
+func (m *Manager) restoreUpdaterFromInstalledDeployment() error {
+	targetVersion, err := readInstalledVersion(filepath.Join(m.cfg.InstallRoot, "deployment", "version.txt"))
+	if err != nil {
+		return fmt.Errorf("read installed version for updater recovery: %w", err)
+	}
+	updaterPath := filepath.Join(m.cfg.InstallRoot, "deployment", "updater", "proto-fleet-updater")
+	fd, err := syscall.Open(updaterPath, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return fmt.Errorf("open installed updater for recovery: %w", err)
+	}
+	installedUpdater := os.NewFile(uintptr(fd), updaterPath)
+	if installedUpdater == nil {
+		_ = syscall.Close(fd)
+		return fmt.Errorf("open installed updater for recovery")
+	}
+	defer installedUpdater.Close()
+
+	if err := m.refreshSelfUpdater(context.Background(), installedUpdater, m.cfg.SelfUpdatePath, targetVersion); err != nil {
+		return fmt.Errorf("restore updater from installed deployment: %w", err)
+	}
+	// The candidate came from the already-verified active deployment and its
+	// version contract was smoke-tested above. Commit it before systemd starts
+	// the daemon so a second startup does not restore the stale executable again.
+	if err := clearSelfUpdateHandoffMarker(m.cfg.SelfUpdatePath); err != nil {
+		return fmt.Errorf("commit recovered updater: %w", err)
+	}
+	return nil
 }
 
 func (m *Manager) Close() error {

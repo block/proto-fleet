@@ -1634,6 +1634,34 @@ func TestRepairStartupRestoresInterruptedLayout(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
 }
 
+func TestRepairStartupRestoresUpdaterFromInstalledDeployment(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.1.0")
+	deployedUpdater := filepath.Join(installRoot, "deployment", "updater", "proto-fleet-updater")
+	require.NoError(t, os.MkdirAll(filepath.Dir(deployedUpdater), 0o750))
+	require.NoError(t, os.WriteFile(deployedUpdater, []byte("new updater"), 0o755))
+	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
+	candidate := installedUpdater + ".candidate"
+	require.NoError(t, os.WriteFile(candidate, []byte("new updater"), 0o755))
+	require.NoError(t, installExecutableCandidate(candidate, installedUpdater))
+
+	// Act
+	err := RepairStartup(Config{
+		InstallRoot:    installRoot,
+		StateDir:       filepath.Join(t.TempDir(), "state"),
+		SelfUpdatePath: installedUpdater,
+		GOARCH:         "amd64",
+		Runner:         &recordingRunner{candidateVersion: "v1.1.0"},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "new updater", mustReadFile(t, installedUpdater))
+	assert.NoFileExists(t, installedUpdater+selfUpdateHandoffSuffix)
+}
+
 func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *testing.T) {
 	t.Parallel()
 
