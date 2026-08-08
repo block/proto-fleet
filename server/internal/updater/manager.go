@@ -1298,13 +1298,12 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 		}
 		if complete {
 			if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion); err != nil {
-				restartErr := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-start", previousVersion, "any")
-				clearErr := m.clearActivationMarker()
-				if restartErr == nil && clearErr == nil {
+				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
+				if restartErr == nil {
 					m.fail(operationID, fmt.Errorf("updated peer did not take over; previous release restarted: %w", err), "")
 					return
 				}
-				m.fail(operationID, errors.Join(err, restartErr, clearErr), m.activationRecoveryCommand(currentDeployment, previousVersion))
+				m.fail(operationID, errors.Join(err, restartErr), m.activationRecoveryCommand(currentDeployment, previousVersion))
 				return
 			}
 		}
@@ -1370,6 +1369,20 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 		}
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] upgrade completed\n", m.cfg.Now().UTC().Format(time.RFC3339))
+}
+
+func (m *Manager) restartHAApplication(
+	parent context.Context,
+	deployment string,
+	version string,
+	output io.Writer,
+) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), m.cfg.ActivationTimeout)
+	defer cancel()
+	if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, output, "app-start", version, "any"); err != nil {
+		return err
+	}
+	return m.clearActivationMarker()
 }
 
 func (m *Manager) runPreflight(ctx context.Context, deployment string, output io.Writer) error {
