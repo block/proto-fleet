@@ -68,7 +68,7 @@ time and a short redacted evidence reference.
 | From a fourth non-peer, raw-probe each HA-only port before and after reboot after verifying its listener from a peer | The matching nftables drop counter increases while peer traffic remains healthy; use a temporary listener for the normally closed debug port | Pending | Pending | Pending |
 | Send a valid winning VRRP advertisement from a non-peer | The protocol-112 drop counter increases and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over with PENDING command | New active dispatches the command | Pending | Pending | Pending |
-| Demote a live old active with a stalled PROCESSING plugin call, recover on the peer, then release the old call | The stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
+| SIGSTOP the old active with a stalled PROCESSING plugin call, let the peer recover it, queue the old result, then SIGCONT | The resumed stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
 | Publish a unique MQTT curtailment target, confirm shedding starts, fail the active before completion, then restore after takeover | The peer resumes MQTT intake and retains or reasserts curtailment within 180s, then measured load follows the restoration target | Pending | Pending | Pending |
