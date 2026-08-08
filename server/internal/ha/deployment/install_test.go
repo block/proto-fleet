@@ -129,6 +129,27 @@ func TestInstallReadinessFailureDisablesHA(t *testing.T) {
 	require.Contains(t, strings.Join(calls, "\n"), "sudo systemctl disable --now proto-fleet-ha.service")
 }
 
+func TestPrepareImagesRejectsMissingHADatabaseImage(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	config := NodeConfig{NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0]}
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	run := deps.run
+	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(args, " "), "docker image inspect proto-fleet-timescaledb-ha:test") {
+			return nil, errors.New("missing image")
+		}
+		return run(ctx, name, args...)
+	}
+
+	// Act
+	err := prepareImages(t.Context(), source, config, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "archive did not load required HA database image")
+}
+
 func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
@@ -351,7 +372,7 @@ func testInstallRelease(t *testing.T) string {
 		"server/virtual-plugin.json":                             "config",
 		"images/timescaledb.tar.gz":                              "image",
 		"ha/fleet-ha":                                            "binary",
-		"ha/compose.yaml":                                        "services: {}\n",
+		"ha/compose.yaml":                                        "services:\n  patroni:\n    image: proto-fleet-timescaledb-ha:test\n",
 		"ha/fleet-compose.yaml":                                  "services: {}\n",
 		"ha/firewall.nft.tmpl":                                   "${HA_NODE_IP} ${HA_DB_A_IP} ${HA_DB_B_IP} ${HA_DCS_C_IP} ${HA_NETWORK_INTERFACE}\n",
 		"ha/keepalived.conf.tmpl":                                "${HA_NODE_IP} ${HA_PEER_IP} ${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE} ${HA_ENDPOINT_HEARTBEAT_FILE} ${HA_SECRETS_DIR}\n",
