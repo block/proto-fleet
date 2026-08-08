@@ -399,12 +399,18 @@ func TestManagerHAInterruptedAfterStopRestartsCurrentApplication(t *testing.T) {
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	require.NoError(t, os.Rename(filepath.Join(installRoot, "deployment"), filepath.Join(installRoot, "deployment.previous")))
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+	runner := &haRecordingRunner{fail: make(map[string]error)}
+	cfg := Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
+	}
 
 	// Act
-	runner := &haRecordingRunner{fail: make(map[string]error)}
-	err := RepairStartup(Config{
-		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
-	})
+	err := RepairStartup(cfg)
+	require.NoError(t, err)
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	err = manager.RecoverApplication()
 	require.NoError(t, err)
 
 	// Assert
@@ -558,11 +564,17 @@ func TestManagerHACompletionInterruptedAfterSwapStartsTargetRelease(t *testing.T
 	require.NoError(t, os.WriteFile(previousVersionPath, []byte("version: v1.0.0\n"), 0o600))
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
 	runner := &haRecordingRunner{fail: make(map[string]error)}
+	cfg := Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
+	}
 
 	// Act
-	err := RepairStartup(Config{
-		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
-	})
+	err := RepairStartup(cfg)
+	require.NoError(t, err)
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	err = manager.RecoverApplication()
 	require.NoError(t, err)
 
 	// Assert
@@ -1910,7 +1922,7 @@ func TestRepairStartupDoesNotTouchSelfUpdateWhileManagerRuns(t *testing.T) {
 	assert.Equal(t, "new updater", mustReadFile(t, destination))
 }
 
-func TestRepairStartupFailsWhenHARecoveryFails(t *testing.T) {
+func TestRecoverApplicationKeepsPendingRecoveryAfterFailure(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
@@ -1920,13 +1932,19 @@ func TestRepairStartupFailsWhenHARecoveryFails(t *testing.T) {
 	))
 	stateDir := filepath.Join(t.TempDir(), "state")
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
-
-	// Act
-	err := RepairStartup(Config{
+	cfg := Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
 		DeploymentMode: DeploymentModeHA,
 		Runner:         &haRecordingRunner{fail: map[string]error{"app-start": errors.New("restart failed")}},
-	})
+	}
+
+	// Act
+	err := RepairStartup(cfg)
+	require.NoError(t, err)
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	err = manager.RecoverApplication()
 	require.ErrorContains(t, err, "restart interrupted HA application")
 
 	// Assert
