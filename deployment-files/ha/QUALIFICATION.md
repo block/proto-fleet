@@ -143,31 +143,37 @@ device effects. Device-side fencing is outside this profile's support claim.
 
 Before the soak, start an external append-only recorder on a separate
 controller. Start and confirm both host subscriptions first, buffering
-interface-address events. Timestamp all
-probe sends, responses, and event arrivals on that controller's monotonic clock;
-do not compare host clocks. Then take timestamped state snapshots, replay all
-buffered events that can intersect each snapshot, and begin the observation
-window. Fail if the collector cannot prove that subscription, snapshot, replay,
-and timing bounds were gap-free. Evidence stored only inside the HA database is
-insufficient. Seed intervals owned at the initial snapshot from the
-observation-window start, and extend intervals still owned at the final
-snapshot through the observation-window end. Fail if either boundary state is
-unknown. Treat an unreachable host, write failure, or address-event collection
-gap as a failed soak.
+interface-address events. Timestamp every probe send, response, and event
+arrival on that controller's monotonic clock; do not compare host clocks. Then
+take timestamped state snapshots, replay all buffered events that can intersect
+each snapshot, and begin the observation window. Fail if the collector cannot
+prove that subscription, snapshot, replay, and timing bounds were gap-free.
+Evidence stored only inside the HA database is insufficient. An event's receipt
+time is not its occurrence time. For each host, conservatively bound every
+possible VIP-owned interval from the send time of the last probe that confirmed
+the VIP absent through the receipt time of the first later probe or event that
+confirmed it absent again. Seed an initially owned interval at the observation
+window start and extend a finally owned interval through the observation window
+end. During each injected failure and VIP move, probe both hosts at least every
+100 milliseconds; uncertainty that makes the two hosts' possible-owned
+intervals overlap fails the gate rather than being resolved by event arrival
+order. Fail if either boundary state is unknown. Treat an unreachable host,
+write failure, or address-event collection gap as a failed soak.
 For a power-off gate, also record the switched power outlet or an independent
 power monitor on the same clock. The first confirmed power-off sample closes
 that host's possible active and VIP intervals; network unreachability alone
 does not. Stream termination after that sample is expected, not a collection
 gap. Fail the gate if independent power-state evidence is unavailable.
-Also sample both hosts at least every two seconds for availability. Record local
+Outside injected transitions, sample both hosts at least every two seconds for
+availability. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
 and retain the status, health, and address streams. Run this probe outside shell
 error-exit handling: capture stdout, stderr, and exit status, then continue
 after the expected nonzero result for degraded failover readiness. Missing or
-invalid JSON is a collection failure, not expected degradation. Reconstruct
-each VIP interval from address-add through address-delete and fail if host
-intervals overlap. Health polling is availability evidence, not proof that
-every runtime transition was observed. Prove effect exclusivity with the
+invalid JSON is a collection failure, not expected degradation. Fail if the
+conservative possible-owned intervals overlap. Health polling is availability
+evidence, not proof that every runtime transition was observed. Prove effect
+exclusivity with the
 fleet-wide recorder instead: it must capture every request for every qualified
 test miner, and no old-holder work may remain in flight when new-holder work
 begins anywhere in the fleet. Any recorder gap fails the soak. Export redacted
