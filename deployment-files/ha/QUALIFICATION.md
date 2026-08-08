@@ -83,13 +83,15 @@ from acceptance through response or connection close, including the device and
 source host. Fail on a recorder gap or if work from the old holder remains in
 flight when work from the new holder begins anywhere in the test fleet.
 
-For every row that requires Fleet takeover or PostgreSQL writer promotion,
-publish a unique MQTT curtailment target and confirm shedding has started before
-injecting the fault. Require MQTT intake to resume, the target to be retained or
-reasserted, and measured load to reach the exact target within 180 seconds.
-Then publish a distinct restoration target and require measured load to follow
-it within 180 seconds. Apply these bounds in addition to the row's service
-recovery bound. For database isolation and failover rows, also
+For every row that injects a Fleet, PostgreSQL, etcd, or VIP failure, publish a
+unique MQTT curtailment target and confirm shedding has started before injecting
+the fault. Keep the fault active while requiring MQTT intake to continue or
+resume, the target to be retained or reasserted, and measured load to reach the
+exact target within 180 seconds. Then publish a distinct restoration target and
+require measured load to follow it within 180 seconds. Apply these bounds
+whether the fault causes takeover, writer promotion, or degraded readiness, and
+in addition to the row's service recovery bound. For database isolation and
+failover rows, also
 record host-pinned writable SQL probe results against both database hosts at
 100 ms or faster. Before isolating the old primary, begin a writable transaction
 on it, write a unique probe identifier, and hold the transaction open. After the
