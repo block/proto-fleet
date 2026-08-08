@@ -175,7 +175,9 @@ func StopApplication(ctx context.Context, root string, expectedRole ha.Role) err
 	if err != nil {
 		return fmt.Errorf("refuse to stop HA application after %s role changed: %w", expectedRole, err)
 	}
-	if err := RunCompose(ctx, fleetComposeArgsAt(root, "stop", "fleet-api", "fleet-client")); err != nil {
+	// Leave two seconds inside the updater's five-second active-stop deadline
+	// for Compose and Docker to confirm both containers stopped.
+	if err := RunCompose(ctx, fleetComposeArgsAt(root, "stop", "--timeout", "3", "fleet-api", "fleet-client")); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
 	}
 	return nil
@@ -201,14 +203,26 @@ func startApplication(ctx context.Context, root, targetVersion string, requirePa
 	}
 	// Recovery may replay before Fleet ever stopped. Avoid letting Compose
 	// recreate an already-healthy deployment from newly staged image tags.
-	if applicationIsReady(ctx, config, tlsConfig, targetVersion, requirePassive) {
+	ready, err := applicationIsReady(ctx, config, tlsConfig, targetVersion, requirePassive)
+	if err != nil {
+		return err
+	}
+	if ready {
 		return nil
 	}
-	if err := RunCompose(ctx, fleetComposeArgsAt(
-		root,
-		"up", "-d", "--no-deps", "--no-build", "--pull", "never", "fleet-api", "fleet-client",
-	)); err != nil {
-		return fmt.Errorf("start HA application: %w", err)
+	for {
+		err := RunCompose(ctx, fleetComposeArgsAt(
+			root,
+			"up", "-d", "--no-deps", "--no-build", "--pull", "never", "fleet-api", "fleet-client",
+		))
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("start HA application after Compose failure %v: %w", err, ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
 	}
 	for {
 		ready, err := applicationIsReady(ctx, config, tlsConfig, targetVersion, requirePassive)

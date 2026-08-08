@@ -24,6 +24,7 @@ func (p Phase) Terminal() bool {
 type Operation struct {
 	ID              string     `json:"id"`
 	TargetVersion   string     `json:"target_version"`
+	Complete        bool       `json:"complete,omitempty"`
 	Phase           Phase      `json:"phase"`
 	Message         string     `json:"message,omitempty"`
 	StartedAt       time.Time  `json:"started_at"`
