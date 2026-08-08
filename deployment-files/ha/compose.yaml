@@ -39,7 +39,9 @@ services:
       - ${HA_SECRETS_DIR}/etcd-jwt.pub:/run/proto-fleet-ha/etcd-jwt.pub:ro
       - ${HA_SECRETS_DIR}/etcd-jwt.key:/run/proto-fleet-ha/etcd-jwt.key:ro
     stop_grace_period: 10s
-    restart: always
+    # Systemd starts etcd only after the firewall and authentication gate.
+    # Recover process failures, but do not bypass that gate after Docker restarts.
+    restart: on-failure
     logging: *logging
 
   patroni:
