@@ -579,7 +579,8 @@ func RepairStartup(cfg Config) error {
 		return err
 	}
 	_, prepareErr := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, "")
-	if prepareErr != nil && !errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored) {
+	restoreUpdater := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
+	if prepareErr != nil && !restoreUpdater && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
 		return errors.Join(prepareErr, processLock.Close())
 	}
 	if err := processLock.Close(); err != nil {
@@ -590,7 +591,7 @@ func RepairStartup(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if prepareErr != nil {
+	if restoreUpdater {
 		err = manager.restoreUpdaterFromInstalledDeployment()
 	}
 	return errors.Join(err, manager.Close())
