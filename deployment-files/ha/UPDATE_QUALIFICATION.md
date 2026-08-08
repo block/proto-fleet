@@ -29,6 +29,11 @@ leaves the release marked prerelease and unsupported.
 Set `SOURCE_RELEASE` and `TARGET_RELEASE` to the recorded canonical release tags
 and run Fleet commands as
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha update "$TARGET_RELEASE"`.
+On both application hosts, set
+`PROTO_FLEET_HA_QUALIFICATION_TARGET=$TARGET_RELEASE` in the root-owned
+`/etc/proto-fleet/updater.env`, then restart `proto-fleet-updater.service`.
+This permits only that exact prerelease during qualification. Remove the setting
+and restart the updater after the run, whether the report passes or fails.
 
 1. Verify the stable `N` and prerelease `N+1` artifacts and their checksums. Confirm
    the target was built from a reviewed
