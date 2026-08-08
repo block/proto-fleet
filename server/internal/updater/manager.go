@@ -1341,7 +1341,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 					m.fail(operationID, fmt.Errorf("stop HA application failed; previous release restarted: %w", err), "")
 					return
 				}
-				m.fail(operationID, errors.Join(
+				m.failPendingRecovery(operationID, errors.Join(
 					fmt.Errorf("stop HA application: %w", err),
 					fmt.Errorf("restart previous release: %w", restartErr),
 				), recovery)
@@ -1360,7 +1360,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 					m.fail(operationID, fmt.Errorf("updated peer did not take over; previous release restarted: %w", err), "")
 					return
 				}
-				m.fail(operationID, errors.Join(err, restartErr), m.activationRecoveryCommand(currentDeployment, previousVersion))
+				m.failPendingRecovery(operationID, errors.Join(err, restartErr), m.activationRecoveryCommand(currentDeployment, previousVersion))
 				return
 			}
 		}
@@ -1982,6 +1982,14 @@ func (m *Manager) setRecoveryCommand(id, recovery string) error {
 }
 
 func (m *Manager) fail(id string, err error, recovery string) {
+	m.finishFailure(id, err, recovery, false)
+}
+
+func (m *Manager) failPendingRecovery(id string, err error, recovery string) {
+	m.finishFailure(id, err, recovery, true)
+}
+
+func (m *Manager) finishFailure(id string, err error, recovery string, recoveryPending bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.operation == nil || m.operation.ID != id {
@@ -1993,7 +2001,7 @@ func (m *Manager) fail(id string, err error, recovery string) {
 	m.operation.Message = "Upgrade failed"
 	m.operation.Error = err.Error()
 	m.operation.RecoveryCommand = recovery
-	m.operation.RecoveryPending = false
+	m.operation.RecoveryPending = recoveryPending
 	m.operation.UpdatedAt = now
 	m.operation.CompletedAt = &now
 	if persistErr := m.persistLocked(); persistErr != nil {

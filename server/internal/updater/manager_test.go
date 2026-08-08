@@ -504,6 +504,44 @@ func TestManagerHACompletionRestartsOldReleaseWhenStopFails(t *testing.T) {
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
 }
 
+func TestManagerHACompletionRetriesFailedRollbackAfterRestart(t *testing.T) {
+	for _, failedCommand := range []string{"app-stop", "wait-takeover"} {
+		t.Run(failedCommand, func(t *testing.T) {
+			// Arrange
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			bundle := releaseBundle(t, "v1.1.0")
+			server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+			runner := &haRecordingRunner{fail: map[string]error{
+				failedCommand: assert.AnError,
+				"app-start":   errors.New("restart failed"),
+			}}
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+				cfg.DeploymentMode = DeploymentModeHA
+			})
+
+			// Act
+			_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+			require.NoError(t, err)
+			failed := waitForTerminal(t, manager)
+			require.NoError(t, manager.Close())
+			restarted, err := NewManager(manager.cfg)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, restarted.Close()) })
+			err = restarted.RecoverApplication()
+
+			// Assert
+			require.NoError(t, err)
+			assert.True(t, failed.RecoveryPending)
+			assert.NotEmpty(t, failed.RecoveryCommand)
+			recovered := restarted.Status().Operation
+			require.NotNil(t, recovered)
+			assert.False(t, recovered.RecoveryPending)
+			assert.Empty(t, recovered.RecoveryCommand)
+		})
+	}
+}
+
 func TestManagerHACompletionRestartsOldReleaseWhenStopBlocks(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
