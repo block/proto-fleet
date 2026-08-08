@@ -4,6 +4,11 @@ Use this report to qualify one adjacent released-version update, `N` to `N+1`,
 on the supported three-host HA profile. Redact addresses, credentials,
 certificates, device names, and customer data from committed evidence.
 
+This first version qualifies exact artifacts after publication because the
+production updater accepts only the fixed official release origin. Publication
+makes the pair downloadable, not supported. Do not run the update until this
+report passes; a separate prepublication artifact channel is deferred.
+
 ## Test identity
 
 | Field | Value |
