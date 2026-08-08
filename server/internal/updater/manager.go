@@ -1914,7 +1914,7 @@ func (m *Manager) fail(id string, err error, recovery string) {
 	m.operation.Message = "Upgrade failed"
 	m.operation.Error = err.Error()
 	m.operation.RecoveryCommand = recovery
-	m.operation.RecoveryPending = m.cfg.DeploymentMode == DeploymentModeHA && recovery != ""
+	m.operation.RecoveryPending = false
 	m.operation.UpdatedAt = now
 	m.operation.CompletedAt = &now
 	if persistErr := m.persistLocked(); persistErr != nil {
