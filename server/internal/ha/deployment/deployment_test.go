@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -458,9 +459,26 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 	}
 }
 
+func TestBootstrapEtcdAuthResumesPartialSetup(t *testing.T) {
+	// Arrange
+	client := &recordingAuthClient{existing: true}
+
+	// Act
+	err := bootstrapEtcdAuth(context.Background(), client, "root-pass", "patroni-pass", "fleet-pass")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(client.calls, "auth") {
+		t.Fatal("bootstrap did not enable authentication after reconciling existing principals")
+	}
+}
+
 type recordingAuthClient struct {
-	calls  []string
-	failAt string
+	calls    []string
+	failAt   string
+	existing bool
 }
 
 func (c *recordingAuthClient) record(call string) error {
@@ -473,7 +491,13 @@ func (c *recordingAuthClient) record(call string) error {
 
 func (c *recordingAuthClient) Healthy(context.Context) error { return c.record("health") }
 func (c *recordingAuthClient) AddRole(_ context.Context, role string) error {
-	return c.record("role:" + role)
+	if err := c.record("role:" + role); err != nil {
+		return err
+	}
+	if c.existing {
+		return rpctypes.ErrRoleAlreadyExist
+	}
+	return nil
 }
 func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix string, permission clientv3.PermissionType) error {
 	name := "read"
@@ -483,7 +507,13 @@ func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix st
 	return c.record(fmt.Sprintf("permission:%s:%s:%s", role, prefix, name))
 }
 func (c *recordingAuthClient) AddUser(_ context.Context, user, password string) error {
-	return c.record("user:" + user + ":" + password)
+	if err := c.record("user:" + user + ":" + password); err != nil {
+		return err
+	}
+	if c.existing {
+		return rpctypes.ErrUserAlreadyExist
+	}
+	return nil
 }
 func (c *recordingAuthClient) GrantRole(_ context.Context, user, role string) error {
 	return c.record("grant:" + user + ":" + role)
