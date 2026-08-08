@@ -23,15 +23,18 @@ and run Fleet commands as
 1. Verify the published `N` and `N+1` artifacts and their checksums. Confirm
    every `N+1` migration is expand-only and remains usable by `N`; reject
    drops, renames, narrowed types, and newly required values. Apply the
-   migrations to a disposable copy of an `N` database and run `N`'s affected
-   database and API integration tests against it. Install and qualify `N`
-   using [QUALIFICATION.md](QUALIFICATION.md).
+   migrations to a representative production-size copy of an `N` database and
+   run `N`'s affected database and API integration tests against it. Require
+   completed baseline reports from [QUALIFICATION.md](QUALIFICATION.md) for the
+   exact `N` and `N+1` artifacts, then install `N` for this procedure.
 2. Record the container IDs and start times for etcd and Patroni on every host,
    plus `pg_postmaster_start_time()` on both PostgreSQL members.
-3. Run the update command above on the passive application host. Verify it remains
-   passive on `N+1` while the active host continues serving `N`. Through the
-   VIP, read persisted data and submit a command to prove the temporary mixed
-   `N` and `N+1` state is usable.
+3. Before running the update command on the passive application host, start
+   authenticated database-backed reads and uniquely identified idempotent
+   commands through the VIP at least once per second. Continue until the host
+   is healthy and passive on `N+1`; fail on a request failure or a command that
+   does not reach terminal success. Verify the active host continues serving
+   `N` throughout this migration and mixed-version window.
 4. Prevent the updated passive from advertising the VIP, then append `--complete`
    to the update command on the active host. Verify the command
    times out without swapping deployments, restarts `N`, and restores a usable
@@ -76,9 +79,10 @@ and run Fleet commands as
 
 | Gate | Required result | Duration | Result | Evidence |
 | --- | --- | --- | --- | --- |
+| Baseline qualification | Exact `N` and `N+1` artifacts pass the clean-install HA report | N/A | Pending | Pending |
 | Migration compatibility | `N` integration tests pass against an `N` database migrated by `N+1` | N/A | Pending | Pending |
 | Passive-first update | Passive runs `N+1`; active continues serving `N` | N/A | Pending | Pending |
-| Mixed-version operation | Persisted read and command succeed while hosts run `N` and `N+1` | N/A | Pending | Pending |
+| Mixed-version operation | Continuous persisted reads and commands succeed throughout migration while hosts run `N` and `N+1` | N/A | Pending | Pending |
 | Failed takeover recovery | No swap; `N` restores usable service and command execution | `<60s` | Pending | Pending |
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive; cached `N` client works against `N+1` | `<15s` | Pending | Pending |
 | Handoff fencing | High-frequency direct health and interface event streams never show active or VIP overlap | N/A | Pending | Pending |
