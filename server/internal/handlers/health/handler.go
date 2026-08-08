@@ -2,20 +2,63 @@ package health
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/ha"
 )
 
-func NewHandler() func(w http.ResponseWriter, r *http.Request) {
+func NewHandler(version string) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 
+		w.Header().Set("X-Proto-Fleet-Version", version)
 		writeOK(w, r, "health")
+	}
+}
+
+type HAState interface {
+	Status(now time.Time) ha.Status
+}
+
+type PassiveState interface {
+	Passive(now time.Time) bool
+}
+
+// NewHAHandler exposes the redacted local operator status document.
+func NewHAHandler(version string, state HAState) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		status := state.Status(time.Now())
+		status.Version = version
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(status); err != nil {
+			slog.Error("Failed to write HA status response", "error", err, "handler", "health-ha", "path", r.URL.Path)
+		}
+	}
+}
+
+// NewPassiveHandler reports only whether this process is ready to take over.
+func NewPassiveHandler(state PassiveState) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !state.Passive(time.Now()) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		writeOK(w, r, "health-passive")
 	}
 }
 

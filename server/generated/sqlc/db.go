@@ -132,6 +132,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.claimRigConfigReconciliationStmt, err = db.PrepareContext(ctx, claimRigConfigReconciliation); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimRigConfigReconciliation: %w", err)
 	}
+	if q.classifyFleetRuntimeLeaseAcquisitionStmt, err = db.PrepareContext(ctx, classifyFleetRuntimeLeaseAcquisition); err != nil {
+		return nil, fmt.Errorf("error preparing query ClassifyFleetRuntimeLeaseAcquisition: %w", err)
+	}
 	if q.clearCurtailmentAutomationActiveEventStmt, err = db.PrepareContext(ctx, clearCurtailmentAutomationActiveEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearCurtailmentAutomationActiveEvent: %w", err)
 	}
@@ -1791,6 +1794,11 @@ func (q *Queries) Close() error {
 	if q.claimRigConfigReconciliationStmt != nil {
 		if cerr := q.claimRigConfigReconciliationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimRigConfigReconciliationStmt: %w", cerr)
+		}
+	}
+	if q.classifyFleetRuntimeLeaseAcquisitionStmt != nil {
+		if cerr := q.classifyFleetRuntimeLeaseAcquisitionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing classifyFleetRuntimeLeaseAcquisitionStmt: %w", cerr)
 		}
 	}
 	if q.clearCurtailmentAutomationActiveEventStmt != nil {
@@ -4328,6 +4336,7 @@ type Queries struct {
 	claimClosedLoopFullFleetTargetsStmt                          *sql.Stmt
 	claimMessageForProcessingStmt                                *sql.Stmt
 	claimRigConfigReconciliationStmt                             *sql.Stmt
+	classifyFleetRuntimeLeaseAcquisitionStmt                     *sql.Stmt
 	clearCurtailmentAutomationActiveEventStmt                    *sql.Stmt
 	clearDeviceBuildingsByBuildingStmt                           *sql.Stmt
 	clearDeviceBuildingsBySiteStmt                               *sql.Stmt
@@ -4862,6 +4871,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		claimClosedLoopFullFleetTargetsStmt:                          q.claimClosedLoopFullFleetTargetsStmt,
 		claimMessageForProcessingStmt:                                q.claimMessageForProcessingStmt,
 		claimRigConfigReconciliationStmt:                             q.claimRigConfigReconciliationStmt,
+		classifyFleetRuntimeLeaseAcquisitionStmt:                     q.classifyFleetRuntimeLeaseAcquisitionStmt,
 		clearCurtailmentAutomationActiveEventStmt:                    q.clearCurtailmentAutomationActiveEventStmt,
 		clearDeviceBuildingsByBuildingStmt:                           q.clearDeviceBuildingsByBuildingStmt,
 		clearDeviceBuildingsBySiteStmt:                               q.clearDeviceBuildingsBySiteStmt,

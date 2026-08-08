@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 )
@@ -74,11 +77,70 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("usage: fleet-ha compose COMPOSE_ARGS...")
 		}
 		return deployment.RunCompose(ctx, args[1:])
+	case "status":
+		return runStatus(ctx, args[1:], os.Stdout, deployment.Status)
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose> ...")
+	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status> ...")
+}
+
+type statusReader func(context.Context, string, bool) (deployment.StatusReport, error)
+
+func runStatus(ctx context.Context, args []string, output io.Writer, read statusReader) error {
+	envPath := defaultNodeEnv
+	jsonOutput, check := false, false
+	positional := 0
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonOutput = true
+		case "--check":
+			check = true
+		default:
+			if len(arg) > 0 && arg[0] == '-' {
+				return errors.New("usage: fleet-ha status [node.env] [--json] [--check]")
+			}
+			positional++
+			if positional > 1 {
+				return errors.New("usage: fleet-ha status [node.env] [--json] [--check]")
+			}
+			envPath = arg
+		}
+	}
+	report, err := read(ctx, envPath, check)
+	if err != nil {
+		return err
+	}
+	if jsonOutput {
+		encoder := json.NewEncoder(output)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(report); err != nil {
+			return fmt.Errorf("write HA status: %w", err)
+		}
+	} else {
+		lines := []string{
+			fmt.Sprintf("Fleet HA: %s (%s)", report.Runtime.Role, report.Runtime.Observation),
+			fmt.Sprintf("Endpoint: %s", report.Runtime.Endpoint),
+		}
+		if report.Control != nil {
+			lines = append(lines,
+				fmt.Sprintf("Control ready: %t", report.Control.ControlReady),
+				fmt.Sprintf("Failover ready: %t", report.Control.FailoverReady),
+			)
+		}
+		if report.Control != nil && len(report.Control.ReasonCodes) > 0 {
+			lines = append(lines, fmt.Sprintf("Reasons: %v", report.Control.ReasonCodes))
+		}
+		if _, err := fmt.Fprintln(output, strings.Join(lines, "\n")); err != nil {
+			return fmt.Errorf("write HA status: %w", err)
+		}
+	}
+	if check && (report.Control == nil || !report.Control.FailoverReady) {
+		return errors.New("HA failover readiness check failed")
+	}
+	return nil
 }

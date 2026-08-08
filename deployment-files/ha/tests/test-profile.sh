@@ -138,6 +138,11 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" "Restart=on-failure"
     assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=/usr/sbin/ip address flush to ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
     assert_contains "${HA_DIR}/firewall.nft.tmpl" "tcp dport 40000 drop"
+
+    for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
+        assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"
+        assert_contains "$nginx_config" "return 404;"
+    done
 }
 
 test_compose_uses_one_host_identity

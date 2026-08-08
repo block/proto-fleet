@@ -182,6 +182,9 @@ func start(config *Config) (result error) {
 	if err := config.HA.Validate(); err != nil {
 		return fmt.Errorf("invalid HA configuration: %w", err)
 	}
+	if err := validateHAHTTPAddress(*config); err != nil {
+		return err
+	}
 	if config.HA.Enabled {
 		if err := config.DB.ValidateHA(); err != nil {
 			return fmt.Errorf("invalid HA database configuration: %w", err)
@@ -714,9 +717,13 @@ func start(config *Config) (result error) {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/health", health.NewHandler())
+	mux.HandleFunc("/health", health.NewHandler(version))
 	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn, fleetRuntime))
 	mux.HandleFunc("/health/active", health.NewActiveHandler(fleetRuntime))
+	if config.HA.Enabled {
+		mux.HandleFunc("/health/ha", health.NewHAHandler(version, fleetRuntime))
+		mux.HandleFunc("/health/passive", health.NewPassiveHandler(fleetRuntime))
+	}
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
