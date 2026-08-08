@@ -196,6 +196,7 @@ func runPassiveUpdate(
 	client updaterClient,
 	read statusReader,
 ) error {
+	complete := len(args) == 2 && args[1] == "--complete"
 	if err := runUpdate(ctx, args, output, preflight, client); err != nil {
 		return err
 	}
@@ -206,7 +207,7 @@ func runPassiveUpdate(
 	if report.Control != nil && report.Control.FailoverReady {
 		return nil
 	}
-	if deployment.ExpectedRollingVersionMismatch(report.Control) {
+	if !complete && deployment.ExpectedRollingVersionMismatch(report.Control) {
 		_, err = fmt.Fprintln(output, "Update succeeded; failover readiness will recover after the peer is updated.")
 		if err != nil {
 			return fmt.Errorf("write update outcome: %w", err)
