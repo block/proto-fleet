@@ -32,6 +32,10 @@ customer data from committed evidence.
    release `N` using [QUALIFICATION.md](QUALIFICATION.md). Confirm `N` includes
    the `fleet-ha update` and `update --complete` protocol; releases that predate
    this supported HA update baseline are out of scope.
+   These checks establish internal archive consistency, not cryptographic proof
+   that the cited workflow produced the digest. This first qualification trusts
+   the existing GitHub Release publishing boundary; artifact attestation is
+   deferred.
 2. Record the running etcd and Patroni/PostgreSQL container IDs on all hosts.
 3. On the passive database host, run `fleet-ha update N+1` and verify that it
    remains passive on `N+1` while the active host continues serving `N`. Fail
@@ -63,14 +67,19 @@ customer data from committed evidence.
    immutable queue row IDs, retry `fleet-ha update N+1 --complete`, and sample
    both rows throughout the retry. The gate fails if either state changes before
    `fleet-api` stops; retain a final timestamped sample no more than one second
-   before that stop. Measure until the VIP serves `N+1`.
+   before that stop. From another host, probe the authenticated VIP at least
+   every 100 milliseconds. Measure from the first failed request through the
+   first successful response whose version header reports `N+1`, and retain the
+   timestamped probe output.
 7. Verify those exact rows on `N+1`: the PENDING row is dispatched, the
    interrupted PROCESSING attempt reaches its documented terminal state, and a
    later command for that device succeeds. Verify the former active is passive
    on `N+1`, then repeat the updater version, service, socket, warning, and
    redacted-log checks from step 3 on this host.
 8. Force an application failover to the former active and back to its peer.
-   Submit a command through the VIP after each failover and verify it succeeds.
+   For each direction, use the same 100-millisecond external VIP probe and
+   first-failure-to-first-versioned-success interval from step 6. Submit a
+   command through the VIP after each failover and verify it succeeds.
 9. Compare the infrastructure container IDs recorded in step 2. Prove that the
    application update did not replace etcd, Patroni, or PostgreSQL.
 10. Reboot both database hosts, one at a time, restoring full readiness between
