@@ -44,7 +44,7 @@ func TestRollingUpdateApplicationRejectsActiveTakeover(t *testing.T) {
 	public := fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}
 
 	// Act
-	ready, err := rollingUpdateApplicationReady(report, public, "v1.1.0")
+	ready, err := rollingUpdateApplicationReady(report, public, "v1.1.0", false)
 
 	// Assert
 	require.False(t, ready)
@@ -116,11 +116,27 @@ func TestRecoveryAcceptsHealthyActiveApplication(t *testing.T) {
 	public := fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}
 
 	// Act
-	ready, err := updatedApplicationReady(report, public, "v1.1.0", false)
+	ready, err := updatedApplicationReady(report, public, "v1.1.0", false, false)
 
 	// Assert
 	require.NoError(t, err)
 	require.True(t, ready)
+}
+
+func TestCompletedUpdateRequiresFullFailoverReadiness(t *testing.T) {
+	// Arrange
+	report := StatusReport{
+		Runtime: ha.Status{Version: "v1.1.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent},
+		Control: &ControlStatus{ControlReady: true, ReasonCodes: []ControlReasonCode{ReasonFleetVersionMismatch}},
+	}
+	public := fleetHostStatus{reachable: true, passive: true, version: "v1.1.0"}
+
+	// Act
+	ready, err := rollingUpdateApplicationReady(report, public, "v1.1.0", true)
+
+	// Assert
+	require.NoError(t, err)
+	require.False(t, ready)
 }
 
 func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
