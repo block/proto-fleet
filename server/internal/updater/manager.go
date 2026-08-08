@@ -1103,6 +1103,19 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		m.fail(operationID, err, recovery)
 		return
 	}
+	previousVersion := ""
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		previousVersion, err = readInstalledVersion(filepath.Join(currentDeployment, "version.txt"))
+		if err != nil {
+			m.fail(operationID, fmt.Errorf("read current HA application version: %w", err), recovery)
+			return
+		}
+		allowedSource, sourceErr := readVersionField(filepath.Join(stageDeployment, "version.txt"), "ha_update_from")
+		if sourceErr != nil || allowedSource != previousVersion {
+			m.fail(operationID, fmt.Errorf("target release does not allow HA updates from %s", previousVersion), recovery)
+			return
+		}
+	}
 	if err := preserveDeploymentState(ctx, currentDeployment, stageDeployment); err != nil {
 		m.fail(operationID, fmt.Errorf("preserve deployment configuration: %w", err), recovery)
 		return
@@ -1144,14 +1157,6 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	if m.cfg.DeploymentMode == DeploymentModeHA {
 		if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "require-passive", haNodeEnvPath, targetVersion); err != nil {
 			m.fail(operationID, fmt.Errorf("local Fleet is not passive immediately before activation: %w", err), recovery)
-			return
-		}
-	}
-	previousVersion := ""
-	if m.cfg.DeploymentMode == DeploymentModeHA {
-		previousVersion, err = readInstalledVersion(filepath.Join(currentDeployment, "version.txt"))
-		if err != nil {
-			m.fail(operationID, fmt.Errorf("read passive HA application version: %w", err), recovery)
 			return
 		}
 	}
@@ -2244,19 +2249,28 @@ func (m *Manager) persistLocked() error {
 }
 
 func readInstalledVersion(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	version, err := readVersionField(path, "version")
 	if err != nil {
 		return "", fmt.Errorf("read installed version: %w", err)
 	}
+	return version, nil
+}
+
+func readVersionField(path, field string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read version file: %w", err)
+	}
+	prefix := field + ":"
 	for _, line := range strings.Split(string(data), "\n") {
-		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "version:"); ok {
-			version := strings.TrimSpace(value)
-			if version != "" {
-				return version, nil
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), prefix); ok {
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value, nil
 			}
 		}
 	}
-	return "", fmt.Errorf("installed version file has no version")
+	return "", fmt.Errorf("version file has no %s", field)
 }
 
 func verifyChecksum(ctx context.Context, archivePath, checksumPath, archiveName string) error {
