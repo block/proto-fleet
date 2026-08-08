@@ -222,11 +222,43 @@ describe("useUpgradeOperation", () => {
     expect(result.current.reconciling).toBe(false);
     expect(result.current.operation).toBeUndefined();
     expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
-    expect(JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}").id).toBe("operation-1");
+    expect(JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}")).toEqual({
+      authSessionIdentity: AUTH_SESSION_IDENTITY,
+      id: "operation-1",
+      phase: UpgradePhase.UNSPECIFIED,
+    });
 
     await act(async () => vi.advanceTimersByTimeAsync(2_000));
     expect(result.current.operation).toBeUndefined();
   });
+
+  it.each([UpgradePhase.FAILED, UpgradePhase.SUCCEEDED])(
+    "surfaces terminal phase %s after manually unlocking an unknown operation",
+    async (terminalPhase) => {
+      vi.useFakeTimers();
+      const unknownOperation = operation(UpgradePhase.UNSPECIFIED);
+      const terminalOperation = operation(terminalPhase);
+      mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, unknownOperation));
+      mockTriggerUpgrade.mockResolvedValue(
+        create(TriggerUpgradeResponseSchema, {
+          operation: unknownOperation,
+        }),
+      );
+      const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+      await act(async () => Promise.resolve());
+
+      await act(async () => result.current.triggerUpgrade("v1.3.0"));
+      await act(async () => vi.advanceTimersByTimeAsync(17_000));
+      act(() => result.current.useManualFallback());
+
+      mockGetUpgradeStatus.mockReset();
+      mockGetUpgradeStatus.mockResolvedValue(status(true, terminalOperation));
+      await act(async () => vi.advanceTimersByTimeAsync(2_000));
+
+      expect(result.current.operation?.phase).toBe(terminalPhase);
+      expect(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY)).toBeNull();
+    },
+  );
 
   it("accepts a terminal operation returned directly by the trigger RPC", async () => {
     const failedOperation = operation(UpgradePhase.FAILED, { message: "Preflight failed" });
@@ -550,6 +582,7 @@ describe("useUpgradeOperation", () => {
     expect(acknowledgedRecord).toEqual({
       authSessionIdentity: AUTH_SESSION_IDENTITY,
       id: "operation-1",
+      phase: UpgradePhase.FAILED,
     });
     firstSession.unmount();
 

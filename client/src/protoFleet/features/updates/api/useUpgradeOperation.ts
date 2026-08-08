@@ -62,7 +62,16 @@ interface TrackedOperation {
 interface AcknowledgedOperation {
   authSessionIdentity: string;
   id: string;
+  phase: UpgradePhase;
 }
+
+type AcknowledgedOperationInput = Pick<AcknowledgedOperation, "id" | "phase">;
+
+const ACKNOWLEDGEABLE_PHASES = new Set<UpgradePhase>([
+  UpgradePhase.UNSPECIFIED,
+  UpgradePhase.SUCCEEDED,
+  UpgradePhase.FAILED,
+]);
 
 interface UseUpgradeOperationOptions {
   authSessionIdentity: string;
@@ -116,13 +125,19 @@ const readTrackedOperation = (): TrackedOperation | undefined => {
   }
 };
 
-const readAcknowledgedOperation = (authSessionIdentity: string): string | null => {
+const readAcknowledgedOperation = (authSessionIdentity: string): AcknowledgedOperationInput | null => {
   try {
     const raw = window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<AcknowledgedOperation>;
-    if (typeof value.id === "string" && value.id && value.authSessionIdentity === authSessionIdentity) {
-      return value.id;
+    if (
+      typeof value.id === "string" &&
+      value.id &&
+      value.authSessionIdentity === authSessionIdentity &&
+      typeof value.phase === "number" &&
+      ACKNOWLEDGEABLE_PHASES.has(value.phase)
+    ) {
+      return { id: value.id, phase: value.phase };
     }
     return null;
   } catch {
@@ -158,7 +173,7 @@ export function useUpgradeOperation({
 
   const operationRef = useRef(operation);
   const trackedOperationRef = useRef(trackedOperation);
-  const acknowledgedOperationRef = useRef<string | null>(null);
+  const acknowledgedOperationRef = useRef<AcknowledgedOperationInput | null>(null);
   const acknowledgedOperationSessionRef = useRef<string | null>(null);
   const reconcilingRef = useRef(reconciling);
   const currentVersionRef = useRef(currentVersion);
@@ -210,13 +225,13 @@ export function useUpgradeOperation({
     }
   }, []);
 
-  const updateAcknowledgedOperation = useCallback((next: string | null) => {
+  const updateAcknowledgedOperation = useCallback((next: AcknowledgedOperationInput | null) => {
     acknowledgedOperationRef.current = next;
     try {
       if (next) {
         window.sessionStorage.setItem(
           ACKNOWLEDGED_OPERATION_KEY,
-          JSON.stringify({ authSessionIdentity: authSessionIdentityRef.current, id: next }),
+          JSON.stringify({ authSessionIdentity: authSessionIdentityRef.current, ...next }),
         );
       } else {
         window.sessionStorage.removeItem(ACKNOWLEDGED_OPERATION_KEY);
@@ -279,7 +294,9 @@ export function useUpgradeOperation({
       if (!next.id) {
         return false;
       }
-      if (next.phase === UpgradePhase.UNSPECIFIED && acknowledgedOperationRef.current === next.id) {
+      const acknowledged = acknowledgedOperationRef.current;
+      const acknowledgedTransition = acknowledged?.id === next.id && acknowledged.phase !== next.phase;
+      if (acknowledged?.id === next.id && acknowledged.phase === next.phase) {
         return false;
       }
       const active = isUpgradeActive(next);
@@ -291,7 +308,9 @@ export function useUpgradeOperation({
         next.phase === UpgradePhase.SUCCEEDED;
       const trackedMatches = tracked?.id
         ? tracked.id === next.id
-        : (fromTriggerResponse && tracked?.targetVersion === next.targetVersion) || reconciledSuccess;
+        : (fromTriggerResponse && tracked?.targetVersion === next.targetVersion) ||
+          reconciledSuccess ||
+          acknowledgedTransition;
 
       if (active) {
         // A durable active operation is authoritative, including one started
@@ -322,10 +341,6 @@ export function useUpgradeOperation({
         return false;
       }
 
-      if (acknowledgedOperationRef.current === next.id) {
-        return false;
-      }
-
       if (tracked && !trackedMatches) {
         return false;
       }
@@ -334,6 +349,7 @@ export function useUpgradeOperation({
       // match does not: activation can expose the target version before a
       // later service failure records the operation as failed.
       if (next.phase === UpgradePhase.FAILED && isReleaseNewer(currentVersionRef.current, next.targetVersion)) {
+        if (acknowledgedTransition) updateAcknowledgedOperation(null);
         if (trackedMatches) updateTrackedOperation(undefined);
         if (operationRef.current?.id === next.id) updateOperation(undefined);
         reconciliationDeadlineRef.current = null;
@@ -350,6 +366,7 @@ export function useUpgradeOperation({
         return false;
       }
 
+      if (acknowledgedTransition) updateAcknowledgedOperation(null);
       updateTrackedOperation({ id: next.id, targetVersion: next.targetVersion });
       updateOperation(next);
       reconciliationDeadlineRef.current = null;
@@ -504,8 +521,9 @@ export function useUpgradeOperation({
   );
 
   const acknowledgeOperation = useCallback(() => {
-    if (operationRef.current && isUpgradeTerminal(operationRef.current.phase)) {
-      updateAcknowledgedOperation(operationRef.current.id);
+    const currentOperation = operationRef.current;
+    if (currentOperation && isUpgradeTerminal(currentOperation.phase)) {
+      updateAcknowledgedOperation({ id: currentOperation.id, phase: currentOperation.phase });
     }
     updateTrackedOperation(undefined);
     updateOperation(undefined);
@@ -519,7 +537,7 @@ export function useUpgradeOperation({
   const useManualFallback = useCallback(() => {
     if (!manualFallbackReady) return;
     if (operationRef.current?.phase === UpgradePhase.UNSPECIFIED) {
-      updateAcknowledgedOperation(operationRef.current.id);
+      updateAcknowledgedOperation({ id: operationRef.current.id, phase: operationRef.current.phase });
     }
     updateTrackedOperation(undefined);
     updateOperation(undefined);

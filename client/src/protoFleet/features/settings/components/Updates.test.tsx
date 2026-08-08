@@ -393,15 +393,12 @@ describe("Updates", () => {
   });
 
   it("refreshes the eligible release after reconciliation finds no operation", async () => {
+    const refreshedStatus = createDeferred<GetUpdateStatusResponse>();
     upgradeHookMock.current.reconciling = true;
     upgradeHookMock.current.triggerError = "Fleet did not confirm the request";
-    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ oneClickAvailable: true })).mockResolvedValueOnce(
-      buildStatus({
-        installCommand: "install v1.4.0",
-        latestEligible: buildReleaseInfo({ version: "v1.4.0" }),
-        oneClickAvailable: true,
-      }),
-    );
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ oneClickAvailable: true }))
+      .mockReturnValueOnce(refreshedStatus.promise);
 
     const page = render(<Updates />);
     expect(await page.findByText("v1.3.0")).toBeInTheDocument();
@@ -410,7 +407,45 @@ describe("Updates", () => {
     page.rerender(<Updates />);
 
     await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+    expect(page.queryByRole("button", { name: "Confirm upgrade to v1.3.0" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      refreshedStatus.resolve(
+        buildStatus({
+          installCommand: "install v1.4.0",
+          latestEligible: buildReleaseInfo({ version: "v1.4.0" }),
+          oneClickAvailable: true,
+        }),
+      );
+      await refreshedStatus.promise;
+    });
+
     expect(await page.findByText("v1.4.0")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Confirm upgrade to v1.4.0" })).toBeEnabled();
+  });
+
+  it("keeps a stale modal target disabled after its authoritative refresh fails", async () => {
+    const failedRefresh = createDeferred<GetUpdateStatusResponse>();
+    upgradeHookMock.current.reconciling = true;
+    upgradeHookMock.current.triggerError = "Fleet did not confirm the request";
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ oneClickAvailable: true }))
+      .mockReturnValueOnce(failedRefresh.promise);
+
+    const page = render(<Updates />);
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+
+    upgradeHookMock.current = { ...upgradeHookMock.current, reconciling: false };
+    page.rerender(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      failedRefresh.reject(new Error("release status unavailable"));
+      await failedRefresh.promise.catch(() => undefined);
+    });
+
+    expect(page.getByRole("alert")).toHaveTextContent("Fleet did not confirm the request");
+    expect(page.queryByRole("button", { name: /Confirm upgrade/ })).not.toBeInTheDocument();
   });
 
   it("omits the release notes link when the server provides no URL", async () => {

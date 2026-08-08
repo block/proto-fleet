@@ -346,7 +346,10 @@ const Updates = () => {
   }
 
   const release = status?.statusAvailable && status.updateAvailable ? status.latestEligible : undefined;
-  const modalRelease = upgrade.operation && upgrade.operation.targetVersion !== release?.version ? undefined : release;
+  const modalRelease =
+    isStatusRefreshPending || loadError || (upgrade.operation && upgrade.operation.targetVersion !== release?.version)
+      ? undefined
+      : release;
   const operationStatusLabel = upgrade.reconciling
     ? upgrade.manualFallbackReady
       ? "Upgrade outcome is unknown — host confirmation required"
