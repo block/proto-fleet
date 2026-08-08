@@ -46,6 +46,26 @@ func TestRollingUpdateApplicationRejectsActiveTakeover(t *testing.T) {
 	require.ErrorContains(t, err, "became active")
 }
 
+func TestApplicationConvergenceRequiresExpectedPassiveRuntime(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		runtime ha.Status
+		want    bool
+	}{
+		{name: "expected passive", runtime: ha.Status{Version: "v1.1.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent}, want: true},
+		{name: "active", runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent}},
+		{name: "wrong version", runtime: ha.Status{Version: "v1.0.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := applicationMayConverge(test.runtime, "v1.1.0")
+
+			// Assert
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
 func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
 	for _, test := range []struct {
 		name    string
