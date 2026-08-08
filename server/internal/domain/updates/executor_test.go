@@ -143,7 +143,7 @@ func TestUnixExecutorClientTriggerComplete(t *testing.T) {
 		observed <- executorRequestObservation{trigger: request, decodeErr: decodeErr}
 		w.WriteHeader(http.StatusAccepted)
 		_ = json.NewEncoder(w).Encode(updaterapi.TriggerResponse{Operation: updaterapi.Operation{
-			ID: operationID, TargetVersion: "v1.2.3", Phase: updaterapi.PhaseQueued,
+			ID: operationID, TargetVersion: "v1.2.3", Complete: true, Phase: updaterapi.PhaseQueued,
 		}})
 	}))
 
@@ -229,6 +229,24 @@ func TestUnixExecutorClientRejectsMismatchedTriggerIdentity(t *testing.T) {
 	}))
 
 	_, err := client.Trigger(t.Context(), "11111111-1111-4111-8111-111111111111", "v1.2.3")
+	require.Error(t, err)
+	var protocolErr *updaterapi.ProtocolError
+	assert.ErrorAs(t, err, &protocolErr)
+}
+
+func TestUnixExecutorClientRejectsMismatchedCompletionMode(t *testing.T) {
+	// Arrange
+	client := startExecutorTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(updaterapi.TriggerResponse{Operation: updaterapi.Operation{
+			ID: "11111111-1111-4111-8111-111111111111", TargetVersion: "v1.2.3",
+		}})
+	}))
+
+	// Act
+	_, err := client.TriggerComplete(t.Context(), "11111111-1111-4111-8111-111111111111", "v1.2.3")
+
+	// Assert
 	require.Error(t, err)
 	var protocolErr *updaterapi.ProtocolError
 	assert.ErrorAs(t, err, &protocolErr)

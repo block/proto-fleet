@@ -210,7 +210,9 @@ func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRo
 	}
 	// The crash-only design intentionally has no maintenance lease. If the role
 	// changes after this final proof, normal update recovery restarts Fleet.
-	if err := RunCompose(ctx, fleetComposeArgsAt(root, "stop", "fleet-api", "fleet-client")); err != nil {
+	// Leave two seconds inside the updater's five-second active-stop deadline
+	// for Compose and Docker to confirm both containers stopped.
+	if err := RunCompose(ctx, fleetComposeArgsAt(root, "stop", "--timeout", "3", "fleet-api", "fleet-client")); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
 	}
 	return nil
@@ -256,8 +258,16 @@ func startApplication(ctx context.Context, root, targetVersion string, requirePa
 		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
 	args := fleetComposeArgsAt(root, "up", "-d", "--no-deps", "--no-build", "--pull", "never", "fleet-api", "fleet-client")
-	if err := RunCompose(ctx, args); err != nil {
-		return fmt.Errorf("start HA application: %w", err)
+	for {
+		err := RunCompose(ctx, args)
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("start HA application after Compose failure %v: %w", err, ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
 	}
 	for {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"))

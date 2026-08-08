@@ -991,10 +991,10 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	if idempotent && m.operation != nil && m.operation.ID == operationID {
 		existing := *m.operation
 		m.mu.RUnlock()
-		if existing.TargetVersion != targetVersion {
+		if existing.TargetVersion != targetVersion || existing.Complete != complete {
 			return updaterapi.Operation{}, newTriggerError(
 				errTriggerInvalid,
-				"operation id is already associated with another target",
+				"operation id is already associated with another update",
 			)
 		}
 		return existing, nil
@@ -1028,10 +1028,10 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if idempotent && m.operation != nil && m.operation.ID == operationID {
-		if m.operation.TargetVersion != targetVersion {
+		if m.operation.TargetVersion != targetVersion || m.operation.Complete != complete {
 			return updaterapi.Operation{}, newTriggerError(
 				errTriggerInvalid,
-				"operation id is already associated with another target",
+				"operation id is already associated with another update",
 			)
 		}
 		return *m.operation, nil
@@ -1090,6 +1090,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	op := &updaterapi.Operation{
 		ID:            operationID,
 		TargetVersion: targetVersion,
+		Complete:      complete,
 		Phase:         updaterapi.PhaseQueued,
 		Message:       "Upgrade queued",
 		StartedAt:     now,
