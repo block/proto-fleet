@@ -287,7 +287,7 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
-		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service",
+		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
 		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/scripts/check-fleet-active.sh",
 		"client/nginx.https.conf",
 	}
@@ -580,6 +580,9 @@ func installKeepalived(ctx context.Context, source string, config NodeConfig, de
 	if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0755", filepath.Join(source, "ha", "scripts", "check-fleet-active.sh"), "/usr/local/libexec/proto-fleet/check-fleet-active"); err != nil {
 		return fmt.Errorf("install keepalived health check: %s", commandError(output, err))
 	}
+	if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(source, "ha", "proto-fleet-ha-keepalived.conf"), "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf"); err != nil {
+		return fmt.Errorf("install keepalived service dependency: %s", commandError(output, err))
+	}
 	return nil
 }
 
@@ -629,9 +632,6 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 		return fmt.Errorf("enable HA services: %s", commandError(output, err))
 	}
 	if config.isDatabaseNode() {
-		if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "--now", "keepalived.service"); err != nil {
-			return fmt.Errorf("enable keepalived: %s", commandError(output, err))
-		}
 		for range 300 {
 			if _, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env"), "--check"); err == nil {
 				return nil
