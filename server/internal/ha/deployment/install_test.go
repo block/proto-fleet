@@ -293,24 +293,37 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 
 func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
 	// Arrange
-	existing := filepath.Join(t.TempDir(), "drop-in.conf")
-	require.NoError(t, os.WriteFile(existing, []byte("[Unit]\n"), 0o600))
 	deps := installDependencies{
-		lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
-		requireEmpty: func(string, string) error { return nil },
-		lstat: func(path string) (os.FileInfo, error) {
-			if path == dockerRecoveryDropIn {
-				return os.Stat(existing)
+		lookPath: func(string) (string, error) { return "", os.ErrNotExist },
+		requireEmpty: func(path, _ string) error {
+			if path == "/etc/systemd/system/docker.service.d" {
+				return fmt.Errorf("unexpected entry in %s", path)
 			}
-			return nil, os.ErrNotExist
+			return nil
 		},
+		lstat: func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
 	}
 
 	// Act
 	err := validateCleanInstallState(deps)
 
 	// Assert
-	require.ErrorContains(t, err, dockerRecoveryDropIn)
+	require.ErrorContains(t, err, "/etc/systemd/system/docker.service.d")
+}
+
+func TestReleaseSnapshotCleanupOutlivesInstallCancellation(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	deps := installDependencies{run: func(cleanupCtx context.Context, _ string, _ ...string) ([]byte, error) {
+		return nil, cleanupCtx.Err()
+	}}
+
+	// Act
+	err := removeReleaseSnapshot(ctx, deps)
+
+	// Assert
+	require.NoError(t, err)
 }
 
 func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
