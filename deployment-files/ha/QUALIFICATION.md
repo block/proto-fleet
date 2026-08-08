@@ -69,11 +69,13 @@ Restore full readiness before starting each row. Run the external append-only
 recorder described under Repetition and soak from before fault injection through
 full recovery. Against a test device, continuously submit uniquely identified
 idempotent command probes and keep a controller-side ledger of every
-acknowledged or durably observed command ID. Require each ID to retain exactly
-one database record and reach SUCCESS or a documented failover-related FAILED
-state within 60 seconds. Treat missing, duplicate, PENDING, or PROCESSING rows
-after that bound as failures; record ambiguous submissions separately rather
-than counting them as acknowledged. Also fail any row on possible active, VIP,
+acknowledged or durably observed command ID, including its state at fault
+injection. Require every PENDING ID to reach SUCCESS within 60 seconds. Permit
+FAILED only for an ID already PROCESSING at fault injection and only with the
+expected interruption reason. Treat missing, duplicate, PENDING, or PROCESSING
+rows after that bound as failures; record ambiguous submissions separately
+rather than counting them as acknowledged. Also fail any row on possible
+active, VIP,
 or writable-primary overlap, a collection gap, or a stale transition. Record
 the observed recovery time and a short redacted evidence reference. For
 database isolation and failover rows, also
