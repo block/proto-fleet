@@ -25,8 +25,6 @@ var (
 	rcTagPattern     = regexp.MustCompile(`^v\d+\.\d+\.\d+-rc\.\d+$`)
 )
 
-const maxAdjacentReleasePages = 10
-
 // Release describes one published GitHub release.
 type Release struct {
 	Version     string // git tag, e.g. "v0.2.9"
@@ -406,61 +404,6 @@ func newRelease(rel githubRelease) *Release {
 		PublishedAt: rel.PublishedAt,
 		Prerelease:  isCanonicalRCTag(rel.TagName),
 	}
-}
-
-// ValidateAdjacentStableRelease keeps HA rolling updates within the only
-// qualified compatibility boundary: the next published stable release.
-func ValidateAdjacentStableRelease(ctx context.Context, currentVersion, targetVersion string) error {
-	return validateAdjacentStableRelease(ctx, releaseAPIBaseURL, currentVersion, targetVersion)
-}
-
-func validateAdjacentStableRelease(ctx context.Context, releasesAPIURL, currentVersion, targetVersion string) error {
-	if !isCanonicalStableTag(currentVersion) || !isCanonicalStableTag(targetVersion) {
-		return errors.New("HA updates require stable release versions")
-	}
-	client := newGitHubClient(releasesAPIURL, currentVersion, slog.Default())
-	for label, version := range map[string]string{"installed": currentVersion, "target": targetVersion} {
-		release, found, err := client.fetchReleaseByTag(ctx, version)
-		if err != nil {
-			return fmt.Errorf("verify %s HA release: %w", label, err)
-		}
-		if !found || !isEligibleStableRelease(release) {
-			return fmt.Errorf("%s HA release %s is not a published stable release", label, version)
-		}
-	}
-	var releases []githubRelease
-	complete := false
-	for page := 1; page <= maxAdjacentReleasePages; page++ {
-		pageReleases, rawCount, err := client.fetchReleasePage(ctx, page)
-		if err != nil {
-			return fmt.Errorf("verify adjacent HA release: %w", err)
-		}
-		releases = append(releases, pageReleases...)
-		if rawCount < releasesPageSize {
-			complete = true
-			break
-		}
-	}
-	if !complete {
-		return errors.New("HA release history exceeds the supported adjacent-update window")
-	}
-	nextVersion := ""
-	for _, release := range releases {
-		if !isEligibleStableRelease(release) {
-			continue
-		}
-		if semver.Compare(release.TagName, currentVersion) > 0 &&
-			(nextVersion == "" || semver.Compare(release.TagName, nextVersion) < 0) {
-			nextVersion = release.TagName
-		}
-	}
-	if nextVersion == "" {
-		return fmt.Errorf("no stable release is available after %s", currentVersion)
-	}
-	if targetVersion != nextVersion {
-		return fmt.Errorf("HA updates must install the next stable release %s", nextVersion)
-	}
-	return nil
 }
 
 // releaseNotesURL derives the rendered link from the fixed repository and the
