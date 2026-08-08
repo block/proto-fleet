@@ -4,6 +4,10 @@ Use this report to qualify one adjacent update, `N` to `N+1`, on the supported
 three-host HA profile. Redact addresses, credentials, certificates, device
 names, and customer data from committed evidence.
 
+Run the full procedure and keep a separate result table for every architecture
+enabled by the release. The initial profile requires both amd64 and arm64 to
+pass before promotion.
+
 Publish the final `N+1` tag and assets at the fixed official release origin as
 a GitHub prerelease. HA does not offer UI-triggered updates, so only an explicit
 local operator command can select this candidate. After every gate passes,
@@ -118,6 +122,19 @@ and run Fleet commands as
    status sockets are healthy. Reboot the two application/database hosts one
    at a time, restoring full readiness between reboots. Repeat the updater
    checks and verify both hosts retain Fleet data and can serve a command.
+10. From a clean `N` baseline, run three separate interruption cases. First,
+    use the root-owned pre-stop barrier from step 5 and SIGKILL the updater
+    after final preflight; the old active must keep serving and the updater must
+    restart cleanly. Second, power-cycle the updating host while
+    `/var/lib/proto-fleet-updater/activation-swap.json` and
+    `/opt/proto-fleet/deployment.previous` prove a swap is in progress. Third,
+    SIGKILL the updater while
+    `/usr/local/libexec/proto-fleet/proto-fleet-updater.handoff` exists during
+    self-replacement. Repeat a case if its durable marker clears before the
+    fault lands. After each restart, require one valid deployment directory,
+    no pending recovery marker, a healthy updater socket, restored control and
+    failover readiness, and either the intact old release or fully verified
+    target release according to the recorded recovery state.
 
 ## Results
 
@@ -137,12 +154,13 @@ and run Fleet commands as
 | Failover back | No active or VIP overlap; old active rejects; VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Infrastructure preserved | etcd and Patroni identity plus PostgreSQL start times are unchanged | N/A | Pending | Pending |
 | Updater refresh | Both updater binaries, services, and local status sockets run `N+1` | N/A | Pending | Pending |
+| Updater interruption recovery | Pre-activation, post-swap, and self-update faults recover automatically | N/A | Pending | Pending |
 | Reboot recovery | Both hosts return on `N+1` with persisted data and working failover | Pending | Pending | Pending |
 
 ## Verdict
 
-**Pending.** Mark the adjacent update supported only when every gate passes,
-attach the redacted evidence to this report, and promote the unchanged `N+1`
-GitHub release with
+**Pending.** Mark the adjacent update supported only when every gate passes on
+both amd64 and arm64, attach the redacted evidence to each report, and promote
+the unchanged `N+1` GitHub release with
 `gh release edit "$TARGET_RELEASE" --prerelease=false --latest`. Do not rebuild,
 retag, or replace its assets.
