@@ -15,13 +15,14 @@ import (
 )
 
 const (
-	installBase  = "/opt/proto-fleet"
-	installRoot  = "/opt/proto-fleet/deployment"
-	configRoot   = "/etc/proto-fleet/ha"
-	dataRoot     = "/var/lib/proto-fleet/ha"
-	serviceUnit  = "/etc/systemd/system/proto-fleet-ha.service"
-	firewallUnit = "/etc/systemd/system/proto-fleet-ha-firewall.service"
-	dockerDropIn = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
+	installBase          = "/opt/proto-fleet"
+	installRoot          = "/opt/proto-fleet/deployment"
+	configRoot           = "/etc/proto-fleet/ha"
+	dataRoot             = "/var/lib/proto-fleet/ha"
+	serviceUnit          = "/etc/systemd/system/proto-fleet-ha.service"
+	firewallUnit         = "/etc/systemd/system/proto-fleet-ha-firewall.service"
+	dockerDropIn         = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
+	dockerRecoveryDropIn = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
 )
 
 type InstallOptions struct {
@@ -143,6 +144,9 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 		return err
 	}
 	if err := prepareImages(ctx, config, deps); err != nil {
+		return err
+	}
+	if err := installDockerRecoveryHook(ctx, deps); err != nil {
 		return err
 	}
 	if err := initialStart(ctx, config, deps); err != nil {
@@ -286,7 +290,7 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 		"client/Dockerfile", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
-		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/scripts/check-fleet-active.sh",
+		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
 		"client/nginx.https.conf",
 	}
 	for _, name := range required {
@@ -625,6 +629,16 @@ func prepareImages(ctx context.Context, config NodeConfig, deps installDependenc
 		if output, err := deps.run(ctx, "sudo", commandArgs...); err != nil {
 			return fmt.Errorf("build Fleet images: %s", commandError(output, err))
 		}
+	}
+	return nil
+}
+
+func installDockerRecoveryHook(ctx context.Context, deps installDependencies) error {
+	if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "docker-ha-recovery-systemd.conf"), dockerRecoveryDropIn); err != nil {
+		return fmt.Errorf("install Docker HA recovery hook: %s", commandError(output, err))
+	}
+	if output, err := deps.run(ctx, "sudo", "systemctl", "daemon-reload"); err != nil {
+		return fmt.Errorf("reload Docker HA recovery hook: %s", commandError(output, err))
 	}
 	return nil
 }
