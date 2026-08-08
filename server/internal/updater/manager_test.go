@@ -1276,31 +1276,28 @@ func TestManagerRejectsAnotherUpgradeWhileActivationRecoveryIsPending(t *testing
 	now := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
 	manager.mu.Lock()
 	manager.operation = &updaterapi.Operation{
-		ID:            "pending-recovery",
-		TargetVersion: "v1.1.0",
-		Phase:         updaterapi.PhaseFailed,
-		Message:       "Activation layout requires manual recovery",
-		StartedAt:     now,
-		UpdatedAt:     now,
-		CompletedAt:   &now,
+		ID:              "pending-recovery",
+		TargetVersion:   "v1.1.0",
+		Phase:           updaterapi.PhaseFailed,
+		Message:         "Activation layout requires manual recovery",
+		RecoveryCommand: "app-recover",
+		RecoveryPending: true,
+		StartedAt:       now,
+		UpdatedAt:       now,
+		CompletedAt:     &now,
 	}
 	require.NoError(t, manager.persistLocked())
 	manager.mu.Unlock()
-	require.NoError(t, manager.writeActivationMarker(activationMarker{
-		OperationID:   "pending-recovery",
-		TargetVersion: "v1.1.0",
-	}))
 	stateBefore := mustReadFile(t, filepath.Join(stateDir, stateFilename))
 
 	_, err = manager.Trigger("v1.2.0")
-	require.ErrorContains(t, err, "activation recovery for operation pending-recovery is pending")
+	require.ErrorContains(t, err, "HA application recovery for operation pending-recovery is pending")
 	require.ErrorIs(t, err, errTriggerBusy)
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
 	assert.Equal(t, "pending-recovery", operation.ID)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Equal(t, stateBefore, mustReadFile(t, filepath.Join(stateDir, stateFilename)))
-	assert.FileExists(t, filepath.Join(stateDir, activationMarkerFilename))
 }
 
 func TestManagerProcessLockPreventsASecondDaemonFromMutatingState(t *testing.T) {
@@ -1881,7 +1878,7 @@ func TestManagerRestartsHAApplicationAfterInterruptedSwap(t *testing.T) {
 	assert.False(t, manager.Status().Operation.RecoveryPending)
 }
 
-func TestManagerServesRecoveryStateAfterRestartFailure(t *testing.T) {
+func TestManagerFailsStartupWhenHARecoveryFails(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
@@ -1898,12 +1895,12 @@ func TestManagerServesRecoveryStateAfterRestartFailure(t *testing.T) {
 		DeploymentMode: DeploymentModeHA,
 		Runner:         &haRecordingRunner{fail: map[string]error{"app-recover": errors.New("restart failed")}},
 	})
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	require.ErrorContains(t, err, "restart interrupted HA application")
+	require.Nil(t, manager)
 
 	// Assert
-	operation := manager.Status().Operation
-	require.NotNil(t, operation)
+	var operation updaterapi.Operation
+	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &operation))
 	assert.True(t, operation.RecoveryPending)
 	assert.NotEmpty(t, operation.RecoveryCommand)
 	assert.Contains(t, operation.Error, "restart failed")
