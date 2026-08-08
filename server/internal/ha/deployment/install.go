@@ -12,8 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/block/proto-fleet/server/internal/ha"
 )
 
 const (
@@ -442,15 +440,33 @@ func verifyInstallVirtualIP(ctx context.Context, config NodeConfig) error {
 		return nil
 	}
 
-	tlsConfig, tlsErr := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
 	peerIP := config.DatabaseAIP
 	if config.NodeName == "ha-a" {
 		peerIP = config.DatabaseBIP
 	}
-	if tlsErr == nil && probeFleetHost(ctx, tlsConfig, config.VirtualIP, peerIP).active {
+	vipMAC, vipErr := neighborMAC(ctx, config.NetworkInterface, config.VirtualIP)
+	peerMAC, peerErr := neighborMAC(ctx, config.NetworkInterface, peerIP)
+	if vipErr == nil && peerErr == nil && vipMAC == peerMAC {
 		return nil
 	}
 	return fmt.Errorf("HA virtual IP is owned by an unexpected host or cannot be checked: %s", commandError(output, err))
+}
+
+func neighborMAC(ctx context.Context, networkInterface, address string) (string, error) {
+	if _, err := runCommand(ctx, "sudo", "arping", "-I", networkInterface, "-c", "1", "-w", "2", address); err != nil {
+		return "", err
+	}
+	output, err := runCommand(ctx, "ip", "neigh", "show", "to", address, "dev", networkInterface)
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(string(output))
+	for index, field := range fields {
+		if field == "lladdr" && index+1 < len(fields) {
+			return strings.ToLower(fields[index+1]), nil
+		}
+	}
+	return "", fmt.Errorf("neighbor entry for %s has no MAC address", address)
 }
 
 func snapshotRelease(ctx context.Context, source string, deps installDependencies) error {
