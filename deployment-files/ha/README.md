@@ -170,6 +170,3 @@ default. After an adjacent pair passes qualification, set its one exact source
 tag in `qualified-update-from.txt` before publishing the target. The manifest
 covers the resulting `ha_update_from` field, and the updater rejects every
 other source version. A qualified RC-to-stable pair can name the RC explicitly.
-For a target with an allowed source, the release workflow builds and retains
-the immutable artifacts, then waits for approval in the protected
-`ha-update-qualification` environment before publishing those same artifacts.
