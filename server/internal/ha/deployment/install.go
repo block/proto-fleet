@@ -26,6 +26,7 @@ const (
 	firewallUnit          = "/etc/systemd/system/proto-fleet-ha-firewall.service"
 	dockerDropIn          = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
 	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	updaterDropIn         = "/etc/systemd/system/proto-fleet-updater.service.d/proto-fleet-ha.conf"
 )
 
 type InstallOptions struct {
@@ -599,6 +600,9 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		}
 		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "updater", "proto-fleet-updater.service"), "/etc/systemd/system/proto-fleet-updater.service"); err != nil {
 			return fmt.Errorf("install host updater service: %s", commandError(output, err))
+		}
+		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "updater-systemd.conf"), updaterDropIn); err != nil {
+			return fmt.Errorf("install HA updater permissions: %s", commandError(output, err))
 		}
 		updaterEnv := fmt.Sprintf(
 			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=/usr/local/libexec/proto-fleet/proto-fleet-updater\n",
