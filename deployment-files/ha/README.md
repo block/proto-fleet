@@ -131,26 +131,6 @@ roles or users; clear the incomplete etcd data and rerun the clean install.
 The Docker repository setup follows the official
 [Debian installation instructions](https://docs.docker.com/engine/install/debian/).
 
-## Update a passive Fleet host
-
-HA disables application-triggered updates. On the passive database host, run:
-
-```bash
-sudo /opt/proto-fleet/deployment/ha/fleet-ha update v0.2.11
-```
-
-The local updater downloads the release from the fixed Proto Fleet GitHub
-release origin, verifies its SHA256 checksum, builds and persists the staged
-Fleet images, then rechecks that this host is passive. It stops and replaces
-only `fleet-api` and `fleet-client`; etcd, Patroni, PostgreSQL, and keepalived
-remain running. The command returns only after the target version is healthy
-and passive. Updating the active peer is a separate completion step.
-
-The old active and new passive share the database during this rolling window.
-Every migration in the target release must be expand-only and remain compatible
-with the previous release; destructive contract migrations belong in a later
-release after both HA hosts have advanced.
-
 ## Qualification
 
 Run static profile checks in CI or locally:
