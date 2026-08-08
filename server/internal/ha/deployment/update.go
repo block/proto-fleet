@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/ha"
@@ -162,18 +163,35 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 	if err != nil {
 		return err
 	}
-	if report, statusErr := Status(ctx, filepath.Join(configRoot, "node.env"), true); statusErr == nil {
-		if _, readinessErr := rollingUpdateApplicationReady(report, fleetHostStatus{}, targetVersion); readinessErr != nil {
+	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	if err != nil {
+		return err
+	}
+	localReport, statusErr := Status(ctx, filepath.Join(configRoot, "node.env"), false)
+	if statusErr == nil {
+		report, checkErr := checkControlPath(ctx, filepath.Join(configRoot, "node.env"), localReport)
+		if checkErr != nil {
+			return fmt.Errorf("verify running HA application before replacement: %w", checkErr)
+		}
+		ready, readinessErr := rollingUpdateApplicationReady(
+			report,
+			probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP),
+			targetVersion,
+		)
+		if readinessErr != nil {
 			return readinessErr
 		}
+		if ready {
+			return nil
+		}
+		return errors.New("running HA application is not ready; refusing to replace it")
+	}
+	if !errors.Is(statusErr, syscall.ECONNREFUSED) {
+		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
 	args := fleetComposeArgsAt(root, "up", "-d", "--no-deps", "--force-recreate", "--no-build", "--pull", "never", "fleet-api", "fleet-client")
 	if err := RunCompose(ctx, args); err != nil {
 		return fmt.Errorf("start HA application: %w", err)
-	}
-	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
-	if err != nil {
-		return err
 	}
 	for {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"), true)
