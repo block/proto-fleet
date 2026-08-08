@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -433,6 +432,7 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 	}
 	want := []string{
 		"health",
+		"reset",
 		"role:patroni",
 		"permission:patroni:/service/proto-fleet/:readwrite",
 		"user:patroni:patroni-pass",
@@ -445,6 +445,9 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 		"user:root:root-pass",
 		"grant:root:root",
 		"auth",
+		"verify:root",
+		"verify:patroni",
+		"verify:fleet-observer",
 	}
 	if !slices.Equal(client.calls, want) {
 		t.Fatalf("bootstrap calls:\n%v\nwant:\n%v", client.calls, want)
@@ -490,14 +493,16 @@ func (c *recordingAuthClient) record(call string) error {
 }
 
 func (c *recordingAuthClient) Healthy(context.Context) error { return c.record("health") }
+func (c *recordingAuthClient) ResetAuth(context.Context) error {
+	err := c.record("reset")
+	c.existing = false
+	return err
+}
 func (c *recordingAuthClient) AddRole(_ context.Context, role string) error {
-	if err := c.record("role:" + role); err != nil {
-		return err
-	}
 	if c.existing {
-		return rpctypes.ErrRoleAlreadyExist
+		return errors.New("role already exists")
 	}
-	return nil
+	return c.record("role:" + role)
 }
 func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix string, permission clientv3.PermissionType) error {
 	name := "read"
@@ -507,18 +512,18 @@ func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix st
 	return c.record(fmt.Sprintf("permission:%s:%s:%s", role, prefix, name))
 }
 func (c *recordingAuthClient) AddUser(_ context.Context, user, password string) error {
-	if err := c.record("user:" + user + ":" + password); err != nil {
-		return err
-	}
 	if c.existing {
-		return rpctypes.ErrUserAlreadyExist
+		return errors.New("user already exists")
 	}
-	return nil
+	return c.record("user:" + user + ":" + password)
 }
 func (c *recordingAuthClient) GrantRole(_ context.Context, user, role string) error {
 	return c.record("grant:" + user + ":" + role)
 }
 func (c *recordingAuthClient) EnableAuth(context.Context) error { return c.record("auth") }
+func (c *recordingAuthClient) VerifyCredential(_ context.Context, user, _ string) error {
+	return c.record("verify:" + user)
+}
 
 func testNodeEnv(t *testing.T, dir, dataDir, secretsDir string) string {
 	t.Helper()
