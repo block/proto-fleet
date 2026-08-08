@@ -121,6 +121,7 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
+    assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
     assert_contains "$rendered" "sleep 15; exec /app/fleetd"
     [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 2 ]] ||
         fail "Fleet services must restart process failures without bypassing the systemd start gate"
@@ -134,6 +135,7 @@ test_fleet_ha_contract() {
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
     [[ "$secret_mount_count" -eq 4 ]] || fail "Fleet services must mount only their required HA secret files"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
+    assert_not_contains "$rendered" "/run/proto-fleet-updater"
 
     assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--cacert "$service_ca"'
     assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--resolve "${virtual_ip}:443:127.0.0.1"'
@@ -157,6 +159,13 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/docker-systemd.conf" "Requires=proto-fleet-ha-firewall.service"
     assert_not_contains "${HA_DIR}/docker-systemd.conf" "Wants=proto-fleet-ha.service"
     assert_contains "${HA_DIR}/docker-ha-recovery-systemd.conf" "Wants=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "ReadWritePaths=/etc/proto-fleet/ha"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "After=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "PartOf=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "EnvironmentFile=-/etc/proto-fleet/updater.env"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "Wants=proto-fleet-updater.service"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "ExecStartPre=/usr/local/libexec/proto-fleet/proto-fleet-updater --deployment-mode ha --self-update-path /usr/local/libexec/proto-fleet/proto-fleet-updater --repair-startup"
+    assert_not_contains "${HA_DIR}/ha-updater-systemd.conf" "Requires=proto-fleet-updater.service"
 
     for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
         assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"

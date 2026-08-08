@@ -159,3 +159,31 @@ Repeat on `ha-b` without `HA_PROFILE_MIGRATE`. The emitted
 Patroni primary, and connected PostgreSQL writer agree.
 The [qualification procedure](QUALIFICATION.md) owns the release qualification
 matrix and redacted evidence.
+
+This first application-only updater supports one adjacent transition from a
+clean-installed release. It rejects a chained update after the application has
+advanced beyond the pinned database and DCS substrate. Every target migration
+must be expand-only and remain compatible with the running release; destructive
+contract migrations require a later release after both hosts have advanced. Do
+not use `fleet-ha update` for a release pair that has not passed separate
+adjacent-release migration and mixed-version qualification.
+
+The first release containing this update workflow is the clean-install
+baseline. HA deployments on an earlier experimental release must be reinstalled
+instead of upgraded through this path. Release metadata allows no HA source by
+default. To qualify an adjacent pair, set its one exact source tag in
+`qualified-update-from.txt` before publishing the target. The manifest covers
+the resulting source tag and commit, and the updater requires both to match the
+installed release.
+
+Production HA updates accept only a promoted GitHub release. Qualification may
+exercise one exact prerelease by setting
+`PROTO_FLEET_HA_QUALIFICATION_TARGET=vX.Y.Z` in the root-owned
+`/etc/proto-fleet/updater.env` and restarting the updater. Remove the setting
+after the qualification run. This is not a general prerelease update channel.
+Only stable-to-stable pairs are supported; RC releases are clean-install-only.
+
+A passive update rechecks the local role, active peer, and control path just
+before stopping Fleet. This crash-only profile accepts the small role-change
+window before process exit; if the peer fails in that interval, durable update
+recovery restarts the local application.

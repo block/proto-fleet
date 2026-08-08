@@ -45,6 +45,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	docker := callIndex(calls, "sudo systemctl start docker.service")
 	start := callIndex(calls, "sudo systemctl start proto-fleet-ha.service")
 	enable := callIndex(calls, "sudo systemctl enable proto-fleet-ha.service")
+	updater := callIndex(calls, "sudo systemctl enable --now proto-fleet-updater.service")
+	updaterPermissions := callIndex(calls, updaterDropIn)
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
@@ -55,8 +57,9 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < start && start < enable && rootPasswordInstall < start) {
+	pinnedComposeInstall := callIndex(calls, "ha/compose.yaml "+infrastructureCompose)
+	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || pinnedComposeInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || updaterPermissions < 0 || updater < 0 || keepalived < 0 ||
+		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < start && start < enable && enable < updater && updaterPermissions < updater && rootPasswordInstall < start && pinnedComposeInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -171,6 +174,37 @@ func TestInstallReadinessFailureDisablesHA(t *testing.T) {
 	require.Contains(t, joined, "sudo rm -f "+dockerRecoveryDropIn)
 }
 
+func TestInstallUpdaterFailureDisablesHA(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	config := NodeConfig{
+		NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
+	}
+	writeTestSecretBundle(t, config)
+	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
+	require.NoError(t, os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600))
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	run := deps.run
+	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if strings.Contains(strings.Join(args, " "), "enable --now proto-fleet-updater.service") {
+			return nil, errors.New("enable failed")
+		}
+		return run(ctx, name, args...)
+	}
+
+	// Act
+	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "enable host updater")
+	joined := strings.Join(calls, "\n")
+	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-updater.service")
+	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
+}
+
 func TestPrepareImagesRejectsMissingHADatabaseImage(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
@@ -215,7 +249,7 @@ func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
 	if !strings.Contains(joined, "sudo systemctl disable --now keepalived.service") {
 		t.Fatalf("witness did not disable keepalived:\n%s", joined)
 	}
-	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "proto-fleet-ha.service.d/keepalived.conf", " arping "} {
+	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "proto-fleet-updater.service", updaterDropIn, haUpdaterDropIn, "proto-fleet-ha.service.d/keepalived.conf", " arping "} {
 		if strings.Contains(joined, unexpected) {
 			t.Fatalf("witness installed database-host service %q:\n%s", unexpected, joined)
 		}
@@ -249,6 +283,18 @@ func TestValidateReleaseRejectsSymlinks(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unsupported entry") {
 		t.Fatalf("validateRelease() error = %v", err)
 	}
+}
+
+func TestValidateReleaseRequiresHAUpdaterDropIn(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	require.NoError(t, os.Remove(filepath.Join(source, "ha", "updater-systemd.conf")))
+
+	// Act
+	err := validateRelease(t.Context(), source, installDependencies{})
+
+	// Assert
+	require.ErrorContains(t, err, "release is missing ha/updater-systemd.conf")
 }
 
 func TestConsumeInstallCredentialsPreservesUnexpectedFiles(t *testing.T) {
@@ -315,12 +361,12 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 	require.NotContains(t, strings.Join(calls, "\n"), "apt-get")
 }
 
-func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
+func TestCleanInstallRejectsUpdaterServiceDropIns(t *testing.T) {
 	// Arrange
 	deps := installDependencies{
 		lookPath: func(string) (string, error) { return "", os.ErrNotExist },
 		requireEmpty: func(path, _ string) error {
-			if path == "/etc/systemd/system/docker.service.d" {
+			if path == "/etc/systemd/system/proto-fleet-updater.service.d" {
 				return fmt.Errorf("unexpected entry in %s", path)
 			}
 			return nil
@@ -332,7 +378,7 @@ func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
 	err := validateCleanInstallState(deps)
 
 	// Assert
-	require.ErrorContains(t, err, "/etc/systemd/system/docker.service.d")
+	require.ErrorContains(t, err, "/etc/systemd/system/proto-fleet-updater.service.d")
 }
 
 func TestReleaseSnapshotCleanupOutlivesInstallCancellation(t *testing.T) {
@@ -459,12 +505,16 @@ func testInstallRelease(t *testing.T) string {
 		"ha/proto-fleet-ha-firewall.service":                     "[Service]\n",
 		"ha/docker-systemd.conf":                                 "[Unit]\n",
 		"ha/docker-ha-recovery-systemd.conf":                     "[Unit]\n",
+		"ha/updater-systemd.conf":                                "[Service]\nReadWritePaths=/etc/proto-fleet/ha\n",
+		"ha/ha-updater-systemd.conf":                             "[Service]\n",
 		"ha/scripts/check-fleet-active.sh":                       "#!/bin/sh\n",
 		"client/Dockerfile":                                      "FROM scratch\n",
 		"client/protoFleet/index.html":                           "index",
 		"client/protoFleet/assets/app.js":                        "asset",
 		"client/docker-entrypoint.d/40-render-runtime-config.sh": "#!/bin/sh\n",
 		"client/nginx.https.conf":                                "server {}\n",
+		"updater/proto-fleet-updater":                            "updater\n",
+		"updater/proto-fleet-updater.service":                    "[Service]\n",
 	}
 	for name, contents := range required {
 		path := filepath.Join(root, name)

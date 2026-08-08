@@ -17,14 +17,17 @@ import (
 )
 
 const (
-	installBase          = "/opt/proto-fleet"
-	installRoot          = "/opt/proto-fleet/deployment"
-	configRoot           = "/etc/proto-fleet/ha"
-	dataRoot             = "/var/lib/proto-fleet/ha"
-	serviceUnit          = "/etc/systemd/system/proto-fleet-ha.service"
-	firewallUnit         = "/etc/systemd/system/proto-fleet-ha-firewall.service"
-	dockerDropIn         = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
-	dockerRecoveryDropIn = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	installBase           = "/opt/proto-fleet"
+	installRoot           = "/opt/proto-fleet/deployment"
+	configRoot            = "/etc/proto-fleet/ha"
+	dataRoot              = "/var/lib/proto-fleet/ha"
+	infrastructureCompose = configRoot + "/compose.yaml"
+	serviceUnit           = "/etc/systemd/system/proto-fleet-ha.service"
+	firewallUnit          = "/etc/systemd/system/proto-fleet-ha-firewall.service"
+	dockerDropIn          = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
+	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	updaterDropIn         = "/etc/systemd/system/proto-fleet-updater.service.d/proto-fleet-ha.conf"
+	haUpdaterDropIn       = "/etc/systemd/system/proto-fleet-ha.service.d/proto-fleet-updater.conf"
 )
 
 type InstallOptions struct {
@@ -54,7 +57,7 @@ func defaultInstallDependencies() installDependencies {
 		goos: runtime.GOOS, goarch: runtime.GOARCH, pageSize: os.Getpagesize(),
 		readFile: os.ReadFile, lstat: os.Lstat, lookPath: exec.LookPath, requireEmpty: requireEmptyDir, validateHost: ValidateHost,
 		run: runCommand, runInput: runWithInput, runDir: runCommandInDir,
-		sourceRoot: releaseRoot, verifyVIP: verifyInstallVirtualIP, sleep: time.Sleep,
+		sourceRoot: ReleaseRoot, verifyVIP: verifyInstallVirtualIP, sleep: time.Sleep,
 	}
 }
 
@@ -261,11 +264,13 @@ func validateCleanInstallState(deps installDependencies) error {
 		}
 	}
 	for _, path := range []string{
-		installBase, configRoot, "/var/lib/docker", "/var/lib/containerd", "/etc/docker",
+		installBase, configRoot, "/var/lib/docker", "/var/lib/containerd",
+		"/var/lib/proto-fleet-updater", "/run/proto-fleet-updater", "/etc/docker",
 		"/etc/systemd/system/docker.service.d",
 		"/etc/systemd/system/keepalived.service.d",
 		"/etc/systemd/system/proto-fleet-ha.service.d",
 		"/etc/systemd/system/proto-fleet-ha-firewall.service.d",
+		"/etc/systemd/system/proto-fleet-updater.service.d",
 	} {
 		if err := deps.requireEmpty(path, "existing service state"); err != nil {
 			return fmt.Errorf("HA install failed: %w", err)
@@ -277,6 +282,9 @@ func validateCleanInstallState(deps installDependencies) error {
 		"/etc/systemd/system/keepalived.service",
 		"/etc/keepalived/keepalived.conf",
 		"/usr/local/libexec/proto-fleet/check-fleet-active",
+		"/usr/local/libexec/proto-fleet/proto-fleet-updater",
+		"/etc/systemd/system/proto-fleet-updater.service",
+		"/etc/proto-fleet/updater.env",
 		"/etc/apt/sources.list.d/docker.sources", "/etc/apt/keyrings/docker.asc",
 		"/usr/bin/docker", "/usr/sbin/keepalived", "/lib/systemd/system/docker.service",
 	} {
@@ -327,6 +335,8 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 		"deployment-manifest.sha256", "version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/timescaledb.tar.gz",
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
+		"updater/proto-fleet-updater", "updater/proto-fleet-updater.service",
+		"ha/updater-systemd.conf", "ha/ha-updater-systemd.conf",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
 		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
@@ -549,6 +559,7 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0700", configRoot},
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0750", dataRoot},
 		{"cp", filepath.Join(installRoot, "client", "nginx.https.conf"), filepath.Join(installRoot, "client", "nginx.conf")},
+		{"install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "compose.yaml"), infrastructureCompose},
 	} {
 		if output, err := deps.run(ctx, "sudo", args...); err != nil {
 			return fmt.Errorf("install HA release: %s", commandError(output, err))
@@ -584,6 +595,34 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 	} {
 		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", sourceName), target); err != nil {
 			return fmt.Errorf("install HA systemd unit: %s", commandError(output, err))
+		}
+	}
+	if config.isDatabaseNode() {
+		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0755", filepath.Join(installRoot, "updater", "proto-fleet-updater"), "/usr/local/libexec/proto-fleet/proto-fleet-updater"); err != nil {
+			return fmt.Errorf("install host updater: %s", commandError(output, err))
+		}
+		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "updater", "proto-fleet-updater.service"), "/etc/systemd/system/proto-fleet-updater.service"); err != nil {
+			return fmt.Errorf("install host updater service: %s", commandError(output, err))
+		}
+		for sourceName, target := range map[string]string{
+			"updater-systemd.conf":    updaterDropIn,
+			"ha-updater-systemd.conf": haUpdaterDropIn,
+		} {
+			if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", sourceName), target); err != nil {
+				return fmt.Errorf("install updater recovery ordering: %s", commandError(output, err))
+			}
+		}
+		updaterEnv := fmt.Sprintf(
+			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=/usr/local/libexec/proto-fleet/proto-fleet-updater\n",
+			installBase,
+		)
+		temp, err := writeInstallTemp("updater.env", updaterEnv, 0o600)
+		if err != nil {
+			return err
+		}
+		defer os.Remove(temp)
+		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", temp, "/etc/proto-fleet/updater.env"); err != nil {
+			return fmt.Errorf("install host updater configuration: %s", commandError(output, err))
 		}
 	}
 	return nil
@@ -661,7 +700,7 @@ func installKeepalived(ctx context.Context, source string, config NodeConfig, de
 }
 
 func prepareImages(ctx context.Context, source string, config NodeConfig, deps installDependencies) error {
-	if output, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "compose", "--env-file", filepath.Join(configRoot, "node.env"), "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "pull", "etcd"); err != nil {
+	if output, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "compose", "--env-file", filepath.Join(configRoot, "node.env"), "--file", infrastructureCompose, "pull", "etcd"); err != nil {
 		return fmt.Errorf("pull etcd image: %s", commandError(output, err))
 	}
 	if config.isDatabaseNode() {
@@ -757,6 +796,15 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 	if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "proto-fleet-ha.service"); err != nil {
 		return stopIncompleteHA(ctx, deps, fmt.Errorf("enable HA services: %s", commandError(output, err)))
 	}
+	if config.isDatabaseNode() {
+		if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "--now", "proto-fleet-updater.service"); err != nil {
+			cause := fmt.Errorf("enable host updater: %s", commandError(output, err))
+			if cleanupOutput, cleanupErr := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "proto-fleet-updater.service"); cleanupErr != nil {
+				cause = errors.Join(cause, fmt.Errorf("disable incomplete host updater: %s", commandError(cleanupOutput, cleanupErr)))
+			}
+			return stopIncompleteHA(ctx, deps, cause)
+		}
+	}
 	return nil
 }
 
@@ -777,12 +825,16 @@ func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error
 }
 
 func fleetComposeArgs(operation string, services ...string) []string {
+	return fleetComposeArgsAt(installRoot, operation, services...)
+}
+
+func fleetComposeArgsAt(root, operation string, services ...string) []string {
 	args := []string{
 		"--env-file", filepath.Join(configRoot, "base.env"),
 		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
 		"--env-file", filepath.Join(configRoot, "node.env"),
-		"--file", filepath.Join(installRoot, "docker-compose.yaml"),
-		"--file", filepath.Join(installRoot, "ha", "fleet-compose.yaml"), operation,
+		"--file", filepath.Join(root, "docker-compose.yaml"),
+		"--file", filepath.Join(root, "ha", "fleet-compose.yaml"), operation,
 	}
 	return append(args, services...)
 }
@@ -809,7 +861,8 @@ func writeInstallTemp(name, contents string, mode os.FileMode) (string, error) {
 	return path, nil
 }
 
-func releaseRoot() (string, error) {
+// ReleaseRoot returns the packaged deployment containing this fleet-ha binary.
+func ReleaseRoot() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("locate fleet-ha executable: %w", err)

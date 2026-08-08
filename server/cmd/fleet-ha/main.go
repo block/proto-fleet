@@ -10,8 +10,12 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 const (
@@ -20,7 +24,9 @@ const (
 )
 
 func main() {
-	os.Exit(runMain())
+	if runMain() != 0 {
+		os.Exit(1)
+	}
 }
 
 func runMain() int {
@@ -90,6 +96,8 @@ func run(ctx context.Context, args []string) error {
 		return runStatus(ctx, args[1:], os.Stdout, deployment.Status)
 	case "install":
 		return runInstall(ctx, args[1:])
+	case "update":
+		return runPassiveUpdate(ctx, args[1:], os.Stdout, deployment.ValidatePassiveUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
 	case "start":
 		return runStart(ctx, args[1:])
 	case "stop":
@@ -97,13 +105,195 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("usage: fleet-ha stop NODE_ENV")
 		}
 		return deployment.StopInstalledServices(ctx, args[1])
+	case "require-passive":
+		if len(args) != 3 {
+			return errors.New("usage: fleet-ha require-passive NODE_ENV VERSION")
+		}
+		return deployment.ValidatePassiveUpdate(ctx, args[1], args[2])
+	case "update-preflight":
+		if len(args) != 1 {
+			return errors.New("usage: fleet-ha update-preflight")
+		}
+		root, err := deployment.ReleaseRoot()
+		if err != nil {
+			return err
+		}
+		return deployment.PrepareApplicationUpdate(ctx, root)
+	case "app-stop":
+		if len(args) != 1 {
+			return errors.New("usage: fleet-ha app-stop")
+		}
+		root, err := deployment.ReleaseRoot()
+		if err != nil {
+			return err
+		}
+		return deployment.StopApplication(ctx, root)
+	case "app-start":
+		if len(args) != 2 && (len(args) != 3 || (args[2] != "passive" && args[2] != "any")) {
+			return errors.New("usage: fleet-ha app-start VERSION <passive|any>")
+		}
+		root, err := deployment.ReleaseRoot()
+		if err != nil {
+			return err
+		}
+		requirePassive := len(args) == 2 || args[2] == "passive"
+		return deployment.StartApplication(ctx, root, args[1], requirePassive)
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status|install|start|stop> ...")
+	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status|install|start|stop|update> ...")
+}
+
+const (
+	installedNodeEnv     = "/etc/proto-fleet/ha/node.env"
+	defaultUpdaterSocket = "/run/proto-fleet-updater/updater.sock"
+)
+
+type updaterClient interface {
+	Status(ctx context.Context) (updaterapi.StatusResponse, error)
+	Trigger(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+}
+
+const (
+	updatePollInterval         = 2 * time.Second
+	updateCommunicationTimeout = 30 * time.Second
+)
+
+type updateTrigger func(context.Context, string, string) (updaterapi.Operation, error)
+
+type updatePreflight func(context.Context, string, string) error
+
+func runPassiveUpdate(
+	ctx context.Context,
+	args []string,
+	output io.Writer,
+	preflight updatePreflight,
+	client updaterClient,
+	read statusReader,
+) error {
+	if err := runUpdate(ctx, args, output, preflight, client); err != nil {
+		return err
+	}
+	report, err := read(ctx, installedNodeEnv, true)
+	if err != nil {
+		return fmt.Errorf("update succeeded but local HA outcome could not be verified: %w", err)
+	}
+	if report.Control != nil && report.Control.FailoverReady {
+		return nil
+	}
+	if deployment.ExpectedRollingVersionMismatch(report.Control) {
+		_, err = fmt.Fprintln(output, "Update succeeded; failover readiness will recover after the peer is updated.")
+		if err != nil {
+			return fmt.Errorf("write update outcome: %w", err)
+		}
+		return nil
+	}
+	if _, err = fmt.Fprintln(output, "Update succeeded, but failover redundancy is degraded. Run fleet-ha status --check."); err != nil {
+		return fmt.Errorf("write update outcome: %w", err)
+	}
+	return errors.New("update succeeded but failover readiness is degraded")
+}
+
+func runUpdate(
+	ctx context.Context,
+	args []string,
+	output io.Writer,
+	preflight updatePreflight,
+	client updaterClient,
+) error {
+	if len(args) != 1 {
+		return errors.New("usage: fleet-ha update VERSION")
+	}
+	if err := preflight(ctx, installedNodeEnv, args[0]); err != nil {
+		return err
+	}
+	operationID := uuid.NewString()
+	operation, err := triggerUpdate(ctx, operationID, args[0], client.Trigger)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(output, "Update operation %s accepted\n", operation.ID); err != nil {
+		return fmt.Errorf("write update operation: %w", err)
+	}
+	lastPhase := updaterapi.Phase("")
+	var statusFailureSince time.Time
+	for {
+		if operation.Phase != lastPhase {
+			if _, err := fmt.Fprintf(output, "Update %s: %s\n", operation.TargetVersion, operation.Phase); err != nil {
+				return fmt.Errorf("write update status: %w", err)
+			}
+			lastPhase = operation.Phase
+		}
+		if operation.Phase.Terminal() {
+			if operation.Phase == updaterapi.PhaseFailed {
+				message := "HA application update failed: " + operation.Error
+				if operation.RecoveryCommand != "" {
+					message += "\nRecovery: " + operation.RecoveryCommand
+				}
+				if operation.LogPath != "" {
+					message += "\nLog: " + operation.LogPath
+				}
+				return errors.New(message)
+			}
+			if operation.Message != "" {
+				if _, err := fmt.Fprintln(output, operation.Message); err != nil {
+					return fmt.Errorf("write update result: %w", err)
+				}
+			}
+			if operation.LogPath != "" {
+				if _, err := fmt.Fprintln(output, "Log:", operation.LogPath); err != nil {
+					return fmt.Errorf("write update log path: %w", err)
+				}
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for HA application update: %w", ctx.Err())
+		case <-time.After(updatePollInterval):
+		}
+		status, err := client.Status(ctx)
+		if err != nil {
+			if statusFailureSince.IsZero() {
+				statusFailureSince = time.Now()
+			}
+			if time.Since(statusFailureSince) >= updateCommunicationTimeout {
+				return fmt.Errorf("host updater status remained unavailable for %s: %w", updateCommunicationTimeout, err)
+			}
+			continue
+		}
+		statusFailureSince = time.Time{}
+		if status.Operation == nil || status.Operation.ID != operationID || status.Operation.TargetVersion != args[0] {
+			return errors.New("host updater lost the accepted operation")
+		}
+		operation = *status.Operation
+	}
+}
+
+func triggerUpdate(ctx context.Context, operationID, targetVersion string, trigger updateTrigger) (updaterapi.Operation, error) {
+	reconcileCtx, cancel := context.WithTimeout(ctx, updateCommunicationTimeout)
+	defer cancel()
+	for {
+		operation, err := trigger(reconcileCtx, operationID, targetVersion)
+		if err == nil {
+			return operation, nil
+		}
+		if errors.Is(err, updaterapi.ErrUnavailable) {
+			return updaterapi.Operation{}, err
+		}
+		var rejection *updaterapi.HTTPError
+		if errors.As(err, &rejection) {
+			return updaterapi.Operation{}, err
+		}
+		select {
+		case <-reconcileCtx.Done():
+			return updaterapi.Operation{}, fmt.Errorf("reconcile HA application update: %w", errors.Join(reconcileCtx.Err(), err))
+		case <-time.After(updatePollInterval):
+		}
+	}
 }
 
 func runInstall(ctx context.Context, args []string) error {

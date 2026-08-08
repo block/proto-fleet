@@ -1,7 +1,5 @@
-// Package updaterapi defines the narrow local protocol shared by fleetd and
-// the privileged host updater. The transport is an HTTP server on a Unix
-// socket; this package intentionally contains data types only so neither side
-// can accidentally share privileged implementation code.
+// Package updaterapi defines the narrow local Unix-socket protocol shared by
+// Fleet clients and the privileged host updater.
 package updaterapi
 
 import "time"

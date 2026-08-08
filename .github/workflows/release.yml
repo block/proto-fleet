@@ -12,7 +12,15 @@ permissions:
 jobs:
   validate-tag:
     runs-on: ubuntu-latest
+    outputs:
+      ha_update_from_version: ${{ steps.ha-update-from.outputs.version }}
+      ha_update_from_commit: ${{ steps.ha-update-from.outputs.commit }}
     steps:
+      - name: Checkout release history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
       - name: Validate tag format
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -54,12 +62,52 @@ jobs:
           fi
           echo "Release/RC tag is on main — OK"
 
+      - name: Read qualified HA update source
+        id: ha-update-from
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          qualified=$(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' deployment-files/ha/qualified-update-from.txt)
+          # RCs remain clean-install-only. The first HA updater supports only
+          # qualified stable-to-stable transitions.
+          if [[ "$TAG_NAME" == *-* ]]; then
+            qualified=''
+          fi
+          if [[ $(printf '%s\n' "$qualified" | grep -c . || true) -gt 1 ]]; then
+            echo "::error::qualified-update-from.txt must contain at most one release tag"
+            exit 1
+          fi
+          if [[ -n "$qualified" ]]; then
+            if [[ ! "$qualified" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Qualified HA update source '$qualified' is not a stable release tag"
+              exit 1
+            fi
+            if [[ "$qualified" == "$TAG_NAME" ]] || ! git merge-base --is-ancestor "$qualified" "$GITHUB_SHA"; then
+              echo "::error::Qualified HA update source '$qualified' must be an existing ancestor tag"
+              exit 1
+            fi
+            previous=$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
+              --jq '.[] | select(.draft == false and .prerelease == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | [.published_at, .tag_name] | @tsv' \
+              | sort -r | awk 'NR == 1 { print $2 }')
+            if [[ "$qualified" != "$previous" ]]; then
+              echo "::error::Qualified HA update source '$qualified' must be the latest published stable release '$previous'"
+              exit 1
+            fi
+          fi
+          echo "version=$qualified" >> "$GITHUB_OUTPUT"
+          if [[ -n "$qualified" ]]; then
+            echo "commit=$(git rev-list -n 1 "$qualified")" >> "$GITHUB_OUTPUT"
+          fi
+
   build-artifacts:
     name: Build release artifacts
     needs: [validate-tag]
     uses: ./.github/workflows/proto-fleet-artifact-build.yml
     with:
       version: ${{ github.ref_name }}
+      ha_update_from_version: ${{ needs.validate-tag.outputs.ha_update_from_version }}
+      ha_update_from_commit: ${{ needs.validate-tag.outputs.ha_update_from_commit }}
       retention_days: 1
       channel: release
       is_prerelease: ${{ contains(github.ref_name, '-') }}
@@ -67,7 +115,7 @@ jobs:
 
   publish-proto-fleet:
     runs-on: ubuntu-latest
-    needs: [build-artifacts]
+    needs: [validate-tag, build-artifacts]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -132,7 +180,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
-          IS_PRERELEASE: ${{ contains(github.ref_name, '-') }}
+          IS_PRERELEASE: ${{ contains(github.ref_name, '-') || needs.validate-tag.outputs.ha_update_from_version != '' }}
         run: |
           set -euo pipefail
           shopt -s failglob
