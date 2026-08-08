@@ -575,9 +575,21 @@ func NewManager(cfg Config) (*Manager, error) {
 
 // RepairStartup restores a crash-interrupted deployment layout without starting Fleet.
 func RepairStartup(cfg Config) error {
-	if _, err := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, ""); err != nil {
+	canonicalStateDir, err := ensureUpdaterStateDirectory(cfg.StateDir)
+	if err != nil {
 		return err
 	}
+	processLock, err := acquireProcessLock(canonicalStateDir)
+	if err != nil {
+		return err
+	}
+	if _, err := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, ""); err != nil {
+		return errors.Join(err, processLock.Close())
+	}
+	if err := processLock.Close(); err != nil {
+		return fmt.Errorf("release updater repair lock: %w", err)
+	}
+	cfg.StateDir = canonicalStateDir
 	manager, err := newManager(cfg, false)
 	if err != nil {
 		return err
