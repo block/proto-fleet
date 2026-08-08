@@ -687,7 +687,7 @@ func NewManager(cfg Config) (*Manager, error) {
 	return m, nil
 }
 
-// RepairStartup restores a crash-interrupted deployment layout without starting Fleet.
+// RepairStartup restores crash-interrupted updater and application state.
 func RepairStartup(cfg Config) error {
 	_, prepareErr := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, "")
 	if prepareErr != nil && !errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored) {
@@ -699,6 +699,9 @@ func RepairStartup(cfg Config) error {
 	}
 	if prepareErr != nil {
 		err = manager.restoreUpdaterFromInstalledDeployment()
+	}
+	if err == nil {
+		err = manager.recoverHAApplication()
 	}
 	return errors.Join(err, manager.Close())
 }
@@ -730,6 +733,26 @@ func (m *Manager) restoreUpdaterFromInstalledDeployment() error {
 		return fmt.Errorf("commit recovered updater: %w", err)
 	}
 	return nil
+}
+
+func (m *Manager) recoverHAApplication() error {
+	if m.cfg.DeploymentMode != DeploymentModeHA || m.operation == nil || m.operation.RecoveryCommand == "" {
+		return nil
+	}
+	deployment := filepath.Join(m.cfg.InstallRoot, "deployment")
+	version, err := readInstalledVersion(filepath.Join(deployment, "version.txt"))
+	if err != nil {
+		return fmt.Errorf("read interrupted HA deployment version: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), m.cfg.ActivationTimeout)
+	defer cancel()
+	if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, io.Discard, "app-start", version); err != nil {
+		return fmt.Errorf("restart interrupted HA application: %w", err)
+	}
+	m.operation.RecoveryCommand = ""
+	m.operation.Message += "; HA application restarted"
+	m.operation.UpdatedAt = m.cfg.Now().UTC()
+	return m.persistLocked()
 }
 
 func (m *Manager) Close() error {
