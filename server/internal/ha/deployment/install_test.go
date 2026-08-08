@@ -184,7 +184,7 @@ func TestInstallUpdaterFailureDisablesHA(t *testing.T) {
 	}
 	writeTestSecretBundle(t, config)
 	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
-	require.NoError(t, os.WriteFile(rootPassword, []byte("root-password\n"), 0o600))
+	require.NoError(t, os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600))
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	run := deps.run
