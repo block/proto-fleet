@@ -687,7 +687,7 @@ func installRootPassword(ctx context.Context, options InstallOptions, deps insta
 
 func initialStart(ctx context.Context, config NodeConfig, deps installDependencies) error {
 	if output, err := deps.run(ctx, "sudo", "systemctl", "start", "proto-fleet-ha.service"); err != nil {
-		return fmt.Errorf("start HA services: %s", commandError(output, err))
+		return stopIncompleteHA(ctx, deps, fmt.Errorf("start HA services: %s", commandError(output, err)))
 	}
 	if config.isDatabaseNode() {
 		ready := false
