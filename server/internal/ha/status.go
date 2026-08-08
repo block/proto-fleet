@@ -73,6 +73,12 @@ func (r *Runtime) Status(now time.Time) Status {
 	}
 	status.Observation = ObservationCurrent
 	if snapshot.State != StateActive {
+		if r.config.EndpointOwned != nil && r.config.EndpointOwned() {
+			status.Role = RoleDegraded
+			status.Endpoint = EndpointUnhealthy
+			status.ReasonCodes = []ReasonCode{ReasonEndpointUnhealthy}
+			return status
+		}
 		status.Role = RolePassive
 		return status
 	}

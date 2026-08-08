@@ -31,7 +31,12 @@ func TestRuntimeStatusReportsInitializingThenHealthyPassive(t *testing.T) {
 	require.Equal(t, ObservationCurrent, status.Observation)
 	require.Empty(t, status.ReasonCodes)
 	require.True(t, runtime.Passive(time.Now()))
+
 	endpointOwned = true
+	status = runtime.Status(time.Now())
+	require.Equal(t, RoleDegraded, status.Role)
+	require.Equal(t, EndpointUnhealthy, status.Endpoint)
+	require.Equal(t, []ReasonCode{ReasonEndpointUnhealthy}, status.ReasonCodes)
 	require.False(t, runtime.Passive(time.Now()))
 }
 
