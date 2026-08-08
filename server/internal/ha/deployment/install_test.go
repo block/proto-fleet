@@ -42,13 +42,13 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	firewall := callIndex(calls, "sudo systemctl enable --now proto-fleet-ha-firewall.service")
 	docker := callIndex(calls, "sudo systemctl start docker.service")
 	start := callIndex(calls, "sudo systemctl enable --now proto-fleet-ha.service")
-	keepalived := callIndex(calls, "sudo systemctl enable --now keepalived.service")
+	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
 	snapshot := callIndex(calls, "dir:"+installRoot+" sha256sum --check deployment-manifest.sha256")
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	if packages < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || start < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && vipCheck < firewall && firewall < docker && rootPasswordInstall < start && start < keepalived) {
+		!(snapshot < packages && packages < vipCheck && keepalived < firewall && firewall < docker && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -118,7 +118,7 @@ func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
 	if !strings.Contains(joined, "sudo systemctl disable --now keepalived.service") {
 		t.Fatalf("witness did not disable keepalived:\n%s", joined)
 	}
-	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "enable --now keepalived.service", " arping "} {
+	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "proto-fleet-ha.service.d/keepalived.conf", " arping "} {
 		if strings.Contains(joined, unexpected) {
 			t.Fatalf("witness installed database-host service %q:\n%s", unexpected, joined)
 		}
@@ -323,6 +323,7 @@ func testInstallRelease(t *testing.T) string {
 		"ha/keepalived.conf.tmpl":                                "${HA_NODE_IP} ${HA_PEER_IP} ${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE} ${HA_ENDPOINT_HEARTBEAT_FILE} ${HA_SECRETS_DIR}\n",
 		"ha/keepalived-systemd.conf.tmpl":                        "${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE}\n",
 		"ha/proto-fleet-ha.service":                              "[Service]\n",
+		"ha/proto-fleet-ha-keepalived.conf":                      "[Unit]\nWants=keepalived.service\n",
 		"ha/proto-fleet-ha-firewall.service":                     "[Service]\n",
 		"ha/docker-systemd.conf":                                 "[Unit]\n",
 		"ha/scripts/check-fleet-active.sh":                       "#!/bin/sh\n",
