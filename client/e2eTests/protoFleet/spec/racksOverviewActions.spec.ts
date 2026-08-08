@@ -19,7 +19,11 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - overview actions", () => {
   useRacksHooks();
 
-  test("Rack overview actions menu manages power for assigned rig miners", async ({ racksPage, minersPage, page }) => {
+  test("Rack overview actions menu manages power for assigned rig miners @pr", async ({
+    racksPage,
+    minersPage,
+    page,
+  }) => {
     let rackLabel = "";
     let selectedMiners: RackSelectorMiner[] = [];
     let rackDeviceIdentifiers: string[] = [];
@@ -177,7 +181,7 @@ test.describe("Racks - overview actions", () => {
     });
   }
 
-  test("Rack overview actions menu opens manage security and validates password mismatch", async ({
+  test("Rack overview actions menu opens manage security and validates password mismatch @pr", async ({
     racksPage,
     loginModal,
     minersPage,

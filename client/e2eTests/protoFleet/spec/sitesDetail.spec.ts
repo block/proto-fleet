@@ -8,7 +8,7 @@ import {
 test.describe("Sites - detail", () => {
   useSiteDetailHooks();
 
-  test("Site detail supports editing details, adding a building, and switching to a sibling site", async ({
+  test("Site detail supports editing details, adding a building, and switching to a sibling site @pr", async ({
     fleetLocationsPage,
   }, testInfo) => {
     const scenario = createSiteDetailScenarioData(testInfo);

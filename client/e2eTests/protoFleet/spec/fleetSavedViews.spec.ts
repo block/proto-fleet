@@ -10,7 +10,7 @@ import { generateRandomText } from "../helpers/testDataHelper";
 test.describe("Proto Fleet - Fleet saved views", () => {
   useBuildingsHooks();
 
-  test("Buildings saved view restores the site-filtered fleet view", async ({
+  test("Buildings saved view restores the site-filtered fleet view @pr", async ({
     page,
     fleetLocationsPage,
     racksPage,

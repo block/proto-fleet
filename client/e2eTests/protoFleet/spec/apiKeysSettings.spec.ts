@@ -42,7 +42,7 @@ test.describe("Proto Fleet - Integrations", () => {
     }
   });
 
-  test("Create and revoke API key", async ({ commonSteps, settingsApiKeysPage }) => {
+  test("Create and revoke API key @pr", async ({ commonSteps, settingsApiKeysPage }) => {
     const apiKeyName = generateRandomText(API_KEY_PREFIX);
 
     await test.step("Log in as admin", async () => {

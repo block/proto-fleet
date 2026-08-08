@@ -6,7 +6,7 @@ test.describe("Miner Issues Tests", () => {
     await page.goto("/");
   });
 
-  test("mock ErrorQueryService with custom errors", async ({ page, minersPage, commonSteps }) => {
+  test("mock ErrorQueryService with custom errors @pr", async ({ page, minersPage, commonSteps }) => {
     const errorControlBoard = "COMPONENT_TYPE_CONTROL_BOARD";
     const errorHashBoard = "COMPONENT_TYPE_HASH_BOARD";
     const errorPsu = "COMPONENT_TYPE_PSU";

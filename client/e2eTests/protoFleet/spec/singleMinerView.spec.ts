@@ -6,7 +6,7 @@ test.describe("Proto Fleet - Single Miner View", () => {
     await page.goto("/");
   });
 
-  test("opens an embedded miner from fleet, navigates within the hosted view, and returns to the fleet list", async ({
+  test("opens an embedded miner from fleet, navigates within the hosted view, and returns to the fleet list @pr", async ({
     commonSteps,
     minersPage,
     singleMinerPage,
@@ -125,7 +125,7 @@ test.describe("Proto Fleet - Single Miner View", () => {
     });
   });
 
-  test("fleet-hosted miner routes can open authentication settings without surfacing the direct ProtoOS login modal", async ({
+  test("fleet-hosted miner routes can open authentication settings without surfacing the direct ProtoOS login modal @pr", async ({
     commonSteps,
     minersPage,
     singleMinerPage,

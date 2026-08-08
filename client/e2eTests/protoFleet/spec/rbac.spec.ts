@@ -90,7 +90,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Pools manage role can create and delete mining pools", async ({
+  test("Pools manage role can create and delete mining pools @pr", async ({
     commonSteps,
     newPoolModal,
     settingsPage,
@@ -183,7 +183,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Schedules read-only role cannot access the Schedules settings surface", async ({
+  test("Schedules read-only role cannot access the Schedules settings surface @pr", async ({
     page,
     commonSteps,
     settingsSchedulesPage,
@@ -281,7 +281,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Curtailment ingest permission reaches the ingest RPC while manage-only is denied", async ({
+  test("Curtailment ingest permission reaches the ingest RPC while manage-only is denied @pr", async ({
     authPage,
     browser,
     commonSteps,
@@ -372,7 +372,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Sites, buildings, and racks manage role can create infrastructure", async ({
+  test("Sites, buildings, and racks manage role can create infrastructure @pr", async ({
     commonSteps,
     fleetLocationsPage,
     racksPage,

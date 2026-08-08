@@ -8,7 +8,7 @@ test.describe("Proto Fleet - Activity Login", () => {
     await page.goto("/");
   });
 
-  test("Failed login activity is visible after correcting invalid credentials and signing in", async ({
+  test("Failed login activity is visible after correcting invalid credentials and signing in @pr", async ({
     authPage,
     activityPage,
   }) => {

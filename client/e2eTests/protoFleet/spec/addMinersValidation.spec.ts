@@ -6,7 +6,7 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
     await commonSteps.loginAsAdmin();
   });
 
-  test("Back to editing button closes dialog and returns to form", async ({ minersPage, addMinersPage }) => {
+  test("Back to editing button closes dialog and returns to form @pr", async ({ minersPage, addMinersPage }) => {
     await test.step("Navigate to add miners flow", async () => {
       await minersPage.navigateToMinersPage();
       await minersPage.clickAddMinersButton();
@@ -38,7 +38,7 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
     });
   });
 
-  test("Continue anyway button proceeds with valid entries only", async ({ minersPage, addMinersPage, page }) => {
+  test("Continue anyway button proceeds with valid entries only @pr", async ({ minersPage, addMinersPage, page }) => {
     await test.step("Navigate to add miners flow", async () => {
       await minersPage.navigateToMinersPage();
       await minersPage.clickAddMinersButton();

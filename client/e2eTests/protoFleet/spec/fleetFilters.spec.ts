@@ -9,7 +9,7 @@ import {
 test.describe("Proto Fleet - Fleet filters", () => {
   useBuildingsHooks();
 
-  test("Buildings site filter scopes the list and clears cleanly", async ({ page, fleetLocationsPage }) => {
+  test("Buildings site filter scopes the list and clears cleanly @pr", async ({ page, fleetLocationsPage }) => {
     const primary = createBuildingsScenarioData();
     const secondary = createBuildingsScenarioData();
 
@@ -59,7 +59,7 @@ test.describe("Proto Fleet - Fleet filters", () => {
     });
   });
 
-  test("Racks site and building filters can reach no results and then clear cleanly", async ({
+  test("Racks site and building filters can reach no results and then clear cleanly @pr", async ({
     page,
     fleetLocationsPage,
     racksPage,

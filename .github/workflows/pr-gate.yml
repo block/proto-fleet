@@ -167,6 +167,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.protofleet_e2e == 'true'
     uses: ./.github/workflows/protofleet-e2e-tests.yml
+    with:
+      run_scope: pr
     secrets: inherit
 
   protoos-e2e-tests:

@@ -76,7 +76,7 @@ test.describe("Groups", () => {
     }
   }
 
-  test("Create, edit, and delete groups", async ({ groupsPage }) => {
+  test("Create, edit, and delete groups @pr", async ({ groupsPage }) => {
     const groupName = generateRandomText("automation");
     const editedGroupName = generateRandomText("automation-edited");
 
@@ -128,7 +128,7 @@ test.describe("Groups", () => {
     });
   });
 
-  test("Validate groups association to miners", async ({ groupsPage }) => {
+  test("Validate groups association to miners @pr", async ({ groupsPage }) => {
     const group1Name = generateRandomText("automation1");
     const group2Name = generateRandomText("automation2");
     const group3Name = generateRandomText("automation3");
@@ -392,7 +392,7 @@ test.describe("Groups", () => {
     });
   });
 
-  test("Group overview actions menu manages power for selected rig miners", async ({
+  test("Group overview actions menu manages power for selected rig miners @pr", async ({
     groupsPage,
     minersPage,
     page,
