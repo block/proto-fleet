@@ -81,9 +81,11 @@ jobs:
                 return 0;
               };
               const target = parse(process.env.TAG_NAME);
+              const stableTarget = !process.env.TAG_NAME.includes("-rc.");
               const candidates = fs.readFileSync(0, "utf8").trim().split(/\s+/)
                 .map((tag) => ({tag, version: parse(tag)}))
-                .filter(({version}) => version && compare(version, target) < 0)
+                .filter(({tag, version}) =>
+                  version && compare(version, target) < 0 && (!stableTarget || !tag.includes("-rc.")))
                 .sort((a, b) => compare(b.version, a.version));
               process.stdout.write(candidates[0]?.tag || "");
             ' < <(git tag --merged "$GITHUB_SHA"))
