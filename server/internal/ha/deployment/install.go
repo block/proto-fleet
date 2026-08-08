@@ -221,6 +221,7 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 		installBase, configRoot, dataRoot, "/var/lib/proto-fleet-updater", "/run/proto-fleet-updater",
 		"/etc/systemd/system/proto-fleet-ha.service.d",
 		"/etc/systemd/system/proto-fleet-ha-firewall.service.d",
+		"/etc/systemd/system/proto-fleet-updater.service.d",
 	} {
 		if err := deps.requireEmpty(path, "existing service state"); err != nil {
 			return installedDependencies{}, fmt.Errorf("HA install failed: %w", err)

@@ -1611,7 +1611,7 @@ func TestManagerRestoresPreviousDeploymentAfterInterruptedSwap(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(stateDir, activationMarkerFilename))
 }
 
-func TestRepairStartupRestoresInterruptedLayout(t *testing.T) {
+func TestRepairStartupDefersApplicationRecoveryUntilHAIsRunning(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
@@ -1622,17 +1622,28 @@ func TestRepairStartupRestoresInterruptedLayout(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "state")
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
 	runner := &haRecordingRunner{}
-
-	// Act
-	err := RepairStartup(Config{
+	cfg := Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
 		DeploymentMode: DeploymentModeHA, Runner: runner,
-	})
+	}
+
+	// Act
+	err := RepairStartup(cfg)
 
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+	assert.Empty(t, runner.Commands())
+
+	// Act
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	err = manager.RecoverApplication()
+
+	// Assert
+	require.NoError(t, err)
 	commands := runner.Commands()
 	require.Len(t, commands, 1)
 	assert.Equal(t, []string{"app-start", "v1.0.0"}, commands[0].Args)

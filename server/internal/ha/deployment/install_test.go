@@ -625,6 +625,18 @@ func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
 			},
 			wantError: "remove containerd before installing",
 		},
+		{
+			name: "updater has service drop-ins",
+			configure: func(deps *installDependencies) {
+				deps.requireEmpty = func(path, _ string) error {
+					if path == "/etc/systemd/system/proto-fleet-updater.service.d" {
+						return fmt.Errorf("unexpected entry in %s", path)
+					}
+					return nil
+				}
+			},
+			wantError: "/etc/systemd/system/proto-fleet-updater.service.d",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

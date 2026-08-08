@@ -106,6 +106,9 @@ func run() error {
 			log.Printf("close updater manager: %v", err)
 		}
 	}()
+	if err := manager.RecoverApplication(); err != nil {
+		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("recover interrupted HA application: %w", err))
+	}
 	server := updater.NewServer(manager)
 	errs := make(chan error, 1)
 	go func() {
