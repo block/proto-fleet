@@ -325,7 +325,7 @@ The exact installer flags, templates, compose files, and runbook commands belong
 | On-prem active Fleet host loses VIP ownership | Active readiness fails or equivalent endpoint-adapter fencing triggers; the peer can acquire the Fleet lease and advertise the VIP. |
 | Endpoint routes to passive | Passive fails `/health/active` and rejects product traffic and ControlStreams. |
 | Grafana fails | Real-time control continues; `/health/active` remains based on control readiness only; local HA status remains available. |
-| Historical telemetry ingestion stalls | Real-time control continues; history is stale/lossy and HA status/alerts still report control-plane degraded state. |
+| Historical telemetry ingestion stalls | Real-time control continues; history is stale/lossy and local HA status reports control-plane degraded state. |
 
 ## Validation gates
 
