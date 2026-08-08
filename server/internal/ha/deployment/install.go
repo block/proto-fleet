@@ -230,16 +230,22 @@ func validateCleanInstallState(deps installDependencies) error {
 			return fmt.Errorf("HA install requires a clean host without %s; found %s", command, path)
 		}
 	}
-	for _, path := range []string{installBase, configRoot, "/var/lib/docker", "/var/lib/containerd", "/etc/docker"} {
+	for _, path := range []string{
+		installBase, configRoot, "/var/lib/docker", "/var/lib/containerd", "/etc/docker",
+		"/etc/systemd/system/docker.service.d",
+		"/etc/systemd/system/keepalived.service.d",
+		"/etc/systemd/system/proto-fleet-ha.service.d",
+		"/etc/systemd/system/proto-fleet-ha-firewall.service.d",
+	} {
 		if err := deps.requireEmpty(path, "existing service state"); err != nil {
 			return fmt.Errorf("HA install failed: %w", err)
 		}
 	}
 	for _, path := range []string{
-		serviceUnit, firewallUnit, dockerDropIn, dockerRecoveryDropIn,
-		"/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf",
+		serviceUnit, firewallUnit,
+		"/etc/systemd/system/docker.service",
+		"/etc/systemd/system/keepalived.service",
 		"/etc/keepalived/keepalived.conf",
-		"/etc/systemd/system/keepalived.service.d/override.conf",
 		"/usr/local/libexec/proto-fleet/check-fleet-active",
 		"/etc/apt/sources.list.d/docker.sources", "/etc/apt/keyrings/docker.asc",
 		"/usr/bin/docker", "/usr/sbin/keepalived", "/lib/systemd/system/docker.service",
@@ -496,7 +502,9 @@ func snapshotRelease(ctx context.Context, source string, deps installDependencie
 }
 
 func removeReleaseSnapshot(ctx context.Context, deps installDependencies) error {
-	output, err := deps.run(ctx, "sudo", "rm", "-rf", "--", installBase)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	output, err := deps.run(cleanupCtx, "sudo", "rm", "-rf", "--", installBase)
 	if err != nil {
 		return fmt.Errorf("remove incomplete HA release snapshot: %s", commandError(output, err))
 	}
