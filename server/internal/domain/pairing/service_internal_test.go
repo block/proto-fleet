@@ -503,6 +503,29 @@ func TestValidateNmapTargets(t *testing.T) {
 	}
 }
 
+func TestValidateUnprivilegedNmapTargets(t *testing.T) {
+	tests := []struct {
+		name    string
+		targets []string
+		wantErr bool
+	}{
+		{name: "bounded subnet", targets: []string{"192.168.0.0/20"}},
+		{name: "oversized subnet", targets: []string{"10.0.0.0/8"}, wantErr: true},
+		{name: "too many bounded subnets", targets: []string{"192.168.0.0/20", "192.168.16.0/20"}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateUnprivilegedNmapTargets(tt.targets)
+			if tt.wantErr {
+				require.ErrorContains(t, err, "limited to 4096 IPv4 addresses")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestShouldSkipNetworkOrGatewayAddress_IPv6(t *testing.T) {
 	tests := []struct {
 		name string
