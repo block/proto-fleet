@@ -142,10 +142,13 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := prepareImages(ctx, config, deps); err != nil {
 		return err
 	}
+	if err := consumeInstallCredentials(options, config); err != nil {
+		return err
+	}
 	if err := initialStart(ctx, config, deps); err != nil {
 		return err
 	}
-	return consumeInstallCredentials(options, config)
+	return nil
 }
 
 func consumeInstallCredentials(options InstallOptions, config NodeConfig) error {
@@ -433,6 +436,8 @@ func installRelease(ctx context.Context, source string, config NodeConfig, deps 
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0755", installRoot},
 		{"cp", "-a", source + "/.", installRoot + "/"},
 		{"chown", "-R", "root:root", installRoot},
+		{"chmod", "-R", "go-w", installRoot},
+		{"chmod", "0755", filepath.Join(installRoot, "ha", "fleet-ha")},
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0700", configRoot},
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0750", dataRoot},
 		{"cp", filepath.Join(installRoot, "client", "nginx.https.conf"), filepath.Join(installRoot, "client", "nginx.conf")},
