@@ -199,8 +199,11 @@ func startApplication(ctx context.Context, root, targetVersion string, requirePa
 	if err != nil {
 		return err
 	}
-	// Let Compose reconcile changed or stopped containers without restarting an
-	// already-recovered application when updater recovery is replayed.
+	// Recovery may replay before Fleet ever stopped. Avoid letting Compose
+	// recreate an already-healthy deployment from newly staged image tags.
+	if applicationIsReady(ctx, config, tlsConfig, targetVersion, requirePassive) {
+		return nil
+	}
 	if err := RunCompose(ctx, fleetComposeArgsAt(
 		root,
 		"up", "-d", "--no-deps", "--no-build", "--pull", "never", "fleet-api", "fleet-client",
