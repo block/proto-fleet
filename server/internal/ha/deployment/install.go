@@ -32,6 +32,7 @@ const (
 	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
 	minimumComposeVersion = "v2.24.4" // fleet-compose.yaml uses !override, added in this Compose release.
 	updaterDropIn         = "/etc/systemd/system/proto-fleet-updater.service.d/proto-fleet-ha.conf"
+	haUpdaterDropIn       = "/etc/systemd/system/proto-fleet-ha.service.d/proto-fleet-updater.conf"
 )
 
 var errInstallConverging = errors.New("HA service remains enabled and is still converging")
@@ -400,9 +401,10 @@ func validateRelease(source string, readFile func(string) ([]byte, error)) error
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/nginx.https.conf", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"updater/proto-fleet-updater", "updater/proto-fleet-updater.service",
-		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl", "ha/firewall-replace.nft", "ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl",
-		"ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf", "ha/proto-fleet-ha-firewall.service", "ha/nftables-systemd.conf", "ha/nftables-reload.conf",
-		"ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
+		"ha/updater-systemd.conf", "ha/ha-updater-systemd.conf",
+		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl", "ha/firewall-replace.nft",
+		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
+		"ha/proto-fleet-ha-firewall.service", "ha/nftables-systemd.conf", "ha/nftables-reload.conf", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
 	}
 	for _, name := range required {
 		info, err := os.Lstat(filepath.Join(source, name))
@@ -671,8 +673,13 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "updater", "proto-fleet-updater.service"), "/etc/systemd/system/proto-fleet-updater.service"); err != nil {
 			return fmt.Errorf("install host updater service: %s", commandError(output, err))
 		}
-		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "updater-systemd.conf"), updaterDropIn); err != nil {
-			return fmt.Errorf("install HA updater permissions: %s", commandError(output, err))
+		for sourceName, target := range map[string]string{
+			"updater-systemd.conf":    updaterDropIn,
+			"ha-updater-systemd.conf": haUpdaterDropIn,
+		} {
+			if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", sourceName), target); err != nil {
+				return fmt.Errorf("install updater recovery ordering: %s", commandError(output, err))
+			}
 		}
 		updaterEnv := fmt.Sprintf(
 			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=/usr/local/libexec/proto-fleet/proto-fleet-updater\n",
