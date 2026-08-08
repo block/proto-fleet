@@ -153,10 +153,13 @@ const Updates = () => {
   const succeededUpgrade = upgrade.operation?.phase === UpgradePhase.SUCCEEDED;
   const upgradeRequestPending = upgrade.triggering || upgrade.reconciling;
   const unresolvedTrackedUpgrade = Boolean(upgrade.trackedTargetVersion && !upgrade.operation);
-  const upgradeLocksConfiguration = upgradeRequestPending || unresolvedTrackedUpgrade || Boolean(upgrade.operation);
-  const upgradeActionDisabled = isChannelChangePending || upgradeRequestPending || unresolvedTrackedUpgrade;
+  const upgradeLocksConfiguration =
+    upgrade.operationStatusPending || upgradeRequestPending || unresolvedTrackedUpgrade || Boolean(upgrade.operation);
+  const upgradeActionDisabled =
+    isChannelChangePending || upgrade.operationStatusPending || upgradeRequestPending || unresolvedTrackedUpgrade;
   const manualCommandDisabled =
     isChannelChangePending ||
+    upgrade.operationStatusPending ||
     activeUpgrade ||
     upgradeRequestPending ||
     unresolvedTrackedUpgrade ||

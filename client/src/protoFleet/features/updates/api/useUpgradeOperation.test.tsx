@@ -118,6 +118,51 @@ describe("useUpgradeOperation", () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  it("keeps operation status pending until the first authoritative response", async () => {
+    const request = deferred<ReturnType<typeof status>>();
+    mockGetUpgradeStatus.mockReturnValue(request.promise);
+
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    expect(result.current.operationStatusPending).toBe(true);
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      request.resolve(status());
+      await request.promise;
+    });
+
+    expect(result.current.operationStatusPending).toBe(false);
+  });
+
+  it("restarts polling and ignores the previous authenticated session's request", async () => {
+    const previousRequest = deferred<ReturnType<typeof status>>();
+    const onPollError = vi.fn();
+    mockGetUpgradeStatus.mockReturnValueOnce(previousRequest.promise).mockResolvedValue(status());
+
+    const { rerender, result } = renderHook(
+      ({ authSessionIdentity }: { authSessionIdentity: string }) =>
+        useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0", onPollError }, authSessionIdentity),
+      { initialProps: { authSessionIdentity: AUTH_SESSION_IDENTITY } },
+    );
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+    const previousSignal = mockGetUpgradeStatus.mock.calls[0]?.[1]?.signal;
+
+    rerender({ authSessionIdentity: "operator-b:2000" });
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(2));
+    expect(previousSignal?.aborted).toBe(true);
+    await waitFor(() => expect(result.current.operationStatusPending).toBe(false));
+
+    await act(async () => {
+      previousRequest.reject(new Error("previous session expired"));
+      await Promise.resolve();
+    });
+
+    expect(onPollError).not.toHaveBeenCalled();
+  });
+
   it("starts the exact target and tracks the returned operation", async () => {
     const activeOperation = operation(UpgradePhase.PREFLIGHT);
     mockGetUpgradeStatus.mockResolvedValue(status());
@@ -164,6 +209,24 @@ describe("useUpgradeOperation", () => {
     expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
   });
 
+  it("accepts a terminal operation returned directly by the trigger RPC", async () => {
+    const failedOperation = operation(UpgradePhase.FAILED, { message: "Preflight failed" });
+    mockGetUpgradeStatus.mockResolvedValue(status());
+    mockTriggerUpgrade.mockResolvedValue(
+      create(TriggerUpgradeResponseSchema, {
+        operation: failedOperation,
+      }),
+    );
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
+
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+
+    expect(result.current.operation?.id).toBe("operation-1");
+    expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED);
+    expect(result.current.reconciling).toBe(false);
+  });
+
   it("reconciles an ambiguous trigger rejection to the durable operation", async () => {
     const activeOperation = operation(UpgradePhase.PREFLIGHT);
     mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, activeOperation));
@@ -181,7 +244,7 @@ describe("useUpgradeOperation", () => {
   it("does not let a stale terminal failure resolve an ambiguous trigger", async () => {
     const staleFailure = operation(UpgradePhase.FAILED, {
       id: "operation-old",
-      targetVersion: "v1.1.0",
+      targetVersion: "v1.3.0",
     });
     mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, staleFailure));
     mockTriggerUpgrade.mockRejectedValue(new Error("response lost"));

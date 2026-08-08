@@ -35,6 +35,7 @@ interface UseUpgradeOperationResult {
   connectionLost: boolean;
   manualFallbackReady: boolean;
   operation: UpgradeOperation | undefined;
+  operationStatusPending: boolean;
   reconciling: boolean;
   reloadFleet: () => void;
   triggerError: string | null;
@@ -111,37 +112,36 @@ export function useUpgradeOperation({
     recoveredUnknownOutcome ? "Fleet did not confirm whether the previous upgrade request started" : null,
   );
   const [pollRevision, setPollRevision] = useState(0);
-  const [acknowledgedOperation, setAcknowledgedOperation] = useState<string | null>(() =>
-    readAcknowledgedOperation(authSessionIdentity),
-  );
+  const [resolvedStatusSessionIdentity, setResolvedStatusSessionIdentity] = useState<string | null>(null);
 
   const operationRef = useRef(operation);
   const trackedOperationRef = useRef(trackedOperation);
-  const acknowledgedOperationRef = useRef(acknowledgedOperation);
+  const acknowledgedOperationRef = useRef<string | null>(null);
+  const acknowledgedOperationSessionRef = useRef<string | null>(null);
   const reconcilingRef = useRef(reconciling);
   const currentVersionRef = useRef(currentVersion);
   const currentVersionUnavailableRef = useRef(currentVersionUnavailable);
   const onPollErrorRef = useRef(onPollError);
   const reconciliationDeadlineRef = useRef<number | null>(null);
   const authSessionIdentityRef = useRef(authSessionIdentity);
+  const resolvedStatusSessionIdentityRef = useRef<string | null>(null);
 
   currentVersionRef.current = currentVersion;
   currentVersionUnavailableRef.current = currentVersionUnavailable;
   onPollErrorRef.current = onPollError;
+  authSessionIdentityRef.current = authSessionIdentity;
+  if (acknowledgedOperationSessionRef.current !== authSessionIdentity) {
+    acknowledgedOperationSessionRef.current = authSessionIdentity;
+    acknowledgedOperationRef.current = readAcknowledgedOperation(authSessionIdentity);
+  }
+
+  const operationStatusPending = enabled && resolvedStatusSessionIdentity !== authSessionIdentity;
 
   useEffect(() => {
     if (trackedOperationRef.current) {
       reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
     }
   }, []);
-
-  useEffect(() => {
-    if (authSessionIdentityRef.current === authSessionIdentity) return;
-    authSessionIdentityRef.current = authSessionIdentity;
-    const next = readAcknowledgedOperation(authSessionIdentity);
-    acknowledgedOperationRef.current = next;
-    setAcknowledgedOperation(next);
-  }, [authSessionIdentity]);
 
   const updateOperation = useCallback((next: UpgradeOperation | undefined) => {
     operationRef.current = next;
@@ -170,7 +170,6 @@ export function useUpgradeOperation({
 
   const updateAcknowledgedOperation = useCallback((next: string | null) => {
     acknowledgedOperationRef.current = next;
-    setAcknowledgedOperation(next);
     try {
       if (next) {
         window.sessionStorage.setItem(
@@ -234,10 +233,15 @@ export function useUpgradeOperation({
   }, [updateReconciling, updateTrackedOperation]);
 
   const acceptServerOperation = useCallback(
-    (next: UpgradeOperation) => {
+    (next: UpgradeOperation, fromTriggerResponse = false) => {
+      if (!next.id) {
+        return false;
+      }
       const active = isUpgradeActive(next);
       const tracked = trackedOperationRef.current;
-      const trackedMatches = tracked?.id ? tracked.id === next.id : tracked?.targetVersion === next.targetVersion;
+      const trackedMatches = tracked?.id
+        ? tracked.id === next.id
+        : fromTriggerResponse && tracked?.targetVersion === next.targetVersion;
 
       if (active) {
         // A durable active operation is authoritative, including one started
@@ -299,13 +303,16 @@ export function useUpgradeOperation({
   );
 
   const pollStatus = useCallback(
-    async (signal: AbortSignal) => {
+    async (signal: AbortSignal, pollingAuthSessionIdentity: string) => {
       try {
         const response = await instanceUpdateClient.getUpgradeStatus(
           {},
           { signal, timeoutMs: STATUS_REQUEST_TIMEOUT_MS },
         );
-        if (signal.aborted) return;
+        if (signal.aborted || authSessionIdentityRef.current !== pollingAuthSessionIdentity) return;
+
+        resolvedStatusSessionIdentityRef.current = pollingAuthSessionIdentity;
+        setResolvedStatusSessionIdentity(pollingAuthSessionIdentity);
 
         if (response.operation && acceptServerOperation(response.operation)) {
           return;
@@ -360,11 +367,15 @@ export function useUpgradeOperation({
 
     const run = async () => {
       controller = new AbortController();
-      await pollStatus(controller.signal);
+      await pollStatus(controller.signal, authSessionIdentity);
       if (alive) {
         const awaitingTrackedOperation = Boolean(trackedOperationRef.current && !operationRef.current);
+        const awaitingInitialStatus = resolvedStatusSessionIdentityRef.current !== authSessionIdentity;
         const pollIntervalMs =
-          isUpgradeActive(operationRef.current) || reconcilingRef.current || awaitingTrackedOperation
+          isUpgradeActive(operationRef.current) ||
+          reconcilingRef.current ||
+          awaitingTrackedOperation ||
+          awaitingInitialStatus
             ? ACTIVE_POLL_INTERVAL_MS
             : IDLE_POLL_INTERVAL_MS;
         timer = window.setTimeout(run, pollIntervalMs);
@@ -377,7 +388,7 @@ export function useUpgradeOperation({
       controller?.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [currentVersion, currentVersionUnavailable, enabled, pollRevision, pollStatus]);
+  }, [authSessionIdentity, currentVersion, currentVersionUnavailable, enabled, pollRevision, pollStatus]);
 
   const triggerUpgrade = useCallback(
     async (targetVersion: string) => {
@@ -396,7 +407,7 @@ export function useUpgradeOperation({
         if (!response.operation) {
           throw new Error("Host updater did not return an operation");
         }
-        if (!acceptServerOperation(response.operation)) {
+        if (!acceptServerOperation(response.operation, true)) {
           throw new Error(
             "Fleet couldn't confirm the upgrade state. Fleet will check the host before unlocking other install options.",
           );
@@ -450,6 +461,7 @@ export function useUpgradeOperation({
     connectionLost,
     manualFallbackReady,
     operation,
+    operationStatusPending,
     reconciling,
     reloadFleet,
     triggerError,

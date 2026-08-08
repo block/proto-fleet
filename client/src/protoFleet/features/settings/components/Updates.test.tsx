@@ -39,6 +39,7 @@ interface UpgradeHookMockState {
   connectionLost: boolean;
   manualFallbackReady: boolean;
   operation?: UpgradeOperation;
+  operationStatusPending: boolean;
   reconciling: boolean;
   reloadFleet: ReturnType<typeof vi.fn>;
   triggerError: string | null;
@@ -172,6 +173,7 @@ beforeEach(() => {
     connectionLost: false,
     manualFallbackReady: false,
     operation: undefined,
+    operationStatusPending: false,
     reconciling: false,
     reloadFleet: vi.fn(),
     triggerError: null,
@@ -302,6 +304,17 @@ describe("Updates", () => {
     expect(detailsButton).toBeEnabled();
     fireEvent.click(detailsButton);
     expect(page.getByTestId("upgrade-operation-modal")).toBeInTheDocument();
+  });
+
+  it("locks competing controls until the initial operation status resolves", async () => {
+    upgradeHookMock.current.operationStatusPending = true;
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+
+    expect(await page.findByRole("button", { name: "Upgrade to v1.3.0" })).toBeDisabled();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
   });
 
   it("locks competing controls whenever a persisted operation remains unresolved", async () => {
