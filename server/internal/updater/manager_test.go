@@ -1260,13 +1260,13 @@ func TestManagerActivationFailurePersistsProofAwareForwardRecovery(t *testing.T)
 	}
 }
 
-func TestManagerHAFailedActivationRestartsRestoredDeployment(t *testing.T) {
+func TestManagerHAFailedActivationRetriesRestartAfterDaemonRecovery(t *testing.T) {
 	t.Parallel()
 
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	stateDir := filepath.Join(t.TempDir(), "state")
-	runner := &haRecordingRunner{fail: make(map[string]error)}
+	runner := &haRecordingRunner{fail: map[string]error{"app-start": errors.New("restart failed")}}
 	manager, err := NewManager(Config{
 		InstallRoot:    installRoot,
 		StateDir:       stateDir,
@@ -1303,16 +1303,28 @@ func TestManagerHAFailedActivationRestartsRestoredDeployment(t *testing.T) {
 	require.NotNil(t, operation)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Contains(t, operation.Error, assert.AnError.Error())
-	assert.Empty(t, operation.RecoveryCommand)
+	assert.Contains(t, operation.Error, "restart failed")
+	assert.True(t, operation.RecoveryPending)
+	assert.NotEmpty(t, operation.RecoveryCommand)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
 	var persisted updaterapi.Operation
 	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &persisted))
 	assert.Equal(t, updaterapi.PhaseFailed, persisted.Phase)
-	assert.Empty(t, persisted.RecoveryCommand)
+	assert.True(t, persisted.RecoveryPending)
+	require.NoError(t, manager.Close())
+	restarted, err := NewManager(manager.cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, restarted.Close()) })
+	require.NoError(t, restarted.RecoverApplication())
+	recovered := restarted.Status().Operation
+	require.NotNil(t, recovered)
+	assert.False(t, recovered.RecoveryPending)
+	assert.Empty(t, recovered.RecoveryCommand)
 	commands := runner.Commands()
-	require.Len(t, commands, 1)
+	require.Len(t, commands, 2)
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[1].Args)
 }
 
 func TestActivationMarkerWriteIsAtomicAndExclusive(t *testing.T) {
