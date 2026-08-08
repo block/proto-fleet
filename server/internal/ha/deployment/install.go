@@ -180,6 +180,13 @@ func validateEtcdRootPassword(path, secretsDir string) error {
 			return fmt.Errorf("password must differ from %s", name)
 		}
 	}
+	fleetEnvironment, err := loadFleetEnvironment(filepath.Join(secretsDir, fleetEnvironmentFile))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", fleetEnvironmentFile, err)
+	}
+	if subtle.ConstantTimeCompare([]byte(rootPassword), []byte(fleetEnvironment["AUTH_CLIENT_SECRET_KEY"])) == 1 {
+		return errors.New("password must differ from AUTH_CLIENT_SECRET_KEY")
+	}
 	return nil
 }
 
