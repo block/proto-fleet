@@ -19,6 +19,9 @@ HA, reconnect scale, and alert delivery remain outside this support claim.
 | --- | --- |
 | Release version | Pending |
 | Commit SHA | Pending |
+| Release bundle SHA-256 | Pending |
+| `deployment-manifest.sha256` SHA-256 | Pending |
+| Deployed API, client, and Patroni image IDs/digests on every host | Pending |
 | Architecture | arm64 |
 | Operating system | Debian 13 |
 | Page size | 4096 bytes |
@@ -42,11 +45,18 @@ HA, reconnect scale, and alert delivery remain outside this support claim.
    /etc/proto-fleet/ha/node.env --check`.
 5. Confirm exactly one active Fleet, one passive Fleet, one Patroni primary,
    one Patroni replica, three etcd members, and one VIP owner.
+6. Confirm every host uses the recorded deployment manifest and container image
+   identities from the qualified release bundle.
 
 ## Failure matrix
 
-Restore full readiness before starting each row. Record the observed recovery
-time and a short redacted evidence reference.
+Restore full readiness before starting each row. Run the external append-only
+recorder described under Repetition and soak from before fault injection through
+full recovery. Against a test device, continuously submit uniquely identified
+idempotent command probes and retain database results. Fail any row on possible
+active, VIP, or writable-primary overlap, a collection gap, duplicate terminal
+results, or a stale transition. Record the observed recovery time and a short
+redacted evidence reference.
 
 | Gate | Required result | Duration | Result | Evidence |
 | --- | --- | --- | --- | --- |
