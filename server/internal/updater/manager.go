@@ -563,6 +563,19 @@ func wrapIfError(message string, err error) error {
 }
 
 func NewManager(cfg Config) (*Manager, error) {
+	return newManager(cfg, true)
+}
+
+// RepairStartup restores a crash-interrupted deployment layout without starting Fleet.
+func RepairStartup(cfg Config) error {
+	manager, err := newManager(cfg, false)
+	if err != nil {
+		return err
+	}
+	return manager.Close()
+}
+
+func newManager(cfg Config, recoverApplication bool) (*Manager, error) {
 	if !filepath.IsAbs(cfg.InstallRoot) {
 		return nil, fmt.Errorf("install root must be absolute")
 	}
@@ -688,6 +701,13 @@ func NewManager(cfg Config) (*Manager, error) {
 		_ = processLock.Close()
 		_ = logRoot.Close()
 		return nil, err
+	}
+	if recoverApplication {
+		if err := m.recoverHAApplication(); err != nil {
+			_ = processLock.Close()
+			_ = logRoot.Close()
+			return nil, err
+		}
 	}
 	protectedLogName := ""
 	if m.operation != nil {
