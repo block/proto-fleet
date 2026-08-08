@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -181,8 +180,8 @@ func runPassiveUpdate(
 	if err != nil {
 		return fmt.Errorf("update succeeded but local HA outcome could not be verified: %w", err)
 	}
-	if report.Runtime.Role == ha.RoleActive {
-		_, err = fmt.Fprintln(output, "Update succeeded, but this host took over as active; failover redundancy is degraded. Run fleet-ha status --check.")
+	if !report.Control.FailoverReady {
+		_, err = fmt.Fprintln(output, "Update succeeded, but failover redundancy is degraded. Run fleet-ha status --check.")
 		if err != nil {
 			return fmt.Errorf("write update outcome: %w", err)
 		}
