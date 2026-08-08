@@ -10,9 +10,8 @@ addresses, certificates, passwords, device names, or customer data in the
 committed report.
 
 This report qualifies the fixed Fleet application, database, DCS, and VIP
-profile only. Adjacent application updates require
-[UPDATE_QUALIFICATION.md](UPDATE_QUALIFICATION.md). Fleet Node HA, reconnect
-scale, and alert delivery remain outside this support claim.
+profile only. Adjacent application updates are not qualified here. Fleet Node
+HA, reconnect scale, and alert delivery remain outside this support claim.
 
 ## Test identity
 
@@ -64,7 +63,7 @@ time and a short redacted evidence reference.
 | Fail one active-runtime job without killing Fleet | Active health fails, the process exits, and the peer takes over | Pending | Pending | Pending |
 | Send Connect RPC, non-RPC HTTP, and ControlStream traffic directly to the passive host | Each product transport rejects it as not active; only health and local status remain available | Pending | Pending | Pending |
 | Hold an active-only request across demotion | The old active cancels it before the peer serves active traffic | Pending | Pending | Pending |
-| Probe public health through the VIP | Public responses reveal no HA topology and `/health/ha` returns 404 | Pending | Pending | Pending |
+| Probe public health through the VIP | Public responses reveal no HA topology and `/api-proxy/health/ha` returns 404 | Pending | Pending | Pending |
 | With Grafana and telemetry ingestion stopped, stop the etcd witness | Active health remains usable and local HA status still reports degraded failover readiness | Pending | Pending | Pending |
 | Probe HA-only ports from a non-peer before and after reboot | Protected ports reject the probe while peer traffic remains healthy | Pending | Pending | Pending |
 | Send a VRRP advertisement from a non-peer | The packet is dropped and VIP ownership does not change | Pending | Pending | Pending |
@@ -85,18 +84,18 @@ device effects. Device-side fencing is outside this profile's support claim.
 | Database failover | 3 consecutive passes | Pending | Pending |
 | Soak | 24h with no observed dual-active state or lost failover readiness | Pending | Pending |
 
-Before the soak, install a qualification-only database trigger that appends
-every `fleet_runtime_lease` insert and update to a separate audit table with
-database time, DCS cluster ID, writer generation, lease epoch, holder ID, and
-expiry. From one controller, continuously stream interface-address events and
-direct active-health results from both hosts with synchronized monotonic
-timestamps at 100 ms or faster. Also sample both hosts at least every two
-seconds for availability. Record local
+Before the soak, start an external append-only recorder on a separate
+controller. Continuously record each host's direct active-health result and
+interface-address events with synchronized monotonic timestamps at 100 ms or
+faster; evidence stored only inside the HA database is insufficient. Treat an
+unreachable host, write failure, or gap longer than 250 ms as a failed soak.
+Also sample both hosts at least every two seconds for availability. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
-and retain the lease, health, and address streams. Fail on overlap between
-reconstructed holder/epoch terms, a missing audit interval, dual-active,
-dual-VIP, or lost readiness. Export redacted evidence, then remove the trigger
-and audit table.
+and retain the status, health, and address streams. Reconstruct each active
+interval from the first active result through the first passive result, and
+each VIP interval from address-add through address-delete. Fail on overlapping
+host intervals, any collection gap, or lost readiness. Export redacted
+evidence after the soak.
 
 ## Verdict
 
