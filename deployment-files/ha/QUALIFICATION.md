@@ -78,6 +78,10 @@ rather than counting them as acknowledged. Also fail any row on possible
 active, VIP,
 or writable-primary overlap, a collection gap, or a stale transition. Record
 the observed recovery time and a short redacted evidence reference. For
+the controlled test device, independently record every command, plugin, and
+curtailment request from acceptance through response or connection close,
+including its source host. Fail if work from the old holder remains in flight
+when work from the new holder begins. For
 database isolation and failover rows, also
 record host-pinned writable SQL probe results against both database hosts at
 100 ms or faster. Before isolating the old primary, begin a writable transaction
@@ -105,6 +109,7 @@ acknowledged identifier exists exactly once.
 | Fail one active-runtime job without killing Fleet | Active health fails, the process exits, and the peer takes over | Pending | Pending | Pending |
 | Send Connect RPC, non-RPC HTTP, and ControlStream traffic directly to the passive host | Each product transport rejects it as not active; only health and local status remain available | Pending | Pending | Pending |
 | Hold an active-only request across demotion | The old active cancels it before the peer serves active traffic | Pending | Pending | Pending |
+| Record active-only device work across failover | No old-holder request remains in flight when new-holder work begins | Pending | Pending | Pending |
 | Probe public health through the VIP | Public responses reveal no HA topology and `/api-proxy/health/ha` returns 404 | Pending | Pending | Pending |
 | With Grafana and telemetry ingestion stopped, stop the etcd witness | Active health remains usable and local HA status still reports degraded failover readiness | Pending | Pending | Pending |
 | From a fourth non-peer, probe each listening HA-only service port before and after reboot | Peer traffic remains healthy and every non-peer connection is blocked | Pending | Pending | Pending |
@@ -159,8 +164,9 @@ and retain the status, health, and address streams. Conservatively reconstruct
 each active interval from its last preceding passive sample through its first
 following passive sample, and each VIP interval from address-add through
 address-delete. Fail when these uncertainty-inclusive host intervals could
-overlap, or on any collection gap or lost readiness. Export redacted evidence
-after the soak.
+overlap, or on any collection gap or lost readiness. Keep the controlled test
+device recorder running and apply the same old-holder versus new-holder work
+interval rule throughout the soak. Export redacted evidence after the soak.
 
 ## Verdict
 
