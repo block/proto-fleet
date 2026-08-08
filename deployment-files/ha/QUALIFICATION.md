@@ -15,6 +15,11 @@ updates are not qualified here. Fleet Node HA, larger fleets, reconnect scale,
 schedule recovery during failover, and alert delivery remain outside this
 support claim.
 
+The HA segment must be restricted to the three HA hosts and trusted network
+infrastructure. This profile does not defend against a compromised same-L2
+host spoofing a peer address or claiming the VIP through ARP; environments
+without an enforced trusted segment are unsupported.
+
 ## Test identity
 
 | Field | Value |
@@ -28,6 +33,7 @@ support claim.
 | Operating system | Debian 13 |
 | Page size | 4096 bytes |
 | Docker, containerd, keepalived, nftables, and arping package versions | Pending |
+| HA segment isolation control | Pending |
 | Test miner count and plugin mix | Pending |
 | Miner connection topology | Pending |
 | Command backlog at curtailment | Pending |
@@ -91,7 +97,7 @@ acknowledged identifier exists exactly once.
 | Probe public health through the VIP | Public responses reveal no HA topology and `/api-proxy/health/ha` returns 404 | Pending | Pending | Pending |
 | With Grafana and telemetry ingestion stopped, stop the etcd witness | Active health remains usable and local HA status still reports degraded failover readiness | Pending | Pending | Pending |
 | From a fourth non-peer, probe each listening HA-only service port before and after reboot | Peer traffic remains healthy and every non-peer connection is blocked | Pending | Pending | Pending |
-| Send a valid winning VRRP advertisement from a non-peer | VIP ownership does not change | Pending | Pending | Pending |
+| Send a valid winning VRRP advertisement from a non-peer's assigned address | The host source filter rejects it and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over with PENDING command | New active dispatches the command | Pending | Pending | Pending |
 | SIGSTOP the old active with a stalled PROCESSING plugin call, let the peer recover it, queue the old result, then SIGCONT | The resumed stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
