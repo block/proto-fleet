@@ -110,10 +110,7 @@ func pruneReleaseImages(ctx context.Context) error {
 }
 
 // StopApplication stops only Fleet containers; the HA substrate keeps running.
-func StopApplication(ctx context.Context, root, targetVersion string) error {
-	if err := RequirePassive(ctx, filepath.Join(configRoot, "node.env"), targetVersion); err != nil {
-		return err
-	}
+func StopApplication(ctx context.Context, root string) error {
 	if err := RunCompose(ctx, fleetComposeArgsAt(root, "stop", "fleet-api", "fleet-client")); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
 	}

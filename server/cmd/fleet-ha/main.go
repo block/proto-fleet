@@ -153,16 +153,14 @@ func (*updatePreflightCmd) Run(ctx context.Context) error {
 	return deployment.PrepareApplicationUpdate(ctx, root)
 }
 
-type appStopCmd struct {
-	Version string `arg:"" help:"target application version"`
-}
+type appStopCmd struct{}
 
-func (c *appStopCmd) Run(ctx context.Context) error {
+func (*appStopCmd) Run(ctx context.Context) error {
 	root, err := deployment.ReleaseRoot()
 	if err != nil {
 		return err
 	}
-	return deployment.StopApplication(ctx, root, c.Version)
+	return deployment.StopApplication(ctx, root)
 }
 
 type appStartCmd struct {
