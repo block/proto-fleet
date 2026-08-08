@@ -437,6 +437,31 @@ describe("useUpgradeOperation", () => {
     expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
   });
 
+  it("suppresses a stale failure after manual recovery installed a newer release", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.4.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
+    expect(result.current.operation).toBeUndefined();
+  });
+
+  it("treats a stable release as newer than its failed release candidate", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(
+      status(true, operation(UpgradePhase.FAILED, { targetVersion: "v1.3.0-rc.4" })),
+    );
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.3.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
+    expect(result.current.operation).toBeUndefined();
+  });
+
+  it("retains a failed operation when the current version is not canonical", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "dev" }));
+
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+  });
+
   it("rechecks an unresolved failure as soon as the current version loads", async () => {
     mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
     const initialProps: { currentVersion?: string } = {};

@@ -309,6 +309,47 @@ describe("Updates", () => {
     expect(page.getByTestId("upgrade-operation-modal")).toBeInTheDocument();
   });
 
+  it("keeps install controls locked while fallback refreshes the authoritative offer", async () => {
+    const refreshedStatus = createDeferred<GetUpdateStatusResponse>();
+    upgradeHookMock.current.reconciling = true;
+    upgradeHookMock.current.manualFallbackReady = true;
+    upgradeHookMock.current.triggerError = "Fleet did not confirm the request";
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ oneClickAvailable: true }));
+    mockGetUpdateStatus.mockReturnValueOnce(refreshedStatus.promise);
+
+    const page = render(<Updates />);
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    fireEvent.click(page.getByRole("button", { name: "I confirmed — unlock manual install" }));
+    expect(upgradeHookMock.current.useManualFallback).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    upgradeHookMock.current = {
+      ...upgradeHookMock.current,
+      manualFallbackReady: false,
+      reconciling: false,
+      triggerError: null,
+    };
+    page.rerender(<Updates />);
+
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+
+    await act(async () => {
+      refreshedStatus.resolve(
+        buildStatus({
+          installCommand: "install v1.4.0",
+          latestEligible: buildReleaseInfo({ version: "v1.4.0" }),
+          oneClickAvailable: true,
+        }),
+      );
+      await refreshedStatus.promise;
+    });
+
+    expect(await page.findByText("v1.4.0")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeEnabled();
+  });
+
   it("locks competing controls until the initial operation status resolves", async () => {
     upgradeHookMock.current.operationStatusPending = true;
     mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));

@@ -102,6 +102,7 @@ const Updates = () => {
   const [status, setStatus] = useState<GetUpdateStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isChannelChangePending, setIsChannelChangePending] = useState(false);
+  const [isStatusRefreshPending, setIsStatusRefreshPending] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const latestStatusRequest = useRef(0);
   const isMounted = useRef(false);
@@ -154,11 +155,20 @@ const Updates = () => {
   const upgradeRequestPending = upgrade.triggering || upgrade.reconciling;
   const unresolvedTrackedUpgrade = Boolean(upgrade.trackedTargetVersion && !upgrade.operation);
   const upgradeLocksConfiguration =
-    upgrade.operationStatusPending || upgradeRequestPending || unresolvedTrackedUpgrade || Boolean(upgrade.operation);
+    isStatusRefreshPending ||
+    upgrade.operationStatusPending ||
+    upgradeRequestPending ||
+    unresolvedTrackedUpgrade ||
+    Boolean(upgrade.operation);
   const upgradeActionDisabled =
-    isChannelChangePending || upgrade.operationStatusPending || upgradeRequestPending || unresolvedTrackedUpgrade;
+    isChannelChangePending ||
+    isStatusRefreshPending ||
+    upgrade.operationStatusPending ||
+    upgradeRequestPending ||
+    unresolvedTrackedUpgrade;
   const manualCommandDisabled =
     isChannelChangePending ||
+    isStatusRefreshPending ||
     upgrade.operationStatusPending ||
     activeUpgrade ||
     upgradeRequestPending ||
@@ -168,11 +178,12 @@ const Updates = () => {
   const fetchStatus = useCallback(async () => {
     const requestId = ++latestStatusRequest.current;
     const authSession = captureAuthSession();
-    await waitForReleaseChannelSave();
-    if (requestId !== latestStatusRequest.current || !isSameAuthSession(authSession)) {
-      return;
-    }
+    setIsStatusRefreshPending(true);
     try {
+      await waitForReleaseChannelSave();
+      if (requestId !== latestStatusRequest.current || !isSameAuthSession(authSession)) {
+        return;
+      }
       const response = await instanceUpdateClient.getUpdateStatus({});
       if (requestId !== latestStatusRequest.current || !isSameAuthSession(authSession)) {
         return;
@@ -198,6 +209,10 @@ const Updates = () => {
           setLoadError(getErrorMessage(err, "Failed to load update status"));
         },
       });
+    } finally {
+      if (requestId === latestStatusRequest.current && isSameAuthSession(authSession) && isMounted.current) {
+        setIsStatusRefreshPending(false);
+      }
     }
   }, [handleAuthErrors, handlePermissionRevoked]);
 

@@ -11,6 +11,37 @@ const TRIGGER_REQUEST_TIMEOUT_MS = 30_000;
 const TRIGGER_RECONCILIATION_TIMEOUT_MS = 15_000;
 const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
 const ACKNOWLEDGED_OPERATION_KEY = "protoFleet:acknowledged-upgrade-operation";
+const CANONICAL_RELEASE_PATTERN = /^v(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/;
+
+interface CanonicalRelease {
+  core: [number, number, number];
+  rc?: number;
+}
+
+const parseCanonicalRelease = (version?: string): CanonicalRelease | undefined => {
+  const match = version?.match(CANONICAL_RELEASE_PATTERN);
+  if (!match) return undefined;
+  const parts = match.slice(1).map((part) => (part === undefined ? undefined : Number(part)));
+  if (parts.some((part) => part !== undefined && !Number.isSafeInteger(part))) return undefined;
+  return {
+    core: [parts[0]!, parts[1]!, parts[2]!],
+    ...(parts[3] === undefined ? {} : { rc: parts[3] }),
+  };
+};
+
+const isReleaseAtLeast = (currentVersion: string | undefined, targetVersion: string) => {
+  const current = parseCanonicalRelease(currentVersion);
+  const target = parseCanonicalRelease(targetVersion);
+  if (!current || !target) return false;
+  for (let index = 0; index < current.core.length; index += 1) {
+    if (current.core[index] !== target.core[index]) {
+      return current.core[index] > target.core[index];
+    }
+  }
+  if (current.rc === undefined) return true;
+  if (target.rc === undefined) return false;
+  return current.rc >= target.rc;
+};
 
 interface TrackedOperation {
   id?: string;
@@ -288,10 +319,10 @@ export function useUpgradeOperation({
         return false;
       }
 
-      // A manual recovery may have installed the failed target successfully.
-      // Do not replay the updater's stale failure once Fleet reports that exact
-      // version as current.
-      if (next.phase === UpgradePhase.FAILED && currentVersionRef.current === next.targetVersion) {
+      // A later manual recovery can install the failed target or a newer
+      // release. Do not replay recovery instructions once Fleet has advanced
+      // beyond the failed operation.
+      if (next.phase === UpgradePhase.FAILED && isReleaseAtLeast(currentVersionRef.current, next.targetVersion)) {
         if (trackedMatches) updateTrackedOperation(undefined);
         if (operationRef.current?.id === next.id) updateOperation(undefined);
         reconciliationDeadlineRef.current = null;
