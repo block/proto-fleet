@@ -35,15 +35,19 @@ and run Fleet commands as
    is healthy and passive on `N+1`; fail on a request failure or a command that
    does not reach terminal success. Verify the active host continues serving
    `N` throughout this migration and mixed-version window.
-4. Start the external active-health and interface-address recorder from step 5.
-   Confirm the updated peer is healthy and passive, then stop keepalived on that
-   peer with `sudo systemctl stop keepalived`. Confirm its Fleet application
-   remains passive and its configured interface does not own the VIP. Immediately
-   append `--complete` to the update command on the active host. Keep recording
-   until the command times out without swapping deployments, restarts `N`, and
-   restores a usable VIP and successful command within 60 seconds. Fail on any
-   collection gap, active overlap, or VIP overlap. Start keepalived on the peer
-   again and restore full readiness before continuing.
+4. Start the external active-health and interface-address recorder from step 5,
+   then append `--complete` to the update command on the active host. From the
+   controller, poll that host's local updater status over
+   `/run/proto-fleet-updater/updater.sock`. As soon as its operation phase is
+   `activating`, peer validation has passed and the old active is about to stop.
+   Immediately run `sudo systemctl stop proto-fleet-ha.service` on the updated
+   peer and confirm the service stops before the 10-second Fleet lease expires.
+   This prevents the peer from acquiring ownership during the failed-takeover
+   drill. Keep recording until the command times out without swapping
+   deployments, restarts `N`, and restores a usable VIP and successful command
+   within 60 seconds. Fail on any collection gap, active overlap, or VIP overlap.
+   Start `proto-fleet-ha.service` on the peer again and restore full readiness
+   before continuing.
 5. Retry the completion command. From a separate controller, use the external
    append-only recorder, gap rejection, and uncertainty-inclusive interval rules
    from [QUALIFICATION.md](QUALIFICATION.md). Continuously record direct active
