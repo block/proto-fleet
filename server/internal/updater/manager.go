@@ -1339,11 +1339,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 				return
 			}
 		}
-		stopTimeout := m.cfg.ActivationTimeout
-		if complete {
-			stopTimeout = ha.UpdateActiveStopTimeout
-		}
-		if err := m.runHACommand(activationCtx, stopTimeout, currentDeployment, commandOutput, "app-stop", requiredRole); err != nil {
+		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop", requiredRole); err != nil {
 			if complete {
 				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
 				if restartErr == nil {
