@@ -3,13 +3,13 @@
 - **Status**: approved
 - **Author(s)**: Ankit Goswami (@ankitgoswami)
 - **Created**: 2026-07-13
-- **Last updated**: 2026-08-04
+- **Last updated**: 2026-08-07
 
 ## Summary
 
 Add a supported high-availability install mode for Proto Fleet where two warm Fleet app hosts share a self-managed Postgres/TimescaleDB HA cluster, but exactly one Fleet app instance is active for real-time control at a time. The active instance is selected by a Fleet-owned, epoch-fenced database lease. Postgres failover is handled by Patroni over a three-member quorum, and Fleet connects to the current writable database through a pgx/libpq-style multi-host DSN rather than a DB proxy.
 
-This RFC deliberately scopes the HA promise to the real-time control plane. Curtailment dispatch, command execution, schedules, Fleet Node ControlStreams, MQTT curtailment intake, and the database state required for those flows must recover automatically after a single failure. Live HA alerting for failover readiness and control-plane health remains in scope. Historical telemetry, Grafana dashboards, alert history, logs, and cache-like artifacts may be stale, delayed, unavailable, or partially lost in degraded mode.
+This RFC deliberately scopes the initial HA promise to Fleet application control. Curtailment dispatch, command execution, MQTT curtailment intake, and the database state required for those flows must recover automatically after a single failure. Local HA status must expose failover readiness and control-plane health. Schedule failover recovery, Fleet Node HA and reconnect-scale qualification, alert delivery, historical telemetry, Grafana dashboards, alert history, logs, and cache-like artifacts remain outside the initial supported profile.
 
 ## Decision summary
 
@@ -41,9 +41,9 @@ The supported HA contract is intentionally narrower than "every subsystem stays 
 
 | Class | Examples | HA guarantee |
 | ---- | -------- | ------------ |
-| Critical control state | Curtailment events and targets, command queue/status, schedules, Fleet Node auth/pairing state, MQTT curtailment source config and runtime edge state, active Fleet lease | Durable while replication is healthy; required for RTO |
-| Real-time runtime | Active Fleet app, Fleet Node ControlStreams, command executor, curtailment reconciler, scheduler, MQTT subscriber | One active instance; resumes automatically on another Fleet app host |
-| Live HA alert state | Failover readiness, active Fleet holder count, DB primary/standby health, quorum, replication lag, VIP/load-balancer target | Must be emitted from control-plane HA status, independent of Grafana history |
+| Critical control state | Curtailment events and targets, command queue/status, Fleet Node auth/pairing state, MQTT curtailment source config and runtime edge state, active Fleet lease | Durable while replication is healthy; required for RTO |
+| Real-time runtime | Active Fleet app, command executor, curtailment reconciler, MQTT subscriber | One active instance; resumes automatically on another Fleet app host |
+| Local HA status | Runtime role, observation freshness, endpoint health, control and failover readiness, and generic reason codes | Must be emitted independently of Grafana history; alert delivery is deferred |
 | Best-effort history | Raw telemetry samples, rollups, notification metric samples, Grafana dashboards, alert history, logs | May be stale, delayed, unavailable, or partially lost |
 | Local artifacts | Firmware files, command artifacts, cached downloads | Not v1 HA unless explicitly promoted to critical storage |
 
@@ -102,13 +102,13 @@ For on-prem installs, the supported endpoint is a Fleet VIP managed by keepalive
 - both Fleet app hosts run keepalived with the same VIP;
 - keepalived advertises the VIP only on the host whose local Fleet app passes `/health/active`;
 - the VIP moves to the peer after the old active fails health and the peer acquires the Fleet lease;
-- existing long-lived UI and ControlStream connections reconnect to the same stable endpoint after VIP movement.
+- existing UI and API clients reconnect to the same stable endpoint after VIP movement.
 
 The VIP is an endpoint routing mechanism, not the correctness authority. Fleet's database lease remains the only source of truth for app activeness. The VIP must follow `/health/active`; it must not decide which Fleet app is allowed to dispatch commands or curtailment.
 
 Endpoint-adapter failures that make the active Fleet endpoint unavailable are active-readiness failures. In the on-prem VIP profile, if the current active host cannot maintain local VIP ownership or advertisement, it must fail `/health/active` and stop renewing or relinquish the Fleet lease, or provide an equivalent endpoint-adapter fencing mechanism that lets the peer take over. An active Fleet app that is no longer reachable through the supported stable endpoint must not keep the active lease indefinitely.
 
-The stable endpoint must preserve Fleet's client-facing identity and network-security expectations in every environment. VIP movement must not make UI/API, Fleet Node, or ControlStream traffic reachable outside the intended private network. The supported on-prem VIP profile can rely on the site VPN/private network plus VIP ownership controls that restrict advertisement to the intended Fleet app hosts. Cloud or otherwise untrusted network paths require environment-appropriate transport security and server identity.
+The stable endpoint must preserve Fleet's client-facing identity and network-security expectations in every environment. VIP movement must not make UI/API traffic reachable outside the intended private network. The supported on-prem VIP profile can rely on the site VPN/private network plus VIP ownership controls that restrict advertisement to the intended Fleet app hosts. Cloud or otherwise untrusted network paths require environment-appropriate transport security and server identity.
 
 MQTT curtailment intake is not Fleet VIP traffic. It is an active runtime responsibility: the old active subscriber must quiesce on failover, and the new active Fleet app must subscribe to the configured broker within the RTO target.
 
@@ -232,7 +232,7 @@ Active-only work in v1 includes:
 
 - command execution and command-state repair;
 - telemetry polling and discovery work that feeds active control;
-- schedule processing;
+- schedule processing, with failover recovery qualification deferred;
 - curtailment reconciliation and MQTT intake;
 - cleanup/sweep work that mutates shared control state or external command artifacts.
 
@@ -244,7 +244,7 @@ Always-on services:
 
 Activation must trigger required control reconciliation promptly enough to meet the RTO target.
 
-### Request and ControlStream gating
+### Request gating
 
 Add a single active-mode request gate for product traffic:
 
@@ -252,14 +252,13 @@ Add a single active-mode request gate for product traffic:
 - In passive mode, Connect/gRPC product traffic fails with `Unavailable` and a machine-readable `not-active` detail; other product transports use the equivalent retryable status.
 - Load-balancer-safe health endpoints and loopback-only HA diagnostics bypass active gating.
 
-Fleet Node ControlStreams are explicitly gated:
+Fleet Node ControlStreams are also rejected on a passive Fleet instance as a
+safety boundary:
 
 - Passive Fleet rejects ControlStreams with `not-active`.
 - Lease loss cancels active-scoped request contexts and closes already accepted product streams with `not-active`.
-- Fleet Node clients treat `not-active` as a cheap redirect signal and reconnect quickly, with bounded jitter so large fleets do not reconnect in lockstep.
-- Fleet Node transport must detect dead streams quickly enough to meet the RTO target.
-
-This preserves the RFC 0001 model where Fleet Nodes connect outbound to the server/Fleet app endpoint, while ensuring only the active Fleet app host owns command routing state.
+Fleet Node failover, reconnect timing, and fleet-scale reconnect behavior are
+not qualified by the initial supported profile.
 
 ## Health and operator status
 
@@ -325,8 +324,8 @@ The exact installer flags, templates, compose files, and runbook commands belong
 | On-prem active Fleet host loses health | keepalived stops advertising the VIP; the peer advertises the same VIP after acquiring the Fleet lease and passing `/health/active`. |
 | On-prem active Fleet host loses VIP ownership | Active readiness fails or equivalent endpoint-adapter fencing triggers; the peer can acquire the Fleet lease and advertise the VIP. |
 | Endpoint routes to passive | Passive fails `/health/active` and rejects product traffic and ControlStreams. |
-| Grafana fails | Real-time control continues; `/health/active` remains based on control readiness only; HA alert generation continues from control-plane status. |
-| Historical telemetry ingestion stalls | Real-time control continues; history is stale/lossy and HA status/alerts still report control-plane degraded state. |
+| Grafana fails | Real-time control continues; `/health/active` remains based on control readiness only; local HA status remains available. |
+| Historical telemetry ingestion stalls | Real-time control continues; history is stale/lossy and local HA status reports control-plane degraded state. |
 
 ## Validation gates
 
@@ -341,7 +340,6 @@ Activation and fencing:
 - Passive mode rejects all product traffic, including non-RPC HTTP routes, while preserving the explicit health and operator-status bypasses.
 - Lease loss terminates already accepted product streams and active-scoped request work.
 - A stalled active process cannot overwrite terminal command state or renew an expired lease with its old epoch.
-- Fleet-scale reconnect tests avoid synchronized ControlStream reconnect storms during failover.
 
 Database and durability:
 
@@ -363,7 +361,7 @@ Deployment and diagnostics:
 - Same-subnet on-prem validation proves the configured VIP is unused, moves only to the Fleet app host passing `/health/active`, remains reachable only through the intended private network, and resists unintended VIP ownership by non-HA hosts.
 - Same-subnet on-prem failover tests prove loss of local VIP ownership on the active host triggers active-readiness failure, lease release/expiry, or equivalent endpoint-adapter fencing so the peer can take over within the RTO target.
 - HA management-plane ports are restricted to HA peers and approved operator diagnostics paths; cloud or untrusted network profiles add authenticated transport.
-- HA alerts fire from control-plane status for standby loss, quorum loss, active holder anomalies, replication lag, and endpoint targeting failures even when Grafana or telemetry history is unavailable.
+- Local control-plane status reports standby loss, quorum loss, active holder anomalies, replication lag, and endpoint targeting failures even when Grafana or telemetry history is unavailable.
 - Telemetry/Grafana failures do not fail `/health/active`.
 - Public health endpoints do not expose HA topology, and `/health/ha` is reachable only on loopback.
 
@@ -405,7 +403,7 @@ Deployment and diagnostics:
 | 1 | DB writer routing | Multi-host DSN, read-write targeting, stale pooled connection discard, failover retry classification | Fleet can reconnect to the current DB writer without HAProxy. |
 | 2 | Active lease | `fleet_runtime_lease`, sqlc queries, `ha.Coordinator`, `/health/active` | Fleet can decide active/passive state safely. |
 | 3 | Runtime supervision | Move active-only services behind a supervisor; immediate reconciler tick on activation | Passive Fleet stays warm but does not dispatch or mutate control state. |
-| 4 | Passive gating and Fleet Node retry | Active-mode request gate, ControlStream `not-active`, Fleet Node fast retry and stream liveness tuning | Traffic can safely route only to active Fleet. |
+| 4 | Passive gating | Active-mode request gate and ControlStream `not-active` rejection | Product traffic can safely route only to active Fleet; Fleet Node reconnect qualification is deferred. |
 | 5 | HA substrate | Patroni image/config, etcd, keepalived/VRRP VIP templates, peer-connectivity preflight, install/join flow | Operators can install the on-prem HA profile. |
 | 6 | Degraded-mode observability | Local status for standby loss, quorum loss, active count, replication lag, and failover readiness | Operators can distinguish full HA from control-only/degraded operation. |
 | 7 | Lab and cloud references | Repeated failover tests, partition tests, runbook, cloud deployment reference | The install mode can be marked supported after validation gates pass. |

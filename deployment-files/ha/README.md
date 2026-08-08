@@ -56,10 +56,13 @@ files on `ha-a` and `ha-b`.
 
 ## Install
 
-The supported target is a clean Debian 13 host on amd64 or arm64 with a
-4096-byte page size and the base `sudo` and `iproute2` packages. Unpack the
-release and stage the host-specific install inputs in a separate directory.
-Files added inside the unpacked release fail its manifest validation.
+The installer-compatible target is a clean Debian 13 host on amd64 or arm64
+with a 4096-byte page size and the base `sudo` and `iproute2` packages. A release
+and hardware profile is supported only after its completed
+[qualification report](QUALIFICATION.md); architecture compatibility alone is
+not a support claim. Unpack the release and stage the host-specific install
+inputs in a separate directory. Files added inside the unpacked release fail
+its manifest validation.
 
 For example, on each host:
 
@@ -154,4 +157,5 @@ go test ./server/internal/ha -run '^TestProductionHAProfile$' -v
 Repeat on `ha-b` without `HA_PROFILE_MIGRATE`. The emitted
 `HA_PROFILE_EVIDENCE` line proves that the deployment artifacts, etcd leader,
 Patroni primary, and connected PostgreSQL writer agree.
-The qualification workflow owns the complete failure matrix and evidence.
+The [qualification procedure](QUALIFICATION.md) owns the release qualification
+matrix and redacted evidence.
