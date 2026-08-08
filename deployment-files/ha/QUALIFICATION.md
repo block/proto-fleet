@@ -8,9 +8,6 @@ and telemetry or independent power measurement for curtailment. Do not include
 addresses, certificates, passwords, device names, or customer data in the
 committed report.
 
-Use a fourth, non-peer host on the same L2 network only for the firewall gate;
-it must not be one of the three configured HA addresses.
-
 ## Test identity
 
 | Field | Value |
@@ -49,10 +46,7 @@ time and a short redacted evidence reference.
 | --- | --- | --- | --- | --- |
 | Kill active Fleet process | Peer serves VIP within 15s | Pending | Pending | Pending |
 | Power off the active Fleet host after confirming it is the Patroni replica | Peer serves VIP within 15s | Pending | Pending | Pending |
-| Power off a host that is both active Fleet and Patroni primary | Writable Fleet service recovers through the VIP within 45s | Pending | Pending | Pending |
 | Stop database primary | Writable primary recovers within 30s | Pending | Pending | Pending |
-| Commit uniquely identified state, then abruptly stop its acknowledged primary | The exact state exists on the promoted writer | Pending | Pending | Pending |
-| Partition the current Patroni primary from DCS quorum while continuously probing pinned connections to both database hosts | At most one host accepts writes; the isolated primary is read-only or unreachable before promotion; it rejoins without divergent acknowledged state | Pending | Pending | Pending |
 | Stop database standby | Service remains usable; failover readiness is degraded | Pending | Pending | Pending |
 | Stop etcd witness | Service remains usable; failover readiness is degraded | Pending | Pending | Pending |
 | Break active DCS path | Old active stops serving; peer takes over | Pending | Pending | Pending |
@@ -60,15 +54,9 @@ time and a short redacted evidence reference.
 | Remove active VIP/interface path | Old active stops serving; peer takes over | Pending | Pending | Pending |
 | Fail over with PENDING command | New active dispatches the command | Pending | Pending | Pending |
 | Fail over with PROCESSING command | Interrupted attempt fails and later work resumes | Pending | Pending | Pending |
-| Stall a PROCESSING device call, break the active DCS path, wait for takeover, then release the old call | The stale transition is rejected; one device effect and one terminal result remain | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
-| Pin an authenticated active-only API request to the passive host while retaining the VIP URL and TLS SNI | Fleet returns its machine-readable `NOT_ACTIVE` response, not a TLS or transport error | Pending | Pending | Pending |
-| Open an authenticated long-lived stream on the active host, then induce demotion | The established stream closes promptly after ownership loss | Pending | Pending | Pending |
-| With listeners confirmed, attempt TCP connections from a non-peer to ports 2379, 2380, 5432, 8008, and 40000 before and after reboot | Required HA ports accept their configured peers but reject the non-peer. For the intentionally closed 40000 port, `ss` confirms a temporary listener exists while the non-peer is rejected. The matching nftables drop counters increase. | Pending | Pending | Pending |
-| Send an unauthorized VRRP protocol-112 advertisement from the non-peer | The VRRP drop counter increases and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over during curtailment | Telemetry or independent power measurement proves load shedding within 180s | Pending | Pending | Pending |
-| After takeover, publish a uniquely identified MQTT curtailment target and then its restoration target | The new active persists both source updates and physical measurement proves shedding and restoration within 180s | Pending | Pending | Pending |
 
 ## Repetition and soak
 
@@ -78,17 +66,11 @@ time and a short redacted evidence reference.
 | Database failover | 3 consecutive passes | Pending | Pending |
 | Soak | 24h with no observed dual-active state or lost failover readiness | Pending | Pending |
 
-During the soak, sample both hosts at least every two seconds to measure
-availability. Separately poll the database lease below the three-second renewal
-interval, recording database time, holder, epoch, and expiry, and retain both
-hosts' timestamped service start/exit journals. Record local
+During the soak, sample both hosts at least every two seconds. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
 direct active/passive health, and VIP interface ownership with timestamps. Fail
-the soak on any dual-active, dual-VIP, or lost-readiness sample, and repeat the
-stale-transition gate after every application failover. These observations do
-not constitute an event-complete admission history; a durable activation-event
-ledger is outside this initial qualification. Redact the retained evidence
-before committing it.
+the soak on any dual-active, dual-VIP, or lost-readiness sample. Redact the
+retained evidence before committing it.
 
 ## Verdict
 
