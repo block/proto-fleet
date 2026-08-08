@@ -140,7 +140,7 @@ type requirePassiveCmd struct {
 }
 
 func (c *requirePassiveCmd) Run(ctx context.Context) error {
-	return deployment.RequirePassive(ctx, c.NodeEnv, c.Version)
+	return deployment.ValidatePassiveUpdate(ctx, c.NodeEnv, c.Version)
 }
 
 type updatePreflightCmd struct{}
@@ -242,9 +242,7 @@ func runPassiveUpdate(
 	if report.Control != nil && report.Control.FailoverReady {
 		return nil
 	}
-	expectedVersionMismatch := report.Control != nil && report.Control.ControlReady &&
-		len(report.Control.ReasonCodes) == 1 && report.Control.ReasonCodes[0] == deployment.ReasonFleetVersionMismatch
-	if expectedVersionMismatch {
+	if deployment.ExpectedRollingVersionMismatch(report.Control) {
 		_, err = fmt.Fprintln(output, "Update succeeded; failover readiness will recover after the peer is updated.")
 		if err != nil {
 			return fmt.Errorf("write update outcome: %w", err)
