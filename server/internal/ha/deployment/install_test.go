@@ -45,9 +45,10 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	keepalived := callIndex(calls, "sudo systemctl enable --now keepalived.service")
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
+	snapshot := callIndex(calls, "dir:"+installRoot+" sha256sum --check deployment-manifest.sha256")
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
-	if packages < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || start < 0 || keepalived < 0 ||
-		!(packages < vipCheck && vipCheck < firewall && firewall < docker && rootPasswordInstall < start && start < keepalived) {
+	if packages < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || start < 0 || keepalived < 0 ||
+		!(snapshot < packages && packages < vipCheck && vipCheck < firewall && firewall < docker && rootPasswordInstall < start && start < keepalived) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -256,8 +257,16 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 	}
 	return installDependencies{
 		goos: "linux", goarch: "arm64", pageSize: 4096,
-		readFile: func(string) ([]byte, error) { return []byte("ID=debian\nVERSION_ID=13\n"), nil },
-		lstat:    func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+		readFile: func(path string) ([]byte, error) {
+			if path == "/etc/os-release" {
+				return []byte("ID=debian\nVERSION_ID=13\n"), nil
+			}
+			if relative, ok := strings.CutPrefix(path, installRoot+string(os.PathSeparator)); ok {
+				path = filepath.Join(source, relative)
+			}
+			return os.ReadFile(path)
+		},
+		lstat: func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
 		lookPath: func(name string) (string, error) {
 			if name == "sudo" || name == "ip" || name == "ss" {
 				return "/usr/bin/" + name, nil
