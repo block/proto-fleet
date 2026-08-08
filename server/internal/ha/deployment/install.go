@@ -294,7 +294,7 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"updater/proto-fleet-updater", "updater/proto-fleet-updater.service",
-		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
+		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl", "ha/updater-systemd.conf",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
 		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
 		"client/nginx.https.conf",

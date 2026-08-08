@@ -1173,7 +1173,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile)
 			return
 		}
-		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop", targetVersion); err != nil {
+		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop"); err != nil {
 			m.failActivation(operationID, targetVersion, fmt.Errorf("stop passive HA application: %w", err), logFile)
 			return
 		}
