@@ -44,14 +44,15 @@ and run Fleet commands as
    controller, poll that host's local updater status over
    `/run/proto-fleet-updater/updater.sock`. As soon as its operation phase is
    `activating`, peer validation has passed and the old active is about to stop.
-   Immediately run `sudo systemctl stop proto-fleet-ha.service` on the updated
-   peer and confirm the service stops before the 10-second Fleet lease expires.
-   This prevents the peer from acquiring ownership during the failed-takeover
-   drill. Keep recording until the command times out without swapping
-   deployments, restarts `N`, and restores a usable VIP and successful command
-   within 60 seconds. Fail on any collection gap, active overlap, or VIP overlap.
-   Start `proto-fleet-ha.service` on the peer again and restore full readiness
-   before continuing.
+   Immediately run
+   `sudo /opt/proto-fleet/deployment/ha/fleet-ha app-stop` on the updated peer
+   and confirm its Fleet containers stop before the 10-second lease expires.
+   Patroni, PostgreSQL, etcd, and keepalived must remain running. Keep recording
+   until the command times out without swapping deployments, restarts `N`, and
+   restores a usable VIP and successful command within 60 seconds. Fail on any
+   collection gap, active overlap, or VIP overlap. Restore the peer with
+   `sudo /opt/proto-fleet/deployment/ha/fleet-ha app-start "$TARGET_RELEASE" passive`
+   and wait for full readiness before continuing.
 5. Retry the completion command. From a separate controller, use the external
    append-only recorder, gap rejection, and uncertainty-inclusive interval rules
    from [QUALIFICATION.md](QUALIFICATION.md). Continuously record direct active
