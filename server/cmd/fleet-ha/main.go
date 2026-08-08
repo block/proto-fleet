@@ -14,6 +14,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/google/uuid"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -148,10 +149,12 @@ func (c *requirePassiveCmd) Run(ctx context.Context) error {
 
 type requireActiveCmd struct {
 	NodeEnv string `arg:"" type:"path" help:"node environment file"`
+	Version string `arg:"" help:"target application version"`
 }
 
 func (c *requireActiveCmd) Run(ctx context.Context) error {
-	return deployment.RequireActive(ctx, c.NodeEnv)
+	_, err := deployment.ValidateActiveUpdate(ctx, c.NodeEnv, c.Version)
+	return err
 }
 
 type updatePreflightCmd struct{}
