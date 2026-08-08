@@ -111,6 +111,9 @@ func pruneReleaseImages(ctx context.Context) error {
 
 // StopApplication stops only Fleet containers; the HA substrate keeps running.
 func StopApplication(ctx context.Context, root string) error {
+	if _, err := requirePassiveStatus(ctx, filepath.Join(configRoot, "node.env")); err != nil {
+		return fmt.Errorf("refuse to stop HA application after passive role changed: %w", err)
+	}
 	if err := RunCompose(ctx, fleetComposeArgsAt(root, "stop", "fleet-api", "fleet-client")); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
 	}
@@ -135,7 +138,11 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"))
 		if err == nil {
 			publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
-			if rollingUpdateApplicationReady(report, publicStatus, targetVersion) {
+			ready, readinessErr := rollingUpdateApplicationReady(report, publicStatus, targetVersion)
+			if readinessErr != nil {
+				return readinessErr
+			}
+			if ready {
 				return nil
 			}
 		}
@@ -147,10 +154,13 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 	}
 }
 
-func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) bool {
+func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) (bool, error) {
+	if report.Runtime.Observation == ha.ObservationCurrent && report.Runtime.Role == ha.RoleActive {
+		return false, errors.New("updated node became active; inspect the peer before retrying")
+	}
 	return report.Runtime.Role == ha.RolePassive &&
 		applicationReady(report.Runtime, public, targetVersion) &&
-		rollingUpdateControlReady(report.Control)
+		rollingUpdateControlReady(report.Control), nil
 }
 
 func rollingUpdateControlReady(control *ControlStatus) bool {
