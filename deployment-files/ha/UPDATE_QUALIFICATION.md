@@ -35,10 +35,15 @@ and run Fleet commands as
    is healthy and passive on `N+1`; fail on a request failure or a command that
    does not reach terminal success. Verify the active host continues serving
    `N` throughout this migration and mixed-version window.
-4. Prevent the updated passive from advertising the VIP, then append `--complete`
-   to the update command on the active host. Verify the command
-   times out without swapping deployments, restarts `N`, and restores a usable
-   VIP and successful command within 60 seconds. Restore the passive host.
+4. Start the external active-health and interface-address recorder from step 5.
+   Confirm the updated peer is healthy and passive, then stop keepalived on that
+   peer with `sudo systemctl stop keepalived`. Confirm its Fleet application
+   remains passive and its configured interface does not own the VIP. Immediately
+   append `--complete` to the update command on the active host. Keep recording
+   until the command times out without swapping deployments, restarts `N`, and
+   restores a usable VIP and successful command within 60 seconds. Fail on any
+   collection gap, active overlap, or VIP overlap. Start keepalived on the peer
+   again and restore full readiness before continuing.
 5. Retry the completion command. From a separate controller, use the external
    append-only recorder, gap rejection, and uncertainty-inclusive interval rules
    from [QUALIFICATION.md](QUALIFICATION.md). Continuously record direct active
