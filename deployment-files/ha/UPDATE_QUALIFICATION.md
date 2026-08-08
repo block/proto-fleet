@@ -86,8 +86,9 @@ and run Fleet commands as
    identities from step 2 are unchanged.
 5. Reinstall the clean `N` baseline and repeat steps 2 and 3 for a separate
    mixed-version failover run. Update the passive host to `N+1`, then terminate
-   the active `N` Fleet process before running `--complete`. Require the `N+1`
-   peer to take over within 15 seconds with no possible active or VIP overlap,
+   the active `N` Fleet process instead of running `--complete`. Require the
+   `N+1` peer to take over within 15 seconds with no possible active or VIP
+   overlap,
    recover interrupted command state, and serve a successful command. Restart
    the `N` host as passive and update it with the ordinary passive command.
    Require both hosts to run `N+1`, full failover readiness, and unchanged
