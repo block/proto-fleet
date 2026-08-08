@@ -224,3 +224,6 @@ A passive update rechecks the local role, active peer, and control path just
 before stopping Fleet. This crash-only profile accepts the small role-change
 window before process exit; if the peer fails in that interval, durable update
 recovery restarts the local application.
+After the baseline passes, use the
+[update qualification procedure](UPDATE_QUALIFICATION.md) for each adjacent
+release pair supported by the HA application updater.
