@@ -173,6 +173,7 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/docker-systemd.conf" "PartOf=nftables.service"
     assert_not_contains "${HA_DIR}/docker-systemd.conf" "Wants=proto-fleet-ha.service"
     assert_contains "${HA_DIR}/docker-ha-recovery-systemd.conf" "Wants=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "ReadWritePaths=/etc/proto-fleet/ha"
 
     for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
         assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"

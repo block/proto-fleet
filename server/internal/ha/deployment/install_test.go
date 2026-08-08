@@ -45,6 +45,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	start := callIndex(calls, "sudo systemctl start --no-block proto-fleet-ha.service")
 	enable := callIndex(calls, "sudo systemctl enable proto-fleet-ha.service")
 	updater := callIndex(calls, "sudo systemctl enable --now proto-fleet-updater.service")
+	updaterPermissions := callIndex(calls, updaterDropIn)
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
@@ -56,8 +57,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
 	pinnedComposeInstall := callIndex(calls, "ha/compose.yaml "+infrastructureCompose)
-	if packages < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || pinnedComposeInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || updater < 0 || keepalived < 0 ||
-		!(packages < vipCheck && packages < nftablesCompatibility && nftablesCompatibility < keepalived && keepalived < firewall && serviceMask < dockerPackages && dockerPackages < serviceUnmask && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < updater && updater < start && rootPasswordInstall < start && pinnedComposeInstall < start) {
+	if packages < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || pinnedComposeInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || updaterPermissions < 0 || updater < 0 || keepalived < 0 ||
+		!(packages < vipCheck && packages < nftablesCompatibility && nftablesCompatibility < keepalived && keepalived < firewall && serviceMask < dockerPackages && dockerPackages < serviceUnmask && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < updater && updaterPermissions < updater && updater < start && rootPasswordInstall < start && pinnedComposeInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -739,6 +740,7 @@ func testInstallRelease(t *testing.T) string {
 		"ha/nftables-reload.conf":                                "include \"/etc/nftables.conf\"\n",
 		"ha/docker-systemd.conf":                                 "[Unit]\n",
 		"ha/docker-ha-recovery-systemd.conf":                     "[Unit]\n",
+		"ha/updater-systemd.conf":                                "[Service]\nReadWritePaths=/etc/proto-fleet/ha\n",
 		"ha/scripts/check-fleet-active.sh":                       "#!/bin/sh\n",
 		"client/Dockerfile":                                      "FROM scratch\n",
 		"client/protoFleet/index.html":                           "index",
