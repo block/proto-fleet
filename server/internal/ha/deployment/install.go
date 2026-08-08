@@ -415,14 +415,20 @@ func installPackages(ctx context.Context, deps installDependencies) error {
 	}
 	for _, args := range [][]string{
 		{"apt-get", "update"},
-		{"apt-get", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin", "keepalived", "nftables"},
 	} {
 		if output, err := deps.run(ctx, "sudo", args...); err != nil {
 			return fmt.Errorf("install HA packages: %s", commandError(output, err))
 		}
 	}
-	if output, err := deps.run(ctx, "sudo", "systemctl", "stop", "docker.service", "docker.socket"); err != nil {
-		return fmt.Errorf("stop package-started services before firewall activation: %s", commandError(output, err))
+	services := []string{"docker.service", "docker.socket", "keepalived.service"}
+	if output, err := deps.run(ctx, "sudo", append([]string{"systemctl", "mask", "--runtime"}, services...)...); err != nil {
+		return fmt.Errorf("prevent HA services from starting before the firewall: %s", commandError(output, err))
+	}
+	if output, err := deps.run(ctx, "sudo", "apt-get", "install", "-y", "docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin", "keepalived", "nftables"); err != nil {
+		return fmt.Errorf("install HA packages: %s", commandError(output, err))
+	}
+	if output, err := deps.run(ctx, "sudo", append([]string{"systemctl", "unmask", "--runtime"}, services...)...); err != nil {
+		return fmt.Errorf("restore HA service startup after package installation: %s", commandError(output, err))
 	}
 	if output, err := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "keepalived.service"); err != nil {
 		return fmt.Errorf("disable keepalived until the database role is ready: %s", commandError(output, err))
@@ -437,7 +443,11 @@ func verifyInstallVirtualIP(ctx context.Context, config NodeConfig) error {
 	}
 
 	tlsConfig, tlsErr := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
-	if tlsErr == nil && probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.VirtualIP).active {
+	peerIP := config.DatabaseAIP
+	if config.NodeName == "ha-a" {
+		peerIP = config.DatabaseBIP
+	}
+	if tlsErr == nil && probeFleetHost(ctx, tlsConfig, config.VirtualIP, peerIP).active {
 		return nil
 	}
 	return fmt.Errorf("HA virtual IP is owned by an unexpected host or cannot be checked: %s", commandError(output, err))
