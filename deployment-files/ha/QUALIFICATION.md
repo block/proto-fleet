@@ -61,10 +61,10 @@ time and a short redacted evidence reference.
 | Probe HA-only ports from a non-peer before and after reboot | Protected ports reject the probe while peer traffic remains healthy | Pending | Pending | Pending |
 | Send a VRRP advertisement from a non-peer | The packet is dropped and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over with PENDING command | New active dispatches the command | Pending | Pending | Pending |
-| Fail over with PROCESSING command | Interrupted attempt fails and later work resumes | Pending | Pending | Pending |
+| Demote a live old active with a stalled PROCESSING plugin call, recover on the peer, then release the old call | The stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
-| Publish unique curtailment and restoration targets after failover | Both inputs persist and measured load follows them within 180s | Pending | Pending | Pending |
+| Publish a unique curtailment target, confirm shedding starts, fail the active before completion, then restore after takeover | The peer retains or reasserts curtailment within 180s, then measured load follows the restoration target | Pending | Pending | Pending |
 
 The PROCESSING-command gate proves server-side recovery, not exactly-once
 device effects. Device-side fencing is outside this profile's support claim.
@@ -77,11 +77,16 @@ device effects. Device-side fencing is outside this profile's support claim.
 | Database failover | 3 consecutive passes | Pending | Pending |
 | Soak | 24h with no observed dual-active state or lost failover readiness | Pending | Pending |
 
-During the soak, sample both hosts at least every two seconds. Record local
+Before the soak, install a qualification-only database trigger that appends
+every `fleet_runtime_lease` insert and update to a separate audit table with
+database time, DCS cluster ID, writer generation, lease epoch, holder ID, and
+expiry. During the soak, retain that event-complete lease history and sample
+both hosts at least every two seconds for availability. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
 direct active/passive health, and VIP interface ownership with timestamps. Fail
-the soak on any dual-active, dual-VIP, or lost-readiness sample. Redact the
-retained evidence before committing it.
+on overlap between reconstructed holder/epoch terms, a missing audit interval,
+dual-VIP, or lost readiness. Export redacted evidence, then remove the trigger
+and audit table.
 
 ## Verdict
 
