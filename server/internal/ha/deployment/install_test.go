@@ -461,6 +461,8 @@ func testInstallRelease(t *testing.T) string {
 		"ha/proto-fleet-ha-firewall.service":                     "[Service]\n",
 		"ha/docker-systemd.conf":                                 "[Unit]\n",
 		"ha/docker-ha-recovery-systemd.conf":                     "[Unit]\n",
+		"ha/updater-systemd.conf":                                "[Unit]\n",
+		"ha/ha-updater-systemd.conf":                             "[Unit]\n",
 		"ha/scripts/check-fleet-active.sh":                       "#!/bin/sh\n",
 		"client/Dockerfile":                                      "FROM scratch\n",
 		"client/protoFleet/index.html":                           "index",
