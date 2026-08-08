@@ -413,6 +413,10 @@ func validateUnprivilegedNmapTargets(targets []string) error {
 	for _, target := range targets {
 		targetAddresses := 1
 		_, network, err := net.ParseCIDR(target)
+		if err != nil && net.ParseIP(target) == nil {
+			return fleeterror.NewInvalidArgumentError(
+				"unprivileged nmap discovery requires an IP address, CIDR, or resolvable hostname")
+		}
 		if err == nil {
 			ones, bits := network.Mask.Size()
 			if bits == 32 {
