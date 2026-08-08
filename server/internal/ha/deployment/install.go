@@ -678,7 +678,11 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 			}
 			deps.sleep(2 * time.Second)
 		}
-		return errors.New("HA services started but failover readiness did not become healthy within 10 minutes")
+		readinessErr := errors.New("failover readiness did not become healthy within 10 minutes")
+		if output, err := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "proto-fleet-ha.service"); err != nil {
+			return fmt.Errorf("%w; disable incomplete HA installation: %s", readinessErr, commandError(output, err))
+		}
+		return readinessErr
 	}
 	fmt.Println("HA witness installed; etcd quorum is ready")
 	return nil
