@@ -162,13 +162,15 @@ func pruneReleaseImages(ctx context.Context) error {
 }
 
 // StopApplication rechecks the expected role, then stops only Fleet containers.
-func StopApplication(ctx context.Context, root string, expectedRole ha.Role) error {
+func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRole) error {
 	var err error
 	switch expectedRole {
 	case ha.RolePassive:
 		_, err = requirePassiveStatus(ctx, filepath.Join(configRoot, "node.env"))
 	case ha.RoleActive:
 		_, err = requireActiveStatus(ctx, filepath.Join(configRoot, "node.env"))
+	case ha.RoleInitializing, ha.RoleDegraded:
+		return fmt.Errorf("unsupported HA role %q", expectedRole)
 	default:
 		return fmt.Errorf("unsupported HA role %q", expectedRole)
 	}
@@ -265,7 +267,7 @@ func ExpectedRollingVersionMismatch(control *ControlStatus) bool {
 func applicationIsReady(ctx context.Context, config NodeConfig, tlsConfig *tls.Config, targetVersion string, requirePassive bool) (bool, error) {
 	report, err := Status(ctx, filepath.Join(configRoot, "node.env"), true)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // Startup readiness is retried until the caller's deadline.
 	}
 	publicStatus := probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP)
 	if requirePassive {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -132,7 +133,7 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		return deployment.StopApplication(ctx, root, ha.Role(args[1]))
+		return deployment.StopApplication(ctx, root, ha.RuntimeRole(args[1]))
 	case "app-start":
 		if len(args) != 2 && (len(args) != 3 || (args[2] != "passive" && args[2] != "any")) {
 			return errors.New("usage: fleet-ha app-start VERSION <passive|any>")
