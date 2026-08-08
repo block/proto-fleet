@@ -406,6 +406,33 @@ func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr fun
 	return resolved, useIPv6, nil
 }
 
+const maxUnprivilegedNmapAddresses = 4096
+
+func validateUnprivilegedNmapTargets(targets []string) error {
+	addressCount := 0
+	for _, target := range targets {
+		targetAddresses := 1
+		_, network, err := net.ParseCIDR(target)
+		if err == nil {
+			ones, bits := network.Mask.Size()
+			if bits == 32 {
+				hostBits := bits - ones
+				if hostBits > 12 {
+					targetAddresses = maxUnprivilegedNmapAddresses + 1
+				} else {
+					targetAddresses = 1 << hostBits
+				}
+			}
+		}
+		addressCount += targetAddresses
+		if addressCount > maxUnprivilegedNmapAddresses {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"unprivileged nmap discovery is limited to %d IPv4 addresses", maxUnprivilegedNmapAddresses)
+		}
+	}
+	return nil
+}
+
 func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
 	if len(requestPorts) > 0 {
 		slog.Debug("Resolved discovery ports from request override", "ports", requestPorts)
@@ -520,6 +547,12 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 	if err != nil {
 		cancel()
 		return nil, false, err
+	}
+	if s.unprivilegedNmap {
+		if err := validateUnprivilegedNmapTargets(targets); err != nil {
+			cancel()
+			return nil, false, err
+		}
 	}
 
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
