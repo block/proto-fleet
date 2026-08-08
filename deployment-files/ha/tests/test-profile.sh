@@ -45,7 +45,8 @@ test_compose_uses_one_host_identity() {
 
     [[ "$(grep -c 'network_mode: host' "$rendered")" -eq 2 ]] ||
         fail "etcd and Patroni must both use host networking"
-    assert_contains "$rendered" "restart: always"
+    [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 2 ]] ||
+        fail "etcd and Patroni must recover process failures without bypassing the systemd start gate"
     assert_not_contains "$rendered" "ports:"
     assert_not_contains "$rendered" "127.0.0.1"
     assert_contains "$rendered" "https://10.40.0.11:2379"
