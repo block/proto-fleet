@@ -262,7 +262,7 @@ func validateCleanInstallState(deps installDependencies) error {
 		}
 	}
 	for _, path := range []string{
-		installBase, configRoot, "/var/lib/docker", "/var/lib/containerd", "/etc/docker",
+		installBase, configRoot, "/var/lib/docker", "/var/lib/containerd", "/var/lib/proto-fleet-updater", "/etc/docker",
 		"/etc/systemd/system/docker.service.d",
 		"/etc/systemd/system/keepalived.service.d",
 		"/etc/systemd/system/proto-fleet-ha.service.d",

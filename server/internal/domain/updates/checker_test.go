@@ -101,6 +101,21 @@ func TestValidateAdjacentStableReleaseRejectsSkippedRelease(t *testing.T) {
 	require.ErrorContains(t, skippedErr, "next stable release v1.1.0")
 }
 
+func TestValidateAdjacentStableReleaseRejectsMalformedHistory(t *testing.T) {
+	// Arrange
+	gh := newGHServer(t)
+	gh.setListPage(1, http.StatusOK, []byte(`[{"tag_name":"v1.2.0","published_at":"2026-07-18T12:00:00Z"},{"tag_name":17}]`))
+	for _, version := range []string{"v1.0.0", "v1.2.0"} {
+		gh.setTag(version, http.StatusOK, releaseJSON(t, stableEntry(version)))
+	}
+
+	// Act
+	err := validateAdjacentStableRelease(t.Context(), gh.srv.URL, "v1.0.0", "v1.2.0")
+
+	// Assert
+	require.ErrorContains(t, err, "decode /releases entry 2")
+}
+
 type ghRequest struct {
 	path   string
 	query  url.Values
