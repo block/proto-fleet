@@ -144,6 +144,7 @@ const Updates = () => {
 
   const upgrade = useUpgradeOperation({
     authSessionIdentity: `${username}:${sessionExpiry?.getTime() ?? "signed-out"}`,
+    authSessionToken: sessionExpiry,
     enabled: canUpdateInstance,
     currentVersion: status?.currentVersion,
     currentVersionUnavailable: Boolean(loadError && !status),

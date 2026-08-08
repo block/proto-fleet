@@ -24,6 +24,7 @@ interface AcknowledgedOperation {
 
 interface UseUpgradeOperationOptions {
   authSessionIdentity: string;
+  authSessionToken: object | null;
   currentVersion?: string;
   currentVersionUnavailable: boolean;
   enabled: boolean;
@@ -95,6 +96,7 @@ const readAcknowledgedOperation = (authSessionIdentity: string): string | null =
 
 export function useUpgradeOperation({
   authSessionIdentity,
+  authSessionToken,
   currentVersion,
   currentVersionUnavailable,
   enabled,
@@ -113,6 +115,7 @@ export function useUpgradeOperation({
   );
   const [pollRevision, setPollRevision] = useState(0);
   const [resolvedStatusSessionIdentity, setResolvedStatusSessionIdentity] = useState<string | null>(null);
+  const [resolvedStatusSessionToken, setResolvedStatusSessionToken] = useState<object | null>();
 
   const operationRef = useRef(operation);
   const trackedOperationRef = useRef(trackedOperation);
@@ -124,18 +127,23 @@ export function useUpgradeOperation({
   const onPollErrorRef = useRef(onPollError);
   const reconciliationDeadlineRef = useRef<number | null>(null);
   const authSessionIdentityRef = useRef(authSessionIdentity);
+  const authSessionTokenRef = useRef(authSessionToken);
   const resolvedStatusSessionIdentityRef = useRef<string | null>(null);
+  const resolvedStatusSessionTokenRef = useRef<object | null | undefined>(undefined);
 
   currentVersionRef.current = currentVersion;
   currentVersionUnavailableRef.current = currentVersionUnavailable;
   onPollErrorRef.current = onPollError;
   authSessionIdentityRef.current = authSessionIdentity;
+  authSessionTokenRef.current = authSessionToken;
   if (acknowledgedOperationSessionRef.current !== authSessionIdentity) {
     acknowledgedOperationSessionRef.current = authSessionIdentity;
     acknowledgedOperationRef.current = readAcknowledgedOperation(authSessionIdentity);
   }
 
-  const operationStatusPending = enabled && resolvedStatusSessionIdentity !== authSessionIdentity;
+  const operationStatusPending =
+    enabled &&
+    (resolvedStatusSessionIdentity !== authSessionIdentity || resolvedStatusSessionToken !== authSessionToken);
 
   useEffect(() => {
     if (trackedOperationRef.current) {
@@ -239,9 +247,14 @@ export function useUpgradeOperation({
       }
       const active = isUpgradeActive(next);
       const tracked = trackedOperationRef.current;
+      const reconciledSuccess =
+        reconcilingRef.current &&
+        !tracked?.id &&
+        tracked?.targetVersion === next.targetVersion &&
+        next.phase === UpgradePhase.SUCCEEDED;
       const trackedMatches = tracked?.id
         ? tracked.id === next.id
-        : fromTriggerResponse && tracked?.targetVersion === next.targetVersion;
+        : (fromTriggerResponse && tracked?.targetVersion === next.targetVersion) || reconciledSuccess;
 
       if (active) {
         // A durable active operation is authoritative, including one started
@@ -303,16 +316,24 @@ export function useUpgradeOperation({
   );
 
   const pollStatus = useCallback(
-    async (signal: AbortSignal, pollingAuthSessionIdentity: string) => {
+    async (signal: AbortSignal, pollingAuthSessionIdentity: string, pollingAuthSessionToken: object | null) => {
       try {
         const response = await instanceUpdateClient.getUpgradeStatus(
           {},
           { signal, timeoutMs: STATUS_REQUEST_TIMEOUT_MS },
         );
-        if (signal.aborted || authSessionIdentityRef.current !== pollingAuthSessionIdentity) return;
+        if (
+          signal.aborted ||
+          authSessionIdentityRef.current !== pollingAuthSessionIdentity ||
+          authSessionTokenRef.current !== pollingAuthSessionToken
+        ) {
+          return;
+        }
 
         resolvedStatusSessionIdentityRef.current = pollingAuthSessionIdentity;
+        resolvedStatusSessionTokenRef.current = pollingAuthSessionToken;
         setResolvedStatusSessionIdentity(pollingAuthSessionIdentity);
+        setResolvedStatusSessionToken(pollingAuthSessionToken);
 
         if (response.operation && acceptServerOperation(response.operation)) {
           return;
@@ -367,10 +388,12 @@ export function useUpgradeOperation({
 
     const run = async () => {
       controller = new AbortController();
-      await pollStatus(controller.signal, authSessionIdentity);
+      await pollStatus(controller.signal, authSessionIdentity, authSessionToken);
       if (alive) {
         const awaitingTrackedOperation = Boolean(trackedOperationRef.current && !operationRef.current);
-        const awaitingInitialStatus = resolvedStatusSessionIdentityRef.current !== authSessionIdentity;
+        const awaitingInitialStatus =
+          resolvedStatusSessionIdentityRef.current !== authSessionIdentity ||
+          resolvedStatusSessionTokenRef.current !== authSessionToken;
         const pollIntervalMs =
           isUpgradeActive(operationRef.current) ||
           reconcilingRef.current ||
@@ -388,7 +411,15 @@ export function useUpgradeOperation({
       controller?.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [authSessionIdentity, currentVersion, currentVersionUnavailable, enabled, pollRevision, pollStatus]);
+  }, [
+    authSessionIdentity,
+    authSessionToken,
+    currentVersion,
+    currentVersionUnavailable,
+    enabled,
+    pollRevision,
+    pollStatus,
+  ]);
 
   const triggerUpgrade = useCallback(
     async (targetVersion: string) => {

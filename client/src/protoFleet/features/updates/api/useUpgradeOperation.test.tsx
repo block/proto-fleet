@@ -24,16 +24,20 @@ const mockTriggerUpgrade = vi.mocked(instanceUpdateClient.triggerUpgrade);
 const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
 const ACKNOWLEDGED_OPERATION_KEY = "protoFleet:acknowledged-upgrade-operation";
 const AUTH_SESSION_IDENTITY = "operator-a:1000";
+const AUTH_SESSION_TOKEN = new Date(1_000);
 
 type TestUpgradeOperationOptions = Omit<
   Parameters<typeof useUpgradeOperation>[0],
-  "authSessionIdentity" | "currentVersionUnavailable"
+  "authSessionIdentity" | "authSessionToken" | "currentVersionUnavailable"
 > & {
   currentVersionUnavailable?: boolean;
 };
 
-const useTestUpgradeOperation = (options: TestUpgradeOperationOptions, authSessionIdentity = AUTH_SESSION_IDENTITY) =>
-  useUpgradeOperation({ authSessionIdentity, currentVersionUnavailable: false, ...options });
+const useTestUpgradeOperation = (
+  options: TestUpgradeOperationOptions,
+  authSessionIdentity = AUTH_SESSION_IDENTITY,
+  authSessionToken: object | null = AUTH_SESSION_TOKEN,
+) => useUpgradeOperation({ authSessionIdentity, authSessionToken, currentVersionUnavailable: false, ...options });
 
 type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
 
@@ -135,21 +139,27 @@ describe("useUpgradeOperation", () => {
     expect(result.current.operationStatusPending).toBe(false);
   });
 
-  it("restarts polling and ignores the previous authenticated session's request", async () => {
+  it("restarts polling when a replacement session has the same serialized identity", async () => {
     const previousRequest = deferred<ReturnType<typeof status>>();
     const onPollError = vi.fn();
     mockGetUpgradeStatus.mockReturnValueOnce(previousRequest.promise).mockResolvedValue(status());
+    const previousSessionToken = new Date(1_000);
+    const replacementSessionToken = new Date(1_000);
 
     const { rerender, result } = renderHook(
-      ({ authSessionIdentity }: { authSessionIdentity: string }) =>
-        useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0", onPollError }, authSessionIdentity),
-      { initialProps: { authSessionIdentity: AUTH_SESSION_IDENTITY } },
+      ({ authSessionToken }: { authSessionToken: object }) =>
+        useTestUpgradeOperation(
+          { enabled: true, currentVersion: "v1.2.0", onPollError },
+          AUTH_SESSION_IDENTITY,
+          authSessionToken,
+        ),
+      { initialProps: { authSessionToken: previousSessionToken } },
     );
 
     await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
     const previousSignal = mockGetUpgradeStatus.mock.calls[0]?.[1]?.signal;
 
-    rerender({ authSessionIdentity: "operator-b:2000" });
+    rerender({ authSessionToken: replacementSessionToken });
 
     await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(2));
     expect(previousSignal?.aborted).toBe(true);
@@ -237,6 +247,21 @@ describe("useUpgradeOperation", () => {
     await act(async () => result.current.triggerUpgrade("v1.3.0"));
     await waitFor(() => expect(result.current.operation?.id).toBe("operation-1"));
 
+    expect(result.current.reconciling).toBe(false);
+    expect(result.current.triggerError).toBeNull();
+  });
+
+  it("reconciles an ambiguous trigger rejection to a completed upgrade", async () => {
+    const succeededOperation = operation(UpgradePhase.SUCCEEDED, { message: "Upgrade complete" });
+    mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, succeededOperation));
+    mockTriggerUpgrade.mockRejectedValue(new Error("response lost"));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.SUCCEEDED));
+
+    expect(result.current.operation?.id).toBe("operation-1");
     expect(result.current.reconciling).toBe(false);
     expect(result.current.triggerError).toBeNull();
   });
