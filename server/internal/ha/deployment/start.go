@@ -87,7 +87,7 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 	defer func() { _ = client.Close() }()
 	authenticated := false
 	for {
-		quorum, authRequired := startupEtcdQuorum(ctx, client.Status, endpoints)
+		quorum, authRequired := startupEtcdQuorum(ctx, client.Status, endpoints, "https://"+config.NodeIP+":2379")
 		if quorum {
 			return nil
 		}
@@ -122,23 +122,31 @@ type startupEtcdIdentity struct {
 type startupEtcdResult struct {
 	identity     startupEtcdIdentity
 	authRequired bool
+	required     bool
 }
 
-func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints []string) (bool, bool) {
+func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints []string, requiredEndpoint string) (bool, bool) {
 	results := make(chan startupEtcdResult, len(endpoints))
 	for _, endpoint := range endpoints {
 		go func() {
 			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
 			response, err := status(probeCtx, endpoint)
-			if err != nil || response.Header == nil {
+			if err != nil || response == nil || response.Header == nil {
 				results <- startupEtcdResult{authRequired: etcdAuthRequired(err)}
 				return
 			}
-			results <- startupEtcdResult{identity: startupEtcdIdentity{response.Header.ClusterId, response.Header.MemberId, response.Leader}}
+			results <- startupEtcdResult{
+				identity: startupEtcdIdentity{response.Header.ClusterId, response.Header.MemberId, response.Leader},
+				required: endpoint == requiredEndpoint,
+			}
 		}()
 	}
-	groups := make(map[[2]uint64]map[uint64]struct{})
+	type memberGroup struct {
+		members           map[uint64]struct{}
+		requiredResponded bool
+	}
+	groups := make(map[[2]uint64]*memberGroup)
 	authRequired := false
 	for range endpoints {
 		result := <-results
@@ -149,12 +157,13 @@ func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints 
 		}
 		key := [2]uint64{identity.clusterID, identity.leaderID}
 		if groups[key] == nil {
-			groups[key] = make(map[uint64]struct{})
+			groups[key] = &memberGroup{members: make(map[uint64]struct{})}
 		}
-		groups[key][identity.memberID] = struct{}{}
+		groups[key].members[identity.memberID] = struct{}{}
+		groups[key].requiredResponded = groups[key].requiredResponded || result.required
 	}
-	for key, members := range groups {
-		if _, leaderResponded := members[key[1]]; leaderResponded && len(members) >= 2 {
+	for key, group := range groups {
+		if _, leaderResponded := group.members[key[1]]; leaderResponded && group.requiredResponded && len(group.members) >= 2 {
 			return true, authRequired
 		}
 	}
