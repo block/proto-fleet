@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -379,6 +380,8 @@ func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr fun
 				useIPv6 = true
 			}
 			resolved = append(resolved, t)
+		} else if _, ok := shortIPv4RangeSize(t); ok {
+			resolved = append(resolved, t)
 		} else {
 			// Hostname — resolve and substitute the IP, preferring IPv4 so
 			// dual-stack hosts don't lose their v4 scan.
@@ -415,8 +418,12 @@ func validateUnprivilegedNmapTargets(targets []string) error {
 		targetAddresses := 1
 		_, network, err := net.ParseCIDR(target)
 		if err != nil && net.ParseIP(target) == nil {
-			return fleeterror.NewInvalidArgumentError(
-				"unprivileged nmap discovery requires an IP address, CIDR, or resolvable hostname")
+			var ok bool
+			targetAddresses, ok = shortIPv4RangeSize(target)
+			if !ok {
+				return fleeterror.NewInvalidArgumentError(
+					"unprivileged nmap discovery requires an IP address, CIDR, IP range, or resolvable hostname")
+			}
 		}
 		if err == nil {
 			ones, bits := network.Mask.Size()
@@ -436,6 +443,19 @@ func validateUnprivilegedNmapTargets(targets []string) error {
 		}
 	}
 	return nil
+}
+
+func shortIPv4RangeSize(target string) (int, bool) {
+	startText, endText, ok := strings.Cut(target, "-")
+	if !ok || strings.Contains(endText, ".") {
+		return 0, false
+	}
+	start := net.ParseIP(startText).To4()
+	end, err := strconv.Atoi(endText)
+	if start == nil || err != nil || strconv.Itoa(end) != endText || end < int(start[3]) || end > 255 {
+		return 0, false
+	}
+	return end - int(start[3]) + 1, true
 }
 
 func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
