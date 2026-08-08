@@ -31,7 +31,7 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 	if err := waitForEtcdQuorum(deadlineCtx, config); err != nil {
 		return err
 	}
-	authEnabled, err := etcdAuthEnabled(deadlineCtx, config)
+	authEnabled, err := waitForEtcdAuthProbe(deadlineCtx, config)
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 			return errors.New("timed out waiting for ha-a to enable etcd authentication")
 		case <-time.After(2 * time.Second):
 		}
-		authEnabled, err = etcdAuthEnabled(deadlineCtx, config)
+		authEnabled, err = waitForEtcdAuthProbe(deadlineCtx, config)
 		if err != nil {
 			return err
 		}
@@ -190,6 +190,20 @@ func etcdAuthEnabled(ctx context.Context, config NodeConfig) (bool, error) {
 		return true, nil
 	default:
 		return false, fmt.Errorf("check etcd authentication: %w", err)
+	}
+}
+
+func waitForEtcdAuthProbe(ctx context.Context, config NodeConfig) (bool, error) {
+	for {
+		enabled, err := etcdAuthEnabled(ctx, config)
+		if err == nil {
+			return enabled, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, errors.New("timed out checking etcd authentication")
+		case <-time.After(2 * time.Second):
+		}
 	}
 }
 
