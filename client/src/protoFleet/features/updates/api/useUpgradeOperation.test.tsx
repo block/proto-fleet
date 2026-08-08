@@ -139,6 +139,31 @@ describe("useUpgradeOperation", () => {
     });
   });
 
+  it("bounds reconciliation when a trigger response has an unsupported phase", async () => {
+    vi.useFakeTimers();
+    mockGetUpgradeStatus.mockResolvedValue(status());
+    mockTriggerUpgrade.mockResolvedValue(
+      create(TriggerUpgradeResponseSchema, {
+        operation: operation(UpgradePhase.UNSPECIFIED),
+      }),
+    );
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await act(async () => Promise.resolve());
+
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+
+    expect(result.current.reconciling).toBe(true);
+    expect(result.current.triggerError).toContain("couldn't confirm the upgrade state");
+    expect(JSON.parse(window.sessionStorage.getItem(TRACKED_OPERATION_KEY) ?? "{}")).toEqual({
+      targetVersion: "v1.3.0",
+    });
+
+    await act(async () => vi.advanceTimersByTimeAsync(17_000));
+
+    expect(result.current.reconciling).toBe(false);
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
+  });
+
   it("reconciles an ambiguous trigger rejection to the durable operation", async () => {
     const activeOperation = operation(UpgradePhase.PREFLIGHT);
     mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, activeOperation));

@@ -396,7 +396,11 @@ export function useUpgradeOperation({
         if (!response.operation) {
           throw new Error("Host updater did not return an operation");
         }
-        acceptServerOperation(response.operation);
+        if (!acceptServerOperation(response.operation)) {
+          throw new Error(
+            "Fleet couldn't confirm the upgrade state. Fleet will check the host before unlocking other install options.",
+          );
+        }
       } catch (error) {
         setTriggerError(getErrorMessage(error, "Failed to start upgrade"));
         reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
