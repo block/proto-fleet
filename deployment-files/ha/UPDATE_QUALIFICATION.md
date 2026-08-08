@@ -134,7 +134,10 @@ and run Fleet commands as
     fault lands. After each restart, require one valid deployment directory,
     no pending recovery marker, a healthy updater socket, restored control and
     failover readiness, and either the intact old release or fully verified
-    target release according to the recorded recovery state.
+    target release according to the recorded recovery state. When recovery
+    retains the target release, require the installed updater's `--version` to
+    report the same target version; startup repair must not leave the previous
+    updater paired with the new application.
 
 ## Results
 
