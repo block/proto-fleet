@@ -1675,6 +1675,14 @@ func TestRepairStartupRestoresUpdaterFromInstalledDeployment(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "new updater", mustReadFile(t, installedUpdater))
 	assert.FileExists(t, installedUpdater+selfUpdateHandoffSuffix)
+	require.NoError(t, RepairStartup(Config{
+		InstallRoot:    installRoot,
+		StateDir:       filepath.Join(t.TempDir(), "state"),
+		SelfUpdatePath: installedUpdater,
+		GOARCH:         "amd64",
+		Runner:         &recordingRunner{candidateVersion: "v1.1.0"},
+	}))
+	assert.Equal(t, "new updater", mustReadFile(t, installedUpdater))
 	startup, err := PrepareSelfUpdateStartup(installedUpdater, "")
 	require.NoError(t, err)
 	require.NoError(t, startup.Commit())
