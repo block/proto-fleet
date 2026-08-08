@@ -21,6 +21,10 @@ and run Fleet commands as
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha update "$TARGET_RELEASE"`.
 
 1. Verify the published `N` and `N+1` artifacts and their checksums. Confirm
+   the target release was published from a reviewed
+   `qualified-update-from.txt` containing exactly `SOURCE_RELEASE`, and that
+   its manifest-covered `ha_update_from` field matches. An empty file makes the
+   target clean-install-only. Confirm
    every `N+1` migration is expand-only and remains usable by `N`; reject
    drops, renames, narrowed types, and newly required values. Apply the
    migrations to a representative production-size copy of an `N` database and
