@@ -61,36 +61,27 @@ jobs:
           fi
           echo "Release/RC tag is on main — OK"
 
-      - name: Resolve allowed HA update source
+      - name: Read qualified HA update source
         id: ha-update-from
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          previous=""
-          if [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
-            previous=$(node -e '
-              const fs = require("fs");
-              const parse = (tag) => {
-                const match = tag.match(/^v(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/);
-                return match && [BigInt(match[1]), BigInt(match[2]), BigInt(match[3]), match[4] ? 0n : 1n, BigInt(match[4] || 0)];
-              };
-              const compare = (left, right) => {
-                for (let i = 0; i < left.length; i++) {
-                  if (left[i] !== right[i]) return left[i] < right[i] ? -1 : 1;
-                }
-                return 0;
-              };
-              const target = parse(process.env.TAG_NAME);
-              const stableTarget = !process.env.TAG_NAME.includes("-rc.");
-              const candidates = fs.readFileSync(0, "utf8").trim().split(/\s+/)
-                .map((tag) => ({tag, version: parse(tag)}))
-                .filter(({tag, version}) =>
-                  version && compare(version, target) < 0 && (!stableTarget || !tag.includes("-rc.")))
-                .sort((a, b) => compare(b.version, a.version));
-              process.stdout.write(candidates[0]?.tag || "");
-            ' < <(git tag --merged "$GITHUB_SHA"))
+          qualified=$(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' deployment-files/ha/qualified-update-from.txt)
+          if [[ $(printf '%s\n' "$qualified" | grep -c . || true) -gt 1 ]]; then
+            echo "::error::qualified-update-from.txt must contain at most one release tag"
+            exit 1
           fi
-          echo "version=$previous" >> "$GITHUB_OUTPUT"
+          if [[ -n "$qualified" ]]; then
+            if [[ ! "$qualified" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+              echo "::error::Qualified HA update source '$qualified' is not a canonical release tag"
+              exit 1
+            fi
+            if [[ "$qualified" == "$TAG_NAME" ]] || ! git merge-base --is-ancestor "$qualified" "$GITHUB_SHA"; then
+              echo "::error::Qualified HA update source '$qualified' must be an existing ancestor tag"
+              exit 1
+            fi
+          fi
+          echo "version=$qualified" >> "$GITHUB_OUTPUT"
 
   build-artifacts:
     name: Build release artifacts
