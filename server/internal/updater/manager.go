@@ -1142,7 +1142,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	}
 
 	if m.cfg.DeploymentMode == DeploymentModeHA {
-		if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "require-passive", haNodeEnvPath); err != nil {
+		if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "require-passive", haNodeEnvPath, targetVersion); err != nil {
 			m.fail(operationID, fmt.Errorf("local Fleet is not passive immediately before activation: %w", err), recovery)
 			return
 		}
@@ -1168,7 +1168,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile)
 			return
 		}
-		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop"); err != nil {
+		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop", targetVersion); err != nil {
 			m.failActivation(operationID, targetVersion, fmt.Errorf("stop passive HA application: %w", err), logFile)
 			return
 		}

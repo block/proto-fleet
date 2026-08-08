@@ -107,10 +107,10 @@ func run(ctx context.Context, args []string) error {
 		}
 		return deployment.StopInstalledServices(ctx, args[1])
 	case "require-passive":
-		if len(args) != 2 {
-			return errors.New("usage: fleet-ha require-passive NODE_ENV")
+		if len(args) != 3 {
+			return errors.New("usage: fleet-ha require-passive NODE_ENV VERSION")
 		}
-		return deployment.RequirePassive(ctx, args[1])
+		return deployment.RequirePassive(ctx, args[1], args[2])
 	case "update-preflight":
 		if len(args) != 1 {
 			return errors.New("usage: fleet-ha update-preflight")
@@ -121,14 +121,14 @@ func run(ctx context.Context, args []string) error {
 		}
 		return deployment.PrepareApplicationUpdate(ctx, root)
 	case "app-stop":
-		if len(args) != 1 {
-			return errors.New("usage: fleet-ha app-stop")
+		if len(args) != 2 {
+			return errors.New("usage: fleet-ha app-stop VERSION")
 		}
 		root, err := deployment.ReleaseRoot()
 		if err != nil {
 			return err
 		}
-		return deployment.StopApplication(ctx, root)
+		return deployment.StopApplication(ctx, root, args[1])
 	case "app-start":
 		if len(args) != 2 {
 			return errors.New("usage: fleet-ha app-start VERSION")
@@ -167,7 +167,7 @@ type updateTrigger func(context.Context, string, string) (updaterapi.Operation, 
 type updatePreflight func(context.Context, string, string) error
 
 func validateHAUpdate(ctx context.Context, envPath, targetVersion string) error {
-	currentVersion, err := deployment.ValidatePassiveUpdate(ctx, envPath)
+	currentVersion, err := deployment.ValidatePassiveUpdate(ctx, envPath, targetVersion)
 	if err != nil {
 		return err
 	}
