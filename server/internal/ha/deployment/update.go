@@ -210,18 +210,13 @@ func startApplication(ctx context.Context, root, targetVersion string, requirePa
 	if err != nil {
 		return err
 	}
-	ready, err := applicationIsReady(ctx, config, tlsConfig, targetVersion, requirePassive)
-	if err != nil {
-		return err
-	}
-	if ready {
-		return nil
-	}
-	if err := RunCompose(ctx, fleetComposeArgsAt(
-		root,
-		"up", "-d", "--no-deps", "--force-recreate", "--no-build", "--pull", "never", "fleet-api", "fleet-client",
-	)); err != nil {
-		return fmt.Errorf("start HA application: %w", err)
+	if !localApplicationIsReady(ctx, config, tlsConfig, targetVersion) {
+		if err := RunCompose(ctx, fleetComposeArgsAt(
+			root,
+			"up", "-d", "--no-deps", "--force-recreate", "--no-build", "--pull", "never", "fleet-api", "fleet-client",
+		)); err != nil {
+			return fmt.Errorf("start HA application: %w", err)
+		}
 	}
 	for {
 		ready, err := applicationIsReady(ctx, config, tlsConfig, targetVersion, requirePassive)
@@ -237,6 +232,18 @@ func startApplication(ctx context.Context, root, targetVersion string, requirePa
 		case <-time.After(2 * time.Second):
 		}
 	}
+}
+
+func localApplicationIsReady(ctx context.Context, config NodeConfig, tlsConfig *tls.Config, targetVersion string) bool {
+	report, err := Status(ctx, filepath.Join(configRoot, "node.env"), false)
+	if err != nil {
+		return false
+	}
+	return localApplicationReady(report.Runtime, probeFleetHost(ctx, tlsConfig, config.VirtualIP, config.NodeIP), targetVersion)
+}
+
+func localApplicationReady(runtime ha.Status, public fleetHostStatus, targetVersion string) bool {
+	return runtime.Version == targetVersion && public.reachable && public.version == targetVersion
 }
 
 func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) (bool, error) {

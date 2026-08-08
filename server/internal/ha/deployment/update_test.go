@@ -31,6 +31,24 @@ func TestApplicationReadyRequiresAPIAndClientOnTargetRelease(t *testing.T) {
 	}
 }
 
+func TestLocalApplicationReadyRequiresBothServicesOnTargetRelease(t *testing.T) {
+	// Act
+	ready := localApplicationReady(
+		ha.Status{Version: "v1.1.0", Observation: ha.ObservationStale},
+		fleetHostStatus{reachable: true, version: "v1.1.0"},
+		"v1.1.0",
+	)
+	oldClient := localApplicationReady(
+		ha.Status{Version: "v1.1.0"},
+		fleetHostStatus{reachable: true, version: "v1.0.0"},
+		"v1.1.0",
+	)
+
+	// Assert
+	require.True(t, ready)
+	require.False(t, oldClient)
+}
+
 func TestRecoveryStartDoesNotRecreateRunningApplication(t *testing.T) {
 	for _, test := range []struct {
 		name       string
