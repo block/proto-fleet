@@ -34,6 +34,14 @@ On both application hosts, set
 `/etc/proto-fleet/updater.env`, then restart `proto-fleet-updater.service`.
 This permits only that exact prerelease during qualification. Remove the setting
 and restart the updater after the run, whether the report passes or fails.
+Every clean reinstall recreates `updater.env`, so restore this setting and
+restart the updater before each later update attempt. Before triggering an
+update, require both the exact setting below and an active service on each host:
+
+```bash
+sudo grep -Fx "PROTO_FLEET_HA_QUALIFICATION_TARGET=$TARGET_RELEASE" /etc/proto-fleet/updater.env
+sudo systemctl is-active --quiet proto-fleet-updater.service
+```
 
 1. Verify the stable `N` and prerelease `N+1` artifacts and their checksums. Confirm
    the target was built from a reviewed
