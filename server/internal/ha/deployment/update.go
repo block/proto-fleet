@@ -151,13 +151,9 @@ func StartApplication(ctx context.Context, root, targetVersion string) error {
 }
 
 func rollingUpdateApplicationReady(report StatusReport, public fleetHostStatus, targetVersion string) bool {
-	if !applicationReady(report.Runtime, public, targetVersion) {
-		return false
-	}
-	if report.Runtime.Role == ha.RoleActive {
-		return report.Control != nil && report.Control.ControlReady
-	}
-	return rollingUpdateControlReady(report.Control)
+	return report.Runtime.Role == ha.RolePassive &&
+		applicationReady(report.Runtime, public, targetVersion) &&
+		rollingUpdateControlReady(report.Control)
 }
 
 func rollingUpdateControlReady(control *ControlStatus) bool {

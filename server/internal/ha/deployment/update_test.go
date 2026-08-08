@@ -30,30 +30,16 @@ func TestApplicationReadyRequiresAPIAndClientOnTargetRelease(t *testing.T) {
 	}
 }
 
-func TestRollingUpdateApplicationAllowsControlledActiveTakeover(t *testing.T) {
-	public := fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}
-	for _, test := range []struct {
-		name         string
-		controlReady bool
-		want         bool
-	}{
-		{name: "control path ready", controlReady: true, want: true},
-		{name: "control path degraded"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			active := StatusReport{
-				Runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent},
-				Control: &ControlStatus{ControlReady: test.controlReady, ReasonCodes: []ControlReasonCode{ReasonFleetRedundancyDegraded}},
-			}
-
-			// Act
-			ready := rollingUpdateApplicationReady(active, public, "v1.1.0")
-
-			// Assert
-			require.Equal(t, test.want, ready)
-		})
+func TestRollingUpdateApplicationRequiresPassiveRole(t *testing.T) {
+	// Arrange
+	report := StatusReport{
+		Runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent},
+		Control: &ControlStatus{ControlReady: true, FailoverReady: true},
 	}
+	public := fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}
+
+	// Act and assert
+	require.False(t, rollingUpdateApplicationReady(report, public, "v1.1.0"))
 }
 
 func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
