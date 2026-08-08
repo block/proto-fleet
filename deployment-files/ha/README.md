@@ -162,3 +162,11 @@ migration must be expand-only and remain compatible with the running release;
 destructive contract migrations require a later release after both hosts have
 advanced. Do not use `fleet-ha update` for a release pair that has not passed
 separate adjacent-release migration and mixed-version qualification.
+
+The first release containing this update workflow is the clean-install
+baseline. HA deployments on an earlier experimental release must be reinstalled
+instead of upgraded through this path. The release's `ha_update_from` metadata
+enforces the expected source version; it does not replace the qualification
+report that determines whether a release pair is supported. Stable HA releases
+advance from the preceding stable release. RC-to-stable updates are not
+supported in this first version.
