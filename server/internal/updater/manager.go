@@ -578,9 +578,9 @@ func RepairStartup(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	_, prepareErr := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, "")
-	restoreUpdater := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
-	if prepareErr != nil && !restoreUpdater && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
+	prepareErr := prepareSelfUpdateRepair(cfg.SelfUpdatePath)
+	interruptedSelfUpdate := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
+	if prepareErr != nil && !interruptedSelfUpdate && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
 		return errors.Join(prepareErr, processLock.Close())
 	}
 	if err := processLock.Close(); err != nil {
@@ -591,8 +591,14 @@ func RepairStartup(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if restoreUpdater {
-		err = manager.restoreUpdaterFromInstalledDeployment()
+	convergeUpdater := interruptedSelfUpdate || (prepareErr == nil && manager.cfg.DeploymentMode == DeploymentModeHA)
+	if manager.cfg.SelfUpdatePath != "" && convergeUpdater {
+		matches, matchErr := manager.updaterMatchesInstalledDeployment()
+		if matchErr != nil {
+			err = matchErr
+		} else if !matches {
+			err = manager.restoreUpdaterFromInstalledDeployment()
+		}
 	}
 	return errors.Join(err, manager.Close())
 }
@@ -720,29 +726,6 @@ func newManager(cfg Config) (*Manager, error) {
 		return nil, fmt.Errorf("prune updater operation logs: %w", err)
 	}
 	return m, nil
-}
-
-// RepairStartup restores crash-interrupted updater and deployment state before HA starts.
-func RepairStartup(cfg Config) error {
-	prepareErr := prepareSelfUpdateRepair(cfg.SelfUpdatePath)
-	interruptedSelfUpdate := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
-	if prepareErr != nil && !interruptedSelfUpdate && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
-		return prepareErr
-	}
-	manager, err := NewManager(cfg)
-	if err != nil {
-		return err
-	}
-	convergeUpdater := interruptedSelfUpdate || (prepareErr == nil && manager.cfg.DeploymentMode == DeploymentModeHA)
-	if manager.cfg.SelfUpdatePath != "" && convergeUpdater {
-		matches, matchErr := manager.updaterMatchesInstalledDeployment()
-		if matchErr != nil {
-			err = matchErr
-		} else if !matches {
-			err = manager.restoreUpdaterFromInstalledDeployment()
-		}
-	}
-	return errors.Join(err, manager.Close())
 }
 
 func (m *Manager) updaterMatchesInstalledDeployment() (bool, error) {
