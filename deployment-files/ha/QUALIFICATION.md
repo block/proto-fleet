@@ -157,12 +157,15 @@ does not. Stream termination after that sample is expected, not a collection
 gap. Fail the gate if independent power-state evidence is unavailable.
 Also sample both hosts at least every two seconds for availability. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
-and retain the status, health, and address streams. Reconstruct each VIP
-interval from address-add through address-delete and fail if host intervals
-overlap. Health polling is availability evidence, not proof that every runtime
-transition was observed. Prove effect exclusivity with the controlled test
-device recorder instead: it must capture every request, and no old-holder work
-may remain in flight when new-holder work begins. Any recorder gap fails the
+and retain the status, health, and address streams. Run this probe outside shell
+error-exit handling: capture stdout, stderr, and exit status, then continue
+after the expected nonzero result for degraded failover readiness. Missing or
+invalid JSON is a collection failure, not expected degradation. Reconstruct
+each VIP interval from address-add through address-delete and fail if host
+intervals overlap. Health polling is availability evidence, not proof that
+every runtime transition was observed. Prove effect exclusivity with the
+controlled test device recorder instead: it must capture every request, and no
+old-holder work may remain in flight when new-holder work begins. Any recorder gap fails the
 soak. Export redacted evidence after the soak.
 
 ## Verdict

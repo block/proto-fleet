@@ -43,7 +43,7 @@ The supported HA contract is intentionally narrower than "every subsystem stays 
 | ---- | -------- | ------------ |
 | Critical control state | Curtailment events and targets, command queue/status, Fleet Node auth/pairing state, MQTT curtailment source config and runtime edge state, active Fleet lease | Durable while replication is healthy; required for RTO |
 | Real-time runtime | Active Fleet app, command executor, curtailment reconciler, MQTT subscriber | One active instance; resumes automatically on another Fleet app host |
-| Local HA status | Failover readiness, active Fleet holder count, DB primary/standby health, quorum, replication lag, VIP/load-balancer target | Must be emitted independently of Grafana history; alert delivery is deferred |
+| Local HA status | Runtime role, observation freshness, endpoint health, control and failover readiness, and generic reason codes | Must be emitted independently of Grafana history; alert delivery is deferred |
 | Best-effort history | Raw telemetry samples, rollups, notification metric samples, Grafana dashboards, alert history, logs | May be stale, delayed, unavailable, or partially lost |
 | Local artifacts | Firmware files, command artifacts, cached downloads | Not v1 HA unless explicitly promoted to critical storage |
 
