@@ -179,3 +179,8 @@ origin,
 exact-byte qualification starts after publication; do not run the update until
 its report passes. Only stable-to-stable pairs are supported; RC releases are
 clean-install-only.
+
+A passive update rechecks the local role, active peer, and control path just
+before stopping Fleet. This crash-only profile accepts the small role-change
+window before process exit; if the peer fails in that interval, durable update
+recovery restarts the local application.
