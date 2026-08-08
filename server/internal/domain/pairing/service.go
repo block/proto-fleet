@@ -26,6 +26,7 @@ import (
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -438,18 +439,31 @@ func validateUnprivilegedNmapTargets(targets []string) error {
 }
 
 func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
-	if len(requestPorts) > 0 {
-		slog.Debug("Resolved discovery ports from request override", "ports", requestPorts)
-		return requestPorts, nil
-	}
-
-	ports := s.capabilitiesProvider.GetDefaultDiscoveryPorts(ctx)
+	ports := requestPorts
 	if len(ports) == 0 {
-		return nil, fleeterror.NewInvalidArgumentError(discoveryPortsUnavailableError)
+		ports = s.capabilitiesProvider.GetDefaultDiscoveryPorts(ctx)
+		if len(ports) == 0 {
+			return nil, fleeterror.NewInvalidArgumentError(discoveryPortsUnavailableError)
+		}
 	}
-
-	slog.Debug("Resolved discovery ports from plugin default scan set", "ports", ports)
+	if err := validateDiscoveryPorts(ports); err != nil {
+		return nil, err
+	}
+	slog.Debug("Resolved discovery ports", "ports", ports)
 	return ports, nil
+}
+
+func validateDiscoveryPorts(ports []string) error {
+	if len(ports) > MaxPortsPerIP {
+		return fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
+	}
+	for _, port := range ports {
+		parsed, err := sdk.ParsePort(port)
+		if err != nil || parsed == 0 {
+			return fleeterror.NewInvalidArgumentErrorf("invalid port %q: must be a decimal in 1-65535", port)
+		}
+	}
+	return nil
 }
 
 // DiscoverWithMDNS discovers devices using mDNS
@@ -746,10 +760,6 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	if err != nil {
 		return nil, err
 	}
-	if len(ports) > MaxPortsPerIP {
-		return nil, fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
-	}
-
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
 	rawResultChan := make(chan *pb.DiscoverResponse)
 	resultChan := dedupeDiscoverResponses(rawResultChan)
@@ -794,10 +804,6 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 	if err != nil {
 		return nil, err
 	}
-	if len(ports) > MaxPortsPerIP {
-		return nil, fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
-	}
-
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
 	rawResultChan := make(chan *pb.DiscoverResponse)
 	resultChan := dedupeDiscoverResponses(rawResultChan)
