@@ -1663,6 +1663,10 @@ func TestRepairStartupRestoresUpdaterFromInstalledDeployment(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "new updater", mustReadFile(t, installedUpdater))
+	assert.FileExists(t, installedUpdater+selfUpdateHandoffSuffix)
+	startup, err := PrepareSelfUpdateStartup(installedUpdater, "")
+	require.NoError(t, err)
+	require.NoError(t, startup.Commit())
 	assert.NoFileExists(t, installedUpdater+selfUpdateHandoffSuffix)
 }
 
