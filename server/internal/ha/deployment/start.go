@@ -182,7 +182,7 @@ func etcdAuthEnabled(ctx context.Context, config NodeConfig) (bool, error) {
 	defer client.Close()
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	_, err = client.Get(probeCtx, patroniDCSPath, clientv3.WithPrefix())
+	_, err = client.Get(probeCtx, patroniDCSPath, clientv3.WithPrefix(), clientv3.WithLimit(1))
 	switch {
 	case err == nil:
 		return false, nil
