@@ -156,14 +156,24 @@ func (c *etcdAuthClient) ResetAuth(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list users: %w", err)
 	}
+	roles, err := c.client.RoleList(ctx)
+	if err != nil {
+		return fmt.Errorf("list roles: %w", err)
+	}
+	for _, user := range users.Users {
+		if !bootstrapAuthPrincipal(user) {
+			return fmt.Errorf("refusing to replace unexpected user %q", user)
+		}
+	}
+	for _, role := range roles.Roles {
+		if !bootstrapAuthPrincipal(role) {
+			return fmt.Errorf("refusing to replace unexpected role %q", role)
+		}
+	}
 	for _, user := range users.Users {
 		if _, err := c.client.UserDelete(ctx, user); err != nil {
 			return fmt.Errorf("delete user %q: %w", user, err)
 		}
-	}
-	roles, err := c.client.RoleList(ctx)
-	if err != nil {
-		return fmt.Errorf("list roles: %w", err)
 	}
 	for _, role := range roles.Roles {
 		if _, err := c.client.RoleDelete(ctx, role); err != nil {
@@ -171,6 +181,15 @@ func (c *etcdAuthClient) ResetAuth(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func bootstrapAuthPrincipal(name string) bool {
+	switch name {
+	case "root", "patroni", "fleet-observer":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *etcdAuthClient) AddRole(ctx context.Context, role string) error {
