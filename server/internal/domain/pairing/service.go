@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ import (
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -186,6 +188,7 @@ type Service struct {
 	invalidateMiner       func(models.DeviceIdentifier)
 	optionsCache          *fleetoptions.Cache
 	rigConfigReapplier    func(context.Context, int64, int64)
+	unprivilegedNmap      bool
 }
 
 func NewService(
@@ -222,6 +225,11 @@ func (s *Service) WithMinerInvalidator(invalidate func(models.DeviceIdentifier))
 // pairing adds can evict stale model/firmware lists. Pass nil to disable.
 func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 	s.optionsCache = cache
+}
+
+// WithUnprivilegedNmap uses connect scans when the container has no raw-network capabilities.
+func (s *Service) WithUnprivilegedNmap() {
+	s.unprivilegedNmap = true
 }
 
 // WithRigConfigReapplier wires the post-pair desired-state convergence hook.
@@ -372,6 +380,8 @@ func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr fun
 				useIPv6 = true
 			}
 			resolved = append(resolved, t)
+		} else if _, ok := shortIPv4RangeSize(t); ok {
+			resolved = append(resolved, t)
 		} else {
 			// Hostname — resolve and substitute the IP, preferring IPv4 so
 			// dual-stack hosts don't lose their v4 scan.
@@ -400,19 +410,80 @@ func validateNmapTargets(ctx context.Context, targets []string, lookupIPAddr fun
 	return resolved, useIPv6, nil
 }
 
+const maxUnprivilegedNmapAddresses = 4096
+
+func validateUnprivilegedNmapTargets(targets []string) error {
+	addressCount := 0
+	for _, target := range targets {
+		targetAddresses := 1
+		_, network, err := net.ParseCIDR(target)
+		if err != nil && net.ParseIP(target) == nil {
+			var ok bool
+			targetAddresses, ok = shortIPv4RangeSize(target)
+			if !ok {
+				return fleeterror.NewInvalidArgumentError(
+					"unprivileged nmap discovery requires an IP address, CIDR, IP range, or resolvable hostname")
+			}
+		}
+		if err == nil {
+			ones, bits := network.Mask.Size()
+			if bits == 32 {
+				hostBits := bits - ones
+				if hostBits > 12 {
+					targetAddresses = maxUnprivilegedNmapAddresses + 1
+				} else {
+					targetAddresses = 1 << hostBits
+				}
+			}
+		}
+		addressCount += targetAddresses
+		if addressCount > maxUnprivilegedNmapAddresses {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"unprivileged nmap discovery is limited to %d IPv4 addresses", maxUnprivilegedNmapAddresses)
+		}
+	}
+	return nil
+}
+
+func shortIPv4RangeSize(target string) (int, bool) {
+	startText, endText, ok := strings.Cut(target, "-")
+	if !ok || strings.Contains(endText, ".") {
+		return 0, false
+	}
+	start := net.ParseIP(startText).To4()
+	end, err := strconv.Atoi(endText)
+	if start == nil || err != nil || strconv.Itoa(end) != endText || end < int(start[3]) || end > 255 {
+		return 0, false
+	}
+	return end - int(start[3]) + 1, true
+}
+
 func (s *Service) resolveDiscoveryPorts(ctx context.Context, requestPorts []string) ([]string, error) {
-	if len(requestPorts) > 0 {
-		slog.Debug("Resolved discovery ports from request override", "ports", requestPorts)
-		return requestPorts, nil
-	}
-
-	ports := s.capabilitiesProvider.GetDefaultDiscoveryPorts(ctx)
+	ports := requestPorts
 	if len(ports) == 0 {
-		return nil, fleeterror.NewInvalidArgumentError(discoveryPortsUnavailableError)
+		ports = s.capabilitiesProvider.GetDefaultDiscoveryPorts(ctx)
+		if len(ports) == 0 {
+			return nil, fleeterror.NewInvalidArgumentError(discoveryPortsUnavailableError)
+		}
 	}
-
-	slog.Debug("Resolved discovery ports from plugin default scan set", "ports", ports)
+	if err := validateDiscoveryPorts(ports); err != nil {
+		return nil, err
+	}
+	slog.Debug("Resolved discovery ports", "ports", ports)
 	return ports, nil
+}
+
+func validateDiscoveryPorts(ports []string) error {
+	if len(ports) > MaxPortsPerIP {
+		return fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
+	}
+	for _, port := range ports {
+		parsed, err := sdk.ParsePort(port)
+		if err != nil || parsed == 0 {
+			return fleeterror.NewInvalidArgumentErrorf("invalid port %q: must be a decimal in 1-65535", port)
+		}
+	}
+	return nil
 }
 
 // DiscoverWithMDNS discovers devices using mDNS
@@ -515,6 +586,12 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 		cancel()
 		return nil, false, err
 	}
+	if s.unprivilegedNmap {
+		if err := validateUnprivilegedNmapTargets(targets); err != nil {
+			cancel()
+			return nil, false, err
+		}
+	}
 
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
 	rawResultChan := make(chan *pb.DiscoverResponse)
@@ -542,6 +619,9 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 		if useIPv6Scanning {
 			nmapOpts = append(nmapOpts, nmap.WithIPv6Scanning())
+		}
+		if s.unprivilegedNmap {
+			nmapOpts = append(nmapOpts, nmap.WithUnprivileged(), nmap.WithSkipHostDiscovery())
 		}
 
 		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
@@ -700,10 +780,6 @@ func (s *Service) DiscoverWithIPRange(ctx context.Context, r *pb.IPRangeModeRequ
 	if err != nil {
 		return nil, err
 	}
-	if len(ports) > MaxPortsPerIP {
-		return nil, fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
-	}
-
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
 	rawResultChan := make(chan *pb.DiscoverResponse)
 	resultChan := dedupeDiscoverResponses(rawResultChan)
@@ -748,10 +824,6 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 	if err != nil {
 		return nil, err
 	}
-	if len(ports) > MaxPortsPerIP {
-		return nil, fleeterror.NewInvalidArgumentErrorf("too many ports: %d exceeds the limit of %d", len(ports), MaxPortsPerIP)
-	}
-
 	// Create channels after validation to avoid leaking the dedupe goroutine on early returns.
 	rawResultChan := make(chan *pb.DiscoverResponse)
 	resultChan := dedupeDiscoverResponses(rawResultChan)

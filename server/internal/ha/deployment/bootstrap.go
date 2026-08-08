@@ -18,16 +18,19 @@ const patroniDCSPath = "/service/proto-fleet/"
 
 type authBootstrapClient interface {
 	Healthy(ctx context.Context) error
+	ResetAuth(ctx context.Context) error
 	AddRole(ctx context.Context, role string) error
 	GrantPermission(ctx context.Context, role, prefix string, permission clientv3.PermissionType) error
 	AddUser(ctx context.Context, user, password string) error
 	GrantRole(ctx context.Context, user, role string) error
 	EnableAuth(ctx context.Context) error
+	VerifyCredential(ctx context.Context, user, password string) error
 }
 
 type etcdAuthClient struct {
-	client   *clientv3.Client
-	endpoint string
+	client    *clientv3.Client
+	endpoint  string
+	tlsConfig *tls.Config
 }
 
 // BootstrapEtcdAuth creates the complete least-privilege role set, then enables auth.
@@ -62,13 +65,14 @@ func BootstrapEtcdAuth(ctx context.Context, envPath, rootPasswordFile string) er
 		return errors.New("etcd auth bootstrap failed: service CA is not a PEM certificate")
 	}
 	endpoint := "https://" + config.NodeIP + ":2379"
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+	}
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{endpoint},
 		DialTimeout: 5 * time.Second,
-		TLS: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    roots,
-		},
+		TLS:         tlsConfig,
 	})
 	if err != nil {
 		return fmt.Errorf("etcd auth bootstrap failed: connect to etcd: %w", err)
@@ -77,12 +81,15 @@ func BootstrapEtcdAuth(ctx context.Context, envPath, rootPasswordFile string) er
 
 	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return bootstrapEtcdAuth(requestCtx, &etcdAuthClient{client: client, endpoint: endpoint}, rootPassword, patroniPassword, fleetPassword)
+	return bootstrapEtcdAuth(requestCtx, &etcdAuthClient{client: client, endpoint: endpoint, tlsConfig: tlsConfig}, rootPassword, patroniPassword, fleetPassword)
 }
 
 func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPassword, patroniPassword, fleetPassword string) error {
 	if err := client.Healthy(ctx); err != nil {
 		return fmt.Errorf("check local etcd member health: %w", err)
+	}
+	if err := client.ResetAuth(ctx); err != nil {
+		return fmt.Errorf("reset incomplete authentication policy: %w", err)
 	}
 
 	steps := []struct {
@@ -105,6 +112,9 @@ func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPass
 		{"add root user", func() error { return client.AddUser(ctx, "root", rootPassword) }},
 		{"grant root role", func() error { return client.GrantRole(ctx, "root", "root") }},
 		{"enable authentication", func() error { return client.EnableAuth(ctx) }},
+		{"verify root credentials", func() error { return client.VerifyCredential(ctx, "root", rootPassword) }},
+		{"verify Patroni credentials", func() error { return client.VerifyCredential(ctx, "patroni", patroniPassword) }},
+		{"verify Fleet observer credentials", func() error { return client.VerifyCredential(ctx, "fleet-observer", fleetPassword) }},
 	}
 	for _, step := range steps {
 		if err := step.run(); err != nil {
@@ -139,6 +149,47 @@ func (c *etcdAuthClient) Healthy(ctx context.Context) error {
 		return fmt.Errorf("get endpoint status: %w", err)
 	}
 	return nil
+}
+
+func (c *etcdAuthClient) ResetAuth(ctx context.Context) error {
+	users, err := c.client.UserList(ctx)
+	if err != nil {
+		return fmt.Errorf("list users: %w", err)
+	}
+	roles, err := c.client.RoleList(ctx)
+	if err != nil {
+		return fmt.Errorf("list roles: %w", err)
+	}
+	for _, user := range users.Users {
+		if !bootstrapAuthPrincipal(user) {
+			return fmt.Errorf("refusing to replace unexpected user %q", user)
+		}
+	}
+	for _, role := range roles.Roles {
+		if !bootstrapAuthPrincipal(role) {
+			return fmt.Errorf("refusing to replace unexpected role %q", role)
+		}
+	}
+	for _, user := range users.Users {
+		if _, err := c.client.UserDelete(ctx, user); err != nil {
+			return fmt.Errorf("delete user %q: %w", user, err)
+		}
+	}
+	for _, role := range roles.Roles {
+		if _, err := c.client.RoleDelete(ctx, role); err != nil {
+			return fmt.Errorf("delete role %q: %w", role, err)
+		}
+	}
+	return nil
+}
+
+func bootstrapAuthPrincipal(name string) bool {
+	switch name {
+	case "root", "patroni", "fleet-observer":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *etcdAuthClient) AddRole(ctx context.Context, role string) error {
@@ -177,6 +228,24 @@ func (c *etcdAuthClient) EnableAuth(ctx context.Context) error {
 	_, err := c.client.AuthEnable(ctx)
 	if err != nil {
 		return fmt.Errorf("enable auth: %w", err)
+	}
+	return nil
+}
+
+func (c *etcdAuthClient) VerifyCredential(ctx context.Context, user, password string) error {
+	client, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{c.endpoint},
+		DialTimeout: 5 * time.Second,
+		TLS:         c.tlsConfig.Clone(),
+		Username:    user,
+		Password:    password,
+	})
+	if err != nil {
+		return fmt.Errorf("connect as %s: %w", user, err)
+	}
+	defer client.Close()
+	if _, err := client.Status(ctx, c.endpoint); err != nil {
+		return fmt.Errorf("authenticate as %s: %w", user, err)
 	}
 	return nil
 }

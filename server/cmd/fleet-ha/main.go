@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 )
@@ -18,10 +20,17 @@ const (
 )
 
 func main() {
-	if err := run(context.Background(), os.Args[1:]); err != nil {
+	os.Exit(runMain())
+}
+
+func runMain() int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx, os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "fleet-ha: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func run(ctx context.Context, args []string) error {
@@ -79,13 +88,57 @@ func run(ctx context.Context, args []string) error {
 		return deployment.RunCompose(ctx, args[1:])
 	case "status":
 		return runStatus(ctx, args[1:], os.Stdout, deployment.Status)
+	case "install":
+		return runInstall(ctx, args[1:])
+	case "start":
+		return runStart(ctx, args[1:])
+	case "stop":
+		if len(args) != 2 {
+			return errors.New("usage: fleet-ha stop NODE_ENV")
+		}
+		return deployment.StopInstalledServices(ctx, args[1])
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status> ...")
+	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status|install|start|stop> ...")
+}
+
+func runInstall(ctx context.Context, args []string) error {
+	options, err := parseInstallOptions("install", args)
+	if err != nil {
+		return err
+	}
+	if err := deployment.Install(ctx, options); err != nil {
+		return err
+	}
+	fmt.Println("Proto Fleet HA installation completed")
+	return nil
+}
+
+func runStart(ctx context.Context, args []string) error {
+	options, err := parseInstallOptions("start", args)
+	if err != nil {
+		return err
+	}
+	return deployment.StartInstalledServices(ctx, options.NodeEnvPath, options.EtcdRootPasswordFile)
+}
+
+func parseInstallOptions(command string, args []string) (deployment.InstallOptions, error) {
+	usage := fmt.Sprintf("usage: fleet-ha %s NODE_ENV [--etcd-root-password-file PATH]", command)
+	if len(args) != 1 && len(args) != 3 {
+		return deployment.InstallOptions{}, errors.New(usage)
+	}
+	options := deployment.InstallOptions{NodeEnvPath: args[0]}
+	if len(args) == 3 {
+		if args[1] != "--etcd-root-password-file" || args[2] == "" {
+			return deployment.InstallOptions{}, errors.New(usage)
+		}
+		options.EtcdRootPasswordFile = args[2]
+	}
+	return options, nil
 }
 
 type statusReader func(context.Context, string, bool) (deployment.StatusReport, error)

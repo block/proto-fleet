@@ -1,0 +1,21 @@
+[Unit]
+Description=Proto Fleet HA services
+Wants=network-online.target
+After=network-online.target proto-fleet-ha-firewall.service docker.service
+Requires=proto-fleet-ha-firewall.service docker.service
+BindsTo=docker.service
+PartOf=docker.service
+Before=keepalived.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/proto-fleet/deployment/ha/fleet-ha start /etc/proto-fleet/ha/node.env --etcd-root-password-file /etc/proto-fleet/ha/etcd-root-password
+ExecStopPost=/opt/proto-fleet/deployment/ha/fleet-ha stop /etc/proto-fleet/ha/node.env
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30min
+TimeoutStopSec=2min
+
+[Install]
+WantedBy=multi-user.target

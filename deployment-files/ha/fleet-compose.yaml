@@ -1,7 +1,13 @@
 services:
   fleet-api:
+    # Restart process failures, but let systemd reapply the HA start gate after Docker restarts.
+    restart: on-failure
     # Patroni provides PostgreSQL in HA deployments, so remove the base dependency.
     depends_on: !reset []
+    # HA runs on the host network, so do not inherit the base image's raw-network privileges.
+    cap_add: !reset []
+    cap_drop:
+      - ALL
     # The 15s delay exceeds the 10s lease, giving the passive peer first chance after a restart.
     command: ["/bin/sh", "-c", "sleep 15; exec /app/fleetd"]
     environment:
@@ -15,8 +21,8 @@ services:
       - "${HA_SECRETS_DIR}/service-ca.crt:/etc/proto-fleet/ha/service-ca.crt:ro"
       - "${HA_SECRETS_DIR}/fleet-etcd-password:/etc/proto-fleet/ha/fleet-etcd-password:ro"
       - "/run/proto-fleet-ha:/run/proto-fleet-ha:ro"
-
   fleet-client:
+    restart: on-failure
     # Replace the base TLS mount with this host's certificate for the shared VIP.
     volumes: !override
       - "${HA_SECRETS_DIR}/fleet-client.crt:/etc/nginx/ssl/cert.pem:ro"
