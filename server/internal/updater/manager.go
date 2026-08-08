@@ -681,6 +681,18 @@ func NewManager(cfg Config) (*Manager, error) {
 	return m, nil
 }
 
+// RepairStartup restores a crash-interrupted deployment layout without starting Fleet.
+func RepairStartup(cfg Config) error {
+	if _, err := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, ""); err != nil {
+		return err
+	}
+	manager, err := NewManager(cfg)
+	if err != nil {
+		return err
+	}
+	return manager.Close()
+}
+
 func (m *Manager) Close() error {
 	return m.Shutdown(context.Background())
 }

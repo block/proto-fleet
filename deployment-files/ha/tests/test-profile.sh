@@ -158,6 +158,10 @@ test_fleet_ha_contract() {
     assert_not_contains "${HA_DIR}/docker-systemd.conf" "Wants=proto-fleet-ha.service"
     assert_contains "${HA_DIR}/docker-ha-recovery-systemd.conf" "Wants=proto-fleet-ha.service"
     assert_contains "${HA_DIR}/updater-systemd.conf" "ReadWritePaths=/etc/proto-fleet/ha"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "After=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "EnvironmentFile=-/etc/proto-fleet/updater.env"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "ExecStartPre=-/usr/local/libexec/proto-fleet/proto-fleet-updater --deployment-mode ha --self-update-path /usr/local/libexec/proto-fleet/proto-fleet-updater --repair-startup"
+    assert_not_contains "${HA_DIR}/ha-updater-systemd.conf" "Requires=proto-fleet-updater.service"
 
     for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
         assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"
