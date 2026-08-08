@@ -523,6 +523,32 @@ func TestManagerHACompletionRestartsOldReleaseWhenStopBlocks(t *testing.T) {
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
 }
 
+func TestHAQualificationBarrierPausesBeforeStop(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	barrier := filepath.Join(stateDir, qualificationBarrierName)
+	require.NoError(t, os.WriteFile(barrier, nil, 0o600))
+	manager := &Manager{cfg: Config{StateDir: stateDir}}
+	done := make(chan error, 1)
+	go func() { done <- manager.waitForQualificationBarrier(t.Context()) }()
+
+	// Act
+	select {
+	case err := <-done:
+		t.Fatalf("barrier returned before release: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	require.NoError(t, os.Remove(barrier))
+
+	// Assert
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("barrier did not release")
+	}
+}
+
 func TestManagerHACompletionInterruptedAfterSwapStartsTargetRelease(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
