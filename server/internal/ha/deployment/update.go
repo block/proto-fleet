@@ -13,8 +13,7 @@ import (
 )
 
 func RequirePassive(ctx context.Context, envPath, targetVersion string) error {
-	_, err := ValidatePassiveUpdate(ctx, envPath, targetVersion)
-	return err
+	return ValidatePassiveUpdate(ctx, envPath, targetVersion)
 }
 
 func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
@@ -33,18 +32,18 @@ func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, er
 
 // ValidatePassiveUpdate proves that the active peer runs either the local or
 // target release before the passive host changes versions.
-func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) (string, error) {
+func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) error {
 	report, err := requirePassiveStatus(ctx, envPath)
 	if err != nil {
-		return "", err
+		return err
 	}
 	config, err := loadNodeConfig(envPath)
 	if err != nil {
-		return "", err
+		return err
 	}
 	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
 	if err != nil {
-		return "", err
+		return err
 	}
 	peerAddress := config.DatabaseAIP
 	if config.NodeIP == config.DatabaseAIP {
@@ -52,9 +51,9 @@ func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) (
 	}
 	peer := probeFleetHost(ctx, tlsConfig, config.VirtualIP, peerAddress)
 	if !peer.reachable || !peer.active || (peer.version != report.Runtime.Version && peer.version != targetVersion) {
-		return "", fmt.Errorf("HA application update requires the active peer to run %s or %s", report.Runtime.Version, targetVersion)
+		return fmt.Errorf("HA application update requires the active peer to run %s or %s", report.Runtime.Version, targetVersion)
 	}
-	return report.Runtime.Version, nil
+	return nil
 }
 
 var releaseImageRepositories = [...]string{

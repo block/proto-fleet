@@ -14,7 +14,6 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/google/uuid"
 
-	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
@@ -116,7 +115,7 @@ type updateCmd struct {
 }
 
 func (c *updateCmd) Run(ctx context.Context) error {
-	return runPassiveUpdate(ctx, c.Version, os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
+	return runPassiveUpdate(ctx, c.Version, os.Stdout, deployment.ValidatePassiveUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
 }
 
 type startCmd struct {
@@ -227,14 +226,6 @@ const (
 type updateTrigger func(context.Context, string, string) (updaterapi.Operation, error)
 
 type updatePreflight func(context.Context, string, string) error
-
-func validateHAUpdate(ctx context.Context, envPath, targetVersion string) error {
-	currentVersion, err := deployment.ValidatePassiveUpdate(ctx, envPath, targetVersion)
-	if err != nil {
-		return err
-	}
-	return updatesDomain.ValidateAdjacentStableRelease(ctx, currentVersion, targetVersion)
-}
 
 func runPassiveUpdate(
 	ctx context.Context,

@@ -1,7 +1,6 @@
 package updates
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -169,81 +168,42 @@ func (c *githubClient) fetchReleases(ctx context.Context) ([]githubRelease, erro
 		return nil, fmt.Errorf("GET /releases: status %d", resp.StatusCode)
 	}
 
-	entries, _, err := c.decodeReleases(resp.Body, false)
-	if err != nil {
-		return nil, err
-	}
-	c.storeReleases(resp.Header.Get("ETag"), entries)
-	return entries, nil
-}
-
-func (c *githubClient) fetchReleasePage(ctx context.Context, page int) ([]githubRelease, int, error) {
-	endpoint := fmt.Sprintf("%s/releases?per_page=%d&page=%d", c.baseURL, releasesPageSize, page)
-	resp, err := c.get(ctx, endpoint, "")
-	if err != nil {
-		return nil, 0, err
-	}
-	defer closeBody(resp)
-	if resp.StatusCode != http.StatusOK {
-		return nil, 0, fmt.Errorf("GET /releases page %d: status %d", page, resp.StatusCode)
-	}
-	return c.decodeReleases(resp.Body, true)
-}
-
-func (c *githubClient) decodeReleases(body io.Reader, strict bool) ([]githubRelease, int, error) {
-	decoder := json.NewDecoder(io.LimitReader(body, maxResponseBytes))
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes))
 	first, err := decoder.Token()
 	if err != nil {
-		return nil, 0, fmt.Errorf("decode /releases: %w", err)
+		return nil, fmt.Errorf("decode /releases: %w", err)
 	}
 	if delim, ok := first.(json.Delim); !ok || delim != '[' {
-		return nil, 0, fmt.Errorf("decode /releases: expected JSON array")
+		return nil, fmt.Errorf("decode /releases: expected JSON array")
 	}
 
 	entries := make([]githubRelease, 0, releasesPageSize)
 	rawCount := 0
 	for decoder.More() {
 		if rawCount == releasesPageSize {
-			return nil, 0, fmt.Errorf("decode /releases: release count exceeds per-page limit %d", releasesPageSize)
+			return nil, fmt.Errorf("decode /releases: release count exceeds per-page limit %d", releasesPageSize)
 		}
 		var entry json.RawMessage
 		if err := decoder.Decode(&entry); err != nil {
-			return nil, 0, fmt.Errorf("decode /releases entry %d: %w", rawCount+1, err)
+			return nil, fmt.Errorf("decode /releases entry %d: %w", rawCount+1, err)
 		}
 		rawCount++
 
 		var rel githubRelease
 		if err := json.Unmarshal(entry, &rel); err != nil {
-			if strict {
-				return nil, 0, fmt.Errorf("decode /releases entry %d: %w", rawCount, err)
-			}
 			c.logger.Debug("skipping malformed release entry", "error", err)
 			continue
-		}
-		if strict {
-			var fields map[string]json.RawMessage
-			if err := json.Unmarshal(entry, &fields); err != nil {
-				return nil, 0, fmt.Errorf("decode /releases entry %d: %w", rawCount, err)
-			}
-			for _, name := range []string{"tag_name", "published_at", "prerelease", "draft"} {
-				value, ok := fields[name]
-				if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-					return nil, 0, fmt.Errorf("decode /releases entry %d: missing required field %s", rawCount, name)
-				}
-			}
-			if rel.TagName == "" || rel.PublishedAt.IsZero() {
-				return nil, 0, fmt.Errorf("decode /releases entry %d: required release metadata is empty", rawCount)
-			}
 		}
 		entries = append(entries, rel)
 	}
 	if _, err := decoder.Token(); err != nil {
-		return nil, 0, fmt.Errorf("decode /releases: %w", err)
+		return nil, fmt.Errorf("decode /releases: %w", err)
 	}
 	if err := requireJSONEOF(decoder); err != nil {
-		return nil, 0, fmt.Errorf("decode /releases: %w", err)
+		return nil, fmt.Errorf("decode /releases: %w", err)
 	}
-	return entries, rawCount, nil
+	c.storeReleases(resp.Header.Get("ETag"), entries)
+	return entries, nil
 }
 
 func requireJSONEOF(decoder *json.Decoder) error {
