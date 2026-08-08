@@ -550,7 +550,7 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 			nmapOpts = append(nmapOpts, nmap.WithIPv6Scanning())
 		}
 		if s.unprivilegedNmap {
-			nmapOpts = append(nmapOpts, nmap.WithUnprivileged())
+			nmapOpts = append(nmapOpts, nmap.WithUnprivileged(), nmap.WithSkipHostDiscovery())
 		}
 
 		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
