@@ -584,7 +584,7 @@ func RepairStartup(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	_, prepareErr := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, "")
+	prepareErr := prepareSelfUpdateRepair(cfg.SelfUpdatePath)
 	restoreUpdater := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
 	if prepareErr != nil && !restoreUpdater && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
 		return errors.Join(prepareErr, processLock.Close())
@@ -740,23 +740,6 @@ func newManager(cfg Config) (*Manager, error) {
 		return nil, fmt.Errorf("prune updater operation logs: %w", err)
 	}
 	return m, nil
-}
-
-// RepairStartup restores crash-interrupted updater and deployment state before HA starts.
-func RepairStartup(cfg Config) error {
-	prepareErr := prepareSelfUpdateRepair(cfg.SelfUpdatePath)
-	restoreUpdater := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
-	if prepareErr != nil && !restoreUpdater && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
-		return prepareErr
-	}
-	manager, err := NewManager(cfg)
-	if err != nil {
-		return err
-	}
-	if restoreUpdater {
-		err = manager.restoreUpdaterFromInstalledDeployment()
-	}
-	return errors.Join(err, manager.Close())
 }
 
 func (m *Manager) restoreUpdaterFromInstalledDeployment() error {
