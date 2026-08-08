@@ -118,7 +118,7 @@ describe("UpgradeOperationModal", () => {
   it("warns against manual installation while reconciling an ambiguous trigger", () => {
     renderModal({ reconciling: true, triggerError: "The request timed out" });
 
-    expect(screen.getByRole("status")).toHaveTextContent(/Checking whether the upgrade started/);
+    expect(screen.getByRole("status")).toHaveTextContent(/Checking upgrade status/);
     expect(screen.getByRole("status")).toHaveTextContent(/Do not run the manual install command yet/);
     expect(screen.queryByRole("button", { name: /Confirm upgrade/ })).not.toBeInTheDocument();
   });

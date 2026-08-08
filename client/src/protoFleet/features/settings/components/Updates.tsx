@@ -11,7 +11,15 @@ import SettingsPageHeader from "@/protoFleet/features/settings/components/Settin
 import UpgradeOperationModal from "@/protoFleet/features/settings/components/UpgradeOperationModal";
 import { isUpgradeActive, useUpgradeOperation } from "@/protoFleet/features/updates/api/useUpgradeOperation";
 import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
-import { useAuthErrors, useFleetStore, useHasPermission, usePermissions, useSetPermissions } from "@/protoFleet/store";
+import {
+  useAuthErrors,
+  useFleetStore,
+  useHasPermission,
+  usePermissions,
+  useSessionExpiry,
+  useSetPermissions,
+  useUsername,
+} from "@/protoFleet/store";
 import { Copy } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -87,7 +95,9 @@ const waitForReleaseChannelSave = async () => {
 const Updates = () => {
   const canUpdateInstance = useHasPermission(INSTANCE_UPDATE_PERMISSION);
   const permissions = usePermissions();
+  const sessionExpiry = useSessionExpiry();
   const setPermissions = useSetPermissions();
+  const username = useUsername();
   const { handleAuthErrors } = useAuthErrors();
   const [status, setStatus] = useState<GetUpdateStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -133,6 +143,7 @@ const Updates = () => {
   );
 
   const upgrade = useUpgradeOperation({
+    authSessionIdentity: `${username}:${sessionExpiry?.getTime() ?? "signed-out"}`,
     enabled: canUpdateInstance,
     currentVersion: status?.currentVersion,
     onPollError: handleUpgradePollError,
@@ -140,9 +151,15 @@ const Updates = () => {
   const activeUpgrade = isUpgradeActive(upgrade.operation);
   const succeededUpgrade = upgrade.operation?.phase === UpgradePhase.SUCCEEDED;
   const upgradeRequestPending = upgrade.triggering || upgrade.reconciling;
-  const upgradeLocksConfiguration = upgradeRequestPending || Boolean(upgrade.operation);
+  const unresolvedTrackedUpgrade = Boolean(upgrade.trackedTargetVersion && !upgrade.operation);
+  const upgradeLocksConfiguration = upgradeRequestPending || unresolvedTrackedUpgrade || Boolean(upgrade.operation);
+  const upgradeActionDisabled = isChannelChangePending || upgradeRequestPending || unresolvedTrackedUpgrade;
   const manualCommandDisabled =
-    isChannelChangePending || activeUpgrade || upgradeRequestPending || Boolean(succeededUpgrade);
+    isChannelChangePending ||
+    activeUpgrade ||
+    upgradeRequestPending ||
+    unresolvedTrackedUpgrade ||
+    Boolean(succeededUpgrade);
 
   const fetchStatus = useCallback(async () => {
     const requestId = ++latestStatusRequest.current;
@@ -310,7 +327,7 @@ const Updates = () => {
   const operationStatusLabel = upgrade.reconciling
     ? upgrade.manualFallbackReady
       ? "Upgrade outcome is unknown — host confirmation required"
-      : "Confirming whether the upgrade started"
+      : "Confirming upgrade status"
     : upgrade.operation?.phase === UpgradePhase.FAILED
       ? "Upgrade failed"
       : upgrade.operation?.phase === UpgradePhase.SUCCEEDED
@@ -405,7 +422,7 @@ const Updates = () => {
                       <Button
                         variant={hasUpgradeDetails ? variants.secondary : variants.primary}
                         text={hasUpgradeDetails ? "View upgrade details" : `Upgrade to ${release.version}`}
-                        disabled={isChannelChangePending || upgradeRequestPending}
+                        disabled={upgradeActionDisabled}
                         onClick={() => setUpgradeModalOpen(true)}
                       />
                     </Row>

@@ -17,7 +17,13 @@ interface TrackedOperation {
   targetVersion: string;
 }
 
+interface AcknowledgedOperation {
+  authSessionIdentity: string;
+  id: string;
+}
+
 interface UseUpgradeOperationOptions {
+  authSessionIdentity: string;
   currentVersion?: string;
   enabled: boolean;
   onPollError?: (error: unknown) => void;
@@ -57,19 +63,36 @@ const readTrackedOperation = (): TrackedOperation | undefined => {
       ...(typeof value.id === "string" && value.id ? { id: value.id } : {}),
     };
   } catch {
+    try {
+      window.sessionStorage.removeItem(TRACKED_OPERATION_KEY);
+    } catch {
+      // Storage is best-effort; the host remains authoritative.
+    }
     return undefined;
   }
 };
 
-const readAcknowledgedOperation = (): string | null => {
+const readAcknowledgedOperation = (authSessionIdentity: string): string | null => {
   try {
-    return window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY);
+    const raw = window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<AcknowledgedOperation>;
+    if (typeof value.id === "string" && value.id && value.authSessionIdentity === authSessionIdentity) {
+      return value.id;
+    }
+    return null;
   } catch {
+    try {
+      window.sessionStorage.removeItem(ACKNOWLEDGED_OPERATION_KEY);
+    } catch {
+      // Storage is best-effort; the host remains authoritative.
+    }
     return null;
   }
 };
 
 export function useUpgradeOperation({
+  authSessionIdentity,
   currentVersion,
   enabled,
   onPollError,
@@ -77,15 +100,18 @@ export function useUpgradeOperation({
   const [operation, setOperation] = useState<UpgradeOperation>();
   const [triggering, setTriggering] = useState(false);
   const [trackedOperation, setTrackedOperation] = useState<TrackedOperation | undefined>(readTrackedOperation);
+  const recoveredTrackedOperation = Boolean(trackedOperation);
   const recoveredUnknownOutcome = Boolean(trackedOperation && !trackedOperation.id);
-  const [reconciling, setReconciling] = useState(recoveredUnknownOutcome);
+  const [reconciling, setReconciling] = useState(recoveredTrackedOperation);
   const [connectionLost, setConnectionLost] = useState(false);
   const [manualFallbackReady, setManualFallbackReady] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(
     recoveredUnknownOutcome ? "Fleet did not confirm whether the previous upgrade request started" : null,
   );
   const [pollRevision, setPollRevision] = useState(0);
-  const [acknowledgedOperation, setAcknowledgedOperation] = useState<string | null>(readAcknowledgedOperation);
+  const [acknowledgedOperation, setAcknowledgedOperation] = useState<string | null>(() =>
+    readAcknowledgedOperation(authSessionIdentity),
+  );
 
   const operationRef = useRef(operation);
   const trackedOperationRef = useRef(trackedOperation);
@@ -94,15 +120,24 @@ export function useUpgradeOperation({
   const currentVersionRef = useRef(currentVersion);
   const onPollErrorRef = useRef(onPollError);
   const reconciliationDeadlineRef = useRef<number | null>(null);
+  const authSessionIdentityRef = useRef(authSessionIdentity);
 
   currentVersionRef.current = currentVersion;
   onPollErrorRef.current = onPollError;
 
   useEffect(() => {
-    if (trackedOperationRef.current && !trackedOperationRef.current.id) {
+    if (trackedOperationRef.current) {
       reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
     }
   }, []);
+
+  useEffect(() => {
+    if (authSessionIdentityRef.current === authSessionIdentity) return;
+    authSessionIdentityRef.current = authSessionIdentity;
+    const next = readAcknowledgedOperation(authSessionIdentity);
+    acknowledgedOperationRef.current = next;
+    setAcknowledgedOperation(next);
+  }, [authSessionIdentity]);
 
   const updateOperation = useCallback((next: UpgradeOperation | undefined) => {
     operationRef.current = next;
@@ -134,7 +169,10 @@ export function useUpgradeOperation({
     setAcknowledgedOperation(next);
     try {
       if (next) {
-        window.sessionStorage.setItem(ACKNOWLEDGED_OPERATION_KEY, next);
+        window.sessionStorage.setItem(
+          ACKNOWLEDGED_OPERATION_KEY,
+          JSON.stringify({ authSessionIdentity: authSessionIdentityRef.current, id: next }),
+        );
       } else {
         window.sessionStorage.removeItem(ACKNOWLEDGED_OPERATION_KEY);
       }
@@ -163,6 +201,19 @@ export function useUpgradeOperation({
       setManualFallbackReady(true);
     }
   }, []);
+
+  const resolveRecoveredOperationMiss = useCallback(() => {
+    if (!reconcilingRef.current || !trackedOperationRef.current?.id) {
+      return false;
+    }
+    reconciliationDeadlineRef.current = null;
+    setManualFallbackReady(false);
+    updateTrackedOperation(undefined);
+    updateReconciling(false);
+    setConnectionLost(false);
+    setTriggerError(null);
+    return true;
+  }, [updateReconciling, updateTrackedOperation]);
 
   const acceptServerOperation = useCallback(
     (next: UpgradeOperation) => {
@@ -253,6 +304,9 @@ export function useUpgradeOperation({
         } else {
           setConnectionLost(false);
         }
+        if (resolveRecoveredOperationMiss()) {
+          return;
+        }
         finishExpiredReconciliation();
       } catch (error) {
         if (signal.aborted) return;
@@ -263,7 +317,12 @@ export function useUpgradeOperation({
         allowManualFallbackAfterTimeout();
       }
     },
-    [acceptServerOperation, allowManualFallbackAfterTimeout, finishExpiredReconciliation],
+    [
+      acceptServerOperation,
+      allowManualFallbackAfterTimeout,
+      finishExpiredReconciliation,
+      resolveRecoveredOperationMiss,
+    ],
   );
 
   useEffect(() => {

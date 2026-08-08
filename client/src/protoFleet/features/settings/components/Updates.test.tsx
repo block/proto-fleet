@@ -29,6 +29,7 @@ const permissionsMock = vi.hoisted(() => ({
   isAuthenticated: true,
   sessionExpiry: new Date(1_000),
   setPermissions: vi.fn<(permissions: string[]) => void>(),
+  username: "operator-a",
 }));
 const authErrorsMock = vi.hoisted(() => ({
   handleAuthErrors: vi.fn(),
@@ -63,7 +64,9 @@ vi.mock("@/protoFleet/store", () => {
   return {
     useHasPermission: vi.fn((permission: string) => permissionsMock.current.includes(permission)),
     usePermissions: () => permissionsMock.current,
+    useSessionExpiry: () => permissionsMock.sessionExpiry,
     useSetPermissions: () => permissionsMock.setPermissions,
+    useUsername: () => permissionsMock.username,
     useAuthErrors: () => authErrorsMock,
     useFleetStore: {
       getState: () => ({
@@ -84,11 +87,13 @@ vi.mock("@/protoFleet/api/clients", () => ({
   },
 }));
 
-vi.mock("@/protoFleet/features/updates/api/useUpgradeOperation", () => ({
-  isUpgradeActive: (operation?: { phase: number }) =>
-    Boolean(operation && operation.phase !== 0 && operation.phase !== 7 && operation.phase !== 8),
-  useUpgradeOperation: vi.fn(() => upgradeHookMock.current),
-}));
+vi.mock("@/protoFleet/features/updates/api/useUpgradeOperation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/protoFleet/features/updates/api/useUpgradeOperation")>();
+  return {
+    ...actual,
+    useUpgradeOperation: vi.fn(() => upgradeHookMock.current),
+  };
+});
 
 vi.mock("@/shared/utils/utility", () => ({
   copyToClipboard: vi.fn(),
@@ -178,6 +183,7 @@ beforeEach(() => {
   permissionsMock.current = ["instance:update", "fleet:read"];
   permissionsMock.isAuthenticated = true;
   permissionsMock.sessionExpiry = new Date(1_000);
+  permissionsMock.username = "operator-a";
   permissionsMock.setPermissions.mockImplementation((permissions) => {
     permissionsMock.current = permissions;
   });
@@ -287,7 +293,18 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
 
-    expect(await page.findByText(/checking whether the upgrade started/i)).toBeInTheDocument();
+    expect(await page.findByText(/checking upgrade status/i)).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+  });
+
+  it("locks competing controls whenever a persisted operation remains unresolved", async () => {
+    upgradeHookMock.current.trackedTargetVersion = "v1.3.0";
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+
+    expect(await page.findByRole("button", { name: "Upgrade to v1.3.0" })).toBeDisabled();
     expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
   });

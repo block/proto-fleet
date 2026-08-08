@@ -156,9 +156,7 @@ const UpgradeOperationModal = ({
                 <ProgressCircular indeterminate size={20} />
               </span>
               <div className="text-heading-100 text-text-primary">
-                {manualFallbackReady
-                  ? "Fleet could not confirm the upgrade outcome"
-                  : "Checking whether the upgrade started"}
+                {manualFallbackReady ? "Fleet could not confirm the upgrade outcome" : "Checking upgrade status"}
               </div>
             </div>
             {manualFallbackReady ? (
@@ -168,8 +166,8 @@ const UpgradeOperationModal = ({
               </p>
             ) : (
               <p className="text-300 text-text-primary-70">
-                Fleet is reconciling the request with the host updater. Do not run the manual install command yet; wait
-                until this check finishes.
+                Fleet is reconciling the tracked upgrade with the host updater. Do not run the manual install command
+                yet; wait until this check finishes.
               </p>
             )}
           </div>
