@@ -18,8 +18,10 @@ certificates, device names, and customer data from committed evidence.
 
 1. Verify the published `N` and `N+1` artifacts and their checksums. Confirm
    every `N+1` migration is expand-only and remains usable by `N`; reject
-   drops, renames, narrowed types, and newly required values. Install and
-   qualify `N` using [QUALIFICATION.md](QUALIFICATION.md).
+   drops, renames, narrowed types, and newly required values. Apply the
+   migrations to a disposable copy of an `N` database and run `N`'s affected
+   database and API integration tests against it. Install and qualify `N`
+   using [QUALIFICATION.md](QUALIFICATION.md).
 2. Record the container IDs and start times for etcd and Patroni on every host,
    plus `pg_postmaster_start_time()` on both PostgreSQL members.
 3. Run `fleet-ha update N+1` on the passive application host. Verify it remains
@@ -30,12 +32,17 @@ certificates, device names, and customer data from committed evidence.
    `fleet-ha update N+1 --complete` on the active host. Verify the command
    times out without swapping deployments, restarts `N`, and restores a usable
    VIP and successful command within 60 seconds. Restore the passive host.
-5. Retry `fleet-ha update N+1 --complete`. From another host, probe
+5. Create controlled PENDING and PROCESSING commands and record their immutable
+   IDs. Retry `fleet-ha update N+1 --complete`. From another host, probe
    `/api-proxy/health/active`, `/api-proxy/health`, and an authenticated
-   database-backed request at least once per second. Measure from the first
-   failed probe until all three succeed and `/api-proxy/health` reports
+   database-backed request at least once per second. At the same cadence,
+   sample direct active health and VIP ownership on both hosts; fail on any
+   active or VIP overlap. Measure from the first failed probe until all three
+   VIP probes succeed and `/api-proxy/health` reports
    `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Verify the former
-   active rejoins as passive on `N+1`.
+   active rejoins as passive, the PENDING command dispatches, the interrupted
+   PROCESSING command reaches the expected terminal recovery state, and later
+   work for that device succeeds.
 6. Force an application failover in each direction. Use the same active and
    database-backed probes, require usable service within 15 seconds, and
    submit a successful command after each move.
@@ -46,18 +53,18 @@ certificates, device names, and customer data from committed evidence.
    status sockets are healthy. Reboot the two application/database hosts one
    at a time, restoring full readiness between reboots. Repeat the updater
    checks and verify both hosts retain Fleet data and can serve a command.
-   readiness between reboots. Verify both return on `N+1`, retain persisted
-   Fleet data, and can serve a command after failover.
 
 ## Results
 
 | Gate | Required result | Duration | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| Migration compatibility | `N+1` migrations are expand-only and usable by `N` | N/A | Pending | Pending |
+| Migration compatibility | `N` integration tests pass against an `N` database migrated by `N+1` | N/A | Pending | Pending |
 | Passive-first update | Passive runs `N+1`; active continues serving `N` | N/A | Pending | Pending |
 | Mixed-version operation | Persisted read and command succeed while hosts run `N` and `N+1` | N/A | Pending | Pending |
 | Failed takeover recovery | No swap; `N` restores usable service and command execution | `<60s` | Pending | Pending |
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive | `<15s` | Pending | Pending |
+| Handoff fencing | Direct health and VIP samples never show active or VIP overlap | N/A | Pending | Pending |
+| Handoff command recovery | PENDING dispatches, PROCESSING recovers, and later per-device work succeeds | N/A | Pending | Pending |
 | Failover to peer | VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Failover back | VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Infrastructure preserved | etcd and Patroni identity plus PostgreSQL start times are unchanged | N/A | Pending | Pending |
