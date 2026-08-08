@@ -299,6 +299,39 @@ func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T
 	}
 }
 
+func TestManagerHARejectsUnqualifiedSourceRelease(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source string
+	}{
+		{name: "missing source"},
+		{name: "different source", source: "v0.9.0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			bundle := releaseBundleFrom(t, "v1.1.0", test.source)
+			server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+			runner := &haRecordingRunner{fail: make(map[string]error)}
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+				cfg.DeploymentMode = DeploymentModeHA
+			})
+
+			// Act
+			_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+			require.NoError(t, err)
+			completed := waitForTerminal(t, manager)
+
+			// Assert
+			require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+			assert.Contains(t, completed.Error, "does not allow HA updates from v1.0.0")
+			assert.Empty(t, runner.Commands())
+			assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+		})
+	}
+}
+
 func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
@@ -2906,9 +2939,17 @@ func releaseServer(t *testing.T, version, arch string, bundle []byte, checksumOv
 }
 
 func releaseBundle(t *testing.T, version string) []byte {
+	return releaseBundleFrom(t, version, "v1.0.0")
+}
+
+func releaseBundleFrom(t *testing.T, version, haUpdateFrom string) []byte {
 	t.Helper()
+	versionFile := "version: " + version + "\n"
+	if haUpdateFrom != "" {
+		versionFile += "ha_update_from: " + haUpdateFrom + "\n"
+	}
 	files := map[string]string{
-		"deployment/version.txt":                         "version: " + version + "\n",
+		"deployment/version.txt":                         versionFile,
 		"deployment/docker-compose.yaml":                 "services: {}\n",
 		"deployment/run-fleet.sh":                        "#!/usr/bin/env bash\n",
 		"deployment/server/fleetd":                       "fleetd",
