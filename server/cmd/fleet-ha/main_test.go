@@ -154,6 +154,23 @@ func TestPassiveUpdateAllowsExpectedVersionMismatch(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCompleteUpdateRejectsExpectedVersionMismatch(t *testing.T) {
+	// Arrange
+	client := &fakeUpdaterClient{}
+	read := func(context.Context, string, bool) (deployment.StatusReport, error) {
+		return deployment.StatusReport{Control: &deployment.ControlStatus{
+			ControlReady: true,
+			ReasonCodes:  []deployment.ControlReasonCode{deployment.ReasonFleetVersionMismatch},
+		}}, nil
+	}
+
+	// Act
+	err := runPassiveUpdate(t.Context(), []string{"v1.2.3", "--complete"}, &bytes.Buffer{}, func(context.Context, string, string, bool) error { return nil }, client, read)
+
+	// Assert
+	require.ErrorContains(t, err, "failover readiness is degraded")
+}
+
 func TestUpdateReturnsWhenUpdaterIsUnavailable(t *testing.T) {
 	// Arrange
 	client := &fakeUpdaterClient{triggerErr: updaterapi.ErrUnavailable}
