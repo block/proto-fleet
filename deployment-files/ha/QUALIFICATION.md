@@ -10,10 +10,10 @@ addresses, certificates, passwords, device names, or customer data in the
 committed report.
 
 This report qualifies the fixed Fleet application, database, DCS, and VIP
-profile at the recorded fleet scale and topology only. Adjacent application
-updates are not qualified here. Fleet Node HA, larger fleets, reconnect scale,
-schedule recovery during failover, and alert delivery remain outside this
-support claim.
+profile only on the recorded host hardware, fleet scale, and topology.
+Adjacent application updates are not qualified here. Other host hardware,
+Fleet Node HA, larger fleets, reconnect scale, schedule recovery during
+failover, and alert delivery remain outside this support claim.
 
 The HA segment must be restricted to the three HA hosts and trusted network
 infrastructure. This profile does not defend against a compromised same-L2
@@ -30,7 +30,11 @@ without an enforced trusted segment are unsupported.
 | `deployment-manifest.sha256` SHA-256 | Pending |
 | Deployed API, client, and Patroni image IDs/digests on every host | Pending |
 | Architecture | arm64 |
+| Host model and board revision | Pending |
+| CPU, memory, and boot storage | Pending |
+| Ethernet controller and driver | Pending |
 | Operating system | Debian 13 |
+| Kernel and firmware versions | Pending |
 | Page size | 4096 bytes |
 | Docker, containerd, keepalived, nftables, and arping package versions | Pending |
 | HA segment isolation control | Pending |
@@ -102,7 +106,10 @@ acknowledged identifier exists exactly once.
 | SIGSTOP the old active with a stalled PROCESSING plugin call, let the peer recover it, queue the old result, then SIGCONT | The resumed stale transition is rejected, exactly one terminal database result remains, and later work resumes | Pending | Pending | Pending |
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
-| Publish a unique MQTT curtailment target, confirm shedding starts, fail the active before completion, then restore after takeover | The peer resumes MQTT intake and retains or reasserts curtailment within 180s, then measured load follows the restoration target | Pending | Pending | Pending |
+| Publish a unique MQTT curtailment target, confirm shedding starts, then kill the active Fleet process before completion | The peer resumes MQTT intake and retains or reasserts curtailment within 180s | Pending | Pending | Pending |
+| Publish a unique MQTT curtailment target, confirm shedding starts, then abruptly lose the database primary while Fleet remains active | A writable primary recovers and Fleet retains or reasserts curtailment within 180s | Pending | Pending | Pending |
+| Publish a unique MQTT curtailment target, confirm shedding starts, then power off a host that is both active Fleet and Patroni primary | The peer restores writable VIP service and retains or reasserts curtailment within 180s | Pending | Pending | Pending |
+| Restore the MQTT curtailment target after each failure above | Measured load follows the restoration target | Pending | Pending | Pending |
 
 The 180-second curtailment result applies only to the miner count, plugin mix,
 connection topology, and command backlog recorded above.
@@ -150,8 +157,9 @@ after the soak.
 
 ## Verdict
 
-**Pending.** Do not describe an artifact and architecture as supported until
-every result above is `PASS` and the report records the tested release, commit,
-and host package versions. A package-version change requires requalification.
-This initial Raspberry Pi run qualifies arm64 only; amd64 remains unqualified
-until the same gates pass for its release artifact.
+**Pending.** Do not describe an artifact and hardware profile as supported
+until every result above is `PASS` and the report records the tested release,
+commit, host hardware, and package versions. A hardware or package-version
+change requires requalification. This initial Raspberry Pi run does not make
+an architecture-wide arm64 claim; amd64 and other arm64 hosts remain
+unqualified until the same gates pass on that hardware.
