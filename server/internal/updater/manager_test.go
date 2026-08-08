@@ -408,7 +408,7 @@ func TestManagerHAInterruptedAfterStopRestartsCurrentApplication(t *testing.T) {
 	assert.Contains(t, operation.Message, "HA application restarted")
 	commands := runner.Commands()
 	require.Len(t, commands, 1)
-	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
+	assert.Equal(t, []string{"app-recover", "v1.0.0"}, commands[0].Args)
 }
 
 func TestManagerHACompletionWaitsForUpdatedPeerBeforeSwap(t *testing.T) {
@@ -488,7 +488,7 @@ func TestManagerHACompletionInterruptedAfterSwapStartsTargetRelease(t *testing.T
 	require.Empty(t, operation.RecoveryCommand)
 	commands := runner.Commands()
 	require.Len(t, commands, 1)
-	assert.Equal(t, []string{"app-start", "v1.1.0", "any"}, commands[0].Args)
+	assert.Equal(t, []string{"app-recover", "v1.1.0"}, commands[0].Args)
 }
 
 func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
@@ -1836,7 +1836,7 @@ func TestManagerRestartsHAApplicationAfterInterruptedSwap(t *testing.T) {
 	// Assert
 	commands := runner.Commands()
 	require.Len(t, commands, 1)
-	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
+	assert.Equal(t, []string{"app-recover", "v1.0.0"}, commands[0].Args)
 	assert.Empty(t, manager.Status().Operation.RecoveryCommand)
 	assert.False(t, manager.Status().Operation.RecoveryPending)
 }
@@ -1856,7 +1856,7 @@ func TestManagerServesRecoveryStateAfterRestartFailure(t *testing.T) {
 	manager, err := NewManager(Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
 		DeploymentMode: DeploymentModeHA,
-		Runner:         &haRecordingRunner{fail: map[string]error{"app-start": errors.New("restart failed")}},
+		Runner:         &haRecordingRunner{fail: map[string]error{"app-recover": errors.New("restart failed")}},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })

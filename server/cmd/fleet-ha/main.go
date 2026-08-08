@@ -141,12 +141,17 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-<<<<<<< HEAD
-		return deployment.StartApplication(ctx, root, args[1], args[2] == "passive")
-=======
 		requirePassive := len(args) == 2 || args[2] == "passive"
 		return deployment.StartApplication(ctx, root, args[1], requirePassive)
->>>>>>> 3296d18b6c (Address complete update review feedback (#891))
+	case "app-recover":
+		if len(args) != 2 {
+			return errors.New("usage: fleet-ha app-recover VERSION")
+		}
+		root, err := deployment.ReleaseRoot()
+		if err != nil {
+			return err
+		}
+		return deployment.RecoverApplication(ctx, root, args[1])
 	case "wait-takeover":
 		if len(args) != 2 {
 			return errors.New("usage: fleet-ha wait-takeover VERSION")

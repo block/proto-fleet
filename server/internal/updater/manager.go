@@ -758,7 +758,7 @@ func (m *Manager) RecoverApplication() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), m.cfg.ActivationTimeout)
 	defer cancel()
-	if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, io.Discard, "app-start", version, "any"); err != nil {
+	if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, io.Discard, "app-recover", version); err != nil {
 		recoveryErr := fmt.Errorf("restart interrupted HA application: %w", err)
 		m.operation.Phase = updaterapi.PhaseFailed
 		m.operation.Message = "HA application recovery failed"
