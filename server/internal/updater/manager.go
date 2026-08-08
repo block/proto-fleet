@@ -1606,6 +1606,7 @@ func (m *Manager) failActivation(
 	logOutput io.Writer,
 	restartHA bool,
 ) {
+	recoveryPending := false
 	layout := &updaterapi.Operation{
 		TargetVersion: targetVersion,
 		Phase:         updaterapi.PhaseActivating,
@@ -1632,9 +1633,14 @@ func (m *Manager) failActivation(
 		}
 		if err != nil {
 			activationErr = errors.Join(activationErr, fmt.Errorf("restart HA application after failed activation: %w", err))
+			recoveryPending = layout.RecoveryCommand != ""
 		} else {
 			layout.RecoveryCommand = ""
 		}
+	}
+	if recoveryPending {
+		m.failPendingRecovery(operationID, activationErr, layout.RecoveryCommand)
+		return
 	}
 	m.fail(operationID, activationErr, layout.RecoveryCommand)
 }
