@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/updater"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 var version = "dev"
@@ -87,6 +88,13 @@ func run() error {
 		DeploymentMode: updater.DeploymentMode(*deploymentMode),
 	}
 	if *repairStartup {
+		probeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		// A listening daemon already acquired the process lock and completed
+		// startup repair before opening its socket.
+		if _, err := updaterapi.NewClient(*socketPath).Status(probeCtx); err == nil {
+			return nil
+		}
 		return updater.RepairStartup(config)
 	}
 	manager, err := updater.NewManager(config)
