@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
 import {
@@ -148,11 +149,13 @@ describe("useUpgradeOperation", () => {
 
     await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
     const previousSignal = mockGetUpgradeStatus.mock.calls[0]?.[1]?.signal;
+    const abortSpy = vi.spyOn(AbortController.prototype, "abort").mockImplementation(() => undefined);
 
     rerender({ authSessionIdentity: "operator-a:2" });
 
     await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(2));
-    expect(previousSignal?.aborted).toBe(true);
+    expect(abortSpy).toHaveBeenCalled();
+    expect(previousSignal?.aborted).toBe(false);
     await waitFor(() => expect(result.current.operationStatusPending).toBe(false));
 
     await act(async () => {
@@ -161,6 +164,7 @@ describe("useUpgradeOperation", () => {
     });
 
     expect(onPollError).not.toHaveBeenCalled();
+    abortSpy.mockRestore();
   });
 
   it("starts the exact target and tracks the returned operation", async () => {
@@ -254,6 +258,34 @@ describe("useUpgradeOperation", () => {
 
     expect(result.current.reconciling).toBe(false);
     expect(result.current.triggerError).toBeNull();
+  });
+
+  it("unlocks immediately when the server definitively rejects a stale target", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status());
+    mockTriggerUpgrade.mockRejectedValue(
+      new ConnectError('target "v1.3.0" is no longer the eligible update', Code.FailedPrecondition),
+    );
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+
+    expect(result.current.reconciling).toBe(false);
+    expect(result.current.trackedTargetVersion).toBeUndefined();
+    expect(result.current.triggerError).toContain("no longer the eligible update");
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
+  });
+
+  it("reconciles an already-existing operation instead of treating the rejection as safe to unlock", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status());
+    mockTriggerUpgrade.mockRejectedValue(new ConnectError("another upgrade is active", Code.AlreadyExists));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+
+    expect(result.current.reconciling).toBe(true);
+    expect(result.current.trackedTargetVersion).toBe("v1.3.0");
   });
 
   it("reconciles an ambiguous trigger rejection to a completed upgrade", async () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
 import { type UpgradeOperation, UpgradePhase } from "@/protoFleet/api/generated/instance/v1/updates_pb";
@@ -12,6 +13,16 @@ const TRIGGER_RECONCILIATION_TIMEOUT_MS = 15_000;
 const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
 const ACKNOWLEDGED_OPERATION_KEY = "protoFleet:acknowledged-upgrade-operation";
 const CANONICAL_RELEASE_PATTERN = /^v(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/;
+const DEFINITIVE_TRIGGER_REJECTION_CODES = new Set<Code>([
+  Code.InvalidArgument,
+  Code.FailedPrecondition,
+  Code.PermissionDenied,
+  Code.Unauthenticated,
+  Code.Unimplemented,
+]);
+
+const isDefinitiveTriggerRejection = (error: unknown) =>
+  error instanceof ConnectError && DEFINITIVE_TRIGGER_REJECTION_CODES.has(error.code);
 
 interface CanonicalRelease {
   core: [number, number, number];
@@ -395,7 +406,7 @@ export function useUpgradeOperation({
         }
         finishExpiredReconciliation();
       } catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || authSessionIdentityRef.current !== pollingAuthSessionIdentity) return;
         onPollErrorRef.current?.(error);
         if (reconcileMissingActiveOperation()) {
           return;
@@ -471,8 +482,16 @@ export function useUpgradeOperation({
         }
       } catch (error) {
         setTriggerError(getErrorMessage(error, "Failed to start upgrade"));
-        reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
-        updateReconciling(true);
+        if (isDefinitiveTriggerRejection(error)) {
+          updateTrackedOperation(undefined);
+          reconciliationDeadlineRef.current = null;
+          setManualFallbackReady(false);
+          updateReconciling(false);
+          setConnectionLost(false);
+        } else {
+          reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
+          updateReconciling(true);
+        }
       } finally {
         setTriggering(false);
         // An idle status poll may already be scheduled far in the future.
