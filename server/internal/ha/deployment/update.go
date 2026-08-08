@@ -158,13 +158,18 @@ func StopApplication(ctx context.Context, root string) error {
 
 // StartApplication starts the target release and proves it serves its observed HA role.
 func StartApplication(ctx context.Context, root, targetVersion string) error {
-	args := fleetComposeArgsAt(root, "up", "-d", "--no-deps", "--force-recreate", "--no-build", "--pull", "never", "fleet-api", "fleet-client")
-	if err := RunCompose(ctx, args); err != nil {
-		return fmt.Errorf("start HA application: %w", err)
-	}
 	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
 	if err != nil {
 		return err
+	}
+	if report, statusErr := Status(ctx, filepath.Join(configRoot, "node.env"), true); statusErr == nil {
+		if _, readinessErr := rollingUpdateApplicationReady(report, fleetHostStatus{}, targetVersion); readinessErr != nil {
+			return readinessErr
+		}
+	}
+	args := fleetComposeArgsAt(root, "up", "-d", "--no-deps", "--force-recreate", "--no-build", "--pull", "never", "fleet-api", "fleet-client")
+	if err := RunCompose(ctx, args); err != nil {
+		return fmt.Errorf("start HA application: %w", err)
 	}
 	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
 	if err != nil {
