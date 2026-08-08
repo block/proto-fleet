@@ -145,7 +145,7 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/proto-fleet-ha-keepalived.conf" "Wants=keepalived.service"
     assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=/usr/sbin/ip address flush to ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
     assert_contains "${HA_DIR}/firewall.nft.tmpl" "destroy table inet proto_fleet_ha"
-    assert_contains "${HA_DIR}/firewall.nft.tmpl" "tcp dport 40000 counter drop"
+    assert_contains "${HA_DIR}/firewall.nft.tmpl" "tcp dport 40000 drop"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "Before=docker.service proto-fleet-ha.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "Requires=proto-fleet-ha-firewall.service docker.service"
