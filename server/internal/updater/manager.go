@@ -1351,6 +1351,18 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 			stopTimeout = ha.UpdateActiveStopTimeout
 		}
 		if err := m.runHACommand(activationCtx, stopTimeout, currentDeployment, commandOutput, "app-stop", requiredRole); err != nil {
+			if complete {
+				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
+				if restartErr == nil {
+					m.fail(operationID, fmt.Errorf("stop HA application failed; previous release restarted: %w", err), "")
+					return
+				}
+				m.fail(operationID, errors.Join(
+					fmt.Errorf("stop HA application: %w", err),
+					fmt.Errorf("restart previous release: %w", restartErr),
+				), recovery)
+				return
+			}
 			m.failActivation(operationID, targetVersion, fmt.Errorf("stop HA application: %w", err), logFile, true)
 			return
 		}
