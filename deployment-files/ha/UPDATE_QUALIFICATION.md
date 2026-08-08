@@ -44,9 +44,13 @@ customer data from committed evidence.
    `N+1`, `proto-fleet-updater.service` to be active, and an authenticated local
    request to `/v1/status` over `/run/proto-fleet-updater/updater.sock` to
    succeed. Retain the redacted operation log.
-4. During the mixed-version window, use the authenticated VIP API to read
-   existing database-backed configuration, submit a command, and verify its
-   completion while `N` remains active.
+4. Review every migration between the recorded commits and reject drops,
+   renames, narrowing conversions, or newly mandatory constraints that the `N`
+   application cannot satisfy. On a disposable copy of an `N` database, apply
+   the `N+1` migrations and run the `N` database and API integration tests for
+   every affected query area. During the live mixed-version window, use the
+   authenticated VIP API to read existing database-backed configuration,
+   submit a command, and verify its completion while `N` remains active.
 5. On the updated passive, capture its running `fleet-api` and `fleet-client`
    container IDs, then stop keepalived so that host cannot advertise the VIP.
    Start a background watcher that polls the uncached
@@ -67,19 +71,20 @@ customer data from committed evidence.
    immutable queue row IDs, retry `fleet-ha update N+1 --complete`, and sample
    both rows throughout the retry. The gate fails if either state changes before
    `fleet-api` stops; retain a final timestamped sample no more than one second
-   before that stop. From another host, probe the authenticated VIP at least
-   every 100 milliseconds. Measure from the first failed request through the
-   first successful response whose version header reports `N+1`, and retain the
-   timestamped probe output.
+   before that stop. From another host, probe the versioned health endpoint and
+   an authenticated database-backed API at least every 100 milliseconds.
+   Measure from the first failure of either probe through the first interval in
+   which health reports `N+1` and the authenticated request succeeds. Retain
+   both timestamped probe streams.
 7. Verify those exact rows on `N+1`: the PENDING row is dispatched, the
    interrupted PROCESSING attempt reaches its documented terminal state, and a
    later command for that device succeeds. Verify the former active is passive
    on `N+1`, then repeat the updater version, service, socket, warning, and
    redacted-log checks from step 3 on this host.
 8. Force an application failover to the former active and back to its peer.
-   For each direction, use the same 100-millisecond external VIP probe and
-   first-failure-to-first-versioned-success interval from step 6. Submit a
-   command through the VIP after each failover and verify it succeeds.
+   For each direction, use both 100-millisecond external probes and the
+   first-failure-to-both-success interval from step 6. Submit a command through
+   the VIP after each failover and verify it succeeds.
 9. Compare the infrastructure container IDs recorded in step 2. Prove that the
    application update did not replace etcd, Patroni, or PostgreSQL.
 10. Reboot both database hosts, one at a time, restoring full readiness between
@@ -94,11 +99,11 @@ customer data from committed evidence.
 | Passive-first update | Passive runs `N+1`; active continues serving `N` | N/A | Pending | Pending |
 | Mixed-version window | Authenticated reads, writes, and command completion work while peers run `N` and `N+1` | Pending | Pending | Pending |
 | Failed takeover recovery | Completion times out before swap; `N` restarts and serves commands within 60s | Pending | Pending | Pending |
-| Active completion | VIP serves `N+1` within 15s | Pending | Pending | Pending |
+| Active completion | VIP serves `N+1` and an authenticated database-backed request within 15s | Pending | Pending | Pending |
 | PENDING command handoff | Immutable pre-stop row crosses from `N` to `N+1` as PENDING; new active dispatches it | Pending | Pending | Pending |
 | PROCESSING command handoff | Immutable pre-stop row crosses from `N` to `N+1` as PROCESSING; attempt finishes terminally and later work resumes | Pending | Pending | Pending |
-| Failover to peer | VIP serves `N+1` within 15s | Pending | Pending | Pending |
-| Failover back | VIP serves `N+1` within 15s | Pending | Pending | Pending |
+| Failover to peer | VIP serves `N+1` and an authenticated database-backed request within 15s | Pending | Pending | Pending |
+| Failover back | VIP serves `N+1` and an authenticated database-backed request within 15s | Pending | Pending | Pending |
 | Command execution | Command succeeds after both failovers | N/A | Pending | Pending |
 | Infrastructure preservation | Application update leaves etcd, Patroni, and PostgreSQL container IDs unchanged | N/A | Pending | Pending |
 | Host updater refresh | Both protected updater binaries report `N+1`; services and local status APIs survive reboot; no refresh warning remains | N/A | Pending | Pending |
