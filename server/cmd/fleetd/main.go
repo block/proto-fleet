@@ -443,6 +443,9 @@ func start(config *Config) (result error) {
 	)
 	pairingSvc.WithMinerInvalidator(minerService.InvalidateMiner)
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
+	if config.HA.Enabled {
+		pairingSvc.WithUnprivilegedNmap()
+	}
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 

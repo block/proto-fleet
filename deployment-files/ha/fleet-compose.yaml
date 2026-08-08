@@ -2,6 +2,10 @@ services:
   fleet-api:
     # Patroni provides PostgreSQL in HA deployments, so remove the base dependency.
     depends_on: !reset []
+    # HA runs on the host network, so do not inherit the base image's raw-network privileges.
+    cap_add: !reset []
+    cap_drop:
+      - ALL
     # The 15s delay exceeds the 10s lease, giving the passive peer first chance after a restart.
     command: ["/bin/sh", "-c", "sleep 15; exec /app/fleetd"]
     environment:
