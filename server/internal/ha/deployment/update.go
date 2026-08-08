@@ -12,10 +12,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/ha"
 )
 
-func RequirePassive(ctx context.Context, envPath, targetVersion string) error {
-	return ValidatePassiveUpdate(ctx, envPath, targetVersion)
-}
-
 func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath)
 	if err != nil {
@@ -167,7 +163,13 @@ func rollingUpdateControlReady(control *ControlStatus) bool {
 	if control == nil || !control.ControlReady {
 		return false
 	}
-	return control.FailoverReady || len(control.ReasonCodes) == 1 && control.ReasonCodes[0] == ReasonFleetVersionMismatch
+	return control.FailoverReady || ExpectedRollingVersionMismatch(control)
+}
+
+// ExpectedRollingVersionMismatch is the only degraded state allowed during a rolling update.
+func ExpectedRollingVersionMismatch(control *ControlStatus) bool {
+	return control != nil && control.ControlReady &&
+		len(control.ReasonCodes) == 1 && control.ReasonCodes[0] == ReasonFleetVersionMismatch
 }
 
 func applicationReady(runtime ha.Status, public fleetHostStatus, targetVersion string) bool {
