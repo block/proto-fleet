@@ -40,15 +40,19 @@ certificates, device names, and customer data from committed evidence.
    fail if either row changes before that stop. In parallel, stream interface
    address events from both hosts and fail on any overlapping VIP ownership.
    Probe `/api-proxy/health/active`, `/api-proxy/health`, and an authenticated
-   database-backed request at least once per second. Measure from the first
-   failed probe until all three VIP probes succeed and `/api-proxy/health`
-   reports `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Release
-   the test device and verify the former active rejoins as passive, the PENDING
-   command dispatches, the interrupted PROCESSING command reaches the expected
+   database-backed request at least once per second. On the same monotonic
+   clock, measure from the last successful pre-handoff VIP probe until all
+   three VIP probes succeed and `/api-proxy/health` reports
+   `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Release the test
+   device and verify the former active rejoins as passive, the PENDING command
+   dispatches, the interrupted PROCESSING command reaches the expected
    terminal recovery state, and later work for that device succeeds.
-6. Force an application failover in each direction. Use the same active and
-   database-backed probes, require usable service within 15 seconds, and
-   submit a successful command after each move.
+6. Force an application failover in each direction. From before each trigger
+   through convergence, reuse the direct active-health and interface-address
+   streams from step 5 and fail on any active or VIP overlap. Require the
+   former active to reject an active-only request, measure usable service from
+   the last successful pre-failover probe on the same monotonic clock, require
+   less than 15 seconds, and submit a successful command after each move.
 7. Confirm the etcd and Patroni container IDs and start times, and both
    PostgreSQL postmaster start times, are unchanged from step 2. The application
    update must not replace or restart these services.
@@ -68,8 +72,8 @@ certificates, device names, and customer data from committed evidence.
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive | `<15s` | Pending | Pending |
 | Handoff fencing | High-frequency direct health and interface event streams never show active or VIP overlap | N/A | Pending | Pending |
 | Handoff command recovery | Exact rows stay PROCESSING/PENDING until stop, then PROCESSING recovers, PENDING dispatches, and later per-device work succeeds | N/A | Pending | Pending |
-| Failover to peer | VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
-| Failover back | VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
+| Failover to peer | No active or VIP overlap; old active rejects; VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
+| Failover back | No active or VIP overlap; old active rejects; VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Infrastructure preserved | etcd and Patroni identity plus PostgreSQL start times are unchanged | N/A | Pending | Pending |
 | Updater refresh | Both updater binaries, services, and local status sockets run `N+1` | N/A | Pending | Pending |
 | Reboot recovery | Both hosts return on `N+1` with persisted data and working failover | Pending | Pending | Pending |
