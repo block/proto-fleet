@@ -168,7 +168,7 @@ func (c *githubClient) fetchReleases(ctx context.Context) ([]githubRelease, erro
 		return nil, fmt.Errorf("GET /releases: status %d", resp.StatusCode)
 	}
 
-	entries, _, err := c.decodeReleases(resp.Body)
+	entries, _, err := c.decodeReleases(resp.Body, false)
 	if err != nil {
 		return nil, err
 	}
@@ -186,10 +186,10 @@ func (c *githubClient) fetchReleasePage(ctx context.Context, page int) ([]github
 	if resp.StatusCode != http.StatusOK {
 		return nil, 0, fmt.Errorf("GET /releases page %d: status %d", page, resp.StatusCode)
 	}
-	return c.decodeReleases(resp.Body)
+	return c.decodeReleases(resp.Body, true)
 }
 
-func (c *githubClient) decodeReleases(body io.Reader) ([]githubRelease, int, error) {
+func (c *githubClient) decodeReleases(body io.Reader, strict bool) ([]githubRelease, int, error) {
 	decoder := json.NewDecoder(io.LimitReader(body, maxResponseBytes))
 	first, err := decoder.Token()
 	if err != nil {
@@ -213,6 +213,9 @@ func (c *githubClient) decodeReleases(body io.Reader) ([]githubRelease, int, err
 
 		var rel githubRelease
 		if err := json.Unmarshal(entry, &rel); err != nil {
+			if strict {
+				return nil, 0, fmt.Errorf("decode /releases entry %d: %w", rawCount, err)
+			}
 			c.logger.Debug("skipping malformed release entry", "error", err)
 			continue
 		}

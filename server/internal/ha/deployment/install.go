@@ -215,7 +215,7 @@ func copiedSecretFiles(config NodeConfig) []string {
 func inspectDedicatedHost(ctx context.Context, deps installDependencies) (installedDependencies, error) {
 	var installed installedDependencies
 	for _, path := range []string{
-		installBase, configRoot, dataRoot,
+		installBase, configRoot, dataRoot, "/var/lib/proto-fleet-updater",
 		"/etc/systemd/system/proto-fleet-ha.service.d",
 		"/etc/systemd/system/proto-fleet-ha-firewall.service.d",
 	} {
