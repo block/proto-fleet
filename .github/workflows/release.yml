@@ -90,14 +90,32 @@ jobs:
     with:
       version: ${{ github.ref_name }}
       ha_update_from_version: ${{ needs.validate-tag.outputs.ha_update_from_version }}
-      retention_days: 1
+      retention_days: 7
       channel: release
       is_prerelease: ${{ contains(github.ref_name, '-') }}
     secrets: inherit
 
+  ha-update-qualification:
+    runs-on: ubuntu-latest
+    needs: [validate-tag, build-artifacts]
+    if: ${{ needs.validate-tag.outputs.ha_update_from_version != '' }}
+    environment: ha-update-qualification
+    steps:
+      - name: Require a protected qualification gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          reviewer_count=$(gh api "repos/${{ github.repository }}/environments/ha-update-qualification" \
+            --jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')
+          if [[ "$reviewer_count" -lt 1 ]]; then
+            echo "::error::The ha-update-qualification environment must require reviewer approval"
+            exit 1
+          fi
+
   publish-proto-fleet:
     runs-on: ubuntu-latest
-    needs: [build-artifacts]
+    needs: [build-artifacts, ha-update-qualification]
+    if: ${{ always() && needs.build-artifacts.result == 'success' && (needs['ha-update-qualification'].result == 'success' || needs['ha-update-qualification'].result == 'skipped') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
