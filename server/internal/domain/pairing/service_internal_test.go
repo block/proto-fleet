@@ -527,6 +527,14 @@ func TestValidateUnprivilegedNmapTargets(t *testing.T) {
 	}
 }
 
+func TestValidateDiscoveryPortsRejectsRange(t *testing.T) {
+	// Act
+	err := validateDiscoveryPorts([]string{"1-65535"})
+
+	// Assert
+	require.ErrorContains(t, err, "must be a decimal in 1-65535")
+}
+
 func TestShouldSkipNetworkOrGatewayAddress_IPv6(t *testing.T) {
 	tests := []struct {
 		name string
