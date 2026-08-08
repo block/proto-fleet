@@ -341,7 +341,11 @@ func writerObservationReady(ctx context.Context, etcdConfig clientv3.Config, con
 		return false
 	}
 	defer pinned.Close()
-	queries := sqlc.New(pinned)
+	queries, err := sqlc.Prepare(probeCtx, pinned)
+	if err != nil {
+		return false
+	}
+	defer queries.Close()
 	if etcdConfig.TLS != nil {
 		etcdConfig.TLS = etcdConfig.TLS.Clone()
 	}
