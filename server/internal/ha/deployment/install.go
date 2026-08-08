@@ -270,6 +270,7 @@ func validateCleanInstallState(deps installDependencies) error {
 		"/etc/systemd/system/keepalived.service.d",
 		"/etc/systemd/system/proto-fleet-ha.service.d",
 		"/etc/systemd/system/proto-fleet-ha-firewall.service.d",
+		"/etc/systemd/system/proto-fleet-updater.service.d",
 	} {
 		if err := deps.requireEmpty(path, "existing service state"); err != nil {
 			return fmt.Errorf("HA install failed: %w", err)

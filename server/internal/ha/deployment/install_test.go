@@ -361,12 +361,12 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 	require.NotContains(t, strings.Join(calls, "\n"), "apt-get")
 }
 
-func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
+func TestCleanInstallRejectsUpdaterServiceDropIns(t *testing.T) {
 	// Arrange
 	deps := installDependencies{
 		lookPath: func(string) (string, error) { return "", os.ErrNotExist },
 		requireEmpty: func(path, _ string) error {
-			if path == "/etc/systemd/system/docker.service.d" {
+			if path == "/etc/systemd/system/proto-fleet-updater.service.d" {
 				return fmt.Errorf("unexpected entry in %s", path)
 			}
 			return nil
@@ -378,7 +378,7 @@ func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
 	err := validateCleanInstallState(deps)
 
 	// Assert
-	require.ErrorContains(t, err, "/etc/systemd/system/docker.service.d")
+	require.ErrorContains(t, err, "/etc/systemd/system/proto-fleet-updater.service.d")
 }
 
 func TestReleaseSnapshotCleanupOutlivesInstallCancellation(t *testing.T) {
