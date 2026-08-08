@@ -1334,20 +1334,19 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile, false)
 			return
 		}
-		haActivationCtx := activationCtx
 		stopTimeout := m.cfg.ActivationTimeout
-		cancelOutage := func() {}
 		if complete {
-			haActivationCtx, cancelOutage = context.WithTimeout(activationCtx, ha.UpdateTakeoverTimeout)
 			stopTimeout = ha.UpdateActiveStopTimeout
 		}
-		defer cancelOutage()
-		if err := m.runHACommand(haActivationCtx, stopTimeout, currentDeployment, commandOutput, "app-stop", requiredRole); err != nil {
+		if err := m.runHACommand(activationCtx, stopTimeout, currentDeployment, commandOutput, "app-stop", requiredRole); err != nil {
 			m.failActivation(operationID, targetVersion, fmt.Errorf("stop HA application: %w", err), logFile, true)
 			return
 		}
 		if complete {
-			if err := m.runHACommand(haActivationCtx, ha.UpdateTakeoverTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion); err != nil {
+			takeoverCtx, cancelTakeover := context.WithTimeout(activationCtx, ha.UpdateTakeoverTimeout)
+			err := m.runHACommand(takeoverCtx, ha.UpdateTakeoverTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion)
+			cancelTakeover()
+			if err != nil {
 				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
 				if restartErr == nil {
 					m.fail(operationID, fmt.Errorf("updated peer did not take over; previous release restarted: %w", err), "")
