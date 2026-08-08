@@ -1892,6 +1892,22 @@ func TestRepairStartupRestoresLayoutWithoutStartingHAApplication(t *testing.T) {
 	assert.True(t, operation.RecoveryPending)
 }
 
+func TestRepairStartupRestoresInterruptedSelfUpdateBeforeState(t *testing.T) {
+	// Arrange
+	destination := installSelfUpdateForHandoffTest(t)
+	stateDir := filepath.Join(t.TempDir(), "state")
+
+	// Act
+	err := RepairStartup(Config{
+		InstallRoot: t.TempDir(), StateDir: stateDir, SelfUpdatePath: destination,
+	})
+
+	// Assert
+	require.ErrorIs(t, err, ErrInterruptedSelfUpdateRestored)
+	assert.Equal(t, "old updater", mustReadFile(t, destination))
+	assert.NoDirExists(t, stateDir)
+}
+
 func TestManagerFailsStartupWhenHARecoveryFails(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
