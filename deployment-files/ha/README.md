@@ -207,7 +207,9 @@ separate adjacent-release migration and mixed-version qualification.
 The first release containing this update workflow is the clean-install
 baseline. HA deployments on an earlier experimental release must be reinstalled
 instead of upgraded through this path. Release metadata allows no HA source by
-default. After an adjacent pair passes qualification, set its one exact source
-tag in `qualified-update-from.txt` before publishing the target. The manifest
-covers the resulting `ha_update_from` field, and the updater rejects every
-other source version. A qualified RC-to-stable pair can name the RC explicitly.
+default. To qualify an adjacent pair, set its one exact source tag in
+`qualified-update-from.txt` before publishing the target. The manifest covers
+the resulting `ha_update_from` field, and the updater rejects every other source
+version. Because the updater accepts only the fixed official release origin,
+exact-byte qualification starts after publication; do not run the update until
+its report passes. A qualified RC-to-stable pair can name the RC explicitly.
