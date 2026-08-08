@@ -186,6 +186,7 @@ type Service struct {
 	invalidateMiner       func(models.DeviceIdentifier)
 	optionsCache          *fleetoptions.Cache
 	rigConfigReapplier    func(context.Context, int64, int64)
+	unprivilegedNmap      bool
 }
 
 func NewService(
@@ -222,6 +223,11 @@ func (s *Service) WithMinerInvalidator(invalidate func(models.DeviceIdentifier))
 // pairing adds can evict stale model/firmware lists. Pass nil to disable.
 func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 	s.optionsCache = cache
+}
+
+// WithUnprivilegedNmap uses connect scans when the container has no raw-network capabilities.
+func (s *Service) WithUnprivilegedNmap() {
+	s.unprivilegedNmap = true
 }
 
 // WithRigConfigReapplier wires the post-pair desired-state convergence hook.
@@ -542,6 +548,9 @@ func (s *Service) DiscoverWithNmap(ctx context.Context, r *pb.NmapModeRequest) (
 
 		if useIPv6Scanning {
 			nmapOpts = append(nmapOpts, nmap.WithIPv6Scanning())
+		}
+		if s.unprivilegedNmap {
+			nmapOpts = append(nmapOpts, nmap.WithUnprivileged())
 		}
 
 		scanner, err = nmap.NewScanner(timeoutCtx, nmapOpts...)
