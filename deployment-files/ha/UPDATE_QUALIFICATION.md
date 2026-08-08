@@ -44,17 +44,17 @@ customer data from committed evidence.
    existing database-backed configuration, submit a command, and verify its
    completion while `N` remains active.
 5. On the updated passive, capture its running `fleet-api` and `fleet-client`
-   container IDs. Start a background watcher that polls
-   `http://127.0.0.1:4000/health/passive` at least every 100 milliseconds and
-   stops those exact containers as soon as the endpoint stops reporting
-   passive. Then run `fleet-ha update N+1 --complete` on the active. This keeps
-   the peer available for completion validation but stops it immediately after
-   it acquires the lease, before keepalived's one-second check can advertise the
-   VIP. Verify the operation log shows active validation and application stop,
-   followed by the 35-second takeover timeout and release `N` restart without a
-   deployment swap. Confirm `N` reacquires the VIP and can complete a command
-   within 60 seconds of the first failed VIP probe. Restart the updated peer
-   with `fleet-ha app-start N+1 passive` and restore full readiness before
+   container IDs, then stop keepalived so that host cannot advertise the VIP.
+   Start a background watcher that polls the uncached
+   `http://127.0.0.1:4000/health/active` endpoint at least every 100 milliseconds
+   and stops those exact containers as soon as it reports active. Continuously
+   probe the VIP from another host and run `fleet-ha update N+1 --complete` on
+   the active. Verify the updated peer never serves the VIP and the operation
+   log shows active validation and application stop, followed by the 35-second
+   takeover timeout and release `N` restart without a deployment swap. Confirm
+   `N` reacquires the VIP and can complete a command within 60 seconds of the
+   first failed VIP probe. Start keepalived, restart the updated peer with
+   `fleet-ha app-start N+1 passive`, and restore full readiness before
    continuing. This recovery bound is separate from the 15-second successful
    handoff target.
 6. With the target artifacts and build cache warmed by step 5, block a
