@@ -64,13 +64,6 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	if err := validateRelease(ctx, root, deps); err != nil {
 		return err
 	}
-	if _, err := os.Stat(infrastructureCompose); errors.Is(err, os.ErrNotExist) {
-		if output, installErr := runCommand(ctx, "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "compose.yaml"), infrastructureCompose); installErr != nil {
-			return fmt.Errorf("pin current HA infrastructure Compose file: %s", commandError(output, installErr))
-		}
-	} else if err != nil {
-		return fmt.Errorf("inspect pinned HA infrastructure Compose file: %w", err)
-	}
 	if err := validatePinnedInfrastructureGeneration(); err != nil {
 		return err
 	}
