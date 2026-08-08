@@ -369,7 +369,11 @@ func hostProbeDSN(raw, secretsDir string) (string, error) {
 	query.Set("sslrootcert", filepath.Join(secretsDir, "service-ca.crt"))
 	query.Set("default_query_exec_mode", "cache_statement")
 	dsn.RawQuery = query.Encode()
-	return dsn.String(), nil
+	probeDSN := dsn.String()
+	if err := (&db.Config{ExplicitDSN: probeDSN}).ValidateHA(); err != nil {
+		return "", fmt.Errorf("validate HA database probe: %w", err)
+	}
+	return probeDSN, nil
 }
 
 func gather[T, R any](items []T, probe func(T) R) []R {
