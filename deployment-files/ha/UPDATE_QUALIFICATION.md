@@ -48,20 +48,21 @@ and run Fleet commands as
    submissions are more than three seconds apart. Continue these probes through
    step 4. Verify the active host continues serving `N` throughout the migration
    and mixed-version window.
-4. Run the completion command. From a separate controller, use the external
-   append-only recorder, gap rejection, and uncertainty-inclusive interval rules
-   from [QUALIFICATION.md](QUALIFICATION.md). Continuously record direct active
-   health on both hosts with monotonic timestamps at 100 ms or faster. In
-   parallel, stream interface address events from both hosts and fail on any
-   active or VIP overlap. Probe
+4. From a separate controller, start the external append-only recorder, gap
+   rejection, and uncertainty-inclusive interval rules from
+   [QUALIFICATION.md](QUALIFICATION.md). Confirm initial snapshots and gap-free
+   streams before continuing. Continuously record direct active health on both
+   hosts with monotonic timestamps at 100 ms or faster. In parallel, stream
+   interface address events from both hosts and fail on any active or VIP
+   overlap. Before the handoff, hold one `N` command in PROCESSING and one
+   successor in PENDING. Then run the completion command. Probe
    `/api-proxy/health/active`, `/api-proxy/health`, and an authenticated
    database-backed request at least once per second. On the same monotonic
    clock, measure from the last successful pre-handoff VIP probe until all
    three VIP probes succeed and `/api-proxy/health` reports
    `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Verify the former
-   active rejoins as passive. Before the handoff, hold one `N` command in
-   PROCESSING and one successor in PENDING. After takeover, require the
-   PROCESSING row to fail once without replay, the PENDING row to dispatch on
+   active rejoins as passive. After takeover, require the PROCESSING row to
+   fail once without replay, the PENDING row to dispatch on
    `N+1`, and both accepted IDs to reach exactly one terminal result within 60
    seconds. Using a client loaded from `N` before handoff,
    perform a persisted read and a uniquely identified idempotent command against
