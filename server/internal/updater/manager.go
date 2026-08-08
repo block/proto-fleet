@@ -60,6 +60,7 @@ const (
 	processLockFilename      = "updater.lock"
 	activationMarkerFilename = "activation-swap.json"
 	activationMarkerTempName = ".activation-swap.json.tmp"
+	qualificationBarrierName = "qualification-pause-before-ha-stop"
 	preflightProofFilename   = ".update-preflight-complete"
 	operationArtifactPrefix  = ".proto-fleet-upgrade-"
 	selfUpdateBackupSuffix   = ".previous"
@@ -1332,6 +1333,12 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile, false)
 			return
 		}
+		if complete {
+			if err := m.waitForQualificationBarrier(activationCtx); err != nil {
+				m.fail(operationID, errors.Join(err, m.clearActivationMarker()), "")
+				return
+			}
+		}
 		stopTimeout := m.cfg.ActivationTimeout
 		if complete {
 			stopTimeout = ha.UpdateActiveStopTimeout
@@ -1447,6 +1454,27 @@ func (m *Manager) restartHAApplication(
 		return err
 	}
 	return m.clearActivationMarker()
+}
+
+// A root-created barrier lets exact release qualification stop the peer after
+// final preflight without racing the old application's stop. Normal hosts never
+// create this file and take the fast path.
+func (m *Manager) waitForQualificationBarrier(ctx context.Context) error {
+	path := filepath.Join(m.cfg.StateDir, qualificationBarrierName)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("inspect HA update qualification barrier: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for HA update qualification barrier: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (m *Manager) runPreflight(ctx context.Context, deployment string, output io.Writer) error {
