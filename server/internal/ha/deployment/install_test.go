@@ -269,7 +269,7 @@ func TestInstallUpdaterFailureDisablesHA(t *testing.T) {
 	}
 	writeTestSecretBundle(t, config)
 	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
-	require.NoError(t, os.WriteFile(rootPassword, []byte("root-password\n"), 0o600))
+	require.NoError(t, os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600))
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	run := deps.run
@@ -445,6 +445,18 @@ func TestInstallPackagesUsesUbuntuRepository(t *testing.T) {
 	require.Equal(t, "https://download.docker.com/linux/ubuntu/gpg", keyURL)
 	require.Contains(t, repository, "URIs: https://download.docker.com/linux/ubuntu")
 	require.Contains(t, repository, "Suites: noble")
+}
+
+func TestValidateReleaseRequiresHAUpdaterDropIn(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	require.NoError(t, os.Remove(filepath.Join(source, "ha", "updater-systemd.conf")))
+
+	// Act
+	err := validateRelease(source, os.ReadFile)
+
+	// Assert
+	require.ErrorContains(t, err, "release is missing ha/updater-systemd.conf")
 }
 
 func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
