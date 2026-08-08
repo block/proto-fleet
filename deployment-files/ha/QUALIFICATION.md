@@ -65,8 +65,8 @@ time and a short redacted evidence reference.
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
 | Pin an authenticated active-only API request to the passive host while retaining the VIP URL and TLS SNI | Fleet returns its machine-readable `NOT_ACTIVE` response, not a TLS or transport error | Pending | Pending | Pending |
 | Open an authenticated long-lived stream on the active host, then induce demotion | The established stream closes promptly after ownership loss | Pending | Pending | Pending |
-| Attempt TCP connections from a non-peer to ports 2379, 2380, 5432, 8008, and 40000 before and after reboot | TCP establishment fails against the installed firewall while the configured peer connects to every required HA port | Pending | Pending | Pending |
-| Send an unauthorized VRRP protocol-112 advertisement from the non-peer | The firewall drops it and VIP ownership does not change | Pending | Pending | Pending |
+| With listeners confirmed, attempt TCP connections from a non-peer to ports 2379, 2380, 5432, 8008, and 40000 before and after reboot | Required HA ports accept their configured peers but reject the non-peer. For the intentionally closed 40000 port, a temporary listener accepts loopback but rejects the non-peer. The matching nftables drop counters increase. | Pending | Pending | Pending |
+| Send an unauthorized VRRP protocol-112 advertisement from the non-peer | The VRRP drop counter increases and VIP ownership does not change | Pending | Pending | Pending |
 | Fail over during curtailment | Telemetry or independent power measurement proves load shedding within 180s | Pending | Pending | Pending |
 | After takeover, publish a uniquely identified MQTT curtailment target and then its restoration target | The new active persists both source updates and physical measurement proves shedding and restoration within 180s | Pending | Pending | Pending |
 
@@ -78,11 +78,16 @@ time and a short redacted evidence reference.
 | Database failover | 3 consecutive passes | Pending | Pending |
 | Soak | 24h with no split ownership or lost failover readiness | Pending | Pending |
 
-During the soak, sample both hosts at least every two seconds. Record local
+During the soak, sample both hosts at least every two seconds to measure
+availability. Separately poll the database lease below the three-second renewal
+interval, recording database time, holder, epoch, and expiry, and retain both
+hosts' timestamped service start/exit journals. Reconstruct each active proof
+interval and fail on overlap. Record local
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
-direct active/passive health, database lease ownership, and VIP interface
-ownership with timestamps. Fail the soak on any dual-active, dual-VIP, or
-lost-readiness sample. Redact the retained evidence before committing it.
+direct active/passive health, and VIP interface ownership with timestamps. Fail
+the soak on any dual-active, dual-VIP, or lost-readiness sample. The two-second
+samples alone are not proof against shorter ownership overlap. Redact the
+retained evidence before committing it.
 
 ## Verdict
 
