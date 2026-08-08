@@ -1591,6 +1591,29 @@ func TestManagerRestoresPreviousDeploymentAfterInterruptedSwap(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(stateDir, activationMarkerFilename))
 }
 
+func TestRepairStartupRestoresInterruptedLayout(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	require.NoError(t, os.Rename(
+		filepath.Join(installRoot, "deployment"),
+		filepath.Join(installRoot, "deployment.previous"),
+	))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+
+	// Act
+	err := RepairStartup(Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
+		DeploymentMode: DeploymentModeHA,
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+}
+
 func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *testing.T) {
 	t.Parallel()
 
