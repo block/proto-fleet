@@ -690,14 +690,15 @@ func NewManager(cfg Config) (*Manager, error) {
 // RepairStartup restores crash-interrupted updater and application state.
 func RepairStartup(cfg Config) error {
 	_, prepareErr := PrepareSelfUpdateStartup(cfg.SelfUpdatePath, "")
-	if prepareErr != nil && !errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored) {
+	restoreUpdater := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
+	if prepareErr != nil && !restoreUpdater && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
 		return prepareErr
 	}
 	manager, err := NewManager(cfg)
 	if err != nil {
 		return err
 	}
-	if prepareErr != nil {
+	if restoreUpdater {
 		err = manager.restoreUpdaterFromInstalledDeployment()
 	}
 	if err == nil {
@@ -726,11 +727,10 @@ func (m *Manager) restoreUpdaterFromInstalledDeployment() error {
 	if err := m.refreshSelfUpdater(context.Background(), installedUpdater, m.cfg.SelfUpdatePath, targetVersion); err != nil {
 		return fmt.Errorf("restore updater from installed deployment: %w", err)
 	}
-	// The candidate came from the already-verified active deployment and its
-	// version contract was smoke-tested above. Commit it before systemd starts
-	// the daemon so a second startup does not restore the stale executable again.
-	if err := clearSelfUpdateHandoffMarker(m.cfg.SelfUpdatePath); err != nil {
-		return fmt.Errorf("commit recovered updater: %w", err)
+	// The daemon gets one supervised retry and retains rollback eligibility
+	// until it binds the production socket.
+	if err := authorizeSelfUpdateRestart(m.cfg.SelfUpdatePath); err != nil {
+		return fmt.Errorf("authorize recovered updater startup: %w", err)
 	}
 	return nil
 }
