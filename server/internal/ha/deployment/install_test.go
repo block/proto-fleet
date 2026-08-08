@@ -41,7 +41,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	}
 	firewall := callIndex(calls, "sudo systemctl enable --now proto-fleet-ha-firewall.service")
 	docker := callIndex(calls, "sudo systemctl start docker.service")
-	start := callIndex(calls, "sudo systemctl enable --now proto-fleet-ha.service")
+	start := callIndex(calls, "sudo systemctl start proto-fleet-ha.service")
+	enable := callIndex(calls, "sudo systemctl enable proto-fleet-ha.service")
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
@@ -52,8 +53,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || dockerRecovery < 0 || start < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < start && rootPasswordInstall < start) {
+	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
+		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < start && start < enable && enable < dockerRecovery && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -84,7 +85,7 @@ func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	run := deps.run
 	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		output, err := run(ctx, name, args...)
-		if strings.Contains(strings.Join(append([]string{name}, args...), " "), "systemctl enable --now proto-fleet-ha.service") {
+		if strings.Contains(strings.Join(append([]string{name}, args...), " "), "systemctl start proto-fleet-ha.service") {
 			return nil, errors.New("start failed")
 		}
 		return output, err
@@ -126,7 +127,10 @@ func TestInstallReadinessFailureDisablesHA(t *testing.T) {
 
 	// Assert
 	require.ErrorContains(t, err, "failover readiness did not become healthy")
-	require.Contains(t, strings.Join(calls, "\n"), "sudo systemctl disable --now proto-fleet-ha.service")
+	joined := strings.Join(calls, "\n")
+	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
+	require.NotContains(t, joined, "sudo systemctl enable proto-fleet-ha.service")
+	require.NotContains(t, joined, "docker-ha-recovery-systemd.conf "+dockerRecoveryDropIn)
 }
 
 func TestPrepareImagesRejectsMissingHADatabaseImage(t *testing.T) {
