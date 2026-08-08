@@ -36,8 +36,9 @@ and run Fleet commands as
    run `N`'s affected database and API integration tests against it. Require
    completed baseline reports from [QUALIFICATION.md](QUALIFICATION.md) for the
    exact `N` and `N+1` artifacts, then install `N` for this procedure.
-2. Record the container IDs and start times for etcd and Patroni on every host,
-   plus `pg_postmaster_start_time()` on both PostgreSQL members.
+2. Record the etcd container ID and start time on all three hosts, the Patroni
+   container ID and start time on both database hosts, and
+   `pg_postmaster_start_time()` on both PostgreSQL members.
 3. Before running the update command on the passive application host, start
    authenticated database-backed reads and uniquely identified idempotent
    commands through the VIP at least once per second. Give each request a
@@ -53,8 +54,10 @@ and run Fleet commands as
    `/run/proto-fleet-updater/updater.sock`. As soon as its operation phase is
    `activating`, peer validation has passed and the old active is about to stop.
    Immediately run
-   `sudo /opt/proto-fleet/deployment/ha/fleet-ha app-stop` on the updated peer
-   and confirm its Fleet containers stop before the 10-second lease expires.
+   `sudo /opt/proto-fleet/deployment/ha/fleet-ha app-stop passive` on the
+   updated peer. Require a zero exit status, then run
+   `sudo /opt/proto-fleet/deployment/ha/fleet-ha compose ps --status running fleet-api fleet-client`
+   and confirm it lists neither Fleet container before the 10-second lease expires.
    Patroni, PostgreSQL, etcd, and keepalived must remain running. Keep recording
    until the command times out without swapping deployments, restarts `N`, and
    restores a usable VIP and successful command within 60 seconds. Fail on any
