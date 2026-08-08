@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
@@ -97,7 +98,7 @@ func run(ctx context.Context, args []string) error {
 	case "install":
 		return runInstall(ctx, args[1:])
 	case "update":
-		return runPassiveUpdate(ctx, args[1:], os.Stdout, deployment.ValidatePassiveUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
+		return runPassiveUpdate(ctx, args[1:], os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
 	case "start":
 		return runStart(ctx, args[1:])
 	case "stop":
@@ -110,6 +111,12 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("usage: fleet-ha require-passive NODE_ENV VERSION")
 		}
 		return deployment.ValidatePassiveUpdate(ctx, args[1], args[2])
+	case "require-active":
+		if len(args) != 3 {
+			return errors.New("usage: fleet-ha require-active NODE_ENV VERSION")
+		}
+		_, err := deployment.ValidateActiveUpdate(ctx, args[1], args[2])
+		return err
 	case "update-preflight":
 		if len(args) != 1 {
 			return errors.New("usage: fleet-ha update-preflight")
@@ -120,24 +127,30 @@ func run(ctx context.Context, args []string) error {
 		}
 		return deployment.PrepareApplicationUpdate(ctx, root)
 	case "app-stop":
-		if len(args) != 1 {
-			return errors.New("usage: fleet-ha app-stop")
+		if len(args) != 2 || (args[1] != "passive" && args[1] != "active") {
+			return errors.New("usage: fleet-ha app-stop <passive|active>")
 		}
 		root, err := deployment.ReleaseRoot()
 		if err != nil {
 			return err
 		}
-		return deployment.StopApplication(ctx, root)
+		return deployment.StopApplication(ctx, root, ha.RuntimeRole(args[1]))
 	case "app-start":
-		if len(args) != 2 && (len(args) != 3 || (args[2] != "passive" && args[2] != "any")) {
-			return errors.New("usage: fleet-ha app-start VERSION <passive|any>")
+		if len(args) != 2 && (len(args) != 3 || (args[2] != "passive" && args[2] != "complete" && args[2] != "any")) {
+			return errors.New("usage: fleet-ha app-start VERSION <passive|complete|any>")
 		}
 		root, err := deployment.ReleaseRoot()
 		if err != nil {
 			return err
 		}
-		requirePassive := len(args) == 2 || args[2] == "passive"
-		return deployment.StartApplication(ctx, root, args[1], requirePassive)
+		requirePassive := len(args) == 2 || args[2] != "any"
+		requireFailoverReady := len(args) == 3 && args[2] == "complete"
+		return deployment.StartApplication(ctx, root, args[1], requirePassive, requireFailoverReady)
+	case "wait-takeover":
+		if len(args) != 2 {
+			return errors.New("usage: fleet-ha wait-takeover VERSION")
+		}
+		return deployment.WaitForVIPVersion(ctx, installedNodeEnv, args[1])
 	default:
 		return usageError()
 	}
@@ -155,6 +168,7 @@ const (
 type updaterClient interface {
 	Status(ctx context.Context) (updaterapi.StatusResponse, error)
 	Trigger(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+	TriggerComplete(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
 }
 
 const (
@@ -164,7 +178,15 @@ const (
 
 type updateTrigger func(context.Context, string, string) (updaterapi.Operation, error)
 
-type updatePreflight func(context.Context, string, string) error
+type updatePreflight func(context.Context, string, string, bool) error
+
+func validateHAUpdate(ctx context.Context, envPath, targetVersion string, complete bool) error {
+	if complete {
+		_, err := deployment.ValidateActiveUpdate(ctx, envPath, targetVersion)
+		return err
+	}
+	return deployment.ValidatePassiveUpdate(ctx, envPath, targetVersion)
+}
 
 func runPassiveUpdate(
 	ctx context.Context,
@@ -174,6 +196,7 @@ func runPassiveUpdate(
 	client updaterClient,
 	read statusReader,
 ) error {
+	complete := len(args) == 2 && args[1] == "--complete"
 	if err := runUpdate(ctx, args, output, preflight, client); err != nil {
 		return err
 	}
@@ -184,7 +207,7 @@ func runPassiveUpdate(
 	if report.Control != nil && report.Control.FailoverReady {
 		return nil
 	}
-	if deployment.ExpectedRollingVersionMismatch(report.Control) {
+	if !complete && deployment.ExpectedRollingVersionMismatch(report.Control) {
 		_, err = fmt.Fprintln(output, "Update succeeded; failover readiness will recover after the peer is updated.")
 		if err != nil {
 			return fmt.Errorf("write update outcome: %w", err)
@@ -204,14 +227,19 @@ func runUpdate(
 	preflight updatePreflight,
 	client updaterClient,
 ) error {
-	if len(args) != 1 {
-		return errors.New("usage: fleet-ha update VERSION")
+	complete := len(args) == 2 && args[1] == "--complete"
+	if len(args) != 1 && !complete {
+		return errors.New("usage: fleet-ha update VERSION [--complete]")
 	}
-	if err := preflight(ctx, installedNodeEnv, args[0]); err != nil {
+	if err := preflight(ctx, installedNodeEnv, args[0], complete); err != nil {
 		return err
 	}
 	operationID := uuid.NewString()
-	operation, err := triggerUpdate(ctx, operationID, args[0], client.Trigger)
+	trigger := updateTrigger(client.Trigger)
+	if complete {
+		trigger = client.TriggerComplete
+	}
+	operation, err := triggerUpdate(ctx, operationID, args[0], trigger)
 	if err != nil {
 		return err
 	}

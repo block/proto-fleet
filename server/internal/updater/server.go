@@ -250,7 +250,12 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "invalid request body"})
 		return
 	}
-	operation, err := s.manager.TriggerWithID(request.TargetVersion, request.OperationID)
+	var operation updaterapi.Operation
+	if request.Complete {
+		operation, err = s.manager.TriggerCompleteWithID(request.TargetVersion, request.OperationID)
+	} else {
+		operation, err = s.manager.TriggerWithID(request.TargetVersion, request.OperationID)
+	}
 	if err != nil {
 		status := triggerErrorHTTPStatus(err)
 		message := err.Error()

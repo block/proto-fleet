@@ -72,16 +72,25 @@ func (c *Client) Status(ctx context.Context) (StatusResponse, error) {
 }
 
 func (c *Client) Trigger(ctx context.Context, operationID, targetVersion string) (Operation, error) {
-	request := TriggerRequest{OperationID: operationID, TargetVersion: targetVersion}
+	return c.trigger(ctx, operationID, targetVersion, false)
+}
+
+func (c *Client) TriggerComplete(ctx context.Context, operationID, targetVersion string) (Operation, error) {
+	return c.trigger(ctx, operationID, targetVersion, true)
+}
+
+func (c *Client) trigger(ctx context.Context, operationID, targetVersion string, complete bool) (Operation, error) {
+	request := TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, Complete: complete}
 	var response TriggerResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/upgrade", request, &response); err != nil {
 		return Operation{}, err
 	}
-	if response.Operation.ID != operationID || response.Operation.TargetVersion != targetVersion {
+	if response.Operation.ID != operationID || response.Operation.TargetVersion != targetVersion || response.Operation.Complete != complete {
 		return Operation{}, &ProtocolError{Cause: fmt.Errorf(
-			"operation identity mismatch: got id %q target %q",
+			"operation identity mismatch: got id %q target %q complete %t",
 			response.Operation.ID,
 			response.Operation.TargetVersion,
+			response.Operation.Complete,
 		)}
 	}
 	return response.Operation, nil

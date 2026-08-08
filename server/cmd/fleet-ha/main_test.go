@@ -15,8 +15,18 @@ import (
 
 type fakeUpdaterClient struct {
 	triggered  bool
+	complete   bool
 	triggerErr error
 	operation  updaterapi.Operation
+}
+
+func (f *fakeUpdaterClient) TriggerComplete(_ context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
+	f.triggered = true
+	f.complete = true
+	if f.triggerErr != nil {
+		return updaterapi.Operation{}, f.triggerErr
+	}
+	return updaterapi.Operation{ID: operationID, TargetVersion: targetVersion, Phase: updaterapi.PhaseSucceeded}, nil
 }
 
 func (f *fakeUpdaterClient) Status(context.Context) (updaterapi.StatusResponse, error) {
@@ -80,7 +90,7 @@ func TestUpdateRequiresPassiveBeforeTriggering(t *testing.T) {
 	client := &fakeUpdaterClient{}
 
 	// Act
-	err := runUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string) error {
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string, bool) error {
 		return errors.New("local Fleet is active")
 	}, client)
 
@@ -99,7 +109,7 @@ func TestUpdateReportsTerminalSuccess(t *testing.T) {
 	var output bytes.Buffer
 
 	// Act
-	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string) error { return nil }, client)
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string, bool) error { return nil }, client)
 
 	// Assert
 	require.NoError(t, err)
@@ -121,7 +131,7 @@ func TestPassiveUpdateReportsDegradedFailoverReadiness(t *testing.T) {
 	}
 
 	// Act
-	err := runPassiveUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string) error { return nil }, client, read)
+	err := runPassiveUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string, bool) error { return nil }, client, read)
 
 	// Assert
 	require.ErrorContains(t, err, "failover readiness is degraded")
@@ -139,10 +149,27 @@ func TestPassiveUpdateAllowsExpectedVersionMismatch(t *testing.T) {
 	}
 
 	// Act
-	err := runPassiveUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string) error { return nil }, client, read)
+	err := runPassiveUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string, bool) error { return nil }, client, read)
 
 	// Assert
 	require.NoError(t, err)
+}
+
+func TestCompleteUpdateRejectsExpectedVersionMismatch(t *testing.T) {
+	// Arrange
+	client := &fakeUpdaterClient{}
+	read := func(context.Context, string, bool) (deployment.StatusReport, error) {
+		return deployment.StatusReport{Control: &deployment.ControlStatus{
+			ControlReady: true,
+			ReasonCodes:  []deployment.ControlReasonCode{deployment.ReasonFleetVersionMismatch},
+		}}, nil
+	}
+
+	// Act
+	err := runPassiveUpdate(t.Context(), []string{"v1.2.3", "--complete"}, &bytes.Buffer{}, func(context.Context, string, string, bool) error { return nil }, client, read)
+
+	// Assert
+	require.ErrorContains(t, err, "failover readiness is degraded")
 }
 
 func TestUpdateReturnsWhenUpdaterIsUnavailable(t *testing.T) {
@@ -150,7 +177,7 @@ func TestUpdateReturnsWhenUpdaterIsUnavailable(t *testing.T) {
 	client := &fakeUpdaterClient{triggerErr: updaterapi.ErrUnavailable}
 
 	// Act
-	err := runUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string) error { return nil }, client)
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &bytes.Buffer{}, func(context.Context, string, string, bool) error { return nil }, client)
 
 	// Assert
 	require.ErrorIs(t, err, updaterapi.ErrUnavailable)
@@ -165,10 +192,39 @@ func TestUpdateFailureIncludesRecoveryDetails(t *testing.T) {
 	var output bytes.Buffer
 
 	// Act
-	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string) error { return nil }, client)
+	err := runUpdate(t.Context(), []string{"v1.2.3"}, &output, func(context.Context, string, string, bool) error { return nil }, client)
 
 	// Assert
 	require.ErrorContains(t, err, "Recovery: fleet-ha app-start v1.2.3")
 	require.ErrorContains(t, err, "Log: /var/log/proto-fleet-updater/update.log")
 	require.Contains(t, output.String(), "Update operation")
+}
+
+func TestCompleteUpdateRequiresActiveAndUsesCompletionRequest(t *testing.T) {
+	// Arrange
+	client := &fakeUpdaterClient{}
+	activeChecked := false
+
+	// Act
+	err := runUpdate(
+		t.Context(), []string{"v1.2.3", "--complete"}, &bytes.Buffer{},
+		func(_ context.Context, _, _ string, complete bool) error {
+			activeChecked = complete
+			return nil
+		},
+		client,
+	)
+
+	// Assert
+	require.NoError(t, err)
+	require.True(t, activeChecked)
+	require.True(t, client.complete)
+}
+
+func TestAppStartAcceptsPreviousUpdaterInvocation(t *testing.T) {
+	// Act
+	err := run(t.Context(), []string{"app-start", "v1.2.3"})
+
+	// Assert
+	require.ErrorContains(t, err, "packaged release")
 }

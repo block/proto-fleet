@@ -131,6 +131,43 @@ roles or users; clear the incomplete etcd data and rerun the clean install.
 The Docker repository setup follows the official
 [Debian installation instructions](https://docs.docker.com/engine/install/debian/).
 
+## Update a passive Fleet host
+
+HA disables application-triggered updates. On the passive database host, run:
+
+```bash
+sudo /opt/proto-fleet/deployment/ha/fleet-ha update v0.2.11
+```
+
+The local updater downloads the release from the fixed Proto Fleet GitHub
+release origin, verifies its SHA256 checksum, builds and persists the staged
+Fleet images, then rechecks that this host is passive. It stops and replaces
+only `fleet-api` and `fleet-client`; etcd, Patroni, PostgreSQL, and keepalived
+remain running. The command returns only after the target version is healthy
+and passive.
+
+After the peer is confirmed on the target release, complete the update from
+the old active host:
+
+```bash
+sudo /opt/proto-fleet/deployment/ha/fleet-ha update v0.2.11 --complete
+```
+
+If the updated host has already become active, the old host is now passive.
+Run the ordinary `fleet-ha update v0.2.11` command on that passive host instead.
+
+The source release must already contain this HA update protocol. HA is being
+introduced for new deployments, so an older experimental HA installation that
+predates `update --complete` must be reinstalled at the supported baseline
+rather than upgraded through this workflow.
+
+The updater stages everything first, stops the local Fleet containers, and
+waits for the updated peer to serve the VIP with the target version. Only then
+does it swap and restart the local application as passive. If takeover does
+not complete within 35 seconds, it restarts the old local release without
+swapping. Qualification still requires a healthy takeover in less than 15
+seconds. This is a bounded interruption, not a zero-downtime update.
+
 ## Qualification
 
 Run static profile checks in CI or locally:
