@@ -25,10 +25,15 @@ const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
 const ACKNOWLEDGED_OPERATION_KEY = "protoFleet:acknowledged-upgrade-operation";
 const AUTH_SESSION_IDENTITY = "operator-a:1000";
 
-const useTestUpgradeOperation = (
-  options: Omit<Parameters<typeof useUpgradeOperation>[0], "authSessionIdentity">,
-  authSessionIdentity = AUTH_SESSION_IDENTITY,
-) => useUpgradeOperation({ authSessionIdentity, ...options });
+type TestUpgradeOperationOptions = Omit<
+  Parameters<typeof useUpgradeOperation>[0],
+  "authSessionIdentity" | "currentVersionUnavailable"
+> & {
+  currentVersionUnavailable?: boolean;
+};
+
+const useTestUpgradeOperation = (options: TestUpgradeOperationOptions, authSessionIdentity = AUTH_SESSION_IDENTITY) =>
+  useUpgradeOperation({ authSessionIdentity, currentVersionUnavailable: false, ...options });
 
 type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
 
@@ -148,6 +153,24 @@ describe("useUpgradeOperation", () => {
     expect(result.current.triggerError).toBeNull();
   });
 
+  it("does not let a stale terminal failure resolve an ambiguous trigger", async () => {
+    const staleFailure = operation(UpgradePhase.FAILED, {
+      id: "operation-old",
+      targetVersion: "v1.1.0",
+    });
+    mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, staleFailure));
+    mockTriggerUpgrade.mockRejectedValue(new Error("response lost"));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(2));
+
+    expect(result.current.operation).toBeUndefined();
+    expect(result.current.reconciling).toBe(true);
+    expect(result.current.trackedTargetVersion).toBe("v1.3.0");
+  });
+
   it("ends bounded reconciliation and preserves an actionable trigger error", async () => {
     vi.useFakeTimers();
     mockGetUpgradeStatus.mockResolvedValue(status());
@@ -249,6 +272,32 @@ describe("useUpgradeOperation", () => {
     expect(result.current.connectionLost).toBe(false);
   });
 
+  it.each([
+    ["an unreachable executor", status(false)],
+    ["a reachable executor with no operation", status(true)],
+  ])("offers explicit fallback when an active operation is lost by %s", async (_scenario, missingStatus) => {
+    vi.useFakeTimers();
+    const activeOperation = operation(UpgradePhase.ACTIVATING);
+    mockGetUpgradeStatus.mockResolvedValueOnce(status(true, activeOperation)).mockResolvedValue(missingStatus);
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await act(async () => Promise.resolve());
+    expect(result.current.operation?.phase).toBe(UpgradePhase.ACTIVATING);
+
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(result.current.reconciling).toBe(true);
+    expect(result.current.connectionLost).toBe(true);
+    expect(result.current.manualFallbackReady).toBe(false);
+
+    await act(async () => vi.advanceTimersByTimeAsync(16_000));
+    expect(result.current.manualFallbackReady).toBe(true);
+    expect(result.current.operation?.phase).toBe(UpgradePhase.ACTIVATING);
+
+    act(() => result.current.useManualFallback());
+    expect(result.current.reconciling).toBe(false);
+    expect(result.current.operation).toBeUndefined();
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
+  });
+
   it("does not replay an untracked historical success", async () => {
     mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.SUCCEEDED)));
     const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.3.0" }));
@@ -284,6 +333,28 @@ describe("useUpgradeOperation", () => {
     rerender({ currentVersion: "v1.2.0" });
 
     await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+  });
+
+  it("shows an untracked failure after current-version loading definitively fails", async () => {
+    const failedOperation = operation(UpgradePhase.FAILED, {
+      hostLogPath: "/var/lib/proto-fleet-updater/logs/operation-1.log",
+      recoveryCommand: "./run-fleet.sh --skip-build",
+    });
+    mockGetUpgradeStatus.mockResolvedValue(status(true, failedOperation));
+    const { rerender, result } = renderHook(
+      ({ currentVersionUnavailable }: { currentVersionUnavailable: boolean }) =>
+        useTestUpgradeOperation({ enabled: true, currentVersionUnavailable }),
+      { initialProps: { currentVersionUnavailable: false } },
+    );
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+    expect(result.current.operation).toBeUndefined();
+
+    rerender({ currentVersionUnavailable: true });
+
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+    expect(result.current.operation?.recoveryCommand).toBe("./run-fleet.sh --skip-build");
+    expect(result.current.operation?.hostLogPath).toContain("operation-1.log");
   });
 
   it("scopes an acknowledged terminal failure to the authenticated session", async () => {

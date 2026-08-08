@@ -161,8 +161,8 @@ const UpgradeOperationModal = ({
             </div>
             {manualFallbackReady ? (
               <p className="text-300 font-medium text-text-critical">
-                The host updater is still unreachable. Only unlock the manual command after checking the host and
-                confirming no upgrade is running; overlapping installs can leave the deployment unusable.
+                The host updater is not reporting this upgrade. Only unlock the manual command after checking the host
+                and confirming no upgrade is running. Overlapping installs can leave the deployment unusable.
               </p>
             ) : (
               <p className="text-300 text-text-primary-70">

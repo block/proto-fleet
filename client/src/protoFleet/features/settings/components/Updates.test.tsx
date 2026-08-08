@@ -296,6 +296,12 @@ describe("Updates", () => {
     expect(await page.findByText(/checking upgrade status/i)).toBeInTheDocument();
     expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+
+    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    const detailsButton = page.getByRole("button", { name: "View upgrade details" });
+    expect(detailsButton).toBeEnabled();
+    fireEvent.click(detailsButton);
+    expect(page.getByTestId("upgrade-operation-modal")).toBeInTheDocument();
   });
 
   it("locks competing controls whenever a persisted operation remains unresolved", async () => {
@@ -431,6 +437,11 @@ describe("Updates", () => {
 
     expect(await findByText("Unable to load update status")).toBeInTheDocument();
     expect(getByText("release registry unreachable")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockUseUpgradeOperation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ currentVersionUnavailable: true }),
+      ),
+    );
   });
 
   it("saves a channel change and toasts success", async () => {

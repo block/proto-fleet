@@ -146,6 +146,7 @@ const Updates = () => {
     authSessionIdentity: `${username}:${sessionExpiry?.getTime() ?? "signed-out"}`,
     enabled: canUpdateInstance,
     currentVersion: status?.currentVersion,
+    currentVersionUnavailable: Boolean(loadError && !status),
     onPollError: handleUpgradePollError,
   });
   const activeUpgrade = isUpgradeActive(upgrade.operation);
@@ -422,7 +423,7 @@ const Updates = () => {
                       <Button
                         variant={hasUpgradeDetails ? variants.secondary : variants.primary}
                         text={hasUpgradeDetails ? "View upgrade details" : `Upgrade to ${release.version}`}
-                        disabled={upgradeActionDisabled}
+                        disabled={hasUpgradeDetails ? false : upgradeActionDisabled}
                         onClick={() => setUpgradeModalOpen(true)}
                       />
                     </Row>

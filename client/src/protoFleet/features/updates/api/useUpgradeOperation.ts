@@ -25,6 +25,7 @@ interface AcknowledgedOperation {
 interface UseUpgradeOperationOptions {
   authSessionIdentity: string;
   currentVersion?: string;
+  currentVersionUnavailable: boolean;
   enabled: boolean;
   onPollError?: (error: unknown) => void;
 }
@@ -94,6 +95,7 @@ const readAcknowledgedOperation = (authSessionIdentity: string): string | null =
 export function useUpgradeOperation({
   authSessionIdentity,
   currentVersion,
+  currentVersionUnavailable,
   enabled,
   onPollError,
 }: UseUpgradeOperationOptions): UseUpgradeOperationResult {
@@ -118,11 +120,13 @@ export function useUpgradeOperation({
   const acknowledgedOperationRef = useRef(acknowledgedOperation);
   const reconcilingRef = useRef(reconciling);
   const currentVersionRef = useRef(currentVersion);
+  const currentVersionUnavailableRef = useRef(currentVersionUnavailable);
   const onPollErrorRef = useRef(onPollError);
   const reconciliationDeadlineRef = useRef<number | null>(null);
   const authSessionIdentityRef = useRef(authSessionIdentity);
 
   currentVersionRef.current = currentVersion;
+  currentVersionUnavailableRef.current = currentVersionUnavailable;
   onPollErrorRef.current = onPollError;
 
   useEffect(() => {
@@ -202,6 +206,20 @@ export function useUpgradeOperation({
     }
   }, []);
 
+  const reconcileMissingActiveOperation = useCallback(() => {
+    if (!isUpgradeActive(operationRef.current)) {
+      return false;
+    }
+    if (!reconcilingRef.current) {
+      reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
+      setManualFallbackReady(false);
+      updateReconciling(true);
+    }
+    setConnectionLost(true);
+    allowManualFallbackAfterTimeout();
+    return true;
+  }, [allowManualFallbackAfterTimeout, updateReconciling]);
+
   const resolveRecoveredOperationMiss = useCallback(() => {
     if (!reconcilingRef.current || !trackedOperationRef.current?.id) {
       return false;
@@ -243,6 +261,10 @@ export function useUpgradeOperation({
         return false;
       }
 
+      if (tracked && !trackedMatches) {
+        return false;
+      }
+
       // A manual recovery may have installed the failed target successfully.
       // Do not replay the updater's stale failure once Fleet reports that exact
       // version as current.
@@ -258,7 +280,8 @@ export function useUpgradeOperation({
 
       const unresolvedFailure =
         next.phase === UpgradePhase.FAILED &&
-        Boolean(currentVersionRef.current && currentVersionRef.current !== next.targetVersion);
+        (currentVersionUnavailableRef.current ||
+          Boolean(currentVersionRef.current && currentVersionRef.current !== next.targetVersion));
       if (!trackedMatches && !unresolvedFailure) {
         return false;
       }
@@ -289,6 +312,9 @@ export function useUpgradeOperation({
         }
 
         if (!response.executorAvailable) {
+          if (reconcileMissingActiveOperation()) {
+            return;
+          }
           if (isUpgradeActive(operationRef.current) || reconcilingRef.current || trackedOperationRef.current) {
             setConnectionLost(true);
           }
@@ -296,14 +322,10 @@ export function useUpgradeOperation({
           return;
         }
 
-        if (isUpgradeActive(operationRef.current)) {
-          // The executor is reachable but lost the operation that Fleet was
-          // following. Preserve the last durable phase rather than exposing a
-          // competing action while reconciliation continues.
-          setConnectionLost(true);
-        } else {
-          setConnectionLost(false);
+        if (reconcileMissingActiveOperation()) {
+          return;
         }
+        setConnectionLost(false);
         if (resolveRecoveredOperationMiss()) {
           return;
         }
@@ -311,6 +333,9 @@ export function useUpgradeOperation({
       } catch (error) {
         if (signal.aborted) return;
         onPollErrorRef.current?.(error);
+        if (reconcileMissingActiveOperation()) {
+          return;
+        }
         if (isUpgradeActive(operationRef.current) || reconcilingRef.current || trackedOperationRef.current) {
           setConnectionLost(true);
         }
@@ -321,6 +346,7 @@ export function useUpgradeOperation({
       acceptServerOperation,
       allowManualFallbackAfterTimeout,
       finishExpiredReconciliation,
+      reconcileMissingActiveOperation,
       resolveRecoveredOperationMiss,
     ],
   );
@@ -351,7 +377,7 @@ export function useUpgradeOperation({
       controller?.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [currentVersion, enabled, pollRevision, pollStatus]);
+  }, [currentVersion, currentVersionUnavailable, enabled, pollRevision, pollStatus]);
 
   const triggerUpgrade = useCallback(
     async (targetVersion: string) => {
@@ -402,12 +428,13 @@ export function useUpgradeOperation({
   const useManualFallback = useCallback(() => {
     if (!manualFallbackReady) return;
     updateTrackedOperation(undefined);
+    updateOperation(undefined);
     reconciliationDeadlineRef.current = null;
     setManualFallbackReady(false);
     updateReconciling(false);
     setConnectionLost(false);
     setTriggerError(null);
-  }, [manualFallbackReady, updateReconciling, updateTrackedOperation]);
+  }, [manualFallbackReady, updateOperation, updateReconciling, updateTrackedOperation]);
 
   const reloadFleet = useCallback(() => {
     updateTrackedOperation(undefined);
