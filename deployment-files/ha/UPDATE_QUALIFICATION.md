@@ -127,13 +127,17 @@ and restart the updater after the run, whether the report passes or fails.
    status sockets are healthy. Reboot the two application/database hosts one
    at a time, restoring full readiness between reboots. Repeat the updater
    checks and verify both hosts retain Fleet data and can serve a command.
-10. From a clean `N` baseline, run three separate interruption cases. First,
+10. From a clean `N` baseline, run four separate interruption cases. First,
     use the root-owned pre-stop barrier from step 5 and SIGKILL the updater
     after final preflight; the old active must keep serving and the updater must
     restart cleanly. Second, power-cycle the updating host while
     `/var/lib/proto-fleet-updater/activation-swap.json` and
     `/opt/proto-fleet/deployment.previous` prove a swap is in progress. Third,
-    SIGKILL the updater while
+    power-cycle after that marker clears but while updater status is still
+    activating and the target application is not healthy. Require restart
+    recovery to retain `N+1`, finish startup and migrations, clear pending
+    recovery, and restore control and failover readiness. Fourth, SIGKILL the
+    updater while
     `/usr/local/libexec/proto-fleet/proto-fleet-updater.handoff` exists during
     self-replacement. Repeat a case if its durable marker clears before the
     fault lands. After each restart, require one valid deployment directory,
