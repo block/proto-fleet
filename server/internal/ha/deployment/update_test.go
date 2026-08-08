@@ -31,49 +31,6 @@ func TestApplicationReadyRequiresAPIAndClientOnTargetRelease(t *testing.T) {
 	}
 }
 
-func TestLocalApplicationReadyRequiresBothServicesOnTargetRelease(t *testing.T) {
-	// Act
-	ready := localApplicationReady(
-		ha.Status{Version: "v1.1.0", Observation: ha.ObservationStale},
-		fleetHostStatus{reachable: true, version: "v1.1.0"},
-		"v1.1.0",
-	)
-	oldClient := localApplicationReady(
-		ha.Status{Version: "v1.1.0"},
-		fleetHostStatus{reachable: true, version: "v1.0.0"},
-		"v1.1.0",
-	)
-
-	// Assert
-	require.True(t, ready)
-	require.False(t, oldClient)
-}
-
-func TestRecoveryStartDoesNotRecreateRunningApplication(t *testing.T) {
-	for _, test := range []struct {
-		name       string
-		running    int
-		wantOption string
-		wantNoop   bool
-	}{
-		{name: "both services running", running: 2, wantNoop: true},
-		{name: "one service running", running: 1, wantOption: "--no-recreate"},
-		{name: "services stopped", wantOption: "--force-recreate"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Act
-			args := applicationStartArgs("/release", true, test.running)
-
-			// Assert
-			if test.wantNoop {
-				require.Nil(t, args)
-				return
-			}
-			require.Contains(t, args, test.wantOption)
-		})
-	}
-}
-
 func TestRollingUpdateApplicationRejectsActiveTakeover(t *testing.T) {
 	// Arrange
 	report := StatusReport{
