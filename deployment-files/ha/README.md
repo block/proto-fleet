@@ -180,11 +180,6 @@ only `fleet-api` and `fleet-client`; etcd, Patroni, PostgreSQL, and keepalived
 remain running. The command returns only after the target version is healthy
 and passive.
 
-The old active and new passive share the database during this rolling window.
-Every migration in the target release must be expand-only and remain compatible
-with the previous release; destructive contract migrations belong in a later
-release after both HA hosts have advanced.
-
 After the peer is confirmed on the target release, complete the update from
 the old active host:
 
