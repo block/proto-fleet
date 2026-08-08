@@ -2968,10 +2968,16 @@ func releaseServerWithState(t *testing.T, version, arch string, bundle []byte, c
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/releases/tags/"+version, func(w http.ResponseWriter, _ *http.Request) {
+		assets := make([]map[string]string, 13)
+		for index := range assets {
+			assets[index] = map[string]string{"name": fmt.Sprintf("release-asset-%d", index)}
+		}
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 			"tag_name":   version,
 			"draft":      false,
 			"prerelease": prerelease,
+			"body":       strings.Repeat("representative release notes\n", 256),
+			"assets":     assets,
 		}))
 	})
 	mux.HandleFunc("/"+version+"/"+archiveName, func(w http.ResponseWriter, _ *http.Request) {

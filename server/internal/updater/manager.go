@@ -53,7 +53,7 @@ const (
 	defaultCandidateTimeout  = 10 * time.Second
 	maxCommandLogBytes       = int64(64 << 20)
 	maxCandidateVersionBytes = int64(4096)
-	maxReleaseStateBytes     = int64(4096)
+	maxReleaseStateBytes     = int64(8 << 20)
 	maxRetainedOperationLogs = 8
 	maxRetainedLogBytes      = int64(256 << 20)
 	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
@@ -1743,19 +1743,12 @@ func (m *Manager) requireQualifiedRelease(ctx context.Context, targetVersion str
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("verify HA release qualification: release API returned %s", response.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxReleaseStateBytes+1))
-	if err != nil {
-		return fmt.Errorf("read HA release state: %w", err)
-	}
-	if int64(len(body)) > maxReleaseStateBytes {
-		return fmt.Errorf("read HA release state: response exceeds %d bytes", maxReleaseStateBytes)
-	}
 	var release struct {
 		TagName    string `json:"tag_name"`
 		Draft      bool   `json:"draft"`
 		Prerelease bool   `json:"prerelease"`
 	}
-	if err := json.Unmarshal(body, &release); err != nil {
+	if err := json.NewDecoder(io.LimitReader(response.Body, maxReleaseStateBytes)).Decode(&release); err != nil {
 		return fmt.Errorf("decode HA release state: %w", err)
 	}
 	if release.TagName != targetVersion || release.Draft {
