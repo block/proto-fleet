@@ -1,13 +1,21 @@
 # Proto Fleet HA update qualification
 
-Use this report to qualify one adjacent released-version update, `N` to `N+1`,
-on the supported three-host HA profile. Redact addresses, credentials,
-certificates, device names, and customer data from committed evidence.
+Use this report to qualify one adjacent update, `N` to `N+1`, on the supported
+three-host HA profile. Redact addresses, credentials, certificates, device
+names, and customer data from committed evidence.
 
-This first version qualifies exact artifacts after publication because the
-production updater accepts only the fixed official release origin. Publication
-makes the pair downloadable, not supported. Do not run the update until this
-report passes; a separate prepublication artifact channel is deferred.
+Publish the final `N+1` tag and assets at the fixed official release origin as
+a GitHub prerelease. HA does not offer UI-triggered updates, so only an explicit
+local operator command can select this candidate. After every gate passes,
+promote that same release without changing its tag or assets. A failed report
+leaves the release marked prerelease and unsupported.
+
+This report does not claim hardware qualification of the automatic
+old-release restart when the peer fails to take over. That path is covered by
+the updater's focused tests, but making the hardware drill deterministic would
+require a production fault-injection hook. If completion times out during this
+initial release, follow the reported recovery command and verify local HA
+status before retrying.
 
 ## Test identity
 
@@ -25,7 +33,7 @@ Set `SOURCE_RELEASE` and `TARGET_RELEASE` to the recorded canonical release tags
 and run Fleet commands as
 `sudo /opt/proto-fleet/deployment/ha/fleet-ha update "$TARGET_RELEASE"`.
 
-1. Verify the published `N` and `N+1` artifacts and their checksums. Confirm
+1. Verify the stable `N` and prerelease `N+1` artifacts and their checksums. Confirm
    the target was built from a reviewed
    `qualified-update-from.txt` containing exactly `SOURCE_RELEASE`, and that
    its manifest-covered `ha_update_from` field matches. An empty file makes the
@@ -108,5 +116,6 @@ and run Fleet commands as
 
 ## Verdict
 
-**Pending.** Mark the adjacent update supported only when every gate passes and
-attach the redacted evidence to this report.
+**Pending.** Mark the adjacent update supported only when every gate passes,
+attach the redacted evidence to this report, and promote the unchanged `N+1`
+GitHub release from prerelease to stable.
