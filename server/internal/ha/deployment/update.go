@@ -15,8 +15,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
-// Bounds the planned interruption promised by the HA update flow.
-const vipTakeoverTimeout = 15 * time.Second
+// Leaves room for lease expiry and acquisition before falling back to the old release.
+const vipTakeoverTimeout = 35 * time.Second
 
 func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath)
