@@ -697,6 +697,9 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 	if config.isDatabaseNode() {
 		ready := false
 		for range 300 {
+			if err := ctx.Err(); err != nil {
+				return stopIncompleteHA(ctx, deps, fmt.Errorf("wait for failover readiness: %w", err))
+			}
 			if _, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env"), "--check"); err == nil {
 				ready = true
 				break
@@ -716,14 +719,16 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 }
 
 func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
 	var cleanupErrs []error
-	if output, err := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "proto-fleet-ha.service"); err != nil {
+	if output, err := deps.run(cleanupCtx, "sudo", "systemctl", "disable", "--now", "proto-fleet-ha.service"); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("disable HA services: %s", commandError(output, err)))
 	}
-	if output, err := deps.run(ctx, "sudo", "rm", "-f", dockerRecoveryDropIn); err != nil {
+	if output, err := deps.run(cleanupCtx, "sudo", "rm", "-f", dockerRecoveryDropIn); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove Docker HA recovery hook: %s", commandError(output, err)))
 	}
-	if output, err := deps.run(ctx, "sudo", "systemctl", "daemon-reload"); err != nil {
+	if output, err := deps.run(cleanupCtx, "sudo", "systemctl", "daemon-reload"); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("reload systemd after HA cleanup: %s", commandError(output, err)))
 	}
 	return errors.Join(cause, errors.Join(cleanupErrs...))
