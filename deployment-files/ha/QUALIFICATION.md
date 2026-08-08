@@ -10,9 +10,10 @@ addresses, certificates, passwords, device names, or customer data in the
 committed report.
 
 This report qualifies the fixed Fleet application, database, DCS, and VIP
-profile only. Adjacent application updates are not qualified here. Fleet Node
-HA, reconnect scale, schedule recovery during failover, and alert delivery
-remain outside this support claim.
+profile at the recorded fleet scale and topology only. Adjacent application
+updates are not qualified here. Fleet Node HA, larger fleets, reconnect scale,
+schedule recovery during failover, and alert delivery remain outside this
+support claim.
 
 ## Test identity
 
@@ -27,6 +28,9 @@ remain outside this support claim.
 | Operating system | Debian 13 |
 | Page size | 4096 bytes |
 | Docker, containerd, keepalived, nftables, and arping package versions | Pending |
+| Test miner count and plugin mix | Pending |
+| Miner connection topology | Pending |
+| Command backlog at curtailment | Pending |
 | Started | Pending |
 | Completed | Pending |
 
@@ -59,13 +63,15 @@ active, VIP, or writable-primary overlap, a collection gap, duplicate terminal
 results, or a stale transition. Record the observed recovery time and a short
 redacted evidence reference. For database isolation and failover rows, also
 record host-pinned writable SQL probe results against both database hosts at
-100 ms or faster. In each cycle, use a controller barrier to begin transactions
-on both hosts and hold them open concurrently before attempting uniquely
-identified writes. Treat an ambiguous result as potentially committed and fail
-if both hosts can commit in the same overlapping cycle. Record transaction
-start, commit, and failure bounds on the controller clock. After the old primary
-rejoins, verify every possibly committed probe identifier exists at most once
-and every acknowledged identifier exists exactly once.
+100 ms or faster. Before isolating the old primary, begin a writable transaction
+on it, write a unique probe identifier, and hold the transaction open. After the
+peer is confirmed promoted and writable, begin a fresh transaction there and
+write a different identifier. Use a controller barrier to attempt both commits
+concurrently. Treat an ambiguous result as potentially committed and fail if
+both transactions can commit. Record transaction start, promotion, commit, and
+failure bounds on the controller clock. After the old primary rejoins, verify
+every possibly committed probe identifier exists at most once and every
+acknowledged identifier exists exactly once.
 
 | Gate | Required result | Duration | Result | Evidence |
 | --- | --- | --- | --- | --- |
@@ -91,6 +97,9 @@ and every acknowledged identifier exists exactly once.
 | Fail over during firmware command | Transitional device state is cleared | Pending | Pending | Pending |
 | Send command after failover | Command succeeds on the new active | Pending | Pending | Pending |
 | Publish a unique MQTT curtailment target, confirm shedding starts, fail the active before completion, then restore after takeover | The peer resumes MQTT intake and retains or reasserts curtailment within 180s, then measured load follows the restoration target | Pending | Pending | Pending |
+
+The 180-second curtailment result applies only to the miner count, plugin mix,
+connection topology, and command backlog recorded above.
 
 The PROCESSING-command gate proves server-side recovery, not exactly-once
 device effects. Device-side fencing is outside this profile's support claim.
