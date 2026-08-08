@@ -129,14 +129,15 @@ func run(ctx context.Context, args []string) error {
 		}
 		return deployment.StopApplication(ctx, root)
 	case "app-start":
-		if len(args) != 2 {
-			return errors.New("usage: fleet-ha app-start VERSION")
+		if len(args) != 2 && (len(args) != 3 || (args[2] != "passive" && args[2] != "any")) {
+			return errors.New("usage: fleet-ha app-start VERSION <passive|any>")
 		}
 		root, err := deployment.ReleaseRoot()
 		if err != nil {
 			return err
 		}
-		return deployment.StartApplication(ctx, root, args[1])
+		requirePassive := len(args) == 2 || args[2] == "passive"
+		return deployment.StartApplication(ctx, root, args[1], requirePassive)
 	default:
 		return usageError()
 	}
