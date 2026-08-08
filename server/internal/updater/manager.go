@@ -2111,11 +2111,6 @@ func (m *Manager) loadState() error {
 		}
 		return err
 	}
-	if marker != nil {
-		if err := m.clearActivationMarker(); err != nil {
-			return err
-		}
-	}
 	if !wasTerminal {
 		op.RecoveryPending = m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != ""
 		now := m.cfg.Now().UTC()
@@ -2150,7 +2145,13 @@ func (m *Manager) loadState() error {
 		op.RecoveryPending = true
 	}
 	m.operation = &op
-	return m.persistReconciledState()
+	if err := m.persistReconciledState(); err != nil {
+		return err
+	}
+	if marker != nil {
+		return m.clearActivationMarker()
+	}
+	return nil
 }
 
 // persistReconciledState normally preserves the ordering of reconciliation,
