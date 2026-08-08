@@ -4,6 +4,7 @@ Wants=network-online.target
 After=network-online.target proto-fleet-ha-firewall.service docker.service
 Requires=proto-fleet-ha-firewall.service docker.service
 BindsTo=docker.service
+PartOf=docker.service
 Before=keepalived.service
 
 [Service]
