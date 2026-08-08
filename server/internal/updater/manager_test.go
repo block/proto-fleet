@@ -402,15 +402,14 @@ func TestManagerHAInterruptedAfterStopRestartsCurrentApplication(t *testing.T) {
 
 	// Act
 	runner := &haRecordingRunner{fail: make(map[string]error)}
-	manager, err := NewManager(Config{
+	err := RepairStartup(Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
 	// Assert
-	operation := manager.Status().Operation
-	require.NotNil(t, operation)
+	var operation updaterapi.Operation
+	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &operation))
 	require.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Empty(t, operation.RecoveryCommand)
 	assert.Contains(t, operation.Message, "HA application restarted")
@@ -561,15 +560,14 @@ func TestManagerHACompletionInterruptedAfterSwapStartsTargetRelease(t *testing.T
 	runner := &haRecordingRunner{fail: make(map[string]error)}
 
 	// Act
-	manager, err := NewManager(Config{
+	err := RepairStartup(Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
 	// Assert
-	operation := manager.Status().Operation
-	require.NotNil(t, operation)
+	var operation updaterapi.Operation
+	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &operation))
 	require.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	require.Empty(t, operation.RecoveryCommand)
 	commands := runner.Commands()
@@ -1894,66 +1892,6 @@ func TestRepairStartupRestoresUpdaterFromInstalledDeployment(t *testing.T) {
 	assert.NoFileExists(t, installedUpdater+selfUpdateHandoffSuffix)
 }
 
-func TestManagerRestartsHAApplicationAfterInterruptedSwap(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	installRoot := t.TempDir()
-	writeCurrentDeployment(t, installRoot, "v1.0.0")
-	require.NoError(t, os.Rename(
-		filepath.Join(installRoot, "deployment"),
-		filepath.Join(installRoot, "deployment.previous"),
-	))
-	stateDir := filepath.Join(t.TempDir(), "state")
-	writeInterruptedOperationState(t, stateDir, "v1.1.0")
-	runner := &haRecordingRunner{}
-
-	// Act
-	manager, err := NewManager(Config{
-		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
-		DeploymentMode: DeploymentModeHA, Runner: runner,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
-
-	// Assert
-	commands := runner.Commands()
-	require.Len(t, commands, 1)
-	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
-	assert.Empty(t, manager.Status().Operation.RecoveryCommand)
-	assert.False(t, manager.Status().Operation.RecoveryPending)
-}
-
-func TestRepairStartupRestoresLayoutWithoutStartingHAApplication(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	installRoot := t.TempDir()
-	writeCurrentDeployment(t, installRoot, "v1.0.0")
-	require.NoError(t, os.Rename(
-		filepath.Join(installRoot, "deployment"),
-		filepath.Join(installRoot, "deployment.previous"),
-	))
-	stateDir := filepath.Join(t.TempDir(), "state")
-	writeInterruptedOperationState(t, stateDir, "v1.1.0")
-	runner := &haRecordingRunner{}
-
-	// Act
-	err := RepairStartup(Config{
-		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
-		DeploymentMode: DeploymentModeHA, Runner: runner,
-	})
-
-	// Assert
-	require.NoError(t, err)
-	assert.Empty(t, runner.Commands())
-	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
-	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
-	var operation updaterapi.Operation
-	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &operation))
-	assert.True(t, operation.RecoveryPending)
-}
-
 func TestRepairStartupDoesNotTouchSelfUpdateWhileManagerRuns(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
@@ -1972,7 +1910,7 @@ func TestRepairStartupDoesNotTouchSelfUpdateWhileManagerRuns(t *testing.T) {
 	assert.Equal(t, "new updater", mustReadFile(t, destination))
 }
 
-func TestManagerFailsStartupWhenHARecoveryFails(t *testing.T) {
+func TestRepairStartupFailsWhenHARecoveryFails(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
@@ -1984,13 +1922,12 @@ func TestManagerFailsStartupWhenHARecoveryFails(t *testing.T) {
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
 
 	// Act
-	manager, err := NewManager(Config{
+	err := RepairStartup(Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
 		DeploymentMode: DeploymentModeHA,
 		Runner:         &haRecordingRunner{fail: map[string]error{"app-start": errors.New("restart failed")}},
 	})
 	require.ErrorContains(t, err, "restart interrupted HA application")
-	require.Nil(t, manager)
 
 	// Assert
 	var operation updaterapi.Operation
@@ -2017,12 +1954,11 @@ func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
 	runner := &haRecordingRunner{}
 
 	// Act
-	manager, err := NewManager(Config{
+	err = RepairStartup(Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
 		DeploymentMode: DeploymentModeHA, Runner: runner,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
 	// Assert
 	assert.Empty(t, runner.Commands())
