@@ -103,6 +103,10 @@ func validatePinnedInfrastructureGeneration() error {
 	if err != nil {
 		return fmt.Errorf("read pinned HA infrastructure version: %w", err)
 	}
+	return validateInfrastructureGeneration(currentVersion, pinnedImage)
+}
+
+func validateInfrastructureGeneration(currentVersion, pinnedImage string) error {
 	pinnedVersion := strings.TrimPrefix(pinnedImage, "proto-fleet-timescaledb-ha:")
 	pinnedVersion, _, _ = strings.Cut(pinnedVersion, "@")
 	if currentVersion != pinnedVersion {
