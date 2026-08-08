@@ -226,7 +226,10 @@ func validateCleanInstallState(deps installDependencies) error {
 			return fmt.Errorf("HA install requires a clean host without %s; found %s", command, path)
 		}
 	}
-	for _, path := range []string{installBase, configRoot, "/var/lib/docker", "/var/lib/containerd", "/var/lib/proto-fleet-updater", "/etc/docker"} {
+	for _, path := range []string{
+		installBase, configRoot, "/var/lib/docker", "/var/lib/containerd",
+		"/var/lib/proto-fleet-updater", "/run/proto-fleet-updater", "/etc/docker",
+	} {
 		if err := deps.requireEmpty(path, "existing service state"); err != nil {
 			return fmt.Errorf("HA install failed: %w", err)
 		}
@@ -236,6 +239,9 @@ func validateCleanInstallState(deps installDependencies) error {
 		"/etc/keepalived/keepalived.conf",
 		"/etc/systemd/system/keepalived.service.d/override.conf",
 		"/usr/local/libexec/proto-fleet/check-fleet-active",
+		"/usr/local/libexec/proto-fleet/proto-fleet-updater",
+		"/etc/systemd/system/proto-fleet-updater.service",
+		"/etc/proto-fleet/updater.env",
 		"/etc/apt/sources.list.d/docker.sources", "/etc/apt/keyrings/docker.asc",
 		"/usr/bin/docker", "/usr/sbin/keepalived", "/lib/systemd/system/docker.service",
 	} {
