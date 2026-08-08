@@ -146,9 +146,6 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := prepareImages(ctx, source, config, deps); err != nil {
 		return err
 	}
-	if err := installDockerRecoveryHook(ctx, deps); err != nil {
-		return err
-	}
 	if err := initialStart(ctx, config, deps); err != nil {
 		return err
 	}
@@ -689,24 +686,45 @@ func installRootPassword(ctx context.Context, options InstallOptions, deps insta
 }
 
 func initialStart(ctx context.Context, config NodeConfig, deps installDependencies) error {
-	if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "--now", "proto-fleet-ha.service"); err != nil {
-		return fmt.Errorf("enable HA services: %s", commandError(output, err))
+	if output, err := deps.run(ctx, "sudo", "systemctl", "start", "proto-fleet-ha.service"); err != nil {
+		return fmt.Errorf("start HA services: %s", commandError(output, err))
 	}
 	if config.isDatabaseNode() {
+		ready := false
 		for range 300 {
 			if _, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env"), "--check"); err == nil {
-				return nil
+				ready = true
+				break
 			}
 			deps.sleep(2 * time.Second)
 		}
-		readinessErr := errors.New("failover readiness did not become healthy within 10 minutes")
-		if output, err := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "proto-fleet-ha.service"); err != nil {
-			return fmt.Errorf("%w; disable incomplete HA installation: %s", readinessErr, commandError(output, err))
+		if !ready {
+			return stopIncompleteHA(ctx, deps, errors.New("failover readiness did not become healthy within 10 minutes"))
 		}
-		return readinessErr
+	} else {
+		fmt.Println("HA witness installed; etcd quorum is ready")
 	}
-	fmt.Println("HA witness installed; etcd quorum is ready")
+	if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "proto-fleet-ha.service"); err != nil {
+		return stopIncompleteHA(ctx, deps, fmt.Errorf("enable HA services: %s", commandError(output, err)))
+	}
+	if err := installDockerRecoveryHook(ctx, deps); err != nil {
+		return stopIncompleteHA(ctx, deps, err)
+	}
 	return nil
+}
+
+func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error) error {
+	var cleanupErrs []error
+	if output, err := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "proto-fleet-ha.service"); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("disable HA services: %s", commandError(output, err)))
+	}
+	if output, err := deps.run(ctx, "sudo", "rm", "-f", dockerRecoveryDropIn); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove Docker HA recovery hook: %s", commandError(output, err)))
+	}
+	if output, err := deps.run(ctx, "sudo", "systemctl", "daemon-reload"); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("reload systemd after HA cleanup: %s", commandError(output, err)))
+	}
+	return errors.Join(cause, errors.Join(cleanupErrs...))
 }
 
 func fleetComposeArgs(operation string, services ...string) []string {
