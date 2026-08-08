@@ -16,7 +16,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
-const vipTakeoverTimeout = 30 * time.Second
+// Covers one 10s lease lifetime, the coordinator's two-lease acquire budget,
+// and a small keepalived scheduling margin.
+const vipTakeoverTimeout = 35 * time.Second
 
 func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath, true)
