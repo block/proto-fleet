@@ -20,8 +20,8 @@ certificates, device names, and customer data from committed evidence.
    every `N+1` migration is expand-only and remains usable by `N`; reject
    drops, renames, narrowed types, and newly required values. Install and
    qualify `N` using [QUALIFICATION.md](QUALIFICATION.md).
-2. Record the container IDs and start times for etcd, Patroni, and PostgreSQL on
-   every host.
+2. Record the container IDs and start times for etcd and Patroni on every host,
+   plus `pg_postmaster_start_time()` on both PostgreSQL members.
 3. Run `fleet-ha update N+1` on the passive application host. Verify it remains
    passive on `N+1` while the active host continues serving `N`. Through the
    VIP, read persisted data and submit a command to prove the temporary mixed
@@ -31,16 +31,17 @@ certificates, device names, and customer data from committed evidence.
    times out without swapping deployments, restarts `N`, and restores a usable
    VIP and successful command within 60 seconds. Restore the passive host.
 5. Retry `fleet-ha update N+1 --complete`. From another host, probe
-   `/health/active` and an authenticated database-backed request at least once
-   per second. Measure from the first failed probe until both succeed and the
-   public health header reports `N+1`; require less than 15 seconds. Verify the
-   former active rejoins as passive on `N+1`.
+   `/api-proxy/health/active`, `/api-proxy/health`, and an authenticated
+   database-backed request at least once per second. Measure from the first
+   failed probe until all three succeed and `/api-proxy/health` reports
+   `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Verify the former
+   active rejoins as passive on `N+1`.
 6. Force an application failover in each direction. Use the same active and
    database-backed probes, require usable service within 15 seconds, and
    submit a successful command after each move.
-7. Confirm the etcd, Patroni, and PostgreSQL container IDs and start times from
-   step 2 are unchanged. The application update must not replace or restart
-   these services.
+7. Confirm the etcd and Patroni container IDs and start times, and both
+   PostgreSQL postmaster start times, are unchanged from step 2. The application
+   update must not replace or restart these services.
 8. Confirm both updater binaries report `N+1` and their services and local
    status sockets are healthy. Reboot the two application/database hosts one
    at a time, restoring full readiness between reboots. Repeat the updater
@@ -59,7 +60,7 @@ certificates, device names, and customer data from committed evidence.
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive | `<15s` | Pending | Pending |
 | Failover to peer | VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Failover back | VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
-| Infrastructure preserved | etcd, Patroni, and PostgreSQL are not replaced or restarted | N/A | Pending | Pending |
+| Infrastructure preserved | etcd and Patroni identity plus PostgreSQL start times are unchanged | N/A | Pending | Pending |
 | Updater refresh | Both updater binaries, services, and local status sockets run `N+1` | N/A | Pending | Pending |
 | Reboot recovery | Both hosts return on `N+1` with persisted data and working failover | Pending | Pending | Pending |
 
