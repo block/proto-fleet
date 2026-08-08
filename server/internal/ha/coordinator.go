@@ -41,16 +41,17 @@ type Coordinator struct {
 	config   CoordinatorConfig
 	holderID uuid.UUID
 
-	mu           sync.RWMutex
-	ownership    Ownership
-	activeCtx    context.Context //nolint:containedctx // The coordinator owns this explicit active-lifetime context.
-	cancelActive context.CancelCauseFunc
-	leaseTimer   *time.Timer
-	leaseVersion uint64
-	stateChanged chan struct{}
-	acquireAfter time.Time
-	observed     bool
-	updatedAt    time.Time
+	mu            sync.RWMutex
+	ownership     Ownership
+	activeCtx     context.Context //nolint:containedctx // The coordinator owns this explicit active-lifetime context.
+	cancelActive  context.CancelCauseFunc
+	leaseTimer    *time.Timer
+	leaseVersion  uint64
+	stateChanged  chan struct{}
+	acquireAfter  time.Time
+	observed      bool
+	updatedAt     time.Time
+	proofDeadline time.Time
 }
 
 func NewCoordinator(
@@ -119,6 +120,9 @@ func (c *Coordinator) Snapshot() Snapshot {
 	}
 	if !c.updatedAt.IsZero() {
 		snapshot.FreshUntil = c.updatedAt.Add(c.config.LeaseDuration + c.config.RetryInterval)
+		if !c.proofDeadline.IsZero() && c.proofDeadline.Before(snapshot.FreshUntil) {
+			snapshot.FreshUntil = c.proofDeadline
+		}
 	}
 	if c.activeCtx != nil {
 		snapshot.State = StateActive
@@ -260,7 +264,7 @@ func (c *Coordinator) tryAcquire(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if contended {
-		c.deactivate(nil)
+		c.deactivateObserved(observed.DCSProofDeadline)
 		return false, ErrLeaseUnavailable
 	}
 	activationCtx, cancelActivation := context.WithDeadline(ctx, observed.DCSProofDeadline)
@@ -366,6 +370,7 @@ func (c *Coordinator) activate(
 	c.ownership = ownership
 	c.observed = true
 	c.updatedAt = time.Now()
+	c.proofDeadline = dcsProofDeadline
 	c.resetLeaseTimerLocked(deadline)
 	c.signalStateChangedLocked()
 	return nil
@@ -397,6 +402,7 @@ func (c *Coordinator) updateActive(
 	c.ownership = renewed
 	c.updatedAt = time.Now()
 	c.observed = true
+	c.proofDeadline = dcsProofDeadline
 	c.resetLeaseTimerLocked(deadline)
 	return nil
 }
@@ -453,6 +459,13 @@ func (c *Coordinator) deactivate(cause error) {
 	c.deactivateLocked(cause)
 }
 
+func (c *Coordinator) deactivateObserved(proofDeadline time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.deactivateLocked(nil)
+	c.proofDeadline = proofDeadline
+}
+
 func (c *Coordinator) abandonCandidate(leaseExpiresAt time.Time, cause error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -476,6 +489,7 @@ func (c *Coordinator) deactivateLocked(cause error) {
 	c.ownership = Ownership{}
 	c.updatedAt = time.Now()
 	c.observed = cause == nil
+	c.proofDeadline = time.Time{}
 }
 
 func (c *Coordinator) signalStateChangedLocked() {
