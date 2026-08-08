@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 
-	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
@@ -99,7 +98,7 @@ func run(ctx context.Context, args []string) error {
 	case "install":
 		return runInstall(ctx, args[1:])
 	case "update":
-		return runPassiveUpdate(ctx, args[1:], os.Stdout, validateHAUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
+		return runPassiveUpdate(ctx, args[1:], os.Stdout, deployment.ValidatePassiveUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
 	case "start":
 		return runStart(ctx, args[1:])
 	case "stop":
@@ -166,14 +165,6 @@ const (
 type updateTrigger func(context.Context, string, string) (updaterapi.Operation, error)
 
 type updatePreflight func(context.Context, string, string) error
-
-func validateHAUpdate(ctx context.Context, envPath, targetVersion string) error {
-	currentVersion, err := deployment.ValidatePassiveUpdate(ctx, envPath, targetVersion)
-	if err != nil {
-		return err
-	}
-	return updatesDomain.ValidateAdjacentStableRelease(ctx, currentVersion, targetVersion)
-}
 
 func runPassiveUpdate(
 	ctx context.Context,
