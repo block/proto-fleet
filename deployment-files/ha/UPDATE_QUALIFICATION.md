@@ -32,17 +32,20 @@ certificates, device names, and customer data from committed evidence.
    `fleet-ha update N+1 --complete` on the active host. Verify the command
    times out without swapping deployments, restarts `N`, and restores a usable
    VIP and successful command within 60 seconds. Restore the passive host.
-5. Create controlled PENDING and PROCESSING commands and record their immutable
-   IDs. Retry `fleet-ha update N+1 --complete`. From another host, probe
-   `/api-proxy/health/active`, `/api-proxy/health`, and an authenticated
-   database-backed request at least once per second. At the same cadence,
-   sample direct active health and VIP ownership on both hosts; fail on any
-   active or VIP overlap. Measure from the first failed probe until all three
-   VIP probes succeed and `/api-proxy/health` reports
-   `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Verify the former
-   active rejoins as passive, the PENDING command dispatches, the interrupted
-   PROCESSING command reaches the expected terminal recovery state, and later
-   work for that device succeeds.
+5. Using a controllable test device, pause one command after its exact queue row
+   reaches PROCESSING so its successor remains PENDING. Record both immutable
+   IDs, then retry `fleet-ha update N+1 --complete`. From one controller,
+   continuously record both rows and direct active health on both hosts with
+   monotonic timestamps at 100 ms or faster until the old `fleet-api` stops;
+   fail if either row changes before that stop. In parallel, stream interface
+   address events from both hosts and fail on any overlapping VIP ownership.
+   Probe `/api-proxy/health/active`, `/api-proxy/health`, and an authenticated
+   database-backed request at least once per second. Measure from the first
+   failed probe until all three VIP probes succeed and `/api-proxy/health`
+   reports `X-Proto-Fleet-Version: N+1`; require less than 15 seconds. Release
+   the test device and verify the former active rejoins as passive, the PENDING
+   command dispatches, the interrupted PROCESSING command reaches the expected
+   terminal recovery state, and later work for that device succeeds.
 6. Force an application failover in each direction. Use the same active and
    database-backed probes, require usable service within 15 seconds, and
    submit a successful command after each move.
@@ -63,8 +66,8 @@ certificates, device names, and customer data from committed evidence.
 | Mixed-version operation | Persisted read and command succeed while hosts run `N` and `N+1` | N/A | Pending | Pending |
 | Failed takeover recovery | No swap; `N` restores usable service and command execution | `<60s` | Pending | Pending |
 | Active completion | Active and database-backed probes serve `N+1`; former active rejoins passive | `<15s` | Pending | Pending |
-| Handoff fencing | Direct health and VIP samples never show active or VIP overlap | N/A | Pending | Pending |
-| Handoff command recovery | PENDING dispatches, PROCESSING recovers, and later per-device work succeeds | N/A | Pending | Pending |
+| Handoff fencing | High-frequency direct health and interface event streams never show active or VIP overlap | N/A | Pending | Pending |
+| Handoff command recovery | Exact rows stay PROCESSING/PENDING until stop, then PROCESSING recovers, PENDING dispatches, and later per-device work succeeds | N/A | Pending | Pending |
 | Failover to peer | VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Failover back | VIP serves `N+1`; command succeeds | `<15s` | Pending | Pending |
 | Infrastructure preserved | etcd and Patroni identity plus PostgreSQL start times are unchanged | N/A | Pending | Pending |
