@@ -67,6 +67,9 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	if err := validateRelease(ctx, root, deps); err != nil {
 		return err
 	}
+	if output, err := runCommand(ctx, "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "compose.yaml"), infrastructureCompose); err != nil {
+		return fmt.Errorf("pin current HA infrastructure Compose file: %s", commandError(output, err))
+	}
 	if err := pruneReleaseImages(ctx); err != nil {
 		return err
 	}
