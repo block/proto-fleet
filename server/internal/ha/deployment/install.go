@@ -262,7 +262,8 @@ func validateCleanInstallState(deps installDependencies) error {
 		}
 	}
 	for _, path := range []string{
-		installBase, configRoot, "/var/lib/docker", "/var/lib/containerd", "/var/lib/proto-fleet-updater", "/etc/docker",
+		installBase, configRoot, "/var/lib/docker", "/var/lib/containerd",
+		"/var/lib/proto-fleet-updater", "/run/proto-fleet-updater", "/etc/docker",
 		"/etc/systemd/system/docker.service.d",
 		"/etc/systemd/system/keepalived.service.d",
 		"/etc/systemd/system/proto-fleet-ha.service.d",
@@ -278,6 +279,9 @@ func validateCleanInstallState(deps installDependencies) error {
 		"/etc/systemd/system/keepalived.service",
 		"/etc/keepalived/keepalived.conf",
 		"/usr/local/libexec/proto-fleet/check-fleet-active",
+		"/usr/local/libexec/proto-fleet/proto-fleet-updater",
+		"/etc/systemd/system/proto-fleet-updater.service",
+		"/etc/proto-fleet/updater.env",
 		"/etc/apt/sources.list.d/docker.sources", "/etc/apt/keyrings/docker.asc",
 		"/usr/bin/docker", "/usr/sbin/keepalived", "/lib/systemd/system/docker.service",
 	} {
