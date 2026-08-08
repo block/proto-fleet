@@ -121,7 +121,7 @@ acknowledged identifier exists exactly once.
 | Publish a unique MQTT curtailment target, confirm shedding starts, then kill the active Fleet process before completion | The peer resumes MQTT intake and retains or reasserts curtailment within 180s | Pending | Pending | Pending |
 | Publish a unique MQTT curtailment target, confirm shedding starts, then abruptly lose the database primary while Fleet remains active | A writable primary recovers and Fleet retains or reasserts curtailment within 180s | Pending | Pending | Pending |
 | Publish a unique MQTT curtailment target, confirm shedding starts, then power off a host that is both active Fleet and Patroni primary | The peer restores writable VIP service and retains or reasserts curtailment within 180s | Pending | Pending | Pending |
-| Restore the MQTT curtailment target after each failure above | Measured load follows the restoration target | Pending | Pending | Pending |
+| Publish a distinct MQTT restoration target after each failure above | Measured load follows the new target within 180s | Pending | Pending | Pending |
 
 The 180-second curtailment result applies only to the miner count, plugin mix,
 connection topology, and command backlog recorded above.
