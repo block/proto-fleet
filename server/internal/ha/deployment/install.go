@@ -111,6 +111,10 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := validateCleanInstallState(deps); err != nil {
 		return err
 	}
+	if err := snapshotRelease(ctx, source, deps); err != nil {
+		return err
+	}
+	source = installRoot
 
 	if err := installARPing(ctx, deps); err != nil {
 		return err
@@ -123,7 +127,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := installPackages(ctx, deps); err != nil {
 		return err
 	}
-	if err := installRelease(ctx, source, config, deps); err != nil {
+	if err := installRelease(ctx, config, deps); err != nil {
 		return err
 	}
 	if err := installFirewall(ctx, source, config, deps); err != nil {
@@ -431,7 +435,7 @@ func verifyInstallVirtualIP(ctx context.Context, config NodeConfig) error {
 	return fmt.Errorf("HA virtual IP is owned by an unexpected host or cannot be checked: %s", commandError(output, err))
 }
 
-func installRelease(ctx context.Context, source string, config NodeConfig, deps installDependencies) error {
+func snapshotRelease(ctx context.Context, source string, deps installDependencies) error {
 	for _, args := range [][]string{
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0755", installBase},
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0755", installRoot},
@@ -439,6 +443,19 @@ func installRelease(ctx context.Context, source string, config NodeConfig, deps 
 		{"chown", "-R", "root:root", installRoot},
 		{"chmod", "-R", "go-w", installRoot},
 		{"chmod", "0755", filepath.Join(installRoot, "ha", "fleet-ha")},
+	} {
+		if output, err := deps.run(ctx, "sudo", args...); err != nil {
+			return fmt.Errorf("install HA release: %s", commandError(output, err))
+		}
+	}
+	if output, err := deps.runDir(ctx, installRoot, "sha256sum", "--check", "deployment-manifest.sha256"); err != nil {
+		return fmt.Errorf("verify installed HA release snapshot: %s", commandError(output, err))
+	}
+	return nil
+}
+
+func installRelease(ctx context.Context, config NodeConfig, deps installDependencies) error {
+	for _, args := range [][]string{
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0700", configRoot},
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0750", dataRoot},
 		{"cp", filepath.Join(installRoot, "client", "nginx.https.conf"), filepath.Join(installRoot, "client", "nginx.conf")},
@@ -475,7 +492,7 @@ func installRelease(ctx context.Context, source string, config NodeConfig, deps 
 		"proto-fleet-ha-firewall.service": firewallUnit,
 		"docker-systemd.conf":             dockerDropIn,
 	} {
-		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(source, "ha", sourceName), target); err != nil {
+		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", sourceName), target); err != nil {
 			return fmt.Errorf("install HA systemd unit: %s", commandError(output, err))
 		}
 	}
@@ -489,7 +506,7 @@ func renderNodeEnvironment(config NodeConfig) string {
 }
 
 func installFirewall(ctx context.Context, source string, config NodeConfig, deps installDependencies) error {
-	template, err := os.ReadFile(filepath.Join(source, "ha", "firewall.nft.tmpl"))
+	template, err := deps.readFile(filepath.Join(source, "ha", "firewall.nft.tmpl"))
 	if err != nil {
 		return fmt.Errorf("read firewall template: %w", err)
 	}
@@ -512,7 +529,7 @@ func installFirewall(ctx context.Context, source string, config NodeConfig, deps
 }
 
 func installKeepalived(ctx context.Context, source string, config NodeConfig, deps installDependencies) error {
-	template, err := os.ReadFile(filepath.Join(source, "ha", "keepalived.conf.tmpl"))
+	template, err := deps.readFile(filepath.Join(source, "ha", "keepalived.conf.tmpl"))
 	if err != nil {
 		return fmt.Errorf("read keepalived template: %w", err)
 	}
@@ -524,7 +541,7 @@ func installKeepalived(ctx context.Context, source string, config NodeConfig, de
 	if err != nil {
 		return err
 	}
-	systemdTemplate, err := os.ReadFile(filepath.Join(source, "ha", "keepalived-systemd.conf.tmpl"))
+	systemdTemplate, err := deps.readFile(filepath.Join(source, "ha", "keepalived-systemd.conf.tmpl"))
 	if err != nil {
 		return fmt.Errorf("read keepalived systemd template: %w", err)
 	}
