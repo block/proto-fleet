@@ -106,7 +106,9 @@ sudo systemctl is-active --quiet proto-fleet-updater.service
    remain there for its full timeout, and restart release `N` automatically.
    Within 60 seconds, require the old host to serve the VIP, a persisted read,
    and a successful command, with no manual recovery command remaining. Restart
-   the `N+1` peer as passive and restore full readiness before continuing.
+   the `N+1` peer as passive and require control readiness with version mismatch
+   as the only failover-readiness degradation. Step 6 reinstalls a common
+   baseline before applying the full-readiness gate.
 6. Reinstall the clean `N` baseline and repeat steps 2 and 3 for a separate
    mixed-version failover run. Update the passive host to `N+1`, then terminate
    the active `N` Fleet process instead of running `--complete`. Require the
@@ -170,12 +172,17 @@ sudo systemctl is-active --quiet proto-fleet-updater.service
 
     Repeat a case if its required evidence clears before the fault lands.
     After each restart, require one valid deployment directory, no pending
-    recovery marker, a healthy updater socket, restored control and failover
-    readiness, and either the intact old release or fully verified target
-    release according to the recorded recovery state. When recovery retains
-    the target release, require the installed updater's `--version` to report
-    the same target version; startup repair must not leave the previous updater
-    paired with the new application.
+    recovery marker, a healthy updater socket, control readiness, and either
+    the intact old release or fully verified target release according to the
+    recorded recovery state. While hosts differ, require version mismatch to be
+    the only failover-readiness degradation. Then converge both hosts to the
+    expected retained version, by reinstalling `N` after old-release recovery
+    or running `--complete` on the remaining active `N` host after forward
+    recovery, and require full failover readiness. When recovery retains the
+    target release, require the installed updater's `--version` to report the
+    same target version;
+    startup repair must not leave the previous updater paired with the new
+    application.
 
 ## Results
 
