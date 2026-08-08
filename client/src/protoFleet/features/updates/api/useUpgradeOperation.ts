@@ -29,7 +29,7 @@ const parseCanonicalRelease = (version?: string): CanonicalRelease | undefined =
   };
 };
 
-const isReleaseAtLeast = (currentVersion: string | undefined, targetVersion: string) => {
+const isReleaseNewer = (currentVersion: string | undefined, targetVersion: string) => {
   const current = parseCanonicalRelease(currentVersion);
   const target = parseCanonicalRelease(targetVersion);
   if (!current || !target) return false;
@@ -38,9 +38,9 @@ const isReleaseAtLeast = (currentVersion: string | undefined, targetVersion: str
       return current.core[index] > target.core[index];
     }
   }
-  if (current.rc === undefined) return true;
+  if (current.rc === undefined) return target.rc !== undefined;
   if (target.rc === undefined) return false;
-  return current.rc >= target.rc;
+  return current.rc > target.rc;
 };
 
 interface TrackedOperation {
@@ -319,10 +319,10 @@ export function useUpgradeOperation({
         return false;
       }
 
-      // A later manual recovery can install the failed target or a newer
-      // release. Do not replay recovery instructions once Fleet has advanced
-      // beyond the failed operation.
-      if (next.phase === UpgradePhase.FAILED && isReleaseAtLeast(currentVersionRef.current, next.targetVersion)) {
+      // A strictly newer release proves a later recovery. An exact target
+      // match does not: activation can expose the target version before a
+      // later service failure records the operation as failed.
+      if (next.phase === UpgradePhase.FAILED && isReleaseNewer(currentVersionRef.current, next.targetVersion)) {
         if (trackedMatches) updateTrackedOperation(undefined);
         if (operationRef.current?.id === next.id) updateOperation(undefined);
         reconciliationDeadlineRef.current = null;
@@ -334,8 +334,7 @@ export function useUpgradeOperation({
 
       const unresolvedFailure =
         next.phase === UpgradePhase.FAILED &&
-        (currentVersionUnavailableRef.current ||
-          Boolean(currentVersionRef.current && currentVersionRef.current !== next.targetVersion));
+        (currentVersionUnavailableRef.current || Boolean(currentVersionRef.current));
       if (!trackedMatches && !unresolvedFailure) {
         return false;
       }

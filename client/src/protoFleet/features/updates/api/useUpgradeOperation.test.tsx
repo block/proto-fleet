@@ -424,7 +424,7 @@ describe("useUpgradeOperation", () => {
     expect(result.current.operation).toBeUndefined();
   });
 
-  it("suppresses a stale failure after manual recovery installed its target", async () => {
+  it("keeps a tracked activation failure visible when Fleet reports its target version", async () => {
     window.sessionStorage.setItem(
       TRACKED_OPERATION_KEY,
       JSON.stringify({ id: "operation-1", targetVersion: "v1.3.0" }),
@@ -432,9 +432,15 @@ describe("useUpgradeOperation", () => {
     mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
     const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.3.0" }));
 
-    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalled());
-    expect(result.current.operation).toBeUndefined();
-    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).not.toBeNull();
+  });
+
+  it("keeps an untracked activation failure visible when Fleet reports its target version", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.3.0" }));
+
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
   });
 
   it("suppresses a stale failure after manual recovery installed a newer release", async () => {

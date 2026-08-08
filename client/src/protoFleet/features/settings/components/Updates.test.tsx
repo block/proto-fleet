@@ -77,6 +77,8 @@ vi.mock("@/protoFleet/store", () => {
           isAuthenticated: permissionsMock.isAuthenticated,
           permissions: permissionsMock.current,
           sessionExpiry: permissionsMock.sessionExpiry,
+          sessionGeneration: permissionsMock.sessionGeneration,
+          username: permissionsMock.username,
         },
       }),
     },
@@ -702,6 +704,36 @@ describe("Updates", () => {
     expect(authErrorsMock.handleAuthErrors).not.toHaveBeenCalled();
     expect(permissionsMock.setPermissions).not.toHaveBeenCalled();
     expect(mockPushToast).not.toHaveBeenCalled();
+  });
+
+  it("restarts a pending status refresh when the authenticated session changes in place", async () => {
+    const previousRequest = createDeferred<GetUpdateStatusResponse>();
+    const replacementRequest = createDeferred<GetUpdateStatusResponse>();
+    mockGetUpdateStatus.mockReturnValueOnce(previousRequest.promise).mockReturnValueOnce(replacementRequest.promise);
+
+    const page = render(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1));
+
+    permissionsMock.sessionExpiry = new Date(2_000);
+    permissionsMock.sessionGeneration = 2;
+    page.rerender(<Updates />);
+
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      replacementRequest.resolve(buildStatus());
+      await replacementRequest.promise;
+    });
+
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
+
+    await act(async () => {
+      previousRequest.reject(new ConnectError("old session expired", Code.Unauthenticated));
+      await previousRequest.promise.catch(() => undefined);
+    });
+
+    expect(authErrorsMock.handleAuthErrors).not.toHaveBeenCalled();
   });
 
   it("disables channel and copy controls throughout the save and refetch", async () => {

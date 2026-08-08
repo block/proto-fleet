@@ -36,20 +36,23 @@ const UPDATES_PAGE_DESCRIPTION =
   "View the server version, choose which releases this instance installs, and apply eligible updates.";
 
 interface AuthSessionSnapshot {
+  identity: string;
   isAuthenticated: boolean;
   sessionExpiry: Date | null;
 }
 
-const captureAuthSession = (): AuthSessionSnapshot => {
+const captureAuthSession = (identity: string): AuthSessionSnapshot => {
   const { isAuthenticated, sessionExpiry } = useFleetStore.getState().auth;
-  return { isAuthenticated, sessionExpiry };
+  return { identity, isAuthenticated, sessionExpiry };
 };
 
 const isSameAuthSession = (snapshot: AuthSessionSnapshot) => {
-  const { isAuthenticated, sessionExpiry } = useFleetStore.getState().auth;
-  // Login installs a new Date object and logout clears it. Compare identity so
-  // even a replacement session for the same user cannot inherit old failures.
-  return isAuthenticated === snapshot.isAuthenticated && sessionExpiry === snapshot.sessionExpiry;
+  const { isAuthenticated, sessionExpiry, sessionGeneration, username } = useFleetStore.getState().auth;
+  return (
+    `${username}:${sessionGeneration}` === snapshot.identity &&
+    isAuthenticated === snapshot.isAuthenticated &&
+    sessionExpiry === snapshot.sessionExpiry
+  );
 };
 
 // A route remount must not load status while the previous page instance is
@@ -98,6 +101,7 @@ const Updates = () => {
   const sessionGeneration = useSessionGeneration();
   const setPermissions = useSetPermissions();
   const username = useUsername();
+  const authSessionIdentity = `${username}:${sessionGeneration}`;
   const { handleAuthErrors } = useAuthErrors();
   const [status, setStatus] = useState<GetUpdateStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -144,7 +148,7 @@ const Updates = () => {
   );
 
   const upgrade = useUpgradeOperation({
-    authSessionIdentity: `${username}:${sessionGeneration}`,
+    authSessionIdentity,
     enabled: canUpdateInstance,
     currentVersion: status?.currentVersion,
     currentVersionUnavailable: Boolean(loadError && !status),
@@ -177,7 +181,7 @@ const Updates = () => {
 
   const fetchStatus = useCallback(async () => {
     const requestId = ++latestStatusRequest.current;
-    const authSession = captureAuthSession();
+    const authSession = captureAuthSession(authSessionIdentity);
     setIsStatusRefreshPending(true);
     try {
       await waitForReleaseChannelSave();
@@ -214,7 +218,7 @@ const Updates = () => {
         setIsStatusRefreshPending(false);
       }
     }
-  }, [handleAuthErrors, handlePermissionRevoked]);
+  }, [authSessionIdentity, handleAuthErrors, handlePermissionRevoked]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -281,7 +285,7 @@ const Updates = () => {
     if (nextChannel === channel || isChannelChangePending || upgradeLocksConfiguration) {
       return;
     }
-    const authSession = captureAuthSession();
+    const authSession = captureAuthSession(authSessionIdentity);
     setIsChannelChangePending(true);
     try {
       let saveSucceeded = false;
