@@ -291,6 +291,28 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 	require.NotContains(t, strings.Join(calls, "\n"), "apt-get")
 }
 
+func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
+	// Arrange
+	existing := filepath.Join(t.TempDir(), "drop-in.conf")
+	require.NoError(t, os.WriteFile(existing, []byte("[Unit]\n"), 0o600))
+	deps := installDependencies{
+		lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
+		requireEmpty: func(string, string) error { return nil },
+		lstat: func(path string) (os.FileInfo, error) {
+			if path == dockerRecoveryDropIn {
+				return os.Stat(existing)
+			}
+			return nil, os.ErrNotExist
+		},
+	}
+
+	// Act
+	err := validateCleanInstallState(deps)
+
+	// Assert
+	require.ErrorContains(t, err, dockerRecoveryDropIn)
+}
+
 func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)

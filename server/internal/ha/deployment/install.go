@@ -236,7 +236,8 @@ func validateCleanInstallState(deps installDependencies) error {
 		}
 	}
 	for _, path := range []string{
-		serviceUnit, firewallUnit, dockerDropIn,
+		serviceUnit, firewallUnit, dockerDropIn, dockerRecoveryDropIn,
+		"/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf",
 		"/etc/keepalived/keepalived.conf",
 		"/etc/systemd/system/keepalived.service.d/override.conf",
 		"/usr/local/libexec/proto-fleet/check-fleet-active",
