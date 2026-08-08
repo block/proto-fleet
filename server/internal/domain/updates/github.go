@@ -1,6 +1,7 @@
 package updates
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -218,6 +219,21 @@ func (c *githubClient) decodeReleases(body io.Reader, strict bool) ([]githubRele
 			}
 			c.logger.Debug("skipping malformed release entry", "error", err)
 			continue
+		}
+		if strict {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(entry, &fields); err != nil {
+				return nil, 0, fmt.Errorf("decode /releases entry %d: %w", rawCount, err)
+			}
+			for _, name := range []string{"tag_name", "published_at", "prerelease", "draft"} {
+				value, ok := fields[name]
+				if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+					return nil, 0, fmt.Errorf("decode /releases entry %d: missing required field %s", rawCount, name)
+				}
+			}
+			if rel.TagName == "" || rel.PublishedAt.IsZero() {
+				return nil, 0, fmt.Errorf("decode /releases entry %d: required release metadata is empty", rawCount)
+			}
 		}
 		entries = append(entries, rel)
 	}
