@@ -353,6 +353,9 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 	if err != nil {
 		return fmt.Errorf("verify release manifest: %s", commandError(output, err))
 	}
+	if _, err := haDatabaseImage(source, deps.readFile); err != nil {
+		return err
+	}
 	return nil
 }
 
