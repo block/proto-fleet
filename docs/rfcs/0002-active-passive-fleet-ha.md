@@ -278,13 +278,9 @@ Endpoints:
 
 `fleet-ha status --check` provides the operator view:
 
-- Patroni cluster table;
-- etcd quorum;
-- sync standby and replication lag;
-- active Fleet holder and lease epoch;
-- VIP/load-balancer target;
-- `FAILOVER READY: YES/NO`;
-- degraded reason.
+- local runtime role, observation freshness, and endpoint health;
+- separate control and failover readiness;
+- generic reason codes for etcd quorum, writable Postgres, database redundancy, Fleet redundancy and version agreement, and VIP health.
 
 The v1 HA contract requires degraded readiness to be visible through `/health/ha` and `fleet-ha status`. Grafana dashboards, alert history, and notification metrics remain best-effort; they must not be the only source of HA degraded-state reporting.
 
