@@ -2086,10 +2086,12 @@ func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *tes
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, activationMarkerFilename), marker, 0o600))
 
+	runner := &haRecordingRunner{}
 	manager, err := NewManager(Config{
 		InstallRoot:    installRoot,
 		StateDir:       stateDir,
 		GOARCH:         "amd64",
+		Runner:         runner,
 		DeploymentMode: DeploymentModeHA,
 	})
 	require.NoError(t, err)
@@ -2103,9 +2105,18 @@ func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *tes
 	assert.Contains(t, operation.Message, "Previous deployment restored")
 	assert.Equal(t, completed, *operation.CompletedAt)
 	assert.Contains(t, operation.RecoveryCommand, "app-start")
+	assert.True(t, operation.RecoveryPending)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
 	assert.NoDirExists(t, stageRoot)
+	require.NoError(t, manager.RecoverApplication())
+	recovered := manager.Status().Operation
+	require.NotNil(t, recovered)
+	assert.Empty(t, recovered.RecoveryCommand)
+	assert.False(t, recovered.RecoveryPending)
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
 }
 
 func TestManagerDoesNotRestorePreviousWithoutAPendingSwapMarker(t *testing.T) {
