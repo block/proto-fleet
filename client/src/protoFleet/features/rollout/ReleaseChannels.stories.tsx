@@ -37,9 +37,11 @@ const noop = () => undefined;
  */
 function ReleaseChannelsTabInSitu(): ReactElement {
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"create" | "manage">("manage");
   const [draft, setDraft] = useState<ReleaseChannelDraft>(devChannelDraft);
 
   const openForManage = (channel: ReleaseChannel) => {
+    setModalMode("manage");
     setDraft({ ...devChannelDraft, name: channel.name });
     setModalOpen(true);
   };
@@ -52,6 +54,7 @@ function ReleaseChannelsTabInSitu(): ReactElement {
           <ReleaseChannelsTable
             channels={releaseChannels}
             onCreate={() => {
+              setModalMode("create");
               setDraft({ ...devChannelDraft, name: "", description: "" });
               setModalOpen(true);
             }}
@@ -61,7 +64,7 @@ function ReleaseChannelsTabInSitu(): ReactElement {
       />
       <ReleaseChannelModal
         open={modalOpen}
-        mode="manage"
+        mode={modalMode}
         draft={draft}
         onDraftChange={setDraft}
         preview={devChannelPreview}
