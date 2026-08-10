@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 
 import RolloutColumnState from "./RolloutColumnState";
+import { rolloutProcessLabel, rolloutStatusColumnLabel } from "./rolloutDisplayUtils";
 import type { RolloutEvent, RolloutMinerRow, RolloutMinerTelemetryValue } from "./rolloutTypes";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -27,16 +28,18 @@ const rolloutMinerColumns: RolloutMinerColumn[] = [
   "temperature",
 ];
 
-const rolloutMinerColTitles: ColTitles<RolloutMinerColumn> = {
-  miner: "Miner",
-  rollout: "Rollout",
-  type: "Type",
-  ipAddress: "IP address",
-  hashrate: "Hashrate",
-  power: "Power",
-  efficiency: "Efficiency",
-  temperature: "Temp",
-};
+function rolloutMinerColTitles(event: RolloutEvent): ColTitles<RolloutMinerColumn> {
+  return {
+    miner: "Miner",
+    rollout: rolloutStatusColumnLabel(event.processType),
+    type: "Type",
+    ipAddress: "IP address",
+    hashrate: "Hashrate",
+    power: "Power",
+    efficiency: "Efficiency",
+    temperature: "Temp",
+  };
+}
 
 function MinerCell({ miner }: { miner: RolloutMinerRow }): ReactElement {
   return (
@@ -131,7 +134,7 @@ function RolloutMinersModal({ open, event, miners, onDismiss }: RolloutMinersMod
     <Modal
       open={open}
       onDismiss={onDismiss}
-      title="Rollout miners"
+      title={`Miners in ${rolloutProcessLabel(event.processType).toLowerCase()}`}
       description={description}
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
@@ -150,7 +153,7 @@ function RolloutMinersModal({ open, event, miners, onDismiss }: RolloutMinersMod
       <div className="flex h-full min-h-0 flex-col gap-4">
         <List<RolloutMinerRow, string, RolloutMinerColumn>
           activeCols={rolloutMinerColumns}
-          colTitles={rolloutMinerColTitles}
+          colTitles={rolloutMinerColTitles(event)}
           colConfig={createRolloutMinerColConfig(event)}
           items={miners}
           itemKey="id"

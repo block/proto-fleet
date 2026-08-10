@@ -4,7 +4,7 @@ import type { RolloutPlanConfig } from "./rolloutTypes";
 
 /**
  * Convenience state hook for hosts (and stories) that don't own the rollout
- * plan state externally — bundles the config plus the schedule date/time so a
+ * plan state externally, bundles the config plus the schedule date/time so a
  * caller can wire {@link RolloutConfigModal} in a couple of lines.
  */
 export function useRolloutConfigModalState(initial: RolloutPlanConfig) {

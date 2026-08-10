@@ -7,7 +7,7 @@ import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 
 interface RolloutColumnStateProps {
   phase: RolloutTargetPhase;
-  /** Process — picks the in-flight verb ("Updating firmware" / "Rebooting" /
+  /** Process, picks the in-flight verb ("Updating firmware" / "Rebooting" /
    * "Curtailing"), matching `MinerStatus`. Defaults to firmware. */
   processType?: RolloutProcessType;
   /** Value shown for a settled target, e.g. the new firmware version "5.1.0".
@@ -34,10 +34,8 @@ const phaseStatus: Record<RolloutTargetPhase, keyof typeof statuses> = {
  * `MinerStatus`: a `StatusCircle` dot + optional inline `ProgressCircular`
  * spinner + the exact wording the fleet table already shows for these device
  * statuses ("Updating firmware" for `DeviceStatus.UPDATING`, "Rebooting", etc.,
- * via `columnActiveLabel`). A real integration derives the phase from the
- * shipped `DeviceStatus`/`activeBatches` (see `deviceStatusToRolloutPhase`) —
- * this component only renders it, so a rollout's per-row state reads identically
- * to native miner status rather than as a parallel model.
+ * via `columnActiveLabel`). A real integration derives the phase from
+ * `DeviceStatus`/`activeBatches` (see `deviceStatusToRolloutPhase`).
  */
 function RolloutColumnState({
   phase,

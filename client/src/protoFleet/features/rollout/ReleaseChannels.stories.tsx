@@ -7,15 +7,7 @@ import { FirmwareSettingsSurface } from "@/protoFleet/features/rollout/activeRol
 import ReleaseChannelModal from "@/protoFleet/features/rollout/ReleaseChannelModal";
 import ReleaseChannelsTable from "@/protoFleet/features/rollout/ReleaseChannelsTable";
 
-/**
- * The firmware **release channels** surface: the "Files / Release channels" tab
- * added to the Firmware settings page, and the full-screen Manage release
- * channel modal a channel opens into. Both render **in situ** — the tab on the
- * real Firmware settings page (nav, subnav, header), the modal over it — the
- * same in-situ treatment the rest of the rollout stories use. Built on shipped
- * primitives (TabStrip, FullScreenTwoPaneModal, List, TargetSelectButton) plus
- * the framework's own RolloutControls.
- */
+/** Release channels rendered on the Firmware settings page. */
 const meta = {
   title: "Proto Fleet/Rollout/In Situ/Release Channels",
   parameters: {
@@ -31,10 +23,7 @@ type Story = StoryObj;
 
 const noop = () => undefined;
 
-/**
- * The Release channels tab live on the Firmware settings page, with the Manage
- * release channel modal wired to open from Create / a row's Manage button.
- */
+/** Release channels tab with create/manage modal wiring. */
 function ReleaseChannelsTabInSitu(): ReactElement {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "manage">("manage");

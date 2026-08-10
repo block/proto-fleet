@@ -27,12 +27,8 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 
 /**
- * Progress-bar colors, matching curtailment's curtail-phase precedent exactly
- * (`curtailProgressColorMap` in ActiveCurtailmentStatus): a rollout is
- * "work moving forward" like a curtail dispatch, so **done** reads as the
- * primary fill (not success-green), **remaining** as the accent, **failed** as
- * critical. Passed to CompositionBar and reused for the legend dots so the bar
- * and its key never diverge.
+ * Rollout progress colors follow the active curtailment card: done is primary,
+ * remaining is accent, and failures are critical.
  */
 const rolloutProgressColorMap: Record<Segment["status"], string> = {
   OK: "bg-core-primary-fill",
@@ -44,14 +40,11 @@ const rolloutProgressColorMap: Record<Segment["status"], string> = {
 interface ActiveRolloutStatusProps {
   event: RolloutEvent;
   className?: string;
-  /** When true, drop the card's own elevated surface/shadow/padding — for when
-   * the card is already inside an elevated container (e.g. the ViewRolloutModal). */
+  /** Drop card chrome when the host already provides an elevated surface. */
   embedded?: boolean;
-  /** When true, suppress the card's own lifecycle button row — the host (e.g.
-   * ViewRolloutModal) renders the CTAs in its top bar instead. */
+  /** Suppress lifecycle actions when the host renders them elsewhere. */
   hideActions?: boolean;
-  /** Lifecycle actions — each renders only when its handler is supplied, so
-   * capability-flagging is just "pass the handler or don't". */
+  /** Lifecycle actions. Missing handlers hide their controls. */
   onManage?: () => void;
   onPause?: () => void;
   onResume?: () => void;
@@ -86,7 +79,7 @@ function StatBlock({ label, value, detail }: StatBlockProps): ReactElement {
 }
 
 /**
- * A single stat as a standard label/value table row — the `SummaryRow` pattern
+ * A single stat as a standard label/value table row. This follows the `SummaryRow` pattern
  * shared with `ActivityDetailModal`: label pinned left, value right-aligned, a
  * hairline divider between rows. Used in the modal (`embedded`) presentation,
  * where the four stats read better stacked as detail rows than as a stat grid.
@@ -112,43 +105,22 @@ function StatRow({ label, value, detail, divider }: StatBlockProps & { divider: 
   );
 }
 
-// A metric's move off baseline colors its delta purely by sign: a rise reads
-// success (the standard green, `-fill`), a drop reads critical (the standard
-// red). No arrow icons, no "±" — just the signed "+"/"−" magnitude in the
-// matching color, at the same size as the value it sits beside. The delta only
-// shows which way the value moved — it does NOT judge good/bad or infer whether
-// to continue (per the design review: show the numbers, don't decide the
-// operator's action).
+// Deltas show movement only. The UI does not judge whether the change is good
+// or bad for the operator.
 const deltaTextColor: Record<RolloutMetricDeltaIntent, string> = {
   positive: "text-intent-success-fill",
   negative: "text-intent-critical-fill",
 };
 
 /**
- * Small signed-delta beside a metric's current value: a "+" for a rise, a "−"
- * for a drop, followed by the magnitude, in the standard green for a rise and
- * red for a drop. No size class of its own — it inherits the value's
- * `text-emphasis-300` from the row so the sign reads at the same size as the
- * number it annotates. Just the sign and the number — no arrow glyph, no "±".
+ * Signed metric delta rendered beside the current value.
  */
 function DeltaChip({ delta }: { delta: RolloutMetricDelta }): ReactElement {
   return <span className={deltaTextColor[delta.intent]}>{delta.deltaText}</span>;
 }
 
 /**
- * Baseline-vs-current performance readout — the Option-A strip from the design
- * review (Caleb's "confirm no adverse effects" + Rongxin's baseline capture).
- * Each tracked metric shows its current value (formatted with the shared
- * telemetry formatters) alongside a colored Δ-vs-baseline chip, so at the
- * pilot-review gate an operator can see whether the change moved the fleet
- * before continuing. It's a plain readout: no header label, no guardrail
- * verdict, no inferred continue/review action — the numbers, with the decision
- * left to the operator. The metric lockups match the card's `StatBlock` stat
- * grid so the readout reads as one more content grouping — and it shares the
- * grid's `tablet:grid-cols-5` / `gap-x-12` template so each metric column sits
- * directly under a stat column above (Hashrate under Scope, etc.) rather than
- * floating in its own out-of-register grid. Renders only when the event carries
- * a captured baseline.
+ * Baseline-vs-current telemetry for pilot review.
  */
 function PerformanceStrip({ event }: { event: RolloutEvent }): ReactElement | null {
   const temperatureUnit = useTemperatureUnit();
@@ -185,7 +157,7 @@ function statusHeadline(event: RolloutEvent): string {
     case "inProgress":
       return "In progress";
     case "pausedAtPilotGate":
-      return "Paused — pilot review";
+      return "Paused for pilot review";
     case "paused":
       return "Paused";
     case "completed":
@@ -209,15 +181,7 @@ function statusIcon(event: RolloutEvent): ReactNode {
 }
 
 /**
- * Progress-against-plan detail card for a rollout. Deliberately mirrors
- * `ActiveCurtailmentStatus`' layout vocabulary — a `SectionHeader`, the elevated
- * card, the big icon + primary lockup (`text-heading-300`), a stat-block grid,
- * one composition-bar progress section with legend + elapsed, and
- * top-right lifecycle buttons — without touching the curtailment implementation.
- * Process-agnostic: the phase copy adapts to `event.processType`.
- *
- * This is the detail surface an active rollout opens into (an Activity
- * rollout-detail area), the same home the active-curtailment card lives in.
+ * Progress-against-plan detail card for active rollout work.
  */
 function ActiveRolloutStatus({
   event,
@@ -263,14 +227,12 @@ function ActiveRolloutStatus({
   const statItems: StatBlockProps[] = [
     { label: "Scope", value: event.scopeLabel || "—" },
     { label: "Strategy", value: pacingSummary(event) },
-    // Order only applies to a paced run — under "all at once" there's no
-    // first/last, so omit it (mirrors the config control hiding the field).
+    // Order only applies to a paced run. Under "all at once" there's no first/last.
     ...(event.strategy === "allAtOnce" ? [] : [{ label: "Order", value: orderLabels[event.order] }]),
     { label: "Est. time remaining", value: etaValue },
   ];
 
-  // Progress summary + elapsed live in the progress section (curtailment's
-  // ProgressSection precedent) — NOT as stat-block sub-details.
+  // Progress summary + elapsed live in the progress section, rather than the stat grid.
   const progressSummary = `${done.toLocaleString()} of ${inScope.toLocaleString()} miners ${doneVerb} (${percent}%)`;
 
   const actions = hideActions
@@ -386,16 +348,10 @@ function ActiveRolloutStatus({
           </div>
         )}
 
-        {/* Performance vs baseline (Option A): current hashrate / power /
-            efficiency with a Δ-vs-baseline chip, so the operator can confirm
-            the change isn't hurting the acted-on cohort — most consequential at
-            the pilot-review gate. Renders only when a baseline was captured. */}
+        {/* Baseline telemetry for pilot review. */}
         <PerformanceStrip event={event} />
 
-        {/* Progress section mirrors ActiveCurtailmentStatus' ProgressSection:
-            summary line on the left + right-aligned elapsed above the bar,
-            then the CompositionBar, then the legend. 24px (mt-6) above, matching
-            the tightened content-grouping rhythm from the design review. */}
+        {/* Progress section: summary, elapsed time, bar, then legend. */}
         <div className="mt-6 grid gap-3" data-testid="active-rollout-progress">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
             <div className="text-200 text-text-primary-50">{progressSummary}</div>
@@ -416,9 +372,7 @@ function ActiveRolloutStatus({
                 {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
               </span>
             ))}
-            {/* Excluded targets are never in the bar, so the legend annotates
-                them separately (right-aligned) — the analog of curtailment's
-                "N unavailable" annotation in ProgressSection. */}
+            {/* Excluded targets sit outside the bar and appear as a separate legend item. */}
             {event.excludedTargets > 0 ? (
               <span className="ml-auto text-right text-text-primary-50">
                 {`${event.excludedTargets.toLocaleString()} excluded`}

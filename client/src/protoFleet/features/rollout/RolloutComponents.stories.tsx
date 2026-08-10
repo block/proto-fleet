@@ -7,9 +7,7 @@ import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutPlanConfig, RolloutTargetPhase } from "@/protoFleet/features/rollout/rolloutTypes";
 
 /**
- * The abstracted, isolated rollout components — shown out of context so their
- * own behavior is easy to inspect. The in-situ stories cover how they read on
- * real surfaces; this bucket is just the parts.
+ * Isolated rollout components for focused visual review.
  */
 const meta = {
   title: "Proto Fleet/Rollout/Components",
@@ -25,7 +23,7 @@ type Story = StoryObj;
 // ---- Rollout controls: one functional example (flip the strategy live) ------
 // RolloutControls owns no state, so the story holds it. The strategy selector
 // is inside the component, so a single instance covers every strategy's
-// field-set — pick a strategy to watch the paced fields appear/disappear.
+// field-set, pick a strategy to watch the paced fields appear/disappear.
 
 function RolloutControlsStory(): ReactElement {
   const [config, setConfig] = useState<RolloutPlanConfig>(batchedFirmwareConfig);

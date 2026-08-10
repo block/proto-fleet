@@ -17,18 +17,7 @@ interface ViewRolloutModalProps {
   onViewMiners?: () => void;
 }
 
-/**
- * "View rollout" surface — summons the progress-against-plan card in a centered
- * modal so an operator can check a rollout from anywhere (a page banner, the
- * header pill, an activity row) without navigating away and losing context.
- * Same pattern as `ActivityDetailModal`: the shared `Modal` over a page overlay,
- * click-outside / Escape to dismiss. Uses the `large` size so the stat grid and
- * progress bar have room; the body scrolls under the sticky header when tall.
- *
- * The Modal owns the title bar (title + close), while the embedded status card
- * owns the lifecycle action bar so the standalone and modal presentations keep
- * the same Manage / current action / overflow treatment.
- */
+/** Centered rollout detail modal. */
 function ViewRolloutModal({
   event,
   onDismiss,

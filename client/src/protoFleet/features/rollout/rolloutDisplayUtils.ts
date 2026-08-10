@@ -20,14 +20,7 @@ export const strategyLabels: Record<RolloutStrategy, string> = {
   pilotThenContinue: "Pilot group, then continue",
 };
 
-/**
- * Action-specific noun for a rollout's CTAs — "update" / "reboot" /
- * "curtailment" — so the primary button reads "Start update" or "Schedule
- * reboot" rather than the generic (and, for a reboot, inaccurate) "Start
- * rollout". Per the rollout design review: "rollout" implies the reversible,
- * trackable state a firmware/config change has but a reboot doesn't, so the CTA
- * verb tracks the action instead.
- */
+/** Action-specific noun for rollout CTA labels. */
 const processActionNouns: Record<RolloutProcessType, string> = {
   firmware: "update",
   reboot: "reboot",
@@ -38,14 +31,27 @@ export function rolloutActionNoun(processType: RolloutProcessType): string {
   return processActionNouns[processType];
 }
 
-/**
- * Lowercase present-tense verb for a process — "update" / "reboot" / "curtail"
- * — used inside sentence copy ("Miners update in fixed-size waves…"). Distinct
- * from {@link rolloutActionNoun} because curtailment's noun ("curtailment")
- * isn't its verb ("curtail"). Keeps the config help text reading naturally for
- * whichever process the control is driving instead of hardcoding firmware's
- * "update".
- */
+const processDisplayLabels: Record<RolloutProcessType, string> = {
+  firmware: "Firmware update",
+  reboot: "Reboot",
+  curtailment: "Curtailment",
+};
+
+export function rolloutProcessLabel(processType: RolloutProcessType): string {
+  return processDisplayLabels[processType];
+}
+
+const processStatusColumnLabels: Record<RolloutProcessType, string> = {
+  firmware: "Update status",
+  reboot: "Reboot status",
+  curtailment: "Curtailment status",
+};
+
+export function rolloutStatusColumnLabel(processType: RolloutProcessType): string {
+  return processStatusColumnLabels[processType];
+}
+
+/** Lowercase present-tense verb for strategy help text. */
 const processPresentVerbs: Record<RolloutProcessType, string> = {
   firmware: "update",
   reboot: "reboot",
@@ -57,20 +63,15 @@ export function rolloutProcessVerb(processType: RolloutProcessType): string {
 }
 
 /**
- * Section title for the behavior controls, action-prefixed — "Update behavior"
- * / "Reboot behavior" / "Curtail behavior". Adopts curtailment's "behavior"
- * vocabulary (its Curtail/Restore behavior sections) so the paced-controls
- * block reads the same across bulk workflows instead of the standalone
- * "Pacing" label. Built from the present verb, so curtailment resolves to the
- * exact "Curtail behavior" string the shipped modal already uses.
+ * Section title for the behavior controls, action-prefixed, "Update behavior"
+ * / "Reboot behavior" / "Curtail behavior".
  */
 export function rolloutBehaviorLabel(processType: RolloutProcessType): string {
   const verb = processPresentVerbs[processType];
   return `${verb.charAt(0).toUpperCase()}${verb.slice(1)} behavior`;
 }
 
-/** The primary submit CTA for a config surface — "Start update" / "Schedule
- * reboot", etc. — action-specific rather than the generic "Start rollout". */
+/** The primary submit CTA for a config surface. */
 export function rolloutSubmitLabel(processType: RolloutProcessType, isScheduled: boolean): string {
   return `${isScheduled ? "Schedule" : "Start"} ${rolloutActionNoun(processType)}`;
 }
@@ -82,16 +83,12 @@ export const orderLabels: Record<RolloutOrder, string> = {
 
 /**
  * Helper text for each strategy, surfaced through the strategy field's info
- * popover rather than inline copy — keeps the control compact and consistent
- * with how curtailment fields carry help. The action verb is parameterized off
- * the process ("update" / "reboot" / "curtail") so the copy reads naturally for
- * whichever process the control drives; "rollout" never appears in operator
- * copy (it's the internal engine name only).
+ * popover rather than inline copy. The action verb changes by process.
  */
 export function strategyHelpText(processType: RolloutProcessType): Record<RolloutStrategy, string> {
   const verb = rolloutProcessVerb(processType);
   return {
-    allAtOnce: `All in-scope miners ${verb} simultaneously. Fastest, but the highest uptime impact — bounded only by the max-offline ceiling.`,
+    allAtOnce: `All in-scope miners ${verb} simultaneously. This has the highest uptime impact and is limited by the max miners offline setting.`,
     batched: `Miners ${verb} in fixed-size waves, pausing for the interval between each so a bounded number are ever offline at once.`,
     pilotThenContinue:
       "A small pilot wave runs first, then it pauses for your review before continuing to the rest in batches.",
@@ -127,14 +124,7 @@ export function phaseLabel(processType: RolloutProcessType, phase: RolloutTarget
   }
 }
 
-/**
- * In-flight column label per process, matching the exact wording the fleet
- * table already shows for these `DeviceStatus`es (via `MinerStatus` +
- * `statusColumnLoadingMessages`): `DeviceStatus.UPDATING` renders "Updating
- * firmware", a reboot batch renders "Rebooting", curtail renders "Curtailing".
- * Using these verbatim keeps a rollout's per-miner state identical to native
- * miner status rather than inventing a parallel label.
- */
+/** In-flight column label per process. */
 const columnActiveLabels: Record<RolloutProcessType, string> = {
   firmware: "Updating firmware",
   reboot: "Rebooting",
@@ -146,18 +136,15 @@ export function columnActiveLabel(processType: RolloutProcessType): string {
 }
 
 /**
- * Map the shipped `fleetmanagement.v1.DeviceStatus` enum (as a raw number, to
- * avoid a generated-proto import in this presentational util) onto a rollout
- * phase, so a real integration drives the column from the same device status
- * the fleet table reads rather than a separate source of truth:
+ * Map the `fleetmanagement.v1.DeviceStatus` enum (as a raw number, to avoid a
+ * generated-proto import in this presentational util) onto a rollout phase:
  *   UPDATING (7) / REBOOT_REQUIRED (8) → inProgress   (mid-rollout activity)
  *   ERROR (4)                         → failed
  *   everything else                   → the caller's fallback (e.g. queued/done
  *   derived from firmware version), since a plain ONLINE miner isn't itself a
  *   rollout state.
- * The auto-retry "retrying" phase has no DeviceStatus analog — it comes from
- * the rollout plan's per-target rollup (curtailment's drifted→redispatch), so
- * it's supplied by the plan, not this mapper.
+ * Auto-retry state comes from the rollout plan's per-target rollup, not from
+ * DeviceStatus.
  */
 export function deviceStatusToRolloutPhase(deviceStatus: number): RolloutTargetPhase | null {
   switch (deviceStatus) {
@@ -232,15 +219,8 @@ export function estimateRolloutSeconds(args: {
 }
 
 /**
- * Live, human-readable rollout-plan summary for the config control — the
- * "reduce operator math" readout from the design review. Instead of leaving an
- * operator to work out how many waves a batch size implies and how long that
- * takes at a given interval, we compute it and say it plainly:
- *   "≈ 12 batches over ~11m" (batched)
- *   "All 222 miners at once"  (all at once)
- *   "Pilot of 10, then ≈ 9 batches over ~12m" (pilot then continue)
- * Returns null when the plan isn't complete enough to summarize yet (e.g. batch
- * size not entered), so the caller can hide the line rather than show a partial.
+ * Human-readable rollout-plan summary for the config control.
+ * Returns null until the plan has enough inputs to summarize.
  */
 export function rolloutPlanReadout(args: {
   inScopeCount: number;
@@ -286,12 +266,7 @@ export function pacingSummary(event: Pick<RolloutEvent, "strategy" | "batchSize"
   return strategyLabels[event.strategy];
 }
 
-/**
- * The primary lockup headline — the process's *step*, not a miner count. This
- * is what leads the active card (matching curtailment, whose lockup leads with
- * the dispatch stage / power state rather than a raw count). The miner tally is
- * demoted to a supporting stat and the progress bar.
- */
+/** Primary lockup headline for the current rollout step. */
 export function rolloutStageLabel(event: RolloutEvent): string {
   switch (event.state) {
     case "scheduled":
@@ -315,19 +290,16 @@ export function rolloutStageLabel(event: RolloutEvent): string {
   }
 }
 
-/** Supporting line under the stage headline — orients the step within the plan
- * (target, pacing) without leading on the raw completed count. */
+/** Supporting line under the stage headline. */
 export function rolloutStageDetail(event: RolloutEvent): string {
   const inScope = inScopeTargetCount(event);
   const scope = event.scopeLabel ? `${event.scopeLabel}, ` : "";
   return `${scope}${inScope.toLocaleString()} miners, ${pacingSummary(event).toLowerCase()}`;
 }
 
-/** Lifecycle-action handlers a host can wire to a rollout. Each is optional —
- * omitting one hides its control (capability-flagging). */
+/** Lifecycle-action handlers a host can wire to a rollout. Missing handlers hide their controls. */
 export interface RolloutLifecycleHandlers {
-  /** Edit the live plan (pacing, batch size, order, …) while the rollout is
-   * active — the analog of curtailment's "Manage". */
+  /** Edit the live plan while the rollout is active. */
   onManage?: () => void;
   onPause?: () => void;
   onResume?: () => void;
@@ -366,9 +338,7 @@ export function rolloutLifecycleActions(
   const failed = rolloutPhaseCount(event.rollups, "failed");
   const actions: RolloutLifecycleAction[] = [];
 
-  // "Manage" edits the live plan and is available whenever the rollout is not
-  // terminal — the analog of curtailment's Manage (shown for its active
-  // states). Rendered first (leftmost), as in ActiveCurtailmentStatus.
+  // "Manage" edits the live plan and is available until the rollout is terminal.
   if (handlers.onManage && !isTerminal && !isScheduled) {
     actions.push({ key: "manage", text: "Manage", variant: "secondary", onClick: handlers.onManage });
   }
@@ -402,11 +372,7 @@ export function rolloutLifecycleActions(
 
 // ---- Performance vs baseline -----------------------------------------------
 
-/** Render a raw metric value for its unit using the shared telemetry
- * formatters, so the rollout strip reads identically to the value elsewhere in
- * the app (hashrate auto-scales GH/TH/PH; power in kW; efficiency in J/TH).
- * Temperature is stored in Celsius and converted to the operator's preferred
- * unit for display (one decimal + "°C"/"°F", matching `formatTempRange`). */
+/** Render a raw metric value for its unit using the shared telemetry formatters. */
 export function formatRolloutMetric(metric: RolloutPerfMetric, temperatureUnit: TemperatureUnit): string {
   switch (metric.unit) {
     case "hashrate":
@@ -422,10 +388,7 @@ export function formatRolloutMetric(metric: RolloutPerfMetric, temperatureUnit: 
   }
 }
 
-/** How a metric's move off baseline is colored: purely by sign — a rise is
- * `positive` (green), a drop is `negative` (red). The readout shows the
- * direction of movement and does NOT judge whether it's good or bad — per the
- * design review, the operator decides. */
+/** How a metric's move off baseline is colored. */
 export type RolloutMetricDeltaIntent = "positive" | "negative";
 
 export interface RolloutMetricDelta {
@@ -433,17 +396,11 @@ export interface RolloutMetricDelta {
   percent: number;
   intent: RolloutMetricDeltaIntent;
   /** Signed change: a "+" prefix for a rise, a "−" for a drop ("+1.3%" /
-   * "−0.4%"). No arrows or "±" — just the sign, colored green/red. */
+   * "−0.4%"). No arrows or "±", just the sign, colored green/red. */
   deltaText: string;
 }
 
-/**
- * Compare a metric's current value to its captured baseline, colored purely by
- * the sign of the change: a rise reads positive (green), a drop negative (red).
- * This is a plain readout — it shows which way the number moved with just a
- * signed "+"/"−", it does NOT decide whether that's good or whether to continue
- * (no inferred action, per the design review).
- */
+/** Compare a metric's current value to its captured baseline. */
 export function rolloutMetricDelta(metric: RolloutPerfMetric): RolloutMetricDelta {
   const { baseline, current } = metric;
   const percent = baseline === 0 ? 0 : ((current - baseline) / baseline) * 100;

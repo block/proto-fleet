@@ -1,8 +1,14 @@
 import type { ReactElement } from "react";
 import { Link } from "react-router-dom";
 
-import { pacingSummary, phaseLabel, rolloutActionNoun, rolloutPhaseCount } from "./rolloutDisplayUtils";
-import type { RolloutEvent, RolloutProcessType } from "./rolloutTypes";
+import {
+  pacingSummary,
+  phaseLabel,
+  rolloutActionNoun,
+  rolloutPhaseCount,
+  rolloutProcessLabel,
+} from "./rolloutDisplayUtils";
+import type { RolloutEvent } from "./rolloutTypes";
 import PageHeaderPopoverPill from "@/protoFleet/components/PageHeader/PageHeaderPopoverPill";
 
 interface RolloutPillProps {
@@ -15,12 +21,6 @@ interface RolloutPillProps {
    * `detailsPath`. */
   onViewRollout?: () => void;
 }
-
-const processNoun: Record<RolloutProcessType, string> = {
-  firmware: "Firmware update",
-  reboot: "Reboot",
-  curtailment: "Curtailment",
-};
 
 function pillDotClass(event: RolloutEvent): string {
   switch (event.state) {
@@ -54,7 +54,7 @@ function pillStateWord(event: RolloutEvent): string {
 }
 
 /**
- * The persistent header pill for an active rollout — always-on entry point from
+ * The persistent header pill for an active rollout, always-on entry point from
  * any page, opening a popover with quick status and a link to the detail. Built
  * on the same {@link PageHeaderPopoverPill} the CurtailmentPill uses.
  */
@@ -81,7 +81,7 @@ function RolloutPill({ event, detailsPath, onViewRollout }: RolloutPillProps): R
       ariaLabel={`${viewLabel} details for ${event.title}`}
       dotClassName={pillDotClass(event)}
       triggerClassName="rollout-pill-trigger"
-      triggerLabel={`${processNoun[event.processType]} ${pillStateWord(event)}`}
+      triggerLabel={`${rolloutProcessLabel(event.processType)} ${pillStateWord(event)}`}
     >
       {({ closePopover }) => (
         <div className="flex flex-col gap-3">

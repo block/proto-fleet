@@ -98,7 +98,7 @@ function CoveragePreview({ preview }: { preview: ReleaseChannelPreview }): React
         </div>
 
         <div className="grid gap-3">
-          <div className="text-emphasis-300 text-text-primary">Previous rollouts</div>
+          <div className="text-emphasis-300 text-text-primary">Previous updates</div>
           <div className="grid divide-y divide-border-5">
             {preview.previousRollouts.map((rollout) => (
               <div key={rollout} className="py-3 text-300 text-text-primary-70">
@@ -112,17 +112,7 @@ function CoveragePreview({ preview }: { preview: ReleaseChannelPreview }): React
   );
 }
 
-/**
- * The create/manage surface for a firmware **release channel**, as a full-screen
- * two-pane modal — the same shell `CurtailmentStartModal` uses. Left pane is the
- * form (General → Firmware → Applies to → Rollout); right pane is the live
- * coverage preview (fleet-share ring, deploy summary, upcoming rollouts).
- *
- * Controlled — owns no draft state; the host flow supplies `draft` + `preview`
- * and handles Save, mirroring `RolloutConfigModal` / `CurtailmentStartModal`.
- * The "Rollout" section is the framework's own `RolloutControls`, so a channel's
- * pacing settings stay identical to every other rollout config surface.
- */
+/** Create/manage surface for a firmware release channel. */
 function ReleaseChannelModal({
   open,
   mode,
@@ -206,8 +196,8 @@ function ReleaseChannelModal({
             action={<Button text="Add file" variant={variants.secondary} size={sizes.compact} onClick={onAddFile} />}
           >
             <div className="text-300 text-text-primary-70">
-              Add one file per hardware model. A channel can span multiple models — subscribed miners each receive the
-              file that matches their model.
+              Add one file per hardware model. A channel can span multiple models. Subscribed miners receive the file
+              that matches their model.
             </div>
             <List<ReleaseChannelFile, string, FirmwareFileColumn>
               activeCols={firmwareFileColumns}
