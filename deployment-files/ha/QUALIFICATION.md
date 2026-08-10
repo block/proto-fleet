@@ -2,8 +2,17 @@
 
 The tested release artifact, host package versions, and architecture are
 supported only after they pass every gate in this document on three clean,
-same-L2 Debian hosts. End each
-measurement at the gate's actual recovery signal: VIP health for routing,
+same-L2 hosts. Complete and publish one report for each required platform:
+
+| Operating system | Architecture | Hardware |
+| --- | --- | --- |
+| Debian 12 or 13 | arm64 | Raspberry Pi |
+| Ubuntu 22.04 or 24.04 | amd64 | Qualified host model |
+| 64-bit Raspberry Pi OS based on Debian 12 or 13 | arm64 | Raspberry Pi |
+
+Other derivatives remain installer-compatible but unqualified. Do not combine
+results across platform reports. End each measurement at the gate's actual
+recovery signal: VIP health for routing,
 writable SQL for database recovery, durable command/device state for commands,
 and telemetry or independent power measurement for curtailment. Do not include
 addresses, certificates, passwords, device names, or customer data in the
@@ -29,11 +38,11 @@ without an enforced trusted segment are unsupported.
 | Release bundle SHA-256 | Pending |
 | `deployment-manifest.sha256` SHA-256 | Pending |
 | Deployed API, client, and Patroni image IDs/digests on every host | Pending |
-| Architecture | arm64 |
+| Architecture | Pending |
 | Host model and board revision | Pending |
 | CPU, memory, and boot storage | Pending |
 | Ethernet controller and driver | Pending |
-| Operating system | Debian 13 |
+| Operating system | Pending |
 | Kernel and firmware versions | Pending |
 | Page size | 4096 bytes |
 | Docker, containerd, keepalived, nftables, and arping package versions | Pending |
@@ -46,9 +55,9 @@ without an enforced trusted segment are unsupported.
 
 ## Clean installation
 
-1. Start with three freshly provisioned Debian 13 hosts. Do not qualify by
-   deleting directories from a previous HA installation; reimage the hosts so
-   no old services, containers, firewall rules, VIP, or data remain.
+1. Start with three freshly provisioned hosts for the report's platform. Do not
+   qualify by deleting directories from a previous HA installation; reimage
+   the hosts so no old services, containers, firewall rules, VIP, or data remain.
 2. Copy the same release, host-specific `node.env`, and only that node's
    matching secret directory to each host. Never copy the generated `offline`
    directory to a running host. Copy the etcd root password separately to
@@ -57,7 +66,7 @@ without an enforced trusted segment are unsupported.
    described in [README.md](README.md).
 4. Reboot all three hosts. On both database hosts, run
    `sudo /opt/proto-fleet/deployment/ha/fleet-ha status
-   /etc/proto-fleet/ha/node.env --check`.
+   /etc/proto-fleet/ha/node.env`.
 5. Confirm exactly one active Fleet, one passive Fleet, one Patroni primary,
    one Patroni replica, three etcd members, and one VIP owner.
 6. Confirm every host uses the recorded deployment manifest and container image
@@ -166,7 +175,7 @@ does not. Stream termination after that sample is expected, not a collection
 gap. Fail the gate if independent power-state evidence is unavailable.
 Outside injected transitions, sample both hosts at least every two seconds for
 availability. Record local
-`sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env --json --check`,
+`sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env`,
 and retain the status, health, and address streams. Run this probe outside shell
 error-exit handling: capture stdout, stderr, and exit status, then continue
 after the expected nonzero result for degraded failover readiness. Missing or
@@ -184,6 +193,5 @@ evidence after the soak.
 **Pending.** Do not describe an artifact and hardware profile as supported
 until every result above is `PASS` and the report records the tested release,
 commit, host hardware, and package versions. A hardware or package-version
-change requires requalification. This initial Raspberry Pi run does not make
-an architecture-wide arm64 claim; amd64 and other arm64 hosts remain
-unqualified until the same gates pass on that hardware.
+change requires requalification. Passing one required platform does not
+qualify the other platforms or make an architecture-wide support claim.
