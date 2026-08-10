@@ -106,7 +106,7 @@ const RowActionsMenuInner = ({
     setPopoverRenderMode("portal-fixed");
   }, [setPopoverRenderMode]);
 
-  // Disabled hard-closes; re-enable doesn't resurrect — operator must reopen.
+  // Disabled hard-closes; re-enable doesn't resurrect, operator must reopen.
   const open = isOpen && !disabled;
 
   const setMenuOpen = useCallback(

@@ -32,10 +32,7 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 import Select from "@/shared/components/Select";
 
 /**
- * Contextual ("in-situ") **config** surfaces: launching a rollout for a process
- * from the real bulk-actions selection bar, and the config surface each process
- * opens. Paired with the "In Progress" bucket, which shows a rollout once it is
- * live. Backed by the same shipped primitives the product uses.
+ * Rollout launch surfaces opened from the fleet bulk-actions bar.
  */
 const meta = {
   title: "Proto Fleet/Rollout/In Situ/Config",
@@ -51,15 +48,8 @@ type Story = StoryObj;
 
 const noop = () => undefined;
 
-// ---- Bulk actions: the dark selection ActionBar → each action's config surface
-// The real ActionBar + BulkActionsWidget (the widget that hosts miner bulk
-// actions today), with the rollout processes as its actions. Each opens the
-// config surface that process uses:
-//   - firmware grafts the rollout controls onto the shipped "Add firmware
-//     payload" modal;
-//   - reboot — no bespoke product modal — uses the generic RolloutConfigModal
-//     (with no "Apply to": the scope is already fixed by the selection);
-//   - curtail opens the shipped full-screen CurtailmentStartModal.
+// ---- Bulk actions -----------------------------------------------------------
+// Firmware, reboot, and curtailment each open their process-specific config UI.
 
 type SupportedAction = DeviceAction | PerformanceAction;
 type OpenModal = "firmware" | "reboot" | "curtail" | null;
@@ -75,8 +65,7 @@ interface FirmwareFile {
   version: string;
 }
 
-// A realistic library — several models, multiple versions each — so the picker
-// is exercised at the scale a live fleet would have, not a two-row happy path.
+// Several models and versions keep the picker close to real fleet scale.
 const firmwarePayloads: FirmwareFile[] = [
   { id: "f1", filename: "antminer-s21-5.1.0.tar.gz", target: "Antminer S21", version: "5.1.0" },
   { id: "f2", filename: "antminer-s21-5.0.2.tar.gz", target: "Antminer S21", version: "5.0.2" },
@@ -92,9 +81,7 @@ const firmwareFileOptions = firmwarePayloads.map((f) => ({
   description: `${f.target} (${f.version})`,
 }));
 
-// The two ways to supply a payload are mutually exclusive: picking one demotes
-// (hides) the other, rather than stacking an "Upload" affordance beneath an
-// always-present file list.
+// Choosing a payload source clears the hidden source.
 type PayloadMethod = "existing" | "upload";
 
 const payloadMethodSegments = [
@@ -103,15 +90,7 @@ const payloadMethodSegments = [
 ];
 
 /**
- * Firmware's config surface: the existing "Add firmware payload" modal (its
- * file picker + "Upload new file" path) with the rollout framework's controls
- * composed below — a Storybook composition validating the integrated surface
- * without editing the shipped component or its `onConfirm` contract.
- *
- * Payload input: a scalable `Select` (collapses to one row, scrolls when
- * opened) instead of an unbounded inline list, no file pre-selected, and a
- * `SegmentedControl` (the shipped DeliveryPicker pattern) that switches between
- * choosing an existing file and uploading a new one so the two never compete.
+ * Firmware config combines payload selection with rollout pacing and scheduling.
  */
 function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactElement {
   const [method, setMethod] = useState<PayloadMethod>("existing");
@@ -251,7 +230,7 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
   );
 }
 
-// Curtail opens the shipped full-screen config UI. The scope comes from the
+// Curtail opens the full-screen config UI. The scope comes from the
 // selection, so we lead with a populated plan (reason + pacing) and a preview.
 const curtailInitialValues: Partial<CurtailmentFormValues> = {
   curtailmentMode: "fullFleet",
@@ -277,10 +256,8 @@ function BulkActionsStory(): ReactElement {
   const [openModal, setOpenModal] = useState<OpenModal>(null);
   const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
 
-  // Reboot has no bespoke product modal, so it uses the generic
-  // RolloutConfigModal. Its default is "all at once" (immediate) per the design
-  // review — a plain reboot needs zero pacing setup; batching/scheduling are
-  // available as advanced options the operator can opt into.
+  // Reboot uses the generic RolloutConfigModal. It defaults to all-at-once,
+  // with batching and scheduling available as advanced options.
   const rebootState = useRolloutConfigModalState(allAtOnceRebootConfig);
 
   const open = (action: SupportedAction, modal: Exclude<OpenModal, null>) => {

@@ -18,13 +18,9 @@ interface RolloutConfigModalProps {
   onConfigChange: (next: RolloutPlanConfig) => void;
   onDismiss: () => void;
   onSubmit: () => void;
-  /** Scope target rows (Apply to). Wired by the host flow; here they're the
-   * real `TargetSelectButton`s with their current selection labels. Omit to
-   * hide the "Apply to" section entirely — e.g. a bulk action whose scope is
-   * already fixed by the current selection. */
+  /** Scope target rows for the "Apply to" section. Omit when scope is fixed. */
   scopeTargets?: Array<{ label: string; value: string; onClick: () => void }>;
-  /** In-scope target count, forwarded to RolloutControls for its live plan
-   * readout ("≈ 12 batches over ~11m"). Omit to hide the readout. */
+  /** In-scope target count for the live plan readout. */
   inScopeCount?: number;
   startDate?: Date;
   onStartDateChange?: (date: Date) => void;
@@ -44,15 +40,7 @@ function SectionTitle({ children }: { children: string }): ReactElement {
   return <div className="text-emphasis-300 text-text-primary">{children}</div>;
 }
 
-/**
- * The bulk-action config surface as a real modal: Apply-to scope + the Rollout
- * controls + Date-and-time schedule, in the shared `Modal`. The primary CTA
- * lives in the top bar (curtailment/schedule pattern), the body scrolls under
- * a sticky header, and dismiss is via the header close / Escape / click-outside.
- *
- * Controlled — owns no plan state; the host flow supplies config + scope and
- * handles submit, mirroring how ScheduleModal / CurtailmentStartModal work.
- */
+/** Bulk-action rollout config modal. */
 function RolloutConfigModal({
   title,
   description,

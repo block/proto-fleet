@@ -5,6 +5,8 @@ import NavigationMenu from "@/protoFleet/components/NavigationMenu";
 import SecondaryNavigation from "@/protoFleet/components/SecondaryNavigation";
 import { primaryNavItems, secondaryNavItems } from "@/protoFleet/config/navItems";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
+import { releaseChannels } from "@/protoFleet/features/rollout/releaseChannel.fixtures";
+import ReleaseChannelsTable from "@/protoFleet/features/rollout/ReleaseChannelsTable";
 import { rolloutMinerRowsForEvent } from "@/protoFleet/features/rollout/rollout.fixtures";
 import { inScopeTargetCount } from "@/protoFleet/features/rollout/rolloutDisplayUtils";
 import RolloutMinersModal from "@/protoFleet/features/rollout/RolloutMinersModal";
@@ -17,24 +19,8 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
 /**
- * Shared Storybook glue for the per-process "active rollout" lifecycle story
- * files (firmware update, reboot). Curtailment's `ActiveCurtailmentStatus`
- * stories showcase each lifecycle state plus one live-animated lifecycle; these
- * helpers do the same against the shipped `ActiveRolloutStatus` card, but
- * **in situ** — rendered inline in the real page each process lives on, the way
- * the existing `Rollout/In Situ/In Progress` "Firmware settings page" story
- * already establishes for firmware. Each state reads where an operator actually
- * meets it (page chrome, nav, surrounding content), not as a bare card on a
- * blank canvas.
- *
- * Firmware and reboot render through the same `RolloutInSituSurface`, so the
- * inline treatment can't drift between them; only the page chrome differs
- * (firmware → Firmware settings page; reboot → Fleet page, its bulk-action
- * home). The shipped `FirmwareSettingsPage` story consumes `FirmwareSettingsSurface`
- * too, keeping a single source of truth for the firmware surface.
- *
- * Story-only: no product code lives here — it just wires fixtures and noop
- * handlers into the real components.
+ * Shared Storybook helpers for firmware and reboot rollout lifecycle stories.
+ * They render the rollout card inside the page where an operator would see it.
  */
 
 const noop = (): void => undefined;
@@ -75,12 +61,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactElement {
 }
 
 /**
- * The inline detail card for a rollout, wired with the full set of lifecycle
- * handlers as noops so each state shows exactly the CTA set
- * `rolloutLifecycleActions` gates for it (Manage/Pause/Resume/Continue/Retry/
- * Cancel remaining) and the card decides which actions stay visible versus move
- * into overflow. Rendered inline (not embedded), so it keeps its own elevated
- * card surface within the page body.
+ * Inline rollout card with story handlers for every lifecycle control.
  */
 function InlineRolloutCard({ event }: { event: RolloutEvent }): ReactElement {
   const [minersOpen, setMinersOpen] = useState(false);
@@ -109,12 +90,7 @@ function InlineRolloutCard({ event }: { event: RolloutEvent }): ReactElement {
 }
 
 // ---- Firmware settings page surface ----------------------------------------
-// The established in-situ home for a firmware rollout: the Firmware settings
-// page, with the active-rollout card inline above the firmware files table.
-// Reproduces `SettingsLayout` chrome (the shipped `SecondaryNavigation` subnav
-// beside a p-10 body) under a MemoryRouter at /settings/firmware so the subnav
-// filters to the settings group and marks Firmware current. Shared by both the
-// per-state firmware stories and the shipped `FirmwareSettingsPage` story.
+// Firmware rollout home: settings subnav, header, active card, and files table.
 
 interface FirmwareFileRow {
   id: string;
@@ -172,11 +148,7 @@ const firmwareFileRows: FirmwareFileRow[] = [
   },
 ];
 
-/**
- * Firmware settings "Firmware files" table, built on the shared `List` (the
- * same component `MinerList` / `ActivityTable` use) rather than bespoke grid
- * markup, so the settings surface reads with the product's real table styling.
- */
+/** Firmware settings "Firmware files" table. */
 export function FirmwareFilesTable(): ReactElement {
   return (
     <List<FirmwareFileRow, string, FirmwareFileColumn>
@@ -193,16 +165,14 @@ export function FirmwareFilesTable(): ReactElement {
   );
 }
 
+/** Default release-channel tab content for firmware in-situ stories. */
+export function FirmwareReleaseChannelsTab(): ReactElement {
+  return <ReleaseChannelsTable channels={releaseChannels} onCreate={noop} onManage={noop} />;
+}
+
 /**
- * The Firmware settings page with an active firmware rollout shown inline. When
- * `event` is null (the shipped page's default), only the page and its files
- * table render; pass an event to show the rollout card above the table, exactly
- * where an operator watching a firmware update sees it.
- *
- * Pass `releaseChannelsTab` to add the shipped `TabStrip` (Files / Release
- * channels) under the page header and switch the body by tab — the surface the
- * release-channels stories render in situ. Omit it and the page renders exactly
- * as before (no tab row), so the existing lifecycle stories are unchanged.
+ * Firmware settings page used by rollout stories. Pass `event` to show an
+ * active rollout above the files table.
  */
 export function FirmwareSettingsSurface({
   event,
@@ -270,7 +240,7 @@ export function FirmwareSettingsSurface({
 }
 
 // ---- Fleet page surface (reboot) -------------------------------------------
-// Reboot has no dedicated page — it is a Fleet bulk action (FleetGroupActionsMenu),
+// Reboot has no dedicated page, it is a Fleet bulk action (FleetGroupActionsMenu),
 // so its active rollout surfaces inline on the Fleet page. Mirrors the firmware
 // surface's inline treatment (Header + primary CTA row, rollout card inline
 // above the list) using the same shared primitives, under a MemoryRouter at
@@ -330,8 +300,7 @@ function FleetRacksTable(): ReactElement {
 
 /**
  * The Fleet page with an active reboot rollout shown inline above the rack
- * list, the honest home for a fleet-wide reboot (there is no reboot settings
- * page). Same inline treatment as the firmware surface.
+ * list. Fleet is the reboot surface because there is no reboot settings page.
  */
 export function FleetSurface({ event }: { event: RolloutEvent }): ReactElement {
   return (
@@ -357,7 +326,7 @@ export function FleetSurface({ event }: { event: RolloutEvent }): ReactElement {
 
 /** A firmware rollout state, shown inline on the Firmware settings page. */
 export function FirmwareInSitu({ event }: { event: RolloutEvent }): ReactElement {
-  return <FirmwareSettingsSurface event={event} />;
+  return <FirmwareSettingsSurface event={event} releaseChannelsTab={<FirmwareReleaseChannelsTab />} />;
 }
 
 /** A reboot rollout state, shown inline on the Fleet page. */
@@ -410,10 +379,8 @@ function buildAnimatedRolloutEvent(base: RolloutEvent, donePercent: number, star
 }
 
 /**
- * A base rollout ticking from 0% to 100% done on a loop: it advances, holds
- * briefly on the completed state, then restarts — the process-agnostic analog
- * of curtailment's `AnimatedCurtailmentLifecycle`. `startedAt` resets each loop
- * so the card's elapsed timer counts up from zero.
+ * A base rollout ticking from 0% to 100% done on a loop. `startedAt` resets
+ * each loop so the card's elapsed timer counts up from zero.
  */
 function useAnimatedRolloutEvent(base: RolloutEvent): RolloutEvent {
   const [donePercent, setDonePercent] = useState(0);
@@ -440,7 +407,7 @@ function useAnimatedRolloutEvent(base: RolloutEvent): RolloutEvent {
 /** The animated firmware lifecycle, shown inline on the Firmware settings page. */
 export function AnimatedFirmwareInSitu({ base }: { base: RolloutEvent }): ReactElement {
   const event = useAnimatedRolloutEvent(base);
-  return <FirmwareSettingsSurface event={event} />;
+  return <FirmwareSettingsSurface event={event} releaseChannelsTab={<FirmwareReleaseChannelsTab />} />;
 }
 
 /** The animated reboot lifecycle, shown inline on the Fleet page. */

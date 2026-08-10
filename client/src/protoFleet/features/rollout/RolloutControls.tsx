@@ -16,12 +16,9 @@ import Select from "@/shared/components/Select";
 interface RolloutControlsProps {
   config: RolloutPlanConfig;
   onChange: (next: RolloutPlanConfig) => void;
-  /** Read-only presentation (e.g. inside a summary) — disables every field. */
+  /** Read-only presentation (e.g. inside a summary), disables every field. */
   disabled?: boolean;
-  /** In-scope target count (total minus excluded). When supplied, the control
-   * shows a live plan readout ("≈ 12 batches over ~11m") so an operator doesn't
-   * have to work out wave count / duration from the batch size + interval by
-   * hand. Omit when the scope isn't known yet at this surface. */
+  /** In-scope target count for the live plan readout. */
   inScopeCount?: number;
 }
 
@@ -35,24 +32,7 @@ const orderOptions = (Object.keys(orderLabels) as RolloutOrder[]).map((value) =>
   label: orderLabels[value],
 }));
 
-/**
- * The contextual pacing panel injected into a process's config modal (firmware,
- * reboot, …), between the "Apply to" scope and the "Date and time" schedule.
- * Its field-set changes with the chosen strategy:
- *
- * - all at once — no pacing fields; just strategy + order + the offline ceiling.
- * - batched — adds batch size + interval.
- * - pilot then continue — pilot size, then continuation batch fields.
- *
- * The per-strategy explanation lives in the strategy field's info popover (the
- * curtailment field-help pattern) rather than as inline copy, so the control
- * stays compact. Fields pair two-up wherever there's a natural partner —
- * strategy + order always, batch size + interval, and pilot size + the offline
- * ceiling — falling back to a lone full-width field when there's nothing to
- * pair with (the same lone-vs-pair reflow curtailment uses). `maxConcurrentOffline`
- * is a global ceiling, so it appears in every variant. Controlled component:
- * owns no state, mirroring curtailment's start modal.
- */
+/** Pacing controls shared by rollout config surfaces. */
 function RolloutControls({ config, onChange, disabled = false, inScopeCount }: RolloutControlsProps): ReactElement {
   function patch(partial: Partial<RolloutPlanConfig>): void {
     onChange({ ...config, ...partial });
@@ -65,22 +45,15 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
 
   const showBatchFields = config.strategy === "batched" || config.strategy === "pilotThenContinue";
   const showPilotFields = config.strategy === "pilotThenContinue";
-  // Order only bites when the run is paced — under "all at once" there is no
-  // first/last, so the control is meaningless and we hide it (the design-review
-  // call). When hidden, Method spans full width rather than leaving an orphaned
-  // half-row.
+  // Order only applies to paced runs. When hidden, Method spans the full row.
   const showOrder = config.strategy !== "allAtOnce";
 
-  // Live plan readout — only when the host knows the in-scope count. Reduces the
-  // manual "how many waves / how long?" math the design review flagged.
+  // Live plan readout, only when the host knows the in-scope count.
   const planReadout = inScopeCount !== undefined ? rolloutPlanReadout({ inScopeCount, config }) : null;
 
-  // Present-tense action verb ("update" / "reboot" / "curtail") for the copy,
-  // so the section subtext and strategy help read for whichever process this
-  // control is driving rather than hardcoding firmware's "update".
+  // Present-tense action verb ("update" / "reboot" / "curtail") for copy.
   const verb = rolloutProcessVerb(config.processType);
-  // Action-prefixed section title ("Update behavior" / "Reboot behavior"),
-  // adopting curtailment's "behavior" vocabulary across bulk workflows.
+  // Action-prefixed section title ("Update behavior" / "Reboot behavior").
   const behaviorLabel = rolloutBehaviorLabel(config.processType);
   const strategyHelp = strategyHelpText(config.processType);
 

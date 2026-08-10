@@ -1,13 +1,6 @@
 /**
- * Vocabulary for the firmware **release channels** surface — the persistent
- * tracks (Dev / Staging / Production, …) that determine which firmware versions
- * a cohort of miners receives over time, and the rollout settings that govern
- * how a new release rolls out along a channel.
- *
- * Presentational scaffolding for the rollout-framework Storybook prototype: the
- * stories drive these with fixtures. A release channel wraps the same
- * `RolloutPlanConfig` the rest of the framework uses, so its "Rollout" section
- * reuses `RolloutControls` verbatim.
+ * Vocabulary for firmware release channels. These types are presentational
+ * scaffolding for the rollout-framework Storybook prototype.
  */
 
 import type { RolloutPlanConfig } from "./rolloutTypes";
@@ -24,10 +17,7 @@ export interface ReleaseChannel {
   lastUpdated: string;
 }
 
-/** A firmware file published to a channel, shown in the modal's Firmware table.
- * A channel can carry one file per hardware model, so a single channel spans
- * multiple models (the design-review heterogeneity requirement) rather than
- * forcing a separate channel per model. */
+/** A firmware file published to a channel. */
 export interface ReleaseChannelFile {
   id: string;
   /** Hardware model the image targets, e.g. "Antminer S21". */
@@ -38,11 +28,7 @@ export interface ReleaseChannelFile {
   uploaded: string;
 }
 
-/**
- * The cohort a channel applies to, expressed as counts per scope level. Mirrors
- * curtailment's "Apply to" scope: each level maps to a `TargetSelectButton`
- * whose label folds the count in (0 → "Select").
- */
+/** The cohort a channel applies to, expressed as counts per scope level. */
 export interface ReleaseChannelScope {
   sites: number;
   buildings: number;

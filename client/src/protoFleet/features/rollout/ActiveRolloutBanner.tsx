@@ -18,7 +18,7 @@ interface ActiveRolloutBannerStackProps {
   onManage?: (event: RolloutEvent, index: number) => void;
 }
 
-/** Intent per process — firmware/curtailment carry uptime impact (warning),
+/** Intent per process, firmware/curtailment carry uptime impact (warning),
  * reboot is informational. Drives the shared Callout's color + icon tint. */
 const processIntent: Record<RolloutProcessType, keyof typeof intents> = {
   firmware: intents.warning,
@@ -31,7 +31,7 @@ function bannerIntent(event: RolloutEvent): keyof typeof intents {
 }
 
 function ProcessIcon({ processType }: { processType: RolloutProcessType }): ReactElement {
-  // Force neutral/black icons regardless of the Callout's intent tint — the
+  // Force neutral/black icons regardless of the Callout's intent tint, the
   // intent color still drives the header/accent, but the process glyph stays
   // black for a calmer, more legible banner.
   const className = "text-text-primary";
@@ -77,16 +77,13 @@ function bannerSubtitle(event: RolloutEvent): string {
 }
 
 /**
- * Inline progress banner for an active rollout, built on the shared {@link Callout}
- * — our standard inline banner — so a rollout reads exactly like every other
- * page banner. Stacks via {@link ActiveRolloutBannerStack} when several
- * processes run at once (the Activity "Active now" surface).
+ * Inline progress banner for active and scheduled rollouts.
  */
 export function ActiveRolloutBanner({ event, onView, onManage }: ActiveRolloutBannerProps): ReactElement {
   const showManageAction = event.state === "scheduled" && onManage !== undefined;
   const showViewAction = event.state !== "scheduled" && onView !== undefined;
   const buttonText = showManageAction
-    ? "Manage rollout"
+    ? `Manage scheduled ${rolloutActionNoun(event.processType)}`
     : showViewAction
       ? `View ${rolloutActionNoun(event.processType)}`
       : undefined;

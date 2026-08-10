@@ -11,23 +11,15 @@ import {
 } from "@/protoFleet/features/rollout/rollout.fixtures";
 
 /**
- * The active **reboot** across its lifecycle states, plus a live-animated
- * lifecycle — all rendered **in situ**. Reboot has no settings page of its own:
- * it is a Fleet bulk action (`FleetGroupActionsMenu`), so its in-situ home is
- * the Fleet page (nav sidebar + "Fleet" header + Reboot/Update CTAs + rack
- * list), with the shipped `ActiveRolloutStatus` card inline above the rack
- * list — the same inline treatment the firmware story uses on the Firmware
- * settings page. Reboot is a batched process with no pilot-approval gate, so it
- * has no "scheduled for later" / "pilot review" states of its own; the covered
- * states are the ones a reboot actually reaches.
+ * Reboot rollout lifecycle states rendered on the Fleet page. Reboot is a bulk
+ * action, so these stories use the Fleet page as the in-product home.
  */
 const meta = {
   title: "Proto Fleet/Rollout/In Situ/Reboot Lifecycle",
   component: ActiveRolloutStatus,
   parameters: {
     layout: "fullscreen",
-    // The in-situ surface provides its own MemoryRouter (at /fleet), so opt out
-    // of the global StoryRouter — react-router throws on nested routers.
+    // The page shell provides its own MemoryRouter at /fleet.
     withRouter: false,
   },
 } satisfies Meta<typeof ActiveRolloutStatus>;

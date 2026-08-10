@@ -34,11 +34,10 @@ export const pilotFirmwareConfig: RolloutPlanConfig = {
   batchSize: 25,
   batchIntervalSec: 90,
   scheduleType: "scheduleForLater",
-  scheduledStartAt: "2026-08-04T20:00:00.000Z",
+  scheduledStartAt: "2026-08-14T20:00:00.000Z",
 };
 
-/** Base batched reboot plan config, for the generic (process-agnostic) config
- * modal — a process with no bespoke product modal of its own today. */
+/** Base batched reboot plan config for the generic config modal. */
 export const batchedRebootConfig: RolloutPlanConfig = {
   processType: "reboot",
   strategy: "batched",
@@ -49,13 +48,7 @@ export const batchedRebootConfig: RolloutPlanConfig = {
   scheduleType: "startNow",
 };
 
-/**
- * The **default** reboot plan config — "all at once", immediate. Per the
- * rollout design review, a plain reboot should need zero pacing setup and match
- * today's behavior (everything reboots together); batching/scheduling stay
- * available as advanced options a user can opt into. This is what the reboot
- * bulk action seeds its config modal with.
- */
+/** Default reboot plan config for the generic config modal. */
 export const allAtOnceRebootConfig: RolloutPlanConfig = {
   processType: "reboot",
   strategy: "allAtOnce",
@@ -219,7 +212,7 @@ export function rolloutMinerRowsForEvent(event: RolloutEvent): RolloutMinerRow[]
   }));
 }
 
-/** A firmware rollout mid-flight — the in-progress detail card. */
+/** A firmware rollout mid-flight, the in-progress detail card. */
 export const inProgressFirmwareEvent: RolloutEvent = {
   processType: "firmware",
   state: "inProgress",
@@ -235,7 +228,7 @@ export const inProgressFirmwareEvent: RolloutEvent = {
   totalBatches: 12,
   startedAt: new Date(Date.now() - 372_000).toISOString(),
   estimatedSecondsRemaining: 420,
-  // Cohort holding its pre-rollout performance — the mid-flight deltas are all
+  // Cohort holding its pre-rollout performance, the mid-flight deltas are all
   // small: hashrate/power read a slight red "−", efficiency/temp a slight green
   // "+". The healthy mid-flight case.
   performance: {
@@ -257,7 +250,7 @@ export const inProgressFirmwareEvent: RolloutEvent = {
   ],
 };
 
-/** Paused at the pilot-approval gate — the pilot wave finished, awaiting a
+/** Paused at the pilot-approval gate, the pilot wave finished, awaiting a
  * Continue / Cancel remaining decision. */
 export const pilotGateFirmwareEvent: RolloutEvent = {
   processType: "firmware",
@@ -273,10 +266,8 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
   currentBatch: 1,
   totalBatches: 10,
   startedAt: new Date(Date.now() - 180_000).toISOString(),
-  // Baseline captured when the rollout started, against the pilot cohort's
-  // current telemetry. Hashrate/power dipped slightly (red "−"); efficiency has
-  // crept up ~1.3% and avg temp ~1.9% (green "+"). Option A only surfaces the
-  // numbers — the Continue/Cancel remaining call stays with the operator.
+  // Baseline captured when the rollout started. The readout shows the numbers;
+  // the Continue/Cancel remaining call stays with the operator.
   performance: {
     metrics: [
       { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 1593 },
@@ -294,7 +285,7 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
   ],
 };
 
-/** Finished with some failures — the retained activity record. */
+/** Finished with some failures, the retained activity record. */
 export const completedWithFailuresFirmwareEvent: RolloutEvent = {
   processType: "firmware",
   state: "completedWithFailures",
@@ -317,7 +308,7 @@ export const completedWithFailuresFirmwareEvent: RolloutEvent = {
   ],
 };
 
-/** Scheduled but not yet started — everything queued, waiting on the start
+/** Scheduled but not yet started, everything queued, waiting on the start
  * time. */
 export const scheduledFirmwareEvent: RolloutEvent = {
   processType: "firmware",
@@ -331,14 +322,14 @@ export const scheduledFirmwareEvent: RolloutEvent = {
   batchSize: 20,
   batchIntervalSec: 60,
   totalBatches: 12,
-  scheduledStartAt: "2026-08-04T20:00:00.000Z",
+  scheduledStartAt: "2026-08-14T20:00:00.000Z",
   rollups: [
     { phase: "queued", count: 222 },
     { phase: "excluded", count: 18 },
   ],
 };
 
-/** Paused mid-flight — dispatch halted, holding at the current batch. */
+/** Paused mid-flight, dispatch halted, holding at the current batch. */
 export const pausedFirmwareEvent: RolloutEvent = {
   processType: "firmware",
   state: "paused",
@@ -360,7 +351,7 @@ export const pausedFirmwareEvent: RolloutEvent = {
   ],
 };
 
-/** Finished cleanly — the retained activity record with no failures. */
+/** Finished cleanly, the retained activity record with no failures. */
 export const completedFirmwareEvent: RolloutEvent = {
   processType: "firmware",
   state: "completed",
@@ -382,7 +373,7 @@ export const completedFirmwareEvent: RolloutEvent = {
   ],
 };
 
-/** A reboot rollout — for the stacked-banner + process-agnostic stories. */
+/** A reboot rollout for stacked-banner stories. */
 export const inProgressRebootEvent: RolloutEvent = {
   processType: "reboot",
   state: "inProgress",
@@ -405,7 +396,7 @@ export const inProgressRebootEvent: RolloutEvent = {
   ],
 };
 
-/** A reboot paused mid-flight — holding at the current batch. */
+/** A reboot paused mid-flight, holding at the current batch. */
 export const pausedRebootEvent: RolloutEvent = {
   processType: "reboot",
   state: "paused",
@@ -426,7 +417,7 @@ export const pausedRebootEvent: RolloutEvent = {
   ],
 };
 
-/** A reboot finished cleanly — every target back online. */
+/** A reboot finished cleanly, every target back online. */
 export const completedRebootEvent: RolloutEvent = {
   processType: "reboot",
   state: "completed",

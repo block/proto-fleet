@@ -28,7 +28,7 @@ const devChannelScope: ReleaseChannelScope = {
   miners: 240,
 };
 
-/** Batched firmware pacing for a channel — the mock's Rollout section values. */
+/** Batched firmware pacing for a channel, the mock's Rollout section values. */
 const devChannelConfig: RolloutPlanConfig = {
   processType: "firmware",
   strategy: "batched",

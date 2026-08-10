@@ -10,7 +10,10 @@ import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory"
 import { mockCurtailmentHistoryEvents } from "@/protoFleet/features/energy/CurtailmentHistory.fixtures";
 import { ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
-import { FirmwareSettingsSurface } from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
+import {
+  FirmwareReleaseChannelsTab,
+  FirmwareSettingsSurface,
+} from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
 import {
   inProgressCurtailmentEvent,
   inProgressFirmwareEvent,
@@ -74,7 +77,7 @@ function ViewRolloutStoryModal({ event, onDismiss }: { event: RolloutEvent; onDi
  *
  * Seeds the fleet store with read + settings permissions so the permission-gated
  * primary nav (Fleet / Energy / Activity / Settings) and the settings subnav
- * (Network / Firmware / …) both render — Storybook has no auth session
+ * (Network / Firmware / …) both render, Storybook has no auth session
  * otherwise, which is why the nav previously showed only Home + Settings.
  */
 function AppShell({ children }: { children: ReactNode }): ReactElement {
@@ -106,9 +109,7 @@ function AppShell({ children }: { children: ReactNode }): ReactElement {
   );
 }
 
-/** Dummy ActivityEntry rows for the in-situ Activity page. Built with the real
- * `ActivityEntrySchema` so the reused `ActivityTable` renders them exactly as
- * the product does (icons, formatted descriptions, scope). */
+/** Activity rows for the in-situ Activity page story. */
 const activityFeedEntries = [
   create(ActivityEntrySchema, {
     eventId: "act-1",
@@ -173,11 +174,11 @@ function HeaderPillStory(): ReactElement {
   return (
     <div className="min-h-screen bg-surface-base">
       <div className="flex h-14 items-center justify-between border-b border-border-5 bg-surface-elevated-base px-6">
-        <div className="text-emphasis-300 text-text-primary">Denver — Building B</div>
+        <div className="text-emphasis-300 text-text-primary">Denver, Building B</div>
         <RolloutPill event={inProgressFirmwareEvent} onViewRollout={() => setOpen(true)} />
       </div>
       <div className="p-8 text-300 text-text-primary-70">
-        Open the pill, then "View rollout" to summon the progress modal in place.
+        Open the pill, then select "View update" to open the progress modal.
       </div>
       {open ? <ViewRolloutStoryModal event={inProgressFirmwareEvent} onDismiss={() => setOpen(false)} /> : null}
     </div>
@@ -190,26 +191,18 @@ export const HeaderPill: Story = {
 };
 
 // ---- 2. Firmware settings page: active rollout in its detail home ----------
-// The established in-situ home for a firmware rollout: the Firmware settings
-// page (settings subnav + "Firmware" header + Upload CTA + firmware files
-// table) with the active-rollout card inline above the table. Rendered through
-// the shared `FirmwareSettingsSurface` so this and the per-state
-// `Firmware Lifecycle` stories share one source of truth and can't drift; the
-// surface provides its own MemoryRouter at `/settings/firmware`, so this story
-// opts out of the global StoryRouter.
+// Uses FirmwareSettingsSurface so this story matches the lifecycle stories.
 
 export const FirmwareSettingsPage: Story = {
   name: "Firmware settings page",
   parameters: { withRouter: false },
-  render: () => <FirmwareSettingsSurface event={inProgressFirmwareEvent} />,
+  render: () => (
+    <FirmwareSettingsSurface event={inProgressFirmwareEvent} releaseChannelsTab={<FirmwareReleaseChannelsTab />} />
+  ),
 };
 
 // ---- 3. Energy UI: rollout card the way curtailment renders it -------------
-// Mirrors CurtailmentManagementPanel's frame (section grid gap-6, Header +
-// action buttons row) so a process rollout reads like active curtailment does
-// in the energy UI. Header actions use the compact size per the button-sizing
-// rule (base is reserved for modal/dialog/empty-state actions), even though the
-// shipped panel currently renders these at base.
+// Shows a curtailment rollout in the Energy page frame.
 
 function EnergyUiStory(): ReactElement {
   const [minersOpen, setMinersOpen] = useState(false);

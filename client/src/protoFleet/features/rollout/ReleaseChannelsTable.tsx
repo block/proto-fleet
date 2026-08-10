@@ -23,13 +23,7 @@ const releaseChannelColTitles: ColTitles<ReleaseChannelColumn> = {
   actions: "",
 };
 
-/**
- * The Release channels tab body: the Create CTA above a shared `List` of
- * persistent firmware tracks, with a Manage action per row. Built on the same
- * `List` the firmware-files table uses so the two tabs read identically. The
- * Manage button lives in a trailing, right-aligned column (rather than the
- * List's kebab actions) to match the mock's inline "Manage" button.
- */
+/** Release channels tab body. */
 function ReleaseChannelsTable({ channels, onCreate, onManage }: ReleaseChannelsTableProps): ReactElement {
   const releaseChannelColConfig: ColConfig<ReleaseChannel, string, ReleaseChannelColumn> = {
     name: {
@@ -75,7 +69,7 @@ function ReleaseChannelsTable({ channels, onCreate, onManage }: ReleaseChannelsT
         stickyFirstColumn={false}
       />
       <div className="text-300 text-text-primary-70">
-        Release channels are persistent tracks that determine which firmware versions miners receive over time.
+        Release channels define which firmware versions miners receive.
       </div>
     </div>
   );
