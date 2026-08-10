@@ -44,7 +44,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	}
 	firewall := callIndex(calls, "sudo systemctl enable --now proto-fleet-ha-firewall.service")
 	docker := callIndex(calls, "sudo systemctl start docker.service")
-	start := callIndex(calls, "sudo systemctl start proto-fleet-ha.service")
+	start := callIndex(calls, "sudo systemctl start --no-block proto-fleet-ha.service")
 	enable := callIndex(calls, "sudo systemctl enable proto-fleet-ha.service")
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
@@ -57,7 +57,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
 	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < start && start < enable && rootPasswordInstall < start) {
+		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -119,7 +119,7 @@ func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 		if strings.Contains(command, "systemctl disable --now proto-fleet-ha.service") {
 			cleanupUsedFreshContext = runCtx.Err() == nil
 		}
-		if strings.Contains(command, "systemctl start proto-fleet-ha.service") {
+		if strings.Contains(command, "systemctl start --no-block proto-fleet-ha.service") {
 			cancel()
 			return nil, context.Canceled
 		}
@@ -139,7 +139,7 @@ func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	require.DirExists(t, secrets)
 }
 
-func TestInstallReadinessFailureDisablesHA(t *testing.T) {
+func TestInstallInterruptedDuringConvergenceLeavesHAEnabled(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
 	config := NodeConfig{
@@ -153,27 +153,51 @@ func TestInstallReadinessFailureDisablesHA(t *testing.T) {
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	run := deps.run
-	statusHadDeadline := false
+	ctx, cancel := context.WithCancel(t.Context())
 	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		if strings.Contains(strings.Join(args, " "), "fleet-ha status") {
-			_, statusHadDeadline = ctx.Deadline()
+			cancel()
 			return nil, errors.New("not ready")
 		}
 		return run(ctx, name, args...)
 	}
-	deps.readinessTimeout = time.Nanosecond
 
 	// Act
-	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
+	err := install(ctx, InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
 
 	// Assert
-	require.ErrorContains(t, err, "failover readiness did not become healthy")
-	require.True(t, statusHadDeadline)
+	require.ErrorContains(t, err, "remains enabled and is still converging")
+	require.ErrorContains(t, err, "systemctl status proto-fleet-ha.service")
 	joined := strings.Join(calls, "\n")
-	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
-	require.NotContains(t, joined, "sudo systemctl enable proto-fleet-ha.service")
+	require.Contains(t, joined, "sudo systemctl enable proto-fleet-ha.service")
+	require.Contains(t, joined, "sudo systemctl start --no-block proto-fleet-ha.service")
+	require.NotContains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 	require.Contains(t, joined, "docker-ha-recovery-systemd.conf "+dockerRecoveryDropIn)
-	require.Contains(t, joined, "sudo rm -f "+dockerRecoveryDropIn)
+	require.NotContains(t, joined, "sudo rm -f "+dockerRecoveryDropIn)
+}
+
+func TestInstallRejectsUnavailableSystemdBeforeMutation(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	config := NodeConfig{
+		NodeName: "ha-c", NodeIP: testHostIPs[2], DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
+	}
+	writeTestSecretBundle(t, config)
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	deps.run = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, strings.Join(append([]string{name}, args...), " "))
+		return nil, errors.New("systemd is not running")
+	}
+
+	// Act
+	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env"}, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "requires a running systemd manager")
+	require.Equal(t, []string{"systemctl show --property=Version --value"}, calls)
 }
 
 func TestPrepareImagesRejectsMissingHADatabaseImage(t *testing.T) {
@@ -321,7 +345,7 @@ func TestInstallPackagesUsesUbuntuRepository(t *testing.T) {
 	}
 
 	// Act
-	err := installPackages(t.Context(), installPlatform{repository: "ubuntu", suite: "noble"}, deps)
+	err := installPackages(t.Context(), installPlatform{repository: "ubuntu", suite: "noble"}, installedDependencies{}, deps)
 
 	// Assert
 	require.NoError(t, err)
@@ -381,7 +405,7 @@ func TestInstallRejectsUnexpectedSecretBeforeMutation(t *testing.T) {
 	require.NotContains(t, strings.Join(calls, "\n"), "apt-get")
 }
 
-func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
+func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
 	config := NodeConfig{
@@ -393,21 +417,113 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	deps.lookPath = func(name string) (string, error) {
-		if slices.Contains([]string{"apt-get", "ip", "ss", "sudo", "systemctl"}, name) {
+		if slices.Contains([]string{"apt-get", "ip", "ss", "sudo", "systemctl", "docker", "keepalived"}, name) {
 			return "/usr/bin/" + name, nil
 		}
-		if name == "docker" {
-			return "/usr/bin/docker", nil
-		}
 		return "", fmt.Errorf("not found")
+	}
+	run := deps.run
+	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		command := strings.Join(append([]string{name}, args...), " ")
+		switch command {
+		case "sudo docker info", "sudo docker compose version":
+			return []byte("ready\n"), nil
+		case "sudo docker ps -aq":
+			return nil, nil
+		case "sudo systemctl is-active keepalived.service":
+			return []byte("inactive\n"), errors.New("exit status 3")
+		case "sudo systemctl is-enabled keepalived.service":
+			return []byte("disabled\n"), errors.New("exit status 1")
+		}
+		return run(ctx, name, args...)
 	}
 
 	// Act
 	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env"}, deps)
 
 	// Assert
-	require.ErrorContains(t, err, "clean host without docker")
-	require.NotContains(t, strings.Join(calls, "\n"), "apt-get")
+	require.NoError(t, err)
+	joined := strings.Join(calls, "\n")
+	require.NotContains(t, joined, "download.docker.com")
+	require.NotContains(t, joined, "docker-ce")
+	require.NotContains(t, joined, "apt-get install -y keepalived")
+}
+
+func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*installDependencies)
+		wantError string
+	}{
+		{
+			name: "Docker has containers",
+			configure: func(deps *installDependencies) {
+				deps.lookPath = func(name string) (string, error) {
+					if name == "docker" {
+						return "/usr/bin/docker", nil
+					}
+					return "", os.ErrNotExist
+				}
+				deps.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+					if strings.Join(args, " ") == "docker ps -aq" {
+						return []byte("existing-container\n"), nil
+					}
+					return []byte("ready\n"), nil
+				}
+			},
+			wantError: "existing containers",
+		},
+		{
+			name: "Docker Compose is unavailable",
+			configure: func(deps *installDependencies) {
+				deps.lookPath = func(name string) (string, error) {
+					if name == "docker" {
+						return "/usr/bin/docker", nil
+					}
+					return "", os.ErrNotExist
+				}
+				deps.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+					if strings.Join(args, " ") == "docker compose version" {
+						return nil, errors.New("compose missing")
+					}
+					return nil, nil
+				}
+			},
+			wantError: "Compose v2",
+		},
+		{
+			name: "keepalived is active",
+			configure: func(deps *installDependencies) {
+				deps.lookPath = func(name string) (string, error) {
+					if name == "keepalived" {
+						return "/usr/sbin/keepalived", nil
+					}
+					return "", os.ErrNotExist
+				}
+				deps.run = func(context.Context, string, ...string) ([]byte, error) {
+					return []byte("active\n"), nil
+				}
+			},
+			wantError: "keepalived must be inactive",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			deps := installDependencies{
+				lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
+				requireEmpty: func(string, string) error { return nil },
+				lstat:        func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
+			}
+			tt.configure(&deps)
+
+			// Act
+			_, err := inspectDedicatedHost(t.Context(), deps)
+
+			// Assert
+			require.ErrorContains(t, err, tt.wantError)
+		})
+	}
 }
 
 func TestInstallRejectsMissingBaseCommandBeforeMutation(t *testing.T) {
@@ -440,7 +556,7 @@ func TestInstallRejectsMissingBaseCommandBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
+func TestDedicatedHostRejectsHAServiceDropIns(t *testing.T) {
 	// Arrange
 	deps := installDependencies{
 		lookPath: func(string) (string, error) { return "", os.ErrNotExist },
@@ -454,7 +570,7 @@ func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
 	}
 
 	// Act
-	err := validateCleanInstallState(deps)
+	_, err := inspectDedicatedHost(t.Context(), deps)
 
 	// Assert
 	require.ErrorContains(t, err, "/etc/systemd/system/docker.service.d")
@@ -539,8 +655,14 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 		},
 		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			record(name, args...)
+			if strings.Join(append([]string{name}, args...), " ") == "systemctl show --property=Version --value" {
+				return []byte("255\n"), nil
+			}
 			if name == "curl" {
 				return []byte("docker-signing-key"), nil
+			}
+			if strings.Join(append([]string{name}, args...), " ") == "sudo systemctl is-active proto-fleet-ha.service" {
+				return []byte("active\n"), nil
 			}
 			return nil, nil
 		},
@@ -552,9 +674,8 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 			record("dir:"+dir+" "+name, args...)
 			return nil, nil
 		},
-		sourceRoot:       func() (string, error) { return source, nil },
-		sleep:            func(time.Duration) {},
-		readinessTimeout: installReadinessTimeout,
+		sourceRoot: func() (string, error) { return source, nil },
+		sleep:      func(time.Duration) {},
 	}
 }
 

@@ -20,6 +20,7 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 		requiredEndpoint string
 		wantQuorum       bool
 		wantAuthRequired bool
+		wantLocalReady   bool
 	}{
 		{
 			name: "unauthenticated bootstrap quorum",
@@ -27,12 +28,12 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 				"a": startupStatus(1, 11, 11),
 				"b": startupStatus(1, 12, 11),
 			},
-			wantQuorum: true,
+			wantQuorum: true, wantLocalReady: true,
 		},
 		{
 			name:             "installed cluster requires authenticated client",
 			errors:           map[string]error{"a": rpctypes.ErrUserEmpty, "b": rpctypes.ErrPermissionDenied},
-			wantAuthRequired: true,
+			wantAuthRequired: true, wantLocalReady: true,
 		},
 		{
 			name: "duplicate member is not quorum",
@@ -40,6 +41,7 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 				"a": startupStatus(1, 11, 11),
 				"b": startupStatus(1, 11, 11),
 			},
+			wantLocalReady: true,
 		},
 		{
 			name:             "healthy peers do not replace local member",
@@ -64,11 +66,12 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 			if requiredEndpoint == "" {
 				requiredEndpoint = "a"
 			}
-			quorum, authRequired := startupEtcdQuorum(t.Context(), status, []string{"a", "b", "local"}, requiredEndpoint)
+			quorum, authRequired, localReady := startupEtcdQuorum(t.Context(), status, []string{"a", "b", "local"}, requiredEndpoint)
 
 			// Assert
 			require.Equal(t, test.wantQuorum, quorum)
 			require.Equal(t, test.wantAuthRequired, authRequired)
+			require.Equal(t, test.wantLocalReady, localReady)
 		})
 	}
 }

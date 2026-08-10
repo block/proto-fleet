@@ -14,7 +14,7 @@ ExecStart=/opt/proto-fleet/deployment/ha/fleet-ha start /etc/proto-fleet/ha/node
 ExecStopPost=/opt/proto-fleet/deployment/ha/fleet-ha stop /etc/proto-fleet/ha/node.env
 Restart=on-failure
 RestartSec=5s
-TimeoutStartSec=30min
+TimeoutStartSec=infinity
 TimeoutStopSec=2min
 
 [Install]

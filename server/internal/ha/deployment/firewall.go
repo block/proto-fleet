@@ -21,7 +21,7 @@ func applyFirewall(ctx context.Context, config NodeConfig, templatePath string) 
 		return fmt.Errorf("validate HA firewall: %w", err)
 	}
 	// Older supported nft versions lack the idempotent `destroy table` command.
-	// Delete the profile-owned table separately and ignore a clean host's not-found error.
+	// Delete only the profile-owned table and ignore its first-install not-found error.
 	_, _ = runCommand(ctx, "sudo", "nft", "delete", "table", "inet", "proto_fleet_ha")
 	if err := runWithInput(ctx, rules, "sudo", "nft", "-f", "-"); err != nil {
 		return fmt.Errorf("apply HA firewall: %w", err)
