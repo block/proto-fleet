@@ -5,7 +5,9 @@ import NavigationMenu from "@/protoFleet/components/NavigationMenu";
 import SecondaryNavigation from "@/protoFleet/components/SecondaryNavigation";
 import { primaryNavItems, secondaryNavItems } from "@/protoFleet/config/navItems";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
+import { rolloutMinerRowsForEvent } from "@/protoFleet/features/rollout/rollout.fixtures";
 import { inScopeTargetCount } from "@/protoFleet/features/rollout/rolloutDisplayUtils";
+import RolloutMinersModal from "@/protoFleet/features/rollout/RolloutMinersModal";
 import type { RolloutEvent, RolloutPhaseRollup } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -76,21 +78,33 @@ export function AppShell({ children }: { children: ReactNode }): ReactElement {
  * The inline detail card for a rollout, wired with the full set of lifecycle
  * handlers as noops so each state shows exactly the CTA set
  * `rolloutLifecycleActions` gates for it (Manage/Pause/Resume/Continue/Retry/
- * Cancel) — the per-state stories double as an action-set showcase. Rendered
- * inline (not embedded), so it keeps its own elevated card surface within the
- * page body.
+ * Cancel remaining) and the card decides which actions stay visible versus move
+ * into overflow. Rendered inline (not embedded), so it keeps its own elevated
+ * card surface within the page body.
  */
 function InlineRolloutCard({ event }: { event: RolloutEvent }): ReactElement {
+  const [minersOpen, setMinersOpen] = useState(false);
+  const rolloutMiners = useMemo(() => rolloutMinerRowsForEvent(event), [event]);
+
   return (
-    <ActiveRolloutStatus
-      event={event}
-      onManage={noop}
-      onPause={noop}
-      onResume={noop}
-      onCancelRemaining={noop}
-      onContinueFromPilot={noop}
-      onRetryFailed={noop}
-    />
+    <>
+      <ActiveRolloutStatus
+        event={event}
+        onManage={noop}
+        onPause={noop}
+        onResume={noop}
+        onCancelRemaining={noop}
+        onContinueFromPilot={noop}
+        onRetryFailed={noop}
+        onViewMiners={() => setMinersOpen(true)}
+      />
+      <RolloutMinersModal
+        open={minersOpen}
+        event={event}
+        miners={rolloutMiners}
+        onDismiss={() => setMinersOpen(false)}
+      />
+    </>
   );
 }
 
@@ -192,10 +206,12 @@ export function FirmwareFilesTable(): ReactElement {
  */
 export function FirmwareSettingsSurface({
   event,
+  rolloutBanner,
   releaseChannelsTab,
   initialTab = "files",
 }: {
   event?: RolloutEvent | null;
+  rolloutBanner?: ReactNode;
   releaseChannelsTab?: ReactNode;
   initialTab?: FirmwareSettingsTab;
 }): ReactElement {
@@ -241,6 +257,7 @@ export function FirmwareSettingsSurface({
                     <Button variant={variants.primary} size={sizes.compact} text="Upload firmware" onClick={noop} />
                   </div>
                 ) : null}
+                {rolloutBanner}
                 {event ? <InlineRolloutCard event={event} /> : null}
                 <FirmwareFilesTable />
               </>

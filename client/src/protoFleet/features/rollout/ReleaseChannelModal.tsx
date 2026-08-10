@@ -217,6 +217,7 @@ function ReleaseChannelModal({
               itemKey="id"
               total={draft.files.length}
               itemName={{ singular: "firmware file", plural: "firmware files" }}
+              hideTotal
               applyColumnWidthsToCells
               stickyFirstColumn={false}
             />
