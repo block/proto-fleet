@@ -37,11 +37,6 @@ func run(ctx context.Context, args []string) error {
 		return usageError()
 	}
 	switch args[0] {
-	case "generate-secrets":
-		if len(args) != 6 {
-			return errors.New("usage: fleet-ha generate-secrets OUTPUT_DIR DB_A_IP DB_B_IP DCS_C_IP VIRTUAL_IP")
-		}
-		return deployment.GenerateSecrets(args[1], [3]string{args[2], args[3], args[4]}, args[5])
 	case "preflight":
 		if len(args) > 3 {
 			return errors.New("usage: fleet-ha preflight [node.env] [firewall.nft.tmpl]")
@@ -102,15 +97,18 @@ func run(ctx context.Context, args []string) error {
 }
 
 func usageError() error {
-	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status|install|start|stop> ...")
+	return errors.New("usage: fleet-ha <preflight|bootstrap-etcd-auth|render-keepalived|compose|status|install|start|stop> ...")
 }
 
 func runInstall(ctx context.Context, args []string) error {
-	options, err := parseInstallOptions("install", args)
-	if err != nil {
-		return err
+	if len(args) > 1 {
+		return errors.New("usage: fleet-ha install [HOST_BUNDLE]")
 	}
-	if err := deployment.Install(ctx, options); err != nil {
+	bundlePath := ""
+	if len(args) == 1 {
+		bundlePath = args[0]
+	}
+	if err := deployment.GuidedInstall(ctx, bundlePath); err != nil {
 		return err
 	}
 	fmt.Println("Proto Fleet HA installation completed")
@@ -118,15 +116,15 @@ func runInstall(ctx context.Context, args []string) error {
 }
 
 func runStart(ctx context.Context, args []string) error {
-	options, err := parseInstallOptions("start", args)
+	options, err := parseStartOptions(args)
 	if err != nil {
 		return err
 	}
 	return deployment.StartInstalledServices(ctx, options.NodeEnvPath, options.EtcdRootPasswordFile)
 }
 
-func parseInstallOptions(command string, args []string) (deployment.InstallOptions, error) {
-	usage := fmt.Sprintf("usage: fleet-ha %s NODE_ENV [--etcd-root-password-file PATH]", command)
+func parseStartOptions(args []string) (deployment.InstallOptions, error) {
+	usage := "usage: fleet-ha start NODE_ENV [--etcd-root-password-file PATH]"
 	if len(args) != 1 && len(args) != 3 {
 		return deployment.InstallOptions{}, errors.New(usage)
 	}
