@@ -16,6 +16,7 @@ import (
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -198,11 +199,50 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 
 // ResolveBuildingSite returns a building's parent site_id so the rack-write
 // handlers can narrow the site:manage escalation to a building-only placement.
-// Unlocked read: resolveAndLockRackPlacement still re-reads under lock and
-// rejects the write if the building moved sites. Returns (nil, nil) for a
+// This is an unlocked read used only for the authorization decision; it does
+// not itself close the window before the write. The handler threads the site
+// it observed here (and the rack's current site) into the write via
+// authz.WithAuthorizedPlacement, and both the create and update paths re-check
+// it under lock (see verifyAuthorizedPlacement). Returns (nil, nil) for a
 // site-less building and NotFound for a missing/soft-deleted one.
 func (s *Service) ResolveBuildingSite(ctx context.Context, orgID, buildingID int64) (*int64, error) {
 	return s.collectionStore.GetBuildingSite(ctx, orgID, buildingID)
+}
+
+// ResolveRackSite returns a rack's current site_id (nil for a site-less rack,
+// or for a collection that is not a rack). It is an unlocked read the handlers
+// use to authorize a move against the rack's SOURCE site before the write; the
+// value is bound to the write via authz.WithAuthorizedPlacement and re-checked
+// under lock in resolveAndApplyRackPlacement.
+func (s *Service) ResolveRackSite(ctx context.Context, orgID, collectionID int64) (*int64, error) {
+	rackInfo, err := s.collectionStore.GetRackInfo(ctx, collectionID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if rackInfo == nil {
+		return nil, nil
+	}
+	return rackInfo.SiteId, nil
+}
+
+// verifyAuthorizedPlacement binds a placement write to the authorization the
+// handler performed on unlocked reads. When the handler stashed an
+// authz.AuthorizedPlacement, the locked current/target sites must still match
+// the sites the caller was authorized against; otherwise a concurrent building-
+// or rack-move slipped in between the authorization and this write, and the
+// write is rejected fail-closed rather than committing under stale
+// authorization. Absent an authorized placement (an internal/trusted caller
+// that bypasses handler authorization), the check is a no-op.
+func verifyAuthorizedPlacement(ctx context.Context, lockedCurrentSite, lockedTargetSite *int64) error {
+	ap, ok := authz.AuthorizedPlacementFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	if !int64PtrEqual(ap.CurrentSiteID, lockedCurrentSite) || !int64PtrEqual(ap.TargetSiteID, lockedTargetSite) {
+		return fleeterror.NewFailedPreconditionError(
+			"rack placement changed since authorization; refresh and retry")
+	}
+	return nil
 }
 
 // enforceBuildingRackCapacity rejects placing a rack into buildingID when
@@ -361,6 +401,12 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			var err error
 			siteID, buildingID, err = s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
 			if err != nil {
+				return nil, err
+			}
+			// New rack, so no current site; bind the destination to the site the
+			// handler authorized against and fail closed if the building moved
+			// sites between that unlocked check and this lock.
+			if err := verifyAuthorizedPlacement(ctx, nil, siteID); err != nil {
 				return nil, err
 			}
 		}
@@ -583,6 +629,12 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 
 		siteID, buildingID, err := s.resolveAndLockRackPlacement(txCtx, params.OrgID, placement)
 		if err != nil {
+			return nil, err
+		}
+		// All racks are new (no current site); the whole batch shares one
+		// placement, so a single check binds the destination to the site the
+		// handler authorized and fails closed if the building moved sites.
+		if err := verifyAuthorizedPlacement(txCtx, nil, siteID); err != nil {
 			return nil, err
 		}
 		if buildingID != nil {
@@ -2879,6 +2931,15 @@ func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *sessio
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// Bind the site:manage authorization to the locked reality: the handler
+	// authorized this move against the rack's current site and the destination
+	// it resolved on unlocked reads, so reject if a concurrent building- or
+	// rack-move changed either before we took these locks. Runs under the same
+	// rack lock as the write, so it can't be raced past.
+	if err := verifyAuthorizedPlacement(ctx, current.SiteID, newSiteID); err != nil {
+		return nil, err
 	}
 
 	// Re-validate under the rack lock before any write. A concurrent SaveRack

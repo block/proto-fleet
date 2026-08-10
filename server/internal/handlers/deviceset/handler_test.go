@@ -1618,3 +1618,87 @@ func TestSaveRack_PlacementNarrowsToTargetSite(t *testing.T) {
 		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 	})
 }
+
+// TestUpdateDeviceSet_MoveAuthorizesSourceAndDestination is the source-site
+// regression: moving an existing rack must require site:manage at the rack's
+// CURRENT site as well as the destination, so a manager of only the
+// destination can't pull a rack out of a site they don't manage.
+func TestUpdateDeviceSet_MoveAuthorizesSourceAndDestination(t *testing.T) {
+	const rackID = int64(500)
+	const siteA = int64(11) // rack's current site
+	const siteB = int64(22) // destination
+
+	t.Run("destination-only manager cannot move a rack out of an unmanaged source", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(siteB, authz.PermSiteManage))
+		// The rack currently lives in site A; the move targets site B. Only the
+		// source lookup runs — the source check denies before any write.
+		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+
+		_, err := h.handler.UpdateDeviceSet(ctx, connect.NewRequest(&dspb.UpdateDeviceSetRequest{
+			DeviceSetId: rackID,
+			TypeDetails: &dspb.UpdateDeviceSetRequest_RackInfo{RackInfo: &dspb.RackInfo{SiteId: ptrInt64Local(siteB)}},
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	t.Run("manager of both source and destination is admitted past authorization", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(siteA, authz.PermSiteManage),
+			handlerstest.SiteAssignment(siteB, authz.PermSiteManage))
+		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+		// Authorization passes; the service is entered and stopped at its first
+		// store read with a sentinel, proving the move was admitted.
+		sentinel := fleeterror.NewInternalError("reached service")
+		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, sentinel)
+
+		_, err := h.handler.UpdateDeviceSet(ctx, connect.NewRequest(&dspb.UpdateDeviceSetRequest{
+			DeviceSetId: rackID,
+			TypeDetails: &dspb.UpdateDeviceSetRequest_RackInfo{RackInfo: &dspb.RackInfo{
+				SiteId:      ptrInt64Local(siteB),
+				Rows:        4,
+				Columns:     8,
+				OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			}},
+		}))
+		require.ErrorIs(t, err, sentinel)
+	})
+}
+
+// TestSaveRack_UpdateMoveAuthorizesSourceSite mirrors the UpdateDeviceSet
+// regression on the SaveRack update path: a SaveRack that names an existing
+// rack (device_set_id set) is a move, so it must authorize the rack's current
+// site, not only the destination.
+func TestSaveRack_UpdateMoveAuthorizesSourceSite(t *testing.T) {
+	const rackID = int64(500)
+	const siteA = int64(11)
+	const siteB = int64(22)
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+		handlerstest.OrgAssignment(authz.PermRackManage),
+		handlerstest.SiteAssignment(siteB, authz.PermSiteManage))
+	h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+		Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+
+	_, err := h.handler.SaveRack(ctx, connect.NewRequest(&dspb.SaveRackRequest{
+		DeviceSetId:    ptrInt64Local(rackID),
+		Label:          "Rack",
+		RackInfo:       &dspb.RackInfo{SiteId: ptrInt64Local(siteB)},
+		DeviceSelector: deviceListSelector(),
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
