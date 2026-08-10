@@ -10,7 +10,7 @@ service_ca="$3"
 # Verify the public endpoint identity while pinning the connection to this host.
 curl --fail --silent \
     --cacert "$service_ca" \
-    --resolve "${virtual_ip}:443:127.0.0.1" \
+    --connect-to "${virtual_ip}:443:127.0.0.1:443" \
     --noproxy '*' \
     --connect-timeout 1 \
     --max-time 1 \

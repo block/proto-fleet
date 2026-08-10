@@ -2,12 +2,14 @@ package timescaledb_test
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -101,9 +103,19 @@ func writeHeartbeat(t *testing.T, db *sql.DB, orgID int64, age time.Duration) {
 		time.Now().Add(-age), fmt.Sprintf("%d", orgID))
 	require.NoError(t, err)
 	// NULL bounds refresh the whole eligible range; CALL must not run in a tx.
-	_, err = db.ExecContext(ctx,
-		`CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat', NULL, NULL)`)
-	require.NoError(t, err)
+	// The scheduled policy can briefly hold the same refresh lock in CI.
+	for attempt := 1; attempt <= 10; attempt++ {
+		_, err = db.ExecContext(ctx,
+			`CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat', NULL, NULL)`)
+		if err == nil {
+			return
+		}
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "55P03" || attempt == 10 {
+			require.NoError(t, err)
+		}
+		time.Sleep(time.Duration(attempt) * 100 * time.Millisecond)
+	}
 }
 
 // runRule executes the rule SQL and returns organization_id -> staleness_seconds.

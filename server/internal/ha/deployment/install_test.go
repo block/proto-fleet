@@ -153,18 +153,22 @@ func TestInstallReadinessFailureDisablesHA(t *testing.T) {
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	run := deps.run
+	statusHadDeadline := false
 	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		if strings.Contains(strings.Join(args, " "), "fleet-ha status") {
+			_, statusHadDeadline = ctx.Deadline()
 			return nil, errors.New("not ready")
 		}
 		return run(ctx, name, args...)
 	}
+	deps.readinessTimeout = time.Nanosecond
 
 	// Act
 	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env", EtcdRootPasswordFile: rootPassword}, deps)
 
 	// Assert
 	require.ErrorContains(t, err, "failover readiness did not become healthy")
+	require.True(t, statusHadDeadline)
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 	require.NotContains(t, joined, "sudo systemctl enable proto-fleet-ha.service")
@@ -548,8 +552,9 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 			record("dir:"+dir+" "+name, args...)
 			return nil, nil
 		},
-		sourceRoot: func() (string, error) { return source, nil },
-		sleep:      func(time.Duration) {},
+		sourceRoot:       func() (string, error) { return source, nil },
+		sleep:            func(time.Duration) {},
+		readinessTimeout: installReadinessTimeout,
 	}
 }
 

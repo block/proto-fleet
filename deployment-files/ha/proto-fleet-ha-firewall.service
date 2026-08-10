@@ -5,6 +5,7 @@ Before=docker.service proto-fleet-ha.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+ExecStartPre=-/usr/sbin/nft delete table inet proto_fleet_ha
 ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft
 
 [Install]
