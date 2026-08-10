@@ -8,19 +8,15 @@ type UploadState = "downloaded" | "installing" | "installed";
 
 const SYSTEM_INFO_ROUTE = "**/api/v1/system";
 
-async function validateInstallingWidget(page: Page, generalPage: GeneralPage, headerComponent: HeaderComponent) {
-  const fulfillInstallingSystemInfo = async (route: Route) => {
-    const response = await route.fetch();
-    const data = (await response.json()) as {
-      "system-info": {
-        sw_update_status: {
-          status: string;
-        };
-      };
-    };
-    data["system-info"].sw_update_status.status = "installing";
-    await route.fulfill({ response, json: data });
-  };
+async function validateInstallingWidget(
+  page: Page,
+  firmwareHelper: FirmwareHelper,
+  generalPage: GeneralPage,
+  headerComponent: HeaderComponent,
+) {
+  const systemInfo = await firmwareHelper.getSystemInfo();
+  systemInfo["system-info"].sw_update_status.status = "installing";
+  const fulfillInstallingSystemInfo = (route: Route) => route.fulfill({ json: systemInfo });
 
   await page.route(SYSTEM_INFO_ROUTE, fulfillInstallingSystemInfo);
   try {
@@ -35,13 +31,14 @@ async function validateInstallingWidget(page: Page, generalPage: GeneralPage, he
 async function handleUploadedFirmwareState(
   uploadState: UploadState,
   page: Page,
+  firmwareHelper: FirmwareHelper,
   headerComponent: HeaderComponent,
   generalPage: GeneralPage,
   startingVersion: string,
   installedVersion: string,
 ) {
   if (uploadState === "installing") {
-    await validateInstallingWidget(page, generalPage, headerComponent);
+    await validateInstallingWidget(page, firmwareHelper, generalPage, headerComponent);
     return;
   }
 
@@ -77,6 +74,7 @@ async function getInstallingState(uploadState: UploadState, firmwareHelper: Firm
 async function validateInstallingState(
   installingState: Awaited<ReturnType<FirmwareHelper["getState"]>>,
   page: Page,
+  firmwareHelper: FirmwareHelper,
   generalPage: GeneralPage,
   headerComponent: HeaderComponent,
 ) {
@@ -84,7 +82,7 @@ async function validateInstallingState(
     return;
   }
 
-  await validateInstallingWidget(page, generalPage, headerComponent);
+  await validateInstallingWidget(page, firmwareHelper, generalPage, headerComponent);
 }
 
 test.describe("Firmware updates", () => {
@@ -152,6 +150,7 @@ test.describe("Firmware updates", () => {
       await handleUploadedFirmwareState(
         uploadState,
         page,
+        firmwareHelper,
         headerComponent,
         generalPage,
         startingVersion,
@@ -162,7 +161,7 @@ test.describe("Firmware updates", () => {
     await test.step("Wait for the install to enter the installing state", async () => {
       const installingState = await getInstallingState(uploadState, firmwareHelper);
       installedVersion = installingState.newVersion ?? installedVersion;
-      await validateInstallingState(installingState, page, generalPage, headerComponent);
+      await validateInstallingState(installingState, page, firmwareHelper, generalPage, headerComponent);
     });
 
     await test.step("Wait for reboot-required state after the upload-driven install", async () => {
