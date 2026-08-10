@@ -11,9 +11,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 )
 
-func TestStatusCheckRequiresFailoverReadiness(t *testing.T) {
+func TestStatusRequiresFailoverReadiness(t *testing.T) {
 	// Arrange
-	read := func(context.Context, string, bool) (deployment.StatusReport, error) {
+	read := func(context.Context, string) (deployment.StatusReport, error) {
 		return deployment.StatusReport{
 			Runtime: ha.Status{Role: ha.RolePassive, Observation: ha.ObservationCurrent, Endpoint: ha.EndpointNotApplicable},
 			Control: &deployment.ControlStatus{ControlReady: true},
@@ -21,18 +21,17 @@ func TestStatusCheckRequiresFailoverReadiness(t *testing.T) {
 	}
 
 	// Act
-	err := runStatus(t.Context(), []string{"custom.env", "--check"}, &bytes.Buffer{}, read)
+	err := runStatus(t.Context(), []string{"custom.env"}, &bytes.Buffer{}, read)
 
 	// Assert
 	require.ErrorContains(t, err, "failover readiness")
 }
 
-func TestStatusJSONPrintsRedactedContract(t *testing.T) {
+func TestStatusPrintsRedactedContract(t *testing.T) {
 	// Arrange
 	var output bytes.Buffer
-	read := func(_ context.Context, envPath string, check bool) (deployment.StatusReport, error) {
+	read := func(_ context.Context, envPath string) (deployment.StatusReport, error) {
 		require.Equal(t, "node.env", envPath)
-		require.True(t, check)
 		return deployment.StatusReport{
 			Runtime: ha.Status{Version: "v1.2.3", Role: ha.RoleActive, Observation: ha.ObservationCurrent, Endpoint: ha.EndpointHealthy},
 			Control: &deployment.ControlStatus{ControlReady: true, FailoverReady: true},
@@ -40,7 +39,7 @@ func TestStatusJSONPrintsRedactedContract(t *testing.T) {
 	}
 
 	// Act
-	err := runStatus(t.Context(), []string{"--json", "--check"}, &output, read)
+	err := runStatus(t.Context(), nil, &output, read)
 
 	// Assert
 	require.NoError(t, err)

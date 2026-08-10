@@ -46,15 +46,12 @@ type ControlStatus struct {
 	ReasonCodes   []ControlReasonCode `json:"reason_codes"`
 }
 
-func Status(ctx context.Context, envPath string, check bool) (StatusReport, error) {
+func Status(ctx context.Context, envPath string) (StatusReport, error) {
 	client, cleanup := newProbeHTTPClient(nil, nil)
 	defer cleanup()
 	report, err := readLocalStatus(ctx, client, localHAStatusURL)
 	if err != nil {
 		return StatusReport{}, err
-	}
-	if !check {
-		return report, nil
 	}
 	return checkControlPath(ctx, envPath, report)
 }

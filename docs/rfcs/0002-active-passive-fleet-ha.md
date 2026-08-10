@@ -276,7 +276,7 @@ Endpoints:
 
 `/health/ha` is not a load-balancer health check. It binds to loopback and nginx explicitly returns 404 for the same path through the VIP. Local host or SSH access is the authentication boundary; v1 does not add bearer credentials for this endpoint.
 
-`fleet-ha status --check` provides the operator view:
+`fleet-ha status` provides the operator view as redacted JSON and exits nonzero when failover readiness is degraded:
 
 - local runtime role, observation freshness, and endpoint health;
 - separate control and failover readiness;
