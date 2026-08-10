@@ -724,6 +724,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 				closeErrors = append(closeErrors, m.logRoot.Close())
 			}
 			if m.processLock != nil {
+				closeErrors = append(closeErrors, syscall.Flock(int(m.processLock.Fd()), syscall.LOCK_UN))
 				closeErrors = append(closeErrors, m.processLock.Close())
 			}
 			m.closeErr = errors.Join(closeErrors...)
