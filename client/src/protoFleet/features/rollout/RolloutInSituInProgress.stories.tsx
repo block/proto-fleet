@@ -73,9 +73,9 @@ function AppShell({ children }: { children: ReactNode }): ReactElement {
       ]);
   }, []);
   return (
-    <div className="relative min-h-screen bg-surface-base">
+    <div className="relative min-h-screen overflow-x-hidden bg-surface-base">
       <NavigationMenu items={primaryNavItems} />
-      <div className="min-h-screen pl-60">{children}</div>
+      <div className="min-h-screen laptop:pl-16 desktop:pl-50">{children}</div>
     </div>
   );
 }
