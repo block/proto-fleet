@@ -10,6 +10,10 @@ import (
 // EndpointHeartbeatFile is refreshed only after keepalived's local proxy check succeeds.
 const EndpointHeartbeatFile = "/run/proto-fleet-ha/endpoint-heartbeat"
 
+func newEndpointOwned(endpointIP netip.Addr, endpointInterface string) func() bool {
+	return func() bool { return localAddressAssigned(endpointIP, endpointInterface) }
+}
+
 // Endpoint health requires both local VIP ownership and proof that keepalived
 // is still successfully probing the active client path.
 func newEndpointHealth(endpointIP netip.Addr, endpointInterface, heartbeatFile string, timeout time.Duration) func() bool {

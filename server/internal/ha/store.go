@@ -23,6 +23,10 @@ type leaseQuerier interface {
 		ctx context.Context,
 		arg sqlc.AcquireFleetRuntimeLeaseParams,
 	) (sqlc.AcquireFleetRuntimeLeaseRow, error)
+	ClassifyFleetRuntimeLeaseAcquisition(
+		ctx context.Context,
+		arg sqlc.ClassifyFleetRuntimeLeaseAcquisitionParams,
+	) (string, error)
 	RenewFleetRuntimeLease(
 		ctx context.Context,
 		arg sqlc.RenewFleetRuntimeLeaseParams,
@@ -64,12 +68,39 @@ func (s *LeaseStore) Acquire(
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Ownership{}, ErrLeaseUnavailable
+		result, classifyErr := s.queries.ClassifyFleetRuntimeLeaseAcquisition(
+			ctx,
+			sqlc.ClassifyFleetRuntimeLeaseAcquisitionParams{
+				ServerAddress:    observed.ServerAddress,
+				ServerPort:       observed.ServerPort,
+				Timeline:         observed.Timeline,
+				DcsClusterID:     observed.DCSClusterID,
+				WriterGeneration: observed.WriterGeneration,
+				HolderID:         holderID,
+			},
+		)
+		if classifyErr != nil {
+			return Ownership{}, fmt.Errorf("classify Fleet active lease acquisition: %w", classifyErr)
+		}
+		return Ownership{}, leaseAcquisitionError(result)
 	}
 	if err != nil {
 		return Ownership{}, fmt.Errorf("acquire Fleet active lease: %w", err)
 	}
 	return ownershipFromAcquire(row), nil
+}
+
+func leaseAcquisitionError(result string) error {
+	switch result {
+	case "contended":
+		return ErrLeaseUnavailable
+	case "cluster_mismatch":
+		return ErrDCSClusterIdentityMismatch
+	case "writer_mismatch", "writer_changed", "unavailable":
+		return ErrWriterChanged
+	default:
+		return fmt.Errorf("unknown Fleet active lease acquisition result %q", result)
+	}
 }
 
 // Renew extends only the exact unexpired holder/token using database time.
