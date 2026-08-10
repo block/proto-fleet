@@ -7,6 +7,7 @@ import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
 
 const CHANNEL_PREFIX = "e2e-webhook";
+const RULE_PREFIX = "e2e-scoped-rule";
 
 // Alerts are a flagged beta that needs the Grafana sidecar (`just dev-alerts`)
 // and a client built with VITE_ALERTS_ENABLED. The default CI E2E stack has
@@ -24,6 +25,7 @@ const REACHABLE_WEBHOOK_URL = "http://otel-collector:13133/healthz";
 
 test.describe("Proto Fleet - Alerts", () => {
   let shouldCleanupChannels = false;
+  let shouldCleanupRules = false;
 
   // eslint-disable-next-line playwright/no-skipped-test
   test.skip(
@@ -33,11 +35,12 @@ test.describe("Proto Fleet - Alerts", () => {
 
   test.beforeEach(async ({ page }) => {
     shouldCleanupChannels = false;
+    shouldCleanupRules = false;
     await page.goto("/");
   });
 
-  test.afterEach("CLEANUP: delete channels created during tests", async ({ browser }, testInfo) => {
-    if (!shouldCleanupChannels) {
+  test.afterEach("CLEANUP: delete channels/rules created during tests", async ({ browser }, testInfo) => {
+    if (!shouldCleanupChannels && !shouldCleanupRules) {
       return;
     }
 
@@ -56,7 +59,12 @@ test.describe("Proto Fleet - Alerts", () => {
 
       await commonSteps.loginAsAdmin();
       await alertsPage.navigateToAlertsSettings();
-      await alertsPage.deleteChannelsByPrefix(CHANNEL_PREFIX);
+      if (shouldCleanupChannels) {
+        await alertsPage.deleteChannelsByPrefix(CHANNEL_PREFIX);
+      }
+      if (shouldCleanupRules) {
+        await alertsPage.deleteRulesByPrefix(RULE_PREFIX);
+      }
     } finally {
       await context.close();
     }
@@ -99,6 +107,56 @@ test.describe("Proto Fleet - Alerts", () => {
     await test.step("Delete the channel", async () => {
       await alertsPage.deleteChannel(channelName);
       shouldCleanupChannels = false;
+    });
+  });
+
+  test("Rule scoped to specific miners round-trips through the full-screen editor", async ({
+    commonSteps,
+    alertsPage,
+  }) => {
+    const ruleName = generateRandomText(RULE_PREFIX);
+
+    await test.step("Log in and open Alerts settings", async () => {
+      await commonSteps.loginAsAdmin();
+      await alertsPage.navigateToAlertsSettings();
+    });
+
+    await test.step("Open the full-screen editor; a new rule is org-wide", async () => {
+      await alertsPage.openCreateAlert();
+      await alertsPage.fillRuleName(ruleName);
+      await alertsPage.validateScopePreview("Applies to all miners");
+      await alertsPage.validateMinersScopeButton("All miners");
+    });
+
+    await test.step("Scope the rule to one miner", async () => {
+      await alertsPage.openMinersScopePicker();
+      await alertsPage.deselectAllMinersInScopePicker();
+      await alertsPage.selectMinersInScopePicker(1);
+      await alertsPage.validateMinersScopeButton("1 miner");
+      await alertsPage.validateScopePreview("Applies to a subset of miners");
+    });
+
+    await test.step("Save; the rules table shows the scope", async () => {
+      shouldCleanupRules = true;
+      await alertsPage.saveRule();
+      await alertsPage.validateTextInToast(`Rule created: ${ruleName}`);
+      await alertsPage.validateRuleScopeCell(ruleName, "1 miner");
+    });
+
+    await test.step("Edit re-opens with the stored scope; select-all restores org-wide", async () => {
+      await alertsPage.openEditRule(ruleName);
+      await alertsPage.validateMinersScopeButton("1 miner");
+      await alertsPage.openMinersScopePicker();
+      await alertsPage.selectAllMinersInScopePicker();
+      await alertsPage.validateMinersScopeButton("All miners");
+      await alertsPage.saveRule();
+      await alertsPage.validateTextInToast(`Rule updated: ${ruleName}`);
+      await alertsPage.validateRuleScopeCell(ruleName, "All miners");
+    });
+
+    await test.step("Delete the rule", async () => {
+      await alertsPage.deleteRulesByPrefix(RULE_PREFIX);
+      shouldCleanupRules = false;
     });
   });
 });

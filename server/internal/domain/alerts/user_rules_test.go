@@ -209,9 +209,10 @@ func TestCompileUserRule(t *testing.T) {
 
 			assert.Equal(t, tc.wantSummary, rule.Annotations["summary"])
 
-			var roundTripped RuleConfig
-			require.NoError(t, json.Unmarshal([]byte(rule.Annotations[ruleAnnotationConfig]), &roundTripped))
-			assert.Equal(t, tc.cfg, roundTripped)
+			// Config persists in the config store, never the annotation: Grafana
+			// copies annotations onto every alert instance, so a large scope
+			// would bloat notification batches.
+			assert.NotContains(t, rule.Annotations, "proto_fleet_config")
 		})
 	}
 }
@@ -231,8 +232,8 @@ func TestCompileUserRuleDurationAndDomainRoundTrip(t *testing.T) {
 	assert.Equal(t, RuleTemplateHashrate, domain.Template)
 	// The UI groups by the per-org label, not the per-rule Grafana group.
 	assert.Equal(t, "proto-fleet-user-7", domain.Group)
-	require.NotNil(t, domain.Config)
-	assert.Equal(t, cfg, *domain.Config)
+	// The editable config comes from the config store (attachConfigs), not the rule body.
+	assert.Nil(t, domain.Config)
 }
 
 // The curtailment gate: absolute-mode SQL joins the ratio metric and excludes
@@ -267,38 +268,6 @@ func TestParseDurationSecondsPrometheusUnits(t *testing.T) {
 	}
 }
 
-// A parseable-but-invalid config annotation must not round-trip into the
-// editor: the client hides Edit on nil Config, which is what prevents the
-// modal's offline fallback from silently rewriting the rule.
-func TestGrafanaRuleToDomainRejectsInvalidConfig(t *testing.T) {
-	base := func(configJSON string) GrafanaAlertRule {
-		return GrafanaAlertRule{
-			UID: "pfu-x",
-			Labels: map[string]string{
-				ruleLabelOrigin:   ruleOriginUser,
-				ruleLabelTemplate: "hashrate",
-			},
-			Annotations: map[string]string{ruleAnnotationConfig: configJSON},
-		}
-	}
-	cases := map[string]string{
-		"empty object":       `{}`,
-		"no template branch": `{"name":"r","duration_seconds":600}`,
-		"unknown mode":       `{"name":"r","duration_seconds":600,"hashrate":{"mode":"bogus","value":50}}`,
-		"out-of-range value": `{"name":"r","duration_seconds":600,"hashrate":{"mode":"pct_expected","value":500}}`,
-		"template mismatch":  `{"name":"r","duration_seconds":600,"temperature":{"max_celsius":85}}`,
-		"not json":           `{"name":`,
-	}
-	for name, configJSON := range cases {
-		t.Run(name, func(t *testing.T) {
-			assert.Nil(t, grafanaRuleToDomain(7, base(configJSON)).Config)
-		})
-	}
-
-	valid := base(`{"name":"r","duration_seconds":600,"hashrate":{"mode":"pct_expected","value":50}}`)
-	require.NotNil(t, grafanaRuleToDomain(7, valid).Config)
-}
-
 func TestGrafanaRuleToDomainProvisionedOrigin(t *testing.T) {
 	domain := grafanaRuleToDomain(7, GrafanaAlertRule{
 		UID:    "protofleet-device-offline",
@@ -323,6 +292,17 @@ type fakeGrafanaRules struct {
 	getRuleGone bool
 	// Per-uid GETs 500, simulating an inconclusive post-write recheck.
 	getRuleErr bool
+	// Per-uid GETs 500 only after a rule PUT: the pre-write fetch succeeds but
+	// the post-error probe is inconclusive.
+	getRuleErrAfterUpdate bool
+	// Rule PUTs 500, simulating a rejected update.
+	updateErr bool
+	// Rule PUTs commit to listed and then 500, simulating a timeout after Grafana applied the write.
+	updateErrAfterCommit bool
+	// The first rule PUT succeeds, later ones 500 — simulating a config-write
+	// failure whose compensating Grafana restore also fails.
+	updateErrAfterFirst bool
+	updateCount         int
 	// Silence list 500s, simulating an Alertmanager outage.
 	silencesErr bool
 }
@@ -338,7 +318,7 @@ func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
 		writeJSON(w, f.listed)
 	})
 	mux.HandleFunc("GET /api/v1/provisioning/alert-rules/{uid}", func(w http.ResponseWriter, r *http.Request) {
-		if f.getRuleErr {
+		if f.getRuleErr || (f.getRuleErrAfterUpdate && f.updateCount > 0) {
 			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
 			return
 		}
@@ -359,6 +339,18 @@ func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
 		writeJSON(w, rule)
 	})
 	mux.HandleFunc("PUT /api/v1/provisioning/alert-rules/{uid}", func(w http.ResponseWriter, r *http.Request) {
+		f.updateCount++
+		if f.updateErr || (f.updateErrAfterFirst && f.updateCount > 1) {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
+		if f.updateErrAfterCommit {
+			var rule GrafanaAlertRule
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&rule))
+			f.listed = []GrafanaAlertRule{rule}
+			http.Error(w, `{"message":"gateway timeout"}`, http.StatusInternalServerError)
+			return
+		}
 		var rule GrafanaAlertRule
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&rule))
 		f.updated = &rule
@@ -422,7 +414,7 @@ func userRuleFixture(uid string, org string) GrafanaAlertRule {
 
 func TestCreateRule(t *testing.T) {
 	fake := &fakeGrafanaRules{}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	rule, err := svc.CreateRule(context.Background(), 7, offlineConfig("Offline too long", 1800), RouteModeDefault, nil)
 	require.NoError(t, err)
@@ -450,7 +442,7 @@ func TestCreateRuleQuota(t *testing.T) {
 	for i := range maxUserRulesPerOrg {
 		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "7"))
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("One more", 1800), RouteModeDefault, nil)
 	require.Error(t, err)
@@ -464,7 +456,7 @@ func TestCreateRuleQuotaIsPerOrg(t *testing.T) {
 	for i := range maxUserRulesPerOrg {
 		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "8"))
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("First for org 7", 1800), RouteModeDefault, nil)
 	require.NoError(t, err)
@@ -481,7 +473,7 @@ func TestUpdateRuleGuards(t *testing.T) {
 	hidden := userRuleFixture("pfu-hidden", "7")
 	hidden.Labels[ruleLabelScope] = ruleScopeInternal
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{provisioned, otherOrg, hidden}}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	ids := []string{"protofleet-device-offline", "pfu-other", "pfu-missing", "pfu-hidden"}
 	for _, id := range ids {
@@ -500,7 +492,7 @@ func TestUpdateRuleGuards(t *testing.T) {
 func TestUpdateRuleKeepsIdentity(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{existing}}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	updated, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", RuleConfig{
 		Name: "Hotter", DurationSeconds: 600,
@@ -527,7 +519,7 @@ func TestSilenceWritesUndoneWhenRuleDeletedConcurrently(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
 	existing.Labels[ruleLabelRuleGroup] = "proto-fleet-user-7"
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{existing}, getRuleGone: true}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.PauseRule(context.Background(), 7, "pfu-mine", "alice")
 	assert.ErrorIs(t, err, ErrNotFound)
@@ -599,7 +591,7 @@ func TestDeleteRuleSweepIsIdempotentButGuarded(t *testing.T) {
 		listed:   []GrafanaAlertRule{provisioned},
 		silences: []GrafanaSilence{pauseFor("pfu-gone"), pauseFor("protofleet-device-offline")},
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	// Missing rule: uniform NotFound, but the orphaned silence is swept.
 	err := svc.DeleteRule(context.Background(), 7, "pfu-gone")
@@ -631,7 +623,7 @@ func TestDeleteRuleCleansRuleScopedSilences(t *testing.T) {
 			}},
 		},
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	require.NoError(t, svc.DeleteRule(context.Background(), 7, "pfu-mine"))
 	assert.Equal(t, "pfu-mine", fake.deletedUID)

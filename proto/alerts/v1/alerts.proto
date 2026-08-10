@@ -188,6 +188,21 @@ message TemperatureConfig {
     double max_celsius = 1 [(buf.validate.field).double = {gt: 0, lte: 150}];
 }
 
+// Which miners a rule fires for: the union of every listed placement (sites, buildings, racks, groups — evaluated against current membership) and the explicit device_ids. Empty/absent means the whole org.
+message RuleScope {
+    repeated int64 site_ids = 1 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated string device_ids = 2 [(buf.validate.field).repeated = {max_items: 500, items: {string: {min_len: 1, max_len: 255}}}];
+    repeated int64 building_ids = 3 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated int64 rack_ids = 4 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated int64 group_ids = 5 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    // Live "any site": covers miners assigned to any current or future site (excludes unassigned miners); when set, site_ids is ignored and reads return it empty.
+    bool all_sites = 6;
+    // Read-only, server-set: device_ids exist on this rule but the caller lacks miner:read, so they were omitted. Never renders as org-wide. Writes carrying this flag are rejected — the caller cannot know the redacted list, so saving would silently drop it.
+    bool device_ids_redacted = 7;
+    // Write-intent marker: an org-wide write sends the scope message with org_wide=true instead of omitting it. An update of a scoped rule that omits the scope message entirely is rejected as a stale pre-scope client (it cannot round-trip this message, and absent-means-org-wide would let an unrelated edit silently widen the rule to every miner). Mutually exclusive with the placement/device lists; never set on reads (reads express org-wide by omitting scope).
+    bool org_wide = 8;
+}
+
 // User-specified rule definition; the server compiles it into the backing Grafana rule.
 message RuleConfig {
     // 190 is Grafana's alert-rule title cap.
@@ -199,6 +214,7 @@ message RuleConfig {
         HashrateConfig hashrate = 4;
         TemperatureConfig temperature = 5;
     }
+    RuleScope scope = 6;
 }
 
 // Where a rule's firing alerts deliver: DEFAULT = every org channel, CUSTOM = only channel_ids, NONE = nowhere; history records the alert either way.
@@ -231,6 +247,10 @@ message Rule {
     RuleConfig config = 12;
     // Unset means the routing read failed (keep the last-known value); a readable rule always carries an explicit mode.
     RuleRouting routing = 13;
+    // Read-only, server-set: the stored config no longer compiles to the SQL the rule is evaluating (a save was interrupted mid-write); re-saving the rule converges both sides.
+    bool config_out_of_sync = 14;
+    // Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config instead of treating the absent field as "no editable config", mirroring how an unset routing is handled.
+    bool config_unknown = 15;
 }
 
 message ListRulesRequest {}

@@ -89,7 +89,7 @@ func routingService(t *testing.T) (*Service, *fakeRouteStore, *fakeGrafanaRules)
 		require.NoError(t, err)
 	}
 	routes := newFakeRouteStore()
-	return NewService(fake.server(t), channels, routes, nil, nil, DestinationPolicy{}), routes, fake
+	return NewService(fake.server(t), channels, routes, nil, nil, nil, nil, DestinationPolicy{}), routes, fake
 }
 
 func TestSetRuleRoutingPersistsCustomAndNone(t *testing.T) {
@@ -210,12 +210,28 @@ func TestCreateRuleCleansPolicyWhenCreateFails(t *testing.T) {
 		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "7"))
 	}
 	routes := newFakeRouteStore()
-	svc := NewService(fake.server(t), nil, routes, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, routes, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("One more", 1800), RouteModeNone, nil)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Empty(t, routes.policies[7], "the pre-written policy is deleted when the create fails")
+}
+
+// A config-write failure between the policy write and the rule create must also
+// tidy the policy row: no rule exists for the fresh UID, so retries would
+// otherwise accumulate orphan policies in every delivery policy load.
+func TestCreateRuleCleansPolicyWhenConfigWriteFails(t *testing.T) {
+	fake := &fakeGrafanaRules{}
+	routes := newFakeRouteStore()
+	configs := newFakeRuleConfigStore()
+	configs.upsertErr = errors.New("db down")
+	svc := NewService(fake.server(t), nil, routes, configs, nil, nil, nil, DestinationPolicy{})
+
+	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("r", 1800), RouteModeNone, nil)
+	require.Error(t, err)
+	assert.Nil(t, fake.created, "the rule must not be created when its config cannot be stored")
+	assert.Empty(t, routes.policies[7], "the pre-written policy is deleted when the config write fails")
 }
 
 // The update response must carry the stored routing: reporting DEFAULT invites the client to overwrite the real policy.
@@ -265,7 +281,7 @@ func (s *spyInvalidator) InvalidatePolicyCache(orgID int64) {
 func TestSetRuleRoutingInvalidatesDeliveryCache(t *testing.T) {
 	spy := &spyInvalidator{}
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{userRuleFixture("pfu-mine", "7")}}
-	svc := NewService(fake.server(t), nil, newFakeRouteStore(), nil, spy, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, newFakeRouteStore(), nil, nil, spy, nil, DestinationPolicy{})
 
 	_, err := svc.SetRuleRouting(context.Background(), 7, "pfu-mine", RouteModeNone, nil)
 	require.NoError(t, err)
@@ -278,7 +294,7 @@ func TestSetRuleRoutingInvalidatesDeliveryCache(t *testing.T) {
 func TestSetRuleRoutingUndoneWhenRuleDeletedConcurrently(t *testing.T) {
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{userRuleFixture("pfu-mine", "7")}, getRuleGone: true}
 	routes := newFakeRouteStore()
-	svc := NewService(fake.server(t), nil, routes, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, routes, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.SetRuleRouting(context.Background(), 7, "pfu-mine", RouteModeNone, nil)
 	assert.ErrorIs(t, err, ErrNotFound)

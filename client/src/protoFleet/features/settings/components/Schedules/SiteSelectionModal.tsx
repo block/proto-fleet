@@ -10,9 +10,19 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
+// Mirrors MinerSelectionModal's save shape: allSelected lets callers persist
+// "all sites" as a live selection (covering future sites) instead of
+// materializing today's list; callers that only want ids ignore it.
+export interface SiteSelectionValue {
+  siteIds: string[];
+  allSelected: boolean;
+}
+
 interface SiteSelectionModalProps {
   open: boolean;
   selectedSiteIds: string[];
+  // Seed with every listed site checked (a caller-side "all sites" state re-opening for edit).
+  allSitesSelected?: boolean;
   // Soft default from the topbar SitePicker. A single selected site limits the
   // sites offered to that one site; "all sites" lists every site. Same
   // filter-the-options model as the rack/building/miner pickers. `listSites`
@@ -20,13 +30,25 @@ interface SiteSelectionModalProps {
   // narrowing is applied client-side here.
   scope?: SiteFilterFields;
   onDismiss: () => void;
-  onSave: (siteIds: string[]) => void;
+  onSave: (selection: SiteSelectionValue) => void;
 }
 
-const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }: SiteSelectionModalProps) => {
+const SiteSelectionModal = ({
+  open,
+  selectedSiteIds,
+  allSitesSelected = false,
+  scope,
+  onDismiss,
+  onSave,
+}: SiteSelectionModalProps) => {
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [draftSelection, setDraftSelection] = useState<Set<string>>(new Set(selectedSiteIds));
+  // Live "all sites" is an explicit gesture (the All sites checkbox / Select
+  // all), never inferred from coverage: a fixed list that happens to span every
+  // current site must survive an open-and-Done instead of silently widening to
+  // cover future sites.
+  const [allSitesIntent, setAllSitesIntent] = useState(allSitesSelected);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
 
@@ -58,6 +80,10 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
         // unscoped (all-sites) list.
         if (isScoped) return;
         const validIds = new Set(visible.map((row) => (row.site?.id ?? 0n).toString()));
+        if (allSitesSelected) {
+          setDraftSelection(new Set(validIds));
+          return;
+        }
         setDraftSelection((current) => new Set([...current].filter((siteId) => validIds.has(siteId))));
       },
       onError: (message: string) => {
@@ -81,6 +107,7 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
   const showEmptyState = !isLoading && selectableSiteIds.length === 0;
 
   const toggleSite = useCallback((siteId: string) => {
+    setAllSitesIntent(false);
     setDraftSelection((current) => {
       const next = new Set(current);
       if (next.has(siteId)) {
@@ -114,7 +141,17 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
         {
           text: "Done",
           variant: "primary",
-          onClick: () => onSave(Array.from(draftSelection)),
+          // A scope-narrowed list can have "all visible" checked without covering
+          // every org site, so allSelected only holds for the unscoped list, and
+          // only when the user (or the seed) explicitly asked for all sites —
+          // full coverage alone stays a fixed list. With no selectable sites
+          // there is nothing to act on: an all-sites seed must survive an
+          // open-and-Done rather than silently widen the caller's selection.
+          onClick: () =>
+            onSave({
+              siteIds: Array.from(draftSelection),
+              allSelected: !isScoped && allSitesIntent && (allSelected || selectableSiteIds.length === 0),
+            }),
           dismissModalOnClick: false,
           disabled: hasLoadError,
         },
@@ -140,7 +177,10 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
               <Checkbox
                 checked={allSelected}
                 partiallyChecked={!allSelected ? selectedSiteCount > 0 : false}
-                onChange={() => setDraftSelection(allSelected ? new Set<string>() : new Set(selectableSiteIds))}
+                onChange={() => {
+                  setAllSitesIntent(!allSelected);
+                  setDraftSelection(allSelected ? new Set<string>() : new Set(selectableSiteIds));
+                }}
               />
               <div className="flex flex-col">
                 <span className="text-emphasis-300 text-text-primary">All sites</span>
@@ -164,8 +204,14 @@ const SiteSelectionModal = ({ open, selectedSiteIds, scope, onDismiss, onSave }:
 
           <ModalSelectAllFooter
             label={`${selectedSiteCount} ${selectedSiteCount === 1 ? "site" : "sites"} selected`}
-            onSelectAll={() => setDraftSelection(new Set(selectableSiteIds))}
-            onSelectNone={() => setDraftSelection(new Set())}
+            onSelectAll={() => {
+              setAllSitesIntent(true);
+              setDraftSelection(new Set(selectableSiteIds));
+            }}
+            onSelectNone={() => {
+              setAllSitesIntent(false);
+              setDraftSelection(new Set());
+            }}
           />
         </div>
       )}
