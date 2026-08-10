@@ -18,14 +18,15 @@ import (
 )
 
 const (
-	installBase          = "/opt/proto-fleet"
-	installRoot          = "/opt/proto-fleet/deployment"
-	configRoot           = "/etc/proto-fleet/ha"
-	dataRoot             = "/var/lib/proto-fleet/ha"
-	serviceUnit          = "/etc/systemd/system/proto-fleet-ha.service"
-	firewallUnit         = "/etc/systemd/system/proto-fleet-ha-firewall.service"
-	dockerDropIn         = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
-	dockerRecoveryDropIn = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	installBase             = "/opt/proto-fleet"
+	installRoot             = "/opt/proto-fleet/deployment"
+	configRoot              = "/etc/proto-fleet/ha"
+	dataRoot                = "/var/lib/proto-fleet/ha"
+	serviceUnit             = "/etc/systemd/system/proto-fleet-ha.service"
+	firewallUnit            = "/etc/systemd/system/proto-fleet-ha-firewall.service"
+	dockerDropIn            = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
+	dockerRecoveryDropIn    = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	installReadinessTimeout = 10 * time.Minute
 )
 
 type InstallOptions struct {
@@ -39,20 +40,21 @@ type installPlatform struct {
 }
 
 type installDependencies struct {
-	goos         string
-	goarch       string
-	pageSize     int
-	readFile     func(string) ([]byte, error)
-	lstat        func(string) (os.FileInfo, error)
-	lookPath     func(string) (string, error)
-	requireEmpty func(string, string) error
-	validateHost func(context.Context, string) (NodeConfig, error)
-	run          func(context.Context, string, ...string) ([]byte, error)
-	runInput     func(context.Context, string, string, ...string) error
-	runDir       func(context.Context, string, string, ...string) ([]byte, error)
-	sourceRoot   func() (string, error)
-	verifyVIP    func(context.Context, NodeConfig) error
-	sleep        func(time.Duration)
+	goos             string
+	goarch           string
+	pageSize         int
+	readFile         func(string) ([]byte, error)
+	lstat            func(string) (os.FileInfo, error)
+	lookPath         func(string) (string, error)
+	requireEmpty     func(string, string) error
+	validateHost     func(context.Context, string) (NodeConfig, error)
+	run              func(context.Context, string, ...string) ([]byte, error)
+	runInput         func(context.Context, string, string, ...string) error
+	runDir           func(context.Context, string, string, ...string) ([]byte, error)
+	sourceRoot       func() (string, error)
+	verifyVIP        func(context.Context, NodeConfig) error
+	sleep            func(time.Duration)
+	readinessTimeout time.Duration
 }
 
 func defaultInstallDependencies() installDependencies {
@@ -61,6 +63,7 @@ func defaultInstallDependencies() installDependencies {
 		readFile: os.ReadFile, lstat: os.Lstat, lookPath: exec.LookPath, requireEmpty: requireEmptyDir, validateHost: ValidateHost,
 		run: runCommand, runInput: runWithInput, runDir: runCommandInDir,
 		sourceRoot: releaseRoot, verifyVIP: verifyInstallVirtualIP, sleep: time.Sleep,
+		readinessTimeout: installReadinessTimeout,
 	}
 }
 
@@ -783,19 +786,18 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 		return stopIncompleteHA(ctx, deps, fmt.Errorf("start HA services: %s", commandError(output, err)))
 	}
 	if config.isDatabaseNode() {
-		ready := false
-		for range 300 {
-			if err := ctx.Err(); err != nil {
-				return stopIncompleteHA(ctx, deps, fmt.Errorf("wait for failover readiness: %w", err))
-			}
-			if _, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env")); err == nil {
-				ready = true
+		readinessCtx, cancel := context.WithTimeout(ctx, deps.readinessTimeout)
+		defer cancel()
+		for {
+			if _, err := deps.run(readinessCtx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env")); err == nil {
 				break
 			}
+			if err := readinessCtx.Err(); errors.Is(err, context.DeadlineExceeded) {
+				return stopIncompleteHA(ctx, deps, errors.New("failover readiness did not become healthy within 10 minutes"))
+			} else if err != nil {
+				return stopIncompleteHA(ctx, deps, fmt.Errorf("wait for failover readiness: %w", err))
+			}
 			deps.sleep(2 * time.Second)
-		}
-		if !ready {
-			return stopIncompleteHA(ctx, deps, errors.New("failover readiness did not become healthy within 10 minutes"))
 		}
 	} else {
 		fmt.Println("HA witness installed; etcd quorum is ready")
