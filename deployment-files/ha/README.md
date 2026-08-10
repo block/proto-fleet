@@ -56,9 +56,19 @@ files on `ha-a` and `ha-b`.
 
 ## Install
 
-The supported target is a clean Debian 13 host on amd64 or arm64 with a
-4096-byte page size and the base `sudo` and `iproute2` packages. Unpack the
-release and stage the host-specific install inputs in a separate directory.
+The installer targets clean apt/systemd hosts on amd64 or arm64 with a
+4096-byte page size and the base `sudo` and `iproute2` packages:
+
+- Debian 12 or 13
+- Ubuntu 22.04 or 24.04
+- 64-bit Raspberry Pi OS based on Debian 12 or 13
+- Debian or Ubuntu derivatives whose reported release codename is available
+  from Docker's corresponding package repository
+
+Other apt/systemd distributions fall back to Docker's Debian repository using
+their reported release codename. Installation stops if Docker does not publish
+that suite. RPM-based, non-systemd, and 32-bit hosts are not supported. Unpack
+the release and stage the host-specific install inputs in a separate directory.
 Files added inside the unpacked release fail its manifest validation.
 
 For example, on each host:
@@ -93,15 +103,15 @@ password:
 "$RELEASE_ROOT/ha/fleet-ha" install "$INSTALL_INPUT_ROOT/node.env"
 ```
 
-Before changing the host, the command validates the release manifest, Debian
-version, architecture, page size, network identity and routes, free ports,
-empty data paths, the exact host secret file set, and the absence of an existing
-Docker or keepalived installation. A 16K-page host is rejected with
-instructions to boot a 4K-page kernel and retry after reboot.
+Before changing the host, the command validates the release manifest, Linux
+platform, apt/systemd prerequisites, architecture, page size, network identity
+and routes, free ports, empty data paths, the exact host secret file set, and
+the absence of an existing Docker or keepalived installation. A 16K-page host
+is rejected with instructions to boot a 4K-page kernel and retry after reboot.
 
 The installer uses `sudo` for privileged work and does not change Docker group
-membership. It installs Docker from Docker's official Debian repository plus
-the HA networking packages, then installs the release at
+membership. It installs Docker from Docker's official Debian or Ubuntu
+repository plus the HA networking packages, then installs the release at
 `/opt/proto-fleet/deployment`, configuration at `/etc/proto-fleet/ha`, and data
 at `/var/lib/proto-fleet/ha`. Docker requires the HA firewall unit, and Docker
 restarts propagate through the role-aware HA service before keepalived can
@@ -125,10 +135,17 @@ firewall restricts HA ports and VRRP to the fixed peer addresses.
 Bootstrap fails closed if the clean cluster already contains one of the HA
 roles or users; clear the incomplete etcd data and rerun the clean install.
 
-The Docker repository setup follows the official
-[Debian installation instructions](https://docs.docker.com/engine/install/debian/).
+The Docker repository setup follows the official instructions for
+[Debian](https://docs.docker.com/engine/install/debian/),
+[Ubuntu](https://docs.docker.com/engine/install/ubuntu/), and
+[64-bit Raspberry Pi OS](https://docs.docker.com/engine/install/raspberry-pi-os/).
 
 ## Qualification
+
+The distributions above are installer-compatible targets. The HA profile is
+supported only after the clean-install qualification records successful Debian,
+Ubuntu, and 64-bit Raspberry Pi OS runs. Other derivatives remain unqualified
+until exercised explicitly.
 
 Run static profile checks in CI or locally:
 

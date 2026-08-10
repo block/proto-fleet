@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -30,6 +31,11 @@ const (
 type InstallOptions struct {
 	NodeEnvPath          string
 	EtcdRootPasswordFile string
+}
+
+type installPlatform struct {
+	repository string
+	suite      string
 }
 
 type installDependencies struct {
@@ -58,7 +64,7 @@ func defaultInstallDependencies() installDependencies {
 	}
 }
 
-// Install validates a clean Debian host, installs the release, and starts its fixed HA role.
+// Install validates a clean host, installs the release, and starts its fixed HA role.
 func Install(ctx context.Context, options InstallOptions) error {
 	return install(ctx, options, defaultInstallDependencies())
 }
@@ -67,12 +73,13 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if options.NodeEnvPath == "" {
 		return errors.New("install requires a node environment file")
 	}
-	if err := validateInstallPlatform(deps); err != nil {
+	platform, err := validateInstallPlatform(deps)
+	if err != nil {
 		return err
 	}
-	for _, command := range []string{"ip", "ss"} {
+	for _, command := range []string{"apt-get", "ip", "ss", "sudo", "systemctl"} {
 		if _, err := deps.lookPath(command); err != nil {
-			return fmt.Errorf("HA install requires iproute2 on the base Debian host; missing %s", command)
+			return fmt.Errorf("HA install requires apt, iproute2, sudo, and systemd on the base host; missing %s", command)
 		}
 	}
 	config, err := deps.validateHost(ctx, options.NodeEnvPath)
@@ -106,9 +113,6 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err := validateRelease(ctx, source, deps); err != nil {
 		return err
 	}
-	if _, err := deps.lookPath("sudo"); err != nil {
-		return errors.New("HA install requires sudo")
-	}
 	if err := validateCleanInstallState(deps); err != nil {
 		return err
 	}
@@ -125,7 +129,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 			return errors.Join(err, removeReleaseSnapshot(ctx, deps))
 		}
 	}
-	if err := installPackages(ctx, deps); err != nil {
+	if err := installPackages(ctx, platform, deps); err != nil {
 		return err
 	}
 	if err := installRelease(ctx, config, deps); err != nil {
@@ -289,25 +293,67 @@ func validateCleanInstallState(deps installDependencies) error {
 	return nil
 }
 
-func validateInstallPlatform(deps installDependencies) error {
+func validateInstallPlatform(deps installDependencies) (installPlatform, error) {
 	if deps.goos != "linux" {
-		return errors.New("HA install supports Debian Linux only")
-	}
-	if deps.goarch != "amd64" && deps.goarch != "arm64" {
-		return fmt.Errorf("HA install supports amd64 and arm64, not %s", deps.goarch)
+		return installPlatform{}, errors.New("HA install supports Linux only")
 	}
 	contents, err := deps.readFile("/etc/os-release")
 	if err != nil {
-		return fmt.Errorf("read /etc/os-release: %w", err)
+		return installPlatform{}, fmt.Errorf("read /etc/os-release: %w", err)
 	}
 	values := parseOSRelease(string(contents))
-	if values["ID"] != "debian" || values["VERSION_ID"] != "13" {
-		return fmt.Errorf("HA install requires Debian 13; found %s %s", values["ID"], values["VERSION_ID"])
+	if values["ID"] == "raspbian" && deps.goarch != "arm64" {
+		return installPlatform{}, errors.New("HA install requires 64-bit Raspberry Pi OS")
+	}
+	if deps.goarch != "amd64" && deps.goarch != "arm64" {
+		return installPlatform{}, fmt.Errorf("HA install supports amd64 and arm64, not %s", deps.goarch)
 	}
 	if deps.pageSize != 4096 {
-		return fmt.Errorf("HA install requires a 4096-byte page size; found %d bytes. Boot a 4K-page kernel, reboot, verify with `getconf PAGESIZE`, then retry", deps.pageSize)
+		return installPlatform{}, fmt.Errorf("HA install requires a 4096-byte page size; found %d bytes. Boot a 4K-page kernel, reboot, verify with `getconf PAGESIZE`, then retry", deps.pageSize)
 	}
-	return nil
+
+	id, version := values["ID"], values["VERSION_ID"]
+	platform := installPlatform{repository: "debian"}
+	switch id {
+	case "debian":
+		if version != "12" && version != "13" {
+			return installPlatform{}, fmt.Errorf("HA install requires Debian 12 or 13; found Debian %s", version)
+		}
+	case "ubuntu":
+		if version != "22.04" && version != "24.04" {
+			return installPlatform{}, fmt.Errorf("HA install requires Ubuntu 22.04 or 24.04; found Ubuntu %s", version)
+		}
+		platform.repository = "ubuntu"
+	case "raspbian":
+		if version != "12" && version != "13" {
+			return installPlatform{}, fmt.Errorf("HA install requires Raspberry Pi OS based on Debian 12 or 13; found %s", version)
+		}
+	}
+
+	platform.suite = values["VERSION_CODENAME"]
+	if id == "ubuntu" || slices.Contains(strings.Fields(values["ID_LIKE"]), "ubuntu") {
+		platform.repository = "ubuntu"
+		if values["UBUNTU_CODENAME"] != "" {
+			platform.suite = values["UBUNTU_CODENAME"]
+		}
+	}
+	if platform.suite == "" {
+		return installPlatform{}, errors.New("HA install requires VERSION_CODENAME in /etc/os-release for this Linux distribution")
+	}
+	if !validReleaseCodename(platform.suite) {
+		return installPlatform{}, fmt.Errorf("HA install found invalid release codename %q", platform.suite)
+	}
+	return platform, nil
+}
+
+func validReleaseCodename(value string) bool {
+	for i, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || (i > 0 && (char == '.' || char == '-')) {
+			continue
+		}
+		return false
+	}
+	return value != ""
 }
 
 func parseOSRelease(contents string) map[string]string {
@@ -433,7 +479,7 @@ func installARPing(ctx context.Context, deps installDependencies) error {
 	return nil
 }
 
-func installPackages(ctx context.Context, deps installDependencies) error {
+func installPackages(ctx context.Context, platform installPlatform, deps installDependencies) error {
 	commands := [][]string{
 		{"sudo", "apt-get", "install", "-y", "ca-certificates", "curl", "iproute2"},
 		{"sudo", "install", "-m", "0755", "-d", "/etc/apt/keyrings"},
@@ -443,7 +489,7 @@ func installPackages(ctx context.Context, deps installDependencies) error {
 			return fmt.Errorf("install HA prerequisites: %s", commandError(output, err))
 		}
 	}
-	key, err := deps.run(ctx, "curl", "-fsSL", "https://download.docker.com/linux/debian/gpg")
+	key, err := deps.run(ctx, "curl", "-fsSL", "https://download.docker.com/linux/"+platform.repository+"/gpg")
 	if err != nil {
 		return fmt.Errorf("download Docker repository key: %s", commandError(key, err))
 	}
@@ -453,7 +499,7 @@ func installPackages(ctx context.Context, deps installDependencies) error {
 	if output, err := deps.run(ctx, "sudo", "chmod", "a+r", "/etc/apt/keyrings/docker.asc"); err != nil {
 		return fmt.Errorf("protect Docker repository key: %s", commandError(output, err))
 	}
-	repository := "Types: deb\nURIs: https://download.docker.com/linux/debian\nSuites: trixie\nComponents: stable\nArchitectures: " + deps.goarch + "\nSigned-By: /etc/apt/keyrings/docker.asc\n"
+	repository := "Types: deb\nURIs: https://download.docker.com/linux/" + platform.repository + "\nSuites: " + platform.suite + "\nComponents: stable\nArchitectures: " + deps.goarch + "\nSigned-By: /etc/apt/keyrings/docker.asc\n"
 	if err := deps.runInput(ctx, repository, "sudo", "tee", "/etc/apt/sources.list.d/docker.sources"); err != nil {
 		return fmt.Errorf("configure Docker repository: %w", err)
 	}
