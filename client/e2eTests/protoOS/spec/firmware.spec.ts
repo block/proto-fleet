@@ -1,3 +1,4 @@
+import type { Page, Route } from "@playwright/test";
 import { expect, test } from "../fixtures/pageFixtures";
 import { FirmwareHelper } from "../helpers/firmwareHelper";
 import { HeaderComponent } from "../pages/components/header";
@@ -5,13 +6,45 @@ import { GeneralPage } from "../pages/general";
 
 type UploadState = "downloaded" | "installing" | "installed";
 
+const SYSTEM_INFO_ROUTE = "**/api/v1/system";
+
+async function validateInstallingWidget(page: Page, generalPage: GeneralPage, headerComponent: HeaderComponent) {
+  const fulfillInstallingSystemInfo = async (route: Route) => {
+    const response = await route.fetch();
+    const data = (await response.json()) as {
+      "system-info": {
+        sw_update_status: {
+          status: string;
+        };
+      };
+    };
+    data["system-info"].sw_update_status.status = "installing";
+    await route.fulfill({ response, json: data });
+  };
+
+  await page.route(SYSTEM_INFO_ROUTE, fulfillInstallingSystemInfo);
+  try {
+    await generalPage.reloadPage();
+    await generalPage.validateTitle("General");
+    await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
+  } finally {
+    await page.unroute(SYSTEM_INFO_ROUTE, fulfillInstallingSystemInfo);
+  }
+}
+
 async function handleUploadedFirmwareState(
   uploadState: UploadState,
+  page: Page,
   headerComponent: HeaderComponent,
   generalPage: GeneralPage,
   startingVersion: string,
   installedVersion: string,
 ) {
+  if (uploadState === "installing") {
+    await validateInstallingWidget(page, generalPage, headerComponent);
+    return;
+  }
+
   await generalPage.reloadPage();
   await generalPage.validateTitle("General");
 
@@ -22,11 +55,6 @@ async function handleUploadedFirmwareState(
     await headerComponent.validateFirmwareStatusModalVersionLabel("Current Version:", startingVersion);
     await headerComponent.validateFirmwareStatusModalVersionLabel("New Version:", installedVersion);
     await headerComponent.clickFirmwareStatusModalInstallButton();
-    return;
-  }
-
-  if (uploadState === "installing") {
-    await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
     return;
   }
 
@@ -48,6 +76,7 @@ async function getInstallingState(uploadState: UploadState, firmwareHelper: Firm
 
 async function validateInstallingState(
   installingState: Awaited<ReturnType<FirmwareHelper["getState"]>>,
+  page: Page,
   generalPage: GeneralPage,
   headerComponent: HeaderComponent,
 ) {
@@ -55,13 +84,7 @@ async function validateInstallingState(
     return;
   }
 
-  await generalPage.reloadPage();
-  await generalPage.validateTitle("General");
-  // The install can finish while the page reloads, so the widget may already
-  // show the terminal "Reboot required" state instead of the transient
-  // "Installing" one. The next test step validates the reboot-required UI
-  // deterministically after waiting for the installed status.
-  await headerComponent.validateFirmwareStatusWidgetText(/Installing|Reboot required/);
+  await validateInstallingWidget(page, generalPage, headerComponent);
 }
 
 test.describe("Firmware updates", () => {
@@ -126,13 +149,20 @@ test.describe("Firmware updates", () => {
       expect(installedVersion).not.toBe("");
       expect(installedVersion).not.toBe(startingVersion);
 
-      await handleUploadedFirmwareState(uploadState, headerComponent, generalPage, startingVersion, installedVersion);
+      await handleUploadedFirmwareState(
+        uploadState,
+        page,
+        headerComponent,
+        generalPage,
+        startingVersion,
+        installedVersion,
+      );
     });
 
     await test.step("Wait for the install to enter the installing state", async () => {
       const installingState = await getInstallingState(uploadState, firmwareHelper);
       installedVersion = installingState.newVersion ?? installedVersion;
-      await validateInstallingState(installingState, generalPage, headerComponent);
+      await validateInstallingState(installingState, page, generalPage, headerComponent);
     });
 
     await test.step("Wait for reboot-required state after the upload-driven install", async () => {

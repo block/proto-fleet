@@ -9,11 +9,10 @@ export const redirectFromFleetDown = () => {
   const params = new URLSearchParams(window.location.search);
   const from = params.get("from") || "/";
 
-  // Prefixing the current origin makes it structurally impossible for the
-  // query parameter to control the scheme or host, regardless of what the
-  // sanitizer below returns. This shape is also verifiable by static
-  // analysis: CodeQL's redirect query only flags values that can control
-  // the start of the URL.
+  // The current origin controls the scheme and host, while the sanitizer
+  // guarantees the appended value is a slash-prefixed same-origin path.
+  // This shape is also verifiable by static analysis: CodeQL's redirect
+  // query only flags values that can control the start of the URL.
   window.location.href = window.location.origin + sanitizeRedirectPath(from);
 };
 
