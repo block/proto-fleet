@@ -1,13 +1,16 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import clsx from "clsx";
+import { create } from "@bufbuild/protobuf";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import useFleet from "@/protoFleet/api/useFleet";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
@@ -20,12 +23,14 @@ import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEm
 import NullState from "@/protoFleet/components/NullState";
 import {
   intersectSiteFilters,
+  isMatchNoneSiteFilter,
   siteFilterFromActive,
   useActiveSite,
 } from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import FleetContextualSuggestion from "@/protoFleet/features/fleetManagement/components/FleetContextualSuggestion";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -44,6 +49,7 @@ import {
   UNASSIGNED_URL_VALUE,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { mapRackToCardProps } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
+import { buildRackCreationSuggestion } from "@/protoFleet/features/fleetManagement/utils/rackSuggestion";
 import {
   TELEMETRY_FILTER_BOUNDS,
   TELEMETRY_FILTER_KEYS,
@@ -67,6 +73,7 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
+import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
 const RACK_COLUMNS_FLEET: DeviceSetColumn[] = [
@@ -114,12 +121,16 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
   title: TELEMETRY_FILTER_BOUNDS[key].label,
   bounds: TELEMETRY_FILTER_BOUNDS[key],
 }));
+const RACK_SUGGESTION_DISMISSED_KEY = "fleet:rackCreationSuggestionsDismissed";
+const RACK_SUGGESTION_PAGE_SIZE = 144;
 
 const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings, assignRacksToBuilding } = useBuildings();
   const canEditRack = useHasPermission("rack:manage");
+  const canReadMiners = useHasPermission("miner:read");
+  const canReadFleet = useHasPermission("fleet:read");
   const canReadSiteCatalog = useHasPermission("site:read");
   // Both "Add to building" and "Add to site" reparent actions are gated
   // by site:manage (server enforces the same). One flag, two actions.
@@ -771,6 +782,84 @@ const RacksPage = () => {
     selectedIssues.length > 0 ||
     telemetryRanges.length > 0;
 
+  const rackSuggestionFilter = useMemo(
+    () =>
+      create(MinerListFilterSchema, {
+        includeNoRack: true,
+        siteIds: effectiveSiteFilter.siteIds,
+        includeUnassigned: effectiveSiteFilter.includeUnassigned,
+      }),
+    [effectiveSiteFilter.includeUnassigned, effectiveSiteFilter.siteIds],
+  );
+  const rackSuggestionEnabled =
+    !!createFlow &&
+    canEditRack &&
+    canReadMiners &&
+    canReadFleet &&
+    !hasActiveFilters &&
+    !isMatchNoneSiteFilter(effectiveSiteFilter);
+  const {
+    minerIds: unrackedMinerIds,
+    miners: unrackedMiners,
+    hasInitialLoadCompleted: unrackedMinersLoaded,
+    refreshCurrentPage: refreshUnrackedMiners,
+  } = useFleet({
+    enabled: rackSuggestionEnabled,
+    pageSize: RACK_SUGGESTION_PAGE_SIZE,
+    filter: rackSuggestionFilter,
+    pairingStatuses: [PairingStatus.PAIRED, PairingStatus.DEFAULT_PASSWORD],
+  });
+  const rackSuggestion = useMemo(() => {
+    if (!unrackedMinersLoaded) return undefined;
+    return buildRackCreationSuggestion(unrackedMinerIds.flatMap((id) => unrackedMiners[id] ?? []));
+  }, [unrackedMinerIds, unrackedMiners, unrackedMinersLoaded]);
+  const [dismissedRackSuggestions, setDismissedRackSuggestions] = useReactiveLocalStorage<Record<string, boolean>>(
+    RACK_SUGGESTION_DISMISSED_KEY,
+    {},
+  );
+  const rackSuggestionDismissed = rackSuggestion
+    ? dismissedRackSuggestions?.[rackSuggestion.dismissalKey] === true
+    : false;
+  const showRackSuggestion = rackSuggestion !== undefined && !rackSuggestionDismissed;
+  const handleDismissRackSuggestion = useCallback(() => {
+    if (!rackSuggestion) return;
+    setDismissedRackSuggestions((prev) => ({ ...(prev ?? {}), [rackSuggestion.dismissalKey]: true }));
+  }, [rackSuggestion, setDismissedRackSuggestions]);
+  const handleReviewSuggestedRack = useCallback(() => {
+    if (!rackSuggestion || !createFlow) return;
+    createFlow.launchCreateRack({ minerIds: rackSuggestion.minerIds });
+  }, [createFlow, rackSuggestion]);
+  const rackSuggestionPanel = showRackSuggestion ? (
+    <FleetContextualSuggestion
+      icon={<Racks width="w-4" />}
+      title={`${rackSuggestion.count} unassigned miners from ${rackSuggestion.ipRangeLabel} look like a rack.`}
+      detail={
+        rackSuggestion.modelSummary ? `Seen in nearby IPs. ${rackSuggestion.modelSummary}` : "Seen in nearby IPs."
+      }
+      action={{
+        label: "Review",
+        onClick: handleReviewSuggestedRack,
+        testId: "rack-suggestion-review",
+      }}
+      onDismiss={handleDismissRackSuggestion}
+      testId="rack-creation-suggestion"
+    />
+  ) : null;
+
+  useEffect(() => {
+    if (!rackSuggestionEnabled || !unrackedMinersLoaded) return;
+    const intervalId = setInterval(() => {
+      refreshUnrackedMiners();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [rackSuggestionEnabled, refreshUnrackedMiners, unrackedMinersLoaded]);
+
+  useEffect(() => {
+    if (entitiesChangedAt > 0 && rackSuggestionEnabled) {
+      refreshUnrackedMiners();
+    }
+  }, [entitiesChangedAt, rackSuggestionEnabled, refreshUnrackedMiners]);
+
   // Unfiltered rack count for the "X of Y racks" line. `totalCount` from the
   // list hook is the filtered total; this fetches the path-scope total (no
   // zone/building/issue/`?site=`/telemetry filters) so the count line can show
@@ -1117,6 +1206,11 @@ const RacksPage = () => {
   if (!hasRacks) {
     return (
       <>
+        {rackSuggestionPanel ? (
+          <div className={clsx("sticky left-0 px-6 pt-6 laptop:px-10", PAGE_SCROLL_CHROME_WIDTH)}>
+            {rackSuggestionPanel}
+          </div>
+        ) : null}
         <NullState
           className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Racks width="w-5" />}
@@ -1257,6 +1351,11 @@ const RacksPage = () => {
       </div>
       {error ? (
         <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
+      ) : null}
+      {rackSuggestionPanel ? (
+        <div className={clsx("sticky left-0 px-6 pb-4 laptop:px-10", PAGE_SCROLL_CHROME_WIDTH)}>
+          {rackSuggestionPanel}
+        </div>
       ) : null}
       {racksViewMode === "list" ? (
         // No horizontal padding or overflow wrapper here: that inset the table
