@@ -129,7 +129,7 @@ run the install again.
 
 `ha-a` waits for etcd quorum before enabling authentication. The other hosts
 wait for that one-time bootstrap before continuing. Installation finishes only
-after a database host passes `fleet-ha status --check`, or after the witness
+after a database host passes `fleet-ha status`, or after the witness
 has observed etcd quorum. The profile requires a trusted L2 segment; its host
 firewall restricts HA ports and VRRP to the fixed peer addresses.
 Bootstrap fails closed if the clean cluster already contains one of the HA
