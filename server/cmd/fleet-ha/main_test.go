@@ -157,7 +157,7 @@ func TestPassiveUpdateAllowsExpectedVersionMismatch(t *testing.T) {
 func TestCompleteUpdateRejectsExpectedVersionMismatch(t *testing.T) {
 	// Arrange
 	client := &fakeUpdaterClient{}
-	read := func(context.Context, string, bool) (deployment.StatusReport, error) {
+	read := func(context.Context, string) (deployment.StatusReport, error) {
 		return deployment.StatusReport{Control: &deployment.ControlStatus{
 			ControlReady: true,
 			ReasonCodes:  []deployment.ControlReasonCode{deployment.ReasonFleetVersionMismatch},
