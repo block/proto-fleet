@@ -369,6 +369,92 @@ func TestService_SetRackSlotPosition_RejectsGroupCollection(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+func TestService_SetRackSlotPosition_RejectsOutOfBounds(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	// Arrange: a 2×2 rack. Position (5, 5) is outside the grid.
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_RACK, Label: "R1"}, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
+		Return(&pb.RackInfo{Rows: 2, Columns: 2}, nil)
+	// No SetRackSlotPosition / GetDeviceSiteIDsByMembership: the strict mock
+	// fails if the write fires past the bounds check.
+
+	// Act
+	_, err := svc.SetRackSlotPosition(ctx, &pb.SetRackSlotPositionRequest{
+		CollectionId:     testCollectionID,
+		DeviceIdentifier: "device-1",
+		Position:         &pb.RackSlotPosition{Row: 5, Column: 5},
+	})
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "out of bounds")
+}
+
+func TestService_SetRackSlotPosition_RejectsNonMember(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	// Arrange: in-bounds cell, but the device is not a rack member.
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_RACK, Label: "R1"}, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
+		Return(&pb.RackInfo{Rows: 2, Columns: 2}, nil)
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), testCollectionID, testOrgID).
+		Return(map[string]*int64{"other-device": nil}, nil)
+	// No SetRackSlotPosition: the write must not fire for a non-member.
+
+	// Act
+	_, err := svc.SetRackSlotPosition(ctx, &pb.SetRackSlotPositionRequest{
+		CollectionId:     testCollectionID,
+		DeviceIdentifier: "device-1",
+		Position:         &pb.RackSlotPosition{Row: 1, Column: 1},
+	})
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "not a member")
+}
+
+func TestService_SetRackSlotPosition_InBoundsMemberSucceeds(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	// Arrange: in-bounds cell on a 2×2 rack for an existing member.
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_RACK, Label: "R1"}, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
+		Return(&pb.RackInfo{Rows: 2, Columns: 2}, nil)
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), testCollectionID, testOrgID).
+		Return(map[string]*int64{"device-1": nil}, nil)
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), testCollectionID, "device-1", int32(1), int32(1), testOrgID).
+		Return(nil)
+
+	// Act
+	resp, err := svc.SetRackSlotPosition(ctx, &pb.SetRackSlotPositionRequest{
+		CollectionId:     testCollectionID,
+		DeviceIdentifier: "device-1",
+		Position:         &pb.RackSlotPosition{Row: 1, Column: 1},
+	})
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, testCollectionID, resp.CollectionId)
+	assert.Equal(t, "device-1", resp.Slot.DeviceIdentifier)
+	assert.Equal(t, int32(1), resp.Slot.Position.Row)
+	assert.Equal(t, int32(1), resp.Slot.Position.Column)
+}
+
 func TestService_ClearRackSlotPosition_RejectsGroupCollection(t *testing.T) {
 	svc, mockStore, _ := newTestService(t)
 	ctx := testCtx(t)

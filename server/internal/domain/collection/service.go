@@ -1998,7 +1998,42 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 			return nil, fleeterror.NewInvalidArgumentError("slot positions can only be set on rack collections")
 		}
 
-		// Device membership is enforced by the store query joining on device_set_membership.
+		// Lock the rack row FOR UPDATE before reading grid + membership so the
+		// checks hold for the write; without it a concurrent resize could shrink
+		// the grid out from under an in-bounds position. Same rack-first lock the
+		// batch path takes.
+		if _, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
+			return nil, err
+		}
+
+		// Reject out-of-bounds cells. A RACK always has a device_set_rack row, so
+		// nil is a broken invariant.
+		rackInfo, err := s.collectionStore.GetRackInfo(ctx, req.CollectionId, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if rackInfo == nil {
+			return nil, fleeterror.NewInternalErrorf("rack %d has no rack extension row", req.CollectionId)
+		}
+		if req.Position.Row >= rackInfo.Rows {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", req.Position.Row, rackInfo.Rows)
+		}
+		if req.Position.Column >= rackInfo.Columns {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", req.Position.Column, rackInfo.Columns)
+		}
+
+		// Confirm membership: the store's INSERT ... SELECT silently writes zero
+		// rows for a non-member and returns no error, so a bare call would report
+		// a placement that never landed.
+		members, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, req.CollectionId, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := members[req.DeviceIdentifier]; !ok {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"device %q is not a member of rack %d, so its slot cannot be set", req.DeviceIdentifier, req.CollectionId)
+		}
+
 		if err := s.collectionStore.SetRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, req.Position.Row, req.Position.Column, info.OrganizationID); err != nil {
 			return nil, err
 		}
