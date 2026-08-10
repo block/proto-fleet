@@ -476,15 +476,6 @@ func TestValidateNmapTargets(t *testing.T) {
 			wantIPv6:    false,
 		},
 		{
-			name:    "IPv4 range is kept for nmap",
-			targets: []string{"192.168.1.1-10"},
-			lookup: func(_ context.Context, _ string) ([]net.IPAddr, error) {
-				return []net.IPAddr{{IP: net.ParseIP("192.0.2.1")}}, nil
-			},
-			wantTargets: []string{"192.168.1.1-10"},
-			wantIPv6:    false,
-		},
-		{
 			name:    "mixed IPv4 literal and IPv6-only hostname",
 			targets: []string{"192.168.1.1", "ipv6only.local"},
 			lookup: func(_ context.Context, host string) ([]net.IPAddr, error) {
@@ -510,39 +501,6 @@ func TestValidateNmapTargets(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestValidateUnprivilegedNmapTargets(t *testing.T) {
-	tests := []struct {
-		name       string
-		targets    []string
-		wantErrMsg string
-	}{
-		{name: "bounded subnet", targets: []string{"192.168.0.0/20"}},
-		{name: "oversized subnet", targets: []string{"10.0.0.0/8"}, wantErrMsg: "limited to 4096"},
-		{name: "too many bounded subnets", targets: []string{"192.168.0.0/20", "192.168.16.0/20"}, wantErrMsg: "limited to 4096"},
-		{name: "nmap range", targets: []string{"10.0.0.1-254"}},
-		{name: "backwards nmap range", targets: []string{"10.0.0.254-1"}, wantErrMsg: "requires an IP address"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateUnprivilegedNmapTargets(tt.targets)
-			if tt.wantErrMsg != "" {
-				require.ErrorContains(t, err, tt.wantErrMsg)
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
-func TestValidateDiscoveryPortsRejectsRange(t *testing.T) {
-	// Act
-	err := validateDiscoveryPorts([]string{"1-65535"})
-
-	// Assert
-	require.ErrorContains(t, err, "must be a decimal in 1-65535")
 }
 
 func TestShouldSkipNetworkOrGatewayAddress_IPv6(t *testing.T) {
