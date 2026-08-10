@@ -788,7 +788,7 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 			if err := ctx.Err(); err != nil {
 				return stopIncompleteHA(ctx, deps, fmt.Errorf("wait for failover readiness: %w", err))
 			}
-			if _, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env"), "--check"); err == nil {
+			if _, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env")); err == nil {
 				ready = true
 				break
 			}
