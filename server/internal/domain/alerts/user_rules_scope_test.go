@@ -58,6 +58,10 @@ type fakeRuleConfigStore struct {
 	// succeeds but the post-failure probe cannot confirm the row's state.
 	getErrAfterUpsert error
 	upsertAttempted   bool
+	// The first upsert lands and later ones fail, simulating an outage that
+	// starts between the legacy config stage and the post-PUT publish.
+	upsertErrAfterFirst bool
+	upsertCount         int
 }
 
 func newFakeRuleConfigStore() *fakeRuleConfigStore {
@@ -66,6 +70,10 @@ func newFakeRuleConfigStore() *fakeRuleConfigStore {
 
 func (f *fakeRuleConfigStore) UpsertConfig(_ context.Context, _ int64, ruleUID string, cfg RuleConfig) error {
 	f.upsertAttempted = true
+	if f.upsertErrAfterFirst && f.upsertCount > 0 {
+		return fmt.Errorf("db down")
+	}
+	f.upsertCount++
 	if f.upsertErrAfterCommit {
 		f.configs[ruleUID] = cfg
 		return fmt.Errorf("timeout after commit")
@@ -939,6 +947,58 @@ func TestListRulesIgnoresInvalidLegacyAnnotationConfig(t *testing.T) {
 			assert.Nil(t, rules[0].Config)
 		})
 	}
+}
+
+// A legacy rule's first update must stage the annotation config as a store row
+// before touching Grafana: if the stage fails, the update aborts with the
+// annotation intact — proceeding would let a committed PUT strip the rule's
+// only config with no row to fall back on.
+func TestUpdateRuleAbortsWhenLegacyConfigStageFails(t *testing.T) {
+	legacyCfg := offlineConfig("Offline too long", 1800)
+	live, err := compileUserRule(7, "pfu-legacy", legacyCfg)
+	require.NoError(t, err)
+	legacyJSON, err := json.Marshal(legacyCfg)
+	require.NoError(t, err)
+	live.Annotations[ruleAnnotationConfig] = string(legacyJSON)
+	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}}
+	configs := newFakeRuleConfigStore()
+	configs.upsertErr = fmt.Errorf("db down")
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, DestinationPolicy{})
+
+	_, err = svc.UpdateRule(context.Background(), 7, "pfu-legacy", offlineConfig("Renamed", 900))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stage legacy rule config")
+	assert.Nil(t, fake.updated, "Grafana must not be written when the stage fails")
+	assert.Equal(t, string(legacyJSON), fake.listed[0].Annotations[ruleAnnotationConfig], "the annotation must survive an aborted update")
+}
+
+// The dangerous first-update sequence: the PUT commits (stripping the
+// annotation) and every config write after it fails. The staged row is then
+// the rule's only surviving config — reads must serve it and flag the
+// divergence for a converging re-save, not render the rule config-less
+// (uneditable, misreported as org-wide).
+func TestUpdateRuleKeepsStagedLegacyConfigThroughPublishFailure(t *testing.T) {
+	legacyCfg := offlineConfig("Offline too long", 1800)
+	live, err := compileUserRule(7, "pfu-legacy", legacyCfg)
+	require.NoError(t, err)
+	legacyJSON, err := json.Marshal(legacyCfg)
+	require.NoError(t, err)
+	live.Annotations[ruleAnnotationConfig] = string(legacyJSON)
+	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}, updateErrAfterCommit: true}
+	configs := newFakeRuleConfigStore()
+	configs.upsertErrAfterFirst = true
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, DestinationPolicy{})
+
+	_, err = svc.UpdateRule(context.Background(), 7, "pfu-legacy", offlineConfig("Renamed", 900))
+	require.Error(t, err, "the caller still sees the PUT failure")
+	assert.Equal(t, legacyCfg, configs.configs["pfu-legacy"], "the staged row must survive the failed publish")
+
+	rules, err := svc.ListRules(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, rules, 1)
+	require.NotNil(t, rules[0].Config, "the rule must stay editable")
+	assert.Equal(t, legacyCfg, *rules[0].Config)
+	assert.True(t, rules[0].ConfigOutOfSync, "reads must flag the divergence for a converging re-save")
 }
 
 // The best-effort mutation decoration applies the same legacy fallback as the

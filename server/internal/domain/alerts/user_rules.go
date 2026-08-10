@@ -227,6 +227,22 @@ func (s *Service) updateRuleSerialized(ctx context.Context, orgID int64, id stri
 	if err != nil {
 		return nil, err
 	}
+	// A legacy rule's only config lives in its annotation, and the PUT body
+	// below strips it. Stage that config as the store row BEFORE the PUT —
+	// aborting if the stage fails — so every later failure combination leaves a
+	// row for reads to diff against (markConfigOutOfSync) instead of erasing
+	// the rule's only config (uneditable, misreported as org-wide). The row is
+	// also what keeps the rollback guards sound: 000135's down refuses while
+	// rows exist, so live SQL referencing fleet_device_placement always has a
+	// row anchoring it (rows delete only with their rule).
+	if storedCfg == nil && s.configs != nil {
+		if legacy := legacyRuleConfig(ctx, orgID, id, templateFromLabel(current.Labels[ruleLabelTemplate]), current.Annotations[ruleAnnotationConfig]); legacy != nil {
+			if uerr := s.configs.UpsertConfig(ctx, orgID, id, *legacy); uerr != nil {
+				return nil, fmt.Errorf("stage legacy rule config: %w", uerr)
+			}
+			storedCfg = legacy
+		}
+	}
 	// Tolerate placement ids the rule already stores: a scope site/building/
 	// rack/group deleted after creation must not brick unrelated edits (rename,
 	// threshold). The rule stays visible-but-inert for that id, per the TDD;
