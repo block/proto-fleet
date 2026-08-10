@@ -1,9 +1,7 @@
 import type { ReactElement } from "react";
 
 import ActiveRolloutStatus from "./ActiveRolloutStatus";
-import { rolloutLifecycleActions } from "./rolloutDisplayUtils";
 import type { RolloutEvent } from "./rolloutTypes";
-import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 
 interface ViewRolloutModalProps {
@@ -16,13 +14,8 @@ interface ViewRolloutModalProps {
   onCancelRemaining?: () => void;
   onContinueFromPilot?: () => void;
   onRetryFailed?: () => void;
+  onViewMiners?: () => void;
 }
-
-const buttonVariant = {
-  primary: variants.primary,
-  secondary: variants.secondary,
-  danger: variants.danger,
-} as const;
 
 /**
  * "View rollout" surface — summons the progress-against-plan card in a centered
@@ -32,10 +25,9 @@ const buttonVariant = {
  * click-outside / Escape to dismiss. Uses the `large` size so the stat grid and
  * progress bar have room; the body scrolls under the sticky header when tall.
  *
- * The Modal owns the title bar (title + scope + close) AND the lifecycle CTAs
- * (top-bar buttons), so the card renders `embedded` with its own header and
- * action row suppressed. The action set is derived from the same
- * `rolloutLifecycleActions` helper the card uses, so the two never drift.
+ * The Modal owns the title bar (title + close), while the embedded status card
+ * owns the lifecycle action bar so the standalone and modal presentations keep
+ * the same Manage / current action / overflow treatment.
  */
 function ViewRolloutModal({
   event,
@@ -46,19 +38,11 @@ function ViewRolloutModal({
   onCancelRemaining,
   onContinueFromPilot,
   onRetryFailed,
+  onViewMiners,
 }: ViewRolloutModalProps): ReactElement | null {
   if (!event) {
     return null;
   }
-
-  const actions = rolloutLifecycleActions(event, {
-    onManage,
-    onPause,
-    onResume,
-    onCancelRemaining,
-    onContinueFromPilot,
-    onRetryFailed,
-  });
 
   return (
     <Modal
@@ -66,19 +50,21 @@ function ViewRolloutModal({
       onDismiss={onDismiss}
       testId="view-rollout-modal"
       bodyClassName="text-text-primary"
-      // Pin the title + CTAs in the sticky top bar (rather than only collapsing
-      // there on scroll), so the header reads as a persistent action bar.
+      // Pin the title in the sticky top bar (rather than only collapsing there
+      // on scroll), so the rollout context stays visible while the body scrolls.
       forceTitleCollapsed
-      buttons={actions.map((action) => ({
-        text: action.text,
-        variant: buttonVariant[action.variant],
-        onClick: action.onClick,
-        // Lifecycle actions don't dismiss the modal — the host decides when to
-        // close after the action resolves.
-        dismissModalOnClick: false,
-      }))}
     >
-      <ActiveRolloutStatus event={event} embedded hideActions />
+      <ActiveRolloutStatus
+        event={event}
+        embedded
+        onManage={onManage}
+        onPause={onPause}
+        onResume={onResume}
+        onCancelRemaining={onCancelRemaining}
+        onContinueFromPilot={onContinueFromPilot}
+        onRetryFailed={onRetryFailed}
+        onViewMiners={onViewMiners}
+      />
     </Modal>
   );
 }

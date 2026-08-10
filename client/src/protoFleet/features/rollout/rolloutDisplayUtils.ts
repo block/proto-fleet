@@ -345,6 +345,10 @@ export interface RolloutLifecycleAction {
   onClick?: () => void;
 }
 
+function cancelRemainingActionText(processType: RolloutProcessType): string {
+  return processType === "curtailment" ? "Abort curtailment" : "Cancel remaining";
+}
+
 /**
  * Single source of truth for which lifecycle controls a rollout shows, given
  * its state + the available handlers. Ordering matches the card's top-right
@@ -358,19 +362,20 @@ export function rolloutLifecycleActions(
   const isRunning = event.state === "inProgress";
   const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
   const showPilotGate = event.state === "pausedAtPilotGate";
+  const isScheduled = event.state === "scheduled";
   const failed = rolloutPhaseCount(event.rollups, "failed");
   const actions: RolloutLifecycleAction[] = [];
 
   // "Manage" edits the live plan and is available whenever the rollout is not
   // terminal — the analog of curtailment's Manage (shown for its active
   // states). Rendered first (leftmost), as in ActiveCurtailmentStatus.
-  if (handlers.onManage && !isTerminal) {
+  if (handlers.onManage && !isTerminal && !isScheduled) {
     actions.push({ key: "manage", text: "Manage", variant: "secondary", onClick: handlers.onManage });
   }
   if (handlers.onContinueFromPilot && showPilotGate) {
     actions.push({
       key: "continue",
-      text: `Continue ${rolloutActionNoun(event.processType)}`,
+      text: "Continue",
       variant: "primary",
       onClick: handlers.onContinueFromPilot,
     });
@@ -384,8 +389,13 @@ export function rolloutLifecycleActions(
   if (handlers.onPause && isRunning) {
     actions.push({ key: "pause", text: "Pause", variant: "secondary", onClick: handlers.onPause });
   }
-  if (handlers.onCancelRemaining && !isTerminal) {
-    actions.push({ key: "cancel", text: "Cancel remaining", variant: "danger", onClick: handlers.onCancelRemaining });
+  if (handlers.onCancelRemaining && !isTerminal && !isScheduled) {
+    actions.push({
+      key: "cancel",
+      text: cancelRemainingActionText(event.processType),
+      variant: "danger",
+      onClick: handlers.onCancelRemaining,
+    });
   }
   return actions;
 }

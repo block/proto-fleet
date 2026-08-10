@@ -15,8 +15,11 @@ import {
   inProgressCurtailmentEvent,
   inProgressFirmwareEvent,
   inProgressRebootEvent,
+  rolloutMinerRowsForEvent,
 } from "@/protoFleet/features/rollout/rollout.fixtures";
+import RolloutMinersModal from "@/protoFleet/features/rollout/RolloutMinersModal";
 import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
+import type { RolloutEvent } from "@/protoFleet/features/rollout/rolloutTypes";
 import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
 import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -40,6 +43,29 @@ export default meta;
 type Story = StoryObj;
 
 const noop = () => undefined;
+
+function ViewRolloutStoryModal({ event, onDismiss }: { event: RolloutEvent; onDismiss: () => void }): ReactElement {
+  const [minersOpen, setMinersOpen] = useState(false);
+
+  return (
+    <>
+      <ViewRolloutModal
+        event={event}
+        onDismiss={onDismiss}
+        onManage={noop}
+        onPause={noop}
+        onCancelRemaining={noop}
+        onViewMiners={() => setMinersOpen(true)}
+      />
+      <RolloutMinersModal
+        open={minersOpen}
+        event={event}
+        miners={rolloutMinerRowsForEvent(event)}
+        onDismiss={() => setMinersOpen(false)}
+      />
+    </>
+  );
+}
 
 /**
  * The real app shell: the `NavigationMenu` sidebar (absolute, w-60) plus a
@@ -153,13 +179,7 @@ function HeaderPillStory(): ReactElement {
       <div className="p-8 text-300 text-text-primary-70">
         Open the pill, then "View rollout" to summon the progress modal in place.
       </div>
-      <ViewRolloutModal
-        event={open ? inProgressFirmwareEvent : null}
-        onDismiss={() => setOpen(false)}
-        onManage={noop}
-        onPause={noop}
-        onCancelRemaining={noop}
-      />
+      {open ? <ViewRolloutStoryModal event={inProgressFirmwareEvent} onDismiss={() => setOpen(false)} /> : null}
     </div>
   );
 }
@@ -192,6 +212,9 @@ export const FirmwareSettingsPage: Story = {
 // shipped panel currently renders these at base.
 
 function EnergyUiStory(): ReactElement {
+  const [minersOpen, setMinersOpen] = useState(false);
+  const event = inProgressCurtailmentEvent;
+
   return (
     <AppShell>
       <div className="px-10 pt-10">
@@ -204,14 +227,21 @@ function EnergyUiStory(): ReactElement {
             </div>
           </div>
           <ActiveRolloutStatus
-            event={inProgressCurtailmentEvent}
+            event={event}
             onManage={noop}
             onPause={noop}
             onCancelRemaining={noop}
+            onViewMiners={() => setMinersOpen(true)}
           />
           <CurtailmentHistory events={mockCurtailmentHistoryEvents} pageSize={5} />
         </section>
       </div>
+      <RolloutMinersModal
+        open={minersOpen}
+        event={event}
+        miners={rolloutMinerRowsForEvent(event)}
+        onDismiss={() => setMinersOpen(false)}
+      />
     </AppShell>
   );
 }
@@ -244,13 +274,9 @@ function ActivityPageStory(): ReactElement {
         <div className="mb-3 text-emphasis-300 text-text-primary">Recent activity</div>
         <ActivityTable activities={activityFeedEntries} />
       </div>
-      <ViewRolloutModal
-        event={openIndex === null ? null : events[openIndex]}
-        onDismiss={() => setOpenIndex(null)}
-        onManage={() => undefined}
-        onPause={() => undefined}
-        onCancelRemaining={() => undefined}
-      />
+      {openIndex === null ? null : (
+        <ViewRolloutStoryModal event={events[openIndex]} onDismiss={() => setOpenIndex(null)} />
+      )}
     </AppShell>
   );
 }

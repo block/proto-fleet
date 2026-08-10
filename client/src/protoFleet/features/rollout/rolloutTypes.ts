@@ -103,6 +103,25 @@ export interface RolloutPerformance {
   metrics: RolloutPerfMetric[];
 }
 
+/** A telemetry value plus its optional change from the rollout baseline. */
+export interface RolloutMinerTelemetryValue {
+  value: string;
+  delta?: string;
+}
+
+/** One miner row in a rollout detail drill-in. */
+export interface RolloutMinerRow {
+  id: string;
+  name: string;
+  type: string;
+  ipAddress: string;
+  phase: RolloutTargetPhase;
+  hashrate: RolloutMinerTelemetryValue;
+  power: RolloutMinerTelemetryValue;
+  efficiency: RolloutMinerTelemetryValue;
+  temperature: RolloutMinerTelemetryValue;
+}
+
 /** The live/finished rollout an ActiveRolloutStatus card renders. */
 export interface RolloutEvent {
   processType: RolloutProcessType;

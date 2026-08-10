@@ -17,6 +17,7 @@ import {
 } from "./rolloutDisplayUtils";
 import type { RolloutEvent } from "./rolloutTypes";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -57,6 +58,7 @@ interface ActiveRolloutStatusProps {
   onCancelRemaining?: () => void;
   onContinueFromPilot?: () => void;
   onRetryFailed?: () => void;
+  onViewMiners?: () => void;
 }
 
 interface StatBlockProps {
@@ -228,6 +230,7 @@ function ActiveRolloutStatus({
   onCancelRemaining,
   onContinueFromPilot,
   onRetryFailed,
+  onViewMiners,
 }: ActiveRolloutStatusProps): ReactElement {
   const isRunning = event.state === "inProgress";
   const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
@@ -280,6 +283,29 @@ function ActiveRolloutStatus({
         onContinueFromPilot,
         onRetryFailed,
       });
+  const visibleActions = actions.filter((action) => action.key !== "cancel");
+  const overflowLifecycleActions = actions.filter((action) => action.key === "cancel");
+  const overflowMenuActions: RowAction[] = [];
+  if (!hideActions && onViewMiners) {
+    overflowMenuActions.push({
+      label: "View miners",
+      onClick: onViewMiners,
+      showGroupDivider: overflowLifecycleActions.length > 0,
+      testId: "active-rollout-view-miners-action",
+    });
+  }
+  overflowLifecycleActions.forEach((action) => {
+    if (!action.onClick) {
+      return;
+    }
+    overflowMenuActions.push({
+      label: action.text,
+      onClick: action.onClick,
+      danger: action.variant === "danger",
+      testId: `active-rollout-${action.key}-action`,
+    });
+  });
+  const hasTopActions = visibleActions.length > 0 || overflowMenuActions.length > 0;
   const buttonVariant = {
     primary: variants.primary,
     secondary: variants.secondary,
@@ -302,9 +328,19 @@ function ActiveRolloutStatus({
           embedded ? "px-0 pt-6 pb-0" : "rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10",
         )}
       >
-        {actions.length > 0 ? (
-          <div className="mb-8 flex shrink-0 justify-end gap-3 tablet:absolute tablet:top-10 tablet:right-10 tablet:mb-0">
-            {actions.map((action) => (
+        {hasTopActions ? (
+          <div className="mb-8 flex shrink-0 flex-wrap justify-end gap-3 tablet:absolute tablet:top-10 tablet:right-10 tablet:mb-0 tablet:max-w-[24rem]">
+            {overflowMenuActions.length > 0 ? (
+              <RowActionsMenu
+                actions={overflowMenuActions}
+                ariaLabel={`More actions for ${event.title}`}
+                popoverTestId="active-rollout-more-actions-menu"
+                testIdPrefix="active-rollout-more-actions"
+                triggerClassName="!h-8 !w-8 !px-0 !py-0"
+                triggerVariant={variants.secondary}
+              />
+            ) : null}
+            {visibleActions.map((action) => (
               <Button
                 key={action.key}
                 variant={buttonVariant[action.variant]}
@@ -316,7 +352,7 @@ function ActiveRolloutStatus({
           </div>
         ) : null}
 
-        <div className="grid gap-3 tablet:pr-32">
+        <div className={clsx("grid gap-3", hasTopActions && "tablet:pr-96")}>
           <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">
             {statusIcon(event)}
           </div>
@@ -331,7 +367,7 @@ function ActiveRolloutStatus({
             multi-column stat grid as ActiveCurtailmentStatus (grid-cols-5,
             gap-x-12). */}
         {embedded ? (
-          <div className="mt-10 flex flex-col">
+          <div className="mt-8 flex flex-col">
             {statItems.map((item, index) => (
               <StatRow
                 key={item.label}
@@ -343,7 +379,7 @@ function ActiveRolloutStatus({
             ))}
           </div>
         ) : (
-          <div className="mt-12 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5">
+          <div className="mt-8 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5">
             {statItems.map((item) => (
               <StatBlock key={item.label} label={item.label} value={item.value} detail={item.detail} />
             ))}

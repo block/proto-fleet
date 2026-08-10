@@ -1,4 +1,10 @@
-import type { RolloutEvent, RolloutPlanConfig } from "./rolloutTypes";
+import type {
+  RolloutEvent,
+  RolloutMinerRow,
+  RolloutPlanConfig,
+  RolloutState,
+  RolloutTargetPhase,
+} from "./rolloutTypes";
 
 /** Base batched firmware plan config, as configured in the modal. */
 export const batchedFirmwareConfig: RolloutPlanConfig = {
@@ -69,6 +75,150 @@ export const batchedCurtailmentConfig: RolloutPlanConfig = {
   scheduleType: "startNow",
 };
 
+type RolloutMinerIdentity = Omit<RolloutMinerRow, "phase">;
+
+const rolloutMinerIdentities: RolloutMinerIdentity[] = [
+  {
+    id: "miner-b03-01",
+    name: "b03-s21-01",
+    type: "Antminer S21",
+    ipAddress: "10.18.32.41",
+    hashrate: { value: "199.4 TH/s", delta: "-0.3%" },
+    power: { value: "3.46 kW", delta: "-0.2%" },
+    efficiency: { value: "17.4 J/TH", delta: "+0.1%" },
+    temperature: { value: "62.4 C", delta: "+0.4 C" },
+  },
+  {
+    id: "miner-b03-02",
+    name: "b03-s21-02",
+    type: "Antminer S21",
+    ipAddress: "10.18.32.42",
+    hashrate: { value: "201.1 TH/s", delta: "+0.2%" },
+    power: { value: "3.50 kW", delta: "+0.1%" },
+    efficiency: { value: "17.4 J/TH", delta: "+0.1%" },
+    temperature: { value: "63.0 C", delta: "+0.6 C" },
+  },
+  {
+    id: "miner-b03-03",
+    name: "b03-s21-03",
+    type: "Antminer S21",
+    ipAddress: "10.18.32.43",
+    hashrate: { value: "197.8 TH/s", delta: "-0.8%" },
+    power: { value: "3.45 kW", delta: "-0.3%" },
+    efficiency: { value: "17.5 J/TH", delta: "+0.2%" },
+    temperature: { value: "64.1 C", delta: "+1.0 C" },
+  },
+  {
+    id: "miner-b04-01",
+    name: "b04-s21-01",
+    type: "Antminer S21 Pro",
+    ipAddress: "10.18.33.11",
+    hashrate: { value: "228.6 TH/s", delta: "+0.4%" },
+    power: { value: "3.70 kW", delta: "+0.1%" },
+    efficiency: { value: "16.2 J/TH", delta: "+0.1%" },
+    temperature: { value: "61.8 C", delta: "+0.2 C" },
+  },
+  {
+    id: "miner-b04-02",
+    name: "b04-s21-02",
+    type: "Antminer S21 Pro",
+    ipAddress: "10.18.33.12",
+    hashrate: { value: "226.9 TH/s", delta: "-0.5%" },
+    power: { value: "3.69 kW", delta: "-0.1%" },
+    efficiency: { value: "16.3 J/TH", delta: "+0.2%" },
+    temperature: { value: "62.6 C", delta: "+0.7 C" },
+  },
+  {
+    id: "miner-b04-03",
+    name: "b04-s21-03",
+    type: "Antminer S21 Pro",
+    ipAddress: "10.18.33.13",
+    hashrate: { value: "0 TH/s", delta: "Offline" },
+    power: { value: "0.14 kW" },
+    efficiency: { value: "Offline" },
+    temperature: { value: "42.0 C" },
+  },
+  {
+    id: "miner-b05-01",
+    name: "b05-m60-01",
+    type: "Whatsminer M60",
+    ipAddress: "10.18.34.21",
+    hashrate: { value: "188.2 TH/s", delta: "-1.1%" },
+    power: { value: "3.51 kW", delta: "-0.2%" },
+    efficiency: { value: "18.7 J/TH", delta: "+0.4%" },
+    temperature: { value: "65.5 C", delta: "+1.5 C" },
+  },
+  {
+    id: "miner-b05-02",
+    name: "b05-m60-02",
+    type: "Whatsminer M60",
+    ipAddress: "10.18.34.22",
+    hashrate: { value: "190.7 TH/s", delta: "+0.1%" },
+    power: { value: "3.52 kW", delta: "+0.1%" },
+    efficiency: { value: "18.5 J/TH", delta: "+0.3%" },
+    temperature: { value: "64.7 C", delta: "+0.9 C" },
+  },
+  {
+    id: "miner-b05-03",
+    name: "b05-m60-03",
+    type: "Whatsminer M60",
+    ipAddress: "10.18.34.23",
+    hashrate: { value: "186.4 TH/s", delta: "-1.8%" },
+    power: { value: "3.49 kW", delta: "-0.3%" },
+    efficiency: { value: "18.7 J/TH", delta: "+0.5%" },
+    temperature: { value: "66.2 C", delta: "+1.8 C" },
+  },
+  {
+    id: "miner-b06-01",
+    name: "b06-s19-01",
+    type: "Antminer S19 XP",
+    ipAddress: "10.18.35.31",
+    hashrate: { value: "138.2 TH/s" },
+    power: { value: "3.02 kW" },
+    efficiency: { value: "21.9 J/TH" },
+    temperature: { value: "60.9 C" },
+  },
+  {
+    id: "miner-b06-02",
+    name: "b06-s19-02",
+    type: "Antminer S19 XP",
+    ipAddress: "10.18.35.32",
+    hashrate: { value: "139.0 TH/s" },
+    power: { value: "3.04 kW" },
+    efficiency: { value: "21.9 J/TH" },
+    temperature: { value: "61.3 C" },
+  },
+  {
+    id: "miner-b06-03",
+    name: "b06-s19-03",
+    type: "Antminer S19 XP",
+    ipAddress: "10.18.35.33",
+    hashrate: { value: "0 TH/s" },
+    power: { value: "0 kW" },
+    efficiency: { value: "Pinned" },
+    temperature: { value: "Idle" },
+  },
+];
+
+const phaseSamplesByState: Record<RolloutState, RolloutTargetPhase[]> = {
+  scheduled: ["queued", "queued", "queued", "queued", "excluded"],
+  inProgress: ["done", "done", "inProgress", "inProgress", "retrying", "queued", "queued", "failed", "excluded"],
+  pausedAtPilotGate: ["done", "done", "done", "failed", "queued", "queued", "excluded"],
+  paused: ["done", "done", "done", "queued", "queued", "queued", "excluded"],
+  completed: ["done", "done", "done", "done", "done", "done", "excluded"],
+  completedWithFailures: ["done", "done", "done", "failed", "failed", "done", "excluded"],
+};
+
+export function rolloutMinerRowsForEvent(event: RolloutEvent): RolloutMinerRow[] {
+  const phaseSamples = phaseSamplesByState[event.state];
+
+  return rolloutMinerIdentities.map((miner, index) => ({
+    ...miner,
+    id: `${event.processType}-${miner.id}`,
+    phase: phaseSamples[index % phaseSamples.length],
+  }));
+}
+
 /** A firmware rollout mid-flight — the in-progress detail card. */
 export const inProgressFirmwareEvent: RolloutEvent = {
   processType: "firmware",
@@ -108,7 +258,7 @@ export const inProgressFirmwareEvent: RolloutEvent = {
 };
 
 /** Paused at the pilot-approval gate — the pilot wave finished, awaiting a
- * Continue / Cancel decision. */
+ * Continue / Cancel remaining decision. */
 export const pilotGateFirmwareEvent: RolloutEvent = {
   processType: "firmware",
   state: "pausedAtPilotGate",
@@ -126,7 +276,7 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
   // Baseline captured when the rollout started, against the pilot cohort's
   // current telemetry. Hashrate/power dipped slightly (red "−"); efficiency has
   // crept up ~1.3% and avg temp ~1.9% (green "+"). Option A only surfaces the
-  // numbers — the Continue/Cancel call stays with the operator.
+  // numbers — the Continue/Cancel remaining call stays with the operator.
   performance: {
     metrics: [
       { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 1593 },

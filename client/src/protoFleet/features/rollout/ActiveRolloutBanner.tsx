@@ -4,15 +4,18 @@ import { phaseLabel, rolloutActionNoun, rolloutPhaseCount } from "./rolloutDispl
 import type { RolloutEvent, RolloutProcessType } from "./rolloutTypes";
 import { Download, LightningAlt, Reboot } from "@/shared/assets/icons";
 import Callout, { intents } from "@/shared/components/Callout";
+import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
 interface ActiveRolloutBannerProps {
   event: RolloutEvent;
   onView?: () => void;
+  onManage?: () => void;
 }
 
 interface ActiveRolloutBannerStackProps {
   events: RolloutEvent[];
   onView?: (event: RolloutEvent, index: number) => void;
+  onManage?: (event: RolloutEvent, index: number) => void;
 }
 
 /** Intent per process — firmware/curtailment carry uptime impact (warning),
@@ -22,6 +25,10 @@ const processIntent: Record<RolloutProcessType, keyof typeof intents> = {
   curtailment: intents.warning,
   reboot: intents.information,
 };
+
+function bannerIntent(event: RolloutEvent): keyof typeof intents {
+  return event.state === "scheduled" ? intents.information : processIntent[event.processType];
+}
 
 function ProcessIcon({ processType }: { processType: RolloutProcessType }): ReactElement {
   // Force neutral/black icons regardless of the Callout's intent tint — the
@@ -43,9 +50,20 @@ function bannerTitle(event: RolloutEvent): string {
 }
 
 function bannerSubtitle(event: RolloutEvent): string {
+  const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
+
+  if (event.state === "scheduled") {
+    const scheduledAt = event.scheduledStartAt ? formatTimestamp(isoToEpochSeconds(event.scheduledStartAt)) : undefined;
+    const parts = [
+      scheduledAt ? `Scheduled for ${scheduledAt}` : "Scheduled",
+      `${inScope.toLocaleString()} miners queued`,
+      event.excludedTargets > 0 ? `${event.excludedTargets.toLocaleString()} excluded` : null,
+    ];
+    return parts.filter(Boolean).join(", ");
+  }
+
   const done = rolloutPhaseCount(event.rollups, "done");
   const failed = rolloutPhaseCount(event.rollups, "failed");
-  const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
   const doneVerb = phaseLabel(event.processType, "done").toLowerCase();
 
   const parts = [`${done.toLocaleString()} of ${inScope.toLocaleString()} miners ${doneVerb}`];
@@ -64,21 +82,30 @@ function bannerSubtitle(event: RolloutEvent): string {
  * page banner. Stacks via {@link ActiveRolloutBannerStack} when several
  * processes run at once (the Activity "Active now" surface).
  */
-export function ActiveRolloutBanner({ event, onView }: ActiveRolloutBannerProps): ReactElement {
+export function ActiveRolloutBanner({ event, onView, onManage }: ActiveRolloutBannerProps): ReactElement {
+  const showManageAction = event.state === "scheduled" && onManage !== undefined;
+  const showViewAction = event.state !== "scheduled" && onView !== undefined;
+  const buttonText = showManageAction
+    ? "Manage rollout"
+    : showViewAction
+      ? `View ${rolloutActionNoun(event.processType)}`
+      : undefined;
+  const buttonOnClick = showManageAction ? onManage : showViewAction ? onView : undefined;
+
   return (
     <Callout
-      intent={processIntent[event.processType]}
+      intent={bannerIntent(event)}
       prefixIcon={<ProcessIcon processType={event.processType} />}
       title={bannerTitle(event)}
       subtitle={bannerSubtitle(event)}
-      buttonText={onView ? `View ${rolloutActionNoun(event.processType)}` : undefined}
-      buttonOnClick={onView}
+      buttonText={buttonText}
+      buttonOnClick={buttonOnClick}
       testId="active-rollout-banner"
     />
   );
 }
 
-export function ActiveRolloutBannerStack({ events, onView }: ActiveRolloutBannerStackProps): ReactElement {
+export function ActiveRolloutBannerStack({ events, onView, onManage }: ActiveRolloutBannerStackProps): ReactElement {
   return (
     <div className="flex flex-col gap-3" data-testid="active-rollout-banner-stack">
       {events.map((event, index) => (
@@ -86,6 +113,7 @@ export function ActiveRolloutBannerStack({ events, onView }: ActiveRolloutBanner
           key={`${event.processType}-${event.title}-${index}`}
           event={event}
           onView={onView ? () => onView(event, index) : undefined}
+          onManage={onManage ? () => onManage(event, index) : undefined}
         />
       ))}
     </div>
