@@ -395,7 +395,12 @@ func ruleRawSQL(data json.RawMessage) string {
 // Invalid content degrades to nil — the rule reads as non-editable — rather
 // than failing the list. Legacy configs predate scopes, so they are always
 // org-wide; the first successful update migrates them into a store row.
-func legacyRuleConfig(ctx context.Context, orgID int64, ruleUID, raw string) *RuleConfig {
+// A config whose template disagrees with the rule's label is hidden the same
+// way (matching the old inline parser): the annotation rides the rule PUT, so
+// a mismatch means a manual Grafana edit — exposing it would let a re-save
+// rewrite the live rule to the annotation's template, and out-of-sync
+// convergence deliberately trusts the config side (see markConfigOutOfSync).
+func legacyRuleConfig(ctx context.Context, orgID int64, ruleUID string, tmpl RuleTemplate, raw string) *RuleConfig {
 	if raw == "" {
 		return nil
 	}
@@ -407,6 +412,10 @@ func legacyRuleConfig(ctx context.Context, orgID int64, ruleUID, raw string) *Ru
 	cfg.Scope = normalizeRuleScope(cfg.Scope)
 	if err := validateRuleConfig(cfg); err != nil {
 		slog.WarnContext(ctx, "alerts.rule_legacy_config_parse", "org_id", orgID, "rule_id", ruleUID, "error", err)
+		return nil
+	}
+	if cfg.Template() != tmpl {
+		slog.WarnContext(ctx, "alerts.rule_legacy_config_parse", "org_id", orgID, "rule_id", ruleUID, "error", fmt.Errorf("annotation template %q disagrees with rule template %q", cfg.Template(), tmpl))
 		return nil
 	}
 	return &cfg

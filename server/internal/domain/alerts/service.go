@@ -573,7 +573,7 @@ func (s *Service) attachConfigBestEffort(ctx context.Context, orgID int64, rule 
 		return
 	}
 	if cfg == nil {
-		cfg = legacyRuleConfig(ctx, orgID, rule.ID, rule.legacyConfigJSON)
+		cfg = legacyRuleConfig(ctx, orgID, rule.ID, rule.Template, rule.legacyConfigJSON)
 	}
 	rule.Config = cfg
 	markConfigOutOfSync(ctx, orgID, rule)
@@ -629,7 +629,7 @@ func (s *Service) attachConfigs(ctx context.Context, orgID int64, rules []Rule) 
 	for i := range rules {
 		cfg, ok := cfgs[rules[i].ID]
 		if !ok {
-			rules[i].Config = legacyRuleConfig(ctx, orgID, rules[i].ID, rules[i].legacyConfigJSON)
+			rules[i].Config = legacyRuleConfig(ctx, orgID, rules[i].ID, rules[i].Template, rules[i].legacyConfigJSON)
 			markConfigOutOfSync(ctx, orgID, &rules[i])
 			continue
 		}

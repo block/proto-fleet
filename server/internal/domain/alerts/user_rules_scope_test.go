@@ -915,13 +915,18 @@ func TestListRulesFallsBackToLegacyAnnotationConfig(t *testing.T) {
 }
 
 // A corrupt legacy annotation degrades to "no editable config" rather than
-// failing the list or serving an unvalidated config.
+// failing the list or serving an unvalidated config. A template mismatch is
+// treated the same way (as the old inline parser did): the annotation rides
+// the rule PUT, so disagreement means a manual Grafana edit, and exposing the
+// config would let a re-save rewrite the live rule to the annotation's
+// template.
 func TestListRulesIgnoresInvalidLegacyAnnotationConfig(t *testing.T) {
 	live, err := compileUserRule(7, "pfu-legacy", offlineConfig("Offline too long", 1800))
 	require.NoError(t, err)
 	for name, raw := range map[string]string{
-		"malformed JSON":   `{"name":`,
-		"fails validation": `{"name":"x","duration_seconds":1}`,
+		"malformed JSON":               `{"name":`,
+		"fails validation":             `{"name":"x","duration_seconds":1}`,
+		"template disagrees with rule": `{"name":"Wrong template","duration_seconds":1800,"temperature":{"max_celsius":80}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			live.Annotations[ruleAnnotationConfig] = raw
