@@ -29,7 +29,10 @@ export interface FleetStore {
 
 const ORG_PERMISSIONS_SCOPE = "org" as const;
 
-type PersistedAuthState = Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role" | "permissions"> & {
+type PersistedAuthState = Pick<
+  AuthSlice,
+  "sessionExpiry" | "sessionGeneration" | "isAuthenticated" | "username" | "role" | "permissions"
+> & {
   // Guards against rehydrating old sessions where permissions meant a flat
   // "has this anywhere" projection. Current permissions are org/default scope.
   permissionsScope?: typeof ORG_PERMISSIONS_SCOPE;
@@ -103,6 +106,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
             state: {
               auth: {
                 sessionExpiry: state.auth.sessionExpiry,
+                sessionGeneration: state.auth.sessionGeneration,
                 isAuthenticated: state.auth.isAuthenticated,
                 username: state.auth.username,
                 role: state.auth.role,
@@ -181,6 +185,7 @@ export const useFleetStore = create<FleetStore>()(
           partialize: (state) => ({
             auth: {
               sessionExpiry: state.auth.sessionExpiry,
+              sessionGeneration: state.auth.sessionGeneration,
               isAuthenticated: state.auth.isAuthenticated,
               username: state.auth.username,
               role: state.auth.role,
@@ -222,6 +227,9 @@ export const useFleetStore = create<FleetStore>()(
                 sessionExpiry: sessionIsStalePreOrgDefault
                   ? currentState.auth.sessionExpiry
                   : (persisted?.auth?.sessionExpiry ?? currentState.auth.sessionExpiry),
+                sessionGeneration: sessionIsStalePreOrgDefault
+                  ? currentState.auth.sessionGeneration
+                  : (persisted?.auth?.sessionGeneration ?? currentState.auth.sessionGeneration),
                 isAuthenticated: sessionIsStalePreOrgDefault
                   ? false
                   : (persisted?.auth?.isAuthenticated ?? currentState.auth.isAuthenticated),

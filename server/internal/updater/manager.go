@@ -111,7 +111,13 @@ func (execRunner) Run(ctx context.Context, dir string, output io.Writer, name st
 	cmd.Dir = dir
 	cmd.Stdout = output
 	cmd.Stderr = output
-	cmd.Env = append(os.Environ(), "CI=1", "TERM=dumb")
+	cmd.Env = append(
+		os.Environ(),
+		"CI=1",
+		"TERM=dumb",
+		// Coordination marker for updater-owned run-fleet children; not auth.
+		"PROTO_FLEET_UPDATER_MANAGED_RUN=1",
+	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {

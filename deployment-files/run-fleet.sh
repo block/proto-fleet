@@ -5,23 +5,33 @@
 # ============================================================================
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUN_FLEET_ORIGINAL_ARGS=("$@")
 FLEET_COMPOSE_PROJECT_NAME=""
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
+COMPOSE_UPDATER_FILE="$PROJECT_ROOT/docker-compose.updater.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 VERSION_FILE="$PROJECT_ROOT/version.txt"
 RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 NGINX_CONFIG_TEMP=""
+UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
+HOST_UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
+DIRECT_UPDATER_PRIVILEGE=()
+DIRECT_UPDATER_WAS_ACTIVE=false
+DIRECT_UPDATER_SERVICE_PRESENT=false
+DIRECT_UPDATER_OWNERSHIP_VERIFIED=false
+DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
+DEPLOYMENT_MUTATION_STARTED=false
 
 # Preserve process-level Compose overrides before the script initializes its
 # runtime flags with the same names. Plain shell assignment keeps an inherited
 # variable's export bit, so inspecting those names later would otherwise see
 # the script default instead of the invoking environment.
-OVERLAY_FLAG_KEYS=(ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING)
+OVERLAY_FLAG_KEYS=(ENABLE_BETA_ALERTS ENABLE_SYSTEM_MONITORING ENABLE_TRACING ENABLE_ONE_CLICK_UPDATES)
 for overlay_key in "${OVERLAY_FLAG_KEYS[@]}"; do
     printf -v "INVOKING_${overlay_key}_SET" '%s' "${!overlay_key+x}"
     printf -v "INVOKING_${overlay_key}_VALUE" '%s' "${!overlay_key-}"
@@ -31,6 +41,8 @@ unset overlay_key
 ENABLE_BETA_ALERTS=false
 ENABLE_SYSTEM_MONITORING=false
 ENABLE_TRACING=false
+ENABLE_ONE_CLICK_UPDATES=false
+ONE_CLICK_UPDATES_OVERRIDE=""
 NON_INTERACTIVE=false
 PREFLIGHT_ONLY=false
 SKIP_BUILD=false
@@ -40,7 +52,6 @@ FLEET_API_IMAGE=""
 FLEET_CLIENT_IMAGE=""
 TIMESCALEDB_IMAGE=""
 TIMESCALEDB_HA_IMAGE=""
-# Every repository whose tags release retention may protect or remove.
 PROTO_FLEET_IMAGE_REPOSITORIES=(
     proto-fleet-api
     proto-fleet-client
@@ -50,6 +61,361 @@ PROTO_FLEET_IMAGE_REPOSITORIES=(
 PREVIOUS_RELEASE_IMAGE_TAGS=()
 RELEASE_IMAGE_CLEANUP_SAFE=true
 DD_HOSTNAME_DEFAULTED=false
+
+parse_direct_updater_install_root() {
+    local contents="$1"
+    local key_re='^[[:space:]]*PROTO_FLEET_INSTALL_ROOT[[:space:]]*='
+    local assignment_re='^PROTO_FLEET_INSTALL_ROOT="(([^"\\]|\\["\\])*)"$'
+    local line encoded decoded char
+    local found=0
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ "$line" =~ $key_re ]] || continue
+        [ "$found" -eq 0 ] || return 1
+        [[ "$line" =~ $assignment_re ]] || return 1
+        encoded="${BASH_REMATCH[1]}"
+        decoded=""
+        while [ -n "$encoded" ]; do
+            char="${encoded:0:1}"
+            encoded="${encoded:1}"
+            if [ "$char" = '\' ]; then
+                [ -n "$encoded" ] || return 1
+                char="${encoded:0:1}"
+                encoded="${encoded:1}"
+                [ "$char" = '\' ] || [ "$char" = '"' ] || return 1
+            fi
+            decoded="${decoded}${char}"
+        done
+        [ -n "$decoded" ] || return 1
+        found=1
+    done <<< "$contents"
+
+    [ "$found" -eq 1 ] || return 1
+    printf '%s\n' "$decoded"
+}
+
+verify_direct_updater_ownership() {
+    local contents configured_root configured_resolved expected_resolved
+
+    [ "$DIRECT_UPDATER_OWNERSHIP_VERIFIED" != "true" ] || return 0
+    if ! contents="$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        cat -- "$HOST_UPDATER_ENV_PATH" 2>/dev/null)" \
+      || ! configured_root="$(parse_direct_updater_install_root "$contents")"; then
+        echo "Error: could not read a valid updater install root from $HOST_UPDATER_ENV_PATH; refusing to control the global updater service." >&2
+        return 1
+    fi
+    if ! configured_resolved="$(cd "$configured_root" 2>/dev/null && pwd -P)"; then
+        echo "Error: the configured updater install root cannot be resolved: $configured_root" >&2
+        return 1
+    fi
+    if ! expected_resolved="$(cd "$PROJECT_ROOT/.." 2>/dev/null && pwd -P)"; then
+        echo "Error: the current Proto Fleet install root cannot be resolved from $PROJECT_ROOT." >&2
+        return 1
+    fi
+    if [ "${configured_resolved%/}" != "${expected_resolved%/}" ]; then
+        echo "Error: proto-fleet-updater.service belongs to a different Proto Fleet installation; refusing to change it." >&2
+        echo "  Updater install root: $configured_resolved" >&2
+        echo "  Current install root: $expected_resolved" >&2
+        return 1
+    fi
+    DIRECT_UPDATER_OWNERSHIP_VERIFIED=true
+}
+
+deployment_directory_identity() {
+    local identity
+
+    # Directory identity detects an activation that swaps the tree while this
+    # shell waits; support both GNU and BSD stat.
+    identity=$(stat -Lc '%d:%i' -- "$PROJECT_ROOT" 2>/dev/null) \
+      || identity=$(stat -f '%d:%i' "$PROJECT_ROOT" 2>/dev/null) \
+      || return 1
+    [ -n "$identity" ] || return 1
+    printf '%s\n' "$identity"
+}
+
+resolve_direct_updater_privilege() {
+    DIRECT_UPDATER_PRIVILEGE=()
+    if [ "$(id -u)" -eq 0 ]; then
+        if ! verify_direct_updater_ownership; then
+            return 1
+        fi
+        return 0
+    fi
+    command -v sudo >/dev/null 2>&1 || {
+        echo "Error: sudo is required to manage the host updater during this manual deployment run." >&2
+        return 1
+    }
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        DIRECT_UPDATER_PRIVILEGE=(sudo -n)
+    else
+        DIRECT_UPDATER_PRIVILEGE=(sudo)
+    fi
+    verify_direct_updater_ownership
+}
+
+restart_direct_run_updater() {
+    local enable_at_boot="$1"
+    DIRECT_UPDATER_WAS_ACTIVE=false
+    if [ "$enable_at_boot" = "true" ] \
+      && ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl enable proto-fleet-updater.service; then
+        echo "Error: could not enable proto-fleet-updater.service after the manual deployment run." >&2
+        return 1
+    fi
+    echo "Restoring the host updater after the manual deployment run..."
+    if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl restart proto-fleet-updater.service; then
+        echo "Error: could not restart proto-fleet-updater.service after the manual deployment run." >&2
+        return 1
+    fi
+    local ready_deadline=$((SECONDS + 60))
+    while [ "$SECONDS" -lt "$ready_deadline" ]; do
+        if ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+            curl -fsS --max-time 1 --unix-socket "$UPDATER_SOCKET_PATH" \
+            http://localhost/v1/status >/dev/null 2>&1 \
+          && ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+            systemctl is-active --quiet proto-fleet-updater.service \
+          && ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+            systemctl is-enabled --quiet proto-fleet-updater.service; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Error: proto-fleet-updater.service did not become ready after the manual deployment run." >&2
+    return 1
+}
+
+disable_direct_run_updater() {
+    DIRECT_UPDATER_WAS_ACTIVE=false
+    # No systemd manager means no supervised updater to disable (for example,
+    # WSL after systemd is turned off).
+    if ! systemctl show --property=Version --value >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "Disabling the host updater after the manual deployment run..."
+    if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl disable --now proto-fleet-updater.service; then
+        echo "Error: could not disable proto-fleet-updater.service after the manual deployment run." >&2
+        return 1
+    fi
+    local active_state unit_file_state
+    if ! active_state="$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl show --property=ActiveState --value \
+        proto-fleet-updater.service 2>/dev/null)" \
+      || ! unit_file_state="$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl show --property=UnitFileState --value \
+        proto-fleet-updater.service 2>/dev/null)"; then
+        echo "Error: could not verify that proto-fleet-updater.service is stopped and disabled." >&2
+        return 1
+    fi
+    case "$active_state:$unit_file_state" in
+        inactive:disabled|failed:disabled) ;;
+        *)
+            echo "Error: proto-fleet-updater.service did not reach the stopped and disabled state." >&2
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+deploy_direct_run_updater_fallback() {
+    local fallback_status=0
+
+    echo "Warning: the host updater did not become ready; redeploying without its socket overlay." >&2
+    # Quiesce a partially started updater before the second Compose transition.
+    if ! disable_direct_run_updater; then
+        echo "Error: could not stop the unavailable host updater before deploying the copy-command fallback." >&2
+        return 1
+    fi
+    # Other overlays are persisted; consumed preflight state makes carrying
+    # the original --skip-build unsafe.
+    PROTO_FLEET_INSTALLER_MANAGED_RUN=1 \
+        /bin/bash "$PROJECT_ROOT/run-fleet.sh" \
+        --non-interactive --disable-one-click-updates \
+        || fallback_status=$?
+    if [ "$fallback_status" -ne 0 ]; then
+        echo "Error: could not deploy the copy-command fallback after the host updater failed readiness." >&2
+        # The parent retains lifecycle ownership if the nested run rolls back.
+        if ! disable_direct_run_updater; then
+            echo "Error: could not keep the unavailable host updater disabled after fallback failure." >&2
+            return 1
+        fi
+        return "$fallback_status"
+    fi
+    ENABLE_ONE_CLICK_UPDATES=false
+    DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
+    echo "One-click upgrades are unavailable; the in-product copy command remains usable."
+}
+
+reconcile_direct_run_updater() {
+    local run_status="$1"
+    local committed_state="$ENABLE_ONE_CLICK_UPDATES"
+    [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] || return 0
+    [ "${PROTO_FLEET_INSTALLER_MANAGED_RUN:-0}" != "1" ] || return 0
+
+    # Before teardown, restore the old topology's state. After teardown starts,
+    # persisted intent is the only safe authority.
+    if [ "$run_status" -ne 0 ] \
+      && [ "$DEPLOYMENT_MUTATION_STARTED" != "true" ]; then
+        committed_state="$ONE_CLICK_UPDATES_WAS_CONFIGURED"
+    fi
+
+    if [ "$committed_state" = "true" ]; then
+        if [ "$DIRECT_UPDATER_SERVICE_PRESENT" != "true" ]; then
+            echo "Error: one-click updates are enabled, but proto-fleet-updater.service cannot be reconciled." >&2
+            return 1
+        fi
+        resolve_direct_updater_privilege || return 1
+        if ! restart_direct_run_updater true; then
+            # A committed socket overlay must degrade to copy-command mode.
+            if [ "$DEPLOYMENT_MUTATION_STARTED" = "true" ]; then
+                deploy_direct_run_updater_fallback || return 1
+                return 0
+            fi
+            return 1
+        fi
+        return 0
+    fi
+    if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ]; then
+        resolve_direct_updater_privilege || return 1
+        disable_direct_run_updater || return 1
+    fi
+    return 0
+}
+
+run_fleet_exit_cleanup() {
+    local run_status=$?
+    local status="$run_status"
+    local env_rollback_failed=false
+    trap - EXIT
+    if declare -F cleanup_nginx_config_temp >/dev/null 2>&1; then
+        cleanup_nginx_config_temp || status=1
+    fi
+    if declare -F cleanup_env_rewrite >/dev/null 2>&1; then
+        cleanup_env_rewrite || status=1
+    fi
+    if [ "$run_status" -ne 0 ] \
+      && [ "$DEPLOYMENT_MUTATION_STARTED" != "true" ] \
+      && [ "$DIRECT_UPDATER_ENV_ROLLBACK_PENDING" = "true" ]; then
+        echo "Restoring the previous one-click update setting after the failed deployment run..." >&2
+        if atomic_set_env_values \
+            ENABLE_ONE_CLICK_UPDATES "$ONE_CLICK_UPDATES_WAS_CONFIGURED"; then
+            DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
+        else
+            echo "Error: could not restore the previous one-click update setting; leaving the updater stopped." >&2
+            env_rollback_failed=true
+            status=1
+        fi
+    elif [ "$run_status" -eq 0 ] \
+      || [ "$DEPLOYMENT_MUTATION_STARTED" = "true" ]; then
+        DIRECT_UPDATER_ENV_ROLLBACK_PENDING=false
+    fi
+    if [ "$env_rollback_failed" != "true" ] \
+      && ! reconcile_direct_run_updater "$run_status"; then
+        status=1
+    fi
+    exit "$status"
+}
+
+# Updater-owned children are serialized by the daemon; manual runs must stop it
+# before mutation so deployment/ cannot be renamed out from under this shell.
+quiesce_updater_for_direct_run() {
+    local one_click_was_configured="$1"
+    local load_state active_state identity_before_stop identity_after_stop
+
+    [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] || return 0
+    [ "$(uname -s)" = "Linux" ] || return 0
+    # Source checkouts do not control the packaged installation's updater.
+    if [ ! -f "$VERSION_FILE" ] \
+      && [ "$one_click_was_configured" != "true" ] \
+      && [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
+        return 0
+    fi
+    if ! command -v systemctl >/dev/null 2>&1; then
+        if [ "$one_click_was_configured" != "true" ] \
+          && [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
+            return 0
+        fi
+        echo "Error: one-click updates are configured, but systemctl is unavailable to serialize this manual run." >&2
+        return 1
+    fi
+    # Preserve installer fallback when a host loses systemd, but keep enabled
+    # runs fail-closed.
+    if ! systemctl show --property=Version --value >/dev/null 2>&1; then
+        if [ "$ENABLE_ONE_CLICK_UPDATES" != "true" ]; then
+            return 0
+        fi
+        echo "Error: one-click updates are enabled, but the systemd manager is unavailable to serialize this manual run." >&2
+        return 1
+    fi
+    if ! load_state=$(systemctl show --property=LoadState --value \
+        proto-fleet-updater.service 2>/dev/null); then
+        echo "Error: could not inspect proto-fleet-updater.service before the manual deployment run." >&2
+        return 1
+    fi
+    if ! active_state=$(systemctl show --property=ActiveState --value \
+      proto-fleet-updater.service 2>/dev/null); then
+        echo "Error: could not inspect proto-fleet-updater.service state before the manual deployment run." >&2
+        return 1
+    fi
+    [ "$load_state" = "not-found" ] || DIRECT_UPDATER_SERVICE_PRESENT=true
+    # Verify ownership before even an inactive global updater can be mounted.
+    if [ "$DIRECT_UPDATER_SERVICE_PRESENT" = "true" ]; then
+        resolve_direct_updater_privilege || return 1
+    fi
+    case "$active_state" in
+        inactive|failed)
+            if [ "$load_state" = "not-found" ] \
+              && [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
+                echo "Error: one-click updates are enabled, but proto-fleet-updater.service is not installed." >&2
+                return 1
+            fi
+            return 0
+            ;;
+        active|activating|reloading|deactivating) ;;
+        *)
+            echo "Error: proto-fleet-updater.service has unexpected state '$active_state'." >&2
+            return 1
+            ;;
+    esac
+
+    resolve_direct_updater_privilege || return 1
+    if ! identity_before_stop=$(deployment_directory_identity); then
+        echo "Error: could not identify the current deployment before stopping the host updater." >&2
+        return 1
+    fi
+    echo "Stopping the host updater for this manual deployment run..."
+    if ! ${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl stop proto-fleet-updater.service; then
+        echo "Error: could not stop proto-fleet-updater.service before mutating the deployment." >&2
+        return 1
+    fi
+    # Arm restoration before the checked inactive-state query can fail.
+    DIRECT_UPDATER_WAS_ACTIVE=true
+    if ! identity_after_stop=$(deployment_directory_identity); then
+        echo "Error: could not identify the current deployment after stopping the host updater." >&2
+        return 1
+    fi
+    if [ "$identity_before_stop" != "$identity_after_stop" ]; then
+        echo "The host updater activated a new deployment while stopping; restarting with the current release runner..."
+        exec /bin/bash "$PROJECT_ROOT/run-fleet.sh" "${RUN_FLEET_ORIGINAL_ARGS[@]}"
+        echo "Error: could not restart with the current release runner after the deployment changed." >&2
+        return 1
+    fi
+    if ! active_state=$(${DIRECT_UPDATER_PRIVILEGE[@]+"${DIRECT_UPDATER_PRIVILEGE[@]}"} \
+        systemctl show --property=ActiveState --value \
+        proto-fleet-updater.service 2>/dev/null); then
+        echo "Error: could not verify that proto-fleet-updater.service stopped." >&2
+        return 1
+    fi
+    case "$active_state" in
+        inactive|failed) return 0 ;;
+        *)
+            echo "Error: proto-fleet-updater.service remained active; refusing to mutate the deployment." >&2
+            return 1
+            ;;
+    esac
+}
 
 # How long the post-start steps wait for fleet-api to finish its migrations.
 # 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
@@ -67,7 +433,7 @@ env_last_value() {
     # overlay flags read their pre-initialization snapshot because the script
     # reuses their names for its runtime defaults.
     case "$key" in
-        ENABLE_BETA_ALERTS|ENABLE_SYSTEM_MONITORING|ENABLE_TRACING)
+        ENABLE_BETA_ALERTS|ENABLE_SYSTEM_MONITORING|ENABLE_TRACING|ENABLE_ONE_CLICK_UPDATES)
             snapshot_set="INVOKING_${key}_SET"
             snapshot_value="INVOKING_${key}_VALUE"
             if [ "${!snapshot_set}" = "x" ]; then
@@ -173,6 +539,7 @@ validate_runner_env_values() {
         ENABLE_BETA_ALERTS
         ENABLE_SYSTEM_MONITORING
         ENABLE_TRACING
+        ENABLE_ONE_CLICK_UPDATES
         FLEET_PROFILE
         DB_USERNAME
         DB_PASSWORD
@@ -196,7 +563,6 @@ env_has_nonempty_value() {
     [ -n "$value" ]
 }
 
-# .env-scoped counterpart: whether a key still needs persisting, ignoring any process-level override.
 dotenv_has_nonempty_value() {
     local value
     value=$(compose_env_last_value "$1") || return 1
@@ -220,6 +586,28 @@ env_boolean_is_true() {
         false|'') return 1 ;;
         *)
             echo "Error: the effective $key value must be true or false (process environment takes precedence over $ENV_FILE)." >&2
+            exit 1
+            ;;
+    esac
+}
+
+dotenv_boolean_is_true() {
+    local key="$1" value read_status
+    value=$(compose_env_last_value "$key")
+    read_status=$?
+    if [ "$read_status" -ne 0 ]; then
+        if [ "$read_status" -eq 1 ]; then
+            return 1
+        fi
+        echo "Error: $key in $ENV_FILE uses unsupported or malformed Compose dotenv syntax." >&2
+        exit 1
+    fi
+    value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+    case "$value" in
+        true) return 0 ;;
+        false|'') return 1 ;;
+        *)
+            echo "Error: persisted $key in $ENV_FILE must be true or false." >&2
             exit 1
             ;;
     esac
@@ -300,7 +688,6 @@ append_env_line() {
     echo "$1" >> "$ENV_FILE"
 }
 
-# Satisfies the tracing overlay's ${DD_HOSTNAME:?}; env_has_nonempty_value already reads the effective Compose value, so only default when that is empty.
 ensure_dd_hostname() {
     if env_has_nonempty_value DD_HOSTNAME; then
         return 0
@@ -337,6 +724,12 @@ Options:
                                 the .env file. Off by default. Can also be
                                 enabled by setting ENABLE_TRACING=true in
                                 the .env file.
+  --enable-one-click-updates    Connect fleet-api to the host updater Unix
+                                socket. The installer sets this only after
+                                the systemd updater starts successfully.
+  --disable-one-click-updates   Disconnect fleet-api from the host updater.
+                                The installer uses this when host bootstrap
+                                is unavailable or fails.
   --non-interactive              Reuse complete persisted configuration and
                                 fail instead of prompting. Intended for the
                                 host updater, not first-time setup.
@@ -361,6 +754,14 @@ while [ $# -gt 0 ]; do
             ;;
         --enable-tracing)
             ENABLE_TRACING=true
+            shift
+            ;;
+        --enable-one-click-updates)
+            ONE_CLICK_UPDATES_OVERRIDE=true
+            shift
+            ;;
+        --disable-one-click-updates)
+            ONE_CLICK_UPDATES_OVERRIDE=false
             shift
             ;;
         --non-interactive)
@@ -424,6 +825,22 @@ fi
 if env_boolean_is_true ENABLE_TRACING; then
     ENABLE_TRACING=true
 fi
+ONE_CLICK_UPDATES_WAS_CONFIGURED=false
+if dotenv_boolean_is_true ENABLE_ONE_CLICK_UPDATES; then
+    ONE_CLICK_UPDATES_WAS_CONFIGURED=true
+fi
+if env_boolean_is_true ENABLE_ONE_CLICK_UPDATES; then
+    ENABLE_ONE_CLICK_UPDATES=true
+fi
+if [ -n "$ONE_CLICK_UPDATES_OVERRIDE" ]; then
+    ENABLE_ONE_CLICK_UPDATES="$ONE_CLICK_UPDATES_OVERRIDE"
+fi
+if [ "$PREFLIGHT_ONLY" = "true" ] \
+  && [ "${PROTO_FLEET_UPDATER_MANAGED_RUN:-0}" != "1" ] \
+  && [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
+    echo "Error: --preflight-only cannot change one-click update state for the active deployment; run the complete deployment with the same enable/disable option." >&2
+    exit 1
+fi
 # System monitoring rides the alerts stack (the in-process metrics writer,
 # Grafana rule evaluation, and webhook delivery are all alerts-gated), so it
 # cannot run alone.
@@ -462,6 +879,20 @@ if [ "$ENABLE_TRACING" = "true" ]; then
     ensure_dd_hostname
 fi
 
+if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ] && [ ! -f "$COMPOSE_UPDATER_FILE" ]; then
+    echo "Error: one-click updates are enabled but $COMPOSE_UPDATER_FILE is missing." >&2
+    exit 1
+fi
+
+# Install cleanup before quiescing so every later failure restores the service.
+trap run_fleet_exit_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if ! quiesce_updater_for_direct_run "$ONE_CLICK_UPDATES_WAS_CONFIGURED"; then
+    exit 1
+fi
+
 if [ "$PREFLIGHT_ONLY" = "true" ]; then
     # A failed retry must not leave an older success marker reusable.
     if ! rm -f "$PREFLIGHT_MARKER"; then
@@ -482,6 +913,9 @@ refresh_compose_files() {
     fi
     if [ "$ENABLE_TRACING" = "true" ] && [ -f "$COMPOSE_TRACING_FILE" ]; then
         COMPOSE_FILES+=(-f "$COMPOSE_TRACING_FILE")
+    fi
+    if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
+        COMPOSE_FILES+=(-f "$COMPOSE_UPDATER_FILE")
     fi
 }
 refresh_compose_files
@@ -980,7 +1414,6 @@ verify_preflight_marker() {
     fi
 }
 
-# Poll psql until the query returns true; caller owns the warning.
 wait_for_psql_true() {
     local query="$1" attempt result
     for attempt in $(seq 1 "$FLEET_API_READY_ATTEMPTS"); do
@@ -1520,13 +1953,6 @@ abort_env_rewrite() {
     return 1
 }
 
-# Keep cleanup in the main shell so a supervisor signalling only the runner
-# cannot leave a partial generated config or environment rewrite behind.
-trap 'cleanup_nginx_config_temp || true; cleanup_env_rewrite || true' EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
 atomic_set_env_values() {
     local key value key_csv original_owner temp_owner last_byte assignment
     local -a removed_keys=()
@@ -1836,9 +2262,13 @@ fi
 if ! atomic_set_env_values \
     ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS" \
     ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING" \
-    ENABLE_TRACING "$ENABLE_TRACING"; then
+    ENABLE_TRACING "$ENABLE_TRACING" \
+    ENABLE_ONE_CLICK_UPDATES "$ENABLE_ONE_CLICK_UPDATES"; then
     echo "Error: could not persist deployment overlay settings; aborting before Compose validation or service changes." >&2
     exit 1
+fi
+if [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
+    DIRECT_UPDATER_ENV_ROLLBACK_PENDING=true
 fi
 
 # ----------------------------------------------------------------------------
@@ -2145,7 +2575,11 @@ fi
 
 echo "Stopping any running services..."
 capture_previous_release_image_tags
-compose down --remove-orphans
+DEPLOYMENT_MUTATION_STARTED=true
+if ! compose down --remove-orphans; then
+    echo "Error: could not stop the existing services cleanly." >&2
+    exit 1
+fi
 
 echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).

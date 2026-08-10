@@ -2595,6 +2595,22 @@ func TestExecRunnerCancellationKillsBackgroundDescendants(t *testing.T) {
 	assert.NoFileExists(t, delayedMarker, "background descendant survived command cancellation")
 }
 
+func TestExecRunnerMarksCommandsAsUpdaterManaged(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	err := (execRunner{}).Run(
+		context.Background(),
+		t.TempDir(),
+		&output,
+		"/bin/sh",
+		"-c",
+		`printf '%s' "$PROTO_FLEET_UPDATER_MANAGED_RUN"`,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "1", output.String())
+}
+
 func newTestManager(t *testing.T, installRoot string, server *httptest.Server, runner CommandRunner) *Manager {
 	t.Helper()
 	return newTestManagerWithConfig(t, installRoot, server, runner, nil)

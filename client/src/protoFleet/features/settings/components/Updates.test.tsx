@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -9,13 +9,17 @@ import type {
   GetUpdateStatusResponse,
   ReleaseInfo,
   SetReleaseChannelResponse,
+  UpgradeOperation,
 } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import {
   GetUpdateStatusResponseSchema,
   ReleaseChannel,
   ReleaseInfoSchema,
   SetReleaseChannelResponseSchema,
+  UpgradeOperationSchema,
+  UpgradePhase,
 } from "@/protoFleet/api/generated/instance/v1/updates_pb";
+import { useUpgradeOperation } from "@/protoFleet/features/updates/api/useUpgradeOperation";
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -24,10 +28,29 @@ const permissionsMock = vi.hoisted(() => ({
   current: ["instance:update", "fleet:read"],
   isAuthenticated: true,
   sessionExpiry: new Date(1_000),
+  sessionGeneration: 1,
   setPermissions: vi.fn<(permissions: string[]) => void>(),
+  username: "operator-a",
 }));
 const authErrorsMock = vi.hoisted(() => ({
   handleAuthErrors: vi.fn(),
+}));
+interface UpgradeHookMockState {
+  acknowledgeOperation: ReturnType<typeof vi.fn>;
+  connectionLost: boolean;
+  manualFallbackReady: boolean;
+  operation?: UpgradeOperation;
+  operationStatusPending: boolean;
+  reconciling: boolean;
+  reloadFleet: ReturnType<typeof vi.fn>;
+  triggerError: string | null;
+  triggering: boolean;
+  trackedTargetVersion?: string;
+  triggerUpgrade: ReturnType<typeof vi.fn>;
+  useManualFallback: ReturnType<typeof vi.fn>;
+}
+const upgradeHookMock = vi.hoisted(() => ({
+  current: {} as UpgradeHookMockState,
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -43,7 +66,10 @@ vi.mock("@/protoFleet/store", () => {
   return {
     useHasPermission: vi.fn((permission: string) => permissionsMock.current.includes(permission)),
     usePermissions: () => permissionsMock.current,
+    useSessionExpiry: () => permissionsMock.sessionExpiry,
+    useSessionGeneration: () => permissionsMock.sessionGeneration,
     useSetPermissions: () => permissionsMock.setPermissions,
+    useUsername: () => permissionsMock.username,
     useAuthErrors: () => authErrorsMock,
     useFleetStore: {
       getState: () => ({
@@ -51,6 +77,8 @@ vi.mock("@/protoFleet/store", () => {
           isAuthenticated: permissionsMock.isAuthenticated,
           permissions: permissionsMock.current,
           sessionExpiry: permissionsMock.sessionExpiry,
+          sessionGeneration: permissionsMock.sessionGeneration,
+          username: permissionsMock.username,
         },
       }),
     },
@@ -63,6 +91,14 @@ vi.mock("@/protoFleet/api/clients", () => ({
     setReleaseChannel: vi.fn(),
   },
 }));
+
+vi.mock("@/protoFleet/features/updates/api/useUpgradeOperation", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/protoFleet/features/updates/api/useUpgradeOperation")>();
+  return {
+    ...actual,
+    useUpgradeOperation: vi.fn(() => upgradeHookMock.current),
+  };
+});
 
 vi.mock("@/shared/utils/utility", () => ({
   copyToClipboard: vi.fn(),
@@ -102,13 +138,24 @@ const buildStatus = (overrides?: MessageOverrides<GetUpdateStatusResponse>): Get
     ...overrides,
   });
 
+const buildOperation = (phase: UpgradePhase, overrides?: MessageOverrides<UpgradeOperation>): UpgradeOperation =>
+  create(UpgradeOperationSchema, {
+    id: "operation-1",
+    targetVersion: "v1.3.0",
+    phase,
+    message: "Preparing upgrade",
+    ...overrides,
+  });
+
 const mockUseHasPermission = vi.mocked(useHasPermission);
+const mockUseUpgradeOperation = vi.mocked(useUpgradeOperation);
 const mockGetUpdateStatus = vi.mocked(instanceUpdateClient.getUpdateStatus);
 const mockSetReleaseChannel = vi.mocked(instanceUpdateClient.setReleaseChannel);
 const mockCopyToClipboard = vi.mocked(copyToClipboard);
 const mockPushToast = vi.mocked(pushToast);
 
 const RC_CHECKBOX_NAME = "Include release candidates";
+const UPDATE_STATUS_REQUEST_TIMEOUT_MS = 10_000;
 const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 
@@ -125,9 +172,26 @@ const createDeferred = <T,>() => {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  sessionStorage.clear();
+  upgradeHookMock.current = {
+    acknowledgeOperation: vi.fn(),
+    connectionLost: false,
+    manualFallbackReady: false,
+    operation: undefined,
+    operationStatusPending: false,
+    reconciling: false,
+    reloadFleet: vi.fn(),
+    triggerError: null,
+    triggering: false,
+    trackedTargetVersion: undefined,
+    triggerUpgrade: vi.fn().mockResolvedValue(undefined),
+    useManualFallback: vi.fn(),
+  };
   permissionsMock.current = ["instance:update", "fleet:read"];
   permissionsMock.isAuthenticated = true;
   permissionsMock.sessionExpiry = new Date(1_000);
+  permissionsMock.sessionGeneration = 1;
+  permissionsMock.username = "operator-a";
   permissionsMock.setPermissions.mockImplementation((permissions) => {
     permissionsMock.current = permissions;
   });
@@ -150,6 +214,275 @@ describe("Updates", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(getByText(INSTALL_COMMAND)).toBeInTheDocument();
     expect(getByRole("button", { name: "Copy install command" })).toBeInTheDocument();
+    expect(getByRole("button", { name: "Copy install command" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Upgrade to v1.3.0" })).not.toBeInTheDocument();
+    expect(mockGetUpdateStatus).toHaveBeenCalledWith({}, { timeoutMs: UPDATE_STATUS_REQUEST_TIMEOUT_MS });
+  });
+
+  it("confirms the exact offered version before starting a one-click upgrade", async () => {
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("button", { name: "Upgrade to v1.3.0" }));
+
+    expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent(
+      "Fleet will validate and build this exact release",
+    );
+    expect(upgradeHookMock.current.triggerUpgrade).not.toHaveBeenCalled();
+
+    fireEvent.click(page.getByRole("button", { name: "Confirm upgrade to v1.3.0" }));
+    await waitFor(() => expect(upgradeHookMock.current.triggerUpgrade).toHaveBeenCalledWith("v1.3.0"));
+  });
+
+  it("keeps an active operation ahead of a newer release offer", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.PREFLIGHT, {
+      targetVersion: "v1.3.0",
+      message: "Validating v1.3.0",
+    });
+    mockGetUpdateStatus.mockResolvedValue(
+      buildStatus({
+        oneClickAvailable: true,
+        installCommand: "install v1.4.0",
+        latestEligible: buildReleaseInfo({ version: "v1.4.0" }),
+      }),
+    );
+
+    const page = render(<Updates />);
+
+    expect((await page.findAllByText("Validating v1.3.0")).length).toBeGreaterThan(0);
+    expect(page.queryByRole("button", { name: "Upgrade to v1.4.0" })).not.toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+
+    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(page.getByRole("button", { name: "View upgrade details" }));
+    expect(page.getAllByText("Validating v1.3.0").length).toBeGreaterThan(0);
+  });
+
+  it("keeps manual recovery usable after a failed operation and can acknowledge its durable record", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+      error: "new stack failed to start",
+      hostLogPath: "/var/lib/proto-fleet-updater/logs/operation-1.log",
+      recoveryCommand: "cd /opt/proto-fleet/deployment && ./run-fleet.sh --skip-build",
+    });
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+
+    expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
+    fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
+    expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a reload after the watched operation succeeds", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
+      message: "Upgrade complete",
+    });
+    mockGetUpdateStatus.mockResolvedValue(
+      buildStatus({
+        currentVersion: "v1.3.0",
+        updateAvailable: false,
+        installCommand: "",
+        latestEligible: undefined,
+        oneClickAvailable: true,
+      }),
+    );
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("button", { name: "Reload Fleet" }));
+
+    expect(upgradeHookMock.current.reloadFleet).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks competing controls while reconciling an ambiguous trigger", async () => {
+    upgradeHookMock.current.reconciling = true;
+    upgradeHookMock.current.triggerError = "Fleet did not confirm the request";
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+
+    expect(await page.findByText(/checking upgrade status/i)).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+
+    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    const detailsButton = page.getByRole("button", { name: "View upgrade details" });
+    expect(detailsButton).toBeEnabled();
+    fireEvent.click(detailsButton);
+    expect(page.getByTestId("upgrade-operation-modal")).toBeInTheDocument();
+  });
+
+  it("keeps install controls locked while fallback refreshes the authoritative offer", async () => {
+    const refreshedStatus = createDeferred<GetUpdateStatusResponse>();
+    upgradeHookMock.current.reconciling = true;
+    upgradeHookMock.current.manualFallbackReady = true;
+    upgradeHookMock.current.triggerError = "Fleet did not confirm the request";
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ oneClickAvailable: true }));
+    mockGetUpdateStatus.mockReturnValueOnce(refreshedStatus.promise);
+
+    const page = render(<Updates />);
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    fireEvent.click(page.getByRole("button", { name: "I confirmed — unlock manual install" }));
+    expect(upgradeHookMock.current.useManualFallback).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    upgradeHookMock.current = {
+      ...upgradeHookMock.current,
+      manualFallbackReady: false,
+      reconciling: false,
+      triggerError: null,
+    };
+    page.rerender(<Updates />);
+
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+
+    await act(async () => {
+      refreshedStatus.resolve(
+        buildStatus({
+          installCommand: "install v1.4.0",
+          latestEligible: buildReleaseInfo({ version: "v1.4.0" }),
+          oneClickAvailable: true,
+        }),
+      );
+      await refreshedStatus.promise;
+    });
+
+    expect(await page.findByText("v1.4.0")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeEnabled();
+  });
+
+  it("keeps controls locked while an untracked success refreshes the installed version", async () => {
+    const refreshedStatus = createDeferred<GetUpdateStatusResponse>();
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ oneClickAvailable: true }));
+    mockGetUpdateStatus.mockReturnValueOnce(refreshedStatus.promise);
+
+    const page = render(<Updates />);
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    const hookCalls = mockUseUpgradeOperation.mock.calls;
+    const hookOptions = hookCalls[hookCalls.length - 1]?.[0];
+    expect(hookOptions?.onUntrackedSuccess).toEqual(expect.any(Function));
+
+    act(() => hookOptions?.onUntrackedSuccess?.(buildOperation(UpgradePhase.SUCCEEDED)));
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+
+    await act(async () => {
+      refreshedStatus.resolve(
+        buildStatus({
+          currentVersion: "v1.3.0",
+          updateAvailable: false,
+          installCommand: "",
+          latestEligible: undefined,
+          oneClickAvailable: true,
+        }),
+      );
+      await refreshedStatus.promise;
+    });
+
+    expect(await page.findByText("You're on the latest version")).toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "Copy install command" })).not.toBeInTheDocument();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeEnabled();
+  });
+
+  it("locks competing controls until the initial operation status resolves", async () => {
+    upgradeHookMock.current.operationStatusPending = true;
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+
+    expect(await page.findByRole("button", { name: "Upgrade to v1.3.0" })).toBeDisabled();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+  });
+
+  it("locks competing controls whenever a persisted operation remains unresolved", async () => {
+    upgradeHookMock.current.trackedTargetVersion = "v1.3.0";
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+
+    expect(await page.findByRole("button", { name: "Upgrade to v1.3.0" })).toBeDisabled();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+  });
+
+  it("keeps an ambiguous request's target when a newer release is now eligible", async () => {
+    upgradeHookMock.current.reconciling = true;
+    upgradeHookMock.current.trackedTargetVersion = "v1.3.0";
+    upgradeHookMock.current.triggerError = "Fleet did not confirm the v1.3.0 request";
+    mockGetUpdateStatus.mockResolvedValue(
+      buildStatus({
+        installCommand: "install v1.4.0",
+        latestEligible: buildReleaseInfo({ version: "v1.4.0" }),
+        oneClickAvailable: true,
+      }),
+    );
+
+    const page = render(<Updates />);
+
+    expect(await page.findByText("v1.4.0")).toBeInTheDocument();
+    expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent("Upgrade Fleet to v1.3.0");
+  });
+
+  it("refreshes the eligible release after reconciliation finds no operation", async () => {
+    const refreshedStatus = createDeferred<GetUpdateStatusResponse>();
+    upgradeHookMock.current.reconciling = true;
+    upgradeHookMock.current.triggerError = "Fleet did not confirm the request";
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ oneClickAvailable: true }))
+      .mockReturnValueOnce(refreshedStatus.promise);
+
+    const page = render(<Updates />);
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+
+    upgradeHookMock.current = { ...upgradeHookMock.current, reconciling: false };
+    page.rerender(<Updates />);
+
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+    expect(page.queryByRole("button", { name: "Confirm upgrade to v1.3.0" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      refreshedStatus.resolve(
+        buildStatus({
+          installCommand: "install v1.4.0",
+          latestEligible: buildReleaseInfo({ version: "v1.4.0" }),
+          oneClickAvailable: true,
+        }),
+      );
+      await refreshedStatus.promise;
+    });
+
+    expect(await page.findByText("v1.4.0")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Confirm upgrade to v1.4.0" })).toBeEnabled();
+  });
+
+  it("keeps a stale modal target disabled after its authoritative refresh fails", async () => {
+    const failedRefresh = createDeferred<GetUpdateStatusResponse>();
+    upgradeHookMock.current.reconciling = true;
+    upgradeHookMock.current.triggerError = "Fleet did not confirm the request";
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ oneClickAvailable: true }))
+      .mockReturnValueOnce(failedRefresh.promise);
+
+    const page = render(<Updates />);
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+
+    upgradeHookMock.current = { ...upgradeHookMock.current, reconciling: false };
+    page.rerender(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      failedRefresh.reject(new Error("release status unavailable"));
+      await failedRefresh.promise.catch(() => undefined);
+    });
+
+    expect(page.getByRole("alert")).toHaveTextContent("Fleet did not confirm the request");
+    expect(page.queryByRole("button", { name: /Confirm upgrade/ })).not.toBeInTheDocument();
   });
 
   it("omits the release notes link when the server provides no URL", async () => {
@@ -235,6 +568,11 @@ describe("Updates", () => {
 
     expect(await findByText("Unable to load update status")).toBeInTheDocument();
     expect(getByText("release registry unreachable")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockUseUpgradeOperation).toHaveBeenLastCalledWith(
+        expect.objectContaining({ currentVersionUnavailable: true }),
+      ),
+    );
   });
 
   it("saves a channel change and toasts success", async () => {
@@ -438,6 +776,36 @@ describe("Updates", () => {
     expect(authErrorsMock.handleAuthErrors).not.toHaveBeenCalled();
     expect(permissionsMock.setPermissions).not.toHaveBeenCalled();
     expect(mockPushToast).not.toHaveBeenCalled();
+  });
+
+  it("restarts a pending status refresh when the authenticated session changes in place", async () => {
+    const previousRequest = createDeferred<GetUpdateStatusResponse>();
+    const replacementRequest = createDeferred<GetUpdateStatusResponse>();
+    mockGetUpdateStatus.mockReturnValueOnce(previousRequest.promise).mockReturnValueOnce(replacementRequest.promise);
+
+    const page = render(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1));
+
+    permissionsMock.sessionExpiry = new Date(2_000);
+    permissionsMock.sessionGeneration = 2;
+    page.rerender(<Updates />);
+
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      replacementRequest.resolve(buildStatus());
+      await replacementRequest.promise;
+    });
+
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
+
+    await act(async () => {
+      previousRequest.reject(new ConnectError("old session expired", Code.Unauthenticated));
+      await previousRequest.promise.catch(() => undefined);
+    });
+
+    expect(authErrorsMock.handleAuthErrors).not.toHaveBeenCalled();
   });
 
   it("disables channel and copy controls throughout the save and refetch", async () => {
@@ -687,6 +1055,28 @@ describe("Updates", () => {
     );
     expect(permissionsMock.setPermissions).toHaveBeenCalledWith(["fleet:read"]);
     expect(page.queryByText("Unable to load update status")).not.toBeInTheDocument();
+
+    page.rerender(<Updates />);
+    expect(page.getByTestId("navigate")).toHaveAttribute("data-to", "/settings/network");
+  });
+
+  it("invalidates stale client permission when upgrade polling is denied", async () => {
+    mockGetUpdateStatus.mockResolvedValue(buildStatus());
+
+    const page = render(<Updates />);
+    await page.findByText("v1.2.0");
+    const lastHookCall = mockUseUpgradeOperation.mock.calls[mockUseUpgradeOperation.mock.calls.length - 1];
+    const onPollError = lastHookCall?.[0].onPollError;
+
+    act(() => {
+      onPollError?.(new ConnectError("permission revoked", Code.PermissionDenied));
+    });
+
+    expect(mockPushToast).toHaveBeenCalledWith({
+      message: PERMISSION_REVOKED_MESSAGE,
+      status: "error",
+    });
+    expect(permissionsMock.setPermissions).toHaveBeenCalledWith(["fleet:read"]);
 
     page.rerender(<Updates />);
     expect(page.getByTestId("navigate")).toHaveAttribute("data-to", "/settings/network");
