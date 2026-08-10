@@ -10,9 +10,10 @@ SELECT
     rs.id AS rack_id,
     gm.device_set_id AS group_id
 FROM device d
-LEFT JOIN device_set_membership rm ON rm.device_id = d.id AND rm.device_set_type = 'rack'
+-- Membership org_id is denormalized and always equals the device's org; the redundant predicate lets both joins ride idx_dcm_org_device instead of scanning global memberships (the group side has no device_id-leading index).
+LEFT JOIN device_set_membership rm ON rm.org_id = d.org_id AND rm.device_id = d.id AND rm.device_set_type = 'rack'
 LEFT JOIN device_set rs ON rs.id = rm.device_set_id AND rs.deleted_at IS NULL
 LEFT JOIN device_set_rack dcr ON dcr.device_set_id = rs.id
-LEFT JOIN device_set_membership gm ON gm.device_id = d.id AND gm.device_set_type = 'group'
+LEFT JOIN device_set_membership gm ON gm.org_id = d.org_id AND gm.device_id = d.id AND gm.device_set_type = 'group'
     AND EXISTS (SELECT 1 FROM device_set gs WHERE gs.id = gm.device_set_id AND gs.deleted_at IS NULL)
 WHERE d.deleted_at IS NULL;
