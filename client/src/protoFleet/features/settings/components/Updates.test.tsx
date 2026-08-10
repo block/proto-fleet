@@ -155,6 +155,7 @@ const mockCopyToClipboard = vi.mocked(copyToClipboard);
 const mockPushToast = vi.mocked(pushToast);
 
 const RC_CHECKBOX_NAME = "Include release candidates";
+const UPDATE_STATUS_REQUEST_TIMEOUT_MS = 10_000;
 const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 
@@ -215,6 +216,7 @@ describe("Updates", () => {
     expect(getByRole("button", { name: "Copy install command" })).toBeInTheDocument();
     expect(getByRole("button", { name: "Copy install command" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Upgrade to v1.3.0" })).not.toBeInTheDocument();
+    expect(mockGetUpdateStatus).toHaveBeenCalledWith({}, { timeoutMs: UPDATE_STATUS_REQUEST_TIMEOUT_MS });
   });
 
   it("confirms the exact offered version before starting a one-click upgrade", async () => {
@@ -349,6 +351,41 @@ describe("Updates", () => {
 
     expect(await page.findByText("v1.4.0")).toBeInTheDocument();
     expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeEnabled();
+  });
+
+  it("keeps controls locked while an untracked success refreshes the installed version", async () => {
+    const refreshedStatus = createDeferred<GetUpdateStatusResponse>();
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ oneClickAvailable: true }));
+    mockGetUpdateStatus.mockReturnValueOnce(refreshedStatus.promise);
+
+    const page = render(<Updates />);
+    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    const hookCalls = mockUseUpgradeOperation.mock.calls;
+    const hookOptions = hookCalls[hookCalls.length - 1]?.[0];
+    expect(hookOptions?.onUntrackedSuccess).toEqual(expect.any(Function));
+
+    act(() => hookOptions?.onUntrackedSuccess?.(buildOperation(UpgradePhase.SUCCEEDED)));
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
+
+    await act(async () => {
+      refreshedStatus.resolve(
+        buildStatus({
+          currentVersion: "v1.3.0",
+          updateAvailable: false,
+          installCommand: "",
+          latestEligible: undefined,
+          oneClickAvailable: true,
+        }),
+      );
+      await refreshedStatus.promise;
+    });
+
+    expect(await page.findByText("You're on the latest version")).toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "Copy install command" })).not.toBeInTheDocument();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeEnabled();
   });
 

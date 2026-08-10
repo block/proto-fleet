@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
@@ -38,12 +39,16 @@ const useTestUpgradeOperation = (options: TestUpgradeOperationOptions, authSessi
 
 type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
 
+const timestamp = (seconds: number) => create(TimestampSchema, { seconds: BigInt(seconds) });
+
 const operation = (phase: UpgradePhase, overrides?: MessageOverrides<UpgradeOperation>) =>
   create(UpgradeOperationSchema, {
     id: "operation-1",
     targetVersion: "v1.3.0",
     phase,
     message: "Preparing upgrade",
+    startedAt: timestamp(100),
+    updatedAt: timestamp(100),
     ...overrides,
   });
 
@@ -226,6 +231,7 @@ describe("useUpgradeOperation", () => {
       authSessionIdentity: AUTH_SESSION_IDENTITY,
       id: "operation-1",
       phase: UpgradePhase.UNSPECIFIED,
+      revision: "100:0",
     });
 
     await act(async () => vi.advanceTimersByTimeAsync(2_000));
@@ -335,12 +341,52 @@ describe("useUpgradeOperation", () => {
     expect(result.current.triggerError).toBeNull();
   });
 
+  it("reconciles an ambiguous trigger rejection to a newer same-target failure", async () => {
+    const previousFailure = operation(UpgradePhase.FAILED, { id: "operation-old" });
+    const failedOperation = operation(UpgradePhase.FAILED, {
+      id: "operation-new",
+      updatedAt: timestamp(101),
+      recoveryCommand: "./run-fleet.sh --skip-build",
+    });
+    window.sessionStorage.setItem(
+      ACKNOWLEDGED_OPERATION_KEY,
+      JSON.stringify({
+        authSessionIdentity: AUTH_SESSION_IDENTITY,
+        id: previousFailure.id,
+        phase: previousFailure.phase,
+        revision: "100:0",
+      }),
+    );
+    mockGetUpgradeStatus
+      .mockResolvedValueOnce(status(true, previousFailure))
+      .mockResolvedValue(status(true, failedOperation));
+    mockTriggerUpgrade.mockRejectedValue(new Error("response lost"));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+    await waitFor(() => expect(result.current.operation?.id).toBe("operation-new"));
+
+    expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED);
+    expect(result.current.operation?.recoveryCommand).toBe("./run-fleet.sh --skip-build");
+    expect(result.current.reconciling).toBe(false);
+  });
+
   it("does not let a stale terminal failure resolve an ambiguous trigger", async () => {
     const staleFailure = operation(UpgradePhase.FAILED, {
       id: "operation-old",
       targetVersion: "v1.3.0",
     });
-    mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, staleFailure));
+    window.sessionStorage.setItem(
+      ACKNOWLEDGED_OPERATION_KEY,
+      JSON.stringify({
+        authSessionIdentity: AUTH_SESSION_IDENTITY,
+        id: staleFailure.id,
+        phase: staleFailure.phase,
+        revision: "100:0",
+      }),
+    );
+    mockGetUpgradeStatus.mockResolvedValue(status(true, staleFailure));
     mockTriggerUpgrade.mockRejectedValue(new Error("response lost"));
     const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
 
@@ -488,6 +534,26 @@ describe("useUpgradeOperation", () => {
     expect(result.current.operation).toBeUndefined();
   });
 
+  it("requests one authoritative offer refresh for an untracked success revision", async () => {
+    vi.useFakeTimers();
+    const onUntrackedSuccess = vi.fn();
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.SUCCEEDED)));
+    const { result } = renderHook(() =>
+      useTestUpgradeOperation({
+        enabled: true,
+        currentVersion: "v1.2.0",
+        onUntrackedSuccess,
+      }),
+    );
+
+    await act(async () => Promise.resolve());
+    expect(onUntrackedSuccess).toHaveBeenCalledTimes(1);
+    expect(result.current.operation).toBeUndefined();
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(onUntrackedSuccess).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a tracked activation failure visible when Fleet reports its target version", async () => {
     window.sessionStorage.setItem(
       TRACKED_OPERATION_KEY,
@@ -583,6 +649,7 @@ describe("useUpgradeOperation", () => {
       authSessionIdentity: AUTH_SESSION_IDENTITY,
       id: "operation-1",
       phase: UpgradePhase.FAILED,
+      revision: "100:0",
     });
     firstSession.unmount();
 
@@ -596,6 +663,31 @@ describe("useUpgradeOperation", () => {
     );
     await waitFor(() => expect(nextSession.result.current.operation?.phase).toBe(UpgradePhase.FAILED));
     expect(JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}")).toEqual(acknowledgedRecord);
+  });
+
+  it("resurfaces acknowledged failure details when startup reconciliation advances the revision", async () => {
+    const originalFailure = operation(UpgradePhase.FAILED, { recoveryCommand: "old recovery" });
+    mockGetUpgradeStatus.mockResolvedValue(status(true, originalFailure));
+    const firstSession = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await waitFor(() => expect(firstSession.result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+
+    act(() => firstSession.result.current.acknowledgeOperation());
+    firstSession.unmount();
+
+    mockGetUpgradeStatus.mockReset();
+    mockGetUpgradeStatus.mockResolvedValue(
+      status(
+        true,
+        operation(UpgradePhase.FAILED, {
+          updatedAt: timestamp(101),
+          recoveryCommand: "new recovery",
+        }),
+      ),
+    );
+    const reconciledSession = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(reconciledSession.result.current.operation?.recoveryCommand).toBe("new recovery"));
+    expect(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY)).toBeNull();
   });
 
   it("forwards poll errors for page-level auth handling", async () => {

@@ -30,6 +30,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
 const INSTANCE_UPDATE_PERMISSION = "instance:update";
+const UPDATE_STATUS_REQUEST_TIMEOUT_MS = 10_000;
 const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 const UPDATES_PAGE_DESCRIPTION =
@@ -147,38 +148,6 @@ const Updates = () => {
     [handleAuthErrors, handlePermissionRevoked],
   );
 
-  const upgrade = useUpgradeOperation({
-    authSessionIdentity,
-    enabled: canUpdateInstance,
-    currentVersion: status?.currentVersion,
-    currentVersionUnavailable: Boolean(loadError && !status),
-    onPollError: handleUpgradePollError,
-  });
-  const activeUpgrade = isUpgradeActive(upgrade.operation);
-  const succeededUpgrade = upgrade.operation?.phase === UpgradePhase.SUCCEEDED;
-  const upgradeRequestPending = upgrade.triggering || upgrade.reconciling;
-  const unresolvedTrackedUpgrade = Boolean(upgrade.trackedTargetVersion && !upgrade.operation);
-  const upgradeLocksConfiguration =
-    isStatusRefreshPending ||
-    upgrade.operationStatusPending ||
-    upgradeRequestPending ||
-    unresolvedTrackedUpgrade ||
-    Boolean(upgrade.operation);
-  const upgradeActionDisabled =
-    isChannelChangePending ||
-    isStatusRefreshPending ||
-    upgrade.operationStatusPending ||
-    upgradeRequestPending ||
-    unresolvedTrackedUpgrade;
-  const manualCommandDisabled =
-    isChannelChangePending ||
-    isStatusRefreshPending ||
-    upgrade.operationStatusPending ||
-    activeUpgrade ||
-    upgradeRequestPending ||
-    unresolvedTrackedUpgrade ||
-    Boolean(succeededUpgrade);
-
   const fetchStatus = useCallback(async () => {
     const requestId = ++latestStatusRequest.current;
     const authSession = captureAuthSession(authSessionIdentity);
@@ -188,7 +157,7 @@ const Updates = () => {
       if (requestId !== latestStatusRequest.current || !isSameAuthSession(authSession)) {
         return;
       }
-      const response = await instanceUpdateClient.getUpdateStatus({});
+      const response = await instanceUpdateClient.getUpdateStatus({}, { timeoutMs: UPDATE_STATUS_REQUEST_TIMEOUT_MS });
       if (requestId !== latestStatusRequest.current || !isSameAuthSession(authSession)) {
         return;
       }
@@ -219,6 +188,41 @@ const Updates = () => {
       }
     }
   }, [authSessionIdentity, handleAuthErrors, handlePermissionRevoked]);
+
+  const upgrade = useUpgradeOperation({
+    authSessionIdentity,
+    enabled: canUpdateInstance,
+    currentVersion: status?.currentVersion,
+    currentVersionUnavailable: Boolean(loadError && !status),
+    onUntrackedSuccess: () => {
+      void fetchStatus();
+    },
+    onPollError: handleUpgradePollError,
+  });
+  const activeUpgrade = isUpgradeActive(upgrade.operation);
+  const succeededUpgrade = upgrade.operation?.phase === UpgradePhase.SUCCEEDED;
+  const upgradeRequestPending = upgrade.triggering || upgrade.reconciling;
+  const unresolvedTrackedUpgrade = Boolean(upgrade.trackedTargetVersion && !upgrade.operation);
+  const upgradeLocksConfiguration =
+    isStatusRefreshPending ||
+    upgrade.operationStatusPending ||
+    upgradeRequestPending ||
+    unresolvedTrackedUpgrade ||
+    Boolean(upgrade.operation);
+  const upgradeActionDisabled =
+    isChannelChangePending ||
+    isStatusRefreshPending ||
+    upgrade.operationStatusPending ||
+    upgradeRequestPending ||
+    unresolvedTrackedUpgrade;
+  const manualCommandDisabled =
+    isChannelChangePending ||
+    isStatusRefreshPending ||
+    upgrade.operationStatusPending ||
+    activeUpgrade ||
+    upgradeRequestPending ||
+    unresolvedTrackedUpgrade ||
+    Boolean(succeededUpgrade);
 
   useEffect(() => {
     isMounted.current = true;
