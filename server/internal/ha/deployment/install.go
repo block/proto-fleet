@@ -904,8 +904,7 @@ func writeInstallTemp(name, contents string, mode os.FileMode) (string, error) {
 	return path, nil
 }
 
-// ReleaseRoot returns the packaged deployment containing this fleet-ha binary.
-func ReleaseRoot() (string, error) {
+func releaseRoot() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("locate fleet-ha executable: %w", err)
@@ -915,4 +914,9 @@ func ReleaseRoot() (string, error) {
 		return "", errors.New("fleet-ha install must run from a packaged release")
 	}
 	return root, nil
+}
+
+// ReleaseRoot returns the packaged deployment containing this fleet-ha binary.
+func ReleaseRoot() (string, error) {
+	return releaseRoot()
 }
