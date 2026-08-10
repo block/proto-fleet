@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -224,7 +225,7 @@ func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
 
 func TestValidateInstallPlatformRejects16KPages(t *testing.T) {
 	// Act
-	err := validateInstallPlatform(installDependencies{
+	_, err := validateInstallPlatform(installDependencies{
 		goos: "linux", goarch: "arm64", pageSize: 16384,
 		readFile: func(string) ([]byte, error) { return []byte("ID=debian\nVERSION_ID=13\n"), nil },
 	})
@@ -233,6 +234,96 @@ func TestValidateInstallPlatformRejects16KPages(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "4096-byte") || !strings.Contains(err.Error(), "reboot") {
 		t.Fatalf("validateInstallPlatform() error = %v", err)
 	}
+}
+
+func TestValidateInstallPlatformSelectsDockerRepository(t *testing.T) {
+	tests := []struct {
+		name      string
+		osRelease string
+		goarch    string
+		want      installPlatform
+	}{
+		{name: "Debian 12", osRelease: "ID=debian\nVERSION_ID=12\nVERSION_CODENAME=bookworm\n", goarch: "amd64", want: installPlatform{repository: "debian", suite: "bookworm"}},
+		{name: "Debian 13", osRelease: "ID=debian\nVERSION_ID=13\nVERSION_CODENAME=trixie\n", goarch: "arm64", want: installPlatform{repository: "debian", suite: "trixie"}},
+		{name: "Ubuntu 22.04", osRelease: "ID=ubuntu\nVERSION_ID=22.04\nVERSION_CODENAME=jammy\n", goarch: "amd64", want: installPlatform{repository: "ubuntu", suite: "jammy"}},
+		{name: "Ubuntu 24.04", osRelease: "ID=ubuntu\nVERSION_ID=24.04\nVERSION_CODENAME=noble\nUBUNTU_CODENAME=noble\n", goarch: "arm64", want: installPlatform{repository: "ubuntu", suite: "noble"}},
+		{name: "Raspberry Pi OS", osRelease: "ID=raspbian\nVERSION_ID=12\nID_LIKE=debian\nVERSION_CODENAME=bookworm\n", goarch: "arm64", want: installPlatform{repository: "debian", suite: "bookworm"}},
+		{name: "Ubuntu derivative", osRelease: "ID=linuxmint\nID_LIKE=\"ubuntu debian\"\nVERSION_CODENAME=wilma\nUBUNTU_CODENAME=noble\n", goarch: "amd64", want: installPlatform{repository: "ubuntu", suite: "noble"}},
+		{name: "Other apt derivative", osRelease: "ID=custom\nVERSION_CODENAME=trixie\n", goarch: "amd64", want: installPlatform{repository: "debian", suite: "trixie"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			got, err := validateInstallPlatform(installDependencies{
+				goos: "linux", goarch: tt.goarch, pageSize: 4096,
+				readFile: func(string) ([]byte, error) { return []byte(tt.osRelease), nil },
+			})
+
+			// Assert
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestValidateInstallPlatformRejectsUnsupportedHosts(t *testing.T) {
+	tests := []struct {
+		name      string
+		osRelease string
+		goarch    string
+		wantError string
+	}{
+		{name: "old Debian", osRelease: "ID=debian\nVERSION_ID=11\n", goarch: "amd64", wantError: "Debian 12 or 13"},
+		{name: "old Ubuntu", osRelease: "ID=ubuntu\nVERSION_ID=20.04\n", goarch: "amd64", wantError: "Ubuntu 22.04 or 24.04"},
+		{name: "32-bit Raspberry Pi OS", osRelease: "ID=raspbian\nVERSION_ID=12\n", goarch: "arm", wantError: "64-bit"},
+		{name: "unsupported architecture", osRelease: "ID=custom\nVERSION_CODENAME=bookworm\n", goarch: "386", wantError: "amd64 and arm64"},
+		{name: "missing native codename", osRelease: "ID=debian\nVERSION_ID=12\n", goarch: "amd64", wantError: "VERSION_CODENAME"},
+		{name: "missing derivative codename", osRelease: "ID=custom\nID_LIKE=debian\n", goarch: "amd64", wantError: "VERSION_CODENAME"},
+		{name: "unsafe derivative codename", osRelease: "ID=custom\nVERSION_CODENAME=bookworm stable\n", goarch: "amd64", wantError: "invalid release codename"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			_, err := validateInstallPlatform(installDependencies{
+				goos: "linux", goarch: tt.goarch, pageSize: 4096,
+				readFile: func(string) ([]byte, error) { return []byte(tt.osRelease), nil },
+			})
+
+			// Assert
+			require.ErrorContains(t, err, tt.wantError)
+		})
+	}
+}
+
+func TestInstallPackagesUsesUbuntuRepository(t *testing.T) {
+	// Arrange
+	var keyURL string
+	var repository string
+	deps := installDependencies{
+		goarch: "arm64",
+		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			if name == "curl" {
+				keyURL = args[len(args)-1]
+				return []byte("docker-signing-key"), nil
+			}
+			return nil, nil
+		},
+		runInput: func(_ context.Context, input, _ string, args ...string) error {
+			if slices.Contains(args, "/etc/apt/sources.list.d/docker.sources") {
+				repository = input
+			}
+			return nil
+		},
+	}
+
+	// Act
+	err := installPackages(t.Context(), installPlatform{repository: "ubuntu", suite: "noble"}, deps)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "https://download.docker.com/linux/ubuntu/gpg", keyURL)
+	require.Contains(t, repository, "URIs: https://download.docker.com/linux/ubuntu")
+	require.Contains(t, repository, "Suites: noble")
 }
 
 func TestValidateReleaseRejectsSymlinks(t *testing.T) {
@@ -298,7 +389,7 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	deps.lookPath = func(name string) (string, error) {
-		if name == "sudo" || name == "ip" || name == "ss" {
+		if slices.Contains([]string{"apt-get", "ip", "ss", "sudo", "systemctl"}, name) {
 			return "/usr/bin/" + name, nil
 		}
 		if name == "docker" {
@@ -313,6 +404,36 @@ func TestInstallRejectsExistingDockerBeforeMutation(t *testing.T) {
 	// Assert
 	require.ErrorContains(t, err, "clean host without docker")
 	require.NotContains(t, strings.Join(calls, "\n"), "apt-get")
+}
+
+func TestInstallRejectsMissingBaseCommandBeforeMutation(t *testing.T) {
+	for _, missing := range []string{"apt-get", "systemctl"} {
+		t.Run(missing, func(t *testing.T) {
+			// Arrange
+			source := testInstallRelease(t)
+			config := NodeConfig{
+				NodeName: "ha-c", NodeIP: testHostIPs[2], DatabaseAIP: testHostIPs[0],
+				DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+				NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
+			}
+			writeTestSecretBundle(t, config)
+			var calls []string
+			deps := testInstallerDependencies(source, config, &calls)
+			deps.lookPath = func(name string) (string, error) {
+				if name == missing {
+					return "", os.ErrNotExist
+				}
+				return "/usr/bin/" + name, nil
+			}
+
+			// Act
+			err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env"}, deps)
+
+			// Assert
+			require.ErrorContains(t, err, "missing "+missing)
+			require.Empty(t, calls)
+		})
+	}
 }
 
 func TestCleanInstallRejectsHAServiceDropIns(t *testing.T) {
@@ -392,7 +513,7 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 		goos: "linux", goarch: "arm64", pageSize: 4096,
 		readFile: func(path string) ([]byte, error) {
 			if path == "/etc/os-release" {
-				return []byte("ID=debian\nVERSION_ID=13\n"), nil
+				return []byte("ID=debian\nVERSION_ID=13\nVERSION_CODENAME=trixie\n"), nil
 			}
 			if relative, ok := strings.CutPrefix(path, installRoot+string(os.PathSeparator)); ok {
 				path = filepath.Join(source, relative)
@@ -401,7 +522,7 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 		},
 		lstat: func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
 		lookPath: func(name string) (string, error) {
-			if name == "sudo" || name == "ip" || name == "ss" {
+			if slices.Contains([]string{"apt-get", "ip", "ss", "sudo", "systemctl"}, name) {
 				return "/usr/bin/" + name, nil
 			}
 			return "", fmt.Errorf("not found")
