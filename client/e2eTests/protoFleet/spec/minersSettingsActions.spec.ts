@@ -65,7 +65,7 @@ test.describe("Miner Settings Actions", () => {
   });
 
   if (testConfig.target !== "real") {
-    test("Update worker name from a miner action menu and restore the original value @pr", async ({
+    test("Update worker name from a miner action menu and restore the original value @smoke", async ({
       minersPage,
       commonSteps,
       loginModal,
@@ -152,7 +152,7 @@ test.describe("Miner Settings Actions", () => {
     });
   }
 
-  test("Manage security opens from the miner action menu and validates password input @pr", async ({
+  test("Manage security opens from the miner action menu and validates password input @smoke", async ({
     minersPage,
     commonSteps,
     loginModal,

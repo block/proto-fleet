@@ -17,7 +17,7 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - management", () => {
   useRacksHooks();
 
-  test("Multiple racks support zone filtering and miner sorting @pr", async ({ homePage, racksPage }) => {
+  test("Multiple racks support zone filtering and miner sorting @smoke", async ({ homePage, racksPage }) => {
     const zoneA = createZoneName("A");
     const zoneB = createZoneName("B");
     const createdRackLabels: string[] = [];

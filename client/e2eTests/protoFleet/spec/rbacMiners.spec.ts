@@ -35,7 +35,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await page.goto("/");
   });
 
-  test("Miners read-only role can view the miner list and status without mutating action controls @pr", async ({
+  test("Miners read-only role can view the miner list and status without mutating action controls @smoke", async ({
     browser,
     commonSteps,
     minersPage,
@@ -113,7 +113,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     });
   });
 
-  test("Miners reboot role can open the reboot confirmation flow @pr", async ({
+  test("Miners reboot role can open the reboot confirmation flow", async ({
     browser,
     commonSteps,
     minersPage,
@@ -193,7 +193,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     }
   });
 
-  test("Miners stop-mining role can open the sleep confirmation flow", async ({
+  test("Miners stop-mining role can open the sleep confirmation flow @smoke", async ({
     browser,
     commonSteps,
     minersPage,
@@ -227,7 +227,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     });
   });
 
-  test("Miners update-pools role can open the pool editor from a miner action menu @pr", async ({
+  test("Miners update-pools role can open the pool editor from a miner action menu", async ({
     browser,
     commonSteps,
     loginModal,
@@ -299,7 +299,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     });
   });
 
-  test("Miners delete role can open the unpair confirmation flow", async ({
+  test("Miners delete role can open the unpair confirmation flow @smoke", async ({
     browser,
     commonSteps,
     minersPage,
@@ -537,7 +537,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     }
   });
 
-  test("Miners export-csv role can export the miner list @pr", async ({ browser, commonSteps, minersPage, page }) => {
+  test("Miners export-csv role can export the miner list", async ({ browser, commonSteps, minersPage, page }) => {
     await test.step("Provision an export-csv miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Export miner list CSV for RBAC coverage.",

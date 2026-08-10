@@ -13,7 +13,7 @@ test.describe("Proto Fleet - Dashboard", () => {
     await page.goto("/");
   });
 
-  test("Dashboard renders the paired fleet shell @pr", async ({ homePage, commonSteps }) => {
+  test("Dashboard renders the paired fleet shell @smoke", async ({ homePage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
     await test.step("Validate dashboard sections are visible", async () => {

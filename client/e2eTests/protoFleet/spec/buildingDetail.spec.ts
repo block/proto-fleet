@@ -11,7 +11,7 @@ import { validateRackAndMinerPlacementAcrossTabs, validateSiteAndBuildingCounts 
 test.describe("Buildings - detail", () => {
   useBuildingDetailHooks();
 
-  test("Building detail supports editing details, opening scoped racks and miners, and switching to a sibling building @pr", async ({
+  test("Building detail supports editing details, opening scoped racks and miners, and switching to a sibling building @smoke", async ({
     page,
     fleetLocationsPage,
     minersPage,

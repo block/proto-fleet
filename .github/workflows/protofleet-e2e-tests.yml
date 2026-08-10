@@ -52,18 +52,18 @@ jobs:
 
           if [ "$RUN_SCOPE" = "pr" ]; then
             SPEC_FILES=$(printf '%s\n' "$ALL_TARGET_SPECS" | while IFS= read -r spec; do
-              if [ -n "$spec" ] && grep -q '@pr' "$spec"; then
+              if [ -n "$spec" ] && grep -q '@smoke' "$spec"; then
                 printf '%s\n' "$spec"
               fi
             done | jq -R . | jq -cs .)
-            TEST_GREP="@pr"
+            TEST_GREP="@smoke"
           else
             SPEC_FILES=$(printf '%s\n' "$ALL_TARGET_SPECS" | jq -R . | jq -cs .)
             TEST_GREP=""
           fi
 
           if [ "$RUN_SCOPE" = "pr" ] && [ "$SPEC_FILES" = "[]" ]; then
-            echo "No @pr-tagged ProtoFleet specs were detected."
+            echo "No @smoke-tagged ProtoFleet specs were detected."
             exit 1
           fi
 

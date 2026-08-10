@@ -19,7 +19,7 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - overview actions", () => {
   useRacksHooks();
 
-  test("Rack overview actions menu manages power for assigned rig miners @pr", async ({
+  test("Rack overview actions menu manages power for assigned rig miners @smoke", async ({
     racksPage,
     minersPage,
     page,
@@ -181,7 +181,7 @@ test.describe("Racks - overview actions", () => {
     });
   }
 
-  test("Rack overview actions menu opens manage security and validates password mismatch @pr", async ({
+  test("Rack overview actions menu opens manage security and validates password mismatch @smoke", async ({
     racksPage,
     loginModal,
     minersPage,

@@ -42,7 +42,7 @@ test.describe("Proto Fleet - Schedules", () => {
     }
   });
 
-  test("Create, pause/resume, edit, and delete a schedule @pr", async ({ commonSteps, settingsSchedulesPage }) => {
+  test("Create, pause/resume, edit, and delete a schedule @smoke", async ({ commonSteps, settingsSchedulesPage }) => {
     const scheduleName = generateRandomText(SCHEDULE_PREFIX);
     const updatedScheduleName = `${scheduleName}_updated`;
 
@@ -96,7 +96,7 @@ test.describe("Proto Fleet - Schedules", () => {
     });
   });
 
-  test("Recurring schedule validation @pr", async ({ commonSteps, settingsSchedulesPage }) => {
+  test("Recurring schedule validation @smoke", async ({ commonSteps, settingsSchedulesPage }) => {
     const scheduleName = generateRandomText(SCHEDULE_PREFIX);
 
     await test.step("Log in as admin", async () => {

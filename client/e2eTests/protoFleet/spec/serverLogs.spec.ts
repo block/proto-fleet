@@ -39,7 +39,7 @@ test.describe("Proto Fleet - Server Logs", () => {
     await page.goto("/");
   });
 
-  test("Page loads, polling appends new rows, and export starts a CSV download @pr", async ({
+  test("Page loads, polling appends new rows, and export starts a CSV download @smoke", async ({
     commonSteps,
     page,
     serverLogsPage,
@@ -102,7 +102,7 @@ test.describe("Proto Fleet - Server Logs", () => {
     });
   });
 
-  test("Load failures surface the server logs error callout @pr", async ({ commonSteps, page, serverLogsPage }) => {
+  test("Load failures surface the server logs error callout @smoke", async ({ commonSteps, page, serverLogsPage }) => {
     await page.route(serverLogsRpcPattern, async (route) => {
       return route.fulfill({
         status: 503,

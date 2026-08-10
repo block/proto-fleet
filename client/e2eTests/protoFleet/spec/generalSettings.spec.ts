@@ -38,7 +38,7 @@ test.describe("General Settings", () => {
     }
   });
 
-  test("Render network details from the fleet network info API @pr", async ({
+  test("Render network details from the fleet network info API @smoke", async ({
     authPage,
     settingsPage,
     commonSteps,
@@ -105,7 +105,7 @@ test.describe("General Settings", () => {
     });
   });
 
-  test("Theme preference persists after refresh @pr", async ({ authPage, settingsPage, commonSteps }) => {
+  test("Theme preference persists after refresh @smoke", async ({ authPage, settingsPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
     let originalTheme: SettingsTheme = "System";

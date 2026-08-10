@@ -14,7 +14,7 @@ import {
 test.describe("Buildings", () => {
   useBuildingsHooks();
 
-  test("Create a site, building, rack, and miners flow across fleet tabs @pr", async ({
+  test("Create a site, building, rack, and miners flow across fleet tabs @smoke", async ({
     page,
     fleetLocationsPage,
     minersPage,
@@ -100,7 +100,7 @@ test.describe("Buildings", () => {
     });
   });
 
-  test("Rename a building and propagate the new name across fleet tabs @pr", async ({
+  test("Rename a building and propagate the new name across fleet tabs @smoke", async ({
     page,
     fleetLocationsPage,
     minersPage,

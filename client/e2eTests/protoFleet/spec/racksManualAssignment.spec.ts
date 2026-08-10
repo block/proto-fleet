@@ -13,7 +13,7 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - manual assignment", () => {
   useRacksHooks();
 
-  test("Manual rack assignment supports search, selection replacement, and saved slot state @pr", async ({
+  test("Manual rack assignment supports search, selection replacement, and saved slot state @smoke", async ({
     racksPage,
   }) => {
     let rackLabel = "";

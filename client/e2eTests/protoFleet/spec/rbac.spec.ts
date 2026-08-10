@@ -70,7 +70,7 @@ test.describe("Proto Fleet - RBAC", () => {
     await page.goto("/");
   });
 
-  test("Pools read-only role cannot access the Pools settings surface", async ({
+  test("Pools read-only role cannot access the Pools settings surface @smoke", async ({
     page,
     commonSteps,
     settingsPoolsPage,
@@ -90,7 +90,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Pools manage role can create and delete mining pools @pr", async ({
+  test("Pools manage role can create and delete mining pools", async ({
     commonSteps,
     newPoolModal,
     settingsPage,
@@ -183,7 +183,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Schedules read-only role cannot access the Schedules settings surface @pr", async ({
+  test("Schedules read-only role cannot access the Schedules settings surface", async ({
     page,
     commonSteps,
     settingsSchedulesPage,
@@ -281,7 +281,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Curtailment ingest permission reaches the ingest RPC while manage-only is denied @pr", async ({
+  test("Curtailment ingest permission reaches the ingest RPC while manage-only is denied", async ({
     authPage,
     browser,
     commonSteps,
@@ -325,7 +325,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Sites, buildings, and racks read-only role can view infrastructure without create actions", async ({
+  test("Sites, buildings, and racks read-only role can view infrastructure without create actions @smoke", async ({
     commonSteps,
     fleetLocationsPage,
     racksPage,
@@ -372,7 +372,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Sites, buildings, and racks manage role can create infrastructure @pr", async ({
+  test("Sites, buildings, and racks manage role can create infrastructure", async ({
     commonSteps,
     fleetLocationsPage,
     racksPage,

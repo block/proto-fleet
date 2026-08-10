@@ -49,7 +49,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     }
   });
 
-  test("SLEEP - WAKE a miner @pr", async ({ minersPage, commonSteps }) => {
+  test("SLEEP - WAKE a miner @smoke", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
@@ -94,7 +94,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     });
   });
 
-  test("SLEEP - WAKE all rig miners, without page refresh @pr", async ({ minersPage, commonSteps }) => {
+  test("SLEEP - WAKE all rig miners, without page refresh", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
