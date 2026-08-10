@@ -10,67 +10,67 @@ import { generateRandomText } from "../helpers/testDataHelper";
 test.describe("Proto Fleet - Fleet saved views", () => {
   useBuildingsHooks();
 
-  test("Buildings saved view restores the site-filtered fleet view @smoke", async ({
-    page,
-    fleetLocationsPage,
-    racksPage,
-  }) => {
-    const scenario = createBuildingsScenarioData();
-    const viewName = generateRandomText("buildings_view");
+  test(
+    "Buildings saved view restores the site-filtered fleet view",
+    { tag: "@smoke" },
+    async ({ page, fleetLocationsPage, racksPage }) => {
+      const scenario = createBuildingsScenarioData();
+      const viewName = generateRandomText("buildings_view");
 
-    await setupRackAssignedToBuilding(page, fleetLocationsPage, racksPage, scenario);
+      await setupRackAssignedToBuilding(page, fleetLocationsPage, racksPage, scenario);
 
-    let siteId = 0n;
+      let siteId = 0n;
 
-    await test.step("Open the buildings tab from the site row and save the filtered view", async () => {
-      siteId = await fleetLocationsPage.openBuildingsForSite(scenario.siteName);
+      await test.step("Open the buildings tab from the site row and save the filtered view", async () => {
+        siteId = await fleetLocationsPage.openBuildingsForSite(scenario.siteName);
 
-      await fleetLocationsPage.validateCurrentBuildingRowCounts(scenario.buildingName, {
-        siteName: scenario.siteName,
-        racks: 1,
-        miners: 2,
+        await fleetLocationsPage.validateCurrentBuildingRowCounts(scenario.buildingName, {
+          siteName: scenario.siteName,
+          racks: 1,
+          miners: 2,
+        });
+
+        let searchParams = new URL(page.url()).searchParams;
+        test.expect(searchParams.getAll("site")).toEqual([siteId.toString()]);
+
+        await fleetLocationsPage.clickNewSavedViewButton();
+        await fleetLocationsPage.validateViewModalOpened("New view");
+        await fleetLocationsPage.inputViewName(viewName);
+        await fleetLocationsPage.saveNewView();
+        await fleetLocationsPage.validateViewTabActive(viewName);
       });
 
-      let searchParams = new URL(page.url()).searchParams;
-      test.expect(searchParams.getAll("site")).toEqual([siteId.toString()]);
+      await test.step("Clear the site filter so the saved view becomes dirty", async () => {
+        await fleetLocationsPage.clearActiveFilter("site");
 
-      await fleetLocationsPage.clickNewSavedViewButton();
-      await fleetLocationsPage.validateViewModalOpened("New view");
-      await fleetLocationsPage.inputViewName(viewName);
-      await fleetLocationsPage.saveNewView();
-      await fleetLocationsPage.validateViewTabActive(viewName);
-    });
-
-    await test.step("Clear the site filter so the saved view becomes dirty", async () => {
-      await fleetLocationsPage.clearActiveFilter("site");
-
-      const searchParams = new URL(page.url()).searchParams;
-      test.expect(searchParams.getAll("site")).toEqual([]);
-      test.expect(searchParams.get("view")).not.toBeNull();
-    });
-
-    await test.step("Reset and then delete the saved view", async () => {
-      await fleetLocationsPage.clickResetViewAction(viewName);
-      await fleetLocationsPage.validateViewTabActive(viewName);
-      await fleetLocationsPage.validateCurrentBuildingRowCounts(scenario.buildingName, {
-        siteName: scenario.siteName,
-        racks: 1,
-        miners: 2,
+        const searchParams = new URL(page.url()).searchParams;
+        test.expect(searchParams.getAll("site")).toEqual([]);
+        test.expect(searchParams.get("view")).not.toBeNull();
       });
 
-      let searchParams = new URL(page.url()).searchParams;
-      test.expect(searchParams.getAll("site")).toEqual([siteId.toString()]);
+      await test.step("Reset and then delete the saved view", async () => {
+        await fleetLocationsPage.clickResetViewAction(viewName);
+        await fleetLocationsPage.validateViewTabActive(viewName);
+        await fleetLocationsPage.validateCurrentBuildingRowCounts(scenario.buildingName, {
+          siteName: scenario.siteName,
+          racks: 1,
+          miners: 2,
+        });
 
-      await fleetLocationsPage.clickDeleteViewAction(viewName);
-      await fleetLocationsPage.validateDeleteViewDialogOpened(viewName);
-      await fleetLocationsPage.confirmDeleteView();
-      await fleetLocationsPage.validateViewTabNotVisible(viewName);
+        let searchParams = new URL(page.url()).searchParams;
+        test.expect(searchParams.getAll("site")).toEqual([siteId.toString()]);
 
-      searchParams = new URL(page.url()).searchParams;
-      test.expect(searchParams.get("view")).toBeNull();
-      test.expect(searchParams.getAll("site")).toEqual([siteId.toString()]);
-    });
-  });
+        await fleetLocationsPage.clickDeleteViewAction(viewName);
+        await fleetLocationsPage.validateDeleteViewDialogOpened(viewName);
+        await fleetLocationsPage.confirmDeleteView();
+        await fleetLocationsPage.validateViewTabNotVisible(viewName);
+
+        searchParams = new URL(page.url()).searchParams;
+        test.expect(searchParams.get("view")).toBeNull();
+        test.expect(searchParams.getAll("site")).toEqual([siteId.toString()]);
+      });
+    },
+  );
 
   test("Racks saved view restores the building filter and display mode", async ({
     page,

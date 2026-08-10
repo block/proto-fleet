@@ -42,47 +42,47 @@ test.describe("Proto Fleet - Activity", () => {
     }
   });
 
-  test("Blink LEDs bulk action is visible in Activity with the right miner count @smoke", async ({
-    activityPage,
-    commonSteps,
-    minersPage,
-  }) => {
-    await commonSteps.loginAsAdmin();
-    await commonSteps.goToMinersPage();
+  test(
+    "Blink LEDs bulk action is visible in Activity with the right miner count",
+    { tag: "@smoke" },
+    async ({ activityPage, commonSteps, minersPage }) => {
+      await commonSteps.loginAsAdmin();
+      await commonSteps.goToMinersPage();
 
-    await test.step("Filter to Proto rig miners", async () => {
-      await minersPage.filterRigMiners();
-    });
+      await test.step("Filter to Proto rig miners", async () => {
+        await minersPage.filterRigMiners();
+      });
 
-    await test.step("Select three miners and trigger Blink LEDs", async () => {
-      await minersPage.clickMinerCheckboxByIndex(0);
-      await minersPage.validateActionBarMinerCount(1);
-      await minersPage.clickMinerCheckboxByIndex(1);
-      await minersPage.validateActionBarMinerCount(2);
-      await minersPage.clickMinerCheckboxByIndex(2);
-      await minersPage.validateActionBarMinerCount(3);
+      await test.step("Select three miners and trigger Blink LEDs", async () => {
+        await minersPage.clickMinerCheckboxByIndex(0);
+        await minersPage.validateActionBarMinerCount(1);
+        await minersPage.clickMinerCheckboxByIndex(1);
+        await minersPage.validateActionBarMinerCount(2);
+        await minersPage.clickMinerCheckboxByIndex(2);
+        await minersPage.validateActionBarMinerCount(3);
 
-      await minersPage.clickBlinkLEDsButton();
-    });
+        await minersPage.clickBlinkLEDsButton();
+      });
 
-    await test.step("Validate Blink LEDs toasts", async () => {
-      await minersPage.validateTextInToastGroup("Blinking LEDs");
-      await minersPage.validateTextInToastGroup("Blinked LEDs");
-    });
+      await test.step("Validate Blink LEDs toasts", async () => {
+        await minersPage.validateTextInToastGroup("Blinking LEDs");
+        await minersPage.validateTextInToastGroup("Blinked LEDs");
+      });
 
-    await test.step("Open Activity and filter by user", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
-      await activityPage.selectUserFilter(testConfig.users.admin.username);
-    });
+      await test.step("Open Activity and filter by user", async () => {
+        await activityPage.navigateToActivityPage();
+        await activityPage.waitForActivityListToLoad();
+        await activityPage.selectUserFilter(testConfig.users.admin.username);
+      });
 
-    await test.step("Validate the latest activity row", async () => {
-      await activityPage.validateLatestActivityDescription("Blinked LEDs");
-      await activityPage.validateLatestActivityScope("3 miners");
-      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityNotMarkedFailed();
-    });
-  });
+      await test.step("Validate the latest activity row", async () => {
+        await activityPage.validateLatestActivityDescription("Blinked LEDs");
+        await activityPage.validateLatestActivityScope("3 miners");
+        await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
+        await activityPage.validateLatestActivityNotMarkedFailed();
+      });
+    },
+  );
 
   test("Blink LEDs activity detail modal shows batch summary", async ({ activityPage, commonSteps, minersPage }) => {
     await test.step("Trigger Blink LEDs for three Proto rig miners", async () => {
@@ -127,40 +127,40 @@ test.describe("Proto Fleet - Activity", () => {
     });
   });
 
-  test("Type and user filter pills can be removed and Activity export starts a CSV download @smoke", async ({
-    page,
-    activityPage,
-    commonSteps,
-  }) => {
-    await commonSteps.loginAsAdmin();
+  test(
+    "Type and user filter pills can be removed and Activity export starts a CSV download",
+    { tag: "@smoke" },
+    async ({ page, activityPage, commonSteps }) => {
+      await commonSteps.loginAsAdmin();
 
-    await test.step("Open Activity and apply type and user filters", async () => {
-      await activityPage.navigateToActivityPage();
-      await activityPage.waitForActivityListToLoad();
-      await activityPage.selectTypeFilter("Log in");
-      await activityPage.selectUserFilter(testConfig.users.admin.username);
-    });
+      await test.step("Open Activity and apply type and user filters", async () => {
+        await activityPage.navigateToActivityPage();
+        await activityPage.waitForActivityListToLoad();
+        await activityPage.selectTypeFilter("Log in");
+        await activityPage.selectUserFilter(testConfig.users.admin.username);
+      });
 
-    await test.step("Validate and remove the type filter pill", async () => {
-      await activityPage.validateFilterPillVisible("Log in");
-      await activityPage.validateFilterPillVisible(testConfig.users.admin.username);
-      await activityPage.removeFilterPill("Log in");
-      await activityPage.validateFilterPillNotVisible("Log in");
-      await activityPage.validateFilterPillVisible(testConfig.users.admin.username);
-      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
-    });
+      await test.step("Validate and remove the type filter pill", async () => {
+        await activityPage.validateFilterPillVisible("Log in");
+        await activityPage.validateFilterPillVisible(testConfig.users.admin.username);
+        await activityPage.removeFilterPill("Log in");
+        await activityPage.validateFilterPillNotVisible("Log in");
+        await activityPage.validateFilterPillVisible(testConfig.users.admin.username);
+        await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
+      });
 
-    await test.step("Export the filtered activity list", async () => {
-      const download = await activityPage.exportCsv();
-      test.expect(download.suggestedFilename()).toMatch(/activity-export.*\.csv$/i);
-    });
+      await test.step("Export the filtered activity list", async () => {
+        const download = await activityPage.exportCsv();
+        test.expect(download.suggestedFilename()).toMatch(/activity-export.*\.csv$/i);
+      });
 
-    await test.step("Keep the list stable after export", async () => {
-      await page.bringToFront();
-      await activityPage.waitForActivityListToLoad();
-      await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
-    });
-  });
+      await test.step("Keep the list stable after export", async () => {
+        await page.bringToFront();
+        await activityPage.waitForActivityListToLoad();
+        await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
+      });
+    },
+  );
 
   test("Scope filter pills can be removed for group activity", async ({ activityPage, commonSteps, groupsPage }) => {
     const groupName = generateRandomText("activity_group");

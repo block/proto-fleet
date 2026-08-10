@@ -49,7 +49,7 @@ test.describe("Miners SLEEP - WAKE actions", () => {
     }
   });
 
-  test("SLEEP - WAKE a miner @smoke", async ({ minersPage, commonSteps }) => {
+  test("SLEEP - WAKE a miner", async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 

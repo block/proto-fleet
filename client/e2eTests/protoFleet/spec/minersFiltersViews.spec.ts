@@ -7,136 +7,136 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
     await page.goto("/");
   });
 
-  test("Numeric and subnet filters persist through reload and clear cleanly @smoke", async ({
-    minersPage,
-    commonSteps,
-    page,
-  }) => {
-    let initialMinerCount = 0;
-    let filteredMinerIp = "";
-    let targetSubnet = "";
-    let powerMin: number | undefined;
-    let powerMax: number | undefined;
+  test(
+    "Numeric and subnet filters persist through reload and clear cleanly",
+    { tag: "@smoke" },
+    async ({ minersPage, commonSteps, page }) => {
+      let initialMinerCount = 0;
+      let filteredMinerIp = "";
+      let targetSubnet = "";
+      let powerMin: number | undefined;
+      let powerMax: number | undefined;
 
-    await commonSteps.loginAsAdmin();
-    await commonSteps.goToMinersPage();
+      await commonSteps.loginAsAdmin();
+      await commonSteps.goToMinersPage();
 
-    await test.step("Capture a target miner and its filter values", async () => {
-      initialMinerCount = await minersPage.getMinersCount();
-      filteredMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
-      targetSubnet = toSubnet24(filteredMinerIp);
+      await test.step("Capture a target miner and its filter values", async () => {
+        initialMinerCount = await minersPage.getMinersCount();
+        filteredMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+        targetSubnet = toSubnet24(filteredMinerIp);
 
-      powerMin = 2;
-      powerMax = undefined;
+        powerMin = 2;
+        powerMax = undefined;
 
-      test.expect(initialMinerCount).toBeGreaterThan(0);
-    });
+        test.expect(initialMinerCount).toBeGreaterThan(0);
+      });
 
-    await test.step("Apply subnet and power filters", async () => {
-      await minersPage.applySubnetFilter([targetSubnet]);
-      await minersPage.waitForMinersListToLoad();
-      await minersPage.applyPowerFilter(powerMin, powerMax);
-      await minersPage.waitForMinersListToLoad();
-    });
+      await test.step("Apply subnet and power filters", async () => {
+        await minersPage.applySubnetFilter([targetSubnet]);
+        await minersPage.waitForMinersListToLoad();
+        await minersPage.applyPowerFilter(powerMin, powerMax);
+        await minersPage.waitForMinersListToLoad();
+      });
 
-    await test.step("Validate filtered results, chips, and URL", async () => {
-      filteredMinerIp = await minersPage.getMinerIpAddressByIndex(0);
-      await minersPage.validateActiveFilterSummary("subnet", targetSubnet);
-      await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(powerMin, powerMax));
-      await minersPage.validateMinerInList(filteredMinerIp);
-      test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
+      await test.step("Validate filtered results, chips, and URL", async () => {
+        filteredMinerIp = await minersPage.getMinerIpAddressByIndex(0);
+        await minersPage.validateActiveFilterSummary("subnet", targetSubnet);
+        await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(powerMin, powerMax));
+        await minersPage.validateMinerInList(filteredMinerIp);
+        test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
 
-      const searchParams = new URL(page.url()).searchParams;
-      test.expect(searchParams.getAll("subnet")).toEqual([targetSubnet]);
-      test.expect(searchParams.get("power_min")).toBe(String(powerMin));
-      test.expect(searchParams.get("power_max")).toBeNull();
-    });
+        const searchParams = new URL(page.url()).searchParams;
+        test.expect(searchParams.getAll("subnet")).toEqual([targetSubnet]);
+        test.expect(searchParams.get("power_min")).toBe(String(powerMin));
+        test.expect(searchParams.get("power_max")).toBeNull();
+      });
 
-    await test.step("Reload and validate the filters persist", async () => {
-      await minersPage.reloadPage();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
+      await test.step("Reload and validate the filters persist", async () => {
+        await minersPage.reloadPage();
+        await minersPage.waitForMinersTitle();
+        await minersPage.waitForMinersListToLoad();
 
-      await minersPage.validateActiveFilterSummary("subnet", targetSubnet);
-      await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(powerMin, powerMax));
-      await minersPage.validateMinerInList(filteredMinerIp);
-      test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
-    });
+        await minersPage.validateActiveFilterSummary("subnet", targetSubnet);
+        await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(powerMin, powerMax));
+        await minersPage.validateMinerInList(filteredMinerIp);
+        test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
+      });
 
-    await test.step("Apply a strict power filter and validate the empty state", async () => {
-      await minersPage.applyPowerFilter(50, 50);
-      await minersPage.validateNoResultsEmptyState();
-    });
+      await test.step("Apply a strict power filter and validate the empty state", async () => {
+        await minersPage.applyPowerFilter(50, 50);
+        await minersPage.validateNoResultsEmptyState();
+      });
 
-    await test.step("Clear the filters and validate the full list returns", async () => {
-      await minersPage.clickClearAllFilters();
-      await minersPage.waitForMinersListToLoad();
+      await test.step("Clear the filters and validate the full list returns", async () => {
+        await minersPage.clickClearAllFilters();
+        await minersPage.waitForMinersListToLoad();
 
-      test.expect(await minersPage.getMinersCount()).toBe(initialMinerCount);
+        test.expect(await minersPage.getMinersCount()).toBe(initialMinerCount);
 
-      const searchParams = new URL(page.url()).searchParams;
-      test.expect(searchParams.getAll("subnet")).toEqual([]);
-      test.expect(searchParams.get("power_min")).toBeNull();
-      test.expect(searchParams.get("power_max")).toBeNull();
-    });
-  });
+        const searchParams = new URL(page.url()).searchParams;
+        test.expect(searchParams.getAll("subnet")).toEqual([]);
+        test.expect(searchParams.get("power_min")).toBeNull();
+        test.expect(searchParams.get("power_max")).toBeNull();
+      });
+    },
+  );
 
-  test("Saved view can be created and reset back to its saved filters @smoke", async ({
-    minersPage,
-    commonSteps,
-    page,
-  }) => {
-    const viewName = generateRandomText("miners_view");
-    let firstMinerIp = "";
-    let firstMinerSubnet = "";
-    const dirtyPowerMin = 2;
-    const dirtyPowerMax = undefined;
+  test(
+    "Saved view can be created and reset back to its saved filters",
+    { tag: "@smoke" },
+    async ({ minersPage, commonSteps, page }) => {
+      const viewName = generateRandomText("miners_view");
+      let firstMinerIp = "";
+      let firstMinerSubnet = "";
+      const dirtyPowerMin = 2;
+      const dirtyPowerMax = undefined;
 
-    await commonSteps.loginAsAdmin();
-    await commonSteps.goToMinersPage();
+      await commonSteps.loginAsAdmin();
+      await commonSteps.goToMinersPage();
 
-    await test.step("Capture a miner and save a view for its subnet", async () => {
-      firstMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
-      firstMinerSubnet = toSubnet24(firstMinerIp);
+      await test.step("Capture a miner and save a view for its subnet", async () => {
+        firstMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+        firstMinerSubnet = toSubnet24(firstMinerIp);
 
-      await minersPage.applySubnetFilter([firstMinerSubnet]);
-      await minersPage.waitForMinersListToLoad();
-      firstMinerIp = await minersPage.getMinerIpAddressByIndex(0);
-      await minersPage.clickNewSavedViewButton();
-      await minersPage.validateViewModalOpened("New view");
-      await minersPage.inputViewName(viewName);
-      await minersPage.saveNewView();
-    });
+        await minersPage.applySubnetFilter([firstMinerSubnet]);
+        await minersPage.waitForMinersListToLoad();
+        firstMinerIp = await minersPage.getMinerIpAddressByIndex(0);
+        await minersPage.clickNewSavedViewButton();
+        await minersPage.validateViewModalOpened("New view");
+        await minersPage.inputViewName(viewName);
+        await minersPage.saveNewView();
+      });
 
-    await test.step("Validate the new view is active", async () => {
-      await minersPage.validateViewTabVisible(viewName);
-      await minersPage.validateViewTabActive(viewName);
-      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
-      await minersPage.validateMinerInList(firstMinerIp);
-    });
+      await test.step("Validate the new view is active", async () => {
+        await minersPage.validateViewTabVisible(viewName);
+        await minersPage.validateViewTabActive(viewName);
+        await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+        await minersPage.validateMinerInList(firstMinerIp);
+      });
 
-    await test.step("Change the live filters so the view becomes dirty", async () => {
-      await minersPage.applyPowerFilter(dirtyPowerMin, dirtyPowerMax);
-      await minersPage.waitForMinersListToLoad();
+      await test.step("Change the live filters so the view becomes dirty", async () => {
+        await minersPage.applyPowerFilter(dirtyPowerMin, dirtyPowerMax);
+        await minersPage.waitForMinersListToLoad();
 
-      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
-      await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(dirtyPowerMin, dirtyPowerMax));
-      test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
-    });
+        await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+        await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(dirtyPowerMin, dirtyPowerMax));
+        test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
+      });
 
-    await test.step("Reset the view back to the saved filters", async () => {
-      await minersPage.clickResetViewAction(viewName);
-      await minersPage.waitForMinersListToLoad();
+      await test.step("Reset the view back to the saved filters", async () => {
+        await minersPage.clickResetViewAction(viewName);
+        await minersPage.waitForMinersListToLoad();
 
-      await minersPage.validateViewTabActive(viewName);
-      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
-      await minersPage.validateActiveFilterNotVisible("Power");
-      await minersPage.validateMinerInList(firstMinerIp);
-      test.expect(new URL(page.url()).searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
-      test.expect(new URL(page.url()).searchParams.get("power_min")).toBeNull();
-      test.expect(new URL(page.url()).searchParams.get("power_max")).toBeNull();
-    });
-  });
+        await minersPage.validateViewTabActive(viewName);
+        await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+        await minersPage.validateActiveFilterNotVisible("Power");
+        await minersPage.validateMinerInList(firstMinerIp);
+        test.expect(new URL(page.url()).searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+        test.expect(new URL(page.url()).searchParams.get("power_min")).toBeNull();
+        test.expect(new URL(page.url()).searchParams.get("power_max")).toBeNull();
+      });
+    },
+  );
 
   test("Saved view can be updated after the filters change", async ({ minersPage, commonSteps, page }) => {
     const viewName = generateRandomText("miners_view");

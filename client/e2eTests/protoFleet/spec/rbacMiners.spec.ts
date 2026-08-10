@@ -35,62 +35,62 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await page.goto("/");
   });
 
-  test("Miners read-only role can view the miner list and status without mutating action controls @smoke", async ({
-    browser,
-    commonSteps,
-    minersPage,
-  }) => {
-    let minerIp = "";
-    let minerStatus = "";
+  test(
+    "Miners read-only role can view the miner list and status without mutating action controls",
+    { tag: "@smoke" },
+    async ({ browser, commonSteps, minersPage }) => {
+      let minerIp = "";
+      let minerStatus = "";
 
-    await test.step("Prepare a visible hashing Proto rig as admin", async () => {
-      await commonSteps.loginAsAdmin({ forceReauth: true });
-      await commonSteps.goToMinersPage();
-      await ensureVisibleRigMinersAwake(minersPage);
-    });
-
-    await test.step("Provision a read-only miner role", async () => {
-      await provisionMinerRole(browser, commonSteps, {
-        roleDescription: "Read-only miner access for RBAC coverage.",
-        permissionKeys: [...MINER_READ_PERMISSIONS],
+      await test.step("Prepare a visible hashing Proto rig as admin", async () => {
+        await commonSteps.loginAsAdmin({ forceReauth: true });
+        await commonSteps.goToMinersPage();
+        await ensureVisibleRigMinersAwake(minersPage);
       });
-    });
 
-    await test.step("Open Proto rig miners and capture a visible authenticated miner", async () => {
-      await commonSteps.goToMinersPage();
-      await minersPage.filterRigMiners();
+      await test.step("Provision a read-only miner role", async () => {
+        await provisionMinerRole(browser, commonSteps, {
+          roleDescription: "Read-only miner access for RBAC coverage.",
+          permissionKeys: [...MINER_READ_PERMISSIONS],
+        });
+      });
 
-      minerIp = await minersPage.getMinerIpAddressByStatus("Hashing");
-      minerStatus = (await minersPage.getMinerStatus(minerIp)).trim();
+      await test.step("Open Proto rig miners and capture a visible authenticated miner", async () => {
+        await commonSteps.goToMinersPage();
+        await minersPage.filterRigMiners();
 
-      expect(minerIp).not.toBe("");
-      expect(minerStatus).toBe("Hashing");
-    });
+        minerIp = await minersPage.getMinerIpAddressByStatus("Hashing");
+        minerStatus = (await minersPage.getMinerStatus(minerIp)).trim();
 
-    await test.step("Verify single-miner mutating controls stay hidden", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
-      await minersPage.validateSingleMinerActionsHidden([
-        "add-to-site-popover-button",
-        "add-to-building-popover-button",
-        "add-to-rack-popover-button",
-        "add-to-group-popover-button",
-        "blink-leds-popover-button",
-        "reboot-popover-button",
-        "shutdown-popover-button",
-        "wake-up-popover-button",
-        "manage-power-popover-button",
-        "mining-pool-popover-button",
-        "firmware-update-popover-button",
-        "cooling-mode-popover-button",
-        "download-logs-popover-button",
-        "rename-popover-button",
-        "update-worker-names-popover-button",
-        "security-popover-button",
-        "unpair-popover-button",
-      ]);
-      await minersPage.dismissSingleMinerActionsPopoverIfVisible();
-    });
-  });
+        expect(minerIp).not.toBe("");
+        expect(minerStatus).toBe("Hashing");
+      });
+
+      await test.step("Verify single-miner mutating controls stay hidden", async () => {
+        await minersPage.clickMinerThreeDotsButton(minerIp);
+        await minersPage.validateSingleMinerActionsHidden([
+          "add-to-site-popover-button",
+          "add-to-building-popover-button",
+          "add-to-rack-popover-button",
+          "add-to-group-popover-button",
+          "blink-leds-popover-button",
+          "reboot-popover-button",
+          "shutdown-popover-button",
+          "wake-up-popover-button",
+          "manage-power-popover-button",
+          "mining-pool-popover-button",
+          "firmware-update-popover-button",
+          "cooling-mode-popover-button",
+          "download-logs-popover-button",
+          "rename-popover-button",
+          "update-worker-names-popover-button",
+          "security-popover-button",
+          "unpair-popover-button",
+        ]);
+        await minersPage.dismissSingleMinerActionsPopoverIfVisible();
+      });
+    },
+  );
 
   test("Miners blink-led role can blink a miner locator LED", async ({ browser, commonSteps, minersPage }) => {
     await test.step("Provision a blink-led miner role", async () => {
@@ -193,39 +193,38 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     }
   });
 
-  test("Miners stop-mining role can open the sleep confirmation flow @smoke", async ({
-    browser,
-    commonSteps,
-    minersPage,
-    page,
-  }) => {
-    let minerIp = "";
+  test(
+    "Miners stop-mining role can open the sleep confirmation flow",
+    { tag: "@smoke" },
+    async ({ browser, commonSteps, minersPage, page }) => {
+      let minerIp = "";
 
-    await test.step("Prepare a hashing Proto rig", async () => {
-      await commonSteps.loginAsAdmin({ forceReauth: true });
-      await commonSteps.goToMinersPage();
-      minerIp = await selectHashingRigMinerForStopFlow(minersPage);
-    });
-
-    await test.step("Provision a stop-mining miner role", async () => {
-      await provisionMinerRole(browser, commonSteps, {
-        roleDescription: "Stop miners for RBAC coverage.",
-        permissionKeys: [...MINER_READ_PERMISSIONS, "miner:stop_mining"],
+      await test.step("Prepare a hashing Proto rig", async () => {
+        await commonSteps.loginAsAdmin({ forceReauth: true });
+        await commonSteps.goToMinersPage();
+        minerIp = await selectHashingRigMinerForStopFlow(minersPage);
       });
-    });
 
-    await test.step("Open Proto rig miners", async () => {
-      await commonSteps.goToMinersPage();
-    });
+      await test.step("Provision a stop-mining miner role", async () => {
+        await provisionMinerRole(browser, commonSteps, {
+          roleDescription: "Stop miners for RBAC coverage.",
+          permissionKeys: [...MINER_READ_PERMISSIONS, "miner:stop_mining"],
+        });
+      });
 
-    await test.step("Open the sleep confirmation flow", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
-      await minersPage.clickShutdownButton();
-      await expect(page.getByTestId("shutdown-confirm-button")).toBeVisible();
-      await minersPage.cancelSingleMinerConfirmationDialog();
-      await minersPage.dismissSingleMinerActionsPopoverIfVisible();
-    });
-  });
+      await test.step("Open Proto rig miners", async () => {
+        await commonSteps.goToMinersPage();
+      });
+
+      await test.step("Open the sleep confirmation flow", async () => {
+        await minersPage.clickMinerThreeDotsButton(minerIp);
+        await minersPage.clickShutdownButton();
+        await expect(page.getByTestId("shutdown-confirm-button")).toBeVisible();
+        await minersPage.cancelSingleMinerConfirmationDialog();
+        await minersPage.dismissSingleMinerActionsPopoverIfVisible();
+      });
+    },
+  );
 
   test("Miners update-pools role can open the pool editor from a miner action menu", async ({
     browser,
@@ -299,31 +298,30 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     });
   });
 
-  test("Miners delete role can open the unpair confirmation flow @smoke", async ({
-    browser,
-    commonSteps,
-    minersPage,
-    page,
-  }) => {
-    await test.step("Provision a delete miner role", async () => {
-      await provisionMinerRole(browser, commonSteps, {
-        roleDescription: "Delete miners from fleet for RBAC coverage.",
-        permissionKeys: [...MINER_READ_PERMISSIONS, "miner:delete"],
+  test(
+    "Miners delete role can open the unpair confirmation flow",
+    { tag: "@smoke" },
+    async ({ browser, commonSteps, minersPage, page }) => {
+      await test.step("Provision a delete miner role", async () => {
+        await provisionMinerRole(browser, commonSteps, {
+          roleDescription: "Delete miners from fleet for RBAC coverage.",
+          permissionKeys: [...MINER_READ_PERMISSIONS, "miner:delete"],
+        });
       });
-    });
 
-    await test.step("Open Proto rig miners and select a miner", async () => {
-      await commonSteps.goToMinersPage();
-      await minersPage.filterRigMiners();
-      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("unpair-popover-button");
-    });
+      await test.step("Open Proto rig miners and select a miner", async () => {
+        await commonSteps.goToMinersPage();
+        await minersPage.filterRigMiners();
+        await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("unpair-popover-button");
+      });
 
-    await test.step("Open the unpair confirmation flow", async () => {
-      await minersPage.clickUnpairButton();
-      await expect(page.getByTestId("unpair-confirm-button")).toBeVisible();
-      await minersPage.dismissModalIfVisible();
-    });
-  });
+      await test.step("Open the unpair confirmation flow", async () => {
+        await minersPage.clickUnpairButton();
+        await expect(page.getByTestId("unpair-confirm-button")).toBeVisible();
+        await minersPage.dismissModalIfVisible();
+      });
+    },
+  );
 
   test("Miners cooling-mode role can open the cooling-mode flow", async ({
     browser,

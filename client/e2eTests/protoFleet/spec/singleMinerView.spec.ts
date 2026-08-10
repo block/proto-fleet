@@ -6,43 +6,43 @@ test.describe("Proto Fleet - Single Miner View", () => {
     await page.goto("/");
   });
 
-  test("opens an embedded miner from fleet, navigates within the hosted view, and returns to the fleet list @smoke", async ({
-    commonSteps,
-    minersPage,
-    singleMinerPage,
-  }) => {
-    let miner: { name: string; ipAddress: string };
+  test(
+    "opens an embedded miner from fleet, navigates within the hosted view, and returns to the fleet list",
+    { tag: "@smoke" },
+    async ({ commonSteps, minersPage, singleMinerPage }) => {
+      let miner: { name: string; ipAddress: string };
 
-    await test.step("Open the fleet miners list and pick a Proto rig", async () => {
-      await commonSteps.loginAsAdmin({ forceReauth: true });
-      await commonSteps.goToMinersPage();
-      await minersPage.filterRigMiners();
-      [miner] = await minersPage.getVisibleMinerSummaries(1);
-    });
-
-    await test.step("Open the embedded miner view from the fleet list", async () => {
-      await minersPage.openMinerRow(miner.ipAddress);
-      await singleMinerPage.validateSingleMinerSurfaceOpened();
-      await singleMinerPage.validateCurrentSubRoute("hashrate");
-      await singleMinerPage.validateCloseButtonLabel(miner.name);
-      await singleMinerPage.validateHostedMetadata({
-        minerName: miner.name,
-        ipAddress: miner.ipAddress,
+      await test.step("Open the fleet miners list and pick a Proto rig", async () => {
+        await commonSteps.loginAsAdmin({ forceReauth: true });
+        await commonSteps.goToMinersPage();
+        await minersPage.filterRigMiners();
+        [miner] = await minersPage.getVisibleMinerSummaries(1);
       });
-    });
 
-    await test.step("Navigate to a second embedded page and keep the miner route scoped", async () => {
-      await singleMinerPage.navigateToLogs();
-      await singleMinerPage.validateCurrentSubRoute("logs");
-    });
+      await test.step("Open the embedded miner view from the fleet list", async () => {
+        await minersPage.openMinerRow(miner.ipAddress);
+        await singleMinerPage.validateSingleMinerSurfaceOpened();
+        await singleMinerPage.validateCurrentSubRoute("hashrate");
+        await singleMinerPage.validateCloseButtonLabel(miner.name);
+        await singleMinerPage.validateHostedMetadata({
+          minerName: miner.name,
+          ipAddress: miner.ipAddress,
+        });
+      });
 
-    await test.step("Close the embedded view and return to the fleet list", async () => {
-      await singleMinerPage.clickCloseButton();
-      await minersPage.waitForMinersTitle();
-      await minersPage.waitForMinersListToLoad();
-      await minersPage.validateMinerInList(miner.ipAddress);
-    });
-  });
+      await test.step("Navigate to a second embedded page and keep the miner route scoped", async () => {
+        await singleMinerPage.navigateToLogs();
+        await singleMinerPage.validateCurrentSubRoute("logs");
+      });
+
+      await test.step("Close the embedded view and return to the fleet list", async () => {
+        await singleMinerPage.clickCloseButton();
+        await minersPage.waitForMinersTitle();
+        await minersPage.waitForMinersListToLoad();
+        await minersPage.validateMinerInList(miner.ipAddress);
+      });
+    },
+  );
 
   test("switching directly between embedded miner routes resets page-local state for the new miner", async ({
     commonSteps,
@@ -125,31 +125,31 @@ test.describe("Proto Fleet - Single Miner View", () => {
     });
   });
 
-  test("fleet-hosted miner routes can open authentication settings without surfacing the direct ProtoOS login modal @smoke", async ({
-    commonSteps,
-    minersPage,
-    singleMinerPage,
-  }) => {
-    let miner: { name: string; ipAddress: string };
+  test(
+    "fleet-hosted miner routes can open authentication settings without surfacing the direct ProtoOS login modal",
+    { tag: "@smoke" },
+    async ({ commonSteps, minersPage, singleMinerPage }) => {
+      let miner: { name: string; ipAddress: string };
 
-    await test.step("Open an embedded Proto rig from the fleet miners list", async () => {
-      await commonSteps.loginAsAdmin({ forceReauth: true });
-      await commonSteps.goToMinersPage();
-      await minersPage.filterRigMiners();
-      [miner] = await minersPage.getVisibleMinerSummaries(1);
-      await minersPage.openMinerRow(miner.ipAddress);
-      await singleMinerPage.validateCurrentSubRoute("hashrate");
-    });
-
-    await test.step("Open the authentication settings route inside the hosted miner view", async () => {
-      await singleMinerPage.navigateToAuthenticationSettings();
-      await singleMinerPage.validateAuthenticationSettingsPageOpened();
-      await singleMinerPage.validateDirectLoginModalHidden();
-      await singleMinerPage.validateCloseButtonLabel(miner.name);
-      await singleMinerPage.validateHostedMetadata({
-        minerName: miner.name,
-        ipAddress: miner.ipAddress,
+      await test.step("Open an embedded Proto rig from the fleet miners list", async () => {
+        await commonSteps.loginAsAdmin({ forceReauth: true });
+        await commonSteps.goToMinersPage();
+        await minersPage.filterRigMiners();
+        [miner] = await minersPage.getVisibleMinerSummaries(1);
+        await minersPage.openMinerRow(miner.ipAddress);
+        await singleMinerPage.validateCurrentSubRoute("hashrate");
       });
-    });
-  });
+
+      await test.step("Open the authentication settings route inside the hosted miner view", async () => {
+        await singleMinerPage.navigateToAuthenticationSettings();
+        await singleMinerPage.validateAuthenticationSettingsPageOpened();
+        await singleMinerPage.validateDirectLoginModalHidden();
+        await singleMinerPage.validateCloseButtonLabel(miner.name);
+        await singleMinerPage.validateHostedMetadata({
+          minerName: miner.name,
+          ipAddress: miner.ipAddress,
+        });
+      });
+    },
+  );
 });

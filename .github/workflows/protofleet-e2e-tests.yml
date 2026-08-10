@@ -13,13 +13,13 @@ on:
         type: choice
         options:
           - all
-          - pr
+          - smoke
   workflow_call:
     inputs:
       run_scope:
         description: Which Proto Fleet E2E slice to run
         required: false
-        default: pr
+        default: smoke
         type: string
 
 jobs:
@@ -50,7 +50,7 @@ jobs:
           # own fresh-env job, so only the remaining target specs are sharded.
           ALL_TARGET_SPECS=$(find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '(^[0-9]{2}-.*\.spec\.ts$|^onboardingVisual\.spec\.ts$)' || true)
 
-          if [ "$RUN_SCOPE" = "pr" ]; then
+          if [ "$RUN_SCOPE" = "smoke" ]; then
             SPEC_FILES=$(printf '%s\n' "$ALL_TARGET_SPECS" | while IFS= read -r spec; do
               if [ -n "$spec" ] && grep -q '@smoke' "$spec"; then
                 printf '%s\n' "$spec"
@@ -62,7 +62,7 @@ jobs:
             TEST_GREP=""
           fi
 
-          if [ "$RUN_SCOPE" = "pr" ] && [ "$SPEC_FILES" = "[]" ]; then
+          if [ "$RUN_SCOPE" = "smoke" ] && [ "$SPEC_FILES" = "[]" ]; then
             echo "No @smoke-tagged ProtoFleet specs were detected."
             exit 1
           fi
