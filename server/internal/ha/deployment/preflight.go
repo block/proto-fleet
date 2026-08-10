@@ -41,7 +41,7 @@ func ValidateHost(ctx context.Context, envPath string) (NodeConfig, error) {
 	return validateHost(ctx, envPath, host, false)
 }
 
-// Preflight checks a clean host and loads the firewall required before startup.
+// Preflight checks a dedicated host and loads the firewall required before startup.
 func Preflight(ctx context.Context, envPath, firewallTemplatePath string) (NodeConfig, error) {
 	host := hostEnvironment{
 		goos:              runtime.GOOS,
@@ -69,20 +69,30 @@ func validateHost(ctx context.Context, envPath string, host hostEnvironment, pro
 	if err != nil {
 		return NodeConfig{}, err
 	}
-	if err := validateNodeConfig(config); err != nil {
+	if err := validateHostConfiguration(ctx, config, host, probeVirtualIP); err != nil {
+		return NodeConfig{}, err
+	}
+	if err := validateSecrets(config); err != nil {
 		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
 	}
+	return config, nil
+}
+
+func validateHostConfiguration(ctx context.Context, config NodeConfig, host hostEnvironment, probeVirtualIP bool) error {
+	if err := validateNodeConfig(config); err != nil {
+		return fmt.Errorf("HA preflight failed: %w", err)
+	}
 	if host.goos != "linux" {
-		return NodeConfig{}, errors.New("HA preflight failed: the HA profile requires Linux host networking")
+		return errors.New("HA preflight failed: the HA profile requires Linux host networking")
 	}
 
 	addresses, err := host.localIPs()
 	if err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: list local addresses: %w", err)
+		return fmt.Errorf("HA preflight failed: list local addresses: %w", err)
 	}
 	nodeIP, _ := netip.ParseAddr(config.NodeIP)
 	if !slices.Contains(addresses, nodeIP) {
-		return NodeConfig{}, errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
+		return errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
 	}
 	for _, peer := range []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP} {
 		if peer == config.NodeIP {
@@ -90,48 +100,48 @@ func validateHost(ctx context.Context, envPath string, host hostEnvironment, pro
 		}
 		output, err := host.runCommand(ctx, "ip", "route", "get", peer)
 		if err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA peer %s: %s", peer, commandError(output, err))
+			return fmt.Errorf("HA preflight failed: no route to HA peer %s: %s", peer, commandError(output, err))
 		}
 		source, ok := routeSource(output)
 		if !ok || source != config.NodeIP {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
+			return fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
 		}
 	}
 	if config.isDatabaseNode() {
 		virtualIP, _ := netip.ParseAddr(config.VirtualIP)
 		if slices.Contains(addresses, virtualIP) {
-			return NodeConfig{}, errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
+			return errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
 		}
 		prefixes, err := host.interfacePrefixes(config.NetworkInterface)
 		if err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
+			return fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
 		}
 		if err := validateVirtualIPPrefix(nodeIP, virtualIP, prefixes); err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+			return fmt.Errorf("HA preflight failed: %w", err)
 		}
 		// VRRP moves the VIP with ARP, so it must be directly connected rather
 		// than routed through a gateway.
 		output, err := host.runCommand(ctx, "ip", "route", "get", config.VirtualIP)
 		if err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
+			return fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
 		}
 		source, sourceOK := routeSource(output)
 		device, deviceOK := routeDevice(output)
 		_, routedViaGateway := routeField(output, "via")
 		if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
+			return fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
 		}
 		if probeVirtualIP {
 			// The privileged duplicate-address probe rejects a VIP already claimed by another host.
 			output, err = host.runCommand(ctx, "sudo", "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
 			if err != nil {
-				return NodeConfig{}, fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
+				return fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
 			}
 		}
 	}
 	listeners, err := host.runCommand(ctx, "ss", "-H", "-lnt")
 	if err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: inspect listening ports: %s", commandError(listeners, err))
+		return fmt.Errorf("HA preflight failed: inspect listening ports: %s", commandError(listeners, err))
 	}
 	ports := []int{2379, 2380}
 	if config.isDatabaseNode() {
@@ -139,22 +149,19 @@ func validateHost(ctx context.Context, envPath string, host hostEnvironment, pro
 	}
 	for _, port := range ports {
 		if portIsListening(string(listeners), port) {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: TCP port %d is already occupied", port)
+			return fmt.Errorf("HA preflight failed: TCP port %d is already occupied", port)
 		}
 	}
 
 	if err := requireEmptyDir(filepath.Join(config.DataDir, "etcd"), "pre-existing etcd state"); err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+		return fmt.Errorf("HA preflight failed: %w", err)
 	}
 	if config.isDatabaseNode() {
 		if err := requireEmptyDir(filepath.Join(config.DataDir, "postgres"), "pre-existing PostgreSQL state"); err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+			return fmt.Errorf("HA preflight failed: %w", err)
 		}
 	}
-	if err := validateSecrets(config); err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
-	}
-	return config, nil
+	return nil
 }
 
 func validateNodeConfig(config NodeConfig) error {

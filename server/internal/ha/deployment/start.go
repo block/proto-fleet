@@ -14,7 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/ha"
 )
 
-const startupTimeout = 20 * time.Minute
+const localEtcdStartupTimeout = time.Minute
 
 // StartInstalledServices is the role-aware systemd entrypoint for an installed HA node.
 func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile string) error {
@@ -26,31 +26,29 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 		return fmt.Errorf("start etcd: %w", err)
 	}
 
-	deadlineCtx, cancel := context.WithTimeout(ctx, startupTimeout)
-	defer cancel()
-	if err := waitForEtcdQuorum(deadlineCtx, config); err != nil {
+	if err := waitForEtcdQuorum(ctx, config); err != nil {
 		return err
 	}
-	authEnabled, err := waitForEtcdAuthProbe(deadlineCtx, config)
+	authEnabled, err := waitForEtcdAuthProbe(ctx, config)
 	if err != nil {
 		return err
 	}
 	if !authEnabled && config.NodeName == "ha-a" && rootPasswordFile != "" {
-		if err := BootstrapEtcdAuth(deadlineCtx, envPath, rootPasswordFile); err != nil {
+		if err := BootstrapEtcdAuth(ctx, envPath, rootPasswordFile); err != nil {
 			return err
 		}
 		authEnabled = true
 	}
 	if !authEnabled && config.NodeName == "ha-a" {
-		return errors.New("etcd authentication is not initialized; rerun the clean install with --etcd-root-password-file")
+		return errors.New("etcd authentication is not initialized; reimage this dedicated host and rerun the guided install")
 	}
 	for !authEnabled {
 		select {
-		case <-deadlineCtx.Done():
-			return errors.New("timed out waiting for ha-a to enable etcd authentication")
+		case <-ctx.Done():
+			return fmt.Errorf("stopped waiting for ha-a to enable etcd authentication: %w", ctx.Err())
 		case <-time.After(2 * time.Second):
 		}
-		authEnabled, err = waitForEtcdAuthProbe(deadlineCtx, config)
+		authEnabled, err = waitForEtcdAuthProbe(ctx, config)
 		if err != nil {
 			return err
 		}
@@ -85,9 +83,16 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 		return err
 	}
 	defer func() { _ = client.Close() }()
+	localStartup := time.NewTimer(localEtcdStartupTimeout)
+	defer localStartup.Stop()
+	localStartupC := localStartup.C
 	authenticated := false
 	for {
-		quorum, authRequired := startupEtcdQuorum(ctx, client.Status, endpoints, "https://"+config.NodeIP+":2379")
+		quorum, authRequired, localReady := startupEtcdQuorum(ctx, client.Status, endpoints, "https://"+config.NodeIP+":2379")
+		if localReady && localStartupC != nil {
+			localStartup.Stop()
+			localStartupC = nil
+		}
 		if quorum {
 			return nil
 		}
@@ -105,7 +110,9 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 		}
 		select {
 		case <-ctx.Done():
-			return errors.New("timed out waiting for etcd quorum")
+			return fmt.Errorf("stopped waiting for etcd quorum: %w", ctx.Err())
+		case <-localStartupC:
+			return errors.New("local etcd member did not become healthy within one minute")
 		case <-time.After(2 * time.Second):
 		}
 	}
@@ -123,9 +130,10 @@ type startupEtcdResult struct {
 	identity     startupEtcdIdentity
 	authRequired bool
 	required     bool
+	responded    bool
 }
 
-func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints []string, requiredEndpoint string) (bool, bool) {
+func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints []string, requiredEndpoint string) (bool, bool, bool) {
 	results := make(chan startupEtcdResult, len(endpoints))
 	for _, endpoint := range endpoints {
 		go func() {
@@ -133,12 +141,13 @@ func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints 
 			defer cancel()
 			response, err := status(probeCtx, endpoint)
 			if err != nil || response == nil || response.Header == nil {
-				results <- startupEtcdResult{authRequired: etcdAuthRequired(err)}
+				authRequired := etcdAuthRequired(err)
+				results <- startupEtcdResult{authRequired: authRequired, required: endpoint == requiredEndpoint, responded: authRequired}
 				return
 			}
 			results <- startupEtcdResult{
 				identity: startupEtcdIdentity{response.Header.ClusterId, response.Header.MemberId, response.Leader},
-				required: endpoint == requiredEndpoint,
+				required: endpoint == requiredEndpoint, responded: true,
 			}
 		}()
 	}
@@ -148,9 +157,11 @@ func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints 
 	}
 	groups := make(map[[2]uint64]*memberGroup)
 	authRequired := false
+	requiredResponded := false
 	for range endpoints {
 		result := <-results
 		authRequired = authRequired || result.authRequired
+		requiredResponded = requiredResponded || result.required && result.responded
 		identity := result.identity
 		if identity.clusterID == 0 || identity.memberID == 0 || identity.leaderID == 0 {
 			continue
@@ -164,10 +175,10 @@ func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints 
 	}
 	for key, group := range groups {
 		if _, leaderResponded := group.members[key[1]]; leaderResponded && group.requiredResponded && len(group.members) >= 2 {
-			return true, authRequired
+			return true, authRequired, requiredResponded
 		}
 	}
-	return false, authRequired
+	return false, authRequired, requiredResponded
 }
 
 func etcdAuthRequired(err error) bool {
@@ -201,7 +212,7 @@ func waitForEtcdAuthProbe(ctx context.Context, config NodeConfig) (bool, error) 
 		}
 		select {
 		case <-ctx.Done():
-			return false, errors.New("timed out checking etcd authentication")
+			return false, fmt.Errorf("stopped checking etcd authentication: %w", ctx.Err())
 		case <-time.After(2 * time.Second):
 		}
 	}

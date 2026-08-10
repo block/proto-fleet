@@ -30,33 +30,9 @@ connection, so every service must use the same host LAN address.
 Use `network_mode: host` with no published-port remapping. Only each host's
 stable LAN address is supported.
 
-## Generate secrets
-
-Run once on an offline administrator machine:
-
-```bash
-./fleet-ha generate-secrets \
-  /secure/proto-fleet-ha-secrets \
-  10.40.0.11 \
-  10.40.0.12 \
-  10.40.0.13 \
-  10.40.0.100
-```
-
-The command creates an `offline` directory and one directory per host. Keep the
-`offline` directory away from running hosts. Copy only the matching host
-directory into that host's `HA_SECRETS_DIR`. Private keys, passwords, and
-environment files must be owned by the deployment user with mode `0600`.
-
-The command generates Fleet's database connection, authentication, and
-encryption values once and copies the same `fleet.env` into both Fleet-host
-bundles. It also gives each Fleet host a proxy certificate for the virtual IP
-signed by the common HA service CA. Preflight requires and validates these
-files on `ha-a` and `ha-b`.
-
 ## Install
 
-The installer targets clean apt/systemd hosts on amd64 or arm64 with a
+The installer targets dedicated apt/systemd hosts on amd64 or arm64 with a
 4096-byte page size and the base `sudo` and `iproute2` packages:
 
 - Debian 12 or 13
@@ -67,47 +43,67 @@ The installer targets clean apt/systemd hosts on amd64 or arm64 with a
 
 Other apt/systemd distributions fall back to Docker's Debian repository using
 their reported release codename. Installation stops if Docker does not publish
-that suite. RPM-based, non-systemd, and 32-bit hosts are not supported. Unpack
-the release and stage the host-specific install inputs in a separate directory.
-Files added inside the unpacked release fail its manifest validation.
+that suite. RPM-based, non-systemd, and 32-bit hosts are not supported.
 
-For example, on each host:
+Before starting, reserve each node's IPv4 address in DHCP and exclude the VIP
+from the DHCP pool. Download the release archive and its official `.sha256`
+file for each host's architecture. Hosts may mix `amd64` and `arm64`, but every
+host must use the same release version and commit.
 
-```bash
-RELEASE_ROOT=/tmp/proto-fleet-release
-INSTALL_INPUT_ROOT=/var/tmp/proto-fleet-ha-install
+### 1. Prepare and install `ha-a`
 
-install -d -m 0700 "$INSTALL_INPUT_ROOT"
-install -m 0600 /path/to/this-host/node.env "$INSTALL_INPUT_ROOT/node.env"
-cp -a /path/to/generated/this-host-secrets "$INSTALL_INPUT_ROOT/host-secrets"
-chmod -R go-rwx "$INSTALL_INPUT_ROOT/host-secrets"
-
-# ha-a only
-install -m 0600 /path/to/offline/etcd-root-password \
-  "$INSTALL_INPUT_ROOT/etcd-root-password"
-```
-
-In the staged `node.env`, set
-`HA_SECRETS_DIR=/var/tmp/proto-fleet-ha-install/host-secrets` and keep
-`HA_DATA_DIR=/var/lib/proto-fleet/ha`.
-
-Run the installs concurrently. Only `ha-a` receives the offline etcd root
-password:
+From the operator machine, transfer the release and run the guided installer.
+Replace `VERSION`, `ARCH`, and `ha-a` with the downloaded release and SSH host:
 
 ```bash
-# ha-a
-"$RELEASE_ROOT/ha/fleet-ha" install "$INSTALL_INPUT_ROOT/node.env" \
-  --etcd-root-password-file "$INSTALL_INPUT_ROOT/etcd-root-password"
-
-# ha-b and ha-c
-"$RELEASE_ROOT/ha/fleet-ha" install "$INSTALL_INPUT_ROOT/node.env"
+VERSION=v0.0.0 ARCH=arm64 HOST=ha-a; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" "${HOST}:/var/tmp/"
 ```
+
+```bash
+VERSION=v0.0.0 ARCH=arm64 HOST=ha-a; ssh -t "$HOST" "set -eu; umask 077; cd /var/tmp; sha256sum --check 'proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256'; stage=\$(mktemp -d /var/tmp/proto-fleet-ha.XXXXXX); tar -xzf 'proto-fleet-${VERSION}-${ARCH}.tar.gz' -C \"\$stage\"; exec \"\$stage/deployment/ha/fleet-ha\" install"
+```
+
+The wizard detects `ha-a`'s local address and interface, then asks only for the
+`ha-b` address, `ha-c` address, and VIP. It validates the host and release,
+shows the complete topology and planned changes, and waits for `INSTALL` before
+changing the host.
+
+The wizard then creates protected bundles for all three hosts and an offline
+recovery bundle. Run the single copy-and-verify command it prints from the
+operator machine. Keep the recovery directory off the cluster. Return to the
+wizard and type `COPIED`; it deletes the peer and recovery exports from `ha-a`
+and continues installing that host. Deletion unlinks the files and is not a
+guaranteed secure erase.
+
+### 2. Install `ha-b` and `ha-c`
+
+For each peer, transfer the release, official checksum, matching host bundle,
+and bundle checksum. For example, for `ha-b`:
+
+```bash
+VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" proto-fleet-ha-recovery/proto-fleet-ha-ha-b.tar.gz proto-fleet-ha-recovery/proto-fleet-ha-ha-b.tar.gz.sha256 "${HOST}:/var/tmp/"
+```
+
+```bash
+VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; ssh -t "$HOST" "set -eu; umask 077; cd /var/tmp; sha256sum --check 'proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256'; stage=\$(mktemp -d /var/tmp/proto-fleet-ha.XXXXXX); tar -xzf 'proto-fleet-${VERSION}-${ARCH}.tar.gz' -C \"\$stage\"; exec \"\$stage/deployment/ha/fleet-ha\" install /var/tmp/proto-fleet-ha-ha-b.tar.gz"
+```
+
+Repeat with `HOST=ha-c` and the `ha-c` bundle. Each installer verifies the
+bundle, derives the local interface, shows its plan, and waits for `INSTALL`.
+No environment or secret file is edited by hand.
 
 Before changing the host, the command validates the release manifest, Linux
 platform, apt/systemd prerequisites, architecture, page size, network identity
-and routes, free ports, empty data paths, the exact host secret file set, and
-the absence of an existing Docker or keepalived installation. A 16K-page host
-is rejected with instructions to boot a 4K-page kernel and retry after reboot.
+and routes, free ports, empty data paths, and the exact host secret file set. A
+16K-page host is rejected with instructions to boot a 4K-page kernel and retry
+after reboot.
+
+The host must be dedicated to Proto Fleet HA. A complete, unused Docker Engine
+with Compose v2 can be reused; existing images, volumes, networks, and cache are
+allowed. Existing containers, custom Docker configuration, a partial Docker
+installation, configured or active keepalived, previous Proto Fleet paths or
+units, occupied HA ports, and a claimed VIP are rejected. Missing supported
+packages are installed. Unrelated nftables tables are preserved.
 
 The installer uses `sudo` for privileged work and does not change Docker group
 membership. It installs Docker from Docker's official Debian or Ubuntu
@@ -119,21 +115,25 @@ return. That service starts etcd, then Patroni and Fleet on `ha-a` and `ha-b`.
 keepalived is enabled only on those two Fleet hosts and remains ineligible for
 the VIP until local active health passes. The witness starts etcd only.
 Only allowlisted host secret files are installed. A successful install consumes
-the copied inputs. The one-time etcd root password is also removed from
+the copied host bundle. The one-time etcd root password is also removed from
 `/etc/proto-fleet/ha` after authentication is enabled.
 
 If installation fails after changing the host, the copied inputs are retained
-for diagnosis. The first installer intentionally has no resume or rollback
-state machine: restore a clean host image, copy the retained inputs back, and
-run the install again.
+for diagnosis. The installer intentionally has no resume or rollback state
+machine. An interrupted install may require reimaging the dedicated host and
+running the guided install again.
 
 `ha-a` waits for etcd quorum before enabling authentication. The other hosts
-wait for that one-time bootstrap before continuing. Installation finishes only
-after a database host passes `fleet-ha status`, or after the witness
-has observed etcd quorum. The profile requires a trusted L2 segment; its host
-firewall restricts HA ports and VRRP to the fixed peer addresses.
-Bootstrap fails closed if the clean cluster already contains one of the HA
-roles or users; clear the incomplete etcd data and rerun the clean install.
+wait for that one-time bootstrap before continuing. Once a host's systemd
+service starts, it remains enabled while missing peers converge. If the SSH
+session is interrupted, reconnect and use
+`sudo systemctl status proto-fleet-ha.service` and
+`sudo journalctl -u proto-fleet-ha.service` to observe convergence. Once a
+database host is ready, use
+`sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env`
+for the cluster check. The profile requires a trusted L2 segment; its host
+firewall restricts HA ports and VRRP to the fixed peer addresses. Bootstrap
+fails closed if the cluster already contains one of the HA roles or users.
 
 The Docker repository setup follows the official instructions for
 [Debian](https://docs.docker.com/engine/install/debian/),
@@ -143,7 +143,7 @@ The Docker repository setup follows the official instructions for
 ## Qualification
 
 The distributions above are installer-compatible targets. The HA profile is
-supported only after the clean-install qualification records successful Debian,
+supported only after the dedicated-host qualification records successful Debian,
 Ubuntu, and 64-bit Raspberry Pi OS runs. Other derivatives remain unqualified
 until exercised explicitly.
 
