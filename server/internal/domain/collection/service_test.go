@@ -354,8 +354,8 @@ func TestService_SetRackSlotPosition_RejectsGroupCollection(t *testing.T) {
 	ctx := testCtx(t)
 
 	// Arrange
-	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
-		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_GROUP, Label: "test"}, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
 
 	// Act
 	_, err := svc.SetRackSlotPosition(ctx, &pb.SetRackSlotPositionRequest{
@@ -374,8 +374,8 @@ func TestService_SetRackSlotPosition_RejectsOutOfBounds(t *testing.T) {
 	ctx := testCtx(t)
 
 	// Arrange: a 2×2 rack. Position (5, 5) is outside the grid.
-	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
-		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_RACK, Label: "R1"}, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
 	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
 		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
@@ -396,13 +396,40 @@ func TestService_SetRackSlotPosition_RejectsOutOfBounds(t *testing.T) {
 	assert.Contains(t, err.Error(), "out of bounds")
 }
 
+func TestService_SetRackSlotPosition_RejectsNegativePosition(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	// Arrange: a negative coordinate bypasses the proto interceptor on a direct
+	// call and must be rejected as InvalidArgument, not tripped as a SQL CHECK.
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
+		Return(&pb.RackInfo{Rows: 2, Columns: 2}, nil)
+	// No SetRackSlotPosition: the write must not fire for an out-of-range cell.
+
+	// Act
+	_, err := svc.SetRackSlotPosition(ctx, &pb.SetRackSlotPositionRequest{
+		CollectionId:     testCollectionID,
+		DeviceIdentifier: "device-1",
+		Position:         &pb.RackSlotPosition{Row: -1, Column: 0},
+	})
+
+	// Assert
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "out of bounds")
+}
+
 func TestService_SetRackSlotPosition_RejectsNonMember(t *testing.T) {
 	svc, mockStore, _ := newTestService(t)
 	ctx := testCtx(t)
 
 	// Arrange: in-bounds cell, but the device is not a rack member.
-	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
-		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_RACK, Label: "R1"}, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
 	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
 		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
@@ -428,9 +455,10 @@ func TestService_SetRackSlotPosition_InBoundsMemberSucceeds(t *testing.T) {
 	svc, mockStore, _ := newTestService(t)
 	ctx := testCtx(t)
 
-	// Arrange: in-bounds cell on a 2×2 rack for an existing member.
-	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
-		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_RACK, Label: "R1"}, nil)
+	// Arrange: in-bounds cell on a 2×2 rack for an existing member. The
+	// collection label + site are read under the lock, after the write.
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
 	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
 		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().GetRackInfo(gomock.Any(), testCollectionID, testOrgID).
@@ -439,6 +467,8 @@ func TestService_SetRackSlotPosition_InBoundsMemberSucceeds(t *testing.T) {
 		Return(map[string]*int64{"device-1": nil}, nil)
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), testCollectionID, "device-1", int32(1), int32(1), testOrgID).
 		Return(nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_RACK, Label: "R1"}, nil)
 
 	// Act
 	resp, err := svc.SetRackSlotPosition(ctx, &pb.SetRackSlotPositionRequest{
