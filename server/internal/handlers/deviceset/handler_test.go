@@ -16,6 +16,7 @@ import (
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -801,6 +802,11 @@ func TestSaveRack_PlacementRequiresSiteManage(t *testing.T) {
 
 	// Has rack:manage but NOT site:manage.
 	ctx := ctxWithPerms(authz.PermRackManage)
+	// The escalation resolves the building's parent site before the check;
+	// site:manage is absent everywhere, so the site it resolves to is
+	// immaterial to the denial.
+	buildingSite := int64(9)
+	h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, int64(7)).Return(&buildingSite, nil)
 	req := connect.NewRequest(&dspb.SaveRackRequest{
 		Label:          "Rack",
 		RackInfo:       &dspb.RackInfo{BuildingId: ptrInt64Local(7)},
@@ -859,6 +865,8 @@ func TestCreateDeviceSet_PlacementRequiresSiteManage(t *testing.T) {
 
 	// Has rack:manage but NOT site:manage.
 	ctx := ctxWithPerms(authz.PermRackManage)
+	buildingSite := int64(9)
+	h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, int64(7)).Return(&buildingSite, nil)
 	req := connect.NewRequest(&dspb.CreateDeviceSetRequest{
 		Label: "Rack",
 		TypeDetails: &dspb.CreateDeviceSetRequest_RackInfo{
@@ -1443,6 +1451,8 @@ func TestCreateRacks_RequiresRackManage(t *testing.T) {
 func TestCreateRacks_PlacementRequiresSiteManage(t *testing.T) {
 	h := newTestHandler(t)
 	ctx := ctxWithPerms(authz.PermRackManage)
+	buildingSite := int64(9)
+	h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, int64(7)).Return(&buildingSite, nil)
 
 	_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
 		BuildingId: ptrInt64Local(7),
@@ -1500,5 +1510,111 @@ func TestCreateRacks_authorizesPlacementAgainstTargetSite(t *testing.T) {
 		var fleetErr fleeterror.FleetError
 		require.ErrorAs(t, err, &fleetErr)
 		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	})
+}
+
+// TestCreateRacks_BuildingOnlyPlacementNarrowsToResolvedSite pins that a
+// building-only placement (no site_id) authorizes site:manage against the
+// building's parent site, not org scope. Vegas is site 99; Building 7 is in it.
+func TestCreateRacks_BuildingOnlyPlacementNarrowsToResolvedSite(t *testing.T) {
+	const vegas = int64(99)
+	const building7 = int64(7)
+
+	// Org-wide site:manage narrowed away at Vegas by a Vegas-only role lacking
+	// site:manage. Naming a building in Vegas must not slip past the check.
+	t.Run("org admin narrowed out of the site is denied via a building there", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage, authz.PermSiteManage),
+			handlerstest.SiteAssignment(vegas, authz.PermRackRead))
+
+		// The only store call is the authz peek; denial happens before any write.
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building7).Return(ptrInt64Local(vegas), nil)
+
+		_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+			BuildingId: ptrInt64Local(building7),
+			Racks:      []*dspb.NewRack{newRackRow("R-001")},
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	// Mirror case: a Vegas-only manager (site:manage at Vegas, nowhere else) is
+	// admitted once Building 7 resolves to Vegas, and the create proceeds.
+	t.Run("site-scoped manager is admitted via a building in their site", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(vegas, authz.PermSiteManage))
+
+		// Authz peek, then the service's canonical peek + locked re-read.
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building7).Return(ptrInt64Local(vegas), nil).Times(3)
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, vegas).Return(nil)
+		h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, building7).Return(nil)
+		// Ungridded building (capacity 0) skips the per-building cap check.
+		h.buildingStore.EXPECT().GetBuilding(gomock.Any(), testOrgID, building7).
+			Return(&buildingsmodels.Building{ID: building7, Aisles: 0, RacksPerAisle: 0}, nil)
+		h.collectionStore.EXPECT().
+			ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+			Return(nil, nil)
+		h.collectionStore.EXPECT().
+			CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "R-001", "").
+			Return(&collectionpb.DeviceCollection{Id: 1, Label: "R-001"}, nil)
+		h.collectionStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+
+		resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+			BuildingId: ptrInt64Local(building7),
+			Racks:      []*dspb.NewRack{newRackRow("R-001")},
+		}))
+		require.NoError(t, err)
+		assert.Len(t, resp.Msg.GetRacks(), 1)
+	})
+}
+
+// TestSaveRack_PlacementNarrowsToTargetSite confirms SaveRack narrows the
+// placement escalation to the target site (not org scope): both an explicit
+// site_id and a building-only placement deny an org admin narrowed out of that
+// site.
+func TestSaveRack_PlacementNarrowsToTargetSite(t *testing.T) {
+	const vegas = int64(99)
+
+	// Narrowed out of Vegas, naming the site directly.
+	t.Run("explicit site_id is denied for a narrowed-out org admin", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage, authz.PermSiteManage),
+			handlerstest.SiteAssignment(vegas, authz.PermRackRead))
+
+		_, err := h.handler.SaveRack(ctx, connect.NewRequest(&dspb.SaveRackRequest{
+			Label:          "Rack",
+			RackInfo:       &dspb.RackInfo{SiteId: ptrInt64Local(vegas)},
+			DeviceSelector: deviceListSelector(),
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	// Same admin, same site, but reached through a building in Vegas.
+	t.Run("building-only placement is denied for a narrowed-out org admin", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage, authz.PermSiteManage),
+			handlerstest.SiteAssignment(vegas, authz.PermRackRead))
+
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, int64(7)).Return(ptrInt64Local(vegas), nil)
+
+		_, err := h.handler.SaveRack(ctx, connect.NewRequest(&dspb.SaveRackRequest{
+			Label:          "Rack",
+			RackInfo:       &dspb.RackInfo{BuildingId: ptrInt64Local(7)},
+			DeviceSelector: deviceListSelector(),
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 	})
 }

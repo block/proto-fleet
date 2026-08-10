@@ -30,16 +30,43 @@ func NewHandler(svc *collection.Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// siteManagePlacementContext builds the ResourceContext for the site:manage
+// escalation, narrowing it to the site the rack actually lands in. A
+// building_id resolves to its parent site (it dictates the site; a disagreeing
+// site_id is rejected later under lock) so a caller narrowed out of that site
+// can't bypass the check by naming a building instead. An explicit site_id is
+// used directly. A pure unassign (id == 0) or a site-less building stays
+// org-scoped — there is no destination site to narrow on.
+func (h *Handler) siteManagePlacementContext(ctx context.Context, orgID int64, siteID, buildingID *int64) (authz.ResourceContext, error) {
+	if buildingID != nil && *buildingID > 0 {
+		resolved, err := h.svc.ResolveBuildingSite(ctx, orgID, *buildingID)
+		if err != nil {
+			return authz.ResourceContext{}, err
+		}
+		return authz.ResourceContext{SiteID: resolved}, nil
+	}
+	if siteID != nil && *siteID > 0 {
+		return authz.ResourceContext{SiteID: siteID}, nil
+	}
+	return authz.ResourceContext{}, nil
+}
+
 func (h *Handler) CreateDeviceSet(ctx context.Context, r *connect.Request[dspb.CreateDeviceSetRequest]) (*connect.Response[dspb.CreateDeviceSetResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
 	// Creating a rack under a site/building persists that placement (and can
 	// cascade added devices to it), so mirror the UpdateDeviceSet/SaveRack gate:
-	// require site:manage when rack_info carries explicit placement. Without
-	// this, a rack:manage-only caller could place a rack via the create path.
+	// require site:manage when rack_info carries explicit placement, narrowed
+	// to the target site. Without this, a rack:manage-only caller could place a
+	// rack via the create path.
 	if ri, ok := r.Msg.TypeDetails.(*dspb.CreateDeviceSetRequest_RackInfo); ok && ri.RackInfo != nil && (ri.RackInfo.SiteId != nil || ri.RackInfo.BuildingId != nil) {
-		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+		rc, err := h.siteManagePlacementContext(ctx, info.OrganizationID, ri.RackInfo.SiteId, ri.RackInfo.BuildingId)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, rc); err != nil {
 			return nil, err
 		}
 	}
@@ -70,17 +97,22 @@ func (h *Handler) GetDeviceSet(ctx context.Context, r *connect.Request[dspb.GetD
 }
 
 func (h *Handler) UpdateDeviceSet(ctx context.Context, r *connect.Request[dspb.UpdateDeviceSetRequest]) (*connect.Response[dspb.UpdateDeviceSetResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
 	// A rack's placement is now persisted here too (zone/dims + site/building
 	// in one settings save). Placing a rack under a site/building is a
 	// site-management action, so — mirroring SaveRack — require site:manage
 	// when the request carries explicit placement intent (site_id/building_id,
-	// including 0 to unassign). Metadata-only edits (label/zone/dims, or a
-	// membership change) stay rack:manage.
+	// including 0 to unassign), narrowed to the target site. Metadata-only edits
+	// (label/zone/dims, or a membership change) stay rack:manage.
 	if ri, ok := r.Msg.TypeDetails.(*dspb.UpdateDeviceSetRequest_RackInfo); ok && ri.RackInfo != nil && (ri.RackInfo.SiteId != nil || ri.RackInfo.BuildingId != nil) {
-		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+		rc, err := h.siteManagePlacementContext(ctx, info.OrganizationID, ri.RackInfo.SiteId, ri.RackInfo.BuildingId)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, rc); err != nil {
 			return nil, err
 		}
 	}
@@ -367,17 +399,23 @@ func (h *Handler) ListRackTypes(ctx context.Context, r *connect.Request[dspb.Lis
 }
 
 func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRackRequest]) (*connect.Response[dspb.SaveRackResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
 		return nil, err
 	}
 	// Placing a rack under a site/building is a site-management action —
 	// matching the dedicated AssignRacksToSite/Building RPCs (site:manage).
 	// A rack:manage-only caller may edit rack contents but not place the rack,
 	// so require site:manage when the request carries placement intent (an
-	// explicit site_id/building_id, including 0 to unassign). Omitted placement
-	// preserves the rack's current site/building and stays rack:manage.
+	// explicit site_id/building_id, including 0 to unassign), narrowed to the
+	// target site. Omitted placement preserves the rack's current site/building
+	// and stays rack:manage.
 	if ri := r.Msg.RackInfo; ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
-		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+		rc, err := h.siteManagePlacementContext(ctx, info.OrganizationID, ri.SiteId, ri.BuildingId)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, rc); err != nil {
 			return nil, err
 		}
 	}
@@ -407,15 +445,13 @@ func (h *Handler) CreateRacks(ctx context.Context, r *connect.Request[dspb.Creat
 	}
 	// Placing racks into a site/building is a site-management action, so a
 	// rack:manage-only caller can create unplaced racks but not place them.
-	// Every rack here is new, so any non-nil id is placement intent.
+	// Every rack here is new, so any non-nil id is placement intent. Narrow
+	// the escalation to the target site — including the building-only path,
+	// which resolves the building's parent site.
 	if r.Msg.SiteId != nil || r.Msg.BuildingId != nil {
-		// Scope to the target site when named, so a site-scoped site:manage
-		// operator is admitted and a narrowing site assignment is honored. A
-		// building-only request stays org-scoped (resolving its parent site
-		// needs a store read this handler lacks); shared with SaveRack, see #873.
-		rc := authz.ResourceContext{}
-		if r.Msg.SiteId != nil && *r.Msg.SiteId > 0 {
-			rc.SiteID = r.Msg.SiteId
+		rc, err := h.siteManagePlacementContext(ctx, info.OrganizationID, r.Msg.SiteId, r.Msg.BuildingId)
+		if err != nil {
+			return nil, err
 		}
 		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, rc); err != nil {
 			return nil, err

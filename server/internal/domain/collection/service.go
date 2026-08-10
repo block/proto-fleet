@@ -196,6 +196,15 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 	return siteID, buildingID, nil
 }
 
+// ResolveBuildingSite returns a building's parent site_id so the rack-write
+// handlers can narrow the site:manage escalation to a building-only placement.
+// Unlocked read: resolveAndLockRackPlacement still re-reads under lock and
+// rejects the write if the building moved sites. Returns (nil, nil) for a
+// site-less building and NotFound for a missing/soft-deleted one.
+func (s *Service) ResolveBuildingSite(ctx context.Context, orgID, buildingID int64) (*int64, error) {
+	return s.collectionStore.GetBuildingSite(ctx, orgID, buildingID)
+}
+
 // enforceBuildingRackCapacity rejects placing a rack into buildingID when
 // the building's grid (aisles×racks_per_aisle) is already full. netNew is
 // the count of racks newly joining the building: 1 for a create or a
