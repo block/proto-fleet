@@ -175,11 +175,12 @@ Persist the same envelope and authorizing-principal reference on every
 closed-loop FULL_FLEET event, with or without the all-paired flag; frozen
 non-FULL_FLEET and unflagged explicit-miner events continue to rely on
 authorization at Preview/Start plus their concrete target rows.
-Add an automation-rule migration for a bound profile scope revision and bound
-miner/fan authorization envelope. These fields preserve the exact profile
-scope an operator authorized when the rule was created, updated, or enabled;
-they are also the stable authorization source for managing a rule after its
-profile topology becomes stale.
+Add an automation-rule migration for a bound profile scope revision, bound
+miner/fan authorization envelope, and required-admin-controls marker. These
+fields preserve the exact profile scope and privilege class an operator
+authorized when the rule was created, updated, or enabled; they are also the
+stable authorization source for managing a rule after its profile topology
+becomes stale.
 
 Generated protobuf output must be regenerated with `just gen` and committed
 with the proto source.
@@ -438,8 +439,8 @@ with the proto source.
 - Before enforcing profile envelopes or bound-revision checks, inventory every
   enabled automation rule that references a profile marked
   `reauthorization_required` or lacks a proven bound revision, envelope, or
-  execution principal. Expose the affected rules and profiles to operators and
-  reauthorize/rebind or disable them. Gate enforcement on that inventory
+  execution principal/admin-control requirement. Expose the affected rules and
+  profiles to operators and reauthorize/rebind or disable them. Gate enforcement on that inventory
   reaching zero, unless owners explicitly approve an announced cutoff for the
   remaining rules. After the gate, keep execution fail closed; do not
   temporarily infer binding state to preserve an unremediated automation.
@@ -450,9 +451,17 @@ with the proto source.
   both the live permissions and stored envelope to authorize the operation. A
   deactivated principal or revoked grant blocks execution. Do not fall back to
   the profile creator or an ambient system principal.
+- Record whether an automation binding or event uses admin-only controls,
+  including `force_include_all_paired_miners`. Every manual/profile execution,
+  automation trigger, and closed-loop reconciliation pass must separately
+  revalidate that the current principal is still Admin or SuperAdmin; site/org
+  `curtailment:manage` alone is insufficient. Demotion blocks new events and
+  admissions. An active event then stops expansion and retains already-owned
+  targets through the same fan-aware safe restore-before-release lifecycle.
 - Stamp the applicable authorization envelope and authorizing principal onto
-  every closed-loop FULL_FLEET event, not only all-paired events. Each
-  reconciliation pass must reload the principal's current effective
+  every closed-loop FULL_FLEET event, not only all-paired events, together with
+  its required-admin-controls marker. Each reconciliation pass must reload the
+  principal's current effective
   permissions and compare current topology/fan coverage with both those
   permissions and the envelope before admitting targets. A rack or building
   moved to another site, a group gaining an out-of-envelope member, a fan
@@ -506,14 +515,16 @@ with the proto source.
   and enable requests. In the same database transaction that saves or enables
   the rule, lock and reload the profile, compare its canonical scope revision
   and authorization envelope with the values authorized by the handler, and
-  persist that revision, envelope, and execution principal as the rule's bound
-  profile state. Extend the existing store-side facility-fan race check rather
-  than leaving scope validation only in the handler. Any mismatch returns
+  persist that revision, envelope, execution principal, and whether the profile
+  requires admin-only controls as the rule's bound profile state. Extend the
+  existing store-side facility-fan race check rather than leaving scope or
+  privilege validation only in the handler. Any mismatch returns
   FailedPrecondition and saves nothing.
 - At every trigger, require the current profile revision to equal the rule's
   bound revision before resolving or starting an event, then enforce the bound
-  envelope and the execution principal's current permissions. A profile scope
-  change never silently retargets an enabled rule: the revision mismatch makes
+  envelope, the execution principal's current permissions, and any bound Admin/
+  SuperAdmin requirement. A profile scope change never silently retargets an
+  enabled rule: the revision mismatch makes
   linked bindings report `rebind_required`, blocks event and fan creation, and
   requires an authorized operator to review the current profile and re-enable/
   rebind the rule.
@@ -595,7 +606,8 @@ Backend unit/store/integration coverage:
 - Automation binding race tests that change a profile's scope or envelope
   between handler authorization and the store transaction. Create, Update, and
   enable must fail atomically on an expected-revision/envelope mismatch; a
-  successful bind persists the exact revision, envelope, and principal.
+  successful bind persists the exact revision, envelope, principal, and admin-
+  control requirement.
 - Automation trigger tests proving a later profile-scope revision puts the rule
   in `rebind_required`, creates no event or fan command, and resumes only after
   an authorized rebind. Disabling and deleting the mismatched rule must not
@@ -607,8 +619,9 @@ Backend unit/store/integration coverage:
   failing closed before reauthorization.
 - Current-permission tests for automation owner deactivation, site-grant and
   org-wide-grant revocation, facility-fan `site:read` revocation, service-account
-  principals, and mid-event revocation that blocks admission and safely
-  restores existing ownership for both ordinary and all-paired FULL_FLEET.
+  principals, Admin/SuperAdmin demotion for admin-only profiles/events, and
+  mid-event revocation or demotion that blocks admission and safely restores
+  existing ownership for both ordinary and all-paired FULL_FLEET.
 - Facility-fan authorization tests for a fan outside the miner scope, fan site
   movement, unassigned/stale fans, `site:read` without `curtailment:manage` and
   vice versa, CRUD/list filtering against persisted fan-site coverage, and
@@ -638,7 +651,8 @@ Backend unit/store/integration coverage:
   ambiguous scope or principal enters no-admission drain mode and completes
   safe restoration from durable targets.
 - Automation rollout tests inventory enabled rules bound to profiles requiring
-  reauthorization or missing a proven bound revision, envelope, or principal;
+  reauthorization or missing a proven bound revision, envelope, principal, or
+  admin-control requirement;
   prevent enforcement before rebind/disable remediation or an explicit cutoff;
   preserve authorized read/disable/delete recovery; and fail closed after
   cutover without silently widening scope.
@@ -710,9 +724,9 @@ developer approval.
   opaque scope revision and use the server-stored canonical scope. An unknown
   topology case can never round-trip as intentional Whole organization.
 - Automation rules bind atomically to an exact profile scope revision, miner/
-  fan envelope, and execution principal. A profile-scope change blocks triggers
-  as `rebind_required` until an authorized rebind; it never silently retargets
-  an enabled rule.
+  fan envelope, execution principal, and required admin-control state. A
+  profile-scope change blocks triggers as `rebind_required` until an authorized
+  rebind; it never silently retargets an enabled rule.
 - Stale or revision-mismatched automation rules remain visible, disableable, and
   deletable under their bound envelope without current-topology resolution.
   Create, Update, enable, and execution still fail closed on stale topology,
@@ -724,6 +738,10 @@ developer approval.
   principal. Automation triggers and reconciliation require that principal's
   current effective permissions; revocation blocks admission and safely
   restores owned targets instead of leaving the envelope as a perpetual grant.
+- Admin-only profiles, rules, and events persist that privilege requirement and
+  recheck the principal's current Admin/SuperAdmin role at execution and every
+  reconciliation pass. Demotion blocks new work and safely restores active
+  ownership even when `curtailment:manage` remains granted.
 - Legacy active closed-loop events receive a provable envelope and principal or
   enter no-admission drain mode before envelope enforcement begins. Enabled
   automations referencing ambiguous profiles or lacking proven binding state
