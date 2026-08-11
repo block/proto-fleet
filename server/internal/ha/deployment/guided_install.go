@@ -552,7 +552,7 @@ func printBundleCopyCommand(output io.Writer, exportDir, nodeIP string) error {
 		fingerprint[index] = fmt.Sprintf("%02X", value)
 	}
 	return writeInstallerOutput(output, "\nService CA SHA-256 fingerprint: %s\n"+
-		"Copy the host bundles and public service CA from your operator machine before continuing:\n"+
+		"On your operator machine, run this command to copy the host bundles and public service CA from ha-a:\n"+
 		"mkdir -p proto-fleet-ha-bundles && scp -p '%s@%s:%s/*' proto-fleet-ha-bundles/\n",
 		strings.Join(fingerprint, ":"), username, nodeIP, exportDir)
 }
@@ -582,7 +582,7 @@ func requireAcknowledgement(scanner *bufio.Scanner, output io.Writer, prompt, ex
 	if err != nil {
 		return err
 	}
-	if value != expected {
+	if !strings.EqualFold(value, expected) {
 		return errors.New("installation canceled")
 	}
 	return nil

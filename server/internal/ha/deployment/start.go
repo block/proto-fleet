@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -104,36 +105,70 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 	defer func() { _ = client.Close() }()
 	localStartup := time.NewTimer(localEtcdStartupTimeout)
 	defer localStartup.Stop()
-	localDeadline := localStartup.C
 	authenticated := false
+	quorumReady := func(ctx context.Context) (bool, error) {
+		quorum, authRequired := startupEtcdQuorum(ctx, client.Status, endpoints, "https://"+config.NodeIP+":2379")
+		if quorum {
+			return true, nil
+		}
+		if !authRequired {
+			return false, nil
+		}
+		if authenticated {
+			return false, errors.New("fleet etcd observer credentials were rejected")
+		}
+		_ = client.Close()
+		client, endpoints, err = authenticatedEtcdClient(config)
+		if err != nil {
+			return false, err
+		}
+		authenticated = true
+		return false, nil
+	}
+	return waitForEtcdStartup(ctx,
+		func(ctx context.Context) bool { return localEtcdPeerReady(ctx, config.NodeIP) },
+		quorumReady,
+		localStartup.C,
+		func() <-chan time.Time { return time.After(2 * time.Second) },
+	)
+}
+
+func waitForEtcdStartup(
+	ctx context.Context,
+	localReady func(context.Context) bool,
+	quorumReady func(context.Context) (bool, error),
+	localDeadline <-chan time.Time,
+	retry func() <-chan time.Time,
+) error {
 	for {
-		quorum, authRequired, localReady := startupEtcdQuorum(ctx, client.Status, endpoints, "https://"+config.NodeIP+":2379")
-		if localReady {
+		if localDeadline != nil && localReady(ctx) {
 			localDeadline = nil
+		}
+		quorum, err := quorumReady(ctx)
+		if err != nil {
+			return err
 		}
 		if quorum {
 			return nil
-		}
-		if authRequired {
-			if authenticated {
-				return errors.New("fleet etcd observer credentials were rejected")
-			}
-			_ = client.Close()
-			client, endpoints, err = authenticatedEtcdClient(config)
-			if err != nil {
-				return err
-			}
-			authenticated = true
-			continue
 		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("stopped waiting for etcd quorum: %w", ctx.Err())
 		case <-localDeadline:
 			return errors.New("local etcd member did not become healthy within one minute")
-		case <-time.After(2 * time.Second):
+		case <-retry():
 		}
 	}
+}
+
+func localEtcdPeerReady(ctx context.Context, nodeIP string) bool {
+	// The peer listener opens before a static etcd cluster has quorum, so it proves only local process startup.
+	connection, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(nodeIP, "2380"))
+	if err != nil {
+		return false
+	}
+	_ = connection.Close()
+	return true
 }
 
 type startupEtcdStatus func(context.Context, string) (*clientv3.StatusResponse, error)
@@ -150,7 +185,7 @@ type startupEtcdResult struct {
 	responded    bool
 }
 
-func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints []string, requiredEndpoint string) (bool, bool, bool) {
+func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints []string, requiredEndpoint string) (bool, bool) {
 	results := gather(endpoints, func(endpoint string) startupEtcdResult {
 		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
@@ -181,10 +216,10 @@ func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints 
 	}
 	for leaderID, members := range membersByLeader {
 		if _, leaderResponded := members[leaderID]; requiredResponded && leaderResponded && len(members) >= 2 {
-			return true, authRequired, requiredResponded
+			return true, authRequired
 		}
 	}
-	return false, authRequired, requiredResponded
+	return false, authRequired
 }
 
 func etcdAuthRequired(err error) bool {

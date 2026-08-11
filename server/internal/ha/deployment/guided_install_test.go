@@ -19,7 +19,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	exportDir := filepath.Join(t.TempDir(), "exports")
 	var installed InstallOptions
 	inspected := false
-	input := strings.NewReader(testHostIPs[1] + "\n" + testHostIPs[2] + "\n" + testVirtualIP + "\nINSTALL\nCOPIED\n")
+	input := strings.NewReader(testHostIPs[1] + "\n" + testHostIPs[2] + "\n" + testVirtualIP + "\nINSTALL\ncopied\n")
 	var output, prompts bytes.Buffer
 	deps := testGuidedDependencies(source, input, &output, &prompts)
 	identityPeer := ""
@@ -65,6 +65,8 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.Contains(t, prompts.String(), "Docker:    reuse existing installation")
 	require.NotContains(t, output.String(), testEtcdRootPassword)
 	require.Contains(t, output.String(), "Service CA SHA-256 fingerprint:")
+	require.Contains(t, output.String(), "On your operator machine")
+	require.Contains(t, output.String(), "from ha-a")
 	require.Contains(t, output.String(), "scp -p")
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-a")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-b")))
