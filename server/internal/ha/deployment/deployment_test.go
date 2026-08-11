@@ -432,6 +432,7 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 	}
 	want := []string{
 		"health",
+		"auth-status",
 		"reset",
 		"role:patroni",
 		"permission:patroni:/service/proto-fleet/:readwrite",
@@ -445,9 +446,7 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 		"user:root:root-pass",
 		"grant:root:root",
 		"auth",
-		"verify:root",
-		"verify:patroni",
-		"verify:fleet-observer",
+		"verify-policy",
 	}
 	if !slices.Equal(client.calls, want) {
 		t.Fatalf("bootstrap calls:\n%v\nwant:\n%v", client.calls, want)
@@ -478,10 +477,35 @@ func TestBootstrapEtcdAuthResumesPartialSetup(t *testing.T) {
 	}
 }
 
+func TestBootstrapEtcdAuthVerifiesExistingPolicy(t *testing.T) {
+	// Arrange
+	client := &recordingAuthClient{authEnabled: true}
+
+	// Act
+	err := bootstrapEtcdAuth(context.Background(), client, "root-pass", "patroni-pass", "fleet-pass")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"health", "auth-status", "verify-policy"}; !slices.Equal(client.calls, want) {
+		t.Fatalf("bootstrap calls = %v, want %v", client.calls, want)
+	}
+
+	invalid := &recordingAuthClient{authEnabled: true, failAt: "verify-policy"}
+	if err := bootstrapEtcdAuth(context.Background(), invalid, "root-pass", "patroni-pass", "fleet-pass"); err == nil {
+		t.Fatal("bootstrap accepted an unverified existing authentication policy")
+	}
+	if slices.Contains(invalid.calls, "reset") {
+		t.Fatal("bootstrap tried to reset an enabled authentication policy")
+	}
+}
+
 type recordingAuthClient struct {
-	calls    []string
-	failAt   string
-	existing bool
+	calls       []string
+	failAt      string
+	existing    bool
+	authEnabled bool
 }
 
 func (c *recordingAuthClient) record(call string) error {
@@ -493,6 +517,12 @@ func (c *recordingAuthClient) record(call string) error {
 }
 
 func (c *recordingAuthClient) Healthy(context.Context) error { return c.record("health") }
+func (c *recordingAuthClient) AuthEnabled(context.Context) (bool, error) {
+	if err := c.record("auth-status"); err != nil {
+		return false, err
+	}
+	return c.authEnabled, nil
+}
 func (c *recordingAuthClient) ResetAuth(context.Context) error {
 	err := c.record("reset")
 	c.existing = false
@@ -521,8 +551,8 @@ func (c *recordingAuthClient) GrantRole(_ context.Context, user, role string) er
 	return c.record("grant:" + user + ":" + role)
 }
 func (c *recordingAuthClient) EnableAuth(context.Context) error { return c.record("auth") }
-func (c *recordingAuthClient) VerifyCredential(_ context.Context, user, _ string) error {
-	return c.record("verify:" + user)
+func (c *recordingAuthClient) VerifyPolicy(context.Context, string, string, string) error {
+	return c.record("verify-policy")
 }
 
 func testNodeEnv(t *testing.T, dir, dataDir, secretsDir string) string {

@@ -18,13 +18,14 @@ const patroniDCSPath = "/service/proto-fleet/"
 
 type authBootstrapClient interface {
 	Healthy(ctx context.Context) error
+	AuthEnabled(ctx context.Context) (bool, error)
 	ResetAuth(ctx context.Context) error
 	AddRole(ctx context.Context, role string) error
 	GrantPermission(ctx context.Context, role, prefix string, permission clientv3.PermissionType) error
 	AddUser(ctx context.Context, user, password string) error
 	GrantRole(ctx context.Context, user, role string) error
 	EnableAuth(ctx context.Context) error
-	VerifyCredential(ctx context.Context, user, password string) error
+	VerifyPolicy(ctx context.Context, rootPassword, patroniPassword, fleetPassword string) error
 }
 
 type etcdAuthClient struct {
@@ -88,6 +89,16 @@ func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPass
 	if err := client.Healthy(ctx); err != nil {
 		return fmt.Errorf("check local etcd member health: %w", err)
 	}
+	authEnabled, err := client.AuthEnabled(ctx)
+	if err != nil {
+		return fmt.Errorf("check authentication status: %w", err)
+	}
+	if authEnabled {
+		if err := client.VerifyPolicy(ctx, rootPassword, patroniPassword, fleetPassword); err != nil {
+			return fmt.Errorf("verify existing authentication policy: %w", err)
+		}
+		return nil
+	}
 	if err := client.ResetAuth(ctx); err != nil {
 		return fmt.Errorf("reset incomplete authentication policy: %w", err)
 	}
@@ -112,9 +123,9 @@ func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPass
 		{"add root user", func() error { return client.AddUser(ctx, "root", rootPassword) }},
 		{"grant root role", func() error { return client.GrantRole(ctx, "root", "root") }},
 		{"enable authentication", func() error { return client.EnableAuth(ctx) }},
-		{"verify root credentials", func() error { return client.VerifyCredential(ctx, "root", rootPassword) }},
-		{"verify Patroni credentials", func() error { return client.VerifyCredential(ctx, "patroni", patroniPassword) }},
-		{"verify Fleet observer credentials", func() error { return client.VerifyCredential(ctx, "fleet-observer", fleetPassword) }},
+		{"verify authentication policy", func() error {
+			return client.VerifyPolicy(ctx, rootPassword, patroniPassword, fleetPassword)
+		}},
 	}
 	for _, step := range steps {
 		if err := step.run(); err != nil {
@@ -149,6 +160,14 @@ func (c *etcdAuthClient) Healthy(ctx context.Context) error {
 		return fmt.Errorf("get endpoint status: %w", err)
 	}
 	return nil
+}
+
+func (c *etcdAuthClient) AuthEnabled(ctx context.Context) (bool, error) {
+	status, err := c.client.AuthStatus(ctx)
+	if err != nil {
+		return false, fmt.Errorf("get authentication status: %w", err)
+	}
+	return status.Enabled, nil
 }
 
 func (c *etcdAuthClient) ResetAuth(ctx context.Context) error {
@@ -232,7 +251,71 @@ func (c *etcdAuthClient) EnableAuth(ctx context.Context) error {
 	return nil
 }
 
-func (c *etcdAuthClient) VerifyCredential(ctx context.Context, user, password string) error {
+func (c *etcdAuthClient) VerifyPolicy(ctx context.Context, rootPassword, patroniPassword, fleetPassword string) error {
+	root, err := c.authenticatedClient("root", rootPassword)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+
+	users, err := root.UserList(ctx)
+	if err != nil {
+		return fmt.Errorf("list users as root: %w", err)
+	}
+	if !sameNames(users.Users, "fleet-observer", "patroni", "root") {
+		return fmt.Errorf("unexpected users: %v", users.Users)
+	}
+	roles, err := root.RoleList(ctx)
+	if err != nil {
+		return fmt.Errorf("list roles as root: %w", err)
+	}
+	if !sameNames(roles.Roles, "fleet-observer", "patroni", "root") {
+		return fmt.Errorf("unexpected roles: %v", roles.Roles)
+	}
+	for _, expected := range []struct {
+		user       string
+		password   string
+		permission clientv3.PermissionType
+	}{
+		{"root", rootPassword, clientv3.PermissionType(clientv3.PermReadWrite)},
+		{"patroni", patroniPassword, clientv3.PermissionType(clientv3.PermReadWrite)},
+		{"fleet-observer", fleetPassword, clientv3.PermissionType(clientv3.PermRead)},
+	} {
+		credential, err := c.authenticatedClient(expected.user, expected.password)
+		if err != nil {
+			return err
+		}
+		if _, err := credential.Authenticate(ctx, expected.user, expected.password); err != nil {
+			credential.Close()
+			return fmt.Errorf("authenticate as %s: %w", expected.user, err)
+		}
+		credential.Close()
+
+		user, err := root.UserGet(ctx, expected.user)
+		if err != nil {
+			return fmt.Errorf("get user %s: %w", expected.user, err)
+		}
+		if !sameNames(user.Roles, expected.user) {
+			return fmt.Errorf("user %s has unexpected roles: %v", expected.user, user.Roles)
+		}
+		role, err := root.RoleGet(ctx, expected.user)
+		if err != nil {
+			return fmt.Errorf("get role %s: %w", expected.user, err)
+		}
+		if expected.user == "root" {
+			if len(role.Perm) != 0 {
+				return errors.New("root role has unexpected explicit permissions")
+			}
+			continue
+		}
+		if len(role.Perm) != 1 || clientv3.PermissionType(role.Perm[0].PermType) != expected.permission || string(role.Perm[0].Key) != patroniDCSPath || string(role.Perm[0].RangeEnd) != clientv3.GetPrefixRangeEnd(patroniDCSPath) {
+			return fmt.Errorf("role %s does not have the expected DCS permission", expected.user)
+		}
+	}
+	return nil
+}
+
+func (c *etcdAuthClient) authenticatedClient(user, password string) (*clientv3.Client, error) {
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{c.endpoint},
 		DialTimeout: 5 * time.Second,
@@ -241,11 +324,24 @@ func (c *etcdAuthClient) VerifyCredential(ctx context.Context, user, password st
 		Password:    password,
 	})
 	if err != nil {
-		return fmt.Errorf("connect as %s: %w", user, err)
+		return nil, fmt.Errorf("connect as %s: %w", user, err)
 	}
-	defer client.Close()
-	if _, err := client.Status(ctx, c.endpoint); err != nil {
-		return fmt.Errorf("authenticate as %s: %w", user, err)
+	return client, nil
+}
+
+func sameNames(got []string, want ...string) bool {
+	if len(got) != len(want) {
+		return false
 	}
-	return nil
+	wanted := make(map[string]struct{}, len(want))
+	for _, name := range want {
+		wanted[name] = struct{}{}
+	}
+	for _, name := range got {
+		if _, ok := wanted[name]; !ok {
+			return false
+		}
+		delete(wanted, name)
+	}
+	return len(wanted) == 0
 }

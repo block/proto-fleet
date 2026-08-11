@@ -28,6 +28,8 @@ const (
 	dockerRecoveryDropIn = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
 )
 
+var errInstallConverging = errors.New("HA service remains enabled and is still converging")
+
 type InstallOptions struct {
 	NodeEnvPath          string
 	EtcdRootPasswordFile string
@@ -41,7 +43,6 @@ type installPlatform struct {
 type installedDependencies struct {
 	docker     bool
 	keepalived bool
-	arping     bool
 }
 
 type installDependencies struct {
@@ -117,7 +118,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	}
 	source = installRoot
 
-	if err := installARPing(ctx, installed, deps); err != nil {
+	if err := installARPing(ctx, deps); err != nil {
 		return errors.Join(err, removeReleaseSnapshot(ctx, deps))
 	}
 	if config.isDatabaseNode() {
@@ -157,11 +158,15 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 		return stopIncompleteHA(ctx, deps, err)
 	}
 	fmt.Println("[service startup] Enabling the local HA service...")
-	if err := initialStart(ctx, config, deps); err != nil {
-		return err
+	startErr := initialStart(ctx, config, deps)
+	if startErr != nil && !errors.Is(startErr, errInstallConverging) {
+		return startErr
 	}
 	if err := consumeInstallCredentials(options, config); err != nil {
 		slog.Warn("HA installation succeeded but staged credentials could not be removed", "error", err)
+	}
+	if startErr != nil {
+		return startErr
 	}
 	return nil
 }
@@ -341,7 +346,18 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 		}
 	}
 
+	keepalivedInstalled := false
 	if _, err := deps.lookPath("keepalived"); err == nil {
+		keepalivedInstalled = true
+	} else if info, statErr := deps.lstat("/usr/sbin/keepalived"); statErr == nil {
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+			return installedDependencies{}, errors.New("partial keepalived installation found at /usr/sbin/keepalived; repair or remove it before installing Proto Fleet HA")
+		}
+		keepalivedInstalled = true
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return installedDependencies{}, fmt.Errorf("inspect /usr/sbin/keepalived: %w", statErr)
+	}
+	if keepalivedInstalled {
 		installed.keepalived = true
 		if state, err := systemdUnitState(ctx, deps, "is-active", "keepalived.service"); state != "inactive" {
 			if err != nil {
@@ -360,8 +376,6 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return installedDependencies{}, fmt.Errorf("inspect keepalived package state: %w", statErr)
 	}
-	_, err := deps.lookPath("arping")
-	installed.arping = err == nil
 	return installed, nil
 }
 
@@ -557,10 +571,7 @@ func validateReleaseTree(source string) error {
 	return nil
 }
 
-func installARPing(ctx context.Context, installed installedDependencies, deps installDependencies) error {
-	if installed.arping {
-		return nil
-	}
+func installARPing(ctx context.Context, deps installDependencies) error {
 	for _, args := range [][]string{
 		{"apt-get", "update"},
 		{"apt-get", "install", "-y", "iputils-arping"},
@@ -901,7 +912,7 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("HA service remains enabled and is still converging; reconnect and run systemctl status proto-fleet-ha.service: %w", err)
+			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
 		}
 		if state, _ := systemdUnitState(ctx, deps, "is-failed", "proto-fleet-ha.service"); state == "failed" {
 			return stopIncompleteHA(ctx, deps, errors.New("HA service failed during local startup; inspect journalctl -u proto-fleet-ha.service"))

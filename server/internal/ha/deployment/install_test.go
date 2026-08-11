@@ -168,12 +168,48 @@ func TestInstallInterruptedDuringConvergenceLeavesHAEnabled(t *testing.T) {
 	// Assert
 	require.ErrorContains(t, err, "remains enabled and is still converging")
 	require.ErrorContains(t, err, "systemctl status proto-fleet-ha.service")
+	require.ErrorIs(t, err, errInstallConverging)
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, "sudo systemctl enable proto-fleet-ha.service")
 	require.Contains(t, joined, "sudo systemctl start --no-block proto-fleet-ha.service")
 	require.NotContains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 	require.Contains(t, joined, "docker-ha-recovery-systemd.conf "+dockerRecoveryDropIn)
 	require.NotContains(t, joined, "sudo rm -f "+dockerRecoveryDropIn)
+	require.NoFileExists(t, rootPassword)
+	require.NoDirExists(t, config.SecretsDir)
+}
+
+func TestDedicatedHostFindsKeepalivedOutsidePATH(t *testing.T) {
+	// Arrange
+	keepalived := filepath.Join(t.TempDir(), "keepalived")
+	require.NoError(t, os.WriteFile(keepalived, []byte("binary"), 0o755))
+	deps := installDependencies{
+		lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
+		requireEmpty: func(string, string) error { return nil },
+		lstat: func(path string) (os.FileInfo, error) {
+			if path == "/usr/sbin/keepalived" {
+				return os.Lstat(keepalived)
+			}
+			return nil, os.ErrNotExist
+		},
+		run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			switch strings.Join(args, " ") {
+			case "systemctl is-active keepalived.service":
+				return []byte("inactive\n"), errors.New("exit status 3")
+			case "systemctl is-enabled keepalived.service":
+				return []byte("disabled\n"), errors.New("exit status 1")
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	// Act
+	installed, err := inspectDedicatedHost(t.Context(), deps)
+
+	// Assert
+	require.NoError(t, err)
+	require.True(t, installed.keepalived)
 }
 
 func TestInstallRejectsUnavailableSystemdBeforeMutation(t *testing.T) {
@@ -417,7 +453,7 @@ func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 	var calls []string
 	deps := testInstallerDependencies(source, config, &calls)
 	deps.lookPath = func(name string) (string, error) {
-		if slices.Contains([]string{"apt-get", "ip", "ss", "sudo", "systemctl", "docker", "keepalived"}, name) {
+		if slices.Contains([]string{"apt-get", "ip", "ss", "sudo", "systemctl", "docker", "keepalived", "arping"}, name) {
 			return "/usr/bin/" + name, nil
 		}
 		return "", fmt.Errorf("not found")
@@ -447,6 +483,7 @@ func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 	require.NotContains(t, joined, "download.docker.com")
 	require.NotContains(t, joined, "docker-ce")
 	require.NotContains(t, joined, "apt-get install -y keepalived")
+	require.Contains(t, joined, "apt-get install -y iputils-arping")
 }
 
 func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
