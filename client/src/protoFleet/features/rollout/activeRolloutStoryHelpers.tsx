@@ -64,7 +64,13 @@ export function AppShell({ children }: { children: ReactNode }): ReactElement {
 /**
  * Inline rollout card with story handlers for every lifecycle control.
  */
-function InlineRolloutCard({ event }: { event: RolloutEvent }): ReactElement {
+function InlineRolloutCard({
+  event,
+  defaultDetailsOpen = false,
+}: {
+  event: RolloutEvent;
+  defaultDetailsOpen?: boolean;
+}): ReactElement {
   const [minersOpen, setMinersOpen] = useState(false);
   const [errorsOpen, setErrorsOpen] = useState(false);
   const rolloutMiners = useMemo(() => rolloutMinerRowsForEvent(event), [event]);
@@ -81,6 +87,7 @@ function InlineRolloutCard({ event }: { event: RolloutEvent }): ReactElement {
         onRetryFailed={noop}
         onViewMiners={() => setMinersOpen(true)}
         onViewErrors={() => setErrorsOpen(true)}
+        defaultDetailsOpen={defaultDetailsOpen}
       />
       <RolloutMinersModal
         open={minersOpen}
@@ -183,11 +190,13 @@ export function FirmwareSettingsSurface({
   rolloutBanner,
   releaseChannelsTab,
   initialTab = "files",
+  defaultDetailsOpen = false,
 }: {
   event?: RolloutEvent | null;
   rolloutBanner?: ReactNode;
   releaseChannelsTab?: ReactNode;
   initialTab?: FirmwareSettingsTab;
+  defaultDetailsOpen?: boolean;
 }): ReactElement {
   const [activeTab, setActiveTab] = useState<FirmwareSettingsTab>(initialTab);
   const showTabs = releaseChannelsTab !== undefined;
@@ -232,7 +241,7 @@ export function FirmwareSettingsSurface({
                   </div>
                 ) : null}
                 {rolloutBanner}
-                {event ? <InlineRolloutCard event={event} /> : null}
+                {event ? <InlineRolloutCard event={event} defaultDetailsOpen={defaultDetailsOpen} /> : null}
                 <FirmwareFilesTable />
               </>
             )}
@@ -409,9 +418,21 @@ function useAnimatedRolloutEvent(base: RolloutEvent): RolloutEvent {
 }
 
 /** The animated firmware lifecycle, shown inline on the Firmware settings page. */
-export function AnimatedFirmwareInSitu({ base }: { base: RolloutEvent }): ReactElement {
+export function AnimatedFirmwareInSitu({
+  base,
+  defaultDetailsOpen = false,
+}: {
+  base: RolloutEvent;
+  defaultDetailsOpen?: boolean;
+}): ReactElement {
   const event = useAnimatedRolloutEvent(base);
-  return <FirmwareSettingsSurface event={event} releaseChannelsTab={<FirmwareReleaseChannelsTab />} />;
+  return (
+    <FirmwareSettingsSurface
+      event={event}
+      releaseChannelsTab={<FirmwareReleaseChannelsTab />}
+      defaultDetailsOpen={defaultDetailsOpen}
+    />
+  );
 }
 
 /** The animated reboot lifecycle, shown inline on the Fleet page. */

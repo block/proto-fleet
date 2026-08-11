@@ -24,7 +24,7 @@ import {
 } from "@/protoFleet/features/rollout/rollout.fixtures";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import { rolloutPlanReadout } from "@/protoFleet/features/rollout/rolloutDisplayUtils";
-import type { RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
+import type { RolloutEvent, RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
 import { sizes, variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
@@ -113,6 +113,52 @@ const scheduledFirmwareScopeTargets = [
   { label: "Groups", value: targetSelectPlaceholderLabel },
   { label: "Miners", value: targetSelectPlaceholderLabel },
 ];
+
+const animatedAllAtOnceFirmwareEvent: RolloutEvent = {
+  processType: "firmware",
+  state: "inProgress",
+  title: "Firmware update to 5.1.0",
+  scopeLabel: "Building B",
+  strategy: "allAtOnce",
+  order: "leastEfficientFirst",
+  totalTargets: 240,
+  excludedTargets: 18,
+  startedAt: new Date(Date.now() - 60_000).toISOString(),
+  estimatedSecondsRemaining: 90,
+  performance: inProgressFirmwareEvent.performance,
+  rollups: [
+    { phase: "inProgress", count: 222 },
+    { phase: "excluded", count: 18 },
+  ],
+};
+
+const animatedBatchesReviewFirmwareEvent: RolloutEvent = {
+  ...inProgressFirmwareEvent,
+  currentBatch: 1,
+  reviewAfterEachBatch: true,
+  rollups: [
+    { phase: "inProgress", count: 20 },
+    { phase: "queued", count: 202 },
+    { phase: "excluded", count: 18 },
+  ],
+};
+
+const animatedPilotReviewFirmwareEvent: RolloutEvent = {
+  ...inProgressFirmwareEvent,
+  strategy: "pilotThenContinue",
+  pilotSize: 10,
+  batchSize: 25,
+  batchIntervalSec: 90,
+  currentBatch: 1,
+  totalBatches: 10,
+  reviewAfterEachBatch: true,
+  estimatedSecondsRemaining: 810,
+  rollups: [
+    { phase: "inProgress", count: 10 },
+    { phase: "queued", count: 212 },
+    { phase: "excluded", count: 18 },
+  ],
+};
 
 function formatScheduledStart(config: RolloutPlanConfig, startDate: Date | undefined, startTime: string): string {
   if (config.scheduleType === "startNow") {
@@ -399,9 +445,23 @@ export const CompletedWithFailures: Story = {
   render: () => <FirmwareInSitu event={completedWithFailuresFirmwareEvent} />,
 };
 
-export const AnimatedFirmwareLifecycle: Story = {
-  name: "Animated firmware lifecycle",
-  render: function renderAnimatedFirmwareLifecycle(): ReactElement {
-    return <AnimatedFirmwareInSitu base={inProgressFirmwareEvent} />;
+export const AnimatedAllAtOnce: Story = {
+  name: "Animated all at once",
+  render: function renderAnimatedAllAtOnce(): ReactElement {
+    return <AnimatedFirmwareInSitu base={animatedAllAtOnceFirmwareEvent} defaultDetailsOpen />;
+  },
+};
+
+export const AnimatedBatchesWithReview: Story = {
+  name: "Animated batches with review",
+  render: function renderAnimatedBatchesWithReview(): ReactElement {
+    return <AnimatedFirmwareInSitu base={animatedBatchesReviewFirmwareEvent} defaultDetailsOpen />;
+  },
+};
+
+export const AnimatedPilotWithReview: Story = {
+  name: "Animated pilot with review",
+  render: function renderAnimatedPilotWithReview(): ReactElement {
+    return <AnimatedFirmwareInSitu base={animatedPilotReviewFirmwareEvent} defaultDetailsOpen />;
   },
 };

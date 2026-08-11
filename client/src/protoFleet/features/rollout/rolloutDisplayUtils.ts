@@ -270,12 +270,35 @@ export function rolloutPlanReadout(args: {
   return batchPhrase;
 }
 
-export function pacingSummary(event: Pick<RolloutEvent, "strategy" | "batchSize" | "batchIntervalSec">): string {
+export function pacingSummary(
+  event: Pick<
+    RolloutEvent,
+    | "strategy"
+    | "batchSize"
+    | "batchIntervalSec"
+    | "pilotSize"
+    | "reviewAfterEachBatch"
+    | "autoContinueOnHealthyTelemetry"
+  >,
+): string {
   if (event.strategy === "allAtOnce") {
     return "All at once";
   }
+  const review = event.reviewAfterEachBatch
+    ? event.autoContinueOnHealthyTelemetry
+      ? ", auto-continue when healthy"
+      : ", review after each batch"
+    : "";
+  const batches =
+    event.batchSize && event.batchIntervalSec
+      ? `batches of ${event.batchSize.toLocaleString()} every ${event.batchIntervalSec}s`
+      : null;
+  if (event.strategy === "pilotThenContinue") {
+    const pilot = event.pilotSize ? `Pilot of ${event.pilotSize.toLocaleString()}` : "Pilot group";
+    return batches ? `${pilot}, then ${batches}${review}` : `${pilot}, then continue${review}`;
+  }
   if (event.batchSize && event.batchIntervalSec) {
-    return `Batches of ${event.batchSize.toLocaleString()} every ${event.batchIntervalSec}s`;
+    return `Batches of ${event.batchSize.toLocaleString()} every ${event.batchIntervalSec}s${review}`;
   }
   return strategyLabels[event.strategy];
 }
