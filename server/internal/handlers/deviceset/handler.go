@@ -30,37 +30,19 @@ func NewHandler(svc *collection.Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// authorizeRackPlacement gates a rack placement on site:manage and returns a
-// context carrying the authorized placement for the service to bind the write
-// to (see authz.AuthorizedPlacement).
-//
-// Placing a rack is a site-management action, so a rack:manage-only caller may
-// edit rack contents but not move the rack. The check is scoped to the site
-// the rack actually lands in: a building_id resolves to its parent site (it
-// dictates the site; a disagreeing site_id is rejected later under lock) so a
-// caller narrowed out of that site can't bypass the check by naming a building
-// instead. Crucially, a MOVE is authorized against BOTH the rack's current
-// site (currentSiteID) and the destination — otherwise a caller who manages
-// only the destination could pull a rack out of a site they cannot manage.
-// currentSiteID is nil for a new rack (create paths). The source side is
-// skipped when nil (a new rack has nothing to move out of). Callers invoke this
-// only when the request carries placement intent, so the destination is always
-// authorized: at its resolved site, or — when the destination resolves to no
-// site — at ORG scope, matching AssignRacksToBuilding. A building_id pointing at
-// a site-less building forces the org-scoped check even on a move out of a real
-// site, so a source-site-only manager can't slip a rack into a site-less
-// building; an unassign with no source site to check falls back the same way.
+// authorizeRackPlacement gates a placement on site:manage and stashes the
+// authorized sites for the service (authz.AuthorizedPlacement). A move checks
+// both source (currentSiteID, nil for a new rack) and destination; the
+// destination narrows to the building's parent site, falling back to ORG scope
+// when it resolves to no site.
 func (h *Handler) authorizeRackPlacement(ctx context.Context, orgID int64, currentSiteID, siteID, buildingID *int64) (context.Context, error) {
 	targetSiteID, err := h.resolvePlacementTargetSite(ctx, orgID, siteID, buildingID)
 	if err != nil {
 		return ctx, err
 	}
 	sites := distinctSites(currentSiteID, targetSiteID)
-	// The destination has no site to narrow on when a building_id resolves to a
-	// site-less building, or when nothing else is being checked (unassign / new
-	// site-less rack). Either way require site:manage at org scope so neither a
-	// rack:manage-only caller nor a source-site-only manager can place a rack
-	// through it.
+	// Destination with no site to narrow on (site-less building, or nothing else
+	// being checked) still needs org-scoped site:manage.
 	destSiteLessBuilding := buildingID != nil && *buildingID > 0 && targetSiteID == nil
 	if destSiteLessBuilding || len(sites) == 0 {
 		sites = append(sites, nil)
@@ -114,10 +96,8 @@ func (h *Handler) CreateDeviceSet(ctx context.Context, r *connect.Request[dspb.C
 	if err != nil {
 		return nil, err
 	}
-	// Creating a rack under a site/building persists that placement (and can
-	// cascade added devices to it), so mirror the UpdateDeviceSet/SaveRack gate:
-	// require site:manage when rack_info carries explicit placement. The rack is
-	// new, so there is no source site — authorize the destination only.
+	// Creating a rack under a site/building persists that placement, so gate it
+	// on site:manage. New rack, so no source site — destination only.
 	if ri, ok := r.Msg.TypeDetails.(*dspb.CreateDeviceSetRequest_RackInfo); ok && ri.RackInfo != nil && (ri.RackInfo.SiteId != nil || ri.RackInfo.BuildingId != nil) {
 		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, nil /* currentSiteID */, ri.RackInfo.SiteId, ri.RackInfo.BuildingId)
 		if err != nil {
@@ -155,13 +135,9 @@ func (h *Handler) UpdateDeviceSet(ctx context.Context, r *connect.Request[dspb.U
 	if err != nil {
 		return nil, err
 	}
-	// A rack's placement is now persisted here too (zone/dims + site/building
-	// in one settings save). Placing a rack under a site/building is a
-	// site-management action, so — mirroring SaveRack — require site:manage
-	// when the request carries explicit placement intent (site_id/building_id,
-	// including 0 to unassign). This is a MOVE of an existing rack, so authorize
-	// both its current site and the destination. Metadata-only edits
-	// (label/zone/dims, or a membership change) stay rack:manage.
+	// Explicit placement intent (site_id/building_id, including 0 to unassign) is
+	// a MOVE, so gate on site:manage against both current site and destination.
+	// Metadata-only edits (label/zone/dims, membership) stay rack:manage.
 	if ri, ok := r.Msg.TypeDetails.(*dspb.UpdateDeviceSetRequest_RackInfo); ok && ri.RackInfo != nil && (ri.RackInfo.SiteId != nil || ri.RackInfo.BuildingId != nil) {
 		currentSiteID, err := h.svc.ResolveRackSite(ctx, info.OrganizationID, r.Msg.DeviceSetId)
 		if err != nil {
@@ -459,14 +435,9 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRack
 	if err != nil {
 		return nil, err
 	}
-	// Placing a rack under a site/building is a site-management action —
-	// matching the dedicated AssignRacksToSite/Building RPCs (site:manage).
-	// A rack:manage-only caller may edit rack contents but not place the rack,
-	// so require site:manage when the request carries placement intent (an
-	// explicit site_id/building_id, including 0 to unassign). SaveRack can move
-	// an existing rack, so for an update authorize its current site as well as
-	// the destination; a create has no source. Omitted placement preserves the
-	// rack's current site/building and stays rack:manage.
+	// Placement intent gates on site:manage. SaveRack with a device_set_id is a
+	// move, so resolve and authorize the current site too; a create has none.
+	// Omitted placement preserves the current site/building and stays rack:manage.
 	if ri := r.Msg.RackInfo; ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
 		var currentSiteID *int64
 		if r.Msg.DeviceSetId != nil {
@@ -504,10 +475,8 @@ func (h *Handler) CreateRacks(ctx context.Context, r *connect.Request[dspb.Creat
 	if err != nil {
 		return nil, err
 	}
-	// Placing racks into a site/building is a site-management action, so a
-	// rack:manage-only caller can create unplaced racks but not place them.
-	// Every rack here is new (no source site), so authorize the destination:
-	// an explicit site_id directly, or a building_id via its parent site.
+	// Placement intent gates on site:manage. Every rack is new (no source site),
+	// so authorize the destination only.
 	if r.Msg.SiteId != nil || r.Msg.BuildingId != nil {
 		ctx, err = h.authorizeRackPlacement(ctx, info.OrganizationID, nil /* currentSiteID */, r.Msg.SiteId, r.Msg.BuildingId)
 		if err != nil {

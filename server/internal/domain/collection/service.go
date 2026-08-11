@@ -197,23 +197,18 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 	return siteID, buildingID, nil
 }
 
-// ResolveBuildingSite returns a building's parent site_id so the rack-write
-// handlers can narrow the site:manage escalation to a building-only placement.
-// This is an unlocked read used only for the authorization decision; it does
-// not itself close the window before the write. The handler threads the site
-// it observed here (and the rack's current site) into the write via
-// authz.WithAuthorizedPlacement, and both the create and update paths re-check
-// it under lock (see verifyAuthorizedPlacement). Returns (nil, nil) for a
-// site-less building and NotFound for a missing/soft-deleted one.
+// ResolveBuildingSite returns a building's parent site_id so the handlers can
+// narrow the site:manage check to a building-only placement. Unlocked read for
+// the authorization decision only; the observed site is bound to the write via
+// authz.WithAuthorizedPlacement and re-checked under lock (verifyAuthorizedPlacement).
+// Returns (nil, nil) for a site-less building, NotFound for a missing one.
 func (s *Service) ResolveBuildingSite(ctx context.Context, orgID, buildingID int64) (*int64, error) {
 	return s.collectionStore.GetBuildingSite(ctx, orgID, buildingID)
 }
 
-// ResolveRackSite returns a rack's current site_id (nil for a site-less rack,
-// or for a collection that is not a rack). It is an unlocked read the handlers
-// use to authorize a move against the rack's SOURCE site before the write; the
-// value is bound to the write via authz.WithAuthorizedPlacement and re-checked
-// under lock in resolveAndApplyRackPlacement.
+// ResolveRackSite returns a rack's current site_id (nil for a site-less rack or
+// a non-rack collection). Unlocked read the handlers use to authorize a move
+// against the SOURCE site; bound to the write and re-checked under lock.
 func (s *Service) ResolveRackSite(ctx context.Context, orgID, collectionID int64) (*int64, error) {
 	rackInfo, err := s.collectionStore.GetRackInfo(ctx, collectionID, orgID)
 	if err != nil {
@@ -225,14 +220,10 @@ func (s *Service) ResolveRackSite(ctx context.Context, orgID, collectionID int64
 	return rackInfo.SiteId, nil
 }
 
-// verifyAuthorizedPlacement binds a placement write to the authorization the
-// handler performed on unlocked reads. When the handler stashed an
-// authz.AuthorizedPlacement, the locked current/target sites must still match
-// the sites the caller was authorized against; otherwise a concurrent building-
-// or rack-move slipped in between the authorization and this write, and the
-// write is rejected fail-closed rather than committing under stale
-// authorization. Absent an authorized placement (an internal/trusted caller
-// that bypasses handler authorization), the check is a no-op.
+// verifyAuthorizedPlacement fails the write closed when the locked current/
+// target sites no longer match the sites the handler authorized — i.e. a
+// concurrent move slipped in between authorization and this write. A no-op when
+// no authz.AuthorizedPlacement is set (an internal/trusted caller).
 func verifyAuthorizedPlacement(ctx context.Context, lockedCurrentSite, lockedTargetSite *int64) error {
 	ap, ok := authz.AuthorizedPlacementFromContext(ctx)
 	if !ok {
@@ -403,9 +394,8 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			if err != nil {
 				return nil, err
 			}
-			// New rack, so no current site; bind the destination to the site the
-			// handler authorized against and fail closed if the building moved
-			// sites between that unlocked check and this lock.
+			// New rack, no current site: bind the destination to what the handler
+			// authorized, failing closed if the building moved sites since.
 			if err := verifyAuthorizedPlacement(ctx, nil, siteID); err != nil {
 				return nil, err
 			}
@@ -631,9 +621,8 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 		if err != nil {
 			return nil, err
 		}
-		// All racks are new (no current site); the whole batch shares one
-		// placement, so a single check binds the destination to the site the
-		// handler authorized and fails closed if the building moved sites.
+		// All racks are new and share one placement, so one check binds the
+		// destination to what the handler authorized.
 		if err := verifyAuthorizedPlacement(txCtx, nil, siteID); err != nil {
 			return nil, err
 		}
@@ -2737,9 +2726,8 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 	if err != nil {
 		return nil, err
 	}
-	// New rack, so no current site; bind the destination to the site the handler
-	// authorized against and fail closed if the building moved sites between that
-	// unlocked check and this lock.
+	// New rack, no current site: bind the destination to what the handler
+	// authorized, failing closed if the building moved sites since.
 	if err := verifyAuthorizedPlacement(ctx, nil, newSiteID); err != nil {
 		return nil, err
 	}
@@ -2939,11 +2927,9 @@ func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *sessio
 		}
 	}
 
-	// Bind the site:manage authorization to the locked reality: the handler
-	// authorized this move against the rack's current site and the destination
-	// it resolved on unlocked reads, so reject if a concurrent building- or
-	// rack-move changed either before we took these locks. Runs under the same
-	// rack lock as the write, so it can't be raced past.
+	// Bind authorization to the locked reality: reject if a concurrent move
+	// changed the current or target site since the handler authorized this move.
+	// Under the rack lock, so it can't be raced past.
 	if err := verifyAuthorizedPlacement(ctx, current.SiteID, newSiteID); err != nil {
 		return nil, err
 	}
