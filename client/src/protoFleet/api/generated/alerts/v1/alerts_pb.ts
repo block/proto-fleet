@@ -527,14 +527,16 @@ export type RuleScope = Message<"alerts.v1.RuleScope"> & {
   allSites: boolean;
 
   /**
-   * Read-only, server-set: device_ids exist on this rule but the caller lacks miner:read, so they were omitted. Never renders as org-wide. Writes carrying this flag are rejected — the caller cannot know the redacted list, so saving would silently drop it.
+   * Read-only, server-set: device_ids were omitted because the caller lacks miner:read (never renders as org-wide).
+   * Writes carrying it are rejected — the caller cannot know the redacted list, so saving would silently drop it.
    *
    * @generated from field: bool device_ids_redacted = 7;
    */
   deviceIdsRedacted: boolean;
 
   /**
-   * Write-intent marker: an org-wide write sends the scope message with org_wide=true instead of omitting it. An update of a scoped rule that omits the scope message entirely is rejected as a stale pre-scope client (it cannot round-trip this message, and absent-means-org-wide would let an unrelated edit silently widen the rule to every miner). Mutually exclusive with the placement/device lists; never set on reads (reads express org-wide by omitting scope).
+   * Write-intent marker: org-wide writes set this instead of omitting scope, so a scoped-rule update with no scope
+   * message can be rejected as a stale pre-scope client that would silently widen the rule. Never set on reads.
    *
    * @generated from field: bool org_wide = 8;
    */
@@ -708,7 +710,8 @@ export type Rule = Message<"alerts.v1.Rule"> & {
   configOutOfSync: boolean;
 
   /**
-   * Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config instead of treating the absent field as "no editable config", mirroring how an unset routing is handled.
+   * Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config
+   * instead of reading the absent field as "no editable config", mirroring how an unset routing is handled.
    *
    * @generated from field: bool config_unknown = 15;
    */

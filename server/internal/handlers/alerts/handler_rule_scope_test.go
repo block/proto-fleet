@@ -86,9 +86,8 @@ func TestRuleConfigScopeRedactsDeviceIDsWithoutMinerRead(t *testing.T) {
 	assert.Empty(t, deviceOnly.DeviceIds)
 	assert.True(t, deviceOnly.DeviceIdsRedacted)
 
-	// The flag is server-set only: a write echoing it back carries no device
-	// list to save, so accepting it would silently rewrite the rule without its
-	// explicit miners. Rejected — the writer holds miner:read and can re-read.
+	// The flag is server-set only: a write echoing it back carries no device list to save, so
+	// accepting it would silently rewrite the rule without its explicit miners.
 	for name, scope := range map[string]*alertsv1.RuleScope{
 		"redacted only":  {DeviceIdsRedacted: true},
 		"redacted mixed": {SiteIds: []int64{3}, DeviceIdsRedacted: true},
@@ -104,10 +103,8 @@ func TestRuleConfigScopeRedactsDeviceIDsWithoutMinerRead(t *testing.T) {
 	}
 }
 
-// org_wide is the explicit write marker for an unscoped rule: alone it maps to
-// no domain scope with the explicit flag set (so scoped-rule updates can
-// distinguish deliberate unscoping from a stale pre-scope client); combined
-// with placements it is contradictory and rejected.
+// org_wide alone maps to no domain scope with the explicit flag set (deliberate unscoping vs a
+// stale pre-scope client); combined with placements it is contradictory and rejected.
 func TestRuleConfigOrgWideScopeMapping(t *testing.T) {
 	in := offlineRuleConfig()
 	in.Scope = &alertsv1.RuleScope{OrgWide: true}

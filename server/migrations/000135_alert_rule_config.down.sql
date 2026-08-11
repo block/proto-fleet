@@ -1,4 +1,5 @@
--- Refuse while rows exist: post-migration rules store their only config here (scoped rules deliberately have no legacy annotation), so the pre-table server cannot read them — a silent downgrade would strand those rules uneditable and misreport scoped rules as org-wide. Delete the affected user rules before rolling back; an empty table drops cleanly.
+-- Refuse while rows exist: these rules' only config lives here, so a silent downgrade would strand them uneditable and misreport scoped rules as org-wide.
+-- Delete the affected user rules before rolling back; an empty table drops cleanly.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM alert_rule_config) THEN

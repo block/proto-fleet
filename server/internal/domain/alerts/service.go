@@ -493,10 +493,8 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Fail closed here (unlike the requireRule gate, which backs pause and
-	// maintenance actions that must stay available through a config/route-table
-	// outage): rendering routed rules as default or scoped rules as org-wide
-	// would mislead operators.
+	// Fail closed (unlike requireRule, which backs pause/maintenance actions that must survive a
+	// store outage): rendering routed rules as default or scoped rules as org-wide misleads operators.
 	if err := s.attachConfigs(ctx, orgID, out); err != nil {
 		return nil, err
 	}
@@ -556,10 +554,8 @@ func (s *Service) visibleRulesNoPauseState(ctx context.Context, orgID int64) ([]
 	return out, nil
 }
 
-// attachConfigBestEffort decorates a mutation response the way
-// attachRoutingBestEffort does: the mutation is already committed, so a
-// config-read hiccup degrades the response (Config nil until the next list
-// refresh) rather than failing the whole action.
+// attachConfigBestEffort decorates a mutation response like attachRoutingBestEffort: the mutation
+// is already committed, so a config-read hiccup degrades the response rather than failing the action.
 func (s *Service) attachConfigBestEffort(ctx context.Context, orgID int64, rule *Rule) {
 	if s.configs == nil {
 		return
@@ -579,20 +575,14 @@ func (s *Service) attachConfigBestEffort(ctx context.Context, orgID int64, rule 
 	markConfigOutOfSync(ctx, orgID, rule)
 }
 
-// markConfigOutOfSync flags a rule whose stored config no longer compiles to
-// the live rule Grafana evaluates (a save was interrupted between the two
-// writes). SQL alone is not enough: name and duration live only in the rule's
-// Title/For, and distinct configs can share SQL while rendering different
-// annotations (1 PH/s vs 1000 TH/s), so compare every compiled field. Every
-// decoration path applies it, so a later unrelated mutation response can never
-// erase the warning.
+// markConfigOutOfSync flags an interrupted save; it compares every compiled field, not just SQL (name/duration
+// live only in Title/For; 1 PH/s and 1000 TH/s share SQL), on every decoration path so a later mutation can't erase it.
 func markConfigOutOfSync(ctx context.Context, orgID int64, rule *Rule) {
 	if rule.Config == nil {
 		return
 	}
-	// "" means ruleRawSQL found no refId-A rawSql (missing or malformed Grafana
-	// rule data) — a config always compiles to non-empty SQL, so that is itself
-	// a divergence, not a reason to skip the comparison.
+	// "" means no refId-A rawSql was found — a config always compiles to non-empty SQL,
+	// so that is itself a divergence, not a reason to skip the comparison.
 	if rule.CompiledSQL == "" {
 		rule.ConfigOutOfSync = true
 		slog.WarnContext(ctx, "alerts.rule_config_out_of_sync", "org_id", orgID, "rule_id", rule.ID, "reason", "no_compiled_sql")
@@ -610,14 +600,8 @@ func markConfigOutOfSync(ctx context.Context, orgID int64, rule *Rule) {
 	slog.WarnContext(ctx, "alerts.rule_config_out_of_sync", "org_id", orgID, "rule_id", rule.ID)
 }
 
-// attachConfigs overlays stored rule configs onto the listed rules. The config
-// store is the primary source; rules created before it exist only as a legacy
-// config annotation (migration 000135 did no backfill), so a missing row falls
-// back to that annotation until the rule's first update writes a row. Callers
-// decide failure posture: ListRules fails closed (a rule rendered without its
-// config would misreport an org-wide scope), while mutation paths skip config
-// decoration entirely so pause and maintenance actions stay available through
-// a config-store outage.
+// attachConfigs overlays stored rule configs, falling back to the legacy annotation until a rule's first
+// update writes a row. Fails closed: a rule rendered without its config would misreport an org-wide scope.
 func (s *Service) attachConfigs(ctx context.Context, orgID int64, rules []Rule) error {
 	if s.configs == nil {
 		return nil
@@ -647,12 +631,8 @@ func ruleUIDs(rules []Rule) []string {
 	return uids
 }
 
-// sweepRuleConfigsBestEffort reclaims config rows for rules Grafana no longer
-// lists: an ambiguous create failure deliberately keeps its row (see
-// CreateRule), so repeated failures would otherwise accumulate forever. rules
-// is the org's fresh authoritative list — a Grafana outage fails ListRules
-// before reaching here — and the store spares recently written rows, so an
-// in-flight create's config (stored before its rule exists) is never collected.
+// sweepRuleConfigsBestEffort reclaims rows whose rule Grafana no longer lists (ambiguous create failures
+// keep theirs; see CreateRule). rules is authoritative, and the store spares recent rows for in-flight creates.
 func (s *Service) sweepRuleConfigsBestEffort(ctx context.Context, orgID int64, rules []Rule) {
 	if s.configs == nil {
 		return
@@ -985,11 +965,8 @@ func validateMaintenanceWindowScope(scope MaintenanceWindowScope) error {
 			return fleeterror.NewInvalidArgumentError("rule_id is required for a rule-scoped maintenance window")
 		}
 	case MaintenanceWindowScopeGroup, MaintenanceWindowScopeSite:
-		// Not yet supported: a group/site silence would emit a group_id/site_id matcher,
-		// but only scope-limited user rules label instances with site_id — provisioned
-		// rules and unscoped user rules carry organization_id and device_id alone, so
-		// the silence would be saved and shown active while muting almost nothing.
-		// Reject until every alert query emits the matching label (see proto-fleet-rules.yaml).
+		// Not yet supported: only scope-limited user rules label instances with site_id, so the
+		// silence would save and show active while muting almost nothing (see proto-fleet-rules.yaml).
 		return fleeterror.NewInvalidArgumentErrorf("maintenance window scope %q is not yet supported", scope.Kind)
 	case MaintenanceWindowScopeDevice:
 		if len(scope.DeviceIDs) == 0 {

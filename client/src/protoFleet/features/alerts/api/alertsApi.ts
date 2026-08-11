@@ -220,9 +220,8 @@ const hashrateUnitToProto = (u: HashrateUnit | undefined): ProtoHashrateUnit => 
 
 const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
   const sc = c.scope;
-  // Org-wide is an explicit marker, never an absent message: the server
-  // rejects scope-less updates of scoped rules so a stale pre-scope client
-  // (which drops the unknown field) cannot silently widen them.
+  // Org-wide is an explicit marker, never an absent message: the server rejects
+  // scope-less updates of scoped rules so a stale pre-scope client cannot silently widen them.
   const scope =
     sc &&
     (sc.site_ids.length > 0 ||
@@ -437,10 +436,8 @@ export async function resumeRule(id: string): Promise<Rule> {
   return ruleFromProto(required(res.rule, "rule"));
 }
 
-// A pre-scope server silently drops the unknown scope field and saves the rule
-// org-wide (a new tab writing through a downgraded backend). The response
-// echoes what the server actually parsed, so a scoped save that comes back
-// scope-less is loud proof the mutation landed unscoped.
+// A pre-scope server silently drops the unknown scope field and saves the rule org-wide;
+// the response echoes what was parsed, so a scoped save coming back scope-less proves it.
 const scopeDropped = (rule: Rule, sent: RuleConfig): boolean => {
   const sc = sent.scope;
   const sentScoped =
@@ -480,9 +477,8 @@ export async function updateRule(id: string, config: RuleConfig): Promise<Rule> 
   const res = await alertRuleClient.updateRule({ id, config: ruleConfigToProto(config) });
   const rule = ruleFromProto(required(res.rule, "rule"));
   if (scopeDropped(rule, config)) {
-    // The unscoped update is already committed; pause the rule (a pre-scope
-    // RPC, so it works on the old server too) so it can't flood every miner
-    // while the operator recovers.
+    // The unscoped update is already committed; pause the rule (a pre-scope RPC,
+    // so it works on the old server too) so it can't flood every miner meanwhile.
     let outcome =
       "It was paused to prevent alerts for unintended miners; upgrade the server, then re-save the scope and resume it.";
     try {

@@ -249,9 +249,8 @@ func TestValidateRuleScopeLookupError(t *testing.T) {
 	assert.False(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-// Unscoped rules must compile byte-identical to the pre-scope output: any drift
-// changes instance labels, hence fingerprints and alert identity, for every
-// existing user rule.
+// Unscoped rules must compile byte-identical to the pre-scope output: any drift changes
+// instance labels, hence fingerprints and alert identity, for every existing user rule.
 func TestCompileUnscopedSQLUnchanged(t *testing.T) {
 	compiled, err := compileUserRule(7, "pfu-test", offlineConfig("Offline too long", 1800))
 	require.NoError(t, err)
@@ -267,10 +266,8 @@ GROUP BY organization_id, device_id
 HAVING last(value, time) = 0`, compiledSQL(t, compiled))
 }
 
-// Every scope dimension resolves through fleet_device_placement at eval time:
-// a moved miner joins/leaves a placement scope immediately, old samples stamped
-// with a previous site can never satisfy (or hold open) the rule, and a
-// soft-deleted miner's retained samples stop matching an explicit device scope.
+// Every scope dimension resolves through fleet_device_placement at eval time: a moved miner joins/
+// leaves the scope immediately, and stale or soft-deleted samples can never satisfy the rule.
 func TestCompileScopedOfflineSQL(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -421,9 +418,8 @@ GROUP BY organization_id, device_id
 HAVING max(latest_temp) > 85`, compiledSQL(t, compiled))
 }
 
-// Scope must survive the config-store round trip so edits and lists re-open
-// with it; the compiled rule itself carries no config annotation (Grafana
-// copies annotations onto every alert instance).
+// Scope must survive the config-store round trip; the compiled rule itself carries no
+// config annotation (Grafana copies annotations onto every alert instance).
 func TestScopeRoundTripsThroughConfigStore(t *testing.T) {
 	cfg := scopedOfflineConfig(&RuleScope{
 		SiteIDs: []int64{3}, DeviceIDs: []string{"dev-a"},
@@ -453,9 +449,8 @@ func TestScopeRoundTripsThroughConfigStore(t *testing.T) {
 	assert.Equal(t, cfg, *rules[0].Config)
 }
 
-// The union predicate and site column render at per-template indents; cover
-// every template with both lists set so a drifted indent or predicate can't
-// hide behind the single-sided goldens above.
+// The union predicate and site column render at per-template indents; cover every template
+// with both lists set so a drifted indent can't hide behind the single-sided goldens above.
 func TestCompileScopedUnionSQLAllTemplates(t *testing.T) {
 	scope := &RuleScope{SiteIDs: []int64{3}, DeviceIDs: []string{"dev-a"}}
 	cteUnion := `      AND device_id IN (
@@ -538,9 +533,8 @@ func TestCreateRuleNormalizesAndCompilesScope(t *testing.T) {
 	assert.Equal(t, &RuleScope{SiteIDs: []int64{3, 5}}, rule.Config.Scope)
 }
 
-// A site deleted after a rule was scoped to it must not brick unrelated edits:
-// the update may keep the stored id (rule stays visible-but-inert for that
-// site) while newly added ids are still validated.
+// A site deleted after a rule was scoped to it must not brick unrelated edits: the update may
+// keep the stored id (visible-but-inert for that site) while newly added ids are still validated.
 func TestUpdateRuleKeepsScopeWithDeletedSite(t *testing.T) {
 	storedCfg := scopedOfflineConfig(&RuleScope{SiteIDs: []int64{9}})
 	stored, err := compileUserRule(7, "pfu-mine", storedCfg)
@@ -563,9 +557,8 @@ func TestUpdateRuleKeepsScopeWithDeletedSite(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-// Clearing the scope is the documented rollback path: an explicit org-wide
-// update must compile back to the unscoped SQL and drop the scope from the
-// stored config.
+// Clearing the scope is the documented rollback path: an explicit org-wide update must
+// compile back to the unscoped SQL and drop the scope from the stored config.
 func TestUpdateRuleClearsScope(t *testing.T) {
 	stored, err := compileUserRule(7, "pfu-mine", scopedOfflineConfig(&RuleScope{SiteIDs: []int64{3}}))
 	require.NoError(t, err)
@@ -581,9 +574,8 @@ func TestUpdateRuleClearsScope(t *testing.T) {
 	assert.Nil(t, updated.Config.Scope)
 }
 
-// A stale pre-scope client cannot round-trip the scope field, so its update of
-// a scoped rule arrives with no scope at all; accepting it would silently
-// widen the rule to every miner. Explicit org-wide intent still unscopes.
+// A stale pre-scope client's update arrives with no scope at all; accepting it would silently
+// widen a scoped rule to every miner. Explicit org-wide intent still unscopes.
 func TestUpdateRuleRejectsScopelessWriteOfScopedRule(t *testing.T) {
 	storedCfg := scopedOfflineConfig(&RuleScope{SiteIDs: []int64{3}})
 	stored, err := compileUserRule(7, "pfu-mine", storedCfg)
@@ -605,10 +597,8 @@ func TestUpdateRuleRejectsScopelessWriteOfScopedRule(t *testing.T) {
 	assert.Nil(t, updated.Config.Scope)
 }
 
-// The config row follows the confirmed Grafana outcome: a rejected update
-// leaves the row untouched (readers keep matching the live rule), while a
-// commit that Grafana errored after (timeout) still publishes — the row must
-// never report a configuration Grafana might not be evaluating.
+// The config row follows the confirmed Grafana outcome: a rejected update leaves it untouched, a
+// commit Grafana errored after still publishes — it must never report a config Grafana isn't evaluating.
 func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 	storedCfg := scopedOfflineConfig(&RuleScope{SiteIDs: []int64{3}})
 	stored, err := compileUserRule(7, "pfu-mine", storedCfg)
@@ -635,9 +625,8 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		assert.NotContains(t, configs.configs, "pfu-mine")
 	})
 
-	// A PUT error does not prove the update was rejected: when the live rule
-	// already carries the attempted change (timeout after commit), the new
-	// config must be published, or reads would misreport the live rule's scope.
+	// A PUT error does not prove the update was rejected: when the live rule already carries the
+	// change (timeout after commit), the config must publish or reads would misreport the scope.
 	t.Run("committed despite error publishes new config", func(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}, updateErrAfterCommit: true}
 		configs := newFakeRuleConfigStore()
@@ -650,10 +639,8 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		assert.Equal(t, newCfg, configs.configs["pfu-mine"])
 	})
 
-	// An upsert error does not prove the row was not written: when the probe
-	// shows the row carries the update (timeout after commit), both sides
-	// already agree — restoring Grafana would CREATE the divergence, so the
-	// update reports success.
+	// An upsert error does not prove the row was not written: when the probe shows both sides
+	// already agree, restoring Grafana would CREATE the divergence, so the update reports success.
 	t.Run("upsert committed despite error converges", func(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}}
 		configs := newFakeRuleConfigStore()
@@ -687,9 +674,8 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		assert.Equal(t, newCfg, configs.configs["pfu-mine"])
 	})
 
-	// When the row's state cannot be confirmed, restoring is as likely to
-	// create the divergence as to fix it: leave both sides for the out-of-sync
-	// flag and tell the caller to re-save.
+	// When the row's state cannot be confirmed, restoring is as likely to create the divergence
+	// as to fix it: leave both sides for the out-of-sync flag and tell the caller to re-save.
 	t.Run("unknown row state skips the restore", func(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}}
 		configs := newFakeRuleConfigStore()
@@ -705,10 +691,8 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		assert.Equal(t, "Renamed", fake.updated.Title, "no restore may run against an unknown row state")
 	})
 
-	// The compensating restore can itself fail: the caller must not be told the
-	// update was rolled back — Grafana may keep evaluating the new SQL while
-	// the row holds the old config — and the untouched row means later reads
-	// flag the divergence.
+	// The compensating restore can itself fail: the caller must not be told the update was rolled
+	// back (Grafana may keep evaluating the new SQL), and the untouched row lets reads flag it.
 	t.Run("failed restore is not reported as a rollback", func(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}, updateErrAfterFirst: true}
 		configs := newFakeRuleConfigStore()
@@ -723,9 +707,8 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		assert.Equal(t, storedCfg, configs.configs["pfu-mine"], "the row still holds the old config")
 	})
 
-	// The ambiguous-failure probe can itself fail: the row must stay untouched
-	// (only ever BEHIND the live rule), and once the commit becomes visible the
-	// next list flags the divergence for a converging re-save.
+	// The ambiguous-failure probe can itself fail: the row must stay untouched (only ever BEHIND
+	// the live rule), and once the commit becomes visible the next list flags the divergence.
 	t.Run("failed probe leaves the row behind and reads flag it", func(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}, updateErrAfterCommit: true, getRuleErrAfterUpdate: true}
 		configs := newFakeRuleConfigStore()
@@ -742,9 +725,8 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		assert.True(t, rules[0].ConfigOutOfSync)
 	})
 
-	// The rule committed but the config write failed: compensate by restoring
-	// the previous rule body so the live SQL keeps matching the stored config,
-	// and surface a retriable error.
+	// The rule committed but the config write failed: restore the previous rule body so the
+	// live SQL keeps matching the stored config, and surface a retriable error.
 	t.Run("committed but config write failed restores the rule", func(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}}
 		configs := newFakeRuleConfigStore()
@@ -760,9 +742,8 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 	})
 }
 
-// An interrupted save (rule written, config write lost — or vice versa) must
-// surface on reads: the stored config is only authoritative while it compiles
-// to the SQL the live rule evaluates.
+// An interrupted save must surface on reads: the stored config is only authoritative
+// while it compiles to the SQL the live rule evaluates.
 func TestListRulesFlagsConfigOutOfSync(t *testing.T) {
 	liveCfg := scopedOfflineConfig(&RuleScope{SiteIDs: []int64{3}})
 	live, err := compileUserRule(7, "pfu-mine", liveCfg)
@@ -804,10 +785,8 @@ func TestPauseRuleKeepsConfigOutOfSyncFlag(t *testing.T) {
 	assert.True(t, paused.ConfigOutOfSync)
 }
 
-// A name- or duration-only edit changes the rule's Title/For but not its SQL,
-// and equivalent thresholds (1 PH/s vs 1000 TH/s) share SQL while rendering
-// different annotations: an interrupted save must flag all of them, not just
-// SQL divergence.
+// Name/duration edits change Title/For but not SQL, and equivalent thresholds (1 PH/s vs 1000 TH/s)
+// share SQL with different annotations: an interrupted save must flag all of them, not just SQL drift.
 func TestListRulesFlagsConfigOutOfSyncBeyondSQL(t *testing.T) {
 	liveCfg := offlineConfig("Offline too long", 1800)
 	phCfg := RuleConfig{
@@ -843,9 +822,8 @@ func TestListRulesFlagsConfigOutOfSyncBeyondSQL(t *testing.T) {
 	}
 }
 
-// Rule data with no recognizable refId-A rawSql (missing or malformed) is
-// itself a divergence from any stored config — a config always compiles to
-// non-empty SQL — so it must flag, not read as in sync with no query at all.
+// Rule data with no recognizable refId-A rawSql is itself a divergence — a config always
+// compiles to non-empty SQL — so it must flag, not read as in sync with no query at all.
 func TestListRulesFlagsConfigOutOfSyncOnMissingSQL(t *testing.T) {
 	liveCfg := offlineConfig("Offline too long", 1800)
 	for name, data := range map[string]json.RawMessage{
@@ -870,9 +848,8 @@ func TestListRulesFlagsConfigOutOfSyncOnMissingSQL(t *testing.T) {
 	}
 }
 
-// Ambiguous create failures deliberately keep config rows for UIDs whose rule
-// may or may not exist (see CreateRule); a successful authoritative list
-// reclaims the never-created ones without touching live rules' rows.
+// Ambiguous create failures deliberately keep config rows (see CreateRule); a successful
+// authoritative list reclaims the never-created ones without touching live rules' rows.
 func TestListRulesSweepsOrphanConfigs(t *testing.T) {
 	liveCfg := offlineConfig("Offline too long", 1800)
 	live, err := compileUserRule(7, "pfu-mine", liveCfg)
@@ -890,11 +867,8 @@ func TestListRulesSweepsOrphanConfigs(t *testing.T) {
 	assert.NotContains(t, configs.configs, "pfu-orphan")
 }
 
-// Rules created before the config store (migration 000135 deliberately did no
-// backfill) hold their config only in the legacy proto_fleet_config
-// annotation: a missing store row must fall back to it so pre-existing rules
-// stay editable, while a row — written by the rule's first post-migration
-// update — wins over the annotation.
+// Pre-000135 rules hold their config only in the legacy annotation: a missing store row must
+// fall back to it so those rules stay editable, while a store row wins over the annotation.
 func TestListRulesFallsBackToLegacyAnnotationConfig(t *testing.T) {
 	legacyCfg := offlineConfig("Offline too long", 1800)
 	live, err := compileUserRule(7, "pfu-legacy", legacyCfg)
@@ -922,12 +896,8 @@ func TestListRulesFallsBackToLegacyAnnotationConfig(t *testing.T) {
 	assert.Equal(t, stored, *rules[0].Config)
 }
 
-// A corrupt legacy annotation degrades to "no editable config" rather than
-// failing the list or serving an unvalidated config. A template mismatch is
-// treated the same way (as the old inline parser did): the annotation rides
-// the rule PUT, so disagreement means a manual Grafana edit, and exposing the
-// config would let a re-save rewrite the live rule to the annotation's
-// template.
+// A corrupt legacy annotation degrades to "no editable config" rather than failing the list. A
+// template mismatch (a manual Grafana edit a re-save would replay onto the rule) is hidden the same way.
 func TestListRulesIgnoresInvalidLegacyAnnotationConfig(t *testing.T) {
 	live, err := compileUserRule(7, "pfu-legacy", offlineConfig("Offline too long", 1800))
 	require.NoError(t, err)
@@ -949,10 +919,8 @@ func TestListRulesIgnoresInvalidLegacyAnnotationConfig(t *testing.T) {
 	}
 }
 
-// A legacy rule's first update must stage the annotation config as a store row
-// before touching Grafana: if the stage fails, the update aborts with the
-// annotation intact — proceeding would let a committed PUT strip the rule's
-// only config with no row to fall back on.
+// A legacy rule's first update must stage the annotation config as a store row before touching
+// Grafana: proceeding past a failed stage would let a committed PUT strip the rule's only config.
 func TestUpdateRuleAbortsWhenLegacyConfigStageFails(t *testing.T) {
 	legacyCfg := offlineConfig("Offline too long", 1800)
 	live, err := compileUserRule(7, "pfu-legacy", legacyCfg)
@@ -972,11 +940,8 @@ func TestUpdateRuleAbortsWhenLegacyConfigStageFails(t *testing.T) {
 	assert.Equal(t, string(legacyJSON), fake.listed[0].Annotations[ruleAnnotationConfig], "the annotation must survive an aborted update")
 }
 
-// The dangerous first-update sequence: the PUT commits (stripping the
-// annotation) and every config write after it fails. The staged row is then
-// the rule's only surviving config — reads must serve it and flag the
-// divergence for a converging re-save, not render the rule config-less
-// (uneditable, misreported as org-wide).
+// The PUT commits (stripping the annotation) and every config write after it fails: the staged row
+// is the rule's only surviving config — reads must serve it and flag the divergence, not render config-less.
 func TestUpdateRuleKeepsStagedLegacyConfigThroughPublishFailure(t *testing.T) {
 	legacyCfg := offlineConfig("Offline too long", 1800)
 	live, err := compileUserRule(7, "pfu-legacy", legacyCfg)

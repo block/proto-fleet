@@ -87,8 +87,7 @@ func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig, m
 		return nil, err
 	}
 	// Policy and config before rule: rows for a never-created UID are inert, while the reverse
-	// order would need a rule rollback whose failure mode is a live rule paging channels the
-	// user explicitly routed away from (and that rollback couldn't hold userRuleMu).
+	// order risks a live rule paging channels the user explicitly routed away from.
 	if policy != nil {
 		policy.RuleUID = uid
 		if err := s.routes.SetPolicy(ctx, orgID, *policy); err != nil {
@@ -98,10 +97,8 @@ func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig, m
 	}
 	if s.configs != nil {
 		if err := s.configs.UpsertConfig(ctx, orgID, uid, cfg); err != nil {
-			// The policy row above is already committed; without a rule it never
-			// routes, but retries would accumulate orphans in every delivery
-			// policy load. No rule exists for this fresh UID yet, so unlike the
-			// post-create cleanup below the delete needs no Grafana probe.
+			// The committed policy row never routes without a rule, but retries would accumulate
+			// orphans in every load; no rule exists for this fresh UID, so no Grafana probe needed.
 			if policy != nil {
 				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 				defer cancel()
@@ -211,9 +208,8 @@ func (s *Service) UpdateRule(ctx context.Context, orgID int64, id string, cfg Ru
 	return &out, nil
 }
 
-// updateRuleSerialized holds userRuleMu across fetch, scope validation, PUT,
-// and group re-pin so a concurrent same-rule mutation can't be overwritten by
-// this body replay (the validation lookups are quick indexed reads).
+// updateRuleSerialized holds userRuleMu across fetch, validation, PUT, and group re-pin
+// so a concurrent same-rule mutation can't be overwritten by this body replay.
 func (s *Service) updateRuleSerialized(ctx context.Context, orgID int64, id string, cfg RuleConfig) (*GrafanaAlertRule, error) {
 	s.userRuleMu.Lock()
 	defer s.userRuleMu.Unlock()
@@ -227,14 +223,8 @@ func (s *Service) updateRuleSerialized(ctx context.Context, orgID int64, id stri
 	if err != nil {
 		return nil, err
 	}
-	// A legacy rule's only config lives in its annotation, and the PUT body
-	// below strips it. Stage that config as the store row BEFORE the PUT —
-	// aborting if the stage fails — so every later failure combination leaves a
-	// row for reads to diff against (markConfigOutOfSync) instead of erasing
-	// the rule's only config (uneditable, misreported as org-wide). The row is
-	// also what keeps the rollback guards sound: 000135's down refuses while
-	// rows exist, so live SQL referencing fleet_device_placement always has a
-	// row anchoring it (rows delete only with their rule).
+	// The PUT body strips a legacy rule's annotation — its only config — so stage it as the store row first
+	// (aborting on failure): any later failure leaves a row to diff against, anchoring 000135's rollback guard.
 	if storedCfg == nil && s.configs != nil {
 		if legacy := legacyRuleConfig(ctx, orgID, id, templateFromLabel(current.Labels[ruleLabelTemplate]), current.Annotations[ruleAnnotationConfig]); legacy != nil {
 			if uerr := s.configs.UpsertConfig(ctx, orgID, id, *legacy); uerr != nil {
@@ -243,19 +233,14 @@ func (s *Service) updateRuleSerialized(ctx context.Context, orgID int64, id stri
 			storedCfg = legacy
 		}
 	}
-	// Tolerate placement ids the rule already stores: a scope site/building/
-	// rack/group deleted after creation must not brick unrelated edits (rename,
-	// threshold). The rule stays visible-but-inert for that id, per the TDD;
-	// added ids are still checked, and a stored id can never be cross-org
-	// (create validated it).
+	// A placement deleted after the rule stored it must not brick unrelated edits: the rule stays
+	// visible-but-inert for that id. Added ids are still checked; stored ids were create-validated.
 	var keep *RuleScope
 	if storedCfg != nil {
 		keep = storedCfg.Scope
 	}
-	// A stale pre-scope client cannot round-trip the scope field, so its writes
-	// arrive with no scope message at all; treating that as org-wide would let
-	// an unrelated edit (rename, threshold) silently widen a scoped rule to
-	// every miner. Unscoping requires the explicit org_wide marker.
+	// A stale pre-scope client drops the scope field entirely; reading that as org-wide would let an
+	// unrelated edit silently widen a scoped rule. Unscoping requires the explicit org_wide marker.
 	if keep != nil && cfg.Scope == nil && !cfg.ScopeOrgWideExplicit {
 		return nil, fleeterror.NewInvalidArgumentError("this rule is scoped: send the current scope, or an explicit org-wide scope to remove it")
 	}
@@ -272,19 +257,13 @@ func (s *Service) updateRuleSerialized(ctx context.Context, orgID int64, id stri
 	body.IsPaused = current.IsPaused
 	updated, err := s.grafana.UpdateAlertRule(ctx, body)
 	if err != nil {
-		// The row was not touched, so reads still match the live rule — unless
-		// Grafana committed before erroring (timeout after commit): publish the
-		// new config only when the live rule provably carries it.
+		// The row was untouched, so reads still match the live rule — unless Grafana committed
+		// before erroring: publish the new config only when the live rule provably carries it.
 		s.publishConfigIfCommitted(ctx, orgID, id, body, cfg)
 		return nil, err
 	}
-	// Publish only after the confirmed commit: reads must never report a
-	// configuration Grafana might not be evaluating. If this write fails,
-	// compensate by restoring the previous rule body so the live SQL keeps
-	// matching the stored config (a stale row doesn't merely understate a
-	// change — a failed narrowing edit would show org-wide coverage the rule no
-	// longer provides). Either way the caller sees an error and a retried save
-	// converges both sides.
+	// Publish only after the confirmed commit: reads must never report a config Grafana might not be evaluating.
+	// On failure, restore the previous rule body — a narrowing edit would otherwise show coverage the rule lost.
 	if s.configs != nil {
 		if uerr := s.configs.UpsertConfig(ctx, orgID, id, cfg); uerr != nil {
 			if err := s.reconcileFailedConfigWrite(ctx, orgID, id, cfg, *current, uerr); err != nil {
@@ -306,12 +285,8 @@ func (s *Service) updateRuleSerialized(ctx context.Context, orgID int64, id stri
 	return updated, nil
 }
 
-// reconcileFailedConfigWrite handles an UpsertConfig error after a committed
-// Grafana update. The error does not prove the row was not written — a timeout
-// or connection reset can land after Postgres committed — so probe the row
-// before compensating: restoring Grafana against a committed row would create
-// the very divergence the restore exists to prevent. Returns nil when both
-// sides provably carry the update (converged despite the error).
+// reconcileFailedConfigWrite: the upsert error does not prove the row was not written (timeouts land after
+// commit), so probe before compensating — restoring Grafana against a committed row would create the divergence.
 func (s *Service) reconcileFailedConfigWrite(ctx context.Context, orgID int64, id string, cfg RuleConfig, previous GrafanaAlertRule, uerr error) error {
 	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
@@ -351,14 +326,8 @@ func ruleConfigsEqual(a, b RuleConfig) bool {
 	return aerr == nil && berr == nil && bytes.Equal(ja, jb)
 }
 
-// publishConfigIfCommitted handles the ambiguous PUT failure: an error response
-// does not prove Grafana rejected the update — a timeout can land after the
-// commit. Probe the live rule and publish the attempted config only when the
-// rule provably carries it; otherwise the untouched row still matches the
-// previous rule. The row can therefore only ever be BEHIND the live rule: a
-// residual mismatch understates the change (extra alerts stay visible) rather
-// than reporting coverage Grafana isn't evaluating, and a retried save
-// converges both sides.
+// publishConfigIfCommitted: a PUT error does not prove Grafana rejected it (timeouts land after commit); publish
+// only when the live rule provably carries the change, keeping the row only ever BEHIND the live rule.
 func (s *Service) publishConfigIfCommitted(ctx context.Context, orgID int64, id string, attempted GrafanaAlertRule, cfg RuleConfig) {
 	if s.configs == nil {
 		return
@@ -406,16 +375,8 @@ func ruleRawSQL(data json.RawMessage) string {
 	return ""
 }
 
-// legacyRuleConfig parses a pre-config-store annotation config (rules created
-// before migration 000135, which the table deliberately did not backfill).
-// Invalid content degrades to nil — the rule reads as non-editable — rather
-// than failing the list. Legacy configs predate scopes, so they are always
-// org-wide; the first successful update migrates them into a store row.
-// A config whose template disagrees with the rule's label is hidden the same
-// way (matching the old inline parser): the annotation rides the rule PUT, so
-// a mismatch means a manual Grafana edit — exposing it would let a re-save
-// rewrite the live rule to the annotation's template, and out-of-sync
-// convergence deliberately trusts the config side (see markConfigOutOfSync).
+// legacyRuleConfig parses the pre-000135 annotation config (never backfilled; always org-wide). Invalid content
+// or a template disagreeing with the rule's label (a manual edit a re-save would replay) degrades to nil/non-editable.
 func legacyRuleConfig(ctx context.Context, orgID int64, ruleUID string, tmpl RuleTemplate, raw string) *RuleConfig {
 	if raw == "" {
 		return nil
@@ -437,9 +398,8 @@ func legacyRuleConfig(ctx context.Context, orgID int64, ruleUID string, tmpl Rul
 	return &cfg
 }
 
-// storedRuleConfig reads the rule's persisted config row. Store errors fail the
-// caller (a lost row must not silently drop the update-time scope tolerance or
-// the PUT-failure restore).
+// storedRuleConfig reads the rule's persisted config row. Store errors fail the caller: a lost
+// row must not silently drop the update-time scope tolerance or the PUT-failure restore.
 func (s *Service) storedRuleConfig(ctx context.Context, orgID int64, ruleUID string) (*RuleConfig, error) {
 	if s.configs == nil {
 		return nil, nil
@@ -628,9 +588,8 @@ func normalizeIDList(ids []int64) []int64 {
 	return slices.Compact(out)
 }
 
-// normalizeRuleScope dedupes and sorts the id lists so equal scopes compile to
-// identical SQL, and collapses an empty scope to nil (org-wide). AllSites
-// supersedes an explicit site list.
+// normalizeRuleScope dedupes and sorts the id lists so equal scopes compile to identical SQL, and
+// collapses an empty scope to nil (org-wide). AllSites supersedes an explicit site list.
 func normalizeRuleScope(scope *RuleScope) *RuleScope {
 	if scope.IsZero() {
 		return nil
@@ -653,9 +612,8 @@ func normalizeRuleScope(scope *RuleScope) *RuleScope {
 	return out
 }
 
-// scopeDimension is one placement dimension of a scope; the accessor serves
-// both the requested scope and the update-time keep scope, and lookup is nil
-// when the Service has no ScopeLookup (format checks still run).
+// scopeDimension's accessor serves both the requested scope and the update-time keep scope;
+// lookup is nil when the Service has no ScopeLookup (format checks still run).
 type scopeDimension struct {
 	name   string
 	ids    func(*RuleScope) []int64
@@ -684,13 +642,8 @@ func (s *Service) scopeDimensions() []scopeDimension {
 	return dims
 }
 
-// validateRuleScope format-checks scope ids and confirms placement ids are
-// live and org-owned; keep holds the rule's already-stored scope, whose ids
-// updates may retain even if since deleted. Device ids get the same pattern
-// check as device-scoped maintenance windows and, like them, no existence
-// check: the compiled SQL resolves device ids through the org-filtered
-// live-device view (see scopeFilterSQL), so an unknown, deleted, or cross-org
-// id is inert.
+// validateRuleScope: keep holds stored ids updates may retain even if since deleted. Device ids get only
+// the pattern check — the org-filtered live-device view makes an unknown, deleted, or cross-org id inert.
 func (s *Service) validateRuleScope(ctx context.Context, orgID int64, scope, keep *RuleScope) error {
 	if scope.IsZero() {
 		return nil
@@ -739,9 +692,8 @@ func (s *Service) validateRuleScope(ctx context.Context, orgID int64, scope, kee
 		}
 		for _, id := range ids {
 			if !live[id] {
-				// Same audit signal and generic message as the canonical
-				// cross-org validators (interfaces.ValidateFilterSites): the
-				// rejected ids may be another org's, so never echo them.
+				// Same audit signal and generic message as the canonical cross-org
+				// validators: the rejected ids may be another org's, so never echo them.
 				slog.WarnContext(ctx, "cross_org_filter_probe",
 					"org_id", orgID,
 					"surface", "alert_rule_scope",
@@ -812,20 +764,8 @@ func compileUserRule(orgID int64, uid string, cfg RuleConfig) (GrafanaAlertRule,
 	}, nil
 }
 
-// scopeFilterSQL renders the sample filter for a scoped rule: one
-// fleet_device_placement semijoin over the union of the scope's placements and
-// explicit devices. Both dimensions resolve through the view so rows only match
-// CURRENT membership of LIVE devices — placements never match on stale emit-time
-// attributes, and a soft-deleted miner's retained samples (device deletion does
-// not purge them) stop matching immediately instead of riding out the eval
-// window. Membership is deliberately not timestamp-gated: a miner moved INTO
-// scope is evaluated on its latest samples immediately — last(value, time)
-// reflects its current state, and a rule covering a currently-violating miner
-// should fire after its configured duration, not wait out a placement grace
-// period. Placement ids are server-formatted integers and device ids are
-// allowlist-validated by deviceIDPattern (no quotes or backslashes), so the
-// embedded literals cannot escape their quoting. Returns "" for an org-wide
-// scope so unscoped rules compile byte-identical to before.
+// scopeFilterSQL resolves both dimensions through one fleet_device_placement semijoin so only CURRENT membership
+// of LIVE devices matches — never stale or soft-deleted samples. Returns "" org-wide: unscoped compiles byte-identical.
 func scopeFilterSQL(org string, scope *RuleScope, indent string) string {
 	if scope.IsZero() {
 		return ""
@@ -888,20 +828,8 @@ func placementCondSQL(scope *RuleScope) string {
 	return "(" + strings.Join(conds, " OR ") + ")"
 }
 
-// scopeSiteColumnSQL emits the site label column for scoped rules so their alert
-// instances carry site_id (silences and history can key on it); "" when unscoped.
-// The label reads CURRENT placement from fleet_device_placement rather than the
-// row's emit-time site_id: retained samples keep their old stamp after a move,
-// and an offline miner emits nothing new, so a telemetry-derived label would
-// stay stale indefinitely and change alert identity whenever fresh telemetry
-// finally lands. LIMIT 1 collapses the view's per-group row fan-out (site_id is
-// identical across a device's rows). deviceCol is the caller's qualified device
-// column; the correlated subquery runs once per emitted device row, after
-// aggregation. The value is cast to text and COALESCEd to empty because the
-// view's site_id is BIGINT while Grafana's table contract allows exactly one
-// numeric column (the value) and only labels non-numeric ones; empty matches
-// the sample column's not-null default, so an unplaced device keeps the same
-// empty label it had under the old telemetry-derived column.
+// scopeSiteColumnSQL labels instances with CURRENT placement — emit-time stamps go stale after a move and
+// never refresh offline. LIMIT 1 collapses per-group fan-out; the text cast keeps Grafana's one-numeric-column contract.
 func scopeSiteColumnSQL(org, deviceCol string, scope *RuleScope, indent string) string {
 	if scope.IsZero() {
 		return ""
@@ -926,9 +854,8 @@ HAVING %s`, scopeSiteColumnSQL(org, "notification_metric_sample.device_id", scop
 }
 
 // compileTemplate renders the org-scoped SQL plus human summary/description.
-// Every interpolated value is a server-validated number, a pattern-validated
-// device id (see validateRuleScope), or the session org id, so no free-form
-// request string ever reaches the SQL.
+// Every interpolated value is a server-validated number, a pattern-validated device id
+// (see validateRuleScope), or the session org id: no free-form request string reaches the SQL.
 func compileTemplate(orgID int64, cfg RuleConfig) (sql, summary, description string) {
 	org := strconv.FormatInt(orgID, 10)
 	dur := humanizeDuration(cfg.DurationSeconds)

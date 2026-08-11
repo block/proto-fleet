@@ -1478,9 +1478,11 @@ type RuleScope struct {
 	GroupIds    []int64                `protobuf:"varint,5,rep,packed,name=group_ids,json=groupIds,proto3" json:"group_ids,omitempty"`
 	// Live "any site": covers miners assigned to any current or future site (excludes unassigned miners); when set, site_ids is ignored and reads return it empty.
 	AllSites bool `protobuf:"varint,6,opt,name=all_sites,json=allSites,proto3" json:"all_sites,omitempty"`
-	// Read-only, server-set: device_ids exist on this rule but the caller lacks miner:read, so they were omitted. Never renders as org-wide. Writes carrying this flag are rejected — the caller cannot know the redacted list, so saving would silently drop it.
+	// Read-only, server-set: device_ids were omitted because the caller lacks miner:read (never renders as org-wide).
+	// Writes carrying it are rejected — the caller cannot know the redacted list, so saving would silently drop it.
 	DeviceIdsRedacted bool `protobuf:"varint,7,opt,name=device_ids_redacted,json=deviceIdsRedacted,proto3" json:"device_ids_redacted,omitempty"`
-	// Write-intent marker: an org-wide write sends the scope message with org_wide=true instead of omitting it. An update of a scoped rule that omits the scope message entirely is rejected as a stale pre-scope client (it cannot round-trip this message, and absent-means-org-wide would let an unrelated edit silently widen the rule to every miner). Mutually exclusive with the placement/device lists; never set on reads (reads express org-wide by omitting scope).
+	// Write-intent marker: org-wide writes set this instead of omitting scope, so a scoped-rule update with no scope
+	// message can be rejected as a stale pre-scope client that would silently widen the rule. Never set on reads.
 	OrgWide       bool `protobuf:"varint,8,opt,name=org_wide,json=orgWide,proto3" json:"org_wide,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1768,7 +1770,8 @@ type Rule struct {
 	Routing *RuleRouting `protobuf:"bytes,13,opt,name=routing,proto3" json:"routing,omitempty"`
 	// Read-only, server-set: the stored config no longer compiles to the SQL the rule is evaluating (a save was interrupted mid-write); re-saving the rule converges both sides.
 	ConfigOutOfSync bool `protobuf:"varint,14,opt,name=config_out_of_sync,json=configOutOfSync,proto3" json:"config_out_of_sync,omitempty"`
-	// Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config instead of treating the absent field as "no editable config", mirroring how an unset routing is handled.
+	// Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config
+	// instead of reading the absent field as "no editable config", mirroring how an unset routing is handled.
 	ConfigUnknown bool `protobuf:"varint,15,opt,name=config_unknown,json=configUnknown,proto3" json:"config_unknown,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

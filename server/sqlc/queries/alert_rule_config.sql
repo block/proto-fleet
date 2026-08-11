@@ -18,10 +18,8 @@ FROM alert_rule_config
 WHERE org_id = sqlc.arg('org_id')
   AND rule_uid = ANY(sqlc.arg('rule_uids')::text[]);
 
--- Ambiguous create failures retain rows for never-created rule UIDs (see
--- CreateRule); this reclaims them once a fresh authoritative rule list is in
--- hand. The hour of slack protects in-flight creates, whose config row lands
--- before the Grafana rule exists.
+-- Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
+-- The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.
 -- name: SweepAlertRuleConfigs :execrows
 DELETE FROM alert_rule_config
 WHERE org_id = sqlc.arg('org_id')

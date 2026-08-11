@@ -10,9 +10,8 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import Row from "@/shared/components/Row";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-// Mirrors MinerSelectionModal's save shape: allSelected lets callers persist
-// "all sites" as a live selection (covering future sites) instead of
-// materializing today's list; callers that only want ids ignore it.
+// allSelected lets callers persist "all sites" as a live selection (covering future
+// sites) instead of materializing today's list; id-only callers ignore it.
 export interface SiteSelectionValue {
   siteIds: string[];
   allSelected: boolean;
@@ -44,10 +43,8 @@ const SiteSelectionModal = ({
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [draftSelection, setDraftSelection] = useState<Set<string>>(new Set(selectedSiteIds));
-  // Live "all sites" is an explicit gesture (the All sites checkbox / Select
-  // all), never inferred from coverage: a fixed list that happens to span every
-  // current site must survive an open-and-Done instead of silently widening to
-  // cover future sites.
+  // Live "all sites" is an explicit gesture, never inferred from coverage: a fixed list
+  // that happens to span every current site must not silently widen to cover future sites.
   const [allSitesIntent, setAllSitesIntent] = useState(allSitesSelected);
   const [isLoading, setIsLoading] = useState(true);
   const [hasLoadError, setHasLoadError] = useState(false);
@@ -141,12 +138,8 @@ const SiteSelectionModal = ({
         {
           text: "Done",
           variant: "primary",
-          // A scope-narrowed list can have "all visible" checked without covering
-          // every org site, so allSelected only holds for the unscoped list, and
-          // only when the user (or the seed) explicitly asked for all sites —
-          // full coverage alone stays a fixed list. With no selectable sites
-          // there is nothing to act on: an all-sites seed must survive an
-          // open-and-Done rather than silently widen the caller's selection.
+          // allSelected only holds for the unscoped list on explicit intent: "all visible" under
+          // a scope isn't all org sites, and with nothing selectable an all-sites seed must survive.
           onClick: () =>
             onSave({
               siteIds: Array.from(draftSelection),

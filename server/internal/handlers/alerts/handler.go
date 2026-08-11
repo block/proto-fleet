@@ -194,10 +194,8 @@ func (h *Handler) ListRules(ctx context.Context, _ *connect.Request[alertsv1.Lis
 	return connect.NewResponse(&alertsv1.ListRulesResponse{Rules: out}), nil
 }
 
-// canReadDeviceScope gates scope device ids the way rule writes gate device
-// fan-out: org-WIDE miner:read. Scope ids can reference miners at any site, so
-// an org grant narrowed away at even one site must redact (a plain org-scope
-// check would leak that site's device ids).
+// canReadDeviceScope gates scope device ids on org-WIDE miner:read: scope ids can reference miners at
+// any site, so a grant narrowed away at even one site must redact (a plain org-scope check would leak).
 func (h *Handler) canReadDeviceScope(ctx context.Context) (bool, error) {
 	return middleware.HasOrgWidePermission(ctx, authz.PermMinerRead)
 }
@@ -382,9 +380,8 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
-	// Device identity (id/name/mac) is miner data spanning every site, so gate
-	// those fields on org-WIDE miner:read (like canReadDeviceScope): an org
-	// grant narrowed away at one site must not see that site's device identity.
+	// Device identity (id/name/mac) spans every site, so gate it on org-WIDE miner:read: a grant
+	// narrowed away at one site must not see that site's device identity (like canReadDeviceScope).
 	includeDevice, err := h.canReadDeviceScope(ctx)
 	if err != nil {
 		return nil, err
@@ -573,9 +570,8 @@ func ruleConfigToProto(c alerts.RuleConfig, includeDevice bool) *alertsv1.RuleCo
 			GroupIds:    c.Scope.GroupIDs,
 			AllSites:    c.Scope.AllSites,
 		}
-		// Device ids are device identity (see canReadDeviceScope). Redacted reads
-		// keep the scope message and say so: an absent scope means org-wide, which
-		// would misreport a narrower rule as covering every miner.
+		// Redacted reads keep the scope message and say so: an absent scope means
+		// org-wide, which would misreport a narrower rule as covering every miner.
 		if includeDevice {
 			out.Scope.DeviceIds = c.Scope.DeviceIDs
 		} else if len(c.Scope.DeviceIDs) > 0 {
@@ -612,11 +608,8 @@ func protoToRuleConfig(c *alertsv1.RuleConfig) (alerts.RuleConfig, error) {
 		return alerts.RuleConfig{}, fleeterror.NewInvalidArgumentError("rule template config is required")
 	}
 	if sc := c.GetScope(); sc != nil {
-		// A redacted read carries no device list to round-trip, so accepting the
-		// marker would silently rewrite the rule without its explicit miners
-		// (widening a device-only rule to org-wide). Writers hold org-wide
-		// miner:read (requireMinerRead), so they can always re-read the full
-		// scope before saving.
+		// A redacted read carries no device list to round-trip, so accepting the marker would silently
+		// rewrite the rule without its explicit miners; writers hold miner:read and can re-read the scope.
 		if sc.GetDeviceIdsRedacted() {
 			return alerts.RuleConfig{}, fleeterror.NewInvalidArgumentError("scope device_ids are redacted; re-read the rule for the full scope before saving")
 		}

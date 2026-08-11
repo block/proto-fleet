@@ -218,9 +218,8 @@ func TestCreateRuleCleansPolicyWhenCreateFails(t *testing.T) {
 	assert.Empty(t, routes.policies[7], "the pre-written policy is deleted when the create fails")
 }
 
-// A config-write failure between the policy write and the rule create must also
-// tidy the policy row: no rule exists for the fresh UID, so retries would
-// otherwise accumulate orphan policies in every delivery policy load.
+// A config-write failure between the policy write and the rule create must also tidy the policy
+// row: no rule exists for the fresh UID, so retries would otherwise accumulate orphan policies.
 func TestCreateRuleCleansPolicyWhenConfigWriteFails(t *testing.T) {
 	fake := &fakeGrafanaRules{}
 	routes := newFakeRouteStore()

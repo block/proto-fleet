@@ -449,10 +449,8 @@ type DeviceSetsByIDsParams struct {
 	Ids     []int64
 }
 
-// Returns the subset of requested IDs that are live device sets of the
-// given type in the org. Caller diffs against the requested set to detect
-// cross-org, wrong-type, or missing IDs. Mirrors SitesByIDs; used to
-// validate alert-rule scope rack/group references in one round trip.
+// Returns the subset of requested IDs that are live device sets of the given type in the org;
+// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
 func (q *Queries) DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.deviceSetsByIDsStmt, deviceSetsByIDs, arg.OrgID, arg.SetType, pq.Array(arg.Ids))
 	if err != nil {

@@ -11,9 +11,8 @@ export interface ScopeCounts {
   minersRedacted?: boolean;
 }
 
-// One label per populated scope dimension ("All sites", "2 sites", "1 group"),
-// in display order; empty for an org-wide scope. Single owner of the dimension
-// list so the editor summary and the rules-table column can't drift.
+// One label per populated scope dimension ("All sites", "2 sites"); empty for org-wide.
+// Single owner of the dimension list so the editor summary and rules-table column can't drift.
 export const scopePartLabels = ({
   allSites,
   sites,

@@ -375,10 +375,8 @@ type Querier interface {
 	// device, and a stale AUTH_NEEDED result must not clobber that paired-like status.
 	DeviceHasActivePairing(ctx context.Context, arg DeviceHasActivePairingParams) (bool, error)
 	DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelongsToOrgParams) (bool, error)
-	// Returns the subset of requested IDs that are live device sets of the
-	// given type in the org. Caller diffs against the requested set to detect
-	// cross-org, wrong-type, or missing IDs. Mirrors SitesByIDs; used to
-	// validate alert-rule scope rack/group references in one round trip.
+	// Returns the subset of requested IDs that are live device sets of the given type in the org;
+	// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
 	DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error)
 	DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error)
 	DisableSyncCommit(ctx context.Context) error
@@ -1440,10 +1438,8 @@ type Querier interface {
 	SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error)
 	SoftDeleteUser(ctx context.Context, id int64) error
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
-	// Ambiguous create failures retain rows for never-created rule UIDs (see
-	// CreateRule); this reclaims them once a fresh authoritative rule list is in
-	// hand. The hour of slack protects in-flight creates, whose config row lands
-	// before the Grafana rule exists.
+	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
+	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.
 	SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error)
 	// Force every non-terminal target → RELEASED with the operator reason. This
 	// releases ownership without claiming that restore was attempted or failed.

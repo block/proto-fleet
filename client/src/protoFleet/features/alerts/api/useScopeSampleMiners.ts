@@ -19,10 +19,8 @@ export interface ScopeSampleResult {
   loading: boolean;
 }
 
-// A one-shot (per open/scope change) sample of miners the scope currently
-// covers, for the create/edit preview pane. Placement dimensions map onto
-// MinerListFilter facets; facets AND together server-side, so each dimension
-// is fetched separately and merged to preserve the scope's union semantics.
+// Sample of miners the scope currently covers, for the preview pane. MinerListFilter
+// facets AND server-side, so each dimension fetches separately and merges to keep union semantics.
 export function useScopeSampleMiners(enabled: boolean, scope: UseAlertScopeResult): ScopeSampleResult {
   const { listSites } = useSites();
   const [sample, setSample] = useState<MinerStateSnapshot[]>([]);
@@ -66,8 +64,7 @@ export function useScopeSampleMiners(enabled: boolean, scope: UseAlertScopeResul
 
         if (scope.isOrgWide) filters.push({});
 
-        // Every fetch is independent; run them concurrently so a multi-dimension
-        // scope costs one round trip of latency instead of one per dimension.
+        // Concurrent so a multi-dimension scope costs one round trip of latency, not one per dimension.
         const filterFetches = filters.map((filter) =>
           fleetManagementClient.listMinerStateSnapshots({ pageSize: PER_FILTER_PAGE, filter }),
         );

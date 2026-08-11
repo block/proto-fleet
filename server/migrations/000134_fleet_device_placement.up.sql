@@ -1,4 +1,5 @@
--- Current placement (site/building/rack/group) per live device, for scoped alert-rule SQL: an owner-privilege view so grafana_ro can resolve scope membership without SELECT on device (credentials FKs) or device_set tables. One row per device x group membership; rack columns repeat across a device's group rows, so consumers must use it as a semijoin (device_id IN (SELECT ...)), never for counting.
+-- Owner-privilege view for scoped alert-rule SQL: grafana_ro resolves current placement without SELECT on device (credentials FKs) or device_set tables.
+-- One row per device x group membership (rack columns repeat across a device's group rows), so consume as a semijoin — never for counting.
 CREATE VIEW fleet_device_placement AS
 SELECT
     d.org_id,

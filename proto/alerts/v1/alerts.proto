@@ -197,9 +197,11 @@ message RuleScope {
     repeated int64 group_ids = 5 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
     // Live "any site": covers miners assigned to any current or future site (excludes unassigned miners); when set, site_ids is ignored and reads return it empty.
     bool all_sites = 6;
-    // Read-only, server-set: device_ids exist on this rule but the caller lacks miner:read, so they were omitted. Never renders as org-wide. Writes carrying this flag are rejected — the caller cannot know the redacted list, so saving would silently drop it.
+    // Read-only, server-set: device_ids were omitted because the caller lacks miner:read (never renders as org-wide).
+    // Writes carrying it are rejected — the caller cannot know the redacted list, so saving would silently drop it.
     bool device_ids_redacted = 7;
-    // Write-intent marker: an org-wide write sends the scope message with org_wide=true instead of omitting it. An update of a scoped rule that omits the scope message entirely is rejected as a stale pre-scope client (it cannot round-trip this message, and absent-means-org-wide would let an unrelated edit silently widen the rule to every miner). Mutually exclusive with the placement/device lists; never set on reads (reads express org-wide by omitting scope).
+    // Write-intent marker: org-wide writes set this instead of omitting scope, so a scoped-rule update with no scope
+    // message can be rejected as a stale pre-scope client that would silently widen the rule. Never set on reads.
     bool org_wide = 8;
 }
 
@@ -249,7 +251,8 @@ message Rule {
     RuleRouting routing = 13;
     // Read-only, server-set: the stored config no longer compiles to the SQL the rule is evaluating (a save was interrupted mid-write); re-saving the rule converges both sides.
     bool config_out_of_sync = 14;
-    // Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config instead of treating the absent field as "no editable config", mirroring how an unset routing is handled.
+    // Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config
+    // instead of reading the absent field as "no editable config", mirroring how an unset routing is handled.
     bool config_unknown = 15;
 }
 

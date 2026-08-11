@@ -115,7 +115,6 @@ export class AlertsPage extends BasePage {
     await this.fullScreenEditor.locator("#rule-name").fill(name);
   }
 
-  // The preview pane's "Applies to ..." headline reflects the scope live.
   async validateScopePreview(text: string) {
     await expect(this.fullScreenEditor.getByText(text, { exact: true })).toBeVisible();
   }

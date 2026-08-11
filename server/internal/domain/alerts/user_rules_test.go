@@ -209,9 +209,8 @@ func TestCompileUserRule(t *testing.T) {
 
 			assert.Equal(t, tc.wantSummary, rule.Annotations["summary"])
 
-			// Config persists in the config store, never the annotation: Grafana
-			// copies annotations onto every alert instance, so a large scope
-			// would bloat notification batches.
+			// Config persists in the config store, never the annotation: Grafana copies
+			// annotations onto every alert instance, so a large scope would bloat batches.
 			assert.NotContains(t, rule.Annotations, "proto_fleet_config")
 		})
 	}

@@ -98,10 +98,8 @@ type TemperatureRuleConfig struct {
 	MaxCelsius float64 `json:"max_celsius"`
 }
 
-// RuleScope limits which miners a rule fires for: the union of every listed
-// placement (sites, buildings, racks, groups — evaluated against current
-// membership via fleet_device_placement) and the explicit DeviceIDs. A
-// nil/empty scope means the whole org.
+// RuleScope limits which miners a rule fires for: the union of the listed placements (current
+// membership via fleet_device_placement) and explicit DeviceIDs. Nil/empty means the whole org.
 type RuleScope struct {
 	SiteIDs     []int64  `json:"site_ids,omitempty"`
 	DeviceIDs   []string `json:"device_ids,omitempty"`
@@ -128,10 +126,8 @@ type RuleConfig struct {
 	Hashrate        *HashrateRuleConfig    `json:"hashrate,omitempty"`
 	Temperature     *TemperatureRuleConfig `json:"temperature,omitempty"`
 	Scope           *RuleScope             `json:"scope,omitempty"`
-	// ScopeOrgWideExplicit is write-request metadata, never persisted: the
-	// request carried a scope message with org_wide set, so a nil Scope means
-	// deliberate org-wide rather than a stale pre-scope client that cannot
-	// round-trip the scope field (see updateRuleSerialized).
+	// Write-request metadata, never persisted: marks a nil Scope as deliberate org-wide rather
+	// than a stale pre-scope client that cannot round-trip the field (see updateRuleSerialized).
 	ScopeOrgWideExplicit bool `json:"-"`
 }
 

@@ -101,10 +101,8 @@ type SweepAlertRuleConfigsParams struct {
 	LiveRuleUids []string
 }
 
-// Ambiguous create failures retain rows for never-created rule UIDs (see
-// CreateRule); this reclaims them once a fresh authoritative rule list is in
-// hand. The hour of slack protects in-flight creates, whose config row lands
-// before the Grafana rule exists.
+// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
+// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.
 func (q *Queries) SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error) {
 	result, err := q.exec(ctx, q.sweepAlertRuleConfigsStmt, sweepAlertRuleConfigs, arg.OrgID, pq.Array(arg.LiveRuleUids))
 	if err != nil {

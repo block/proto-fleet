@@ -1212,9 +1212,8 @@ func (s *SQLCollectionStore) GetDeviceIdentifiersByDeviceSetID(ctx context.Conte
 	return ids, nil
 }
 
-// DeviceSetsByIDs returns the subset of the requested IDs that are live device
-// sets of the given type in the org; callers diff against the request to detect
-// cross-org, wrong-type, or missing ids. Satisfies alerts.ScopeLookup.
+// DeviceSetsByIDs returns the subset of requested IDs that are live device sets of the given type
+// in the org; callers diff against the request to detect cross-org, wrong-type, or missing ids.
 func (s *SQLCollectionStore) DeviceSetsByIDs(ctx context.Context, orgID int64, setType string, ids []int64) ([]int64, error) {
 	if len(ids) == 0 {
 		return nil, nil

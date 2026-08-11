@@ -1,4 +1,5 @@
--- User alert-rule configs, keyed by the backing Grafana rule UID. Previously the config round-tripped through a Grafana rule annotation, but Grafana copies annotations onto every alert instance: a large scope (up to 600 ids) replicated per firing device could push a notification batch past the webhook body cap and drop the org's whole batch. Rows follow the alert_route_policy lifecycle: written with rule create/update, deleted with the rule. No backfill: the legacy configs live in Grafana's database, not ours, so pre-table rules keep reading from their legacy annotation (scope-less, so it cannot bloat instances) until their first update writes a row here.
+-- User alert-rule configs keyed by Grafana rule UID. The previous annotation round-trip is unusable for scopes: Grafana copies annotations onto every alert instance, so a large scope could push a notification batch past the webhook body cap.
+-- No backfill (legacy configs live in Grafana's database): pre-table rules keep their annotation until their first update writes a row. Rows follow the alert_route_policy lifecycle.
 CREATE TABLE alert_rule_config (
     org_id     BIGINT      NOT NULL,
     rule_uid   TEXT        NOT NULL,

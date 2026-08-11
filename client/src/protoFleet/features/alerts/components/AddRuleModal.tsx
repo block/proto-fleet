@@ -112,7 +112,6 @@ const describeDuration = (seconds: number): string => {
   return amount === "1" ? `1 ${singular}` : `${amount} ${unit}`;
 };
 
-// The preview pane's lead sentence, phrased like the Figma design's examples.
 const triggerSummary = (template: UserRuleTemplate, amount: string, unit: string, durationSeconds: number): string => {
   const dur = describeDuration(durationSeconds);
   switch (template) {
@@ -167,7 +166,6 @@ interface SentenceRowProps {
   children: ReactNode;
 }
 
-// Design's condition rows: an inline sentence fragment on the left, two fields on the right.
 const SentenceRow = ({ label, children }: SentenceRowProps) => (
   <div className="grid items-center gap-3 laptop:grid-cols-[minmax(8rem,1fr)_minmax(0,2fr)]">
     <div className="text-300 text-text-primary">{label}</div>
@@ -236,14 +234,11 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const preferredTemperatureUnit: TemperatureFieldUnit = useTemperatureUnit() === "F" ? "°F" : "°C";
 
   const isEditing = editingRule != null;
-  // A redacted scope has no device list to edit or round-trip: rendering it as
-  // org-wide would misreport coverage, and a save (rejected server-side anyway)
-  // would drop the rule's explicit miners. Block editing until the caller can
-  // read the full scope.
+  // A redacted scope has no device list to round-trip: rendering it as org-wide would
+  // misreport coverage, and a save would drop the rule's explicit miners. Block editing.
   const scopeRedacted = isEditing && (editingRule?.config?.scope?.device_ids_redacted ?? false);
-  // An interrupted save can leave the saved definition (which seeds this form)
-  // behind what the rule actually evaluates; the user must review every field
-  // because saving applies exactly what the form shows.
+  // An interrupted save can leave the saved definition (which seeds this form) behind
+  // what the rule actually evaluates; saving applies exactly what the form shows.
   const configOutOfSync = isEditing && (editingRule?.config_out_of_sync ?? false);
 
   type ScopePicker = "sites" | "buildings" | "racks" | "groups" | "miners";
@@ -421,9 +416,8 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
       if (saveSessionRef.current !== session) return;
       pushToast({ message: getErrorMessage(error, "Failed to save rule"), status: STATUSES.error });
       setSaving(false);
-      // A failed save can still have mutated server state (compensating
-      // pause/delete after a version-skewed write); refetch rather than keep
-      // rendering the pre-save rule.
+      // A failed save can still have mutated server state (compensating pause/delete
+      // after a version-skewed write); refetch rather than render the pre-save rule.
       void refresh();
     }
   };
@@ -433,7 +427,6 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const sitesValue = scope.allSites ? "All sites" : getTargetButtonLabel(scope.siteIds.length, "site");
   const preview = useScopeSampleMiners(open, scope);
 
-  // The design's sample rows show each included miner with the value the rule watches.
   const sampleValue = (miner: MinerStateSnapshot): string => {
     if (template === "offline") {
       switch (miner.deviceStatus) {
@@ -530,9 +523,8 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
                     unit={unit}
                     onUnitChange={(value) => {
                       const next = value as ThresholdUnit;
-                      // °C↔°F and TH/s↔PH/s are changes of scale, not intent: convert
-                      // the entered amount so the threshold keeps meaning what the user
-                      // typed. %↔absolute is a mode change and keeps the number.
+                      // Scale changes (°C↔°F, TH/s↔PH/s) convert the amount so the threshold
+                      // keeps its meaning; %↔absolute is a mode change and keeps the number.
                       const parsed = strictNumber(amount);
                       if (next !== unit && Number.isFinite(parsed)) {
                         if (template === "temperature") {

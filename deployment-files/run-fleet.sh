@@ -2714,15 +2714,8 @@ provision_grafana_db_role() {
         stats_smoke="SELECT count(*) FROM fleet_slow_statements();"
     fi
 
-    # `up --wait` only confirms containers are running, not that
-    # fleet-api has finished its migration pass. Poll for every object
-    # the Grafana alert rules read — the raw hypertable, the
-    # fleet_telemetry_poll_heartbeat continuous aggregate, and the
-    # fleet_pollable_device_presence / fleet_active_organization /
-    # fleet_device_placement views the ingest-stalled, system, and
-    # scoped user rules query. The GRANT block below references every
-    # one of these under ON_ERROR_STOP, so a missing object would abort
-    # provisioning outright if it were not awaited here.
+    # `up --wait` only confirms containers are running, not that fleet-api's migrations finished.
+    # The GRANT block below references each object under ON_ERROR_STOP, so poll until every one exists.
     echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat, fleet_pollable_device_presence, fleet_active_organization and fleet_device_placement to be available…"
     if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL AND to_regclass('public.fleet_active_organization') IS NOT NULL AND to_regclass('public.fleet_device_placement') IS NOT NULL"; then
         echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat / fleet_pollable_device_presence / fleet_active_organization / fleet_device_placement did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2

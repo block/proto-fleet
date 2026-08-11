@@ -54,10 +54,8 @@ func TestAlertRuleConfigStoreRoundTrip(t *testing.T) {
 	assert.Nil(t, gone)
 }
 
-// Rolling back past 000134 while scoped rules exist would silently break their
-// persisted Grafana SQL (the compiled queries reference fleet_device_placement),
-// so the down migration must refuse until every scoped rule is unscoped or
-// deleted; scope-less rows must not block it.
+// Rolling back past 000134 while scoped rules exist would silently break their persisted Grafana
+// SQL, so the down must refuse until every scoped rule is gone; scope-less rows must not block it.
 func TestFleetDevicePlacementDownRefusesWithScopedRules(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -85,11 +83,8 @@ func TestFleetDevicePlacementDownRefusesWithScopedRules(t *testing.T) {
 	require.NoError(t, err, "scope-less configs must not block the rollback")
 }
 
-// A standard multi-step rollback with no configs left runs 000135's down
-// (drops the empty table) and then 000134's down: the 134 guard must tolerate
-// the already-dropped table — PL/pgSQL prepares statements on first execution,
-// so its EXISTS probe must stay unreachable when to_regclass reports the table
-// gone — and still drop the view.
+// A clean multi-step rollback drops the empty table (135) before the view (134): the 134 guard must
+// tolerate the already-dropped table (PL/pgSQL prepares on first execution) and still drop the view.
 func TestScopeMigrationsRollBackWhenEmpty(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -112,9 +107,8 @@ func TestScopeMigrationsRollBackWhenEmpty(t *testing.T) {
 	assert.False(t, viewExists, "the rollback must actually drop the view")
 }
 
-// The pre-135 server cannot read this table, so rolling back past 000135 while
-// any rule config exists would strand those rules uneditable; the down
-// migration must refuse until the rows are gone, then drop the table cleanly.
+// The pre-135 server cannot read this table, so rolling back with rows would strand those rules
+// uneditable; the down must refuse until the rows are gone, then drop the table cleanly.
 func TestAlertRuleConfigDownRefusesWithRows(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -138,9 +132,8 @@ func TestAlertRuleConfigDownRefusesWithRows(t *testing.T) {
 	require.NoError(t, err, "an empty table must drop cleanly")
 }
 
-// The sweep reclaims aged rows for rules missing from the live list, sparing
-// fresh rows (an in-flight create stores its config before the rule exists)
-// and other orgs' rows.
+// The sweep reclaims aged rows for rules missing from the live list, sparing fresh rows
+// (an in-flight create stores its config before the rule exists) and other orgs' rows.
 func TestAlertRuleConfigStoreSweep(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
