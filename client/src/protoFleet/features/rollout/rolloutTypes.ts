@@ -46,6 +46,8 @@ export interface RolloutPlanConfig {
   batchIntervalSec?: number;
   /** Pilot-then-continue only: size of the first, gated wave. */
   pilotSize?: number;
+  /** Paced methods only: pause after every batch for operator review. */
+  reviewAfterEachBatch?: boolean;
   scheduleType: RolloutScheduleType;
   /** ISO string when scheduleType is scheduleForLater. */
   scheduledStartAt?: string;
@@ -61,8 +63,8 @@ export interface RolloutPhaseRollup {
 export type RolloutMetricUnit = "hashrate" | "power" | "efficiency" | "temperature";
 
 /**
- * One tracked metric for the pilot-review performance readout. The delta is
- * colored by sign and does not carry a per-metric "good direction".
+ * One tracked metric for the pilot-review performance readout. Deltas are
+ * colored by outcome for the metric, not by sign alone.
  */
 export interface RolloutPerfMetric {
   label: string;

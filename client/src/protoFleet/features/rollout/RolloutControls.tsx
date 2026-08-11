@@ -10,6 +10,7 @@ import {
 } from "./rolloutDisplayUtils";
 import RolloutFieldInfo from "./RolloutFieldInfo";
 import type { RolloutOrder, RolloutPlanConfig, RolloutStrategy } from "./rolloutTypes";
+import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 
@@ -41,6 +42,14 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
   function parseCount(value: string): number {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  function patchStrategy(value: string): void {
+    const strategy = value as RolloutStrategy;
+    patch({
+      strategy,
+      reviewAfterEachBatch: strategy === "allAtOnce" ? false : config.reviewAfterEachBatch,
+    });
   }
 
   const showBatchFields = config.strategy === "batched" || config.strategy === "pilotThenContinue";
@@ -93,6 +102,25 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
     </div>
   );
 
+  const reviewAfterEachBatchControl = showBatchFields ? (
+    <div className="flex items-center gap-2" data-testid="rollout-review-after-each-batch-control">
+      <label className={`flex items-center gap-3 text-left ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
+        <Checkbox
+          checked={config.reviewAfterEachBatch ?? false}
+          disabled={disabled}
+          onChange={(event) => patch({ reviewAfterEachBatch: event.currentTarget.checked })}
+        />
+        <span className="text-300 text-text-primary">Review after each batch</span>
+      </label>
+      <RolloutFieldInfo
+        ariaLabel="About batch review"
+        body="Pauses when each batch completes so you can review telemetry before continuing."
+        testId="rollout-review-after-each-batch-info-button"
+        popoverTestId="rollout-review-after-each-batch-info-popover"
+      />
+    </div>
+  ) : null;
+
   const maxOfflineField = (
     <Input
       id="rollout-max-offline"
@@ -118,7 +146,7 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
           label="Method"
           options={strategyOptions}
           value={config.strategy}
-          onChange={(value) => patch({ strategy: value as RolloutStrategy })}
+          onChange={patchStrategy}
           disabled={disabled}
           forceBelow
           suffixAction={
@@ -161,6 +189,8 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
       ) : (
         maxOfflineField
       )}
+
+      {reviewAfterEachBatchControl}
 
       {/* Live plan readout: turns the entered batch size + interval into the
           wave count and duration so the operator doesn't do the math. Only

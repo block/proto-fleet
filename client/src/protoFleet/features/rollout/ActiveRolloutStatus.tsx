@@ -99,11 +99,12 @@ function StatRow({ label, value, detail, divider }: StatBlockProps & { divider: 
   );
 }
 
-// Deltas show movement only. The UI does not judge whether the change is good
-// or bad for the operator.
+// Deltas keep the signed value, but color by outcome for the metric. A
+// temperature increase is bad even though the sign is positive.
 const deltaTextColor: Record<RolloutMetricDeltaIntent, string> = {
   positive: "text-intent-success-fill",
   negative: "text-intent-critical-fill",
+  neutral: "text-text-primary-50",
 };
 
 /**
@@ -229,7 +230,7 @@ function ActiveRolloutStatus({
 
   const statItems: StatBlockProps[] = [
     { label: "Scope", value: event.scopeLabel || "—" },
-    { label: "Strategy", value: pacingSummary(event) },
+    { label: "Method", value: pacingSummary(event) },
     // Order only applies to a paced run. Under "all at once" there's no first/last.
     ...(event.strategy === "allAtOnce" ? [] : [{ label: "Order", value: orderLabels[event.order] }]),
     { label: "Est. time remaining", value: etaValue },

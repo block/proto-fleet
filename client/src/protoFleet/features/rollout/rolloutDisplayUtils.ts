@@ -224,7 +224,7 @@ export function estimateRolloutSeconds(args: {
  */
 export function rolloutPlanReadout(args: {
   inScopeCount: number;
-  config: Pick<RolloutPlanConfig, "strategy" | "batchSize" | "batchIntervalSec" | "pilotSize">;
+  config: Pick<RolloutPlanConfig, "strategy" | "batchSize" | "batchIntervalSec" | "pilotSize" | "reviewAfterEachBatch">;
 }): string | null {
   const { inScopeCount, config } = args;
   if (inScopeCount <= 0) {
@@ -248,7 +248,8 @@ export function rolloutPlanReadout(args: {
   const durationSec = estimateRolloutSeconds({ inScopeCount: remaining, batchSize, batchIntervalSec });
   const over = durationSec && durationSec > 0 ? ` over ~${formatDuration(durationSec)}` : "";
   const batchWord = batches === 1 ? "batch" : "batches";
-  const batchPhrase = `≈ ${batches.toLocaleString()} ${batchWord}${over}`;
+  const review = config.reviewAfterEachBatch ? ", review after each batch" : "";
+  const batchPhrase = `≈ ${batches.toLocaleString()} ${batchWord}${over}${review}`;
 
   if (pilot > 0) {
     return `Pilot of ${pilot.toLocaleString()}, then ${batchPhrase}`;
@@ -389,7 +390,7 @@ export function formatRolloutMetric(metric: RolloutPerfMetric, temperatureUnit: 
 }
 
 /** How a metric's move off baseline is colored. */
-export type RolloutMetricDeltaIntent = "positive" | "negative";
+export type RolloutMetricDeltaIntent = "positive" | "negative" | "neutral";
 
 export interface RolloutMetricDelta {
   /** Signed percent change vs baseline, e.g. -1.8. */
@@ -400,6 +401,18 @@ export interface RolloutMetricDelta {
   deltaText: string;
 }
 
+function isMetricIncreasePositive(unit: RolloutPerfMetric["unit"]): boolean {
+  return unit === "hashrate";
+}
+
+/** Map a raw movement to the outcome it represents for the metric. */
+export function rolloutMetricDeltaIntent(unit: RolloutPerfMetric["unit"], change: number): RolloutMetricDeltaIntent {
+  if (change === 0) {
+    return "neutral";
+  }
+  return change > 0 === isMetricIncreasePositive(unit) ? "positive" : "negative";
+}
+
 /** Compare a metric's current value to its captured baseline. */
 export function rolloutMetricDelta(metric: RolloutPerfMetric): RolloutMetricDelta {
   const { baseline, current } = metric;
@@ -408,7 +421,7 @@ export function rolloutMetricDelta(metric: RolloutPerfMetric): RolloutMetricDelt
   const movedUp = percent >= 0;
   return {
     percent,
-    intent: movedUp ? "positive" : "negative",
+    intent: rolloutMetricDeltaIntent(metric.unit, percent),
     deltaText: `${movedUp ? "+" : "−"}${magnitude}`,
   };
 }
