@@ -140,10 +140,14 @@ Bound selector cardinality using named shared constants: at most 256 IDs for
 each topology type (sites, buildings, racks, and groups), at most 1,024 topology
 IDs across the normalized union, at most 10,000 explicit device identifiers,
 and at most 1,024 repeated `CurtailmentScope` entries. Apply protobuf
-`max_items` validation where the wire shape permits and enforce the normalized
-per-type/aggregate limits again in the domain for direct requests, response
-profiles, automation execution, and persisted all-paired reconciliation. The
-frontend mirrors these limits for usability; the server remains authoritative.
+`max_items` validation where the wire shape permits. Before deduplication,
+enforce the same 256-per-type, 1,024-total-topology, and 10,000-total-explicit
+limits across all repeated scope entries, then enforce them again after
+normalization in the domain for direct requests, response profiles, automation
+execution, and persisted closed-loop reconciliation. Configure a 2 MiB request
+body limit for curtailment RPCs so oversized protobuf payloads are rejected
+before decoding/normalization. The frontend mirrors these limits for usability;
+the server remains authoritative.
 
 Before enabling limit enforcement, inventory every persisted profile and
 active event using the normalized counters. Gate rollout on remediating all
@@ -166,9 +170,10 @@ with separate miner-scope and facility-fan site coverage captured when the
 profile is created or updated. The fan dimension must preserve the existing
 requirement for both `site:read` and `curtailment:manage`; miner coverage
 continues to require `curtailment:manage`.
-Persist the same envelope on an event when all-paired topology reconciliation
-is enabled; normal frozen-target events continue to rely on authorization at
-Preview/Start plus their concrete target rows.
+Persist the same envelope and authorizing-principal reference on every
+closed-loop FULL_FLEET event, with or without the all-paired flag; frozen
+non-FULL_FLEET and unflagged explicit-miner events continue to rely on
+authorization at Preview/Start plus their concrete target rows.
 
 Generated protobuf output must be regenerated with `just gen` and committed
 with the proto source.
@@ -264,8 +269,9 @@ with the proto source.
   make server Create/Update/Preview/Start reject omitted scopes. This is a
   coordinated contract cleanup, not a capability-negotiation path.
 - Add `max_items` validation to every repeated scope/identifier field and
-  domain validation for the normalized per-type and aggregate selector limits.
-  Reject oversized persisted profile/event scopes before resolving them.
+  domain validation for raw pre-deduplication totals and normalized per-type/
+  aggregate selector limits. Enforce the transport byte cap before decoding and
+  reject oversized persisted profile/event scopes before resolving them.
 - Remove generic device-set translation, domain/JSON decode/render paths,
   frontend `deviceSetIds` scope state, and the special unsupported-device-set
   preview branch. Keep only deprecated protobuf declarations/field numbers as
@@ -369,8 +375,9 @@ with the proto source.
   profile checks. Require `curtailment:manage` at every covered site; require
   org-wide permission when scope coverage is incomplete or includes unassigned
   resources. Picker filtering is usability only, never authorization.
-- Treat Preview as a point-in-time estimate, but make Start and every all-paired
-  reconciliation admission atomic with authorization-envelope enforcement.
+- Treat Preview as a point-in-time estimate, but make Start and every
+  closed-loop reconciliation admission atomic with authorization-envelope
+  enforcement.
   Selector validation, membership expansion, current site coverage, and target
   claim/insertion must use one transaction/locked snapshot, or every
   materialized device and current site must be revalidated inside the target
@@ -395,21 +402,28 @@ with the proto source.
   missing or unproven envelope; it must never derive authority from a miner's
   or fan's current site at execution time. Surface this state in profile
   Get/List so it can be fixed or deleted.
-- Before automation execution, resolve current topology coverage again and
-  resolve current facility-fan sites, and require both dimensions to remain
-  inside the stored authorization envelope. A rack or building moved to
-  another site, a group gaining an out-of-envelope member, a fan moving sites,
-  or newly unassigned membership must fail with a clear FailedPrecondition
-  instead of silently broadening the operation. A dimension with proven
-  org-wide authorization may follow current membership across sites.
-- When Start enables all-paired topology reconciliation, stamp the applicable
-  authorization envelope onto the event. Each reconciliation pass must compare
-  current topology coverage with that envelope before admitting targets.
+- Bind every automation rule execution to an explicit user or service-account
+  principal; the stored envelope is a maximum boundary, not a durable
+  capability. At every trigger, reload that principal's current effective
+  permissions, resolve current topology and facility-fan sites, and require
+  both the live permissions and stored envelope to authorize the operation. A
+  deactivated principal or revoked grant blocks execution. Do not fall back to
+  the profile creator or an ambient system principal.
+- Stamp the applicable authorization envelope and authorizing principal onto
+  every closed-loop FULL_FLEET event, not only all-paired events. Each
+  reconciliation pass must reload the principal's current effective
+  permissions and compare current topology/fan coverage with both those
+  permissions and the envelope before admitting targets. A rack or building
+  moved to another site, a group gaining an out-of-envelope member, a fan
+  moving sites, newly unassigned membership, or permission revocation blocks
+  new admission with a clear reason.
   Out-of-envelope miners are not admitted, already-owned miners that move
-  outside the envelope follow the same dispatch-aware restore-before-release
-  rule, and the event surfaces an actionable authorization-change reason. An
-  org-wide-authorized event may continue following the selected topology across
-  sites.
+  outside the envelope—or lose current principal authorization—follow the same
+  dispatch-aware restore-before-release rule. Restore facility fans first when
+  required, surface an actionable authorization-change reason, and terminate or
+  remain degraded until safe restoration completes. An org-wide envelope may
+  follow topology across sites only while the principal still has the required
+  live org-wide permissions.
 - Do not require current topology resolution for response-profile Get/List or
   Delete. Authorize those operations against the profile's persisted
   miner and facility-fan envelope dimensions, including `site:read` on fan
@@ -476,6 +490,9 @@ Backend unit/store/integration coverage:
 - Per-type and aggregate selector-limit tests for direct Preview/Start,
   response-profile create/update, automation execution, and forged oversized
   persisted scopes.
+- Raw-limit tests with duplicate-heavy identifiers split across many scope
+  entries, per-type and cross-type raw totals, and payloads above the 2 MiB
+  transport limit, proving rejection occurs before normalization work.
 - Scope-reservation tests for concurrent starts, membership changes between
   reconciliation ticks, explicit-miner reservations, unpair/re-pair gaps,
   deterministic older-event precedence, and a pre-owned miner moving into a
@@ -493,6 +510,10 @@ Backend unit/store/integration coverage:
   sites before reauthorization, org-wide-only Get/List/Delete access while the
   envelope is missing or unproven, site-scoped filtering, and automation
   failing closed before reauthorization.
+- Current-permission tests for automation owner deactivation, site-grant and
+  org-wide-grant revocation, facility-fan `site:read` revocation, service-account
+  principals, and mid-event revocation that blocks admission and safely
+  restores existing ownership for both ordinary and all-paired FULL_FLEET.
 - Facility-fan authorization tests for a fan outside the miner scope, fan site
   movement, unassigned/stale fans, `site:read` without `curtailment:manage` and
   vice versa, CRUD/list filtering against persisted fan-site coverage, and
@@ -546,8 +567,9 @@ developer approval.
   fleet.
 - Preview and Start resolve the same miners for the same scope, subject only to
   normal time-varying telemetry/eligibility.
-- Normal started events freeze concrete miner targets; later topology changes
-  affect future profile executions, not the in-flight event.
+- Non-FULL_FLEET and unflagged explicit-miner events freeze concrete miner
+  targets; closed-loop FULL_FLEET topology watchers follow their logical scope
+  within their persisted authorization boundary.
 - FULL_FLEET events with `Target all paired miners` continuously re-resolve the
   selected site/building/rack/group/miner union: newly paired or newly assigned
   miners are admitted. Unpaired or no-longer-in-scope miners are released
@@ -557,9 +579,10 @@ developer approval.
   authorization-envelope validation, and target claim before dispatch, so a
   concurrent cross-site move cannot admit an unauthorized miner.
 - Per-type and aggregate selector limits bound direct and persisted scope
-  resolution and are enforced server-side after normalization. Existing
-  oversized records are inventoried and remediated before enforcement;
-  profiles remain readable/deletable and active events complete safely.
+  resolution and are enforced on raw input before deduplication and server-side
+  after normalization, with a transport byte limit. Existing oversized records
+  are inventoried and remediated before enforcement; profiles remain readable/
+  deletable and active events complete safely.
 - Deleted, wrong-type, cross-org, or unauthorized topology targets fail closed
   with actionable errors and never broaden to whole-org scope. Unassigned
   in-org targets are admitted only when the caller has org-wide
@@ -574,6 +597,10 @@ developer approval.
 - Response-profile envelopes independently cover miner and facility-fan sites;
   profile CRUD and execution preserve both `site:read` and
   `curtailment:manage` requirements for every selected fan site.
+- Every closed-loop FULL_FLEET event persists its envelope and authorizing
+  principal. Automation triggers and reconciliation require that principal's
+  current effective permissions; revocation blocks admission and safely
+  restores owned targets instead of leaving the envelope as a perpetual grant.
 - Whole organization is explicit for every new submission. Empty, unknown,
   unsupported, and infrastructure-only miner scope never widens to whole-org
   targeting or reaches facility-fan dispatch; legacy persisted whole-org
