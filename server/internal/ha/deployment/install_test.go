@@ -47,6 +47,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	start := callIndex(calls, "sudo systemctl start --no-block proto-fleet-ha.service")
 	enable := callIndex(calls, "sudo systemctl enable proto-fleet-ha.service")
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
+	nftablesHook := callIndex(calls, nftablesDropIn)
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
 	serviceMask := callIndex(calls, "sudo systemctl mask --runtime docker.service docker.socket keepalived.service")
@@ -56,8 +57,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
+	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 || nftablesHook < 0 ||
+		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && nftablesHook < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -462,8 +463,10 @@ func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
 		switch command {
-		case "sudo docker info", "sudo docker compose version":
+		case "sudo docker info":
 			return []byte("ready\n"), nil
+		case "sudo docker compose version --short":
+			return []byte("v2.24.4\n"), nil
 		case "sudo docker ps -aq":
 			return nil, nil
 		case "sudo systemctl is-active keepalived.service":
@@ -502,10 +505,13 @@ func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
 					return "", os.ErrNotExist
 				}
 				deps.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
-					if strings.Join(args, " ") == "docker ps -aq" {
+					switch strings.Join(args, " ") {
+					case "docker compose version --short":
+						return []byte("2.24.4\n"), nil
+					case "docker ps -aq":
 						return []byte("existing-container\n"), nil
 					}
-					return []byte("ready\n"), nil
+					return nil, nil
 				}
 			},
 			wantError: "existing containers",
@@ -520,13 +526,31 @@ func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
 					return "", os.ErrNotExist
 				}
 				deps.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
-					if strings.Join(args, " ") == "docker compose version" {
+					if strings.Join(args, " ") == "docker compose version --short" {
 						return nil, errors.New("compose missing")
 					}
 					return nil, nil
 				}
 			},
 			wantError: "Compose v2",
+		},
+		{
+			name: "Docker Compose is too old",
+			configure: func(deps *installDependencies) {
+				deps.lookPath = func(name string) (string, error) {
+					if name == "docker" {
+						return "/usr/bin/docker", nil
+					}
+					return "", os.ErrNotExist
+				}
+				deps.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+					if strings.Join(args, " ") == "docker compose version --short" {
+						return []byte("2.24.3\n"), nil
+					}
+					return nil, nil
+				}
+			},
+			wantError: "requires 2.24.4 or newer",
 		},
 		{
 			name: "keepalived is active",
@@ -741,6 +765,7 @@ func testInstallRelease(t *testing.T) string {
 		"ha/proto-fleet-ha.service":                              "[Service]\n",
 		"ha/proto-fleet-ha-keepalived.conf":                      "[Unit]\nWants=keepalived.service\n",
 		"ha/proto-fleet-ha-firewall.service":                     "[Service]\n",
+		"ha/nftables-systemd.conf":                               "[Service]\n",
 		"ha/docker-systemd.conf":                                 "[Unit]\n",
 		"ha/docker-ha-recovery-systemd.conf":                     "[Unit]\n",
 		"ha/scripts/check-fleet-active.sh":                       "#!/bin/sh\n",

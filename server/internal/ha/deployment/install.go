@@ -15,17 +15,21 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"golang.org/x/mod/semver"
 )
 
 const (
-	installBase          = "/opt/proto-fleet"
-	installRoot          = "/opt/proto-fleet/deployment"
-	configRoot           = "/etc/proto-fleet/ha"
-	dataRoot             = "/var/lib/proto-fleet/ha"
-	serviceUnit          = "/etc/systemd/system/proto-fleet-ha.service"
-	firewallUnit         = "/etc/systemd/system/proto-fleet-ha-firewall.service"
-	dockerDropIn         = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
-	dockerRecoveryDropIn = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	installBase           = "/opt/proto-fleet"
+	installRoot           = "/opt/proto-fleet/deployment"
+	configRoot            = "/etc/proto-fleet/ha"
+	dataRoot              = "/var/lib/proto-fleet/ha"
+	serviceUnit           = "/etc/systemd/system/proto-fleet-ha.service"
+	firewallUnit          = "/etc/systemd/system/proto-fleet-ha-firewall.service"
+	nftablesDropIn        = "/etc/systemd/system/nftables.service.d/proto-fleet-ha.conf"
+	dockerDropIn          = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
+	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	minimumComposeVersion = "v2.24.4" // fleet-compose.yaml uses !override, added in this Compose release.
 )
 
 var errInstallConverging = errors.New("HA service remains enabled and is still converging")
@@ -297,7 +301,7 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 		}
 	}
 	for _, path := range []string{
-		serviceUnit, firewallUnit,
+		serviceUnit, firewallUnit, nftablesDropIn,
 		"/usr/local/libexec/proto-fleet/check-fleet-active",
 	} {
 		if _, err := deps.lstat(path); err == nil {
@@ -326,10 +330,18 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 
 	if _, err := deps.lookPath("docker"); err == nil {
 		installed.docker = true
-		if output, err := deps.run(ctx, "sudo", "docker", "compose", "version"); err != nil {
+		output, err := deps.run(ctx, "sudo", "docker", "compose", "version", "--short")
+		if err != nil {
 			return installedDependencies{}, fmt.Errorf("existing Docker installation requires working Compose v2: %s", commandError(output, err))
 		}
-		output, err := deps.run(ctx, "sudo", "docker", "ps", "-aq")
+		composeVersion := strings.TrimPrefix(strings.TrimSpace(string(output)), "v")
+		if !semver.IsValid("v" + composeVersion) {
+			return installedDependencies{}, fmt.Errorf("existing Docker installation returned invalid Compose version %q", strings.TrimSpace(string(output)))
+		}
+		if semver.Compare("v"+composeVersion, minimumComposeVersion) < 0 {
+			return installedDependencies{}, fmt.Errorf("existing Docker Compose %s is too old; Proto Fleet HA requires %s or newer", composeVersion, strings.TrimPrefix(minimumComposeVersion, "v"))
+		}
+		output, err = deps.run(ctx, "sudo", "docker", "ps", "-aq")
 		if err != nil {
 			return installedDependencies{}, fmt.Errorf("inspect existing Docker containers: %s", commandError(output, err))
 		}
@@ -479,7 +491,7 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 		"client/Dockerfile", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
-		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
+		"ha/proto-fleet-ha-firewall.service", "ha/nftables-systemd.conf", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
 		"client/nginx.https.conf",
 	}
 	for _, name := range required {
@@ -741,6 +753,7 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 	for sourceName, target := range map[string]string{
 		"proto-fleet-ha.service":          serviceUnit,
 		"proto-fleet-ha-firewall.service": firewallUnit,
+		"nftables-systemd.conf":           nftablesDropIn,
 		"docker-systemd.conf":             dockerDropIn,
 	} {
 		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", sourceName), target); err != nil {
