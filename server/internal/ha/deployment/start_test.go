@@ -25,8 +25,8 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 		{
 			name: "unauthenticated bootstrap quorum",
 			statuses: map[string]*clientv3.StatusResponse{
-				"a": startupStatus(1, 11, 11),
-				"b": startupStatus(1, 12, 11),
+				"a": startupStatus(11, 11),
+				"b": startupStatus(12, 11),
 			},
 			wantQuorum: true, wantLocalReady: true,
 		},
@@ -38,8 +38,8 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 		{
 			name: "duplicate member is not quorum",
 			statuses: map[string]*clientv3.StatusResponse{
-				"a": startupStatus(1, 11, 11),
-				"b": startupStatus(1, 11, 11),
+				"a": startupStatus(11, 11),
+				"b": startupStatus(11, 11),
 			},
 			wantLocalReady: true,
 		},
@@ -47,8 +47,8 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 			name:             "healthy peers do not replace local member",
 			requiredEndpoint: "local",
 			statuses: map[string]*clientv3.StatusResponse{
-				"a": startupStatus(1, 11, 11),
-				"b": startupStatus(1, 12, 11),
+				"a": startupStatus(11, 11),
+				"b": startupStatus(12, 11),
 			},
 		},
 	} {
@@ -151,9 +151,9 @@ func TestShouldBootstrapEtcdAuth(t *testing.T) {
 	}
 }
 
-func startupStatus(clusterID, memberID, leaderID uint64) *clientv3.StatusResponse {
+func startupStatus(memberID, leaderID uint64) *clientv3.StatusResponse {
 	return &clientv3.StatusResponse{
-		Header: &etcdserverpb.ResponseHeader{ClusterId: clusterID, MemberId: memberID},
+		Header: &etcdserverpb.ResponseHeader{MemberId: memberID},
 		Leader: leaderID,
 	}
 }

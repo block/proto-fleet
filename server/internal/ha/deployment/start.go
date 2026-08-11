@@ -104,21 +104,12 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 	defer func() { _ = client.Close() }()
 	localStartup := time.NewTimer(localEtcdStartupTimeout)
 	defer localStartup.Stop()
-	localStartupC := localStartup.C
+	localDeadline := localStartup.C
 	authenticated := false
 	for {
 		quorum, authRequired, localReady := startupEtcdQuorum(ctx, client.Status, endpoints, "https://"+config.NodeIP+":2379")
-		if localReady && localStartupC != nil {
-			if !localStartup.Stop() {
-				select {
-				case <-localStartup.C:
-				default:
-				}
-			}
-			localStartupC = nil
-		} else if !localReady && localStartupC == nil {
-			localStartup.Reset(localEtcdStartupTimeout)
-			localStartupC = localStartup.C
+		if localReady {
+			localDeadline = nil
 		}
 		if quorum {
 			return nil
@@ -138,7 +129,7 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("stopped waiting for etcd quorum: %w", ctx.Err())
-		case <-localStartupC:
+		case <-localDeadline:
 			return errors.New("local etcd member did not become healthy within one minute")
 		case <-time.After(2 * time.Second):
 		}
@@ -148,9 +139,8 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 type startupEtcdStatus func(context.Context, string) (*clientv3.StatusResponse, error)
 
 type startupEtcdIdentity struct {
-	clusterID uint64
-	memberID  uint64
-	leaderID  uint64
+	memberID uint64
+	leaderID uint64
 }
 
 type startupEtcdResult struct {
@@ -170,33 +160,27 @@ func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints 
 			return startupEtcdResult{authRequired: authRequired, required: endpoint == requiredEndpoint, responded: authRequired}
 		}
 		return startupEtcdResult{
-			identity: startupEtcdIdentity{response.Header.ClusterId, response.Header.MemberId, response.Leader},
+			identity: startupEtcdIdentity{response.Header.MemberId, response.Leader},
 			required: endpoint == requiredEndpoint, responded: true,
 		}
 	})
-	type memberGroup struct {
-		members           map[uint64]struct{}
-		requiredResponded bool
-	}
-	groups := make(map[[2]uint64]*memberGroup)
+	membersByLeader := make(map[uint64]map[uint64]struct{})
 	authRequired := false
 	requiredResponded := false
 	for _, result := range results {
 		authRequired = authRequired || result.authRequired
 		requiredResponded = requiredResponded || result.required && result.responded
 		identity := result.identity
-		if identity.clusterID == 0 || identity.memberID == 0 || identity.leaderID == 0 {
+		if identity.memberID == 0 || identity.leaderID == 0 {
 			continue
 		}
-		key := [2]uint64{identity.clusterID, identity.leaderID}
-		if groups[key] == nil {
-			groups[key] = &memberGroup{members: make(map[uint64]struct{})}
+		if membersByLeader[identity.leaderID] == nil {
+			membersByLeader[identity.leaderID] = make(map[uint64]struct{})
 		}
-		groups[key].members[identity.memberID] = struct{}{}
-		groups[key].requiredResponded = groups[key].requiredResponded || result.required
+		membersByLeader[identity.leaderID][identity.memberID] = struct{}{}
 	}
-	for key, group := range groups {
-		if _, leaderResponded := group.members[key[1]]; leaderResponded && group.requiredResponded && len(group.members) >= 2 {
+	for leaderID, members := range membersByLeader {
+		if _, leaderResponded := members[leaderID]; requiredResponded && leaderResponded && len(members) >= 2 {
 			return true, authRequired, requiredResponded
 		}
 	}
