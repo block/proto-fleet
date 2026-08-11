@@ -282,11 +282,11 @@ with the proto source.
   - the covered site IDs,
   - whether any selected resource/member is unassigned,
   - the resolved current device identifiers.
-- Reuse it for Preview, Start, response-profile Create/Update/Get/List/Delete,
-  and automation-rule profile checks. Require `curtailment:manage` at every
-  covered site; require org-wide permission when scope coverage is incomplete
-  or includes unassigned resources. Picker filtering is usability only, never
-  authorization.
+- Reuse strict current-topology resolution for Preview, Start,
+  response-profile Create/Update, profile execution, and automation-rule
+  profile checks. Require `curtailment:manage` at every covered site; require
+  org-wide permission when scope coverage is incomplete or includes unassigned
+  resources. Picker filtering is usability only, never authorization.
 - Treat Preview as a point-in-time estimate, but make Start and every all-paired
   reconciliation admission atomic with authorization-envelope enforcement.
   Selector validation, membership expansion, current site coverage, and target
@@ -315,8 +315,13 @@ with the proto source.
   rule, and the event surfaces an actionable authorization-change reason. An
   org-wide-authorized event may continue following the selected topology across
   sites.
-- Apply the same resolution to profile list/get filtering so users never see or
-  mutate topology-scoped profiles outside their current grant.
+- Do not require current topology resolution for response-profile Get/List or
+  Delete. Authorize those operations against the profile's persisted
+  authorization envelope and hydrate its stored typed IDs even when a target
+  was deleted or moved. Surface unresolved targets as unavailable/stale so an
+  authorized operator can inspect, edit, or delete the profile; Create/Update
+  and every execution path still perform strict current-topology validation,
+  so a stale ID must be removed or replaced before resave and can never execute.
 
 ### 6. Cover manual and automated execution
 
@@ -367,7 +372,9 @@ Backend unit/store/integration coverage:
   response-profile create/update, automation execution, and forged oversized
   persisted scopes.
 - Response-profile CRUD/list filtering and automation execution with each new
-  scope.
+  scope, including a deleted or moved target that remains visible and
+  deletable under its persisted authorization envelope but fails execution and
+  resave until corrected.
 - Regression coverage for whole-org, multi-site, explicit-miner, and
   facility-fan behavior; assert no generic device-set scope state remains in
   frontend/domain/storage models.
@@ -414,6 +421,9 @@ developer approval.
   with actionable errors and never broaden to whole-org scope. Unassigned
   in-org targets are admitted only when the caller has org-wide
   `curtailment:manage`; otherwise they are treated as uncovered and rejected.
+- A saved profile with a later-deleted or moved target remains visible and
+  deletable to operators authorized for its persisted envelope, renders the
+  unresolved target as stale, and fails strict resave or execution until fixed.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
   sequencing, and active/history displays keep working. Deprecated generic
   device-set wire input fails closed and is never persisted, executed as, or
