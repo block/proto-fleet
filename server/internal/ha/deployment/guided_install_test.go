@@ -5,9 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,7 +69,6 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.Contains(t, output.String(), "scp -p")
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-a")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-b")))
-	require.NoFileExists(t, filepath.Join(exportDir, recoveryBundleName))
 	require.NoFileExists(t, filepath.Join(exportDir, publicCAName))
 }
 
@@ -93,7 +90,7 @@ func TestBundleExportDirectoryIsOutsideRelease(t *testing.T) {
 	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
 
-func TestPrepareInstallBundlesSeparatesRecoveryCredentials(t *testing.T) {
+func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	// Arrange
 	exportDir := filepath.Join(t.TempDir(), "exports")
 	require.NoError(t, os.Mkdir(exportDir, 0o700))
@@ -117,10 +114,8 @@ func TestPrepareInstallBundlesSeparatesRecoveryCredentials(t *testing.T) {
 		_, hasRootPassword := bundle.files[etcdRootPasswordFile]
 		require.Equal(t, role == "ha-a", hasRootPassword)
 	}
-	recoveryEntries := archiveEntries(t, filepath.Join(exportDir, recoveryBundleName))
-	require.Contains(t, recoveryEntries, "service-ca.key")
-	require.Contains(t, recoveryEntries, etcdRootPasswordFile)
-	for _, name := range []string{hostBundleName("ha-a"), hostBundleName("ha-b"), hostBundleName("ha-c"), recoveryBundleName} {
+	require.NoFileExists(t, filepath.Join(exportDir, "proto-fleet-ha-recovery.tar.gz"))
+	for _, name := range []string{hostBundleName("ha-a"), hostBundleName("ha-b"), hostBundleName("ha-c")} {
 		requireMode(t, filepath.Join(exportDir, name), 0o600)
 		requireMode(t, filepath.Join(exportDir, name+bundleChecksumSuffix), 0o600)
 	}
@@ -312,27 +307,6 @@ func writeTestBundle(t *testing.T, path string, metadata bundleMetadata, entries
 	require.NoError(t, tarWriter.Close())
 	require.NoError(t, gzipWriter.Close())
 	require.NoError(t, file.Close())
-}
-
-func archiveEntries(t *testing.T, path string) map[string]struct{} {
-	t.Helper()
-	file, err := os.Open(path)
-	require.NoError(t, err)
-	defer file.Close()
-	gzipReader, err := gzip.NewReader(file)
-	require.NoError(t, err)
-	defer gzipReader.Close()
-	tarReader := tar.NewReader(gzipReader)
-	entries := make(map[string]struct{})
-	for {
-		header, err := tarReader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		require.NoError(t, err)
-		entries[header.Name] = struct{}{}
-	}
-	return entries
 }
 
 func testGuidedRelease(t *testing.T, version, commit string) string {
