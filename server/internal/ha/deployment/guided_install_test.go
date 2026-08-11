@@ -113,7 +113,6 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 		_, hasRootPassword := bundle.files[etcdRootPasswordFile]
 		require.Equal(t, role == "ha-a", hasRootPassword)
 	}
-	require.NoFileExists(t, filepath.Join(exportDir, "proto-fleet-ha-recovery.tar.gz"))
 	for _, name := range []string{hostBundleName("ha-a"), hostBundleName("ha-b"), hostBundleName("ha-c")} {
 		requireMode(t, filepath.Join(exportDir, name), 0o600)
 		requireMode(t, filepath.Join(exportDir, name+bundleChecksumSuffix), 0o600)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,16 +97,8 @@ func defaultInstallDependencies() installDependencies {
 	}
 }
 
-// Install validates a dedicated host, installs the release, and starts its fixed HA role.
-func Install(ctx context.Context, options InstallOptions) error {
-	return install(ctx, options, defaultInstallDependencies())
-}
-
 func install(ctx context.Context, options InstallOptions, deps installDependencies) error {
 	fmt.Println("[validation] Verifying installation inputs and current host state...")
-	if options.NodeEnvPath == "" {
-		return errors.New("install requires a node environment file")
-	}
 	source, err := deps.sourceRoot()
 	if err != nil {
 		return err
@@ -120,24 +111,10 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if err != nil {
 		return err
 	}
-	if config.DataDir != dataRoot {
-		return fmt.Errorf("HA install requires HA_DATA_DIR=%s", dataRoot)
-	}
-	if config.SecretsDir == configRoot {
-		return errors.New("HA_SECRETS_DIR must point to the copied host secret bundle; the installer moves it into /etc/proto-fleet/ha")
-	}
-	if config.NodeName == "ha-a" {
-		if options.EtcdRootPasswordFile == "" {
-			return errors.New("ha-a install requires --etcd-root-password-file")
-		}
+	if options.EtcdRootPasswordFile != "" {
 		if _, err := readPassword(options.EtcdRootPasswordFile); err != nil {
 			return fmt.Errorf("validate etcd root password file: %w", err)
 		}
-	} else if options.EtcdRootPasswordFile != "" {
-		return errors.New("--etcd-root-password-file is accepted only on ha-a")
-	}
-	if _, err := copiedSecretEntries(config); err != nil {
-		return err
 	}
 
 	if err := snapshotRelease(ctx, source, deps); err != nil {
@@ -192,9 +169,6 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if startErr != nil && !errors.Is(startErr, errInstallConverging) {
 		return startErr
 	}
-	if err := consumeInstallCredentials(options, config); err != nil {
-		slog.Warn("HA installation succeeded but staged credentials could not be removed", "error", err)
-	}
 	if startErr != nil {
 		return startErr
 	}
@@ -219,55 +193,6 @@ func inspectInstallBase(ctx context.Context, source string, deps installDependen
 	}
 	installed, err := inspectDedicatedHost(ctx, deps)
 	return platform, installed, err
-}
-
-func consumeInstallCredentials(options InstallOptions, config NodeConfig) error {
-	entries, err := copiedSecretEntries(config)
-	if err != nil {
-		return err
-	}
-	if options.EtcdRootPasswordFile != "" {
-		if err := os.Remove(options.EtcdRootPasswordFile); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove copied etcd root password: %w", err)
-		}
-	}
-	for _, entry := range entries {
-		if err := os.Remove(filepath.Join(config.SecretsDir, entry.Name())); err != nil {
-			return fmt.Errorf("remove copied host secret %s: %w", entry.Name(), err)
-		}
-	}
-	if err := os.Remove(config.SecretsDir); err != nil {
-		return fmt.Errorf("remove empty copied host secret bundle: %w", err)
-	}
-	return nil
-}
-
-func copiedSecretEntries(config NodeConfig) ([]os.DirEntry, error) {
-	expected := make(map[string]struct{})
-	for _, name := range copiedSecretFiles(config) {
-		expected[name] = struct{}{}
-	}
-	entries, err := os.ReadDir(config.SecretsDir)
-	if err != nil {
-		return nil, fmt.Errorf("inspect copied host secret bundle: %w", err)
-	}
-	for _, entry := range entries {
-		if _, ok := expected[entry.Name()]; !ok {
-			return nil, fmt.Errorf("copied host secret bundle contains unexpected entry %s", entry.Name())
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return nil, fmt.Errorf("inspect copied host secret %s: %w", entry.Name(), err)
-		}
-		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("copied host secret bundle entry %s is not a regular file", entry.Name())
-		}
-		delete(expected, entry.Name())
-	}
-	if len(expected) != 0 {
-		return nil, errors.New("copied host secret bundle is incomplete")
-	}
-	return entries, nil
 }
 
 func copiedSecretFiles(config NodeConfig) []string {
