@@ -166,6 +166,8 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("context: 'Review Policy'", workflow_text)
         self.assertIn("state: enforcedAdvisoryState", workflow_text)
         self.assertIn("Stacked PR result is advisory; default-branch PR must pass Review Policy.", workflow_text)
+        self.assertIn("enforcedAdvisoryState = stackedAdvisory ? 'pending' : 'failure'", workflow_text)
+        self.assertIn("Stacked PR policy source unavailable; default-branch PR must pass Review Policy.", workflow_text)
         self.assertIn("Review Policy is advisory; see Review Policy Advisory.", workflow_text)
         self.assertIn("Trusted Review Policy source unavailable; human review required.", workflow_text)
 

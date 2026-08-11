@@ -599,8 +599,10 @@ jobs:
               let enforcedAdvisoryState = 'success';
               let enforcedAdvisoryDescription = 'Review Policy is advisory; see Review Policy Advisory.';
               if (!policySourceAvailable) {
-                enforcedAdvisoryState = 'failure';
-                enforcedAdvisoryDescription = 'Trusted Review Policy source unavailable; human review required.';
+                enforcedAdvisoryState = stackedAdvisory ? 'pending' : 'failure';
+                enforcedAdvisoryDescription = stackedAdvisory
+                  ? 'Stacked PR policy source unavailable; default-branch PR must pass Review Policy.'
+                  : 'Trusted Review Policy source unavailable; human review required.';
               } else if (stackedAdvisory && configEnforced) {
                 enforcedAdvisoryState = 'pending';
                 enforcedAdvisoryDescription = 'Stacked PR result is advisory; default-branch PR must pass Review Policy.';
