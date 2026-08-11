@@ -1726,6 +1726,59 @@ func TestUpdateDeviceSet_MoveAuthorizesSourceAndDestination(t *testing.T) {
 	})
 }
 
+// TestUpdateDeviceSet_MoveIntoSiteLessBuildingRequiresOrgSiteManage pins that a
+// move INTO a site-less building requires org-scoped site:manage even when the
+// caller manages the rack's current site, matching AssignRacksToBuilding — a
+// source-site-only manager can't slip a rack into a site-less building.
+func TestUpdateDeviceSet_MoveIntoSiteLessBuildingRequiresOrgSiteManage(t *testing.T) {
+	const rackID = int64(500)
+	const siteA = int64(11)           // rack's current site
+	const siteLessBuilding = int64(7) // destination building with no site
+
+	t.Run("source-site-only manager is denied", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(siteA, authz.PermSiteManage))
+		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil)
+
+		_, err := h.handler.UpdateDeviceSet(ctx, connect.NewRequest(&dspb.UpdateDeviceSetRequest{
+			DeviceSetId: rackID,
+			TypeDetails: &dspb.UpdateDeviceSetRequest_RackInfo{RackInfo: &dspb.RackInfo{BuildingId: ptrInt64Local(siteLessBuilding)}},
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	t.Run("org-wide site:manage manager is admitted past authorization", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := ctxWithPerms(authz.PermRackManage, authz.PermSiteManage)
+		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil)
+		// Authorization passes (source siteA + org-scope); the service is entered
+		// and stopped at its first store read with a sentinel.
+		sentinel := fleeterror.NewInternalError("reached service")
+		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, sentinel)
+
+		_, err := h.handler.UpdateDeviceSet(ctx, connect.NewRequest(&dspb.UpdateDeviceSetRequest{
+			DeviceSetId: rackID,
+			TypeDetails: &dspb.UpdateDeviceSetRequest_RackInfo{RackInfo: &dspb.RackInfo{
+				BuildingId:  ptrInt64Local(siteLessBuilding),
+				Rows:        4,
+				Columns:     8,
+				OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			}},
+		}))
+		require.ErrorIs(t, err, sentinel)
+	})
+}
+
 // TestSaveRack_UpdateMoveAuthorizesSourceSite mirrors the UpdateDeviceSet
 // regression on the SaveRack update path: a SaveRack that names an existing
 // rack (device_set_id set) is a move, so it must authorize the rack's current

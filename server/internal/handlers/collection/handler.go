@@ -35,19 +35,22 @@ func NewHandler(svc *collection.Service) *Handler {
 // pull a rack out of a site they cannot manage. currentSiteID is nil for a new
 // rack (the source side is skipped when nil). Callers invoke this only when the
 // request carries placement intent, so the destination is always authorized: at
-// its resolved site, or — when the placement resolves site-less and no source
-// site is checked either — at org scope, so rack:manage alone can never place a
-// rack.
+// its resolved site, or — when the destination resolves to no site — at ORG
+// scope. A building_id pointing at a site-less building forces the org-scoped
+// check even on a move out of a real site, so a source-site-only manager can't
+// slip a rack into a site-less building; an unassign falls back the same way.
 func (h *Handler) authorizeRackPlacement(ctx context.Context, orgID int64, currentSiteID, siteID, buildingID *int64) (context.Context, error) {
 	targetSiteID, err := h.resolvePlacementTargetSite(ctx, orgID, siteID, buildingID)
 	if err != nil {
 		return ctx, err
 	}
 	sites := distinctSites(currentSiteID, targetSiteID)
-	if len(sites) == 0 {
-		// Placement intent present but nothing to narrow on (site-less building
-		// or explicit unassign): require site:manage at org scope.
-		sites = []*int64{nil}
+	// The destination has no site to narrow on when a building_id resolves to a
+	// site-less building, or when nothing else is being checked (unassign / new
+	// site-less rack): require site:manage at org scope in that case.
+	destSiteLessBuilding := buildingID != nil && *buildingID > 0 && targetSiteID == nil
+	if destSiteLessBuilding || len(sites) == 0 {
+		sites = append(sites, nil)
 	}
 	for _, site := range sites {
 		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: site}); err != nil {
