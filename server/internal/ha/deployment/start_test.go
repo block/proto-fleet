@@ -118,6 +118,39 @@ func TestRemoveBootstrapCredential(t *testing.T) {
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
+func TestShouldBootstrapEtcdAuth(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		authEnabled      bool
+		credentialExists bool
+		wantBootstrap    bool
+		wantError        string
+	}{
+		{name: "restart after bootstrap", authEnabled: true},
+		{name: "initial bootstrap", credentialExists: true, wantBootstrap: true},
+		{name: "missing bootstrap credential", wantError: "root password is missing"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			path := filepath.Join(t.TempDir(), "etcd-root-password")
+			if test.credentialExists {
+				require.NoError(t, os.WriteFile(path, []byte("secret"), 0o600))
+			}
+
+			// Act
+			bootstrap, err := shouldBootstrapEtcdAuth("ha-a", test.authEnabled, path)
+
+			// Assert
+			require.Equal(t, test.wantBootstrap, bootstrap)
+			if test.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, test.wantError)
+			}
+		})
+	}
+}
+
 func startupStatus(clusterID, memberID, leaderID uint64) *clientv3.StatusResponse {
 	return &clientv3.StatusResponse{
 		Header: &etcdserverpb.ResponseHeader{ClusterId: clusterID, MemberId: memberID},
