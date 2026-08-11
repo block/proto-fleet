@@ -56,6 +56,19 @@ export interface TemperatureRuleConfig {
   max_celsius: number;
 }
 
+// Which miners a rule fires for: the union of every listed placement (current membership) and the explicit device_ids. Absent/empty means the whole org.
+export interface RuleScope {
+  site_ids: string[];
+  device_ids: string[];
+  building_ids: string[];
+  rack_ids: string[];
+  group_ids: string[];
+  // Live "any site": any current or future site (excludes unassigned miners); supersedes site_ids.
+  all_sites: boolean;
+  // Server-set: this rule has device_ids but the caller lacks miner:read; render as a restricted subset, never as org-wide.
+  device_ids_redacted?: boolean;
+}
+
 // Exactly one of offline/hashrate/temperature is set.
 export interface RuleConfig {
   name: string;
@@ -63,6 +76,7 @@ export interface RuleConfig {
   offline?: Record<string, never>;
   hashrate?: HashrateRuleConfig;
   temperature?: TemperatureRuleConfig;
+  scope?: RuleScope;
 }
 
 // Where a rule's firing alerts deliver: every org channel, only the listed ones, or nowhere (in-app history only).
@@ -90,6 +104,10 @@ export interface Rule {
   config: RuleConfig | null;
   // Null when the server couldn't read routing; keep the last-known value instead of treating it as default.
   routing: RuleRouting | null;
+  // Server-set: the stored config no longer matches the SQL the rule evaluates (interrupted save); re-saving converges.
+  config_out_of_sync?: boolean;
+  // Server-set on mutation responses whose config read failed: keep the last-known config (like null routing) instead of reading the absent config as "not editable".
+  config_unknown?: boolean;
 }
 
 export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";

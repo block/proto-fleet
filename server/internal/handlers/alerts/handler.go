@@ -179,15 +179,25 @@ func (h *Handler) ListRules(ctx context.Context, _ *connect.Request[alertsv1.Lis
 	if err != nil {
 		return nil, err
 	}
+	includeDevice, err := h.canReadDeviceScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rules, err := h.svc.ListRules(ctx, orgID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	out := make([]*alertsv1.Rule, 0, len(rules))
 	for _, r := range rules {
-		out = append(out, ruleToProto(r))
+		out = append(out, ruleToProto(r, includeDevice))
 	}
 	return connect.NewResponse(&alertsv1.ListRulesResponse{Rules: out}), nil
+}
+
+// canReadDeviceScope gates scope device ids on org-WIDE miner:read: scope ids can reference miners at
+// any site, so a grant narrowed away at even one site must redact (a plain org-scope check would leak).
+func (h *Handler) canReadDeviceScope(ctx context.Context) (bool, error) {
+	return middleware.HasOrgWidePermission(ctx, authz.PermMinerRead)
 }
 
 func (h *Handler) PauseRule(ctx context.Context, req *connect.Request[alertsv1.PauseRuleRequest]) (*connect.Response[alertsv1.PauseRuleResponse], error) {
@@ -195,11 +205,15 @@ func (h *Handler) PauseRule(ctx context.Context, req *connect.Request[alertsv1.P
 	if err != nil {
 		return nil, err
 	}
+	includeDevice, err := h.canReadDeviceScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rule, err := h.svc.PauseRule(ctx, orgID, req.Msg.GetId(), actor)
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.PauseRuleResponse{Rule: ruleToProto(*rule)}), nil
+	return connect.NewResponse(&alertsv1.PauseRuleResponse{Rule: ruleToProto(*rule, includeDevice)}), nil
 }
 
 func (h *Handler) ResumeRule(ctx context.Context, req *connect.Request[alertsv1.ResumeRuleRequest]) (*connect.Response[alertsv1.ResumeRuleResponse], error) {
@@ -207,11 +221,15 @@ func (h *Handler) ResumeRule(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
+	includeDevice, err := h.canReadDeviceScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rule, err := h.svc.ResumeRule(ctx, orgID, req.Msg.GetId())
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.ResumeRuleResponse{Rule: ruleToProto(*rule)}), nil
+	return connect.NewResponse(&alertsv1.ResumeRuleResponse{Rule: ruleToProto(*rule, includeDevice)}), nil
 }
 
 // Rule create/update mirror channel mutations' requireMinerRead: a rule
@@ -241,7 +259,8 @@ func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.CreateRuleResponse{Rule: ruleToProto(*rule)}), nil
+	// requireMinerRead passed above, so the response may carry device scope ids.
+	return connect.NewResponse(&alertsv1.CreateRuleResponse{Rule: ruleToProto(*rule, true)}), nil
 }
 
 func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[alertsv1.UpdateRuleRequest]) (*connect.Response[alertsv1.UpdateRuleResponse], error) {
@@ -260,7 +279,8 @@ func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.UpdateRuleResponse{Rule: ruleToProto(*rule)}), nil
+	// requireMinerRead passed above, so the response may carry device scope ids.
+	return connect.NewResponse(&alertsv1.UpdateRuleResponse{Rule: ruleToProto(*rule, true)}), nil
 }
 
 // SetRuleRouting mirrors channel mutations' requireMinerRead: routing decides which destinations receive the org's per-device alert stream.
@@ -280,7 +300,8 @@ func (h *Handler) SetRuleRouting(ctx context.Context, req *connect.Request[alert
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.SetRuleRoutingResponse{Rule: ruleToProto(*rule)}), nil
+	// requireMinerRead passed above, so the response may carry device scope ids.
+	return connect.NewResponse(&alertsv1.SetRuleRoutingResponse{Rule: ruleToProto(*rule, true)}), nil
 }
 
 func (h *Handler) DeleteRule(ctx context.Context, req *connect.Request[alertsv1.DeleteRuleRequest]) (*connect.Response[alertsv1.DeleteRuleResponse], error) {
@@ -359,8 +380,9 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
-	// Device identity (id/name/mac) is miner data, so gate those fields on org-scope miner:read rather than leaking them via alert:read.
-	includeDevice, err := middleware.HasPermission(ctx, authz.PermMinerRead, authz.ResourceContext{})
+	// Device identity (id/name/mac) spans every site, so gate it on org-WIDE miner:read: a grant
+	// narrowed away at one site must not see that site's device identity (like canReadDeviceScope).
+	includeDevice, err := h.canReadDeviceScope(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +469,7 @@ func protoToChannel(id, name string, kind alertsv1.ChannelKind, wh *alertsv1.Web
 	return dom, nil
 }
 
-func ruleToProto(r alerts.Rule) *alertsv1.Rule {
+func ruleToProto(r alerts.Rule, includeDevice bool) *alertsv1.Rule {
 	out := &alertsv1.Rule{
 		Id:              r.ID,
 		OrganizationId:  r.OrganizationID,
@@ -460,9 +482,11 @@ func ruleToProto(r alerts.Rule) *alertsv1.Rule {
 		DurationSeconds: r.DurationSeconds,
 		Enabled:         r.Enabled,
 		Origin:          ruleOriginToProto(r.Origin),
+		ConfigOutOfSync: r.ConfigOutOfSync,
+		ConfigUnknown:   r.ConfigUnknown,
 	}
 	if r.Config != nil {
-		out.Config = ruleConfigToProto(*r.Config)
+		out.Config = ruleConfigToProto(*r.Config, includeDevice)
 	}
 	// Unknown routing stays unset on the wire; a readable rule always carries an explicit mode.
 	if !r.RoutingUnknown {
@@ -519,7 +543,7 @@ func ruleOriginToProto(o alerts.RuleOrigin) alertsv1.RuleOrigin {
 	return alertsv1.RuleOrigin_RULE_ORIGIN_UNSPECIFIED
 }
 
-func ruleConfigToProto(c alerts.RuleConfig) *alertsv1.RuleConfig {
+func ruleConfigToProto(c alerts.RuleConfig, includeDevice bool) *alertsv1.RuleConfig {
 	out := &alertsv1.RuleConfig{
 		Name:            c.Name,
 		DurationSeconds: c.DurationSeconds,
@@ -537,6 +561,22 @@ func ruleConfigToProto(c alerts.RuleConfig) *alertsv1.RuleConfig {
 		out.TemplateConfig = &alertsv1.RuleConfig_Temperature{Temperature: &alertsv1.TemperatureConfig{
 			MaxCelsius: c.Temperature.MaxCelsius,
 		}}
+	}
+	if !c.Scope.IsZero() {
+		out.Scope = &alertsv1.RuleScope{
+			SiteIds:     c.Scope.SiteIDs,
+			BuildingIds: c.Scope.BuildingIDs,
+			RackIds:     c.Scope.RackIDs,
+			GroupIds:    c.Scope.GroupIDs,
+			AllSites:    c.Scope.AllSites,
+		}
+		// Redacted reads keep the scope message and say so: an absent scope means
+		// org-wide, which would misreport a narrower rule as covering every miner.
+		if includeDevice {
+			out.Scope.DeviceIds = c.Scope.DeviceIDs
+		} else if len(c.Scope.DeviceIDs) > 0 {
+			out.Scope.DeviceIdsRedacted = true
+		}
 	}
 	return out
 }
@@ -566,6 +606,30 @@ func protoToRuleConfig(c *alertsv1.RuleConfig) (alerts.RuleConfig, error) {
 		out.Temperature = &alerts.TemperatureRuleConfig{MaxCelsius: tc.Temperature.GetMaxCelsius()}
 	default:
 		return alerts.RuleConfig{}, fleeterror.NewInvalidArgumentError("rule template config is required")
+	}
+	if sc := c.GetScope(); sc != nil {
+		// A redacted read carries no device list to round-trip, so accepting the marker would silently
+		// rewrite the rule without its explicit miners; writers hold miner:read and can re-read the scope.
+		if sc.GetDeviceIdsRedacted() {
+			return alerts.RuleConfig{}, fleeterror.NewInvalidArgumentError("scope device_ids are redacted; re-read the rule for the full scope before saving")
+		}
+		scope := &alerts.RuleScope{
+			SiteIDs:     sc.GetSiteIds(),
+			DeviceIDs:   sc.GetDeviceIds(),
+			BuildingIDs: sc.GetBuildingIds(),
+			RackIDs:     sc.GetRackIds(),
+			GroupIDs:    sc.GetGroupIds(),
+			AllSites:    sc.GetAllSites(),
+		}
+		if sc.GetOrgWide() {
+			if !scope.IsZero() {
+				return alerts.RuleConfig{}, fleeterror.NewInvalidArgumentError("scope cannot be org-wide and list placements or devices")
+			}
+			out.ScopeOrgWideExplicit = true
+		}
+		if !scope.IsZero() {
+			out.Scope = scope
+		}
 	}
 	return out, nil
 }

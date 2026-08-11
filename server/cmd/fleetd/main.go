@@ -616,8 +616,10 @@ func start(config *Config) (result error) {
 	// silences (rule pause / maintenance windows), and the internal history webhook.
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
 	alertRouteStore := sqlstores.NewSQLAlertRouteStore(conn)
+	alertRuleConfigStore := sqlstores.NewSQLAlertRuleConfigStore(conn)
 	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
-	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
+	alertScopeLookup := alertScopeStores{sites: siteStore, buildings: buildingStore, sets: collectionStore}
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
 
 	// Both updates URLs end up inside a copy-paste upgrade command, so an
 	// http:// base must fail startup (explicit Validate, like Plugins above —
@@ -849,4 +851,24 @@ func newHTTP2Server(config HTTPConfig) *http2.Server {
 	return &http2.Server{
 		WriteByteTimeout: config.WriteByteTimeout,
 	}
+}
+
+// alertScopeStores adapts the site/building/device-set stores to the alerts
+// domain's ScopeLookup for rule-scope ownership validation.
+type alertScopeStores struct {
+	sites     *sqlstores.SQLSiteStore
+	buildings *sqlstores.SQLBuildingStore
+	sets      *sqlstores.SQLCollectionStore
+}
+
+func (a alertScopeStores) SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	return a.sites.SitesByIDs(ctx, orgID, ids)
+}
+
+func (a alertScopeStores) BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	return a.buildings.BuildingsByIDs(ctx, orgID, ids)
+}
+
+func (a alertScopeStores) DeviceSetsByIDs(ctx context.Context, orgID int64, setType string, ids []int64) ([]int64, error) {
+	return a.sets.DeviceSetsByIDs(ctx, orgID, setType, ids)
 }

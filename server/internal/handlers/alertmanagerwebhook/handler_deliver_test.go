@@ -15,7 +15,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 )
 
-type okStore struct{ inserts int }
+type okStore struct {
+	inserts int
+	// Last persisted batch, for tests that inspect row contents.
+	rows []*notificationhistory.Notification
+}
 
 func (s *okStore) Insert(context.Context, *notificationhistory.Notification) error {
 	s.inserts++
@@ -24,6 +28,7 @@ func (s *okStore) Insert(context.Context, *notificationhistory.Notification) err
 
 func (s *okStore) InsertBatch(_ context.Context, notifs []*notificationhistory.Notification) error {
 	s.inserts += len(notifs)
+	s.rows = notifs
 	return nil
 }
 

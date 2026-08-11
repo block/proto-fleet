@@ -1211,3 +1211,20 @@ func (s *SQLCollectionStore) GetDeviceIdentifiersByDeviceSetID(ctx context.Conte
 	}
 	return ids, nil
 }
+
+// DeviceSetsByIDs returns the subset of requested IDs that are live device sets of the given type
+// in the org; callers diff against the request to detect cross-org, wrong-type, or missing ids.
+func (s *SQLCollectionStore) DeviceSetsByIDs(ctx context.Context, orgID int64, setType string, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).DeviceSetsByIDs(ctx, sqlc.DeviceSetsByIDsParams{
+		OrgID:   orgID,
+		SetType: sqlc.DeviceSetType(setType),
+		Ids:     ids,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to look up device sets by ID: %v", err)
+	}
+	return rows, nil
+}

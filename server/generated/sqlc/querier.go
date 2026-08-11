@@ -340,6 +340,7 @@ type Querier interface {
 	CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error)
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
 	DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error)
+	DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error
 	DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error)
 	DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error)
 	// Deletes reusable response profiles tied to a site as part of the
@@ -375,6 +376,9 @@ type Querier interface {
 	// device, and a stale AUTH_NEEDED result must not clobber that paired-like status.
 	DeviceHasActivePairing(ctx context.Context, arg DeviceHasActivePairingParams) (bool, error)
 	DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelongsToOrgParams) (bool, error)
+	// Returns the subset of requested IDs that are live device sets of the given type in the org;
+	// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
+	DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error)
 	DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error)
 	DisableSyncCommit(ctx context.Context) error
 	// Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
@@ -439,6 +443,7 @@ type Querier interface {
 	GetAddedDeviceSiteConflicts(ctx context.Context, arg GetAddedDeviceSiteConflictsParams) ([]GetAddedDeviceSiteConflictsRow, error)
 	GetAlertChannel(ctx context.Context, arg GetAlertChannelParams) (AlertChannel, error)
 	GetAlertChannelByName(ctx context.Context, arg GetAlertChannelByNameParams) (AlertChannel, error)
+	GetAlertRuleConfig(ctx context.Context, arg GetAlertRuleConfigParams) (json.RawMessage, error)
 	// Returns command-eligible device information for an organization.
 	// Used when checking capabilities for "select all" operations.
 	GetAllDeviceInfoForCapabilityCheck(ctx context.Context, orgID int64) ([]GetAllDeviceInfoForCapabilityCheckRow, error)
@@ -850,6 +855,9 @@ type Querier interface {
 	ListAlertChannels(ctx context.Context, orgID int64) ([]AlertChannel, error)
 	// channel_ids counts only the org's live channels, so a soft-deleted channel drops out of every policy that referenced it.
 	ListAlertRoutePolicies(ctx context.Context, orgID int64) ([]ListAlertRoutePoliciesRow, error)
+	// Bounded to the caller's rule UIDs so orphan rows (see SweepAlertRuleConfigs)
+	// never inflate the list path.
+	ListAlertRuleConfigs(ctx context.Context, arg ListAlertRuleConfigsParams) ([]ListAlertRuleConfigsRow, error)
 	ListApiKeysByOrganization(ctx context.Context, organizationID int64) ([]ListApiKeysByOrganizationRow, error)
 	// The role-delete handler uses this to refuse deletion while
 	// assignments still reference the role; the response also lists the
@@ -1431,6 +1439,9 @@ type Querier interface {
 	SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error)
 	SoftDeleteUser(ctx context.Context, id int64) error
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
+	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
+	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.
+	SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error)
 	// Force every non-terminal target → RELEASED with the operator reason. This
 	// releases ownership without claiming that restore was attempted or failed.
 	SweepCurtailmentTargetsToReleased(ctx context.Context, arg SweepCurtailmentTargetsToReleasedParams) (int64, error)
@@ -1639,6 +1650,7 @@ type Querier interface {
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateUserUsername(ctx context.Context, arg UpdateUserUsernameParams) error
 	UpsertAlertRoutePolicy(ctx context.Context, arg UpsertAlertRoutePolicyParams) (AlertRoutePolicy, error)
+	UpsertAlertRuleConfig(ctx context.Context, arg UpsertAlertRuleConfigParams) error
 	// Seed reconciliation entry point. The ON CONFLICT target matches
 	// the partial unique index uq_role_org_builtin_key WHERE
 	// is_builtin = TRUE AND deleted_at IS NULL.

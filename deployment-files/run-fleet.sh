@@ -2714,15 +2714,11 @@ provision_grafana_db_role() {
         stats_smoke="SELECT count(*) FROM fleet_slow_statements();"
     fi
 
-    # `up --wait` only confirms containers are running, not that
-    # fleet-api has finished its migration pass. Poll for every object
-    # the Grafana alert rules read — the raw hypertable, the
-    # fleet_telemetry_poll_heartbeat continuous aggregate, and the
-    # fleet_pollable_device_presence / fleet_active_organization views
-    # the protofleet-ingest-stalled and proto-fleet-system rules query.
-    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat, fleet_pollable_device_presence and fleet_active_organization to be available…"
-    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL AND to_regclass('public.fleet_active_organization') IS NOT NULL"; then
-        echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat / fleet_pollable_device_presence / fleet_active_organization did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
+    # `up --wait` only confirms containers are running, not that fleet-api's migrations finished.
+    # The GRANT block below references each object under ON_ERROR_STOP, so poll until every one exists.
+    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat, fleet_pollable_device_presence, fleet_active_organization and fleet_device_placement to be available…"
+    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL AND to_regclass('public.fleet_active_organization') IS NOT NULL AND to_regclass('public.fleet_device_placement') IS NOT NULL"; then
+        echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat / fleet_pollable_device_presence / fleet_active_organization / fleet_device_placement did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
         return 1
     fi
 
@@ -2828,6 +2824,8 @@ GRANT SELECT ON fleet_telemetry_poll_heartbeat TO "${grafana_user}";
 GRANT SELECT ON fleet_pollable_device_presence TO "${grafana_user}";
 -- Owner-privilege view: grafana_ro reads live org ids without grants on organization (miner_auth_private_key).
 GRANT SELECT ON fleet_active_organization TO "${grafana_user}";
+-- Owner-privilege view: scoped alert rules resolve current site/building/rack/group membership without grants on device or device_set tables.
+GRANT SELECT ON fleet_device_placement TO "${grafana_user}";
 ${stats_grant}
 
 -- smoke check
@@ -2836,6 +2834,7 @@ SELECT 1 FROM notification_metric_sample LIMIT 0;
 SELECT 1 FROM fleet_telemetry_poll_heartbeat LIMIT 0;
 SELECT 1 FROM fleet_pollable_device_presence LIMIT 0;
 SELECT 1 FROM fleet_active_organization LIMIT 0;
+SELECT 1 FROM fleet_device_placement LIMIT 0;
 ${stats_smoke}
 RESET ROLE;
 SQL
