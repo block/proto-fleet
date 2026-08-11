@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useEffect, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useId, useState } from "react";
 import clsx from "clsx";
 
 import {
@@ -45,6 +45,8 @@ interface ActiveRolloutStatusProps {
   embedded?: boolean;
   /** Suppress lifecycle actions when the host renders them elsewhere. */
   hideActions?: boolean;
+  /** Start with the lower detail section expanded. */
+  defaultDetailsOpen?: boolean;
   /** Lifecycle actions. Missing handlers hide their controls. */
   onManage?: () => void;
   onPause?: () => void;
@@ -114,6 +116,10 @@ const deltaTextColor: Record<RolloutMetricDeltaIntent, string> = {
  */
 function DeltaChip({ delta }: { delta: RolloutMetricDelta }): ReactElement {
   return <span className={deltaTextColor[delta.intent]}>{delta.deltaText}</span>;
+}
+
+function errorCountLabel(count: number): string {
+  return `${count.toLocaleString()} ${count === 1 ? "error" : "errors"}`;
 }
 
 /**
@@ -213,6 +219,30 @@ function statusIcon(event: RolloutEvent): ReactNode {
   return <ProgressCircular indeterminate className="text-core-primary-fill" />;
 }
 
+function ProgressLegend({ event, segments }: { event: RolloutEvent; segments: Segment[] }): ReactElement {
+  return (
+    <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
+      {segments.map((segment) => (
+        <span key={segment.name} className="flex items-start gap-2">
+          <span
+            className={clsx(
+              "mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full",
+              rolloutProgressColorMap[segment.status],
+            )}
+          />
+          {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
+        </span>
+      ))}
+      {/* Excluded targets sit outside the bar and appear as a separate legend item. */}
+      {event.excludedTargets > 0 ? (
+        <span className="ml-auto text-right text-text-primary-50">
+          {`${event.excludedTargets.toLocaleString()} excluded`}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Progress-against-plan detail card for active rollout work.
  */
@@ -221,6 +251,7 @@ function ActiveRolloutStatus({
   className,
   embedded = false,
   hideActions = false,
+  defaultDetailsOpen = false,
   onManage,
   onPause,
   onResume,
@@ -230,6 +261,8 @@ function ActiveRolloutStatus({
   onViewMiners,
   onViewErrors,
 }: ActiveRolloutStatusProps): ReactElement {
+  const detailsId = useId();
+  const [detailsOpen, setDetailsOpen] = useState(defaultDetailsOpen);
   const isRunning = event.state === "inProgress";
   const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
   const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
@@ -268,6 +301,8 @@ function ActiveRolloutStatus({
 
   // Progress summary + elapsed live in the progress section, rather than the stat grid.
   const progressSummary = `${done.toLocaleString()} of ${inScope.toLocaleString()} miners ${doneVerb} (${percent}%)`;
+  const errorCount = rolloutErrorImpactCount(event.performance?.errors);
+  const hasCollapsedErrorLink = !detailsOpen && errorCount > 0;
 
   const actions = hideActions
     ? []
@@ -358,34 +393,8 @@ function ActiveRolloutStatus({
           </div>
         </div>
 
-        {/* Stat lockups: in the modal (embedded) they read as standard
-            label/value table rows; in the standalone card they use the same
-            multi-column stat grid as ActiveCurtailmentStatus (grid-cols-5,
-            gap-x-12). */}
-        {embedded ? (
-          <div className="mt-8 flex flex-col">
-            {statItems.map((item, index) => (
-              <StatRow
-                key={item.label}
-                label={item.label}
-                value={item.value}
-                detail={item.detail}
-                divider={index < statItems.length - 1}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="mt-8 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5">
-            {statItems.map((item) => (
-              <StatBlock key={item.label} label={item.label} value={item.value} detail={item.detail} />
-            ))}
-          </div>
-        )}
-
-        {/* Baseline telemetry for pilot review. */}
-        <PerformanceStrip event={event} embedded={embedded} onViewErrors={onViewErrors} />
-
-        {/* Progress section: summary, elapsed time, bar, then legend. */}
+        {/* Progress stays visible in the collapsed card; rollout setup, telemetry, and
+            segment details sit behind the disclosure below. */}
         <div className="mt-6 grid gap-3" data-testid="active-rollout-progress">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
             <div className="text-200 text-text-primary-50">{progressSummary}</div>
@@ -394,26 +403,68 @@ function ActiveRolloutStatus({
             ) : null}
           </div>
           <CompositionBar segments={segments} height={12} colorMap={rolloutProgressColorMap} />
-          <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
-            {segments.map((segment) => (
-              <span key={segment.name} className="flex items-start gap-2">
-                <span
-                  className={clsx(
-                    "mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full",
-                    rolloutProgressColorMap[segment.status],
-                  )}
-                />
-                {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}
-              </span>
-            ))}
-            {/* Excluded targets sit outside the bar and appear as a separate legend item. */}
-            {event.excludedTargets > 0 ? (
-              <span className="ml-auto text-right text-text-primary-50">
-                {`${event.excludedTargets.toLocaleString()} excluded`}
-              </span>
-            ) : null}
-          </div>
         </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-200">
+          <button
+            type="button"
+            className="cursor-pointer text-text-primary underline underline-offset-2 hover:opacity-70 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base focus-visible:outline-none"
+            aria-expanded={detailsOpen}
+            aria-controls={detailsId}
+            data-testid="active-rollout-details-toggle"
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {detailsOpen ? "Hide details" : "View details"}
+          </button>
+          {hasCollapsedErrorLink && onViewErrors ? (
+            <button
+              type="button"
+              className="cursor-pointer text-intent-critical-fill underline underline-offset-2 hover:opacity-70 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base focus-visible:outline-none"
+              onClick={onViewErrors}
+              data-testid="active-rollout-collapsed-errors-link"
+              aria-label={`View ${errorCountLabel(errorCount)}`}
+            >
+              {errorCountLabel(errorCount)}
+            </button>
+          ) : hasCollapsedErrorLink ? (
+            <span className="text-intent-critical-fill">{errorCountLabel(errorCount)}</span>
+          ) : null}
+        </div>
+
+        {detailsOpen ? (
+          <div id={detailsId} className="mt-6 border-t border-border-5 pt-6" data-testid="active-rollout-details">
+            {/* Stat lockups: in the modal (embedded) they read as standard
+                label/value table rows; in the standalone card they use the same
+                multi-column stat grid as ActiveCurtailmentStatus (grid-cols-5,
+                gap-x-12). */}
+            {embedded ? (
+              <div className="flex flex-col">
+                {statItems.map((item, index) => (
+                  <StatRow
+                    key={item.label}
+                    label={item.label}
+                    value={item.value}
+                    detail={item.detail}
+                    divider={index < statItems.length - 1}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5">
+                {statItems.map((item) => (
+                  <StatBlock key={item.label} label={item.label} value={item.value} detail={item.detail} />
+                ))}
+              </div>
+            )}
+
+            {/* Baseline telemetry for pilot review. */}
+            <PerformanceStrip event={event} embedded={embedded} onViewErrors={onViewErrors} />
+
+            <div className="mt-4">
+              <ProgressLegend event={event} segments={segments} />
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );
