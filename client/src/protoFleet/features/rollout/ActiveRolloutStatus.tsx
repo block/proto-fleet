@@ -91,14 +91,8 @@ function StatRow({ label, value, detail, divider }: StatBlockProps & { divider: 
       <div className="flex w-full items-start justify-between gap-4">
         <span className="shrink-0 text-300 text-text-primary-70">{label}</span>
         <span className="flex min-w-0 flex-col items-end text-right">
-          <span className="min-w-0 truncate text-300 text-text-primary" title={value}>
-            {value}
-          </span>
-          {detail ? (
-            <span className="min-w-0 truncate text-200 text-text-primary-70" title={detail}>
-              {detail}
-            </span>
-          ) : null}
+          <span className="min-w-0 text-300 break-words text-text-primary">{value}</span>
+          {detail ? <span className="min-w-0 text-200 break-words text-text-primary-70">{detail}</span> : null}
         </span>
       </div>
     </Row>
@@ -122,14 +116,23 @@ function DeltaChip({ delta }: { delta: RolloutMetricDelta }): ReactElement {
 /**
  * Baseline-vs-current telemetry for pilot review.
  */
-function PerformanceStrip({ event }: { event: RolloutEvent }): ReactElement | null {
+function PerformanceStrip({
+  event,
+  embedded = false,
+}: {
+  event: RolloutEvent;
+  embedded?: boolean;
+}): ReactElement | null {
   const temperatureUnit = useTemperatureUnit();
   if (!event.performance || event.performance.metrics.length === 0) {
     return null;
   }
   return (
     <div
-      className="mt-6 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5"
+      className={clsx(
+        "mt-6 grid gap-y-5 text-text-primary",
+        embedded ? "gap-x-8 tablet:grid-cols-2 laptop:grid-cols-4" : "gap-x-12 tablet:grid-cols-5",
+      )}
       data-testid="active-rollout-performance"
     >
       {event.performance.metrics.map((metric) => {
@@ -137,8 +140,8 @@ function PerformanceStrip({ event }: { event: RolloutEvent }): ReactElement | nu
         return (
           <div key={metric.label} className="min-w-0">
             <div className="text-200 text-text-primary-50">{metric.label}</div>
-            <div className="mt-1 flex items-baseline gap-2 text-emphasis-300 text-text-primary">
-              <span className="min-w-0 truncate" title={value}>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-emphasis-300 text-text-primary">
+              <span className={clsx("min-w-0", embedded ? "whitespace-nowrap" : "truncate")} title={value}>
                 {value}
               </span>
               <DeltaChip delta={rolloutMetricDelta(metric)} />
@@ -349,7 +352,7 @@ function ActiveRolloutStatus({
         )}
 
         {/* Baseline telemetry for pilot review. */}
-        <PerformanceStrip event={event} />
+        <PerformanceStrip event={event} embedded={embedded} />
 
         {/* Progress section: summary, elapsed time, bar, then legend. */}
         <div className="mt-6 grid gap-3" data-testid="active-rollout-progress">
