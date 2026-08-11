@@ -84,6 +84,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.46 kW", delta: "-0.2%" },
     efficiency: { value: "17.4 J/TH", delta: "+0.1%" },
     temperature: { value: "62.4 C", delta: "+0.4 C" },
+    errorRate: { value: "0.8%", delta: "+0.1 pp" },
   },
   {
     id: "miner-b03-02",
@@ -94,6 +95,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.50 kW", delta: "+0.1%" },
     efficiency: { value: "17.4 J/TH", delta: "+0.1%" },
     temperature: { value: "63.0 C", delta: "+0.6 C" },
+    errorRate: { value: "0.4%", delta: "-0.2 pp" },
   },
   {
     id: "miner-b03-03",
@@ -104,6 +106,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.45 kW", delta: "-0.3%" },
     efficiency: { value: "17.5 J/TH", delta: "+0.2%" },
     temperature: { value: "64.1 C", delta: "+1.0 C" },
+    errorRate: { value: "2.2%", delta: "+1.4 pp" },
   },
   {
     id: "miner-b04-01",
@@ -114,6 +117,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.70 kW", delta: "+0.1%" },
     efficiency: { value: "16.2 J/TH", delta: "+0.1%" },
     temperature: { value: "61.8 C", delta: "+0.2 C" },
+    errorRate: { value: "0.3%", delta: "0 pp" },
   },
   {
     id: "miner-b04-02",
@@ -124,6 +128,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.69 kW", delta: "-0.1%" },
     efficiency: { value: "16.3 J/TH", delta: "+0.2%" },
     temperature: { value: "62.6 C", delta: "+0.7 C" },
+    errorRate: { value: "1.1%", delta: "+0.6 pp" },
   },
   {
     id: "miner-b04-03",
@@ -134,6 +139,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "0.14 kW" },
     efficiency: { value: "Offline" },
     temperature: { value: "42.0 C" },
+    errorRate: { value: "No response", delta: "Offline" },
   },
   {
     id: "miner-b05-01",
@@ -144,6 +150,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.51 kW", delta: "-0.2%" },
     efficiency: { value: "18.7 J/TH", delta: "+0.4%" },
     temperature: { value: "65.5 C", delta: "+1.5 C" },
+    errorRate: { value: "2.8%", delta: "+1.7 pp" },
   },
   {
     id: "miner-b05-02",
@@ -154,6 +161,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.52 kW", delta: "+0.1%" },
     efficiency: { value: "18.5 J/TH", delta: "+0.3%" },
     temperature: { value: "64.7 C", delta: "+0.9 C" },
+    errorRate: { value: "1.4%", delta: "+0.8 pp" },
   },
   {
     id: "miner-b05-03",
@@ -164,6 +172,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.49 kW", delta: "-0.3%" },
     efficiency: { value: "18.7 J/TH", delta: "+0.5%" },
     temperature: { value: "66.2 C", delta: "+1.8 C" },
+    errorRate: { value: "3.4%", delta: "+2.1 pp" },
   },
   {
     id: "miner-b06-01",
@@ -174,6 +183,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.02 kW" },
     efficiency: { value: "21.9 J/TH" },
     temperature: { value: "60.9 C" },
+    errorRate: { value: "0.6%" },
   },
   {
     id: "miner-b06-02",
@@ -184,6 +194,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.04 kW" },
     efficiency: { value: "21.9 J/TH" },
     temperature: { value: "61.3 C" },
+    errorRate: { value: "0.5%" },
   },
   {
     id: "miner-b06-03",
@@ -194,6 +205,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "0 kW" },
     efficiency: { value: "Pinned" },
     temperature: { value: "Idle" },
+    errorRate: { value: "Pinned" },
   },
 ];
 
@@ -242,6 +254,7 @@ export const inProgressFirmwareEvent: RolloutEvent = {
       { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.55 },
       // Temperature stored in Celsius; rendered in the operator's °C/°F preference.
       { label: "Avg temp", unit: "temperature", baseline: 62.0, current: 62.4 },
+      { label: "Error rate", unit: "errorRate", baseline: 0.5, current: 1.1 },
     ],
   },
   rollups: [
@@ -279,6 +292,7 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
       { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.72 },
       // Temperature stored in Celsius; rendered in the operator's °C/°F preference.
       { label: "Avg temp", unit: "temperature", baseline: 63.0, current: 64.2 },
+      { label: "Error rate", unit: "errorRate", baseline: 0.5, current: 2.3 },
     ],
   },
   rollups: [
