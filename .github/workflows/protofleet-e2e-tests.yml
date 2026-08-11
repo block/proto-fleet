@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       specs: ${{ steps.detect.outputs.specs }}
-      grep: ${{ steps.detect.outputs.grep }}
+      target_tag: ${{ steps.detect.outputs.target_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,10 +56,10 @@ jobs:
                 printf '%s\n' "$spec"
               fi
             done | jq -R . | jq -cs .)
-            TEST_GREP="@smoke"
+            TARGET_TAG="@smoke"
           else
             SPEC_FILES=$(printf '%s\n' "$ALL_TARGET_SPECS" | jq -R . | jq -cs .)
-            TEST_GREP=""
+            TARGET_TAG=""
           fi
 
           if [ "$RUN_SCOPE" = "smoke" ] && [ "$SPEC_FILES" = "[]" ]; then
@@ -68,10 +68,10 @@ jobs:
           fi
 
           echo "specs=${SPEC_FILES}" >> "$GITHUB_OUTPUT"
-          echo "grep=${TEST_GREP}" >> "$GITHUB_OUTPUT"
+          echo "target_tag=${TARGET_TAG}" >> "$GITHUB_OUTPUT"
           echo "Run scope: ${RUN_SCOPE}"
           echo "Detected specs: ${SPEC_FILES}"
-          echo "Playwright grep: ${TEST_GREP:-<none>}"
+          echo "Target tag: ${TARGET_TAG:-<none>}"
 
   build:
     name: Build client and plugins
@@ -312,7 +312,7 @@ jobs:
           MATRIX_PROJECT: ${{ matrix.project }}
           MATRIX_SHARD: ${{ matrix.shard }}
           SPECS_JSON: ${{ needs.detect-specs.outputs.specs }}
-          TEST_GREP: ${{ needs.detect-specs.outputs.grep }}
+          TARGET_TAG: ${{ needs.detect-specs.outputs.target_tag }}
         run: |
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
@@ -341,8 +341,8 @@ jobs:
           printf '  - %s\n' "${SHARD_SPECS[@]}"
 
           PLAYWRIGHT_ARGS=(--project="$MATRIX_PROJECT" --reporter=blob)
-          if [ -n "$TEST_GREP" ]; then
-            PLAYWRIGHT_ARGS+=(--grep "$TEST_GREP")
+          if [ -n "$TARGET_TAG" ]; then
+            PLAYWRIGHT_ARGS+=(--grep "$TARGET_TAG")
           fi
           PLAYWRIGHT_ARGS+=("${SHARD_SPECS[@]}")
 
