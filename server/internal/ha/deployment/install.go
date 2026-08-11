@@ -26,7 +26,6 @@ const (
 	dataRoot              = "/var/lib/proto-fleet/ha"
 	serviceUnit           = "/etc/systemd/system/proto-fleet-ha.service"
 	firewallUnit          = "/etc/systemd/system/proto-fleet-ha-firewall.service"
-	nftablesDropIn        = "/etc/systemd/system/nftables.service.d/proto-fleet-ha.conf"
 	dockerDropIn          = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
 	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
 	minimumComposeVersion = "v2.24.4" // fleet-compose.yaml uses !override, added in this Compose release.
@@ -301,7 +300,7 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 		}
 	}
 	for _, path := range []string{
-		serviceUnit, firewallUnit, nftablesDropIn,
+		serviceUnit, firewallUnit,
 		"/usr/local/libexec/proto-fleet/check-fleet-active",
 	} {
 		if _, err := deps.lstat(path); err == nil {
@@ -491,7 +490,7 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 		"client/Dockerfile", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
 		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
-		"ha/proto-fleet-ha-firewall.service", "ha/nftables-systemd.conf", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
+		"ha/proto-fleet-ha-firewall.service", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
 		"client/nginx.https.conf",
 	}
 	for _, name := range required {
@@ -753,7 +752,6 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 	for sourceName, target := range map[string]string{
 		"proto-fleet-ha.service":          serviceUnit,
 		"proto-fleet-ha-firewall.service": firewallUnit,
-		"nftables-systemd.conf":           nftablesDropIn,
 		"docker-systemd.conf":             dockerDropIn,
 	} {
 		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", sourceName), target); err != nil {
