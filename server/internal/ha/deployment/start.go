@@ -153,23 +153,19 @@ type startupEtcdResult struct {
 }
 
 func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints []string, requiredEndpoint string) (bool, bool, bool) {
-	results := make(chan startupEtcdResult, len(endpoints))
-	for _, endpoint := range endpoints {
-		go func() {
-			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			response, err := status(probeCtx, endpoint)
-			if err != nil || response == nil || response.Header == nil {
-				authRequired := etcdAuthRequired(err)
-				results <- startupEtcdResult{authRequired: authRequired, required: endpoint == requiredEndpoint, responded: authRequired}
-				return
-			}
-			results <- startupEtcdResult{
-				identity: startupEtcdIdentity{response.Header.ClusterId, response.Header.MemberId, response.Leader},
-				required: endpoint == requiredEndpoint, responded: true,
-			}
-		}()
-	}
+	results := gather(endpoints, func(endpoint string) startupEtcdResult {
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		response, err := status(probeCtx, endpoint)
+		if err != nil || response == nil || response.Header == nil {
+			authRequired := etcdAuthRequired(err)
+			return startupEtcdResult{authRequired: authRequired, required: endpoint == requiredEndpoint, responded: authRequired}
+		}
+		return startupEtcdResult{
+			identity: startupEtcdIdentity{response.Header.ClusterId, response.Header.MemberId, response.Leader},
+			required: endpoint == requiredEndpoint, responded: true,
+		}
+	})
 	type memberGroup struct {
 		members           map[uint64]struct{}
 		requiredResponded bool
@@ -177,8 +173,7 @@ func startupEtcdQuorum(ctx context.Context, status startupEtcdStatus, endpoints 
 	groups := make(map[[2]uint64]*memberGroup)
 	authRequired := false
 	requiredResponded := false
-	for range endpoints {
-		result := <-results
+	for _, result := range results {
 		authRequired = authRequired || result.authRequired
 		requiredResponded = requiredResponded || result.required && result.responded
 		identity := result.identity

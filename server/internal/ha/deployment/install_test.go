@@ -280,7 +280,7 @@ func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
 	if !strings.Contains(joined, "sudo systemctl disable --now keepalived.service") {
 		t.Fatalf("witness did not disable keepalived:\n%s", joined)
 	}
-	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "proto-fleet-ha.service.d/keepalived.conf", " arping "} {
+	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "proto-fleet-ha.service.d/keepalived.conf", "iputils-arping", " arping "} {
 		if strings.Contains(joined, unexpected) {
 			t.Fatalf("witness installed database-host service %q:\n%s", unexpected, joined)
 		}
@@ -485,7 +485,6 @@ func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 	require.NotContains(t, joined, "download.docker.com")
 	require.NotContains(t, joined, "docker-ce")
 	require.NotContains(t, joined, "apt-get install -y keepalived")
-	require.Contains(t, joined, "apt-get install -y iputils-arping")
 }
 
 func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
