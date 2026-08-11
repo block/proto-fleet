@@ -103,18 +103,15 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
       onDismiss={onDismiss}
       testId="firmware-rollout-modal"
       forceTitleCollapsed
-      buttons={
-        hasPayload
-          ? [
-              {
-                text: isScheduled ? "Schedule update" : "Start update",
-                variant: variants.primary,
-                onClick: onDismiss,
-                dismissModalOnClick: false,
-              },
-            ]
-          : undefined
-      }
+      buttons={[
+        {
+          text: isScheduled ? "Schedule update" : "Start update",
+          variant: variants.primary,
+          onClick: onDismiss,
+          dismissModalOnClick: false,
+          disabled: !hasPayload,
+        },
+      ]}
     >
       <div className="mt-2 text-300 text-text-primary-70">
         Select a firmware payload to update your miners, then choose how it rolls out.
