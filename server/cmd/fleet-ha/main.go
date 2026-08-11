@@ -23,7 +23,7 @@ func main() {
 }
 
 func runMain() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "fleet-ha: %v\n", err)

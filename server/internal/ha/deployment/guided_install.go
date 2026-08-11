@@ -277,8 +277,9 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 	if err := writeInstallerOutput(deps.output, "Installing %s from the verified host bundle...\n", bundle.metadata.Role); err != nil {
 		return err
 	}
-	if err := deps.install(ctx, options); err != nil {
-		return err
+	installErr := deps.install(ctx, options)
+	if installErr != nil && !errors.Is(installErr, errInstallConverging) {
+		return installErr
 	}
 	if err := os.Remove(bundlePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove consumed host bundle: %w", err)
@@ -286,7 +287,7 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 	if err := os.Remove(bundlePath + bundleChecksumSuffix); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove consumed host bundle checksum: %w", err)
 	}
-	return nil
+	return installErr
 }
 
 func stageHostBundle(bundle preparedHostBundle, stagingDir, networkInterface string) (InstallOptions, error) {

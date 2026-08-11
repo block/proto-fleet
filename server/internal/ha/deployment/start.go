@@ -33,7 +33,7 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 	if err != nil {
 		return err
 	}
-	if !authEnabled && config.NodeName == "ha-a" && rootPasswordFile != "" {
+	if config.NodeName == "ha-a" && rootPasswordFile != "" {
 		if err := BootstrapEtcdAuth(ctx, envPath, rootPasswordFile); err != nil {
 			return err
 		}
