@@ -264,10 +264,24 @@ with the proto source.
 - Preserve existing persisted response profiles whose empty legacy
   `scope_json` plus absent `site_id` means whole organization, but backfill them
   to explicit `{"whole_org":true}` before enabling the new submission rules.
-  Because there are no old clients, deploy the frontend change that always
-  emits explicit Whole organization first, complete the data backfill, then
-  make server Create/Update/Preview/Start reject omitted scopes. This is a
-  coordinated contract cleanup, not a capability-negotiation path.
+  There are no supported old clients, but a browser tab opened before the
+  frontend deployment can still submit the old shape. Add a required scope-
+  schema version to every Create/Update/Preview/Start request, including test
+  curtailments and profile-derived starts. Deploy server support and the
+  frontend that always emits the new version and explicit Whole organization,
+  complete the data backfill, then raise the server's minimum accepted version
+  before any building/rack/group scope can be created or returned. Reject a
+  missing, old, or unknown version rather than interpreting its recognized
+  subset. This is a bounded cutover guard, not a retained old-client runtime
+  compatibility path.
+- Give each response profile an opaque scope revision derived from its canonical
+  persisted miner/fan scope. Return it from Get/List and require an exact match
+  on Update and every profile-derived execution. The server must load and use
+  the matching stored logical scope instead of trusting a client-expanded copy;
+  stale or missing revisions fail with a refresh-required error. Together with
+  the minimum schema version, this prevents a stale tab that ignores unknown
+  topology cases from overwriting or running a narrow profile as explicit
+  Whole organization.
 - Add `max_items` validation to every repeated scope/identifier field and
   domain validation for raw pre-deduplication totals and normalized per-type/
   aggregate selector limits. Enforce the transport byte cap before decoding and
@@ -305,10 +319,14 @@ with the proto source.
   converting them into an empty/insufficient-load preview.
 - Resolve authorization coverage from both the selected topology resources and
   their current members. A building contributes its owning site even when
-  empty; a rack contributes the site of its assigned building even when it has
-  no members; an unassigned building/rack requires org-wide authorization. A
-  group contributes every current member site, and an empty group requires
-  org-wide authorization because its future site coverage is unbounded.
+  empty. A rack contributes `device_set_rack.site_id` even when it has no
+  building or members; if that field is NULL, the rack requires org-wide
+  authorization. When a rack also has a building, validate that the building's
+  site agrees with the rack's site and reject inconsistent topology rather than
+  silently selecting either value. An unassigned building also requires
+  org-wide authorization. A group contributes every current member site, and
+  an empty group requires org-wide authorization because its future site
+  coverage is unbounded.
 - Deduplicate candidates across overlapping selectors before classification.
 - For cooldown lookup, use the already-resolved candidate identifiers (or add
   equivalent topology predicates) so a building/rack/group request cannot
@@ -407,6 +425,13 @@ with the proto source.
   missing or unproven envelope; it must never derive authority from a miner's
   or fan's current site at execution time. Surface this state in profile
   Get/List so it can be fixed or deleted.
+- Before enforcing profile envelopes, inventory every enabled automation rule
+  that references a profile marked `reauthorization_required`, expose the
+  affected rules and profiles to operators, and reauthorize or disable them.
+  Gate enforcement on that inventory reaching zero, unless owners explicitly
+  approve an announced cutoff for the remaining rules. After the gate, keep
+  execution fail closed; do not temporarily infer an envelope to preserve an
+  unremediated automation.
 - Bind every automation rule execution to an explicit user or service-account
   principal; the stored envelope is a maximum boundary, not a durable
   capability. At every trigger, reload that principal's current effective
@@ -429,6 +454,15 @@ with the proto source.
   remain degraded until safe restoration completes. An org-wide envelope may
   follow topology across sites only while the principal still has the required
   live org-wide permissions.
+- Before requiring envelopes on reconciliation, inventory active closed-loop
+  events created by the old schema. Backfill an envelope only when the event's
+  persisted whole-org/site scope and original authorizing principal prove the
+  exact boundary. If either is absent or ambiguous, place the event in explicit
+  drain mode: admit no new targets and do not re-resolve its logical scope, but
+  continue confirmation, fan sequencing, safe restoration, ownership release,
+  and terminalization from durable target rows. Run this migration before the
+  reconciler begins rejecting missing envelopes so an upgrade cannot either
+  widen authority or strand already-curtailed miners.
 - Do not require current topology resolution for response-profile Get/List or
   Delete. Authorize those operations against the profile's persisted
   miner and facility-fan envelope dimensions, including `site:read` on fan
@@ -531,13 +565,25 @@ Backend unit/store/integration coverage:
   FULL_FLEET execution persists a targetless watcher, sends no fan command,
   later admits an assigned/paired miner, and only then follows normal fan
   sequencing.
-- Authorization tests for empty buildings/racks using the resource's owning
-  site, unassigned buildings/racks requiring org-wide access, empty groups
-  requiring org-wide access, and cross-site groups requiring every current
-  member site while remaining bounded by their persisted envelope.
+- Authorization tests for empty buildings using the resource's owning site,
+  building-less racks using `device_set_rack.site_id`, rack/building site
+  mismatches failing closed, NULL-site racks and unassigned buildings requiring
+  org-wide access, empty groups requiring org-wide access, and cross-site groups
+  requiring every current member site while remaining bounded by their
+  persisted envelope.
 - Rollout tests proving legacy persisted whole-org profiles backfill to the
   explicit representation and the updated frontend emits explicit whole-org
-  scope before the server begins rejecting omitted submissions.
+  scope before the server begins rejecting omitted submissions. Cover a stale
+  browser missing the minimum scope-schema version, an unknown topology case,
+  profile update/execution with a missing or stale scope revision, and a valid
+  refreshed profile-derived execution that uses the server-stored scope.
+- Authorization-envelope rollout tests for active closed-loop events: provable
+  whole-org/site boundaries retain reconciliation, while an event with an
+  ambiguous scope or principal enters no-admission drain mode and completes
+  safe restoration from durable targets.
+- Automation rollout tests inventory enabled rules bound to profiles requiring
+  reauthorization, prevent enforcement before remediation or an explicit
+  cutoff, and fail closed after cutover without silently widening scope.
 - Selector-limit rollout tests covering inventory of legacy API-created
   oversized profiles/events, readable and deletable remediation state,
   shrink-only updates, automation cutoff, and an active oversized event that
@@ -601,6 +647,10 @@ developer approval.
   or are marked as requiring operator reauthorization. Automation cannot run a
   profile with a missing or unproven envelope, and only an operator with the
   required org-wide permissions can view, delete, or reauthorize it.
+- Scope-schema version enforcement rejects stale browser submissions before
+  topology scopes are exposed, and profile updates/executions require a matching
+  opaque scope revision and use the server-stored canonical scope. An unknown
+  topology case can never round-trip as intentional Whole organization.
 - Response-profile envelopes independently cover miner and facility-fan sites;
   profile CRUD and execution preserve both `site:read` and
   `curtailment:manage` requirements for every selected fan site.
@@ -608,6 +658,10 @@ developer approval.
   principal. Automation triggers and reconciliation require that principal's
   current effective permissions; revocation blocks admission and safely
   restores owned targets instead of leaving the envelope as a perpetual grant.
+- Legacy active closed-loop events receive a provable envelope and principal or
+  enter no-admission drain mode before envelope enforcement begins. Enabled
+  automations referencing ambiguous profiles are inventoried and remediated or
+  explicitly cut off before enforcement, then remain fail closed.
 - Whole organization is explicit for every new submission. Empty, unknown,
   unsupported, and infrastructure-only miner scope never widens to whole-org
   targeting or reaches facility-fan dispatch; legacy persisted whole-org
