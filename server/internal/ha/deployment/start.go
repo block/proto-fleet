@@ -33,7 +33,11 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 	if err != nil {
 		return err
 	}
-	if config.NodeName == "ha-a" && rootPasswordFile != "" {
+	bootstrapAuth, err := shouldBootstrapEtcdAuth(config.NodeName, authEnabled, rootPasswordFile)
+	if err != nil {
+		return err
+	}
+	if bootstrapAuth {
 		if err := BootstrapEtcdAuth(ctx, envPath, rootPasswordFile); err != nil {
 			return err
 		}
@@ -68,6 +72,21 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 		return fmt.Errorf("start Fleet: %w", err)
 	}
 	return nil
+}
+
+func shouldBootstrapEtcdAuth(nodeName string, authEnabled bool, rootPasswordFile string) (bool, error) {
+	if nodeName != "ha-a" || rootPasswordFile == "" {
+		return false, nil
+	}
+	if _, err := os.Stat(rootPasswordFile); err == nil {
+		return true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("inspect installed etcd root password: %w", err)
+	}
+	if authEnabled {
+		return false, nil
+	}
+	return false, errors.New("etcd authentication is disabled but the installed root password is missing; reimage this dedicated host and rerun the guided install")
 }
 
 func removeBootstrapCredential(path string) error {
