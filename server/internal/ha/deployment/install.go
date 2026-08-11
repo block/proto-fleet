@@ -743,7 +743,7 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 	if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", temp, filepath.Join(configRoot, "node.env")); err != nil {
 		return fmt.Errorf("install node configuration: %s", commandError(output, err))
 	}
-	baseEnv, err := writeInstallTemp("fleet-base.env", "DB_USERNAME=fleet\nDB_PASSWORD=unused\n", 0o600)
+	baseEnv, err := writeInstallTemp("fleet-base.env", "DB_USERNAME=fleet\nDB_PASSWORD=unused\nUPDATES_ENABLED=false\n", 0o600)
 	if err != nil {
 		return err
 	}

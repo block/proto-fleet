@@ -28,6 +28,7 @@ const (
 	bundleMetadataFile   = "bundle.json"
 	bundleChecksumSuffix = ".sha256"
 	recoveryBundleName   = "proto-fleet-ha-recovery.tar.gz"
+	publicCAName         = "proto-fleet-ha-service-ca.crt"
 	maxBundleSize        = 2 << 20
 	maxBundleContents    = 4 << 20
 	maxBundleFileSize    = 512 << 10
@@ -393,7 +394,17 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 		}
 		recoveryFiles[entry.Name()] = contents
 	}
-	return writeBundleWithChecksum(filepath.Join(exportDir, recoveryBundleName), recoveryFiles)
+	if err := writeBundleWithChecksum(filepath.Join(exportDir, recoveryBundleName), recoveryFiles); err != nil {
+		return err
+	}
+	publicCA := recoveryFiles["service-ca.crt"]
+	publicCAPath := filepath.Join(exportDir, publicCAName)
+	if err := writeFile(publicCAPath, publicCA, 0o644); err != nil {
+		return err
+	}
+	digest := sha256.Sum256(publicCA)
+	checksum := fmt.Sprintf("%x  %s\n", digest, publicCAName)
+	return writeFile(publicCAPath+bundleChecksumSuffix, []byte(checksum), 0o644)
 }
 
 func readHostBundle(path string) (preparedHostBundle, error) {
@@ -699,9 +710,19 @@ func printBundleCopyCommand(output io.Writer, exportDir, nodeIP string) error {
 	if current, err := user.Current(); err == nil && current.Username != "" {
 		username = current.Username
 	}
-	return writeInstallerOutput(output, "\nCopy and verify all four bundles from your operator machine before continuing:\n"+
+	ca, err := readCertificate(filepath.Join(exportDir, publicCAName))
+	if err != nil {
+		return fmt.Errorf("read exported service CA: %w", err)
+	}
+	digest := sha256.Sum256(ca.Raw)
+	fingerprint := make([]string, len(digest))
+	for index, value := range digest {
+		fingerprint[index] = fmt.Sprintf("%02X", value)
+	}
+	return writeInstallerOutput(output, "\nService CA SHA-256 fingerprint: %s\n"+
+		"Copy and verify the host bundles, recovery bundle, and public service CA from your operator machine before continuing:\n"+
 		"mkdir -p proto-fleet-ha-recovery && scp '%s@%s:%s/*' proto-fleet-ha-recovery/ && (cd proto-fleet-ha-recovery && if command -v sha256sum >/dev/null; then sha256sum --check *.sha256; else shasum -a 256 --check *.sha256; fi)\n",
-		username, nodeIP, exportDir)
+		strings.Join(fingerprint, ":"), username, nodeIP, exportDir)
 }
 
 func readPrompt(scanner *bufio.Scanner, output io.Writer, prompt string) (string, error) {
@@ -736,7 +757,7 @@ func requireAcknowledgement(scanner *bufio.Scanner, output io.Writer, prompt, ex
 }
 
 func removePeerAndRecoveryExports(exportDir string) error {
-	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c"), recoveryBundleName} {
+	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c"), recoveryBundleName, publicCAName} {
 		for _, path := range []string{filepath.Join(exportDir, name), filepath.Join(exportDir, name+bundleChecksumSuffix)} {
 			if err := os.Remove(path); err != nil {
 				return fmt.Errorf("remove copied bundle export %s: %w", path, err)
