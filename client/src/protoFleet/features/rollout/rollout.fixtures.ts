@@ -40,14 +40,21 @@ export const pilotFirmwareConfig: RolloutPlanConfig = {
   scheduledStartAt: "2026-08-14T20:00:00.000Z",
 };
 
-export const delegatedFirmwareConfig: RolloutPlanConfig = {
+export const automatedReviewFirmwareConfig: RolloutPlanConfig = {
   processType: "firmware",
-  strategy: "delegated",
+  strategy: "batched",
   order: "leastEfficientFirst",
   maxConcurrentOffline: 50,
   batchSize: 20,
   batchIntervalSec: 60,
-  delegatedPolicyName: "Regression analysis API",
+  reviewAfterEachBatch: true,
+  autoContinueOnHealthyTelemetry: true,
+  automationThresholds: {
+    maxHashrateDropPercent: 5,
+    maxEfficiencyIncreasePercent: 3,
+    maxTemperatureIncreaseCelsius: 2,
+    maxErrors: 0,
+  },
   scheduleType: "startNow",
 };
 
@@ -332,13 +339,6 @@ export const inProgressFirmwareEvent: RolloutEvent = {
     { phase: "failed", count: 4 },
     { phase: "excluded", count: 18 },
   ],
-};
-
-export const delegatedFirmwareEvent: RolloutEvent = {
-  ...inProgressFirmwareEvent,
-  strategy: "delegated",
-  delegatedPolicyName: "Regression analysis API",
-  title: "Firmware update to 5.1.0",
 };
 
 /** Paused at the pilot-approval gate, the pilot wave finished, awaiting a
