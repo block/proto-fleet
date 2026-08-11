@@ -139,6 +139,12 @@ export interface RolloutEvent {
   excludedTargets: number;
   batchSize?: number;
   batchIntervalSec?: number;
+  /** Pilot-then-continue only: size of the first, gated wave. */
+  pilotSize?: number;
+  /** Paced methods only: pause after every batch for operator review. */
+  reviewAfterEachBatch?: boolean;
+  /** When true, healthy batches continue without a manual click. */
+  autoContinueOnHealthyTelemetry?: boolean;
   currentBatch?: number;
   totalBatches?: number;
   startedAt?: string;
