@@ -2,13 +2,11 @@ package deployment
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -53,12 +51,11 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	serviceMask := callIndex(calls, "sudo systemctl mask --runtime docker.service docker.socket keepalived.service")
 	dockerPackages := callIndex(calls, "sudo apt-get install -y docker-ce")
 	serviceUnmask := callIndex(calls, "sudo systemctl unmask --runtime docker.service docker.socket keepalived.service")
-	snapshot := callIndex(calls, "dir:"+installRoot+" sha256sum --check deployment-manifest.sha256")
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if packages < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && packages < nftablesCompatibility && nftablesCompatibility < keepalived && keepalived < firewall && serviceMask < dockerPackages && dockerPackages < serviceUnmask && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
+	if packages < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
+		!(packages < vipCheck && packages < nftablesCompatibility && nftablesCompatibility < keepalived && keepalived < firewall && serviceMask < dockerPackages && dockerPackages < serviceUnmask && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -203,39 +200,6 @@ func TestInstallInterruptedDuringConvergenceLeavesHAEnabled(t *testing.T) {
 	require.NotContains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 	require.Contains(t, joined, "docker-ha-recovery-systemd.conf "+dockerRecoveryDropIn)
 	require.NotContains(t, joined, "sudo rm -f "+dockerRecoveryDropIn)
-}
-
-func TestDedicatedHostFindsKeepalivedOutsidePATH(t *testing.T) {
-	// Arrange
-	keepalived := filepath.Join(t.TempDir(), "keepalived")
-	require.NoError(t, os.WriteFile(keepalived, []byte("binary"), 0o755))
-	deps := installDependencies{
-		lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
-		requireEmpty: func(string, string) error { return nil },
-		lstat: func(path string) (os.FileInfo, error) {
-			if path == "/usr/sbin/keepalived" {
-				return os.Lstat(keepalived)
-			}
-			return nil, os.ErrNotExist
-		},
-		run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
-			switch strings.Join(args, " ") {
-			case "systemctl is-active keepalived.service":
-				return []byte("inactive\n"), errors.New("exit status 3")
-			case "systemctl is-enabled keepalived.service":
-				return []byte("disabled\n"), errors.New("exit status 1")
-			default:
-				return nil, nil
-			}
-		},
-	}
-
-	// Act
-	installed, err := inspectDedicatedHost(t.Context(), deps)
-
-	// Assert
-	require.NoError(t, err)
-	require.True(t, installed.keepalived)
 }
 
 func TestInstallRejectsUnavailableSystemdBeforeMutation(t *testing.T) {
@@ -415,22 +379,6 @@ func TestInstallPackagesUsesUbuntuRepository(t *testing.T) {
 	require.Contains(t, repository, "Suites: noble")
 }
 
-func TestValidateReleaseRejectsSymlinks(t *testing.T) {
-	// Arrange
-	source := testInstallRelease(t)
-	if err := os.Symlink("version.txt", filepath.Join(source, "unlisted-link")); err != nil {
-		t.Fatal(err)
-	}
-
-	// Act
-	err := validateRelease(t.Context(), source, installDependencies{})
-
-	// Assert
-	if err == nil || !strings.Contains(err.Error(), "unsupported entry") {
-		t.Fatalf("validateRelease() error = %v", err)
-	}
-}
-
 func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
@@ -460,8 +408,6 @@ func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 			return nil, nil
 		case "sudo systemctl is-active keepalived.service":
 			return []byte("inactive\n"), errors.New("exit status 3")
-		case "sudo systemctl is-enabled keepalived.service":
-			return []byte("disabled\n"), errors.New("exit status 1")
 		}
 		return run(ctx, name, args...)
 	}
@@ -475,6 +421,7 @@ func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 	require.NotContains(t, joined, "download.docker.com")
 	require.NotContains(t, joined, "docker-ce")
 	require.NotContains(t, joined, "apt-get install -y keepalived")
+	require.Contains(t, joined, "sudo systemctl disable --now keepalived.service")
 }
 
 func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
@@ -640,6 +587,18 @@ func TestReleaseSnapshotCleanupOutlivesInstallCancellation(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestValidateReleaseRejectsMissingRuntimeAsset(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	require.NoError(t, os.Remove(filepath.Join(source, "client", "nginx.https.conf")))
+
+	// Act
+	err := validateRelease(source, os.ReadFile)
+
+	// Assert
+	require.ErrorContains(t, err, "release is missing client/nginx.https.conf")
+}
+
 func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
@@ -713,10 +672,6 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 			record("input:"+name, args...)
 			return nil
 		},
-		runDir: func(_ context.Context, dir, name string, args ...string) ([]byte, error) {
-			record("dir:"+dir+" "+name, args...)
-			return nil, nil
-		},
 		sourceRoot: func() (string, error) { return source, nil },
 		sleep:      func(time.Duration) {},
 	}
@@ -766,29 +721,6 @@ func testInstallRelease(t *testing.T) string {
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
-	}
-	var manifest []string
-	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return err
-		}
-		contents, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("read test release file: %w", err)
-		}
-		digest := sha256.Sum256(contents)
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return fmt.Errorf("resolve test release path: %w", err)
-		}
-		manifest = append(manifest, fmt.Sprintf("%x  ./%s", digest, filepath.ToSlash(relative)))
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	sort.Strings(manifest)
-	if err := os.WriteFile(filepath.Join(root, "deployment-manifest.sha256"), []byte(strings.Join(manifest, "\n")+"\n"), 0o600); err != nil {
-		t.Fatal(err)
 	}
 	return root
 }

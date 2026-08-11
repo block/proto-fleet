@@ -69,7 +69,7 @@ host and release, shows the complete topology and planned changes, and waits
 for `INSTALL` before changing the host.
 
 The wizard then creates protected bundles for all three hosts and a separate
-public service CA certificate. Run the single copy-and-verify command it prints
+public service CA certificate. Run the single copy command it prints
 from the operator machine. Return to the wizard and type `COPIED`; it deletes
 the copied peer exports from `ha-a` and continues installing that host. Protect
 the host bundles while installing the peers, then delete the operator copies
@@ -116,16 +116,17 @@ and cluster credentials.
 
 ### Installer behavior and failure handling
 
-Before changing the host, the command validates the release manifest, Linux
-platform, apt/systemd prerequisites, architecture, page size, network identity
-and routes, free ports, empty data paths, and the exact host secret file set. A
-16K-page host is rejected with instructions to boot a 4K-page kernel and retry
-after reboot.
+The official archive checksum verified in the commands above is the release
+integrity check. Before changing the host, the installer checks the packaged
+entrypoints, Linux platform, apt/systemd prerequisites, architecture, page
+size, network identity and routes, free ports, empty data paths, and the exact
+host secret file set. A 16K-page host is rejected with instructions to boot a
+4K-page kernel and retry after reboot.
 
 The host must be dedicated to Proto Fleet HA. A complete, unused Docker Engine
-with Compose v2 can be reused; existing images, volumes, networks, and cache are
-allowed. Existing containers, custom Docker configuration, a partial Docker
-installation, configured or active keepalived, previous Proto Fleet paths or
+with compatible Compose v2 can be reused; existing images, volumes, networks,
+and cache are allowed. Existing containers, custom Docker configuration,
+configured or active keepalived, previous Proto Fleet paths or
 units, occupied HA ports, and a claimed VIP are rejected. Missing supported
 packages are installed. Unrelated nftables tables are preserved.
 

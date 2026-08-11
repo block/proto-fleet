@@ -20,11 +20,10 @@ import (
 )
 
 const (
-	bundleFormatVersion  = 1
-	bundleMetadataFile   = "bundle.json"
-	bundleChecksumSuffix = ".sha256"
-	publicCAName         = "proto-fleet-ha-service-ca.crt"
-	maxBundleSize        = 2 << 20
+	bundleFormatVersion = 1
+	bundleMetadataFile  = "bundle.json"
+	publicCAName        = "proto-fleet-ha-service-ca.crt"
+	maxBundleSize       = 2 << 20
 )
 
 type clusterMetadata struct {
@@ -284,9 +283,6 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 	if err := os.Remove(bundlePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove consumed host bundle: %w", err)
 	}
-	if err := os.Remove(bundlePath + bundleChecksumSuffix); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove consumed host bundle checksum: %w", err)
-	}
 	return installErr
 }
 
@@ -363,7 +359,7 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 			}
 			files[etcdRootPasswordFile] = contents
 		}
-		if err := writeBundleWithChecksum(filepath.Join(exportDir, hostBundleName(role)), files); err != nil {
+		if err := writeBundle(filepath.Join(exportDir, hostBundleName(role)), files); err != nil {
 			return err
 		}
 	}
@@ -373,12 +369,7 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 		return fmt.Errorf("read generated service CA: %w", err)
 	}
 	publicCAPath := filepath.Join(exportDir, publicCAName)
-	if err := writeFile(publicCAPath, publicCA, 0o644); err != nil {
-		return err
-	}
-	digest := sha256.Sum256(publicCA)
-	checksum := fmt.Sprintf("%x  %s\n", digest, publicCAName)
-	return writeFile(publicCAPath+bundleChecksumSuffix, []byte(checksum), 0o644)
+	return writeFile(publicCAPath, publicCA, 0o644)
 }
 
 func readHostBundle(path string) (preparedHostBundle, error) {
@@ -467,20 +458,12 @@ func expectedHostBundleEntries(role string) map[string]struct{} {
 	return expected
 }
 
-func writeBundleWithChecksum(path string, files map[string][]byte) error {
+func writeBundle(path string, files map[string][]byte) error {
 	contents, err := json.Marshal(files)
 	if err != nil {
 		return fmt.Errorf("encode host bundle: %w", err)
 	}
-	if err := writeFile(path, contents, 0o600); err != nil {
-		return err
-	}
-	digest := sha256.Sum256(contents)
-	checksum := fmt.Sprintf("%x  %s\n", digest, filepath.Base(path))
-	if err := writeFile(path+bundleChecksumSuffix, []byte(checksum), 0o600); err != nil {
-		return err
-	}
-	return nil
+	return writeFile(path, contents, 0o600)
 }
 
 func readReleaseIdentity(path string) (clusterMetadata, error) {
@@ -569,8 +552,8 @@ func printBundleCopyCommand(output io.Writer, exportDir, nodeIP string) error {
 		fingerprint[index] = fmt.Sprintf("%02X", value)
 	}
 	return writeInstallerOutput(output, "\nService CA SHA-256 fingerprint: %s\n"+
-		"Copy and verify the host bundles and public service CA from your operator machine before continuing:\n"+
-		"mkdir -p proto-fleet-ha-bundles && scp -p '%s@%s:%s/*' proto-fleet-ha-bundles/ && (cd proto-fleet-ha-bundles && if command -v sha256sum >/dev/null; then sha256sum --check *.sha256; else shasum -a 256 --check *.sha256; fi)\n",
+		"Copy the host bundles and public service CA from your operator machine before continuing:\n"+
+		"mkdir -p proto-fleet-ha-bundles && scp -p '%s@%s:%s/*' proto-fleet-ha-bundles/\n",
 		strings.Join(fingerprint, ":"), username, nodeIP, exportDir)
 }
 
@@ -607,10 +590,9 @@ func requireAcknowledgement(scanner *bufio.Scanner, output io.Writer, prompt, ex
 
 func removeCopiedExports(exportDir string) error {
 	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c"), publicCAName} {
-		for _, path := range []string{filepath.Join(exportDir, name), filepath.Join(exportDir, name+bundleChecksumSuffix)} {
-			if err := os.Remove(path); err != nil {
-				return fmt.Errorf("remove copied bundle export %s: %w", path, err)
-			}
+		path := filepath.Join(exportDir, name)
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove copied bundle export %s: %w", path, err)
 		}
 	}
 	return nil
