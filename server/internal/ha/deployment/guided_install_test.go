@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -223,6 +224,31 @@ func TestInstallHostBundleDeletesBundleOnlyAfterSuccess(t *testing.T) {
 	require.NoError(t, err)
 	require.NoFileExists(t, original)
 	require.NoFileExists(t, original+bundleChecksumSuffix)
+}
+
+func TestInstallHostBundleDeletesBundleWhileServiceConverges(t *testing.T) {
+	// Arrange
+	source := testGuidedRelease(t, "v0.2.10", "abc123")
+	exportDir := filepath.Join(t.TempDir(), "exports")
+	require.NoError(t, os.Mkdir(exportDir, 0o700))
+	require.NoError(t, prepareInstallBundles(exportDir, clusterMetadata{
+		Version: "v0.2.10", Commit: "abc123", DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+	}))
+	bundlePath := filepath.Join(exportDir, hostBundleName("ha-c"))
+	deps := testGuidedDependencies(source, strings.NewReader("INSTALL\n"), &bytes.Buffer{}, &bytes.Buffer{})
+	deps.install = func(context.Context, InstallOptions) error {
+		return fmt.Errorf("%w; check systemctl", errInstallConverging)
+	}
+
+	// Act
+	err := guidedInstall(t.Context(), bundlePath, deps)
+
+	// Assert
+	require.ErrorIs(t, err, errInstallConverging)
+	require.ErrorContains(t, err, "check systemctl")
+	require.NoFileExists(t, bundlePath)
+	require.NoFileExists(t, bundlePath+bundleChecksumSuffix)
 }
 
 type archiveTestEntry struct {
