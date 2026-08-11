@@ -271,7 +271,12 @@ with the proto source.
 - Add `max_items` validation to every repeated scope/identifier field and
   domain validation for raw pre-deduplication totals and normalized per-type/
   aggregate selector limits. Enforce the transport byte cap before decoding and
-  reject oversized persisted profile/event scopes before resolving them.
+  reject oversized persisted profiles before execution. For an already-active
+  oversized legacy event, do not resolve its logical scope for new admissions;
+  mark it degraded and continue confirmation, facility-fan sequencing,
+  restoration, ownership release, and terminalization from its durable target
+  rows. This active-event drain exception must run before general persisted-
+  scope rejection so enforcement cannot strand curtailed miners.
 - Remove generic device-set translation, domain/JSON decode/render paths,
   frontend `deviceSetIds` scope state, and the special unsupported-device-set
   preview branch. Keep only deprecated protobuf declarations/field numbers as
@@ -535,8 +540,9 @@ Backend unit/store/integration coverage:
   scope before the server begins rejecting omitted submissions.
 - Selector-limit rollout tests covering inventory of legacy API-created
   oversized profiles/events, readable and deletable remediation state,
-  shrink-only updates, automation cutoff, and active-event grandfathering
-  through safe restoration.
+  shrink-only updates, automation cutoff, and an active oversized event that
+  blocks new admissions but completes confirmation, fan sequencing, safe
+  restoration, ownership release, and terminalization after upgrade.
 - Regression coverage for whole-org, multi-site, explicit-miner, and
   facility-fan behavior; assert no generic device-set scope state remains in
   frontend/domain/storage models.
@@ -582,7 +588,8 @@ developer approval.
   resolution and are enforced on raw input before deduplication and server-side
   after normalization, with a transport byte limit. Existing oversized records
   are inventoried and remediated before enforcement; profiles remain readable/
-  deletable and active events complete safely.
+  deletable, while active events stop new admissions and drain safely from
+  durable targets.
 - Deleted, wrong-type, cross-org, or unauthorized topology targets fail closed
   with actionable errors and never broaden to whole-org scope. Unassigned
   in-org targets are admitted only when the caller has org-wide
