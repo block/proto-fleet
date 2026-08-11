@@ -288,11 +288,11 @@ function ActiveRolloutStatus({
     event.estimatedSecondsRemaining && event.estimatedSecondsRemaining > 0
       ? `~${formatElapsed(event.estimatedSecondsRemaining)}`
       : isTerminal
-        ? "—"
-        : "Calculating…";
+        ? "N/A"
+        : "Calculating";
 
   const statItems: StatBlockProps[] = [
-    { label: "Scope", value: event.scopeLabel || "—" },
+    { label: "Scope", value: event.scopeLabel || "N/A" },
     { label: "Method", value: pacingSummary(event) },
     // Order only applies to a paced run. Under "all at once" there's no first/last.
     ...(event.strategy === "allAtOnce" ? [] : [{ label: "Order", value: orderLabels[event.order] }]),

@@ -262,7 +262,7 @@ export function rolloutPlanReadout(args: {
       ? ", auto-continue when healthy"
       : ", review after each batch"
     : "";
-  const batchPhrase = `≈ ${batches.toLocaleString()} ${batchWord}${over}${review}`;
+  const batchPhrase = `About ${batches.toLocaleString()} ${batchWord}${over}${review}`;
 
   if (pilot > 0) {
     return `Pilot of ${pilot.toLocaleString()}, then ${batchPhrase}`;
@@ -390,11 +390,11 @@ export function rolloutLifecycleActions(
 export function formatRolloutMetric(metric: RolloutPerfMetric, temperatureUnit: TemperatureUnit): string {
   switch (metric.unit) {
     case "hashrate":
-      return formatHashrate(metric.current) ?? "—";
+      return formatHashrate(metric.current) ?? "N/A";
     case "power":
       return formatPowerKwOrDash(metric.current);
     case "efficiency":
-      return formatEfficiency(metric.current) ?? "—";
+      return formatEfficiency(metric.current) ?? "N/A";
     case "temperature": {
       const displayValue = temperatureUnit === "F" ? convertCtoF(metric.current) : metric.current;
       return `${getDisplayValue(displayValue)} °${temperatureUnit}`;

@@ -130,7 +130,7 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
       ]}
     >
       <div className="mt-2 text-300 text-text-primary-70">
-        Select a firmware payload to update your miners, then choose how it rolls out.
+        Select a firmware payload, then choose how the firmware update runs.
       </div>
       <div className="mt-6 flex flex-col gap-8">
         {/* --- existing FirmwareUpdateModal content: payload input --- */}

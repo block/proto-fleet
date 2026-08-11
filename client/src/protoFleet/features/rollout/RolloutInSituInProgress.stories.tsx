@@ -81,7 +81,7 @@ function ViewRolloutStoryModal({ event, onDismiss }: { event: RolloutEvent; onDi
  *
  * Seeds the fleet store with read + settings permissions so the permission-gated
  * primary nav (Fleet / Energy / Activity / Settings) and the settings subnav
- * (Network / Firmware / …) both render, Storybook has no auth session
+ * (Network / Firmware / etc.) both render, Storybook has no auth session
  * otherwise, which is why the nav previously showed only Home + Settings.
  */
 function AppShell({ children }: { children: ReactNode }): ReactElement {

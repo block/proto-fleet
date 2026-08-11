@@ -27,7 +27,7 @@ interface ReleaseChannelModalProps {
   preview: ReleaseChannelPreview;
   onAddFile: () => void;
   onFileActions: (file: ReleaseChannelFile) => void;
-  /** Per-scope-level selection entry points (Sites / Buildings / …). */
+  /** Per-scope-level selection entry points (Sites / Buildings / etc.). */
   onSelectScope: (level: keyof ReleaseChannelScope) => void;
   onDismiss: () => void;
   onSave: () => void;
