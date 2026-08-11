@@ -5,12 +5,80 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
+
+func TestWaitForEtcdStartupClearsLocalDeadlineBeforeQuorum(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithCancel(t.Context())
+	localDeadline := make(chan time.Time, 1)
+	localDeadline <- time.Now()
+	retry := make(chan time.Time, 1)
+	retry <- time.Now()
+	quorumChecks := 0
+
+	// Act
+	err := waitForEtcdStartup(ctx,
+		func(context.Context) bool { return true },
+		func(context.Context) (bool, error) {
+			quorumChecks++
+			if quorumChecks == 2 {
+				cancel()
+			}
+			return false, nil
+		},
+		localDeadline,
+		func() <-chan time.Time { return retry },
+	)
+
+	// Assert
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 2, quorumChecks)
+}
+
+func TestWaitForEtcdStartupBoundsLocalReadiness(t *testing.T) {
+	// Arrange
+	localDeadline := make(chan time.Time, 1)
+	localDeadline <- time.Now()
+
+	// Act
+	err := waitForEtcdStartup(t.Context(),
+		func(context.Context) bool { return false },
+		func(context.Context) (bool, error) { return false, nil },
+		localDeadline,
+		func() <-chan time.Time { return make(chan time.Time) },
+	)
+
+	// Assert
+	require.EqualError(t, err, "local etcd member did not become healthy within one minute")
+}
+
+func TestWaitForEtcdStartupProceedsWhenPeersReachQuorum(t *testing.T) {
+	// Arrange
+	retry := make(chan time.Time, 1)
+	retry <- time.Now()
+	quorumChecks := 0
+
+	// Act
+	err := waitForEtcdStartup(t.Context(),
+		func(context.Context) bool { return true },
+		func(context.Context) (bool, error) {
+			quorumChecks++
+			return quorumChecks == 2, nil
+		},
+		make(chan time.Time),
+		func() <-chan time.Time { return retry },
+	)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, 2, quorumChecks)
+}
 
 func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 	for _, test := range []struct {
@@ -20,7 +88,6 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 		requiredEndpoint string
 		wantQuorum       bool
 		wantAuthRequired bool
-		wantLocalReady   bool
 	}{
 		{
 			name: "unauthenticated bootstrap quorum",
@@ -28,12 +95,12 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 				"a": startupStatus(11, 11),
 				"b": startupStatus(12, 11),
 			},
-			wantQuorum: true, wantLocalReady: true,
+			wantQuorum: true,
 		},
 		{
 			name:             "installed cluster requires authenticated client",
 			errors:           map[string]error{"a": rpctypes.ErrUserEmpty, "b": rpctypes.ErrPermissionDenied},
-			wantAuthRequired: true, wantLocalReady: true,
+			wantAuthRequired: true,
 		},
 		{
 			name: "duplicate member is not quorum",
@@ -41,7 +108,6 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 				"a": startupStatus(11, 11),
 				"b": startupStatus(11, 11),
 			},
-			wantLocalReady: true,
 		},
 		{
 			name:             "healthy peers do not replace local member",
@@ -66,12 +132,11 @@ func TestStartupEtcdQuorumReportsQuorumAndAuthentication(t *testing.T) {
 			if requiredEndpoint == "" {
 				requiredEndpoint = "a"
 			}
-			quorum, authRequired, localReady := startupEtcdQuorum(t.Context(), status, []string{"a", "b", "local"}, requiredEndpoint)
+			quorum, authRequired := startupEtcdQuorum(t.Context(), status, []string{"a", "b", "local"}, requiredEndpoint)
 
 			// Assert
 			require.Equal(t, test.wantQuorum, quorum)
 			require.Equal(t, test.wantAuthRequired, authRequired)
-			require.Equal(t, test.wantLocalReady, localReady)
 		})
 	}
 }
