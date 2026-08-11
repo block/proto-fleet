@@ -502,6 +502,18 @@ func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
 			},
 			wantError: "keepalived must be inactive",
 		},
+		{
+			name: "Docker has service drop-ins",
+			configure: func(deps *installDependencies) {
+				deps.requireEmpty = func(path, _ string) error {
+					if path == "/etc/systemd/system/docker.service.d" {
+						return fmt.Errorf("unexpected entry in %s", path)
+					}
+					return nil
+				}
+			},
+			wantError: "/etc/systemd/system/docker.service.d",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -550,26 +562,6 @@ func TestInstallRejectsMissingBaseCommandBeforeMutation(t *testing.T) {
 			require.Empty(t, calls)
 		})
 	}
-}
-
-func TestDedicatedHostRejectsHAServiceDropIns(t *testing.T) {
-	// Arrange
-	deps := installDependencies{
-		lookPath: func(string) (string, error) { return "", os.ErrNotExist },
-		requireEmpty: func(path, _ string) error {
-			if path == "/etc/systemd/system/docker.service.d" {
-				return fmt.Errorf("unexpected entry in %s", path)
-			}
-			return nil
-		},
-		lstat: func(string) (os.FileInfo, error) { return nil, os.ErrNotExist },
-	}
-
-	// Act
-	_, err := inspectDedicatedHost(t.Context(), deps)
-
-	// Assert
-	require.ErrorContains(t, err, "/etc/systemd/system/docker.service.d")
 }
 
 func TestReleaseSnapshotCleanupOutlivesInstallCancellation(t *testing.T) {

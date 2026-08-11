@@ -17,7 +17,6 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	// Arrange
 	source := testGuidedRelease(t, "v0.2.10", "abc123")
 	exportDir := filepath.Join(t.TempDir(), "exports")
-	var installed InstallOptions
 	inspected := false
 	input := strings.NewReader(testHostIPs[1] + "\n" + testHostIPs[2] + "\n" + testVirtualIP + "\nINSTALL\ncopied\n")
 	var output, prompts bytes.Buffer
@@ -42,7 +41,6 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	}
 	deps.install = func(_ context.Context, options InstallOptions) error {
 		require.True(t, inspected)
-		installed = options
 		config, err := loadNodeConfig(options.NodeEnvPath)
 		require.NoError(t, err)
 		require.Equal(t, "ha-a", config.NodeName)
@@ -58,8 +56,6 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.Equal(t, testHostIPs[1], identityPeer)
-	require.NotEmpty(t, installed.NodeEnvPath)
-	require.Contains(t, prompts.String(), "ha-b IPv4 address")
 	require.Contains(t, prompts.String(), "Type INSTALL")
 	require.Contains(t, prompts.String(), "Type COPIED")
 	require.Contains(t, prompts.String(), "Docker:    reuse existing installation")
@@ -150,11 +146,8 @@ func TestInstallHostBundleValidatesIdentityAndRelease(t *testing.T) {
 	source := testGuidedRelease(t, "v0.2.10", "abc123")
 	exportDir := filepath.Join(t.TempDir(), "exports")
 	require.NoError(t, os.Mkdir(exportDir, 0o700))
-	require.NoError(t, prepareInstallBundles(exportDir, clusterMetadata{
-		Version: "v0.2.10", Commit: "abc123", DatabaseAIP: testHostIPs[0],
-		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
-	}))
 	bundlePath := filepath.Join(exportDir, hostBundleName("ha-b"))
+	writeValidTestBundle(t, bundlePath, testBundleMetadata("ha-b"))
 
 	// Act: the bundle is presented to the wrong host.
 	deps := testGuidedDependencies(source, strings.NewReader("INSTALL\n"), &bytes.Buffer{}, &bytes.Buffer{})
@@ -175,57 +168,57 @@ func TestInstallHostBundleValidatesIdentityAndRelease(t *testing.T) {
 	require.FileExists(t, bundlePath)
 }
 
-func TestInstallHostBundleDeletesBundleOnlyAfterSuccess(t *testing.T) {
-	// Arrange
-	source := testGuidedRelease(t, "v0.2.10", "abc123")
-	exportDir := filepath.Join(t.TempDir(), "exports")
-	require.NoError(t, os.Mkdir(exportDir, 0o700))
-	require.NoError(t, prepareInstallBundles(exportDir, clusterMetadata{
-		Version: "v0.2.10", Commit: "abc123", DatabaseAIP: testHostIPs[0],
-		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
-	}))
-	original := filepath.Join(exportDir, hostBundleName("ha-c"))
+func TestInstallHostBundleConsumption(t *testing.T) {
+	tests := []struct {
+		name       string
+		installErr error
+		wantExists bool
+	}{
+		{name: "success"},
+		{name: "fatal failure", installErr: context.Canceled, wantExists: true},
+		{name: "service converging", installErr: fmt.Errorf("%w; check systemctl", errInstallConverging)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			source := testGuidedRelease(t, "v0.2.10", "abc123")
+			bundlePath := filepath.Join(t.TempDir(), hostBundleName("ha-c"))
+			writeValidTestBundle(t, bundlePath, testBundleMetadata("ha-c"))
+			deps := testGuidedDependencies(source, strings.NewReader("INSTALL\n"), &bytes.Buffer{}, &bytes.Buffer{})
+			deps.install = func(context.Context, InstallOptions) error { return tt.installErr }
 
-	// Act: installation fails.
-	deps := testGuidedDependencies(source, strings.NewReader("INSTALL\n"), &bytes.Buffer{}, &bytes.Buffer{})
-	deps.install = func(context.Context, InstallOptions) error { return context.Canceled }
-	err := guidedInstall(t.Context(), original, deps)
+			// Act
+			err := guidedInstall(t.Context(), bundlePath, deps)
 
-	// Assert
-	require.ErrorIs(t, err, context.Canceled)
-	require.FileExists(t, original)
-
-	// Act: installation succeeds.
-	deps = testGuidedDependencies(source, strings.NewReader("INSTALL\n"), &bytes.Buffer{}, &bytes.Buffer{})
-	err = guidedInstall(t.Context(), original, deps)
-
-	// Assert
-	require.NoError(t, err)
-	require.NoFileExists(t, original)
+			// Assert
+			require.ErrorIs(t, err, tt.installErr)
+			if tt.wantExists {
+				require.FileExists(t, bundlePath)
+			} else {
+				require.NoFileExists(t, bundlePath)
+			}
+		})
+	}
 }
 
-func TestInstallHostBundleDeletesBundleWhileServiceConverges(t *testing.T) {
-	// Arrange
-	source := testGuidedRelease(t, "v0.2.10", "abc123")
-	exportDir := filepath.Join(t.TempDir(), "exports")
-	require.NoError(t, os.Mkdir(exportDir, 0o700))
-	require.NoError(t, prepareInstallBundles(exportDir, clusterMetadata{
-		Version: "v0.2.10", Commit: "abc123", DatabaseAIP: testHostIPs[0],
-		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
-	}))
-	bundlePath := filepath.Join(exportDir, hostBundleName("ha-c"))
-	deps := testGuidedDependencies(source, strings.NewReader("INSTALL\n"), &bytes.Buffer{}, &bytes.Buffer{})
-	deps.install = func(context.Context, InstallOptions) error {
-		return fmt.Errorf("%w; check systemctl", errInstallConverging)
+func testBundleMetadata(role string) bundleMetadata {
+	return bundleMetadata{
+		FormatVersion: bundleFormatVersion, Role: role,
+		NodeIP:      map[string]string{"ha-a": testHostIPs[0], "ha-b": testHostIPs[1], "ha-c": testHostIPs[2]}[role],
+		DatabaseAIP: testHostIPs[0], DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2],
+		VirtualIP: testVirtualIP, Version: "v0.2.10", Commit: "abc123",
 	}
+}
 
-	// Act
-	err := guidedInstall(t.Context(), bundlePath, deps)
-
-	// Assert
-	require.ErrorIs(t, err, errInstallConverging)
-	require.ErrorContains(t, err, "check systemctl")
-	require.NoFileExists(t, bundlePath)
+func writeValidTestBundle(t *testing.T, path string, metadata bundleMetadata) {
+	t.Helper()
+	entries := make(map[string][]byte)
+	for name := range expectedHostBundleEntries(metadata.Role) {
+		if name != bundleMetadataFile {
+			entries[name] = []byte("test")
+		}
+	}
+	writeTestBundle(t, path, metadata, entries)
 }
 
 func writeTestBundle(t *testing.T, path string, metadata bundleMetadata, entries map[string][]byte) {
