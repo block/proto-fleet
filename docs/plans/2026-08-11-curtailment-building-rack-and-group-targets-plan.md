@@ -410,8 +410,10 @@ developer approval.
   concurrent cross-site move cannot admit an unauthorized miner.
 - Per-type and aggregate selector limits bound direct and persisted scope
   resolution and are enforced server-side after normalization.
-- Deleted, wrong-type, cross-org, unassigned, or unauthorized topology targets
-  fail closed with actionable errors and never broaden to whole-org scope.
+- Deleted, wrong-type, cross-org, or unauthorized topology targets fail closed
+  with actionable errors and never broaden to whole-org scope. Unassigned
+  in-org targets are admitted only when the caller has org-wide
+  `curtailment:manage`; otherwise they are treated as uncovered and rejected.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
   sequencing, and active/history displays keep working. Deprecated generic
   device-set wire input fails closed and is never persisted, executed as, or
