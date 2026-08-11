@@ -169,10 +169,11 @@ with the proto source.
     `deviceIdentifiers`.
   Keep target names/labels and Infrastructure fields outside this semantic
   scope object.
-- Require Whole organization to be an explicit selection. An empty or
-  unrecognized miner scope must never default to whole organization; it
-  represents zero miners and is valid only when explicit Infrastructure
-  targets make the overall plan valid.
+- Require every new Preview, Start, and response-profile Create/Update request
+  to contain a recognized, explicit miner selector: Whole organization or at
+  least one site, building, rack, group, or miner. Infrastructure does not make
+  an empty or unrecognized miner scope valid, and those requests must fail
+  before an event, profile, or facility-fan action is created.
 - Create a pure curtailment-scope module used by:
   - `CurtailmentStartModal.tsx`
   - `curtailmentRequestBuilders.ts`
@@ -235,9 +236,18 @@ with the proto source.
   `MarshalScopeJSON`, and `ScopeFromJSON`.
 - Ensure a whole-org entry still dominates narrower selectors and mixed
   entries are normalized/deduplicated deterministically.
-- Reject an empty or unrecognized miner scope at boundaries that require miner
-  targets. Never synthesize whole-org scope from missing, unknown, or
-  unsupported cases.
+- Reject an empty or unrecognized miner scope at every new submission boundary,
+  including when facility fans are present. Never synthesize whole-org scope
+  from missing, unknown, or unsupported cases, and never dispatch a fan unless
+  the execution has at least one admitted miner target and the existing
+  confirmation/sequencing preconditions are satisfied.
+- Preserve existing persisted response profiles whose empty legacy
+  `scope_json` plus absent `site_id` means whole organization, but backfill them
+  to explicit `{"whole_org":true}` before enabling the new submission rules.
+  Because there are no old clients, deploy the frontend change that always
+  emits explicit Whole organization first, complete the data backfill, then
+  make server Create/Update/Preview/Start reject omitted scopes. This is a
+  coordinated contract cleanup, not a capability-negotiation path.
 - Add `max_items` validation to every repeated scope/identifier field and
   domain validation for the normalized per-type and aggregate selector limits.
   Reject oversized persisted profile/event scopes before resolving them.
@@ -422,8 +432,13 @@ Backend unit/store/integration coverage:
   vice versa, CRUD/list filtering against persisted fan-site coverage, and
   automation failing when current fan coverage exceeds its envelope.
 - Empty/unknown-scope tests proving Preview, Start, profile save/execution, and
-  automation never infer whole organization; cover an intentional
-  infrastructure-only plan separately.
+  automation never infer whole organization and reject infrastructure-only or
+  unknown-scope-plus-fan requests before any event, profile, target ownership,
+  or fan command is created. Cover explicit selectors that currently resolve
+  zero miners and assert execution fails without commanding fans.
+- Rollout tests proving legacy persisted whole-org profiles backfill to the
+  explicit representation and the updated frontend emits explicit whole-org
+  scope before the server begins rejecting omitted submissions.
 - Regression coverage for whole-org, multi-site, explicit-miner, and
   facility-fan behavior; assert no generic device-set scope state remains in
   frontend/domain/storage models.
@@ -480,8 +495,10 @@ developer approval.
 - Response-profile envelopes independently cover miner and facility-fan sites;
   profile CRUD and execution preserve both `site:read` and
   `curtailment:manage` requirements for every selected fan site.
-- Whole organization is always explicit. Empty, unknown, or unsupported miner
-  scope never widens to whole-org targeting.
+- Whole organization is explicit for every new submission. Empty, unknown,
+  unsupported, and infrastructure-only miner scope never widens to whole-org
+  targeting or reaches facility-fan dispatch; legacy persisted whole-org
+  profiles are backfilled to the explicit representation during rollout.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
   sequencing, and active/history displays keep working. Deprecated generic
   device-set wire input fails closed and is never persisted, executed as, or
