@@ -19,7 +19,6 @@ export const strategyLabels: Record<RolloutStrategy, string> = {
   allAtOnce: "All at once",
   batched: "In batches",
   pilotThenContinue: "Pilot group, then continue",
-  delegated: "External policy",
 };
 
 /** Action-specific noun for rollout CTA labels. */
@@ -94,7 +93,6 @@ export function strategyHelpText(processType: RolloutProcessType): Record<Rollou
     batched: `Miners ${verb} in fixed-size waves, pausing for the interval between each so a bounded number are ever offline at once.`,
     pilotThenContinue:
       "A small pilot wave runs first, then it pauses for your review before continuing to the rest in batches.",
-    delegated: `Fleet tracks the ${verb} and target state. An external policy reviews health signals and tells Fleet when to continue.`,
   };
 }
 
@@ -229,7 +227,12 @@ export function rolloutPlanReadout(args: {
   inScopeCount: number;
   config: Pick<
     RolloutPlanConfig,
-    "strategy" | "batchSize" | "batchIntervalSec" | "pilotSize" | "reviewAfterEachBatch" | "delegatedPolicyName"
+    | "strategy"
+    | "batchSize"
+    | "batchIntervalSec"
+    | "pilotSize"
+    | "reviewAfterEachBatch"
+    | "autoContinueOnHealthyTelemetry"
   >;
 }): string | null {
   const { inScopeCount, config } = args;
@@ -254,12 +257,11 @@ export function rolloutPlanReadout(args: {
   const durationSec = estimateRolloutSeconds({ inScopeCount: remaining, batchSize, batchIntervalSec });
   const over = durationSec && durationSec > 0 ? ` over ~${formatDuration(durationSec)}` : "";
   const batchWord = batches === 1 ? "batch" : "batches";
-  const review =
-    config.strategy === "delegated"
-      ? `, gated by ${config.delegatedPolicyName || "external policy"}`
-      : config.reviewAfterEachBatch
-        ? ", review after each batch"
-        : "";
+  const review = config.reviewAfterEachBatch
+    ? config.autoContinueOnHealthyTelemetry
+      ? ", auto-continue when healthy"
+      : ", review after each batch"
+    : "";
   const batchPhrase = `≈ ${batches.toLocaleString()} ${batchWord}${over}${review}`;
 
   if (pilot > 0) {
@@ -268,14 +270,9 @@ export function rolloutPlanReadout(args: {
   return batchPhrase;
 }
 
-export function pacingSummary(
-  event: Pick<RolloutEvent, "strategy" | "batchSize" | "batchIntervalSec" | "delegatedPolicyName">,
-): string {
+export function pacingSummary(event: Pick<RolloutEvent, "strategy" | "batchSize" | "batchIntervalSec">): string {
   if (event.strategy === "allAtOnce") {
     return "All at once";
-  }
-  if (event.strategy === "delegated" && event.batchSize && event.batchIntervalSec) {
-    return `External policy, batches of ${event.batchSize.toLocaleString()} every ${event.batchIntervalSec}s`;
   }
   if (event.batchSize && event.batchIntervalSec) {
     return `Batches of ${event.batchSize.toLocaleString()} every ${event.batchIntervalSec}s`;

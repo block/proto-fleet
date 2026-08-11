@@ -1,7 +1,7 @@
 import { type ReactElement, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { batchedFirmwareConfig, delegatedFirmwareConfig } from "@/protoFleet/features/rollout/rollout.fixtures";
+import { automatedReviewFirmwareConfig, batchedFirmwareConfig } from "@/protoFleet/features/rollout/rollout.fixtures";
 import RolloutColumnState from "@/protoFleet/features/rollout/RolloutColumnState";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutPlanConfig, RolloutTargetPhase } from "@/protoFleet/features/rollout/rolloutTypes";
@@ -19,8 +19,6 @@ const meta = {
 export default meta;
 
 type Story = StoryObj;
-
-const noop = () => undefined;
 
 // ---- Rollout controls: one functional example (flip the strategy live) ------
 // RolloutControls owns no state, so the story holds it. The strategy selector
@@ -41,11 +39,11 @@ export const Controls: Story = {
   render: () => <RolloutControlsStory />,
 };
 
-export const DelegatedControls: Story = {
-  name: "Rollout controls, external policy",
+export const AutomatedReviewControls: Story = {
+  name: "Rollout controls, automated review",
   render: () => (
     <div className="w-[520px] max-w-full rounded-xl bg-surface-elevated-base p-8 shadow-100">
-      <RolloutControls config={delegatedFirmwareConfig} onChange={noop} inScopeCount={222} />
+      <RolloutControls config={automatedReviewFirmwareConfig} onChange={() => undefined} inScopeCount={222} />
     </div>
   ),
 };

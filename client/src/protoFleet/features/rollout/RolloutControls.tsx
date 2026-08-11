@@ -9,7 +9,7 @@ import {
   strategyLabels,
 } from "./rolloutDisplayUtils";
 import RolloutFieldInfo from "./RolloutFieldInfo";
-import type { RolloutOrder, RolloutPlanConfig, RolloutStrategy } from "./rolloutTypes";
+import type { RolloutAutomationThresholds, RolloutOrder, RolloutPlanConfig, RolloutStrategy } from "./rolloutTypes";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
@@ -33,6 +33,13 @@ const orderOptions = (Object.keys(orderLabels) as RolloutOrder[]).map((value) =>
   label: orderLabels[value],
 }));
 
+const defaultAutomationThresholds: RolloutAutomationThresholds = {
+  maxHashrateDropPercent: 5,
+  maxEfficiencyIncreasePercent: 3,
+  maxTemperatureIncreaseCelsius: 2,
+  maxErrors: 0,
+};
+
 /** Pacing controls shared by rollout config surfaces. */
 function RolloutControls({ config, onChange, disabled = false, inScopeCount }: RolloutControlsProps): ReactElement {
   function patch(partial: Partial<RolloutPlanConfig>): void {
@@ -44,20 +51,22 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
 
+  function parseThreshold(value: string): number {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
   function patchStrategy(value: string): void {
     const strategy = value as RolloutStrategy;
     patch({
       strategy,
-      reviewAfterEachBatch: strategy === "allAtOnce" || strategy === "delegated" ? false : config.reviewAfterEachBatch,
-      delegatedPolicyName:
-        strategy === "delegated" ? (config.delegatedPolicyName ?? "Regression analysis API") : undefined,
+      reviewAfterEachBatch: strategy === "allAtOnce" ? false : config.reviewAfterEachBatch,
+      autoContinueOnHealthyTelemetry: strategy === "allAtOnce" ? false : config.autoContinueOnHealthyTelemetry,
     });
   }
 
-  const showBatchFields =
-    config.strategy === "batched" || config.strategy === "pilotThenContinue" || config.strategy === "delegated";
+  const showBatchFields = config.strategy === "batched" || config.strategy === "pilotThenContinue";
   const showPilotFields = config.strategy === "pilotThenContinue";
-  const showDelegatedFields = config.strategy === "delegated";
   // Order only applies to paced runs. When hidden, Method spans the full row.
   const showOrder = config.strategy !== "allAtOnce";
 
@@ -69,6 +78,16 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
   // Action-prefixed section title ("Update behavior" / "Reboot behavior").
   const behaviorLabel = rolloutBehaviorLabel(config.processType);
   const strategyHelp = strategyHelpText(config.processType);
+  const automationThresholds = config.automationThresholds ?? defaultAutomationThresholds;
+
+  function patchAutomationThreshold(partial: Partial<RolloutAutomationThresholds>): void {
+    patch({
+      automationThresholds: {
+        ...automationThresholds,
+        ...partial,
+      },
+    });
+  }
 
   const pilotField = (
     <Input
@@ -107,21 +126,111 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
   );
 
   const reviewAfterEachBatchControl = showBatchFields ? (
-    <div className="flex items-center gap-2" data-testid="rollout-review-after-each-batch-control">
-      <label className={`flex items-center gap-3 text-left ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
-        <Checkbox
-          checked={config.reviewAfterEachBatch ?? false}
-          disabled={disabled}
-          onChange={(event) => patch({ reviewAfterEachBatch: event.currentTarget.checked })}
+    <div className="grid gap-3" data-testid="rollout-review-after-each-batch-control">
+      <div className="flex items-center gap-2">
+        <label className={`flex items-center gap-3 text-left ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
+          <Checkbox
+            checked={config.reviewAfterEachBatch ?? false}
+            disabled={disabled}
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              patch({
+                reviewAfterEachBatch: checked,
+                autoContinueOnHealthyTelemetry: checked ? config.autoContinueOnHealthyTelemetry : false,
+              });
+            }}
+          />
+          <span className="text-300 text-text-primary">Review after each batch</span>
+        </label>
+        <RolloutFieldInfo
+          ariaLabel="About batch review"
+          body="Pauses when each batch completes so you can review stabilized telemetry before continuing."
+          testId="rollout-review-after-each-batch-info-button"
+          popoverTestId="rollout-review-after-each-batch-info-popover"
         />
-        <span className="text-300 text-text-primary">Review after each batch</span>
-      </label>
-      <RolloutFieldInfo
-        ariaLabel="About batch review"
-        body="Pauses when each batch completes so you can review stabilized telemetry before continuing."
-        testId="rollout-review-after-each-batch-info-button"
-        popoverTestId="rollout-review-after-each-batch-info-popover"
-      />
+      </div>
+
+      {config.reviewAfterEachBatch ? (
+        <div className="ml-8 grid gap-3">
+          <div className="flex items-center gap-2">
+            <label
+              className={`flex items-center gap-3 text-left ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
+            >
+              <Checkbox
+                checked={config.autoContinueOnHealthyTelemetry ?? false}
+                disabled={disabled}
+                onChange={(event) => {
+                  const checked = event.currentTarget.checked;
+                  patch({
+                    autoContinueOnHealthyTelemetry: checked,
+                    automationThresholds: checked ? automationThresholds : config.automationThresholds,
+                  });
+                }}
+              />
+              <span className="text-300 text-text-primary">Auto-continue healthy batches</span>
+            </label>
+            <RolloutFieldInfo
+              ariaLabel="About automatic batch review"
+              body="Continues when telemetry and errors stay within thresholds. Pauses for review when they do not."
+              testId="rollout-auto-continue-info-button"
+              popoverTestId="rollout-auto-continue-info-popover"
+            />
+          </div>
+
+          {config.autoContinueOnHealthyTelemetry ? (
+            <div className="grid gap-3">
+              <div className="grid gap-3 tablet:grid-cols-2">
+                <Input
+                  id="rollout-threshold-hashrate"
+                  label="Max hashrate drop"
+                  type="number"
+                  inputMode="decimal"
+                  units="%"
+                  initValue={automationThresholds.maxHashrateDropPercent}
+                  onChange={(value) => patchAutomationThreshold({ maxHashrateDropPercent: parseThreshold(value) })}
+                  disabled={disabled}
+                />
+                <Input
+                  id="rollout-threshold-efficiency"
+                  label="Max efficiency increase"
+                  type="number"
+                  inputMode="decimal"
+                  units="%"
+                  initValue={automationThresholds.maxEfficiencyIncreasePercent}
+                  onChange={(value) =>
+                    patchAutomationThreshold({ maxEfficiencyIncreasePercent: parseThreshold(value) })
+                  }
+                  disabled={disabled}
+                />
+                <Input
+                  id="rollout-threshold-temperature"
+                  label="Max temp increase"
+                  type="number"
+                  inputMode="decimal"
+                  units="C"
+                  initValue={automationThresholds.maxTemperatureIncreaseCelsius}
+                  onChange={(value) =>
+                    patchAutomationThreshold({ maxTemperatureIncreaseCelsius: parseThreshold(value) })
+                  }
+                  disabled={disabled}
+                />
+                <Input
+                  id="rollout-threshold-errors"
+                  label="Max errors"
+                  type="number"
+                  inputMode="numeric"
+                  initValue={automationThresholds.maxErrors}
+                  onChange={(value) => patchAutomationThreshold({ maxErrors: parseCount(value) })}
+                  disabled={disabled}
+                />
+              </div>
+              <div className="text-200 text-text-primary-70">
+                Batches pause for review when any threshold is exceeded.
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   ) : null;
 
@@ -136,16 +245,6 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
       disabled={disabled}
     />
   );
-
-  const delegatedPolicyField = showDelegatedFields ? (
-    <Input
-      id="rollout-delegated-policy"
-      label="Decision source"
-      initValue={config.delegatedPolicyName ?? ""}
-      onChange={(value) => patch({ delegatedPolicyName: value })}
-      disabled={disabled}
-    />
-  ) : null;
 
   return (
     <section className="grid gap-3" data-testid="rollout-controls">
@@ -197,7 +296,6 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
         </>
       ) : showBatchFields ? (
         <>
-          {delegatedPolicyField}
           {batchFields}
           {maxOfflineField}
         </>
