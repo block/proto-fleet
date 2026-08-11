@@ -154,10 +154,11 @@ When an owned miner leaves scope or becomes unpaired:
   and the updated frontend, complete the backfill, then raise the minimum
   accepted version before topology scopes are emitted. This rejects stale
   browser tabs without retaining an old-client compatibility path.
-- Derive and return an opaque revision from each profile's canonical miner/fan
-  scope. Require it on profile Update, profile-derived execution, and
-  automation Create/Update/enable; the server reloads the matching stored scope
-  instead of trusting a client-expanded copy.
+- Maintain an opaque profile revision that changes on every execution-affecting
+  update: miner/fan scope, mode, power target, maintenance inclusion, all-paired
+  or other admin controls, batching, and sequencing. Require it on profile
+  Update, profile-derived execution, and automation Create/Update/enable; reload
+  the matching stored profile and recompute its required-admin marker.
 
 Bound inputs before expensive resolution:
 
@@ -206,9 +207,11 @@ Authorization coverage follows these rules:
 
 Require `curtailment:manage` for every miner site and org-wide permission for
 unassigned/unbounded coverage. Bind selector validation, membership expansion,
-site coverage, envelope validation, and target claim in one locked transaction
-or revalidate each materialized target inside the claim transaction. Dispatch
-only after commit.
+site coverage, envelope validation, and target claim in one transaction. Within
+it, re-resolve and reauthorize every original selector, selected resource,
+membership, logical reservation, and facility fan—not only concrete miners.
+Lock relevant topology rows or compare topology revisions; dispatch only after
+commit.
 
 On profile Create/Update, persist the union of selected-resource and current-
 member site coverage plus the independent fan-site coverage in `scope_json`,
@@ -250,10 +253,11 @@ Create/Update/enable/execution. Use persisted envelopes for recovery operations:
 | Profile with missing/unproven envelope | Org-wide `curtailment:manage`, plus org-wide `site:read` when fans exist; no current-location fallback. |
 | Stale profile resave/execution | Reject until stale IDs are explicitly removed/replaced. |
 | Automation Get/List/Delete/disable | Authorize against the rule's bound envelope; remain available when profile topology or revision is stale. |
-| Automation Create/Update/enable/trigger | Require strict topology, exact profile revision/envelope, current principal permissions, and current Admin/SuperAdmin role for admin-only controls. |
+| Automation Create/Update/enable/OFF start | Require strict topology, exact executable-profile revision/envelope, current principal permissions, and current Admin/SuperAdmin role for admin-only controls. |
+| Automation ON/stop with an active event | Restore from the event's durable targets and fan settings without requiring the current profile revision/topology/admin grant; never admit or recurtail targets. |
 
-Add immutable up/down migrations for automation-rule binding fields: profile
-scope revision, miner/fan envelope, execution principal, and required-admin
+Add immutable up/down migrations for automation-rule binding fields: executable-
+profile revision, miner/fan envelope, execution principal, and required-admin
 marker. In the same transaction that saves/enables a rule, lock the profile,
 compare the handler-authorized revision/envelope, and persist that exact
 binding. Extend the existing store-side fan-settings race check; mismatch
@@ -262,10 +266,11 @@ returns FailedPrecondition without saving.
 Reload the bound user or service-account permissions at every trigger; never
 fall back to the profile creator or an ambient system principal.
 
-At each trigger, compare the current profile revision with the bound revision
-before creating an event or fan action. A mismatch reports `rebind_required`
-until an authorized operator reviews and re-enables the rule. Disable/Delete do
-not require a current revision or strict topology.
+Before an OFF/start or recurtail action, compare the current profile revision
+with the bound revision; mismatch reports `rebind_required`. An authenticated
+ON/stop for an already-owned event must always follow its durable restore path,
+even after profile change/deletion, permission loss, or admin demotion.
+Disable/Delete likewise do not require a current revision or strict topology.
 
 ### 7. Roll out fail-closed behavior safely
 
@@ -308,11 +313,12 @@ Backend coverage:
 - Frozen versus topology-following FULL_FLEET behavior, empty watchers,
   explicit-miner snapshot compatibility, flagged explicit-miner policy,
   reservation conflicts, pairing transitions, and restore obligations.
-- Authorization races, separate fan coverage, stale CRUD recovery, missing
-  envelopes, current permission revocation, Admin/SuperAdmin demotion, and
-  current topology exceeding an envelope.
-- Automation binding races, `rebind_required`, stale rule management, and
-  rollout remediation.
+- Authorization races for empty watchers and moved fans, separate fan coverage,
+  stale CRUD recovery, missing envelopes, current permission revocation,
+  Admin/SuperAdmin demotion, and current topology exceeding an envelope.
+- Full executable-profile revision coverage, automation binding races,
+  `rebind_required`, stale rule management, ON/stop recovery after profile or
+  permission changes, and rollout remediation.
 - Raw/normalized limits, oversized-record remediation, and safe active-event
   draining.
 
