@@ -21,7 +21,7 @@ func TestStatusRequiresFailoverReadiness(t *testing.T) {
 	}
 
 	// Act
-	err := runStatus(t.Context(), []string{"custom.env"}, &bytes.Buffer{}, read)
+	err := runStatus(t.Context(), "custom.env", &bytes.Buffer{}, read)
 
 	// Assert
 	require.ErrorContains(t, err, "failover readiness")
@@ -39,7 +39,7 @@ func TestStatusPrintsRedactedContract(t *testing.T) {
 	}
 
 	// Act
-	err := runStatus(t.Context(), nil, &output, read)
+	err := runStatus(t.Context(), defaultNodeEnv, &output, read)
 
 	// Assert
 	require.NoError(t, err)

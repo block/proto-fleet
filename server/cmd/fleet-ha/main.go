@@ -10,6 +10,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/alecthomas/kong"
+
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 )
 
@@ -18,137 +20,122 @@ const (
 	defaultFirewallTemplate = "firewall.nft.tmpl"
 )
 
-func main() {
-	os.Exit(runMain())
+type cli struct {
+	Preflight         preflightCmd         `cmd:"" help:"validate an HA host before installation"`
+	BootstrapEtcdAuth bootstrapEtcdAuthCmd `cmd:"" help:"enable etcd authentication and create service roles"`
+	RenderKeepalived  renderKeepalivedCmd  `cmd:"" help:"render the keepalived configuration"`
+	Compose           composeCmd           `cmd:"" help:"run Docker Compose with the installed HA environment" passthrough:""`
+	Status            statusCmd            `cmd:"" help:"print local HA status as JSON"`
+	Install           installCmd           `cmd:"" help:"prepare a new cluster or install a prepared host bundle"`
+	Start             startCmd             `cmd:"" help:"start installed HA services"`
+	Stop              stopCmd              `cmd:"" help:"stop installed HA services"`
 }
 
-func runMain() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
-	defer stop()
-	if err := run(ctx, os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "fleet-ha: %v\n", err)
-		return 1
-	}
-	return 0
+type preflightCmd struct {
+	NodeEnv          string `arg:"" optional:"" default:"${default_node_env}" type:"path" help:"node environment file"`
+	FirewallTemplate string `arg:"" optional:"" default:"${default_firewall_template}" type:"path" help:"nftables template"`
 }
 
-func run(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return usageError()
+func (c *preflightCmd) Run(ctx context.Context) error {
+	config, err := deployment.Preflight(ctx, c.NodeEnv, c.FirewallTemplate)
+	if err == nil {
+		fmt.Printf("HA preflight passed for %s (%s)\n", config.NodeName, config.NodeIP)
 	}
-	switch args[0] {
-	case "preflight":
-		if len(args) > 3 {
-			return errors.New("usage: fleet-ha preflight [node.env] [firewall.nft.tmpl]")
-		}
-		envPath, templatePath := defaultNodeEnv, defaultFirewallTemplate
-		if len(args) >= 2 {
-			envPath = args[1]
-		}
-		if len(args) == 3 {
-			templatePath = args[2]
-		}
-		config, err := deployment.Preflight(ctx, envPath, templatePath)
-		if err == nil {
-			fmt.Printf("HA preflight passed for %s (%s)\n", config.NodeName, config.NodeIP)
-		}
+	return err
+}
+
+type bootstrapEtcdAuthCmd struct {
+	RootPasswordFile string `arg:"" type:"path" help:"file containing the etcd root password"`
+	NodeEnv          string `name:"node-env" default:"${default_node_env}" type:"path" help:"node environment file"`
+}
+
+func (c *bootstrapEtcdAuthCmd) Run(ctx context.Context) error {
+	if err := deployment.BootstrapEtcdAuth(ctx, c.NodeEnv, c.RootPasswordFile); err != nil {
 		return err
-	case "bootstrap-etcd-auth":
-		if len(args) < 2 || len(args) > 3 {
-			return errors.New("usage: fleet-ha bootstrap-etcd-auth [node.env] ETCD_ROOT_PASSWORD_FILE")
-		}
-		envPath, rootPasswordFile := defaultNodeEnv, args[1]
-		if len(args) == 3 {
-			envPath, rootPasswordFile = args[1], args[2]
-		}
-		if err := deployment.BootstrapEtcdAuth(ctx, envPath, rootPasswordFile); err != nil {
-			return err
-		}
-		fmt.Println("etcd authentication enabled with Patroni read/write and Fleet read-only roles")
-		return nil
-	case "render-keepalived":
-		if len(args) != 4 {
-			return errors.New("usage: fleet-ha render-keepalived NODE_ENV TEMPLATE OUTPUT")
-		}
-		if err := deployment.RenderKeepalivedConfig(args[1], args[2], args[3]); err != nil {
-			return err
-		}
-		fmt.Printf("keepalived configuration written to %s\n", args[3])
-		return nil
-	case "compose":
-		if len(args) < 2 {
-			return errors.New("usage: fleet-ha compose COMPOSE_ARGS...")
-		}
-		return deployment.RunCompose(ctx, args[1:])
-	case "status":
-		return runStatus(ctx, args[1:], os.Stdout, deployment.Status)
-	case "install":
-		return runInstall(ctx, args[1:])
-	case "start":
-		return runStart(ctx, args[1:])
-	case "stop":
-		if len(args) != 2 {
-			return errors.New("usage: fleet-ha stop NODE_ENV")
-		}
-		return deployment.StopInstalledServices(ctx, args[1])
-	default:
-		return usageError()
 	}
+	fmt.Println("etcd authentication enabled with Patroni read/write and Fleet read-only roles")
+	return nil
 }
 
-func usageError() error {
-	return errors.New("usage: fleet-ha <preflight|bootstrap-etcd-auth|render-keepalived|compose|status|install|start|stop> ...")
+type renderKeepalivedCmd struct {
+	NodeEnv  string `arg:"" type:"path" help:"node environment file"`
+	Template string `arg:"" type:"path" help:"keepalived template"`
+	Output   string `arg:"" type:"path" help:"rendered configuration path"`
 }
 
-func runInstall(ctx context.Context, args []string) error {
-	if len(args) > 1 {
-		return errors.New("usage: fleet-ha install [HOST_BUNDLE]")
+func (c *renderKeepalivedCmd) Run() error {
+	if err := deployment.RenderKeepalivedConfig(c.NodeEnv, c.Template, c.Output); err != nil {
+		return err
 	}
-	bundlePath := ""
-	if len(args) == 1 {
-		bundlePath = args[0]
-	}
-	if err := deployment.GuidedInstall(ctx, bundlePath); err != nil {
+	fmt.Printf("keepalived configuration written to %s\n", c.Output)
+	return nil
+}
+
+type composeCmd struct {
+	Args []string `arg:"" name:"compose-arg" help:"arguments passed to Docker Compose"`
+}
+
+func (c *composeCmd) Run(ctx context.Context) error {
+	return deployment.RunCompose(ctx, c.Args)
+}
+
+type statusCmd struct {
+	NodeEnv string `arg:"" optional:"" default:"${default_node_env}" type:"path" help:"node environment file"`
+}
+
+func (c *statusCmd) Run(ctx context.Context) error {
+	return runStatus(ctx, c.NodeEnv, os.Stdout, deployment.Status)
+}
+
+type installCmd struct {
+	HostBundle string `arg:"" optional:"" type:"path" help:"prepared host bundle; omit when preparing ha-a"`
+}
+
+func (c *installCmd) Run(ctx context.Context) error {
+	if err := deployment.GuidedInstall(ctx, c.HostBundle); err != nil {
 		return err
 	}
 	fmt.Println("Proto Fleet HA installation completed")
 	return nil
 }
 
-func runStart(ctx context.Context, args []string) error {
-	options, err := parseStartOptions(args)
-	if err != nil {
-		return err
-	}
-	return deployment.StartInstalledServices(ctx, options.NodeEnvPath, options.EtcdRootPasswordFile)
+type startCmd struct {
+	NodeEnv              string `arg:"" type:"path" help:"node environment file"`
+	EtcdRootPasswordFile string `name:"etcd-root-password-file" type:"path" help:"file containing the etcd root password"`
 }
 
-func parseStartOptions(args []string) (deployment.InstallOptions, error) {
-	usage := "usage: fleet-ha start NODE_ENV [--etcd-root-password-file PATH]"
-	if len(args) != 1 && len(args) != 3 {
-		return deployment.InstallOptions{}, errors.New(usage)
-	}
-	options := deployment.InstallOptions{NodeEnvPath: args[0]}
-	if len(args) == 3 {
-		if args[1] != "--etcd-root-password-file" || args[2] == "" {
-			return deployment.InstallOptions{}, errors.New(usage)
-		}
-		options.EtcdRootPasswordFile = args[2]
-	}
-	return options, nil
+func (c *startCmd) Run(ctx context.Context) error {
+	return deployment.StartInstalledServices(ctx, c.NodeEnv, c.EtcdRootPasswordFile)
+}
+
+type stopCmd struct {
+	NodeEnv string `arg:"" type:"path" help:"node environment file"`
+}
+
+func (c *stopCmd) Run(ctx context.Context) error {
+	return deployment.StopInstalledServices(ctx, c.NodeEnv)
+}
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
+	defer stop()
+
+	var cli cli
+	kctx := kong.Parse(&cli,
+		kong.Name("fleet-ha"),
+		kong.Description("Install and operate a Proto Fleet HA cluster."),
+		kong.BindTo(ctx, (*context.Context)(nil)),
+		kong.Vars{
+			"default_node_env":          defaultNodeEnv,
+			"default_firewall_template": defaultFirewallTemplate,
+		},
+	)
+	kctx.FatalIfErrorf(kctx.Run())
 }
 
 type statusReader func(context.Context, string) (deployment.StatusReport, error)
 
-func runStatus(ctx context.Context, args []string, output io.Writer, read statusReader) error {
-	envPath := defaultNodeEnv
-	if len(args) > 1 || (len(args) == 1 && len(args[0]) > 0 && args[0][0] == '-') {
-		return errors.New("usage: fleet-ha status [node.env]")
-	}
-	if len(args) == 1 {
-		envPath = args[0]
-	}
-
+func runStatus(ctx context.Context, envPath string, output io.Writer, read statusReader) error {
 	report, err := read(ctx, envPath)
 	if err != nil {
 		return err
