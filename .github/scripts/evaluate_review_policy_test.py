@@ -104,30 +104,47 @@ class ReviewPolicyTest(unittest.TestCase):
         workflow = load_workflow("review-policy.yml")
         publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
         evaluate_outputs = workflow["jobs"]["evaluate"]["outputs"]
+        evaluate_steps = workflow["jobs"]["evaluate"]["steps"]
         classifier_step = next(
             step
-            for step in workflow["jobs"]["evaluate"]["steps"]
+            for step in evaluate_steps
             if step.get("id") == "ai_classifier"
+        )
+        mode_index, mode_step = next(
+            (index, step)
+            for index, step in enumerate(evaluate_steps)
+            if step.get("id") == "policy_mode"
         )
         checkout_step = next(
             step
-            for step in workflow["jobs"]["evaluate"]["steps"]
+            for step in evaluate_steps
             if step.get("name") == "Checkout trusted default-branch policy"
+        )
+        checkout_index = evaluate_steps.index(checkout_step)
+        config_index, config_step = next(
+            (index, step)
+            for index, step in enumerate(evaluate_steps)
+            if step.get("id") == "policy_config"
         )
 
         self.assertIn("core.setOutput('default_branch', pr.base.repo.default_branch)", workflow_text)
         self.assertNotIn("core.setOutput('trusted_base'", workflow_text)
+        self.assertLess(mode_index, checkout_index)
+        self.assertGreater(config_index, checkout_index)
+        self.assertEqual(mode_step["if"], "steps.pr.outputs.found == 'true'")
+        self.assertNotIn("POLICY_ROOT", mode_step["env"])
+        self.assertEqual(config_step["env"]["STACKED_ADVISORY"], "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}")
         self.assertEqual(checkout_step["with"]["ref"], "${{ steps.pr.outputs.default_branch }}")
         self.assertNotIn("Review policy only evaluates PRs based on the repository default branch", workflow_text)
         self.assertIn("Using review policy code from the trusted default branch", workflow_text)
         self.assertIn("REVIEW_BASE_SHA: ${{ steps.pr.outputs.base_sha }}", workflow_text)
-        self.assertIn("REVIEW_POLICY_ENFORCED: ${{ steps.policy_mode.outputs.enforced || 'true' }}", workflow_text)
+        self.assertIn("REVIEW_POLICY_ENFORCED: ${{ steps.policy_config.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}", workflow_text)
         self.assertNotIn('--base-ref "$BASE_REF"', workflow_text)
         self.assertNotIn('--default-branch "$DEFAULT_BRANCH"', workflow_text)
         self.assertIn('enforced="${REVIEW_POLICY_ENFORCED}"', workflow_text)
-        self.assertEqual(evaluate_outputs["enforced"], "${{ steps.evaluate_policy.outputs.enforced || steps.policy_mode.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}")
+        self.assertEqual(evaluate_outputs["enforced"], "${{ steps.evaluate_policy.outputs.enforced || steps.policy_config.outputs.enforced || steps.bootstrap_policy.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}")
         self.assertEqual(evaluate_outputs["stacked_advisory"], "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}")
-        self.assertEqual(evaluate_outputs["config_enforced"], "${{ steps.policy_mode.outputs.config_enforced || 'true' }}")
+        self.assertEqual(evaluate_outputs["config_enforced"], "${{ steps.policy_config.outputs.config_enforced || 'true' }}")
         self.assertIn("stacked_advisory=true", workflow_text)
         self.assertEqual(publish_env["DECISION"], "${{ needs.evaluate.outputs.decision || 'needs-human-review' }}")
         self.assertEqual(publish_env["PASSED"], "${{ needs.evaluate.outputs.passed || 'false' }}")

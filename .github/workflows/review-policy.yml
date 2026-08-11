@@ -66,11 +66,11 @@ jobs:
       base_ref: ${{ steps.pr.outputs.base_ref }}
       default_branch: ${{ steps.pr.outputs.default_branch }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
-      config_enforced: ${{ steps.policy_mode.outputs.config_enforced || 'true' }}
+      config_enforced: ${{ steps.policy_config.outputs.config_enforced || 'true' }}
       stacked_advisory: ${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}
       decision: ${{ steps.evaluate_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
       passed: ${{ steps.evaluate_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
-      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.policy_mode.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
+      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.policy_config.outputs.enforced || steps.bootstrap_policy.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}
     env:
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
@@ -180,6 +180,26 @@ jobs:
             core.setOutput('same_repo', String(pr.head.repo.full_name === pr.base.repo.full_name));
             core.setOutput('default_branch', pr.base.repo.default_branch);
 
+      - name: Select pull request review policy mode
+        id: policy_mode
+        if: steps.pr.outputs.found == 'true'
+        env:
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          DEFAULT_BRANCH: ${{ steps.pr.outputs.default_branch }}
+        run: |
+          stacked_advisory=false
+          if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+            stacked_advisory=true
+          fi
+
+          enforced=true
+          if [ "$stacked_advisory" = "true" ]; then
+            enforced=false
+          fi
+
+          echo "stacked_advisory=${stacked_advisory}" >> "$GITHUB_OUTPUT"
+          echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout trusted default-branch policy
         if: steps.pr.outputs.found == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -204,19 +224,13 @@ jobs:
           echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
           echo "Using review policy code from the trusted default branch ${DEFAULT_BRANCH}."
 
-      - name: Select review policy mode
-        id: policy_mode
+      - name: Select review policy config mode
+        id: policy_config
         if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.available == 'true'
         env:
           POLICY_ROOT: ${{ steps.policy_source.outputs.path }}
-          BASE_REF: ${{ steps.pr.outputs.base_ref }}
-          DEFAULT_BRANCH: ${{ steps.pr.outputs.default_branch }}
+          STACKED_ADVISORY: ${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}
         run: |
-          stacked_advisory=false
-          if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
-            stacked_advisory=true
-          fi
-
           config_enforced="$(python3 - <<'PY'
           import json
           import os
@@ -229,12 +243,11 @@ jobs:
           )"
 
           enforced="$config_enforced"
-          if [ "$stacked_advisory" = "true" ]; then
+          if [ "$STACKED_ADVISORY" = "true" ]; then
             enforced=false
           fi
 
           echo "config_enforced=${config_enforced}" >> "$GITHUB_OUTPUT"
-          echo "stacked_advisory=${stacked_advisory}" >> "$GITHUB_OUTPUT"
           echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
 
       - name: Use bootstrap fallback decision
@@ -458,7 +471,7 @@ jobs:
           AUTHOR: ${{ steps.pr.outputs.author }}
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          REVIEW_POLICY_ENFORCED: ${{ steps.policy_mode.outputs.enforced || 'true' }}
+          REVIEW_POLICY_ENFORCED: ${{ steps.policy_config.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}
         run: |
           set +e
           python3 "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
