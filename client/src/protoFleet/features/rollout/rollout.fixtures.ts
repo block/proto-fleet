@@ -211,7 +211,7 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     ipAddress: "10.18.35.33",
     hashrate: { value: "0 TH/s" },
     power: { value: "0 kW" },
-    efficiency: { value: "Pinned" },
+    efficiency: { value: "N/A" },
     temperature: { value: "Idle" },
   },
 ];

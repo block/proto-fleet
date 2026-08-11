@@ -69,7 +69,7 @@ function TextCell({ value }: { value: string }): ReactElement {
 }
 
 function ErrorsCell({ metric }: { metric: RolloutMinerTelemetryValue }): ReactElement {
-  const hasErrors = metric.value !== "0" && metric.value !== "Pinned";
+  const hasErrors = metric.value !== "0";
 
   return (
     <span
