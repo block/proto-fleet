@@ -393,8 +393,8 @@ function ActiveRolloutStatus({
           </div>
         </div>
 
-        {/* Progress stays visible in the collapsed card; rollout setup, telemetry, and
-            segment details sit behind the disclosure below. */}
+        {/* Progress stays visible in the collapsed card; rollout setup and telemetry
+            sit behind the disclosure below. */}
         <div className="mt-6 grid gap-3" data-testid="active-rollout-progress">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
             <div className="text-200 text-text-primary-50">{progressSummary}</div>
@@ -403,6 +403,7 @@ function ActiveRolloutStatus({
             ) : null}
           </div>
           <CompositionBar segments={segments} height={12} colorMap={rolloutProgressColorMap} />
+          <ProgressLegend event={event} segments={segments} />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-200">
@@ -459,10 +460,6 @@ function ActiveRolloutStatus({
 
             {/* Baseline telemetry for pilot review. */}
             <PerformanceStrip event={event} embedded={embedded} onViewErrors={onViewErrors} />
-
-            <div className="mt-4">
-              <ProgressLegend event={event} segments={segments} />
-            </div>
           </div>
         ) : null}
       </div>
