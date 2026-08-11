@@ -109,8 +109,16 @@ func waitForEtcdQuorum(ctx context.Context, config NodeConfig) error {
 	for {
 		quorum, authRequired, localReady := startupEtcdQuorum(ctx, client.Status, endpoints, "https://"+config.NodeIP+":2379")
 		if localReady && localStartupC != nil {
-			localStartup.Stop()
+			if !localStartup.Stop() {
+				select {
+				case <-localStartup.C:
+				default:
+				}
+			}
 			localStartupC = nil
+		} else if !localReady && localStartupC == nil {
+			localStartup.Reset(localEtcdStartupTimeout)
+			localStartupC = localStartup.C
 		}
 		if quorum {
 			return nil

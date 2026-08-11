@@ -25,14 +25,21 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	input := strings.NewReader(testHostIPs[1] + "\n" + testHostIPs[2] + "\n" + testVirtualIP + "\nINSTALL\nCOPIED\n")
 	var output, prompts bytes.Buffer
 	deps := testGuidedDependencies(source, input, &output, &prompts)
-	deps.primaryIdentity = func(context.Context) (hostIdentity, error) {
+	identityPeer := ""
+	deps.primaryIdentity = func(_ context.Context, peer string) (hostIdentity, error) {
+		require.Contains(t, prompts.String(), "ha-b IPv4 address")
+		require.Contains(t, prompts.String(), "ha-c IPv4 address")
+		require.Contains(t, prompts.String(), "Virtual IPv4 address")
+		identityPeer = peer
 		return hostIdentity{address: testHostIPs[0], networkInterface: "enp1s0"}, nil
 	}
 	deps.interfaceForIP = func(string) (string, error) { return "enp1s0", nil }
 	deps.makeExportDir = func(string) (string, error) {
 		return exportDir, os.Mkdir(exportDir, 0o700)
 	}
-	deps.inspect = func(context.Context, string, NodeConfig) (installedDependencies, error) {
+	deps.inspect = func(_ context.Context, _ string, config NodeConfig) (installedDependencies, error) {
+		require.Equal(t, testHostIPs[0], config.NodeIP)
+		require.Equal(t, "enp1s0", config.NetworkInterface)
 		inspected = true
 		return installedDependencies{docker: true}, nil
 	}
@@ -53,6 +60,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
+	require.Equal(t, testHostIPs[1], identityPeer)
 	require.NotEmpty(t, installed.NodeEnvPath)
 	require.Contains(t, prompts.String(), "ha-b IPv4 address")
 	require.Contains(t, prompts.String(), "Type INSTALL")
@@ -60,7 +68,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.Contains(t, prompts.String(), "Docker:    reuse existing installation")
 	require.NotContains(t, output.String(), testEtcdRootPassword)
 	require.Contains(t, output.String(), "Service CA SHA-256 fingerprint:")
-	require.Contains(t, output.String(), "scp")
+	require.Contains(t, output.String(), "scp -p")
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-a")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-b")))
 	require.NoFileExists(t, filepath.Join(exportDir, recoveryBundleName))
@@ -338,7 +346,7 @@ func testGuidedDependencies(source string, input *strings.Reader, output, prompt
 	return guidedInstallDependencies{
 		input: input, output: output, prompts: prompts, terminal: func() bool { return true },
 		sourceRoot: func() (string, error) { return source, nil },
-		primaryIdentity: func(context.Context) (hostIdentity, error) {
+		primaryIdentity: func(context.Context, string) (hostIdentity, error) {
 			return hostIdentity{address: testHostIPs[0], networkInterface: "eth0"}, nil
 		},
 		interfaceForIP: func(string) (string, error) { return "eth0", nil },

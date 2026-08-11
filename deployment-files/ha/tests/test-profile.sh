@@ -102,6 +102,7 @@ test_fleet_ha_contract() {
     DB_PASSWORD=test-db-password \
     DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet \
     ENCRYPT_SERVICE_MASTER_KEY=test-master-key \
+    UPDATES_ENABLED=true \
     HA_DB_A_IP=10.40.0.11 \
     HA_DB_B_IP=10.40.0.12 \
     HA_DCS_C_IP=10.40.0.13 \
@@ -117,6 +118,7 @@ test_fleet_ha_contract() {
         fail "HA Fleet targets must not include the standalone database service"
     fi
     assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
+    assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
     assert_contains "$rendered" "FLEET_HA_ENABLED: \"true\""
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
@@ -164,6 +166,8 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "PartOf=docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStart=/opt/proto-fleet/deployment/ha/fleet-ha start"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStopPost=/opt/proto-fleet/deployment/ha/fleet-ha stop"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "StartLimitIntervalSec=5min"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "StartLimitBurst=3"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "Restart=on-failure"
     assert_contains "${HA_DIR}/docker-systemd.conf" "Requires=proto-fleet-ha-firewall.service"
     assert_contains "${HA_DIR}/docker-systemd.conf" "PartOf=nftables.service"

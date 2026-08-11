@@ -49,6 +49,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
 	packages := callIndex(calls, "iputils-arping")
+	nftablesCompatibility := callIndex(calls, "sudo nft -j list ruleset")
 	serviceMask := callIndex(calls, "sudo systemctl mask --runtime docker.service docker.socket keepalived.service")
 	dockerPackages := callIndex(calls, "sudo apt-get install -y docker-ce")
 	serviceUnmask := callIndex(calls, "sudo systemctl unmask --runtime docker.service docker.socket keepalived.service")
@@ -56,8 +57,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if packages < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(snapshot < packages && packages < vipCheck && serviceMask < dockerPackages && dockerPackages < serviceUnmask && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
+	if packages < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || snapshot < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
+		!(snapshot < packages && packages < vipCheck && packages < nftablesCompatibility && nftablesCompatibility < keepalived && keepalived < firewall && serviceMask < dockerPackages && dockerPackages < serviceUnmask && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -71,6 +72,63 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	}
 	if _, err := os.Stat(secrets); !os.IsNotExist(err) {
 		t.Fatalf("copied host secret bundle still exists: %v", err)
+	}
+}
+
+func TestInstallRejectsExistingNftablesInputFilteringBeforeConfiguration(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	config := NodeConfig{
+		NodeName: "ha-c", NodeIP: testHostIPs[2], DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
+	}
+	writeTestSecretBundle(t, config)
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	run := deps.run
+	inspectedNftables := false
+	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		if strings.Join(append([]string{name}, args...), " ") == "sudo nft -j list ruleset" {
+			inspectedNftables = true
+			return []byte(`{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input","policy":"drop"}}]}`), nil
+		}
+		return run(ctx, name, args...)
+	}
+
+	// Act
+	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env"}, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "existing nftables input chain inet filter input is incompatible (policy drop)")
+	require.ErrorContains(t, err, "dedicated host firewall without input filtering")
+	joined := strings.Join(calls, "\n")
+	require.True(t, inspectedNftables)
+	require.NotContains(t, joined, filepath.Join(configRoot, "node.env"))
+	require.NotContains(t, joined, firewallUnit)
+}
+
+func TestValidateNftablesInputChains(t *testing.T) {
+	tests := []struct {
+		name      string
+		ruleset   string
+		wantError string
+	}{
+		{name: "no input base chain", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"filter","name":"forward","hook":"forward","policy":"drop"}}]}`},
+		{name: "empty accepting input base chain", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input","policy":"accept"}}]}`},
+		{name: "empty input base chain without policy", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input"}}]}`},
+		{name: "input base chain has rules", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input","policy":"accept"}},{"rule":{"family":"inet","table":"filter","chain":"input","expr":[{"accept":null}]}}]}`, wantError: "contains rules"},
+		{name: "input base chain drops by policy", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input","policy":"drop"}}]}`, wantError: "policy drop"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateNftablesInputChains([]byte(tt.ruleset))
+			if tt.wantError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantError)
+		})
 	}
 }
 
@@ -716,6 +774,9 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 			record(name, args...)
 			if strings.Join(append([]string{name}, args...), " ") == "systemctl show --property=Version --value" {
 				return []byte("255\n"), nil
+			}
+			if strings.Join(append([]string{name}, args...), " ") == "sudo nft -j list ruleset" {
+				return []byte(`{"nftables":[]}`), nil
 			}
 			if name == "curl" {
 				return []byte("docker-signing-key"), nil
