@@ -42,14 +42,26 @@ func NewHandler(svc *collection.Service) *Handler {
 // instead. Crucially, a MOVE is authorized against BOTH the rack's current
 // site (currentSiteID) and the destination — otherwise a caller who manages
 // only the destination could pull a rack out of a site they cannot manage.
-// currentSiteID is nil for a new rack (create paths). A site the placement
-// does not touch (nil source or nil destination) is not checked.
+// currentSiteID is nil for a new rack (create paths). The source side is
+// skipped when nil (a new rack has nothing to move out of). Callers invoke this
+// only when the request carries placement intent, so the destination is always
+// authorized: at its resolved site, or — when the placement resolves site-less
+// (a site-less building or an explicit unassign) and no source site is checked
+// either — at org scope, matching AssignRacksToBuilding so rack:manage alone
+// can never place a rack.
 func (h *Handler) authorizeRackPlacement(ctx context.Context, orgID int64, currentSiteID, siteID, buildingID *int64) (context.Context, error) {
 	targetSiteID, err := h.resolvePlacementTargetSite(ctx, orgID, siteID, buildingID)
 	if err != nil {
 		return ctx, err
 	}
-	for _, site := range distinctSites(currentSiteID, targetSiteID) {
+	sites := distinctSites(currentSiteID, targetSiteID)
+	if len(sites) == 0 {
+		// Placement intent present but nothing to narrow on: require site:manage
+		// at org scope so a site-less-building placement still fails closed for a
+		// rack:manage-only caller.
+		sites = []*int64{nil}
+	}
+	for _, site := range sites {
 		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: site}); err != nil {
 			return ctx, err
 		}

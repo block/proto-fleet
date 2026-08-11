@@ -2396,6 +2396,44 @@ func TestService_CreateCollection_RejectsPlacementDriftUnderLock(t *testing.T) {
 	_ = mockSiteStore
 }
 
+// TestService_SaveRack_CreateRejectsPlacementDriftUnderLock covers the SaveRack
+// create branch (device_set_id unset): like the other create/update paths it
+// binds the destination to the handler's authorization and aborts before any
+// write when the building moved sites between authorization and the lock.
+func TestService_SaveRack_CreateRejectsPlacementDriftUnderLock(t *testing.T) {
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	})
+
+	lockedSite := int64(7)
+	building := int64(70)
+	authorizedTarget := int64(9) // what building 70 resolved to at authorization time
+	ctx := authz.WithAuthorizedPlacement(testCtx(t), authz.AuthorizedPlacement{TargetSiteID: &authorizedTarget})
+
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building).Return(&lockedSite, nil).Times(2)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, lockedSite).Return(nil)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, building).Return(nil)
+	// No CreateCollection / CreateRackExtension: the drift check aborts first.
+
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		Label: "Rack",
+		RackInfo: &pb.RackInfo{
+			Rows: 4, Columns: 8,
+			OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			BuildingId:  &building,
+		},
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{},
+			},
+		},
+	}, false)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	_ = mockSiteStore
+}
+
 // TestService_UpdateCollection_RackSettingsRejectsShrinkBelowMembers guards the
 // #718 regression: Continue persists dimensions without touching membership, so
 // a settings save that shrinks the grid below the current member count must be

@@ -2737,6 +2737,12 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 	if err != nil {
 		return nil, err
 	}
+	// New rack, so no current site; bind the destination to the site the handler
+	// authorized against and fail closed if the building moved sites between that
+	// unlocked check and this lock.
+	if err := verifyAuthorizedPlacement(ctx, nil, newSiteID); err != nil {
+		return nil, err
+	}
 
 	// A brand-new rack placed into a building is always a net-new member.
 	if newBuildingID != nil {

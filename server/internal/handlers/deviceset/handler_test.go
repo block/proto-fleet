@@ -881,6 +881,57 @@ func TestCreateDeviceSet_PlacementRequiresSiteManage(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }
 
+// TestCreateDeviceSet_SiteLessBuildingRequiresSiteManage pins that a placement
+// whose destination resolves to no site (a site-less building) still requires
+// site:manage: the check falls back to org scope rather than being skipped, so
+// a rack:manage-only caller cannot place a rack through a site-less building.
+func TestCreateDeviceSet_SiteLessBuildingRequiresSiteManage(t *testing.T) {
+	const siteLessBuilding = int64(7)
+	rack := func() *dspb.RackInfo {
+		return &dspb.RackInfo{
+			BuildingId:  ptrInt64Local(siteLessBuilding),
+			Rows:        4,
+			Columns:     8,
+			OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		}
+	}
+
+	t.Run("rack:manage-only caller is denied", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := ctxWithPerms(authz.PermRackManage)
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil)
+
+		_, err := h.handler.CreateDeviceSet(ctx, connect.NewRequest(&dspb.CreateDeviceSetRequest{
+			Type:        dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+			Label:       "Rack",
+			TypeDetails: &dspb.CreateDeviceSetRequest_RackInfo{RackInfo: rack()},
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	t.Run("org-wide site:manage caller is admitted past authorization", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := ctxWithPerms(authz.PermRackManage, authz.PermSiteManage)
+		// authz resolves the building (site-less) and the org-scoped site:manage
+		// check passes; the service is then entered and stopped at the building
+		// lock with a sentinel, proving the placement was admitted.
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil).Times(2)
+		sentinel := fleeterror.NewInternalError("reached service")
+		h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, siteLessBuilding).Return(sentinel)
+
+		_, err := h.handler.CreateDeviceSet(ctx, connect.NewRequest(&dspb.CreateDeviceSetRequest{
+			Type:        dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+			Label:       "Rack",
+			TypeDetails: &dspb.CreateDeviceSetRequest_RackInfo{RackInfo: rack()},
+		}))
+		require.ErrorIs(t, err, sentinel)
+	})
+}
+
 // TestAssignDevicesToRack_HappyPathAssigns covers the assign branch:
 // target_rack_id set, devices flow through the lock → label-read →
 // remove → add → cascade chain, and the handler round-trips the

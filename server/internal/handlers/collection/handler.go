@@ -33,13 +33,23 @@ func NewHandler(svc *collection.Service) *Handler {
 // its parent site), and a MOVE is authorized against BOTH the rack's current
 // site and the destination so a caller who manages only the destination can't
 // pull a rack out of a site they cannot manage. currentSiteID is nil for a new
-// rack; an untouched (nil) side is not checked.
+// rack (the source side is skipped when nil). Callers invoke this only when the
+// request carries placement intent, so the destination is always authorized: at
+// its resolved site, or — when the placement resolves site-less and no source
+// site is checked either — at org scope, so rack:manage alone can never place a
+// rack.
 func (h *Handler) authorizeRackPlacement(ctx context.Context, orgID int64, currentSiteID, siteID, buildingID *int64) (context.Context, error) {
 	targetSiteID, err := h.resolvePlacementTargetSite(ctx, orgID, siteID, buildingID)
 	if err != nil {
 		return ctx, err
 	}
-	for _, site := range distinctSites(currentSiteID, targetSiteID) {
+	sites := distinctSites(currentSiteID, targetSiteID)
+	if len(sites) == 0 {
+		// Placement intent present but nothing to narrow on (site-less building
+		// or explicit unassign): require site:manage at org scope.
+		sites = []*int64{nil}
+	}
+	for _, site := range sites {
 		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: site}); err != nil {
 			return ctx, err
 		}
