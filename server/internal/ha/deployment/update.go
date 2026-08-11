@@ -61,7 +61,7 @@ var releaseImageRepositories = [...]string{
 // PrepareApplicationUpdate builds only the Fleet API and client from a verified release.
 func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	deps := defaultInstallDependencies()
-	if err := validateRelease(ctx, root, deps); err != nil {
+	if err := validateRelease(root, deps.readFile); err != nil {
 		return err
 	}
 	if err := validatePinnedInfrastructureGeneration(); err != nil {
