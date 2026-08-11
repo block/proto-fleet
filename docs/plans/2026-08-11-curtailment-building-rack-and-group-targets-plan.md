@@ -167,6 +167,10 @@ with the proto source.
     `deviceIdentifiers`.
   Keep target names/labels and Infrastructure fields outside this semantic
   scope object.
+- Require Whole organization to be an explicit selection. An empty or
+  unrecognized miner scope must never default to whole organization; it
+  represents zero miners and is valid only when explicit Infrastructure
+  targets make the overall plan valid.
 - Create a pure curtailment-scope module used by:
   - `CurtailmentStartModal.tsx`
   - `curtailmentRequestBuilders.ts`
@@ -224,6 +228,9 @@ with the proto source.
   `MarshalScopeJSON`, and `ScopeFromJSON`.
 - Ensure a whole-org entry still dominates narrower selectors and mixed
   entries are normalized/deduplicated deterministically.
+- Reject an empty or unrecognized miner scope at boundaries that require miner
+  targets. Never synthesize whole-org scope from missing, unknown, or
+  unsupported cases.
 - Add `max_items` validation to every repeated scope/identifier field and
   domain validation for the normalized per-type and aggregate selector limits.
   Reject oversized persisted profile/event scopes before resolving them.
@@ -299,8 +306,16 @@ with the proto source.
 - On response-profile Create/Update, persist the resolved authorization
   envelope in the existing `scope_json`: exact covered site IDs for narrowed
   authorization, or `org_wide_authorized=true` when org-wide permission was
-  required and granted. Legacy profiles without topology selectors do not need
-  a backfill.
+  required and granted.
+- Backfill existing API-created profiles only where the original authorization
+  envelope is provable from persisted scope: whole-org scope becomes
+  `org_wide_authorized=true`, and site-only scope retains its exact site IDs.
+  Profiles containing explicit miners or any otherwise ambiguous coverage are
+  marked `reauthorization_required` until an operator with current authority
+  reviews and resaves them. Automation must reject a profile with a missing or
+  unproven envelope; it must never derive authority from a miner's current site
+  at execution time. Surface this state in profile Get/List so it can be fixed
+  or deleted.
 - Before automation execution, resolve current topology coverage again and
   require it to remain inside the stored authorization envelope. A rack or
   building moved to another site, a group gaining an out-of-envelope member,
@@ -375,6 +390,13 @@ Backend unit/store/integration coverage:
   scope, including a deleted or moved target that remains visible and
   deletable under its persisted authorization envelope but fails execution and
   resave until corrected.
+- Authorization-envelope rollout tests for provable whole-org/site backfills,
+  explicit-miner and mixed profiles requiring reauthorization, a miner moving
+  sites before reauthorization, and automation failing closed while the
+  envelope is missing or unproven.
+- Empty/unknown-scope tests proving Preview, Start, profile save/execution, and
+  automation never infer whole organization; cover an intentional
+  infrastructure-only plan separately.
 - Regression coverage for whole-org, multi-site, explicit-miner, and
   facility-fan behavior; assert no generic device-set scope state remains in
   frontend/domain/storage models.
@@ -424,6 +446,11 @@ developer approval.
 - A saved profile with a later-deleted or moved target remains visible and
   deletable to operators authorized for its persisted envelope, renders the
   unresolved target as stale, and fails strict resave or execution until fixed.
+- Existing profiles receive a provable whole-org/site authorization envelope
+  or are marked as requiring operator reauthorization. Automation cannot run a
+  profile with a missing or unproven envelope.
+- Whole organization is always explicit. Empty, unknown, or unsupported miner
+  scope never widens to whole-org targeting.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
   sequencing, and active/history displays keep working. Deprecated generic
   device-set wire input fails closed and is never persisted, executed as, or
