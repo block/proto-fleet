@@ -218,10 +218,10 @@ membership, logical reservation, and facility fan—not only concrete miners.
 Lock relevant topology rows or compare topology revisions; dispatch only after
 commit.
 
-Replace Preview/Start's org-scoped `RequirePermission(..., ResourceContext{})`
-entry gates with authentication/org derivation followed by the resolver's
-scoped requirement check; otherwise site-scoped grants can never reach this
-authorization path.
+Replace the org-scoped `RequirePermission(..., ResourceContext{})` entry gates
+across Preview/Start and response-profile/automation RPCs with authentication/
+org derivation followed by their scoped resolver or persisted-envelope checks;
+otherwise site-scoped grants cannot reach those authorization paths.
 
 On profile Create/Update, persist the union of selected-resource and current-
 member site coverage plus the independent fan-site coverage in `scope_json`,
