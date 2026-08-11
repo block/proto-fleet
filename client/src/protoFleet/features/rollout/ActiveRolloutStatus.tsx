@@ -183,7 +183,7 @@ function PerformanceStrip({
         ) : null}
       </div>
       <div className="mt-3 text-200 text-text-primary-50">
-        Compares current telemetry with a baseline captured before the update.
+        Compares the 30-minute pre-update baseline with post-update telemetry after miners stabilize.
       </div>
     </div>
   );

@@ -114,7 +114,7 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
       </label>
       <RolloutFieldInfo
         ariaLabel="About batch review"
-        body="Pauses when each batch completes so you can review telemetry before continuing."
+        body="Pauses when each batch completes so you can review stabilized telemetry before continuing."
         testId="rollout-review-after-each-batch-info-button"
         popoverTestId="rollout-review-after-each-batch-info-popover"
       />
