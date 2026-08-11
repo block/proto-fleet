@@ -747,5 +747,8 @@ developer approval.
   sequencing, and active/history displays keep working. Deprecated generic
   device-set wire input fails closed and is never persisted, executed as, or
   widened to a new topology scope.
-- Proto source and generated output are committed together; no schema migration
-  is added unless implementation proves JSON persistence is insufficient.
+- Proto source and generated output are committed together. Response-profile
+  topology and envelope persistence reuse the existing scope JSON unless
+  implementation proves that insufficient; the durable automation binding
+  fields explicitly require a new immutable up/down schema migration committed
+  with their sqlc source and generated output.
