@@ -1116,12 +1116,12 @@ def write_preflight(preflight: dict[str, Any], path: str | None) -> None:
         handle.write("\n")
 
 
-def effective_enforcement(config_enforce: bool, base_ref: str | None, default_branch: str | None) -> bool:
-    if not config_enforce:
+def effective_enforcement(config_enforce: bool, override: str | None) -> bool:
+    if override == "true":
+        return True
+    if override == "false":
         return False
-    if base_ref and default_branch and base_ref != default_branch:
-        return False
-    return True
+    return config_enforce
 
 
 def parse_args() -> argparse.Namespace:
@@ -1135,8 +1135,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pr-number", required=True, type=int)
     parser.add_argument("--author", required=True)
     parser.add_argument("--base-sha")
-    parser.add_argument("--base-ref")
-    parser.add_argument("--default-branch")
     parser.add_argument("--head-sha", required=True)
     return parser.parse_args()
 
@@ -1169,7 +1167,7 @@ def main() -> int:
             print(f"- {blocker}")
         return 0
 
-    enforced = effective_enforcement(bool(config.get("enforce", True)), args.base_ref, args.default_branch)
+    enforced = effective_enforcement(bool(config.get("enforce", True)), os.environ.get("REVIEW_POLICY_ENFORCED"))
     if not args.base_sha:
         raise PolicyError("--base-sha is required when evaluating review policy")
 

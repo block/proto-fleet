@@ -457,9 +457,8 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           AUTHOR: ${{ steps.pr.outputs.author }}
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
-          BASE_REF: ${{ steps.pr.outputs.base_ref }}
-          DEFAULT_BRANCH: ${{ steps.pr.outputs.default_branch }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          REVIEW_POLICY_ENFORCED: ${{ steps.policy_mode.outputs.enforced || 'true' }}
         run: |
           set +e
           python3 "$POLICY_ROOT/.github/scripts/evaluate_review_policy.py" \
@@ -471,13 +470,11 @@ jobs:
             --pr-number "$PR_NUMBER" \
             --author "$AUTHOR" \
             --base-sha "$BASE_SHA" \
-            --base-ref "$BASE_REF" \
-            --default-branch "$DEFAULT_BRANCH" \
             --head-sha "$HEAD_SHA"
           status=$?
           decision="$(python3 -c 'import json, os; print(json.load(open(os.environ["RESULT_JSON"]))["decision"])' 2>/dev/null || echo error)"
           passed="$(python3 -c 'import json, os; print(str(json.load(open(os.environ["RESULT_JSON"]))["passed"]).lower())' 2>/dev/null || echo false)"
-          enforced="$(python3 -c 'import json, os; print(str(json.load(open(os.environ["RESULT_JSON"]))["enforced"]).lower())' 2>/dev/null || echo true)"
+          enforced="${REVIEW_POLICY_ENFORCED}"
           echo "decision=${decision}" >> "$GITHUB_OUTPUT"
           echo "passed=${passed}" >> "$GITHUB_OUTPUT"
           echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"

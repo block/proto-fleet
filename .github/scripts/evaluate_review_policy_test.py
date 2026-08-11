@@ -121,10 +121,10 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertNotIn("Review policy only evaluates PRs based on the repository default branch", workflow_text)
         self.assertIn("Using review policy code from the trusted default branch", workflow_text)
         self.assertIn("REVIEW_BASE_SHA: ${{ steps.pr.outputs.base_sha }}", workflow_text)
-        self.assertIn("BASE_REF: ${{ steps.pr.outputs.base_ref }}", workflow_text)
-        self.assertIn("DEFAULT_BRANCH: ${{ steps.pr.outputs.default_branch }}", workflow_text)
-        self.assertIn('--base-ref "$BASE_REF"', workflow_text)
-        self.assertIn('--default-branch "$DEFAULT_BRANCH"', workflow_text)
+        self.assertIn("REVIEW_POLICY_ENFORCED: ${{ steps.policy_mode.outputs.enforced || 'true' }}", workflow_text)
+        self.assertNotIn('--base-ref "$BASE_REF"', workflow_text)
+        self.assertNotIn('--default-branch "$DEFAULT_BRANCH"', workflow_text)
+        self.assertIn('enforced="${REVIEW_POLICY_ENFORCED}"', workflow_text)
         self.assertEqual(evaluate_outputs["enforced"], "${{ steps.evaluate_policy.outputs.enforced || steps.policy_mode.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}")
         self.assertEqual(evaluate_outputs["stacked_advisory"], "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}")
         self.assertEqual(evaluate_outputs["config_enforced"], "${{ steps.policy_mode.outputs.config_enforced || 'true' }}")
@@ -214,11 +214,11 @@ class ReviewPolicyTest(unittest.TestCase):
             ["deployment-files/docker-compose.yaml", "deployment-files/ha/install.sh"],
         )
 
-    def test_effective_enforcement_keeps_stacked_prs_advisory(self):
-        self.assertFalse(policy.effective_enforcement(False, "main", "main"))
-        self.assertTrue(policy.effective_enforcement(True, "main", "main"))
-        self.assertFalse(policy.effective_enforcement(True, "feature-base", "main"))
-        self.assertTrue(policy.effective_enforcement(True, None, "main"))
+    def test_effective_enforcement_honors_workflow_override(self):
+        self.assertFalse(policy.effective_enforcement(False, None))
+        self.assertTrue(policy.effective_enforcement(True, None))
+        self.assertFalse(policy.effective_enforcement(True, "false"))
+        self.assertTrue(policy.effective_enforcement(False, "true"))
 
     def test_low_risk_config_allows_small_server_app_changes_to_reach_classifier(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
