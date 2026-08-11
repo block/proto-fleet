@@ -94,6 +94,13 @@ func validateHostConfiguration(ctx context.Context, config NodeConfig, host host
 	if !slices.Contains(addresses, nodeIP) {
 		return errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
 	}
+	var interfacePrefixes []netip.Prefix
+	if config.isDatabaseNode() {
+		interfacePrefixes, err = host.interfacePrefixes(config.NetworkInterface)
+		if err != nil {
+			return fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
+		}
+	}
 	for _, peer := range []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP} {
 		if peer == config.NodeIP {
 			continue
@@ -106,17 +113,21 @@ func validateHostConfiguration(ctx context.Context, config NodeConfig, host host
 		if !ok || source != config.NodeIP {
 			return fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
 		}
+		if config.isDatabaseNode() && (peer == config.DatabaseAIP || peer == config.DatabaseBIP) {
+			device, deviceOK := routeDevice(output)
+			_, routedViaGateway := routeField(output, "via")
+			peerIP, _ := netip.ParseAddr(peer)
+			if !deviceOK || device != config.NetworkInterface || routedViaGateway || !addressSharesNodePrefix(nodeIP, peerIP, interfacePrefixes) {
+				return fmt.Errorf("HA preflight failed: database peer %s must be directly connected on %s", peer, config.NetworkInterface)
+			}
+		}
 	}
 	if config.isDatabaseNode() {
 		virtualIP, _ := netip.ParseAddr(config.VirtualIP)
 		if slices.Contains(addresses, virtualIP) {
 			return errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
 		}
-		prefixes, err := host.interfacePrefixes(config.NetworkInterface)
-		if err != nil {
-			return fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
-		}
-		if err := validateVirtualIPPrefix(nodeIP, virtualIP, prefixes); err != nil {
+		if err := validateVirtualIPPrefix(nodeIP, virtualIP, interfacePrefixes); err != nil {
 			return fmt.Errorf("HA preflight failed: %w", err)
 		}
 		// VRRP moves the VIP with ARP, so it must be directly connected rather
@@ -162,6 +173,15 @@ func validateHostConfiguration(ctx context.Context, config NodeConfig, host host
 		}
 	}
 	return nil
+}
+
+func addressSharesNodePrefix(nodeIP, address netip.Addr, prefixes []netip.Prefix) bool {
+	for _, prefix := range prefixes {
+		if prefix.Addr() == nodeIP && prefix.Contains(address) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateNodeConfig(config NodeConfig) error {

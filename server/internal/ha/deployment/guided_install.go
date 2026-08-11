@@ -81,7 +81,7 @@ type guidedInstallDependencies struct {
 	sourceRoot      func() (string, error)
 	primaryIdentity func(context.Context) (hostIdentity, error)
 	interfaceForIP  func(string) (string, error)
-	makeExportDir   func() (string, error)
+	makeExportDir   func(string) (string, error)
 	inspect         func(context.Context, string, NodeConfig) (installedDependencies, error)
 	install         func(context.Context, InstallOptions) error
 }
@@ -112,17 +112,7 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 			return hostIdentity{address: address, networkInterface: networkInterface}, nil
 		},
 		interfaceForIP: networkInterfaceForIP,
-		makeExportDir: func() (string, error) {
-			dir, err := os.MkdirTemp(".", "proto-fleet-ha-bundles-")
-			if err != nil {
-				return "", fmt.Errorf("create protected bundle export directory: %w", err)
-			}
-			if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // Protected directories need owner traversal permission.
-				_ = os.RemoveAll(dir)
-				return "", fmt.Errorf("protect bundle export directory: %w", err)
-			}
-			return filepath.Abs(dir)
-		},
+		makeExportDir:  makeBundleExportDir,
 		inspect: func(ctx context.Context, source string, config NodeConfig) (installedDependencies, error) {
 			host := hostEnvironment{
 				goos: runtime.GOOS, localIPs: localAddresses, interfacePrefixes: interfaceIPv4Prefixes,
@@ -202,7 +192,7 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if err := writeInstallerOutput(deps.output, "[bundle generation] Creating protected host and recovery bundles...\n"); err != nil {
 		return err
 	}
-	exportDir, err := deps.makeExportDir()
+	exportDir, err := deps.makeExportDir(source)
 	if err != nil {
 		return err
 	}
@@ -225,6 +215,23 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	}
 	_ = os.Remove(exportDir)
 	return nil
+}
+
+func makeBundleExportDir(source string) (string, error) {
+	dir, err := os.MkdirTemp(filepath.Dir(source), "proto-fleet-ha-bundles-")
+	if err != nil {
+		return "", fmt.Errorf("create protected bundle export directory: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // Protected directories need owner traversal permission.
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("protect bundle export directory: %w", err)
+	}
+	absoluteDir, err := filepath.Abs(dir)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("resolve protected bundle export directory: %w", err)
+	}
+	return absoluteDir, nil
 }
 
 func installPreparedHost(ctx context.Context, source, bundlePath string, release clusterMetadata, scanner *bufio.Scanner, confirm bool, deps guidedInstallDependencies) error {
