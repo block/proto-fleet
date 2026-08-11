@@ -46,6 +46,7 @@ export const devChannelPreview: ReleaseChannelPreview = {
   siteCount: 1,
   buildingCount: 8,
   rackCount: 40,
+  pinnedMinerCount: 12,
   previousRollouts: [
     "Wednesday, Apr 22, 2026 at 6:00 AM",
     "Thursday, Apr 23, 2026 at 6:00 AM",
@@ -59,5 +60,6 @@ export const devChannelDraft: ReleaseChannelDraft = {
   description: "Used for testing",
   files: devChannelFiles,
   scope: devChannelScope,
+  pinnedMinerCount: devChannelPreview.pinnedMinerCount,
   config: devChannelConfig,
 };

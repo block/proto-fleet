@@ -17,6 +17,7 @@ import {
 import {
   completedFirmwareEvent,
   completedWithFailuresFirmwareEvent,
+  delegatedFirmwareEvent,
   inProgressFirmwareEvent,
   pausedFirmwareEvent,
   pilotGateFirmwareEvent,
@@ -379,6 +380,11 @@ export const Scheduled: Story = {
 export const InProgress: Story = {
   name: "In progress",
   render: () => <FirmwareInSitu event={inProgressFirmwareEvent} />,
+};
+
+export const ExternalPolicy: Story = {
+  name: "External policy",
+  render: () => <FirmwareInSitu event={delegatedFirmwareEvent} />,
 };
 
 export const Paused: Story = {

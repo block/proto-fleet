@@ -47,6 +47,8 @@ export interface ReleaseChannelPreview {
   siteCount: number;
   buildingCount: number;
   rackCount: number;
+  /** Miners pinned out of channel enforcement. */
+  pinnedMinerCount: number;
   /** Human-formatted upcoming rollout timestamps, most recent first. */
   previousRollouts: string[];
 }
@@ -57,5 +59,6 @@ export interface ReleaseChannelDraft {
   description: string;
   files: ReleaseChannelFile[];
   scope: ReleaseChannelScope;
+  pinnedMinerCount: number;
   config: RolloutPlanConfig;
 }

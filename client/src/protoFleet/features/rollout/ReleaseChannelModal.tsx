@@ -29,6 +29,8 @@ interface ReleaseChannelModalProps {
   onFileActions: (file: ReleaseChannelFile) => void;
   /** Per-scope-level selection entry points (Sites / Buildings / …). */
   onSelectScope: (level: keyof ReleaseChannelScope) => void;
+  /** Opens the pinned-miner exemption manager. */
+  onSelectPinnedMiners: () => void;
   onDismiss: () => void;
   onSave: () => void;
 }
@@ -97,14 +99,23 @@ function CoveragePreview({ preview }: { preview: ReleaseChannelPreview }): React
           {preview.modelCount === 1 ? "model" : "models"}) across {scopeSummary.join(", ")}.
         </div>
 
-        <div className="grid gap-3">
-          <div className="text-emphasis-300 text-text-primary">Previous updates</div>
-          <div className="grid divide-y divide-border-5">
-            {preview.previousRollouts.map((rollout) => (
-              <div key={rollout} className="py-3 text-300 text-text-primary-70">
-                {rollout}
-              </div>
-            ))}
+        <div className="grid gap-8">
+          <div className="grid gap-2">
+            <div className="text-emphasis-300 text-text-primary">Exemptions</div>
+            <div className="text-300 text-text-primary-70">
+              {preview.pinnedMinerCount.toLocaleString()} pinned miners keep their current firmware.
+            </div>
+          </div>
+
+          <div className="grid gap-3">
+            <div className="text-emphasis-300 text-text-primary">Previous updates</div>
+            <div className="grid divide-y divide-border-5">
+              {preview.previousRollouts.map((rollout) => (
+                <div key={rollout} className="py-3 text-300 text-text-primary-70">
+                  {rollout}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -122,6 +133,7 @@ function ReleaseChannelModal({
   onAddFile,
   onFileActions,
   onSelectScope,
+  onSelectPinnedMiners,
   onDismiss,
   onSave,
 }: ReleaseChannelModalProps): ReactElement {
@@ -224,6 +236,20 @@ function ReleaseChannelModal({
                   onClick={() => onSelectScope(level)}
                 />
               ))}
+            </div>
+          </Section>
+
+          <Section title="Exemptions">
+            <div className="grid">
+              <TargetSelectButton
+                label="Pinned miners"
+                value={`${draft.pinnedMinerCount.toLocaleString()} ${draft.pinnedMinerCount === 1 ? "miner" : "miners"}`}
+                size={sizes.compact}
+                onClick={onSelectPinnedMiners}
+              />
+            </div>
+            <div className="text-300 text-text-primary-70">
+              Pinned miners stay subscribed to the channel, but Fleet skips firmware enforcement for them.
             </div>
           </Section>
 
