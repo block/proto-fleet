@@ -164,8 +164,9 @@ Extend the Go domain `Scope` and JSON codec with `building_ids`, `rack_ids`, and
 handling. Preserve existing decoding and proto rendering for whole-org, site,
 device-list, and mixed records. New topology-only or composite records can
 continue to persist with the existing `mixed` scope type plus the richer JSON
-object, avoiding a migration and new database scope-type values. For response
-profiles, the same JSON object should also carry an authorization envelope
+object, avoiding a response-profile schema migration and new database scope-
+type values. For response profiles, the same JSON object should also carry an
+authorization envelope
 with separate miner-scope and facility-fan site coverage captured when the
 profile is created or updated. The fan dimension must preserve the existing
 requirement for both `site:read` and `curtailment:manage`; miner coverage
@@ -174,6 +175,11 @@ Persist the same envelope and authorizing-principal reference on every
 closed-loop FULL_FLEET event, with or without the all-paired flag; frozen
 non-FULL_FLEET and unflagged explicit-miner events continue to rely on
 authorization at Preview/Start plus their concrete target rows.
+Add an automation-rule migration for a bound profile scope revision and bound
+miner/fan authorization envelope. These fields preserve the exact profile
+scope an operator authorized when the rule was created, updated, or enabled;
+they are also the stable authorization source for managing a rule after its
+profile topology becomes stale.
 
 Generated protobuf output must be regenerated with `just gen` and committed
 with the proto source.
@@ -276,12 +282,14 @@ with the proto source.
   compatibility path.
 - Give each response profile an opaque scope revision derived from its canonical
   persisted miner/fan scope. Return it from Get/List and require an exact match
-  on Update and every profile-derived execution. The server must load and use
-  the matching stored logical scope instead of trusting a client-expanded copy;
-  stale or missing revisions fail with a refresh-required error. Together with
-  the minimum schema version, this prevents a stale tab that ignores unknown
-  topology cases from overwriting or running a narrow profile as explicit
-  Whole organization.
+  on Update, every profile-derived execution, and automation-rule Create,
+  Update, or enable. The server must load and use the matching stored logical
+  scope instead of trusting a client-expanded copy; stale or missing revisions
+  fail with a refresh-required error. Disabling or deleting an automation rule
+  does not require a current revision. Together with the minimum schema version,
+  this prevents a stale tab that ignores unknown topology cases from
+  overwriting, running, or binding a narrow profile as explicit Whole
+  organization.
 - Add `max_items` validation to every repeated scope/identifier field and
   domain validation for raw pre-deduplication totals and normalized per-type/
   aggregate selector limits. Enforce the transport byte cap before decoding and
@@ -394,9 +402,11 @@ with the proto source.
   - the resolved current device identifiers,
   - separately resolved facility-fan site IDs and unassigned status.
 - Reuse strict current-topology resolution for Preview, Start,
-  response-profile Create/Update, profile execution, and automation-rule
-  profile checks. Require `curtailment:manage` at every covered site; require
-  org-wide permission when scope coverage is incomplete or includes unassigned
+  response-profile Create/Update, profile execution, automation-rule Create/
+  Update/enable, and automation execution. Do not use strict live topology for
+  response-profile or automation-rule read/delete paths, or for disabling a
+  rule. Require `curtailment:manage` at every covered site; require org-wide
+  permission when scope coverage is incomplete or includes unassigned
   resources. Picker filtering is usability only, never authorization.
 - Treat Preview as a point-in-time estimate, but make Start and every
   closed-loop reconciliation admission atomic with authorization-envelope
@@ -425,13 +435,14 @@ with the proto source.
   missing or unproven envelope; it must never derive authority from a miner's
   or fan's current site at execution time. Surface this state in profile
   Get/List so it can be fixed or deleted.
-- Before enforcing profile envelopes, inventory every enabled automation rule
-  that references a profile marked `reauthorization_required`, expose the
-  affected rules and profiles to operators, and reauthorize or disable them.
-  Gate enforcement on that inventory reaching zero, unless owners explicitly
-  approve an announced cutoff for the remaining rules. After the gate, keep
-  execution fail closed; do not temporarily infer an envelope to preserve an
-  unremediated automation.
+- Before enforcing profile envelopes or bound-revision checks, inventory every
+  enabled automation rule that references a profile marked
+  `reauthorization_required` or lacks a proven bound revision, envelope, or
+  execution principal. Expose the affected rules and profiles to operators and
+  reauthorize/rebind or disable them. Gate enforcement on that inventory
+  reaching zero, unless owners explicitly approve an announced cutoff for the
+  remaining rules. After the gate, keep execution fail closed; do not
+  temporarily infer binding state to preserve an unremediated automation.
 - Bind every automation rule execution to an explicit user or service-account
   principal; the stored envelope is a maximum boundary, not a durable
   capability. At every trigger, reload that principal's current effective
@@ -477,11 +488,40 @@ with the proto source.
   current topology, miner locations, or fan locations to grant access.
   Site-scoped operators do not see the profile until an org-wide operator with
   the required permissions establishes a proven envelope or deletes it.
+- Apply the same recovery boundary to automation-rule management. Get/List,
+  Delete, and disable must authorize against the rule's persisted bound miner/
+  fan envelope and hydrate the stored profile reference without resolving its
+  current topology. A deleted or moved topology target therefore marks the rule
+  stale or `rebind_required` but cannot make it unlistable or prevent an
+  authorized operator from disabling or deleting it. A legacy rule with a
+  missing or unproven bound envelope uses the same org-wide recovery rule as an
+  unproven profile. Create, Update, enable, and execution remain strict and
+  cannot use this recovery path.
 
 ### 6. Cover manual and automated execution
 
 - Ensure `startRequestFromAutomationProfile` carries the new scope arrays and
   exercises the same selector pipeline as direct Start.
+- Add the profile's expected scope revision to automation-rule Create, Update,
+  and enable requests. In the same database transaction that saves or enables
+  the rule, lock and reload the profile, compare its canonical scope revision
+  and authorization envelope with the values authorized by the handler, and
+  persist that revision, envelope, and execution principal as the rule's bound
+  profile state. Extend the existing store-side facility-fan race check rather
+  than leaving scope validation only in the handler. Any mismatch returns
+  FailedPrecondition and saves nothing.
+- At every trigger, require the current profile revision to equal the rule's
+  bound revision before resolving or starting an event, then enforce the bound
+  envelope and the execution principal's current permissions. A profile scope
+  change never silently retargets an enabled rule: the revision mismatch makes
+  linked bindings report `rebind_required`, blocks event and fan creation, and
+  requires an authorized operator to review the current profile and re-enable/
+  rebind the rule.
+- Keep recovery operations independent of live topology and revision matching.
+  Get/List render the stale/rebind state, while disable and Delete authorize
+  from the bound envelope and remain available even when the profile target is
+  stale or its revision changed. Disabling must not call the strict enable path
+  or require a client-supplied profile revision.
 - Ensure selecting a saved response profile in New curtailment restores its
   building/rack/group selections and that subsequent manual edits switch the
   dropdown to Custom plan, matching current site/miner behavior.
@@ -504,6 +544,9 @@ Frontend unit/component coverage:
 - Response-profile API tests proving create/update payloads and list/reload
   hydration retain each target type without relying on the in-memory session
   cache.
+- Automation API tests proving Create/Update/enable carry the selected profile's
+  scope revision, stale revisions surface a refresh-required state, and disable/
+  Delete remain available without a current revision.
 - Cross-boundary contract tests proving the same canonical selection emits the
   same normalized scopes for Preview, Start, and response-profile
   create/update, and hydrates back without losing a category.
@@ -544,6 +587,19 @@ Backend unit/store/integration coverage:
   scope, including a deleted or moved target that remains visible and
   deletable under its persisted authorization envelope but fails execution and
   resave until corrected.
+- Automation-rule authorization tests proving Get/List/Delete/disable use the
+  persisted bound miner/fan envelope and remain available when a referenced
+  topology target is stale, while Create/Update/enable/execution require strict
+  current topology. Cover the org-wide recovery rule for legacy bindings with
+  missing or unproven envelopes.
+- Automation binding race tests that change a profile's scope or envelope
+  between handler authorization and the store transaction. Create, Update, and
+  enable must fail atomically on an expected-revision/envelope mismatch; a
+  successful bind persists the exact revision, envelope, and principal.
+- Automation trigger tests proving a later profile-scope revision puts the rule
+  in `rebind_required`, creates no event or fan command, and resumes only after
+  an authorized rebind. Disabling and deleting the mismatched rule must not
+  require live topology or revision equality.
 - Authorization-envelope rollout tests for provable whole-org/site backfills,
   explicit-miner and mixed profiles requiring reauthorization, a miner moving
   sites before reauthorization, org-wide-only Get/List/Delete access while the
@@ -582,8 +638,10 @@ Backend unit/store/integration coverage:
   ambiguous scope or principal enters no-admission drain mode and completes
   safe restoration from durable targets.
 - Automation rollout tests inventory enabled rules bound to profiles requiring
-  reauthorization, prevent enforcement before remediation or an explicit
-  cutoff, and fail closed after cutover without silently widening scope.
+  reauthorization or missing a proven bound revision, envelope, or principal;
+  prevent enforcement before rebind/disable remediation or an explicit cutoff;
+  preserve authorized read/disable/delete recovery; and fail closed after
+  cutover without silently widening scope.
 - Selector-limit rollout tests covering inventory of legacy API-created
   oversized profiles/events, readable and deletable remediation state,
   shrink-only updates, automation cutoff, and an active oversized event that
@@ -651,6 +709,14 @@ developer approval.
   topology scopes are exposed, and profile updates/executions require a matching
   opaque scope revision and use the server-stored canonical scope. An unknown
   topology case can never round-trip as intentional Whole organization.
+- Automation rules bind atomically to an exact profile scope revision, miner/
+  fan envelope, and execution principal. A profile-scope change blocks triggers
+  as `rebind_required` until an authorized rebind; it never silently retargets
+  an enabled rule.
+- Stale or revision-mismatched automation rules remain visible, disableable, and
+  deletable under their bound envelope without current-topology resolution.
+  Create, Update, enable, and execution still fail closed on stale topology,
+  revision, envelope, or current permissions.
 - Response-profile envelopes independently cover miner and facility-fan sites;
   profile CRUD and execution preserve both `site:read` and
   `curtailment:manage` requirements for every selected fan site.
@@ -660,8 +726,10 @@ developer approval.
   restores owned targets instead of leaving the envelope as a perpetual grant.
 - Legacy active closed-loop events receive a provable envelope and principal or
   enter no-admission drain mode before envelope enforcement begins. Enabled
-  automations referencing ambiguous profiles are inventoried and remediated or
-  explicitly cut off before enforcement, then remain fail closed.
+  automations referencing ambiguous profiles or lacking proven binding state
+  are inventoried and rebound, disabled, or explicitly cut off before
+  enforcement, then remain fail closed while recovery operations stay
+  available.
 - Whole organization is explicit for every new submission. Empty, unknown,
   unsupported, and infrastructure-only miner scope never widens to whole-org
   targeting or reaches facility-fan dispatch; legacy persisted whole-org
