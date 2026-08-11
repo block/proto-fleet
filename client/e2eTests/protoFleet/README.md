@@ -128,6 +128,9 @@ This script:
 
 The Playwright container reaches the host preview through `host.docker.internal`, so this flow is intended for Docker
 Desktop on macOS. If port `5173` is already in use, the script automatically falls back to the next free port in the `5173-5193` range. You can still force a specific port with `PREVIEW_PORT=5180`.
+If the container ever shows a Vite page saying `Blocked request. This host ("host.docker.internal") is not allowed.`,
+the preview server is rejecting the Docker hostname instead of serving Proto Fleet. This repo now allowlists that host
+in `vite.config.ts`; if the error returns, verify the refresh flow is still using `vite preview` from this checkout.
 The script prefers the Playwright version from `client/node_modules`; if that is unavailable, it falls back to a cached
 copy from `~/.npm/_npx` and prints a warning if the version does not match `client/package.json`.
 

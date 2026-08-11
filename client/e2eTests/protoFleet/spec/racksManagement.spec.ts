@@ -17,98 +17,102 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - management", () => {
   useRacksHooks();
 
-  test("Multiple racks support zone filtering and miner sorting", async ({ homePage, racksPage }) => {
-    const zoneA = createZoneName("A");
-    const zoneB = createZoneName("B");
-    const createdRackLabels: string[] = [];
+  test(
+    "Multiple racks support zone filtering and miner sorting",
+    { tag: "@smoke" },
+    async ({ homePage, racksPage }) => {
+      const zoneA = createZoneName("A");
+      const zoneB = createZoneName("B");
+      const createdRackLabels: string[] = [];
 
-    await test.step("Create rack A-01 with three miners", async () => {
-      await racksPage.clickAddRackButton();
-      await racksPage.inputZone(zoneA);
-      await racksPage.inputRackLabel("A-01");
-      await racksPage.enableCustomRackLayout();
-      await racksPage.inputColumns(RACK_COLUMNS);
-      await racksPage.inputRows(RACK_ROWS);
-      await racksPage.clickCreateRackFromSettings();
-      await racksPage.validateRackToast("A-01");
-      await racksPage.clearToasts();
-      await addSelectableMinersToSlots(racksPage, 3, [1, 2, 3]);
-      await racksPage.clickSaveMinerPositions();
-      await racksPage.validateMinerPositionsToast("A-01");
-      await racksPage.clearToasts();
-      await racksPage.clickViewGrid();
-      await racksPage.validateRackCardVisible("A-01", zoneA);
-      createdRackLabels.push("A-01");
-    });
+      await test.step("Create rack A-01 with three miners", async () => {
+        await racksPage.clickAddRackButton();
+        await racksPage.inputZone(zoneA);
+        await racksPage.inputRackLabel("A-01");
+        await racksPage.enableCustomRackLayout();
+        await racksPage.inputColumns(RACK_COLUMNS);
+        await racksPage.inputRows(RACK_ROWS);
+        await racksPage.clickCreateRackFromSettings();
+        await racksPage.validateRackToast("A-01");
+        await racksPage.clearToasts();
+        await addSelectableMinersToSlots(racksPage, 3, [1, 2, 3]);
+        await racksPage.clickSaveMinerPositions();
+        await racksPage.validateMinerPositionsToast("A-01");
+        await racksPage.clearToasts();
+        await racksPage.clickViewGrid();
+        await racksPage.validateRackCardVisible("A-01", zoneA);
+        createdRackLabels.push("A-01");
+      });
 
-    await test.step("Create rack A-02 with two miners", async () => {
-      await racksPage.clickAddRackButton();
-      await racksPage.inputZone(zoneA);
-      await racksPage.inputRackLabel("A-02");
-      await racksPage.clickCreateRackFromSettings();
-      await racksPage.validateRackToast("A-02");
-      await racksPage.clearToasts();
-      await addSelectableMinersToSlots(racksPage, 2, [1, 2]);
-      await racksPage.clickSaveMinerPositions();
-      await racksPage.validateMinerPositionsToast("A-02");
-      await racksPage.clearToasts();
-      await racksPage.clickViewGrid();
-      await racksPage.validateRackCardVisible("A-02", zoneA);
-      createdRackLabels.push("A-02");
-    });
+      await test.step("Create rack A-02 with two miners", async () => {
+        await racksPage.clickAddRackButton();
+        await racksPage.inputZone(zoneA);
+        await racksPage.inputRackLabel("A-02");
+        await racksPage.clickCreateRackFromSettings();
+        await racksPage.validateRackToast("A-02");
+        await racksPage.clearToasts();
+        await addSelectableMinersToSlots(racksPage, 2, [1, 2]);
+        await racksPage.clickSaveMinerPositions();
+        await racksPage.validateMinerPositionsToast("A-02");
+        await racksPage.clearToasts();
+        await racksPage.clickViewGrid();
+        await racksPage.validateRackCardVisible("A-02", zoneA);
+        createdRackLabels.push("A-02");
+      });
 
-    await test.step("Create rack B-01 with one miner", async () => {
-      await racksPage.clickAddRackButton();
-      await racksPage.inputZone(zoneB);
-      await racksPage.inputRackLabel("B-01");
-      await racksPage.clickCreateRackFromSettings();
-      await racksPage.validateRackToast("B-01");
-      await racksPage.clearToasts();
-      await addSelectableMinersToSlots(racksPage, 1, [1]);
-      await racksPage.clickSaveMinerPositions();
-      await racksPage.validateMinerPositionsToast("B-01");
-      await racksPage.clearToasts();
-      await racksPage.clickViewGrid();
-      await racksPage.validateRackCardVisible("B-01", zoneB);
-      createdRackLabels.push("B-01");
-    });
+      await test.step("Create rack B-01 with one miner", async () => {
+        await racksPage.clickAddRackButton();
+        await racksPage.inputZone(zoneB);
+        await racksPage.inputRackLabel("B-01");
+        await racksPage.clickCreateRackFromSettings();
+        await racksPage.validateRackToast("B-01");
+        await racksPage.clearToasts();
+        await addSelectableMinersToSlots(racksPage, 1, [1]);
+        await racksPage.clickSaveMinerPositions();
+        await racksPage.validateMinerPositionsToast("B-01");
+        await racksPage.clearToasts();
+        await racksPage.clickViewGrid();
+        await racksPage.validateRackCardVisible("B-01", zoneB);
+        createdRackLabels.push("B-01");
+      });
 
-    await test.step("Filter racks by zone in grid view", async () => {
-      await racksPage.applyZoneFilter([zoneA]);
-      await expectGridRackLabels(racksPage, ["A-01", "A-02"]);
+      await test.step("Filter racks by zone in grid view", async () => {
+        await racksPage.applyZoneFilter([zoneA]);
+        await expectGridRackLabels(racksPage, ["A-01", "A-02"]);
 
-      await racksPage.applyZoneFilter([zoneB]);
-      await expectGridRackLabels(racksPage, ["B-01"]);
+        await racksPage.applyZoneFilter([zoneB]);
+        await expectGridRackLabels(racksPage, ["B-01"]);
 
-      await racksPage.toggleAllZoneFilters();
-      await expectGridRackLabels(racksPage, createdRackLabels);
+        await racksPage.toggleAllZoneFilters();
+        await expectGridRackLabels(racksPage, createdRackLabels);
 
-      await racksPage.toggleAllZoneFilters();
-    });
+        await racksPage.toggleAllZoneFilters();
+      });
 
-    await test.step("Filter racks by zone in list view", async () => {
-      await racksPage.clickViewList();
+      await test.step("Filter racks by zone in list view", async () => {
+        await racksPage.clickViewList();
 
-      await racksPage.applyZoneFilter([zoneA]);
-      await expectListRackLabels(racksPage, ["A-01", "A-02"]);
+        await racksPage.applyZoneFilter([zoneA]);
+        await expectListRackLabels(racksPage, ["A-01", "A-02"]);
 
-      await racksPage.applyZoneFilter([zoneB]);
-      await expectListRackLabels(racksPage, ["B-01"]);
+        await racksPage.applyZoneFilter([zoneB]);
+        await expectListRackLabels(racksPage, ["B-01"]);
 
-      await racksPage.toggleAllZoneFilters();
-      await expectListRackLabels(racksPage, createdRackLabels);
+        await racksPage.toggleAllZoneFilters();
+        await expectListRackLabels(racksPage, createdRackLabels);
 
-      await racksPage.toggleAllZoneFilters();
-      await racksPage.clickViewGrid();
-    });
+        await racksPage.toggleAllZoneFilters();
+        await racksPage.clickViewGrid();
+      });
 
-    await test.step("Validate default grid order and miners sort order", async () => {
-      await homePage.dismissCompleteSetupIfVisible();
-      await expectGridRackLabels(racksPage, ["A-01", "A-02", "B-01"]);
-      await racksPage.selectGridSort("Miners");
-      await expectGridRackLabels(racksPage, ["B-01", "A-02", "A-01"]);
-    });
-  });
+      await test.step("Validate default grid order and miners sort order", async () => {
+        await homePage.dismissCompleteSetupIfVisible();
+        await expectGridRackLabels(racksPage, ["A-01", "A-02", "B-01"]);
+        await racksPage.selectGridSort("Miners");
+        await expectGridRackLabels(racksPage, ["B-01", "A-02", "A-01"]);
+      });
+    },
+  );
 
   test("Rack settings validation blocks invalid input and miner overflow until corrected", async ({ racksPage }) => {
     const validationZone = createZoneName("A");
