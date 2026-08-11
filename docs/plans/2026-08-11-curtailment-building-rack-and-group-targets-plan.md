@@ -66,9 +66,12 @@ Resolve topology membership on the backend, not in the browser:
 
 - Preview resolves current membership and reports the current eligible target
   set.
-- A normal Start resolves current membership once, then freezes concrete miner
-  targets in `curtailment_target`, matching existing open-loop explicit-miner
+- A non-FULL_FLEET Start resolves current membership once, then freezes
+  concrete miner targets in `curtailment_target`, matching existing open-loop
   behavior.
+- FULL_FLEET without `Target all paired miners` preserves the existing
+  closed-loop watcher: it may start with zero eligible miners, re-resolves the
+  logical union, and claims newly eligible in-scope miners at dispatch time.
 - A response profile stores logical IDs, so each later manual or automation
   execution resolves the then-current members.
 - For FULL_FLEET with `Target all paired miners`, extend the durable closed-loop
@@ -139,6 +142,16 @@ and at most 1,024 repeated `CurtailmentScope` entries. Apply protobuf
 per-type/aggregate limits again in the domain for direct requests, response
 profiles, automation execution, and persisted all-paired reconciliation. The
 frontend mirrors these limits for usability; the server remains authoritative.
+
+Before enabling limit enforcement, inventory every persisted profile and
+active event using the normalized counters. Gate rollout on remediating all
+oversized profiles or marking them `scope_limit_remediation_required`; keep
+Get/List/Delete available and allow only shrink-to-valid updates for marked
+profiles. Do not bind or execute their automation after the announced
+remediation cutoff. Grandfather already-active oversized events through safe
+completion so an upgrade cannot strand curtailed miners, but reject new events
+at the limits. Since records are API-created rather than manually inserted,
+this audit/backfill is the authoritative migration path.
 
 Extend the Go domain `Scope` and JSON codec with `building_ids`, `rack_ids`, and
 `group_ids`, and remove generic `DeviceSetIDs`/`device_set_ids` domain and JSON
@@ -287,17 +300,23 @@ with the proto source.
 - For cooldown lookup, use the already-resolved candidate identifiers (or add
   equivalent topology predicates) so a building/rack/group request cannot
   accidentally apply org-wide cooldown exclusions.
-- Keep normal event Start behavior frozen. When
-  `force_include_all_paired_miners=true`, persist the logical selector union on
-  the event and extend the reconciler's candidate-parameter translation beyond
-  whole-org/sites to buildings, racks, groups, and explicit identifiers.
-- A normal non-policy Start with zero resolved miners fails as insufficient
-  load. A FULL_FLEET Start with `force_include_all_paired_miners=true` may
-  create a targetless policy watcher for a valid, authorized logical selector
-  so miners assigned or paired later can be admitted. The watcher owns no
-  concrete target and sends no facility-fan command until at least one miner is
-  admitted and confirmed through the normal sequencing gates; this exception
-  does not permit infrastructure-only or missing-scope submissions.
+- Keep non-FULL_FLEET event targets frozen. For every FULL_FLEET event, persist
+  the logical selector union and extend the existing closed-loop candidate
+  translation beyond whole-org/sites to buildings, racks, groups, and explicit
+  identifiers.
+- Preserve this lifecycle matrix:
+  - Non-FULL_FLEET: resolve/freeze once; zero resolved miners fails as
+    insufficient load.
+  - FULL_FLEET without `force_include_all_paired_miners`: maintain the existing
+    eligible-miner watcher and admit newly eligible in-scope miners.
+  - FULL_FLEET with `force_include_all_paired_miners`: maintain the durable
+    paired-miner policy, including unavailable ownership and the
+    restore-before-release rules below.
+  Both FULL_FLEET variants may create a targetless watcher for a valid,
+  authorized logical selector. A targetless watcher sends no facility-fan
+  command until at least one miner is admitted and confirmed through the
+  normal sequencing gates; this never permits infrastructure-only or
+  missing-scope submissions.
 - On every all-paired reconciliation pass, resolve the current union and:
   - admit miners that newly enter the selected topology or become paired,
   - retain paired-like unavailable miners under policy ownership,
@@ -311,6 +330,21 @@ with the proto source.
 - Apply the same topology scope to cooldown/admission queries and preserve the
   existing event/device exclusivity guarantees while targets are added,
   reopened, restored, or released.
+- Treat every active FULL_FLEET logical scope as a reservation, including
+  devices that currently match but are unpaired, unavailable, or not yet
+  represented by `curtailment_target`. Extend
+  `CountCurtailmentScopeConflicts`, `ListActiveCurtailedDevicesByOrg`,
+  `hierarchicalScopeSiteIDs`, and every direct `scope_jsonb` consumer to use one
+  canonical typed-scope resolver rather than whole-org/site-only logic.
+- Serialize Start, closed-loop admission/release, and scope-conflict checks with
+  an organization-scoped transaction/advisory lock. Before any event claims a
+  device, resolve it against older active logical reservations inside that
+  critical section; the older reservation wins and the competing Start fails
+  or excludes the conflict explicitly. Membership/assignment and pairing
+  transitions must trigger immediate reservation reconciliation under the same
+  ordering. If a device was already owned before moving into a reserved scope,
+  retain its current owner but mark the watcher degraded with an actionable
+  conflict and retry after release—never silently treat the policy as fulfilled.
 
 ### 5. Make authorization fail closed
 
@@ -434,6 +468,10 @@ Backend unit/store/integration coverage:
 - Per-type and aggregate selector-limit tests for direct Preview/Start,
   response-profile create/update, automation execution, and forged oversized
   persisted scopes.
+- Scope-reservation tests for concurrent starts, membership changes between
+  reconciliation ticks, explicit-miner reservations, unpair/re-pair gaps,
+  deterministic older-event precedence, and a pre-owned miner moving into a
+  watched topology with a surfaced/retried conflict.
 - Response-profile CRUD/list filtering and automation execution with each new
   scope, including a deleted or moved target that remains visible and
   deletable under its persisted authorization envelope but fails execution and
@@ -462,6 +500,10 @@ Backend unit/store/integration coverage:
 - Rollout tests proving legacy persisted whole-org profiles backfill to the
   explicit representation and the updated frontend emits explicit whole-org
   scope before the server begins rejecting omitted submissions.
+- Selector-limit rollout tests covering inventory of legacy API-created
+  oversized profiles/events, readable and deletable remediation state,
+  shrink-only updates, automation cutoff, and active-event grandfathering
+  through safe restoration.
 - Regression coverage for whole-org, multi-site, explicit-miner, and
   facility-fan behavior; assert no generic device-set scope state remains in
   frontend/domain/storage models.
@@ -503,7 +545,9 @@ developer approval.
   authorization-envelope validation, and target claim before dispatch, so a
   concurrent cross-site move cannot admit an unauthorized miner.
 - Per-type and aggregate selector limits bound direct and persisted scope
-  resolution and are enforced server-side after normalization.
+  resolution and are enforced server-side after normalization. Existing
+  oversized records are inventoried and remediated before enforcement;
+  profiles remain readable/deletable and active events complete safely.
 - Deleted, wrong-type, cross-org, or unauthorized topology targets fail closed
   with actionable errors and never broaden to whole-org scope. Unassigned
   in-org targets are admitted only when the caller has org-wide
@@ -522,9 +566,12 @@ developer approval.
   unsupported, and infrastructure-only miner scope never widens to whole-org
   targeting or reaches facility-fan dispatch; legacy persisted whole-org
   profiles are backfilled to the explicit representation during rollout.
-- Valid zero-member building/rack/group selectors fail ordinary Start, but an
-  authorized all-paired FULL_FLEET policy may persist a targetless watcher and
-  admit future members without commanding fans before a miner is confirmed.
+- Valid zero-member building/rack/group selectors fail non-FULL_FLEET Start,
+  but both FULL_FLEET variants may persist a targetless watcher and admit
+  future eligible members without commanding fans before a miner is confirmed.
+- Active FULL_FLEET logical scopes reserve matching devices between
+  reconciliation ticks; competing events cannot silently take newly eligible
+  or newly assigned members.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
   sequencing, and active/history displays keep working. Deprecated generic
   device-set wire input fails closed and is never persisted, executed as, or
