@@ -145,6 +145,7 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(evaluate_outputs["enforced"], "${{ steps.evaluate_policy.outputs.enforced || steps.policy_config.outputs.enforced || steps.bootstrap_policy.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}")
         self.assertEqual(evaluate_outputs["stacked_advisory"], "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}")
         self.assertEqual(evaluate_outputs["config_enforced"], "${{ steps.policy_config.outputs.config_enforced || 'true' }}")
+        self.assertEqual(evaluate_outputs["policy_source_available"], "${{ steps.policy_source.outputs.available || 'false' }}")
         self.assertIn("stacked_advisory=true", workflow_text)
         self.assertEqual(publish_env["DECISION"], "${{ needs.evaluate.outputs.decision || 'needs-human-review' }}")
         self.assertEqual(publish_env["PASSED"], "${{ needs.evaluate.outputs.passed || 'false' }}")
@@ -159,11 +160,14 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertEqual(publish_env["CONFIG_ENFORCED"], "${{ needs.evaluate.outputs.config_enforced || 'true' }}")
         self.assertEqual(publish_env["STACKED_ADVISORY"], "${{ needs.evaluate.outputs.stacked_advisory || 'false' }}")
-        self.assertIn("const enforcedAdvisoryState = stackedAdvisory && configEnforced ? 'pending' : 'success'", workflow_text)
+        self.assertEqual(publish_env["POLICY_SOURCE_AVAILABLE"], "${{ needs.evaluate.outputs.policy_source_available || 'false' }}")
+        self.assertIn("function hasNewerStatusRun(contextName)", workflow_text)
+        self.assertIn("if (!hasNewerStatusRun('Review Policy'))", workflow_text)
         self.assertIn("context: 'Review Policy'", workflow_text)
         self.assertIn("state: enforcedAdvisoryState", workflow_text)
         self.assertIn("Stacked PR result is advisory; default-branch PR must pass Review Policy.", workflow_text)
         self.assertIn("Review Policy is advisory; see Review Policy Advisory.", workflow_text)
+        self.assertIn("Trusted Review Policy source unavailable; human review required.", workflow_text)
 
     def test_workflow_label_sync_is_bound_to_base_and_head(self):
         workflow_text = read_workflow("review-policy.yml")

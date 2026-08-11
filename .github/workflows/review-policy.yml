@@ -66,6 +66,7 @@ jobs:
       base_ref: ${{ steps.pr.outputs.base_ref }}
       default_branch: ${{ steps.pr.outputs.default_branch }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
+      policy_source_available: ${{ steps.policy_source.outputs.available || 'false' }}
       config_enforced: ${{ steps.policy_config.outputs.config_enforced || 'true' }}
       stacked_advisory: ${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}
       decision: ${{ steps.evaluate_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
@@ -520,6 +521,7 @@ jobs:
           HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
           CONFIG_ENFORCED: ${{ needs.evaluate.outputs.config_enforced || 'true' }}
           STACKED_ADVISORY: ${{ needs.evaluate.outputs.stacked_advisory || 'false' }}
+          POLICY_SOURCE_AVAILABLE: ${{ needs.evaluate.outputs.policy_source_available || 'false' }}
           DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
           PASSED: ${{ needs.evaluate.outputs.passed || 'false' }}
           ENFORCED: ${{ needs.evaluate.outputs.enforced || 'true' }}
@@ -536,6 +538,7 @@ jobs:
             const headSha = process.env.HEAD_SHA;
             const configEnforced = process.env.CONFIG_ENFORCED === 'true';
             const stackedAdvisory = process.env.STACKED_ADVISORY === 'true';
+            const policySourceAvailable = process.env.POLICY_SOURCE_AVAILABLE === 'true';
             const statusContext = enforced ? 'Review Policy' : 'Review Policy Advisory';
             const descriptions = {
               'trusted-author-low-risk': 'Trusted author and low-risk gates passed.',
@@ -568,6 +571,19 @@ jobs:
               return match ? Number(match[1]) : 0;
             }
 
+            function hasNewerStatusRun(contextName) {
+              const existing = statuses.find((status) => status.context === contextName);
+              const existingRunId = runIdFromUrl(existing?.target_url);
+              if (existingRunId > currentRunId) {
+                core.notice(
+                  `Skipping stale Review Policy status publish from run ${currentRunId}; ` +
+                  `${contextName} already points at newer run ${existingRunId}.`
+                );
+                return true;
+              }
+              return false;
+            }
+
             const currentRunId = Number(process.env.GITHUB_RUN_ID || 0);
             const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
               owner: context.repo.owner,
@@ -575,30 +591,32 @@ jobs:
               ref: headSha,
               per_page: 100,
             });
-            const existing = statuses.find((status) => status.context === statusContext);
-            const existingRunId = runIdFromUrl(existing?.target_url);
-            if (existingRunId > currentRunId) {
-              core.notice(
-                `Skipping stale Review Policy status publish from run ${currentRunId}; ` +
-                `${statusContext} already points at newer run ${existingRunId}.`
-              );
+            if (hasNewerStatusRun(statusContext)) {
               return;
             }
 
             if (!enforced) {
-              const enforcedAdvisoryState = stackedAdvisory && configEnforced ? 'pending' : 'success';
-              const enforcedAdvisoryDescription = stackedAdvisory && configEnforced
-                ? 'Stacked PR result is advisory; default-branch PR must pass Review Policy.'
-                : 'Review Policy is advisory; see Review Policy Advisory.';
-              await github.rest.repos.createCommitStatus({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                sha: headSha,
-                state: enforcedAdvisoryState,
-                context: 'Review Policy',
-                description: enforcedAdvisoryDescription,
-                target_url: process.env.TARGET_URL,
-              });
+              let enforcedAdvisoryState = 'success';
+              let enforcedAdvisoryDescription = 'Review Policy is advisory; see Review Policy Advisory.';
+              if (!policySourceAvailable) {
+                enforcedAdvisoryState = 'failure';
+                enforcedAdvisoryDescription = 'Trusted Review Policy source unavailable; human review required.';
+              } else if (stackedAdvisory && configEnforced) {
+                enforcedAdvisoryState = 'pending';
+                enforcedAdvisoryDescription = 'Stacked PR result is advisory; default-branch PR must pass Review Policy.';
+              }
+
+              if (!hasNewerStatusRun('Review Policy')) {
+                await github.rest.repos.createCommitStatus({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  sha: headSha,
+                  state: enforcedAdvisoryState,
+                  context: 'Review Policy',
+                  description: enforcedAdvisoryDescription,
+                  target_url: process.env.TARGET_URL,
+                });
+              }
             }
 
             await github.rest.repos.createCommitStatus({
