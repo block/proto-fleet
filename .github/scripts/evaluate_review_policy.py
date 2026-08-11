@@ -169,6 +169,10 @@ def is_test_path(path: str) -> bool:
         lowered.endswith("_test.go")
         or ".test." in lowered
         or ".spec." in lowered
+        or lowered.startswith("test/")
+        or lowered.startswith("tests/")
+        or lowered.startswith("__tests__/")
+        or lowered.startswith("e2etests/")
         or "/test/" in lowered
         or "/tests/" in lowered
         or "/__tests__/" in lowered

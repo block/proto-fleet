@@ -420,6 +420,30 @@ class ReviewPolicyTest(unittest.TestCase):
                 "deletions": 0,
                 "patch": "@@\n+func TestSafe(t *testing.T) {}",
             },
+            {
+                "filename": "test/helpers/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "tests/helpers/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "__tests__/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "e2etests/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
         ]
 
         blockers = policy.deterministic_content_blockers(
