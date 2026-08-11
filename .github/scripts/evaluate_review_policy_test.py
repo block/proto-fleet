@@ -99,22 +99,88 @@ class ReviewPolicyTest(unittest.TestCase):
         )
         self.assertEqual(label_job["permissions"], {"issues": "write", "pull-requests": "write"})
 
-    def test_workflow_keeps_fail_closed_non_cancelled_failures(self):
+    def test_workflow_uses_default_branch_policy_for_stacked_prs(self):
         workflow_text = read_workflow("review-policy.yml")
         workflow = load_workflow("review-policy.yml")
         publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
+        evaluate_outputs = workflow["jobs"]["evaluate"]["outputs"]
+        evaluate_steps = workflow["jobs"]["evaluate"]["steps"]
         classifier_step = next(
             step
-            for step in workflow["jobs"]["evaluate"]["steps"]
+            for step in evaluate_steps
             if step.get("id") == "ai_classifier"
         )
+        mode_index, mode_step = next(
+            (index, step)
+            for index, step in enumerate(evaluate_steps)
+            if step.get("id") == "policy_mode"
+        )
+        checkout_step = next(
+            step
+            for step in evaluate_steps
+            if step.get("name") == "Checkout trusted default-branch policy"
+        )
+        checkout_index = evaluate_steps.index(checkout_step)
+        config_index, config_step = next(
+            (index, step)
+            for index, step in enumerate(evaluate_steps)
+            if step.get("id") == "policy_config"
+        )
 
-        self.assertIn('exit 1', workflow_text)
-        self.assertIn("got base ref ${BASE_REF}.", workflow_text)
+        self.assertIn("core.setOutput('default_branch', pr.base.repo.default_branch)", workflow_text)
+        self.assertNotIn("core.setOutput('trusted_base'", workflow_text)
+        self.assertLess(mode_index, checkout_index)
+        self.assertGreater(config_index, checkout_index)
+        self.assertEqual(mode_step["if"], "steps.pr.outputs.found == 'true'")
+        self.assertNotIn("POLICY_ROOT", mode_step["env"])
+        self.assertEqual(config_step["env"]["STACKED_ADVISORY"], "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}")
+        self.assertEqual(checkout_step["with"]["ref"], "${{ steps.pr.outputs.default_branch }}")
+        self.assertNotIn("Review policy only evaluates PRs based on the repository default branch", workflow_text)
+        self.assertIn("Using review policy code from the trusted default branch", workflow_text)
+        self.assertIn("REVIEW_BASE_SHA: ${{ steps.pr.outputs.base_sha }}", workflow_text)
+        self.assertIn("REVIEW_POLICY_ENFORCED: ${{ steps.policy_config.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}", workflow_text)
+        self.assertNotIn('--base-ref "$BASE_REF"', workflow_text)
+        self.assertNotIn('--default-branch "$DEFAULT_BRANCH"', workflow_text)
+        self.assertIn('enforced="${REVIEW_POLICY_ENFORCED}"', workflow_text)
+        self.assertEqual(evaluate_outputs["enforced"], "${{ steps.evaluate_policy.outputs.enforced || steps.policy_config.outputs.enforced || steps.bootstrap_policy.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}")
+        self.assertEqual(evaluate_outputs["stacked_advisory"], "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}")
+        self.assertEqual(evaluate_outputs["config_enforced"], "${{ steps.policy_config.outputs.config_enforced || 'true' }}")
+        self.assertEqual(evaluate_outputs["policy_source_available"], "${{ steps.policy_source.outputs.available || 'false' }}")
+        self.assertIn("stacked_advisory=true", workflow_text)
         self.assertEqual(publish_env["DECISION"], "${{ needs.evaluate.outputs.decision || 'needs-human-review' }}")
         self.assertEqual(publish_env["PASSED"], "${{ needs.evaluate.outputs.passed || 'false' }}")
         self.assertEqual(publish_env["ENFORCED"], "${{ needs.evaluate.outputs.enforced || 'true' }}")
         self.assertEqual(classifier_step["timeout-minutes"], 10)
+        self.assertIn("Tiny non-sensitive server utility changes are eligible", classifier_step["with"]["prompt"])
+
+    def test_workflow_invalidates_enforced_status_for_enforced_stacked_advisory(self):
+        workflow_text = read_workflow("review-policy.yml")
+        workflow = load_workflow("review-policy.yml")
+        publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
+
+        self.assertEqual(publish_env["CONFIG_ENFORCED"], "${{ needs.evaluate.outputs.config_enforced || 'true' }}")
+        self.assertEqual(publish_env["STACKED_ADVISORY"], "${{ needs.evaluate.outputs.stacked_advisory || 'false' }}")
+        self.assertEqual(publish_env["POLICY_SOURCE_AVAILABLE"], "${{ needs.evaluate.outputs.policy_source_available || 'false' }}")
+        self.assertIn("function hasNewerStatusRun(contextName)", workflow_text)
+        self.assertIn("if (!hasNewerStatusRun('Review Policy'))", workflow_text)
+        self.assertIn("context: 'Review Policy'", workflow_text)
+        self.assertIn("state: enforcedAdvisoryState", workflow_text)
+        self.assertIn("Stacked PR result is advisory; default-branch PR must pass Review Policy.", workflow_text)
+        self.assertIn("enforcedAdvisoryState = stackedAdvisory ? 'pending' : 'failure'", workflow_text)
+        self.assertIn("Stacked PR policy source unavailable; default-branch PR must pass Review Policy.", workflow_text)
+        self.assertIn("Review Policy is advisory; see Review Policy Advisory.", workflow_text)
+        self.assertIn("Trusted Review Policy source unavailable; human review required.", workflow_text)
+
+    def test_workflow_label_sync_is_bound_to_base_and_head(self):
+        workflow_text = read_workflow("review-policy.yml")
+        workflow = load_workflow("review-policy.yml")
+        label_env = workflow["jobs"]["sync-label"]["steps"][0]["env"]
+
+        self.assertEqual(label_env["BASE_SHA"], "${{ needs.evaluate.outputs.base_sha }}")
+        self.assertEqual(label_env["HEAD_SHA"], "${{ needs.evaluate.outputs.head_sha }}")
+        self.assertIn("Missing evaluated base SHA for review policy label sync", workflow_text)
+        self.assertIn("pr.head.sha !== headSha || pr.base.sha !== baseSha", workflow_text)
+        self.assertIn("Skipping stale Review Policy label sync for ${baseSha}...${headSha}", workflow_text)
 
     def test_path_matches_double_star_root_file(self):
         self.assertTrue(policy.path_matches("package.json", "**/package.json"))
@@ -152,6 +218,32 @@ class ReviewPolicyTest(unittest.TestCase):
             [".github/workflows/review-policy.yml", "server/main.go"],
         )
 
+    def test_denied_paths_honors_explicit_exceptions(self):
+        files = [
+            {"filename": "deployment-files/README.md"},
+            {"filename": "deployment-files/ha/QUALIFICATION.md"},
+            {"filename": "deployment-files/docker-compose.yaml"},
+            {
+                "filename": "deployment-files/ha/README.md",
+                "previous_filename": "deployment-files/ha/install.sh",
+            },
+        ]
+
+        self.assertEqual(
+            policy.denied_paths(
+                files,
+                ["deployment-files/**"],
+                ["deployment-files/*.md", "deployment-files/**/*.md"],
+            ),
+            ["deployment-files/docker-compose.yaml", "deployment-files/ha/install.sh"],
+        )
+
+    def test_effective_enforcement_honors_workflow_override(self):
+        self.assertFalse(policy.effective_enforcement(False, None))
+        self.assertTrue(policy.effective_enforcement(True, None))
+        self.assertFalse(policy.effective_enforcement(True, "false"))
+        self.assertTrue(policy.effective_enforcement(False, "true"))
+
     def test_low_risk_config_allows_small_server_app_changes_to_reach_classifier(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
         files = [
@@ -162,6 +254,27 @@ class ReviewPolicyTest(unittest.TestCase):
         ]
 
         self.assertEqual(policy.denied_paths(files, deny_paths), [])
+
+    def test_low_risk_config_allows_deployment_markdown_docs_to_reach_classifier(self):
+        low_risk = load_policy_config()["low_risk"]
+        files = [
+            {"filename": "deployment-files/README.md"},
+            {"filename": "deployment-files/ha/QUALIFICATION.md"},
+        ]
+
+        self.assertEqual(policy.denied_paths(files, low_risk["deny_paths"], low_risk["deny_path_exceptions"]), [])
+
+    def test_low_risk_config_keeps_deployment_runtime_files_denied(self):
+        low_risk = load_policy_config()["low_risk"]
+        files = [
+            {"filename": "deployment-files/docker-compose.yaml"},
+            {"filename": "deployment-files/ha/scripts/install.sh"},
+        ]
+
+        self.assertEqual(
+            policy.denied_paths(files, low_risk["deny_paths"], low_risk["deny_path_exceptions"]),
+            ["deployment-files/docker-compose.yaml", "deployment-files/ha/scripts/install.sh"],
+        )
 
     def test_low_risk_config_keeps_sensitive_server_paths_denied(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
@@ -292,6 +405,60 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("client/src/foo.ts adds blocked content: adds process execution or shell-out code", blockers)
         self.assertIn("client/src/opaque.bin diff content is unavailable for deterministic content checks", blockers)
         self.assertEqual(len(blockers), 3)
+
+    def test_deterministic_content_blockers_allows_larger_test_files(self):
+        files = [
+            {
+                "filename": "server/internal/domain/alerts/grafana_client.go",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+const safe = true",
+            },
+            {
+                "filename": "server/internal/domain/alerts/grafana_client_test.go",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+func TestSafe(t *testing.T) {}",
+            },
+            {
+                "filename": "test/helpers/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "tests/helpers/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "__tests__/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "e2etests/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+        ]
+
+        blockers = policy.deterministic_content_blockers(
+            files,
+            {
+                "max_file_changes": 80,
+                "max_test_file_changes": 120,
+                "content_deny_added_patterns": [],
+            },
+        )
+
+        self.assertEqual(
+            blockers,
+            ["server/internal/domain/alerts/grafana_client.go has 95 changed lines, exceeds per-file limit 80"],
+        )
 
     def test_low_risk_preflight_blocks_before_classifier(self):
         original_paginate = policy.github_paginate
