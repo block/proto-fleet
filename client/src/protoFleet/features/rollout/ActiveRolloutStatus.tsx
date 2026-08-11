@@ -18,6 +18,7 @@ import {
 import type { RolloutEvent } from "./rolloutTypes";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
+import RolloutFieldInfo from "@/protoFleet/features/rollout/RolloutFieldInfo";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -66,11 +67,11 @@ function StatBlock({ label, value, detail }: StatBlockProps): ReactElement {
   return (
     <div className="min-w-0">
       <div className="text-200 text-text-primary-50">{label}</div>
-      <div className="mt-1 truncate text-emphasis-300 text-text-primary" title={value}>
+      <div className="mt-1 text-emphasis-300 break-words text-text-primary" title={value}>
         {value}
       </div>
       {detail ? (
-        <div className="mt-1 truncate text-200 text-text-primary-70" title={detail}>
+        <div className="mt-1 text-200 break-words text-text-primary-70" title={detail}>
           {detail}
         </div>
       ) : null}
@@ -129,27 +130,37 @@ function PerformanceStrip({
     return null;
   }
   return (
-    <div
-      className={clsx(
-        "mt-6 grid gap-y-5 text-text-primary",
-        embedded ? "gap-x-8 tablet:grid-cols-2 laptop:grid-cols-4" : "gap-x-12 tablet:grid-cols-5",
-      )}
-      data-testid="active-rollout-performance"
-    >
-      {event.performance.metrics.map((metric) => {
-        const value = formatRolloutMetric(metric, temperatureUnit);
-        return (
-          <div key={metric.label} className="min-w-0">
-            <div className="text-200 text-text-primary-50">{metric.label}</div>
-            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-emphasis-300 text-text-primary">
-              <span className={clsx("min-w-0", embedded ? "whitespace-nowrap" : "truncate")} title={value}>
-                {value}
-              </span>
-              <DeltaChip delta={rolloutMetricDelta(metric)} />
+    <div className="mt-6" data-testid="active-rollout-performance">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="text-emphasis-300 text-text-primary">Telemetry</div>
+        <RolloutFieldInfo
+          ariaLabel="About telemetry deltas"
+          body="Compares current telemetry with a baseline captured before the update. Colors reflect outcome, so higher temperature or error rate appears red."
+          testId="active-rollout-telemetry-info-button"
+          popoverTestId="active-rollout-telemetry-info-popover"
+        />
+      </div>
+      <div
+        className={clsx(
+          "grid gap-y-5 text-text-primary",
+          embedded ? "gap-x-8 tablet:grid-cols-2 laptop:grid-cols-5" : "gap-x-12 tablet:grid-cols-5",
+        )}
+      >
+        {event.performance.metrics.map((metric) => {
+          const value = formatRolloutMetric(metric, temperatureUnit);
+          return (
+            <div key={metric.label} className="min-w-0">
+              <div className="text-200 text-text-primary-50">{metric.label}</div>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-emphasis-300 text-text-primary">
+                <span className={clsx("min-w-0", embedded ? "whitespace-nowrap" : "truncate")} title={value}>
+                  {value}
+                </span>
+                <DeltaChip delta={rolloutMetricDelta(metric, temperatureUnit)} />
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

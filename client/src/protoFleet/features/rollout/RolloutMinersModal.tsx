@@ -20,7 +20,7 @@ interface RolloutMinersModalProps {
 }
 
 type RolloutMinerColumn =
-  "miner" | "rollout" | "type" | "ipAddress" | "hashrate" | "power" | "efficiency" | "temperature";
+  "miner" | "rollout" | "type" | "ipAddress" | "hashrate" | "power" | "efficiency" | "temperature" | "errorRate";
 
 const rolloutMinerColumns: RolloutMinerColumn[] = [
   "miner",
@@ -31,6 +31,7 @@ const rolloutMinerColumns: RolloutMinerColumn[] = [
   "power",
   "efficiency",
   "temperature",
+  "errorRate",
 ];
 
 function rolloutMinerColTitles(event: RolloutEvent): ColTitles<RolloutMinerColumn> {
@@ -43,12 +44,13 @@ function rolloutMinerColTitles(event: RolloutEvent): ColTitles<RolloutMinerColum
     power: "Power",
     efficiency: "Efficiency",
     temperature: "Temp",
+    errorRate: "Error rate",
   };
 }
 
 function MinerCell({ miner }: { miner: RolloutMinerRow }): ReactElement {
   return (
-    <span className="truncate text-emphasis-300 text-text-primary" title={miner.name}>
+    <span className="text-emphasis-300 break-words text-text-primary" title={miner.name}>
       {miner.name}
     </span>
   );
@@ -60,7 +62,7 @@ function RolloutCell({ event, miner }: { event: RolloutEvent; miner: RolloutMine
 
 function TextCell({ value }: { value: string }): ReactElement {
   return (
-    <span className="truncate text-text-primary" title={value}>
+    <span className="break-words text-text-primary" title={value}>
       {value}
     </span>
   );
@@ -91,11 +93,11 @@ function MetricCell({ metric, unit }: { metric: RolloutMinerTelemetryValue; unit
 
   return (
     <span
-      className="flex min-w-0 items-baseline gap-2 text-text-primary"
+      className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-text-primary"
       title={metric.delta ? `${metric.value} ${metric.delta}` : metric.value}
     >
-      <span className="min-w-0 truncate">{metric.value}</span>
-      {metric.delta ? <span className={`shrink-0 ${deltaColor}`}>{metric.delta}</span> : null}
+      <span className="whitespace-nowrap">{metric.value}</span>
+      {metric.delta ? <span className={`whitespace-nowrap ${deltaColor}`}>{metric.delta}</span> : null}
     </span>
   );
 }
@@ -104,35 +106,39 @@ function createRolloutMinerColConfig(event: RolloutEvent): ColConfig<RolloutMine
   return {
     miner: {
       component: (miner) => <MinerCell miner={miner} />,
-      width: "w-40",
+      width: "w-[132px]",
     },
     rollout: {
       component: (miner) => <RolloutCell event={event} miner={miner} />,
-      width: "w-40",
+      width: "w-[150px]",
     },
     type: {
       component: (miner) => <TextCell value={miner.type} />,
-      width: "w-40",
+      width: "w-[132px]",
     },
     ipAddress: {
       component: (miner) => <TextCell value={miner.ipAddress} />,
-      width: "w-36",
+      width: "w-[116px]",
     },
     hashrate: {
       component: (miner) => <MetricCell metric={miner.hashrate} unit="hashrate" />,
-      width: "w-36",
+      width: "w-[128px]",
     },
     power: {
       component: (miner) => <MetricCell metric={miner.power} unit="power" />,
-      width: "w-32",
+      width: "w-[112px]",
     },
     efficiency: {
       component: (miner) => <MetricCell metric={miner.efficiency} unit="efficiency" />,
-      width: "w-36",
+      width: "w-[128px]",
     },
     temperature: {
       component: (miner) => <MetricCell metric={miner.temperature} unit="temperature" />,
-      width: "w-32",
+      width: "w-[112px]",
+    },
+    errorRate: {
+      component: (miner) => <MetricCell metric={miner.errorRate} unit="errorRate" />,
+      width: "w-[112px]",
     },
   };
 }
@@ -175,7 +181,7 @@ function RolloutMinersModal({ open, event, miners, onDismiss }: RolloutMinersMod
           total={miners.length}
           itemName={{ singular: "miner", plural: "miners" }}
           containerClassName="min-h-0"
-          tableClassName="mb-0 inline-table w-max !min-w-fit !table-fixed"
+          tableClassName="mb-0 w-full !table-fixed"
           applyColumnWidthsToCells
           stickyFirstColumn={false}
           emptyStateRow={<div className="py-10 text-center text-300 text-text-primary-70">No miners to show.</div>}

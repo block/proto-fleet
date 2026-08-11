@@ -386,6 +386,8 @@ export function formatRolloutMetric(metric: RolloutPerfMetric, temperatureUnit: 
       const displayValue = temperatureUnit === "F" ? convertCtoF(metric.current) : metric.current;
       return `${getDisplayValue(displayValue)} °${temperatureUnit}`;
     }
+    case "errorRate":
+      return `${getDisplayValue(metric.current)}%`;
   }
 }
 
@@ -393,8 +395,8 @@ export function formatRolloutMetric(metric: RolloutPerfMetric, temperatureUnit: 
 export type RolloutMetricDeltaIntent = "positive" | "negative" | "neutral";
 
 export interface RolloutMetricDelta {
-  /** Signed percent change vs baseline, e.g. -1.8. */
-  percent: number;
+  /** Signed raw change vs baseline. */
+  change: number;
   intent: RolloutMetricDeltaIntent;
   /** Signed change: a "+" prefix for a rise, a "−" for a drop ("+1.3%" /
    * "−0.4%"). No arrows or "±", just the sign, colored green/red. */
@@ -413,15 +415,53 @@ export function rolloutMetricDeltaIntent(unit: RolloutPerfMetric["unit"], change
   return change > 0 === isMetricIncreasePositive(unit) ? "positive" : "negative";
 }
 
+function metricDeltaMode(metric: RolloutPerfMetric): NonNullable<RolloutPerfMetric["deltaMode"]> {
+  if (metric.deltaMode) {
+    return metric.deltaMode;
+  }
+  if (metric.unit === "temperature") {
+    return "absolute";
+  }
+  if (metric.unit === "errorRate") {
+    return "percentagePoints";
+  }
+  return "percent";
+}
+
+function metricAbsoluteChange(metric: RolloutPerfMetric, temperatureUnit: TemperatureUnit): number {
+  if (metric.unit === "temperature" && temperatureUnit === "F") {
+    return convertCtoF(metric.current) - convertCtoF(metric.baseline);
+  }
+  return metric.current - metric.baseline;
+}
+
+function formatRolloutMetricDelta(metric: RolloutPerfMetric, temperatureUnit: TemperatureUnit): string {
+  const rawChange = metric.current - metric.baseline;
+  const movedUp = rawChange >= 0;
+  const sign = movedUp ? "+" : "−";
+
+  switch (metricDeltaMode(metric)) {
+    case "absolute": {
+      const absoluteChange = metricAbsoluteChange(metric, temperatureUnit);
+      const unit = metric.unit === "temperature" ? ` °${temperatureUnit}` : "";
+      return `${sign}${getDisplayValue(Math.abs(absoluteChange))}${unit}`;
+    }
+    case "percentagePoints":
+      return `${sign}${getDisplayValue(Math.abs(rawChange))} pp`;
+    case "percent": {
+      const percent = metric.baseline === 0 ? 0 : (rawChange / metric.baseline) * 100;
+      return `${sign}${Math.abs(percent).toFixed(1)}%`;
+    }
+  }
+}
+
 /** Compare a metric's current value to its captured baseline. */
-export function rolloutMetricDelta(metric: RolloutPerfMetric): RolloutMetricDelta {
+export function rolloutMetricDelta(metric: RolloutPerfMetric, temperatureUnit: TemperatureUnit): RolloutMetricDelta {
   const { baseline, current } = metric;
-  const percent = baseline === 0 ? 0 : ((current - baseline) / baseline) * 100;
-  const magnitude = `${Math.abs(percent).toFixed(1)}%`;
-  const movedUp = percent >= 0;
+  const change = current - baseline;
   return {
-    percent,
-    intent: rolloutMetricDeltaIntent(metric.unit, percent),
-    deltaText: `${movedUp ? "+" : "−"}${magnitude}`,
+    change,
+    intent: rolloutMetricDeltaIntent(metric.unit, change),
+    deltaText: formatRolloutMetricDelta(metric, temperatureUnit),
   };
 }
