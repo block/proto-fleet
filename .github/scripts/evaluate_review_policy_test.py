@@ -99,7 +99,7 @@ class ReviewPolicyTest(unittest.TestCase):
         )
         self.assertEqual(label_job["permissions"], {"issues": "write", "pull-requests": "write"})
 
-    def test_workflow_keeps_fail_closed_non_cancelled_failures(self):
+    def test_workflow_uses_default_branch_policy_for_stacked_prs(self):
         workflow_text = read_workflow("review-policy.yml")
         workflow = load_workflow("review-policy.yml")
         publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
@@ -108,13 +108,23 @@ class ReviewPolicyTest(unittest.TestCase):
             for step in workflow["jobs"]["evaluate"]["steps"]
             if step.get("id") == "ai_classifier"
         )
+        checkout_step = next(
+            step
+            for step in workflow["jobs"]["evaluate"]["steps"]
+            if step.get("name") == "Checkout trusted default-branch policy"
+        )
 
-        self.assertIn('exit 1', workflow_text)
-        self.assertIn("got base ref ${BASE_REF}.", workflow_text)
+        self.assertIn("core.setOutput('default_branch', pr.base.repo.default_branch)", workflow_text)
+        self.assertNotIn("core.setOutput('trusted_base'", workflow_text)
+        self.assertEqual(checkout_step["with"]["ref"], "${{ steps.pr.outputs.default_branch }}")
+        self.assertNotIn("Review policy only evaluates PRs based on the repository default branch", workflow_text)
+        self.assertIn("Using review policy code from the trusted default branch", workflow_text)
+        self.assertIn("REVIEW_BASE_SHA: ${{ steps.pr.outputs.base_sha }}", workflow_text)
         self.assertEqual(publish_env["DECISION"], "${{ needs.evaluate.outputs.decision || 'needs-human-review' }}")
         self.assertEqual(publish_env["PASSED"], "${{ needs.evaluate.outputs.passed || 'false' }}")
         self.assertEqual(publish_env["ENFORCED"], "${{ needs.evaluate.outputs.enforced || 'true' }}")
         self.assertEqual(classifier_step["timeout-minutes"], 10)
+        self.assertIn("Tiny non-sensitive server utility changes are eligible", classifier_step["with"]["prompt"])
 
     def test_path_matches_double_star_root_file(self):
         self.assertTrue(policy.path_matches("package.json", "**/package.json"))
@@ -152,6 +162,26 @@ class ReviewPolicyTest(unittest.TestCase):
             [".github/workflows/review-policy.yml", "server/main.go"],
         )
 
+    def test_denied_paths_honors_explicit_exceptions(self):
+        files = [
+            {"filename": "deployment-files/README.md"},
+            {"filename": "deployment-files/ha/QUALIFICATION.md"},
+            {"filename": "deployment-files/docker-compose.yaml"},
+            {
+                "filename": "deployment-files/ha/README.md",
+                "previous_filename": "deployment-files/ha/install.sh",
+            },
+        ]
+
+        self.assertEqual(
+            policy.denied_paths(
+                files,
+                ["deployment-files/**"],
+                ["deployment-files/*.md", "deployment-files/**/*.md"],
+            ),
+            ["deployment-files/docker-compose.yaml", "deployment-files/ha/install.sh"],
+        )
+
     def test_low_risk_config_allows_small_server_app_changes_to_reach_classifier(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
         files = [
@@ -162,6 +192,27 @@ class ReviewPolicyTest(unittest.TestCase):
         ]
 
         self.assertEqual(policy.denied_paths(files, deny_paths), [])
+
+    def test_low_risk_config_allows_deployment_markdown_docs_to_reach_classifier(self):
+        low_risk = load_policy_config()["low_risk"]
+        files = [
+            {"filename": "deployment-files/README.md"},
+            {"filename": "deployment-files/ha/QUALIFICATION.md"},
+        ]
+
+        self.assertEqual(policy.denied_paths(files, low_risk["deny_paths"], low_risk["deny_path_exceptions"]), [])
+
+    def test_low_risk_config_keeps_deployment_runtime_files_denied(self):
+        low_risk = load_policy_config()["low_risk"]
+        files = [
+            {"filename": "deployment-files/docker-compose.yaml"},
+            {"filename": "deployment-files/ha/scripts/install.sh"},
+        ]
+
+        self.assertEqual(
+            policy.denied_paths(files, low_risk["deny_paths"], low_risk["deny_path_exceptions"]),
+            ["deployment-files/docker-compose.yaml", "deployment-files/ha/scripts/install.sh"],
+        )
 
     def test_low_risk_config_keeps_sensitive_server_paths_denied(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
@@ -292,6 +343,36 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertIn("client/src/foo.ts adds blocked content: adds process execution or shell-out code", blockers)
         self.assertIn("client/src/opaque.bin diff content is unavailable for deterministic content checks", blockers)
         self.assertEqual(len(blockers), 3)
+
+    def test_deterministic_content_blockers_allows_larger_test_files(self):
+        files = [
+            {
+                "filename": "server/internal/domain/alerts/grafana_client.go",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+const safe = true",
+            },
+            {
+                "filename": "server/internal/domain/alerts/grafana_client_test.go",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+func TestSafe(t *testing.T) {}",
+            },
+        ]
+
+        blockers = policy.deterministic_content_blockers(
+            files,
+            {
+                "max_file_changes": 80,
+                "max_test_file_changes": 120,
+                "content_deny_added_patterns": [],
+            },
+        )
+
+        self.assertEqual(
+            blockers,
+            ["server/internal/domain/alerts/grafana_client.go has 95 changed lines, exceeds per-file limit 80"],
+        )
 
     def test_low_risk_preflight_blocks_before_classifier(self):
         original_paginate = policy.github_paginate

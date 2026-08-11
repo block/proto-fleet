@@ -174,13 +174,13 @@ jobs:
             core.setOutput('head_repo', pr.head.repo.full_name);
             core.setOutput('base_repo', pr.base.repo.full_name);
             core.setOutput('same_repo', String(pr.head.repo.full_name === pr.base.repo.full_name));
-            core.setOutput('trusted_base', String(pr.base.ref === pr.base.repo.default_branch));
+            core.setOutput('default_branch', pr.base.repo.default_branch);
 
-      - name: Checkout trusted base policy
+      - name: Checkout trusted default-branch policy
         if: steps.pr.outputs.found == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.pr.outputs.base_sha }}
+          ref: ${{ steps.pr.outputs.default_branch }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -188,22 +188,17 @@ jobs:
         id: policy_source
         if: steps.pr.outputs.found == 'true'
         env:
-          BASE_REF: ${{ steps.pr.outputs.base_ref }}
-          TRUSTED_BASE: ${{ steps.pr.outputs.trusted_base }}
+          DEFAULT_BRANCH: ${{ steps.pr.outputs.default_branch }}
         run: |
-          if [ "$TRUSTED_BASE" != "true" ]; then
-            echo "Review policy only evaluates PRs based on the repository default branch; got base ref ${BASE_REF}." >&2
-            exit 1
-          fi
           if [ ! -f .github/scripts/evaluate_review_policy.py ] || [ ! -f .github/review-policy.json ]; then
-            echo "Trusted base commit does not contain review policy code and config; publishing a fail-closed bootstrap decision without executing PR-head policy code."
+            echo "Trusted default branch ${DEFAULT_BRANCH} does not contain review policy code and config; publishing a fail-closed bootstrap decision without executing PR-head policy code."
             echo "available=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "available=true" >> "$GITHUB_OUTPUT"
           echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
-          echo "Using review policy code from the trusted base commit."
+          echo "Using review policy code from the trusted default branch ${DEFAULT_BRANCH}."
 
       - name: Use bootstrap fallback decision
         id: bootstrap_policy
@@ -219,7 +214,7 @@ jobs:
             echo "**Status:** fail"
             echo "**Mode:** advisory"
             echo
-            echo "Trusted base policy code is not available yet, so this bootstrap run did not execute PR-controlled policy code."
+            echo "Trusted default-branch policy code is not available yet, so this bootstrap run did not execute PR-controlled policy code."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run deterministic low-risk preflight
@@ -329,6 +324,18 @@ jobs:
             - The change is mechanically simple and localized.
             - The behavior change is absent or trivial to reason about.
             - Tests were added or updated when behavior changes.
+            - Pure test-helper/test-coverage changes are eligible when they do not
+              alter product code, generated code, build/deploy behavior, secrets, or
+              infrastructure.
+            - Literal presentational UI polish is eligible when the diff only changes
+              styles, class names, copy-free layout constants, or focused tests and
+              does not alter user flows, permissions, data loading, or ambiguous
+              product semantics.
+            - Tiny non-sensitive server utility changes are eligible when they stay
+              outside denied control/security/persistence/RPC paths and do not change
+              auth, authorization, sessions, tokens, command execution, pool/wallet
+              configuration, migrations, storage semantics, networking, deployment,
+              or generated code.
             - No auth, authorization, persistence, migrations, networking, dependency,
               build, deployment, generated-code, GitHub Actions, secret handling, mining
               pool/wallet, plugin, protobuf, or infrastructure behavior changed.
