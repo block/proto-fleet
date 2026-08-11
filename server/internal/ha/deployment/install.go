@@ -123,10 +123,10 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	}
 	source = installRoot
 
-	if err := installARPing(ctx, deps); err != nil {
-		return errors.Join(err, removeReleaseSnapshot(ctx, deps))
-	}
 	if config.isDatabaseNode() {
+		if err := installARPing(ctx, deps); err != nil {
+			return errors.Join(err, removeReleaseSnapshot(ctx, deps))
+		}
 		if err := deps.verifyVIP(ctx, config); err != nil {
 			return errors.Join(err, removeReleaseSnapshot(ctx, deps))
 		}
