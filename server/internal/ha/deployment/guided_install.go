@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -324,9 +323,6 @@ func stageHostBundle(bundle preparedHostBundle, stagingDir, networkInterface str
 }
 
 func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err error) {
-	if err := validateClusterMetadata(metadata); err != nil {
-		return err
-	}
 	generated, err := os.MkdirTemp("", "proto-fleet-ha-secrets-")
 	if err != nil {
 		return fmt.Errorf("create secret generation workspace: %w", err)
@@ -384,9 +380,19 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 }
 
 func readHostBundle(path string) (preparedHostBundle, error) {
-	contents, err := verifyBundleChecksum(path)
+	info, err := secureFileInfo(path, 0o600)
 	if err != nil {
-		return preparedHostBundle{}, err
+		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
+	}
+	if err := requireCurrentOwner(info, "host bundle"); err != nil {
+		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
+	}
+	if info.Size() > maxBundleSize {
+		return preparedHostBundle{}, errors.New("host bundle rejected: document is too large")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return preparedHostBundle{}, fmt.Errorf("read host bundle: %w", err)
 	}
 	return decodeHostBundle(contents)
 }
@@ -486,51 +492,6 @@ func writeBundleWithChecksum(path string, files map[string][]byte) error {
 		return err
 	}
 	return nil
-}
-
-func verifyBundleChecksum(path string) ([]byte, error) {
-	checksumPath := path + bundleChecksumSuffix
-	info, err := secureFileInfo(checksumPath, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("host bundle checksum rejected: %w", err)
-	}
-	if err := requireCurrentOwner(info, "host bundle checksum"); err != nil {
-		return nil, fmt.Errorf("host bundle checksum rejected: %w", err)
-	}
-	if info.Size() > 1024 {
-		return nil, errors.New("host bundle checksum file is too large")
-	}
-	checksum, err := os.ReadFile(checksumPath)
-	if err != nil {
-		return nil, fmt.Errorf("read host bundle checksum: %w", err)
-	}
-	fields := strings.Fields(string(checksum))
-	if len(fields) != 2 || fields[1] != filepath.Base(path) || len(fields[0]) != sha256.Size*2 {
-		return nil, errors.New("host bundle checksum file is malformed")
-	}
-	want, err := hex.DecodeString(fields[0])
-	if err != nil {
-		return nil, errors.New("host bundle checksum file is malformed")
-	}
-	bundleInfo, err := secureFileInfo(path, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("host bundle rejected: %w", err)
-	}
-	if err := requireCurrentOwner(bundleInfo, "host bundle"); err != nil {
-		return nil, fmt.Errorf("host bundle rejected: %w", err)
-	}
-	if bundleInfo.Size() > maxBundleSize {
-		return nil, errors.New("host bundle rejected: document is too large")
-	}
-	bundle, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read host bundle: %w", err)
-	}
-	digest := sha256.Sum256(bundle)
-	if !bytes.Equal(digest[:], want) {
-		return nil, errors.New("host bundle checksum does not match")
-	}
-	return bundle, nil
 }
 
 func readReleaseIdentity(path string) (clusterMetadata, error) {

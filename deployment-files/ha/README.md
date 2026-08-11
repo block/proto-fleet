@@ -77,11 +77,11 @@ after all three installations succeed.
 
 ### 2. Install `ha-b` and `ha-c`
 
-For each peer, transfer the release, official checksum, matching host bundle,
-and bundle checksum. For example, for `ha-b`:
+For each peer, transfer the release, official checksum, and matching host
+bundle. For example, for `ha-b`:
 
 ```bash
-VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" proto-fleet-ha-bundles/proto-fleet-ha-ha-b.json proto-fleet-ha-bundles/proto-fleet-ha-ha-b.json.sha256 "${HOST}:/var/tmp/"
+VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" proto-fleet-ha-bundles/proto-fleet-ha-ha-b.json "${HOST}:/var/tmp/"
 ```
 
 ```bash

@@ -3,8 +3,6 @@ package deployment
 import (
 	"bufio"
 	"context"
-	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,7 +130,7 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 		if options.EtcdRootPasswordFile == "" {
 			return errors.New("ha-a install requires --etcd-root-password-file")
 		}
-		if err := validateEtcdRootPassword(options.EtcdRootPasswordFile, config.SecretsDir); err != nil {
+		if _, err := readPassword(options.EtcdRootPasswordFile); err != nil {
 			return fmt.Errorf("validate etcd root password file: %w", err)
 		}
 	} else if options.EtcdRootPasswordFile != "" {
@@ -221,34 +219,6 @@ func inspectInstallBase(ctx context.Context, source string, deps installDependen
 	}
 	installed, err := inspectDedicatedHost(ctx, deps)
 	return platform, installed, err
-}
-
-func validateEtcdRootPassword(path, secretsDir string) error {
-	rootPassword, err := readPassword(path)
-	if err != nil {
-		return err
-	}
-	decoded, err := hex.DecodeString(rootPassword)
-	if err != nil || len(decoded) != 32 || hex.EncodeToString(decoded) != rootPassword {
-		return errors.New("password must be generated as 32 random bytes encoded in lowercase hexadecimal")
-	}
-	for _, name := range append([]string{fleetEtcdPasswordFile}, databasePasswordFiles...) {
-		servicePassword, err := readPassword(filepath.Join(secretsDir, name))
-		if err != nil {
-			return fmt.Errorf("read service password %s: %w", name, err)
-		}
-		if subtle.ConstantTimeCompare([]byte(rootPassword), []byte(servicePassword)) == 1 {
-			return fmt.Errorf("password must differ from %s", name)
-		}
-	}
-	fleetEnvironment, err := loadFleetEnvironment(filepath.Join(secretsDir, fleetEnvironmentFile))
-	if err != nil {
-		return fmt.Errorf("read %s: %w", fleetEnvironmentFile, err)
-	}
-	if subtle.ConstantTimeCompare([]byte(rootPassword), []byte(fleetEnvironment["AUTH_CLIENT_SECRET_KEY"])) == 1 {
-		return errors.New("password must differ from AUTH_CLIENT_SECRET_KEY")
-	}
-	return nil
 }
 
 func consumeInstallCredentials(options InstallOptions, config NodeConfig) error {

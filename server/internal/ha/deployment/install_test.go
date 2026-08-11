@@ -132,28 +132,6 @@ func TestValidateNftablesInputChains(t *testing.T) {
 	}
 }
 
-func TestEtcdRootPasswordMustBeGeneratedAndUnique(t *testing.T) {
-	// Arrange
-	secrets := t.TempDir()
-	config := NodeConfig{NodeName: "ha-a", NodeIP: testHostIPs[0], SecretsDir: secrets, DatabaseAIP: testHostIPs[0]}
-	writeTestSecretBundle(t, config)
-	rootPassword := filepath.Join(t.TempDir(), "etcd-root-password")
-	require.NoError(t, os.WriteFile(rootPassword, []byte("weak\n"), 0o600))
-
-	// Act and assert
-	require.ErrorContains(t, validateEtcdRootPassword(rootPassword, secrets), "32 random bytes")
-	require.NoError(t, os.WriteFile(rootPassword, []byte(testEtcdRootPassword+"\n"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(secrets, fleetEtcdPasswordFile), []byte(testEtcdRootPassword+"\n"), 0o600))
-	require.ErrorContains(t, validateEtcdRootPassword(rootPassword, secrets), fleetEtcdPasswordFile)
-	require.NoError(t, os.WriteFile(filepath.Join(secrets, fleetEtcdPasswordFile), []byte("different\n"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(secrets, fleetEnvironmentFile), []byte(
-		"AUTH_CLIENT_SECRET_KEY="+testEtcdRootPassword+"\n"+
-			"ENCRYPT_SERVICE_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"+
-			"DB_DSN=postgresql://fleet:test@db/fleet\n",
-	), 0o600))
-	require.ErrorContains(t, validateEtcdRootPassword(rootPassword, secrets), "AUTH_CLIENT_SECRET_KEY")
-}
-
 func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)

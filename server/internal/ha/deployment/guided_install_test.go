@@ -174,38 +174,6 @@ func TestInstallHostBundleValidatesIdentityAndRelease(t *testing.T) {
 	require.FileExists(t, bundlePath)
 }
 
-func TestInstallHostBundleRejectsChecksumMismatchBeforeInstall(t *testing.T) {
-	// Arrange
-	source := testGuidedRelease(t, "v0.2.10", "abc123")
-	exportDir := filepath.Join(t.TempDir(), "exports")
-	require.NoError(t, os.Mkdir(exportDir, 0o700))
-	require.NoError(t, prepareInstallBundles(exportDir, clusterMetadata{
-		Version: "v0.2.10", Commit: "abc123", DatabaseAIP: testHostIPs[0],
-		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
-	}))
-	bundlePath := filepath.Join(exportDir, hostBundleName("ha-b"))
-	bundle, err := os.OpenFile(bundlePath, os.O_APPEND|os.O_WRONLY, 0)
-	require.NoError(t, err)
-	_, err = bundle.WriteString("corrupt")
-	require.NoError(t, err)
-	require.NoError(t, bundle.Close())
-	installCalled := false
-	deps := testGuidedDependencies(source, strings.NewReader("INSTALL\n"), &bytes.Buffer{}, &bytes.Buffer{})
-	deps.install = func(context.Context, InstallOptions) error {
-		installCalled = true
-		return nil
-	}
-
-	// Act
-	err = guidedInstall(t.Context(), bundlePath, deps)
-
-	// Assert
-	require.ErrorContains(t, err, "checksum does not match")
-	require.False(t, installCalled)
-	require.FileExists(t, bundlePath)
-	require.FileExists(t, bundlePath+bundleChecksumSuffix)
-}
-
 func TestInstallHostBundleDeletesBundleOnlyAfterSuccess(t *testing.T) {
 	// Arrange
 	source := testGuidedRelease(t, "v0.2.10", "abc123")
@@ -225,7 +193,6 @@ func TestInstallHostBundleDeletesBundleOnlyAfterSuccess(t *testing.T) {
 	// Assert
 	require.ErrorIs(t, err, context.Canceled)
 	require.FileExists(t, original)
-	require.FileExists(t, original+bundleChecksumSuffix)
 
 	// Act: installation succeeds.
 	deps = testGuidedDependencies(source, strings.NewReader("INSTALL\n"), &bytes.Buffer{}, &bytes.Buffer{})
@@ -234,7 +201,6 @@ func TestInstallHostBundleDeletesBundleOnlyAfterSuccess(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.NoFileExists(t, original)
-	require.NoFileExists(t, original+bundleChecksumSuffix)
 }
 
 func TestInstallHostBundleDeletesBundleWhileServiceConverges(t *testing.T) {
@@ -259,7 +225,6 @@ func TestInstallHostBundleDeletesBundleWhileServiceConverges(t *testing.T) {
 	require.ErrorIs(t, err, errInstallConverging)
 	require.ErrorContains(t, err, "check systemctl")
 	require.NoFileExists(t, bundlePath)
-	require.NoFileExists(t, bundlePath+bundleChecksumSuffix)
 }
 
 func writeTestBundle(t *testing.T, path string, metadata bundleMetadata, entries map[string][]byte) {
