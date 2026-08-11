@@ -585,14 +585,18 @@ jobs:
               return;
             }
 
-            if (stackedAdvisory && configEnforced) {
+            if (!enforced) {
+              const enforcedAdvisoryState = stackedAdvisory && configEnforced ? 'pending' : 'success';
+              const enforcedAdvisoryDescription = stackedAdvisory && configEnforced
+                ? 'Stacked PR result is advisory; default-branch PR must pass Review Policy.'
+                : 'Review Policy is advisory; see Review Policy Advisory.';
               await github.rest.repos.createCommitStatus({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 sha: headSha,
-                state: 'pending',
+                state: enforcedAdvisoryState,
                 context: 'Review Policy',
-                description: 'Stacked PR result is advisory; default-branch PR must pass Review Policy.',
+                description: enforcedAdvisoryDescription,
                 target_url: process.env.TARGET_URL,
               });
             }

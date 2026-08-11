@@ -159,10 +159,11 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertEqual(publish_env["CONFIG_ENFORCED"], "${{ needs.evaluate.outputs.config_enforced || 'true' }}")
         self.assertEqual(publish_env["STACKED_ADVISORY"], "${{ needs.evaluate.outputs.stacked_advisory || 'false' }}")
-        self.assertIn("stackedAdvisory && configEnforced", workflow_text)
+        self.assertIn("const enforcedAdvisoryState = stackedAdvisory && configEnforced ? 'pending' : 'success'", workflow_text)
         self.assertIn("context: 'Review Policy'", workflow_text)
-        self.assertIn("state: 'pending'", workflow_text)
+        self.assertIn("state: enforcedAdvisoryState", workflow_text)
         self.assertIn("Stacked PR result is advisory; default-branch PR must pass Review Policy.", workflow_text)
+        self.assertIn("Review Policy is advisory; see Review Policy Advisory.", workflow_text)
 
     def test_workflow_label_sync_is_bound_to_base_and_head(self):
         workflow_text = read_workflow("review-policy.yml")
