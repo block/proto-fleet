@@ -127,10 +127,11 @@ When an owned miner leaves scope or becomes unpaired:
   existing prune-missing behavior.
 - Preserve existing off-site selections when editing under a narrower topbar
   filter or when the operator cannot open a picker.
-- Gate list controls by their required permissions: Buildings use `site:read`,
-  Racks/Groups use `rack:read`, and Miners use `miner:read`. Picker filtering
-  is usability only; the server remains authoritative. Hide rack/group miner
-  facets when the role lacks `rack:read`, matching Schedules.
+- Add resource-aware picker permissions instead of plain `useHasPermission`:
+  evaluate the selected site grants and use site-filtered building/rack/group
+  catalog handlers that authenticate/derive the org before scoped authorization.
+  Hide a control only when no authorized resource remains; hide rack/group miner
+  facets when the scoped role lacks `rack:read`, matching Schedules.
 - Allow **Target all paired miners** for FULL_FLEET with any site/building/rack/
   group/miner union, and clear it when switching away from FULL_FLEET.
 
@@ -169,11 +170,15 @@ Bound inputs before expensive resolution:
 | Explicit device identifiers | 10,000 |
 | Repeated `CurtailmentScope` entries | 1,024 |
 | Curtailment RPC body | 2 MiB |
+| Active closed-loop watchers per org | 64 |
+| Active-watcher topology IDs per org | 1,024 |
+| Active-watcher explicit IDs per org | 10,000 |
 
 Enforce cardinality on raw repeated input before deduplication and again after
 domain normalization. Apply the same limits to direct requests, persisted
 profiles, automation, and reconciliation; use protobuf `max_items` where the
-wire shape permits.
+wire shape permits. Enforce the active aggregate quotas transactionally before
+persisting a watcher/reservation.
 
 ### 4. Resolve targets and authorization once
 
@@ -213,6 +218,11 @@ membership, logical reservation, and facility fan—not only concrete miners.
 Lock relevant topology rows or compare topology revisions; dispatch only after
 commit.
 
+Replace Preview/Start's org-scoped `RequirePermission(..., ResourceContext{})`
+entry gates with authentication/org derivation followed by the resolver's
+scoped requirement check; otherwise site-scoped grants can never reach this
+authorization path.
+
 On profile Create/Update, persist the union of selected-resource and current-
 member site coverage plus the independent fan-site coverage in `scope_json`,
 with separate org-wide flags for incomplete or unbounded dimensions.
@@ -241,6 +251,9 @@ with separate org-wide flags for incomplete or unbounded dimensions.
 - Permission revocation, role demotion, or out-of-envelope topology stops new
   admissions and moves owned targets through safe restoration; it never
   releases a possibly curtailed miner directly.
+- Reconcile watchers/targets in pages under a per-tick time budget. Prioritize
+  stop/restore work; overload backpressure pauses new admissions before it can
+  delay safety-critical restoration.
 
 ### 6. Make profiles and automation strict but recoverable
 
@@ -271,6 +284,9 @@ with the bound revision; mismatch reports `rebind_required`. An authenticated
 ON/stop for an already-owned event must always follow its durable restore path,
 even after profile change/deletion, permission loss, or admin demotion.
 Disable/Delete likewise do not require a current revision or strict topology.
+The event-create/recurtail transaction must lock the rule and profile, then
+recheck enabled state, binding, revision, envelope, principal authorization,
+admin requirement, topology, and quotas before claiming targets.
 
 ### 7. Roll out fail-closed behavior safely
 
@@ -319,8 +335,8 @@ Backend coverage:
 - Full executable-profile revision coverage, automation binding races,
   `rebind_required`, stale rule management, ON/stop recovery after profile or
   permission changes, and rollout remediation.
-- Raw/normalized limits, oversized-record remediation, and safe active-event
-  draining.
+- Raw/normalized and active-watcher quotas, paginated/time-budgeted overload
+  behavior with restore priority, oversized remediation, and safe event draining.
 
 Run:
 
