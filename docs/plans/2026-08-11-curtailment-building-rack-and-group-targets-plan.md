@@ -277,6 +277,12 @@ with the proto source.
 - Validate every submitted topology ID even when it currently contains zero
   miners. Return NotFound for deleted, wrong-type, or cross-org IDs rather than
   converting them into an empty/insufficient-load preview.
+- Resolve authorization coverage from both the selected topology resources and
+  their current members. A building contributes its owning site even when
+  empty; a rack contributes the site of its assigned building even when it has
+  no members; an unassigned building/rack requires org-wide authorization. A
+  group contributes every current member site, and an empty group requires
+  org-wide authorization because its future site coverage is unbounded.
 - Deduplicate candidates across overlapping selectors before classification.
 - For cooldown lookup, use the already-resolved candidate identifiers (or add
   equivalent topology predicates) so a building/rack/group request cannot
@@ -285,6 +291,13 @@ with the proto source.
   `force_include_all_paired_miners=true`, persist the logical selector union on
   the event and extend the reconciler's candidate-parameter translation beyond
   whole-org/sites to buildings, racks, groups, and explicit identifiers.
+- A normal non-policy Start with zero resolved miners fails as insufficient
+  load. A FULL_FLEET Start with `force_include_all_paired_miners=true` may
+  create a targetless policy watcher for a valid, authorized logical selector
+  so miners assigned or paired later can be admitted. The watcher owns no
+  concrete target and sends no facility-fan command until at least one miner is
+  admitted and confirmed through the normal sequencing gates; this exception
+  does not permit infrastructure-only or missing-scope submissions.
 - On every all-paired reconciliation pass, resolve the current union and:
   - admit miners that newly enter the selected topology or become paired,
   - retain paired-like unavailable miners under policy ownership,
@@ -303,8 +316,10 @@ with the proto source.
 
 - Add a single server-side scope-resolution result that reports:
   - validated selector IDs and types,
-  - the miner-covered site IDs,
-  - whether any selected resource/member is unassigned,
+  - site IDs contributed by selected building/rack resources,
+  - site IDs contributed by current miner members,
+  - whether any selected resource/member is unassigned or has unbounded future
+    coverage,
   - the resolved current device identifiers,
   - separately resolved facility-fan site IDs and unassigned status.
 - Reuse strict current-topology resolution for Preview, Start,
@@ -322,11 +337,12 @@ with the proto source.
   moved device; it must never admit a device outside the caller's or event's
   authorization envelope.
 - On response-profile Create/Update, persist the resolved authorization
-  envelope in the existing `scope_json`: exact miner-covered site IDs, exact
-  facility-fan site IDs, and separate org-wide authorization flags for either
-  dimension when site coverage is incomplete or unassigned. Preserve the
-  current `site:read` plus `curtailment:manage` checks for every fan site rather
-  than treating miner-scope authorization as permission to control fans.
+  envelope in the existing `scope_json`: the union of selected-resource and
+  current-member site coverage for miner selectors, exact facility-fan site
+  IDs, and separate org-wide authorization flags for either dimension when
+  coverage is incomplete, unassigned, or unbounded. Preserve the current
+  `site:read` plus `curtailment:manage` checks for every fan site rather than
+  treating miner-scope authorization as permission to control fans.
 - Backfill existing API-created profiles only where the original authorization
   envelope is provable from persisted scope: whole-org scope becomes
   org-wide miner authorization, and site-only scope with no facility fans
@@ -434,8 +450,15 @@ Backend unit/store/integration coverage:
 - Empty/unknown-scope tests proving Preview, Start, profile save/execution, and
   automation never infer whole organization and reject infrastructure-only or
   unknown-scope-plus-fan requests before any event, profile, target ownership,
-  or fan command is created. Cover explicit selectors that currently resolve
-  zero miners and assert execution fails without commanding fans.
+  or fan command is created. Prove a normal non-policy execution with a valid
+  zero-member selector fails without commanding fans, while an all-paired
+  FULL_FLEET execution persists a targetless watcher, sends no fan command,
+  later admits an assigned/paired miner, and only then follows normal fan
+  sequencing.
+- Authorization tests for empty buildings/racks using the resource's owning
+  site, unassigned buildings/racks requiring org-wide access, empty groups
+  requiring org-wide access, and cross-site groups requiring every current
+  member site while remaining bounded by their persisted envelope.
 - Rollout tests proving legacy persisted whole-org profiles backfill to the
   explicit representation and the updated frontend emits explicit whole-org
   scope before the server begins rejecting omitted submissions.
@@ -499,6 +522,9 @@ developer approval.
   unsupported, and infrastructure-only miner scope never widens to whole-org
   targeting or reaches facility-fan dispatch; legacy persisted whole-org
   profiles are backfilled to the explicit representation during rollout.
+- Valid zero-member building/rack/group selectors fail ordinary Start, but an
+  authorized all-paired FULL_FLEET policy may persist a targetless watcher and
+  admit future members without commanding fans before a miner is confirmed.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
   sequencing, and active/history displays keep working. Deprecated generic
   device-set wire input fails closed and is never persisted, executed as, or
