@@ -6,16 +6,32 @@ import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
-import { allAtOnceRebootConfig, batchedFirmwareConfig } from "@/protoFleet/features/rollout/rollout.fixtures";
+import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/ActionBar";
+import BulkActionsWidget, { BulkActionsPopover } from "@/protoFleet/features/fleetManagement/components/BulkActions";
+import type { BulkAction } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
+import {
+  type DeviceAction,
+  deviceActions,
+  type PerformanceAction,
+  performanceActions,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
+import { ActiveRolloutBanner } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
+import {
+  allAtOnceRebootConfig,
+  batchedFirmwareConfig,
+  inProgressFirmwareEvent,
+} from "@/protoFleet/features/rollout/rollout.fixtures";
 import RolloutConfigModal from "@/protoFleet/features/rollout/RolloutConfigModal";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useRolloutConfigModalState } from "@/protoFleet/features/rollout/useRolloutConfigModalState";
-import { Curtail, Reboot, Settings } from "@/shared/assets/icons";
+import { ChevronDown, Curtail, LEDIndicator, Reboot, Settings } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
+import { PopoverProvider } from "@/shared/components/Popover";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import Select from "@/shared/components/Select";
 
@@ -232,6 +248,51 @@ const curtailPreview: CurtailmentPlanPreview = {
   scopeLabel: "222 selected miners",
 };
 
+type ConcurrentAction = DeviceAction | PerformanceAction;
+
+const selectedMinerIds = Array.from({ length: 222 }, (_, index) => `miner-${index + 1}`);
+
+function concurrentActionBlockedReason(action: ConcurrentAction): string | undefined {
+  switch (action) {
+    case deviceActions.firmwareUpdate:
+      return "Firmware is already updating on selected miners.";
+    case deviceActions.reboot:
+      return "Selected miners are updating firmware. Reboot after the update finishes.";
+    case performanceActions.curtail:
+      return "Selected miners are updating firmware. Curtail after the update finishes.";
+    default:
+      return undefined;
+  }
+}
+
+function BulkActionButton({
+  actionItem,
+  onAction,
+}: {
+  actionItem: BulkAction<ConcurrentAction>;
+  onAction: (action: BulkAction<ConcurrentAction>) => void;
+}): ReactElement {
+  const isDisabled = actionItem.disabled === true;
+  return (
+    <span title={isDisabled ? actionItem.disabledReason : undefined} className="inline-flex">
+      <Button
+        className={
+          isDisabled
+            ? "bg-grayscale-white-10! text-grayscale-white-90! opacity-45"
+            : "bg-grayscale-white-10! text-grayscale-white-90!"
+        }
+        size={sizes.compact}
+        variant={variants.secondary}
+        testId={`rollout-conflict-quick-action-${actionItem.action}`}
+        disabled={isDisabled}
+        onClick={() => onAction(actionItem)}
+      >
+        {actionItem.title}
+      </Button>
+    </span>
+  );
+}
+
 function BulkActionsStory(): ReactElement {
   const [openModal, setOpenModal] = useState<OpenModal>(null);
 
@@ -301,4 +362,115 @@ function BulkActionsStory(): ReactElement {
 export const BulkActions: Story = {
   name: "Bulk actions",
   render: () => <BulkActionsStory />,
+};
+
+function ConcurrentBulkActionsStory(): ReactElement {
+  const [currentAction, setCurrentAction] = useState<ConcurrentAction | null>(null);
+
+  const actions: BulkAction<ConcurrentAction>[] = [
+    {
+      action: deviceActions.firmwareUpdate,
+      title: "Firmware update",
+      icon: <Settings />,
+      actionHandler: () => setCurrentAction(deviceActions.firmwareUpdate),
+      requiresConfirmation: false,
+    },
+    {
+      action: deviceActions.reboot,
+      title: "Reboot",
+      icon: <Reboot />,
+      actionHandler: () => setCurrentAction(deviceActions.reboot),
+      requiresConfirmation: true,
+      confirmation: {
+        title: "Reboot 222 miners?",
+        subtitle: "These miners will go offline while they reboot, then resume hashing.",
+        confirmAction: {
+          title: "Reboot",
+          variant: variants.primary,
+        },
+        testId: "rollout-conflict-reboot-confirm",
+      },
+    },
+    {
+      action: performanceActions.curtail,
+      title: "Curtail",
+      icon: <Curtail />,
+      actionHandler: () => setCurrentAction(performanceActions.curtail),
+      requiresConfirmation: true,
+      confirmation: {
+        title: "Curtail 222 miners?",
+        subtitle: "These miners will reduce power and stop hashing.",
+        confirmAction: {
+          title: "Curtail",
+          variant: variants.primary,
+        },
+        testId: "rollout-conflict-curtail-confirm",
+      },
+      showGroupDivider: true,
+    },
+    {
+      action: deviceActions.blinkLEDs,
+      title: "Blink LEDs",
+      icon: <LEDIndicator />,
+      actionHandler: () => setCurrentAction(deviceActions.blinkLEDs),
+      requiresConfirmation: false,
+    },
+  ].map((actionItem) => {
+    const disabledReason = concurrentActionBlockedReason(actionItem.action);
+    return disabledReason
+      ? {
+          ...actionItem,
+          disabled: true,
+          disabledReason,
+        }
+      : actionItem;
+  });
+
+  return (
+    <div className="min-h-screen bg-surface-base pb-28">
+      <div className="px-10 pt-10">
+        <div className="mb-2 text-heading-300 text-text-primary">Fleet</div>
+        <div className="mb-6 text-300 text-text-primary-70">222 miners selected</div>
+        <ActiveRolloutBanner event={inProgressFirmwareEvent} onView={noop} />
+      </div>
+      <PopoverProvider>
+        <ActionBar
+          className="fixed right-0 bottom-6 left-0"
+          selectedItems={selectedMinerIds}
+          totalCount={selectedMinerIds.length}
+          renderActions={() => (
+            <BulkActionsWidget<ConcurrentAction>
+              buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
+              buttonTitle="More"
+              actions={actions}
+              onConfirmation={() => setCurrentAction(null)}
+              onCancel={() => setCurrentAction(null)}
+              currentAction={currentAction}
+              renderQuickActions={(onAction) =>
+                actions
+                  .slice(0, 3)
+                  .map((actionItem) => (
+                    <BulkActionButton key={actionItem.action} actionItem={actionItem} onAction={onAction} />
+                  ))
+              }
+              renderPopover={(beforeEach, closePopover) => (
+                <BulkActionsPopover<ConcurrentAction>
+                  actions={actions}
+                  beforeEach={beforeEach}
+                  testId="rollout-conflict-actions-popover"
+                  closePopover={closePopover}
+                />
+              )}
+              testId="rollout-conflict-actions"
+            />
+          )}
+        />
+      </PopoverProvider>
+    </div>
+  );
+}
+
+export const ConcurrentBulkActions: Story = {
+  name: "Bulk actions during firmware update",
+  render: () => <ConcurrentBulkActionsStory />,
 };
