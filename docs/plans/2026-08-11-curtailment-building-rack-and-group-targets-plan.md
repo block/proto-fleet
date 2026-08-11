@@ -69,9 +69,11 @@ Resolve topology membership on the backend, not in the browser:
 - A non-FULL_FLEET Start resolves current membership once, then freezes
   concrete miner targets in `curtailment_target`, matching existing open-loop
   behavior.
-- FULL_FLEET without `Target all paired miners` preserves the existing
-  closed-loop watcher: it may start with zero eligible miners, re-resolves the
-  logical union, and claims newly eligible in-scope miners at dispatch time.
+- FULL_FLEET without `Target all paired miners` preserves existing scope
+  behavior: whole-org/site selectors remain closed-loop and buildings/racks/
+  groups join that topology-following watcher, while explicit-miner selectors
+  remain snapshot-only. A mixed union watches its topology portion and includes
+  explicit miners only when they are eligible in the Start snapshot.
 - A response profile stores logical IDs, so each later manual or automation
   execution resolves the then-current members.
 - For FULL_FLEET with `Target all paired miners`, extend the durable closed-loop
@@ -300,23 +302,28 @@ with the proto source.
 - For cooldown lookup, use the already-resolved candidate identifiers (or add
   equivalent topology predicates) so a building/rack/group request cannot
   accidentally apply org-wide cooldown exclusions.
-- Keep non-FULL_FLEET event targets frozen. For every FULL_FLEET event, persist
-  the logical selector union and extend the existing closed-loop candidate
-  translation beyond whole-org/sites to buildings, racks, groups, and explicit
-  identifiers.
+- Keep non-FULL_FLEET event targets frozen. Persist the logical selector union
+  for closed-loop FULL_FLEET events and extend the existing watcher beyond
+  whole-org/sites to buildings, racks, and groups. Do not turn an unflagged
+  explicit-miner-only FULL_FLEET request into a watcher.
 - Preserve this lifecycle matrix:
   - Non-FULL_FLEET: resolve/freeze once; zero resolved miners fails as
     insufficient load.
   - FULL_FLEET without `force_include_all_paired_miners`: maintain the existing
-    eligible-miner watcher and admit newly eligible in-scope miners.
+    eligible-miner watcher for whole-org/site/building/rack/group selectors and
+    admit newly eligible members of those selectors. Explicit identifiers are
+    snapshot-only; an explicit-only empty selection completes as the existing
+    no-op rather than leaving a watcher.
   - FULL_FLEET with `force_include_all_paired_miners`: maintain the durable
-    paired-miner policy, including unavailable ownership and the
-    restore-before-release rules below.
-  Both FULL_FLEET variants may create a targetless watcher for a valid,
-  authorized logical selector. A targetless watcher sends no facility-fan
-  command until at least one miner is admitted and confirmed through the
-  normal sequencing gates; this never permits infrastructure-only or
-  missing-scope submissions.
+    paired-miner policy across the full union, deliberately including explicit
+    identifiers. This is new admin-only behavior: an explicitly selected
+    unpaired miner is logically reserved and admitted after pairing. Preserve
+    unavailable ownership and the restore-before-release rules below.
+  A topology-following FULL_FLEET scope, or a flagged explicit-miner policy,
+  may create a targetless watcher. A targetless watcher sends no facility-fan
+  command until at least one miner is admitted and confirmed through the normal
+  sequencing gates; this never permits infrastructure-only or missing-scope
+  submissions.
 - On every all-paired reconciliation pass, resolve the current union and:
   - admit miners that newly enter the selected topology or become paired,
   - retain paired-like unavailable miners under policy ownership,
@@ -330,9 +337,10 @@ with the proto source.
 - Apply the same topology scope to cooldown/admission queries and preserve the
   existing event/device exclusivity guarantees while targets are added,
   reopened, restored, or released.
-- Treat every active FULL_FLEET logical scope as a reservation, including
-  devices that currently match but are unpaired, unavailable, or not yet
-  represented by `curtailment_target`. Extend
+- Treat every active closed-loop FULL_FLEET logical scope as a reservation,
+  including devices that currently match but are unpaired, unavailable, or not
+  yet represented by `curtailment_target`. A flagged explicit-miner policy
+  participates in the same reservation path. Extend
   `CountCurtailmentScopeConflicts`, `ListActiveCurtailedDevicesByOrg`,
   `hierarchicalScopeSiteIDs`, and every direct `scope_jsonb` consumer to use one
   canonical typed-scope resolver rather than whole-org/site-only logic.
@@ -472,6 +480,10 @@ Backend unit/store/integration coverage:
   reconciliation ticks, explicit-miner reservations, unpair/re-pair gaps,
   deterministic older-event precedence, and a pre-owned miner moving into a
   watched topology with a surfaced/retried conflict.
+- FULL_FLEET lifecycle tests proving unflagged explicit-miner-only scope stays
+  snapshot-only and completes as a no-op when empty; mixed unflagged scope
+  watches only its topology portion; and the flagged admin policy deliberately
+  reserves/re-admits explicit identifiers after pairing.
 - Response-profile CRUD/list filtering and automation execution with each new
   scope, including a deleted or moved target that remains visible and
   deletable under its persisted authorization envelope but fails execution and
@@ -567,8 +579,11 @@ developer approval.
   targeting or reaches facility-fan dispatch; legacy persisted whole-org
   profiles are backfilled to the explicit representation during rollout.
 - Valid zero-member building/rack/group selectors fail non-FULL_FLEET Start,
-  but both FULL_FLEET variants may persist a targetless watcher and admit
-  future eligible members without commanding fans before a miner is confirmed.
+  but FULL_FLEET topology watchers may persist targetless and admit future
+  eligible members without commanding fans before a miner is confirmed.
+- Unflagged explicit-miner FULL_FLEET remains snapshot-only. The admin-only
+  all-paired flag deliberately makes explicit identifiers durable members of
+  the union, including admission after an explicitly selected miner pairs.
 - Active FULL_FLEET logical scopes reserve matching devices between
   reconciliation ticks; competing events cannot silently take newly eligible
   or newly assigned members.
