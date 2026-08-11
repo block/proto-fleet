@@ -764,6 +764,8 @@ func testInstallRelease(t *testing.T) string {
 		"ha/proto-fleet-ha.service":                              "[Service]\n",
 		"ha/proto-fleet-ha-keepalived.conf":                      "[Unit]\nWants=keepalived.service\n",
 		"ha/proto-fleet-ha-firewall.service":                     "[Service]\n",
+		"ha/nftables-systemd.conf":                               "[Service]\n",
+		"ha/nftables-reload.conf":                                "include \"/etc/nftables.conf\"\n",
 		"ha/docker-systemd.conf":                                 "[Unit]\n",
 		"ha/docker-ha-recovery-systemd.conf":                     "[Unit]\n",
 		"ha/scripts/check-fleet-active.sh":                       "#!/bin/sh\n",

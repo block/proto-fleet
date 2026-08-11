@@ -149,12 +149,16 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStartPre=/usr/sbin/nft -c -f /etc/proto-fleet/ha/firewall.nft"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStartPre=-/usr/sbin/nft delete table inet proto_fleet_ha"
-    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecReload=/bin/sh"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "BindsTo=nftables.service"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "After=nftables.service"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "PartOf=nftables.service"
-    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ReloadPropagatedFrom=nftables.service"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "Before=docker.service proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/nftables-systemd.conf" "ExecReload="
+    assert_contains "${HA_DIR}/nftables-systemd.conf" "ExecReload=/usr/sbin/nft -f /etc/proto-fleet/ha/nftables-reload.conf"
+    assert_not_contains "${HA_DIR}/nftables-systemd.conf" "ExecStart"
+    assert_not_contains "${HA_DIR}/nftables-systemd.conf" "ExecStop"
+    assert_contains "${HA_DIR}/nftables-reload.conf" 'include "/etc/nftables.conf"'
+    assert_contains "${HA_DIR}/nftables-reload.conf" 'include "/etc/proto-fleet/ha/firewall.nft"'
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "Requires=proto-fleet-ha-firewall.service docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "BindsTo=docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "PartOf=docker.service"

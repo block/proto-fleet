@@ -3,7 +3,6 @@ Description=Proto Fleet HA firewall
 BindsTo=nftables.service
 After=nftables.service
 PartOf=nftables.service
-ReloadPropagatedFrom=nftables.service
 Before=docker.service proto-fleet-ha.service
 
 [Service]
@@ -12,7 +11,6 @@ RemainAfterExit=yes
 ExecStartPre=/usr/sbin/nft -c -f /etc/proto-fleet/ha/firewall.nft
 ExecStartPre=-/usr/sbin/nft delete table inet proto_fleet_ha
 ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft
-ExecReload=/bin/sh -ec '/usr/sbin/nft -c -f /etc/proto-fleet/ha/firewall.nft; /usr/sbin/nft delete table inet proto_fleet_ha 2>/dev/null || true; /usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft'
 
 [Install]
 WantedBy=multi-user.target
