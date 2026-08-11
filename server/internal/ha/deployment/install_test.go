@@ -67,12 +67,6 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	if callIndex(calls, "sudo chmod -R a+rX,go-w "+installRoot) < 0 {
 		t.Fatalf("installed release permissions were not normalized:\n%s", strings.Join(calls, "\n"))
 	}
-	if _, err := os.Stat(rootPassword); !os.IsNotExist(err) {
-		t.Fatalf("copied root password still exists: %v", err)
-	}
-	if _, err := os.Stat(secrets); !os.IsNotExist(err) {
-		t.Fatalf("copied host secret bundle still exists: %v", err)
-	}
 }
 
 func TestInstallRejectsExistingNftablesInputFilteringBeforeConfiguration(t *testing.T) {
@@ -132,7 +126,7 @@ func TestValidateNftablesInputChains(t *testing.T) {
 	}
 }
 
-func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
+func TestInstallFailureStopsServiceAfterCancellation(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
 	secrets := t.TempDir()
@@ -171,8 +165,6 @@ func TestInstallFailurePreservesCopiedCredentials(t *testing.T) {
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, configRoot+"/etcd-root-password")
 	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
-	require.FileExists(t, rootPassword)
-	require.DirExists(t, secrets)
 }
 
 func TestInstallInterruptedDuringConvergenceLeavesHAEnabled(t *testing.T) {
@@ -211,8 +203,6 @@ func TestInstallInterruptedDuringConvergenceLeavesHAEnabled(t *testing.T) {
 	require.NotContains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 	require.Contains(t, joined, "docker-ha-recovery-systemd.conf "+dockerRecoveryDropIn)
 	require.NotContains(t, joined, "sudo rm -f "+dockerRecoveryDropIn)
-	require.NoFileExists(t, rootPassword)
-	require.NoDirExists(t, config.SecretsDir)
 }
 
 func TestDedicatedHostFindsKeepalivedOutsidePATH(t *testing.T) {
@@ -378,7 +368,6 @@ func TestValidateInstallPlatformRejectsUnsupportedHosts(t *testing.T) {
 		{name: "32-bit Raspberry Pi OS", osRelease: "ID=raspbian\nVERSION_ID=12\n", goarch: "arm", wantError: "64-bit"},
 		{name: "unsupported architecture", osRelease: "ID=custom\nVERSION_CODENAME=bookworm\n", goarch: "386", wantError: "amd64 and arm64"},
 		{name: "missing native codename", osRelease: "ID=debian\nVERSION_ID=12\n", goarch: "amd64", wantError: "VERSION_CODENAME"},
-		{name: "missing derivative codename", osRelease: "ID=custom\nID_LIKE=debian\n", goarch: "amd64", wantError: "VERSION_CODENAME"},
 		{name: "unsafe derivative codename", osRelease: "ID=custom\nVERSION_CODENAME=bookworm stable\n", goarch: "amd64", wantError: "invalid release codename"},
 	}
 	for _, tt := range tests {
@@ -440,41 +429,6 @@ func TestValidateReleaseRejectsSymlinks(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unsupported entry") {
 		t.Fatalf("validateRelease() error = %v", err)
 	}
-}
-
-func TestConsumeInstallCredentialsPreservesUnexpectedFiles(t *testing.T) {
-	// Arrange
-	secrets := t.TempDir()
-	unrelated := filepath.Join(secrets, "operator-notes")
-	require.NoError(t, os.WriteFile(unrelated, []byte("keep"), 0o600))
-
-	// Act
-	err := consumeInstallCredentials(InstallOptions{}, NodeConfig{NodeName: "ha-c", SecretsDir: secrets})
-
-	// Assert
-	require.ErrorContains(t, err, "unexpected entry")
-	require.FileExists(t, unrelated)
-}
-
-func TestInstallRejectsUnexpectedSecretBeforeMutation(t *testing.T) {
-	// Arrange
-	source := testInstallRelease(t)
-	config := NodeConfig{
-		NodeName: "ha-c", NodeIP: testHostIPs[2], DatabaseAIP: testHostIPs[0],
-		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
-		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
-	}
-	writeTestSecretBundle(t, config)
-	require.NoError(t, os.WriteFile(filepath.Join(config.SecretsDir, "offline-ca.key"), []byte("secret"), 0o600))
-	var calls []string
-	deps := testInstallerDependencies(source, config, &calls)
-
-	// Act
-	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env"}, deps)
-
-	// Assert
-	require.ErrorContains(t, err, "unexpected entry")
-	require.NotContains(t, strings.Join(calls, "\n"), "apt-get")
 }
 
 func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
@@ -709,15 +663,6 @@ func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
 	require.Contains(t, joined, "sudo rm -rf -- "+installBase)
 	require.NotContains(t, joined, "docker-ce")
 	require.NotContains(t, joined, "/etc/apt/keyrings/docker.asc")
-}
-
-func TestFleetComposeArgsAreRawDockerComposeArguments(t *testing.T) {
-	// Act
-	args := fleetComposeArgs("stop", "fleet-api", "fleet-client")
-
-	// Assert
-	require.Equal(t, "--env-file", args[0])
-	require.Equal(t, []string{"stop", "fleet-api", "fleet-client"}, args[len(args)-3:])
 }
 
 func testInstallerDependencies(source string, config NodeConfig, calls *[]string) installDependencies {

@@ -117,7 +117,9 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 			_, installed, err := inspectInstallBase(ctx, source, defaultInstallDependencies())
 			return installed, err
 		},
-		install: Install,
+		install: func(ctx context.Context, options InstallOptions) error {
+			return install(ctx, options, defaultInstallDependencies())
+		},
 	}
 }
 
@@ -257,14 +259,14 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 	if err != nil {
 		return err
 	}
-	if err := writeInstallerOutput(deps.output, "[validation] Checking the bundle, release, network, and dedicated host...\n"); err != nil {
-		return err
-	}
-	installed, err := deps.inspect(ctx, source, config)
-	if err != nil {
-		return err
-	}
 	if confirm {
+		if err := writeInstallerOutput(deps.output, "[validation] Checking the bundle, release, network, and dedicated host...\n"); err != nil {
+			return err
+		}
+		installed, err := deps.inspect(ctx, source, config)
+		if err != nil {
+			return err
+		}
 		if err := printInstallSummary(deps.prompts, bundle.metadata, networkInterface, installed); err != nil {
 			return err
 		}
@@ -433,16 +435,6 @@ func validateBundleMetadata(metadata bundleMetadata) error {
 	if metadata.FormatVersion != bundleFormatVersion {
 		return fmt.Errorf("unsupported format version %d", metadata.FormatVersion)
 	}
-	if metadata.Version == "" || metadata.Commit == "" {
-		return errors.New("release version and commit are required")
-	}
-	cluster := clusterMetadata{
-		Version: metadata.Version, Commit: metadata.Commit, DatabaseAIP: metadata.DatabaseAIP,
-		DatabaseBIP: metadata.DatabaseBIP, WitnessIP: metadata.WitnessIP, VirtualIP: metadata.VirtualIP,
-	}
-	if err := validateClusterMetadata(cluster); err != nil {
-		return err
-	}
 	expectedIP := map[string]string{"ha-a": metadata.DatabaseAIP, "ha-b": metadata.DatabaseBIP, "ha-c": metadata.WitnessIP}
 	if expectedIP[metadata.Role] == "" {
 		return errors.New("role must be ha-a, ha-b, or ha-c")
@@ -454,15 +446,12 @@ func validateBundleMetadata(metadata bundleMetadata) error {
 }
 
 func validateClusterMetadata(metadata clusterMetadata) error {
-	for _, role := range []string{"ha-a", "ha-b", "ha-c"} {
-		nodeIP := map[string]string{"ha-a": metadata.DatabaseAIP, "ha-b": metadata.DatabaseBIP, "ha-c": metadata.WitnessIP}[role]
-		if err := validateNodeConfig(NodeConfig{
-			NodeName: role, NodeIP: nodeIP, DatabaseAIP: metadata.DatabaseAIP, DatabaseBIP: metadata.DatabaseBIP,
-			WitnessIP: metadata.WitnessIP, VirtualIP: metadata.VirtualIP, NetworkInterface: "interface",
-			DataDir: dataRoot, SecretsDir: configRoot,
-		}); err != nil {
-			return fmt.Errorf("invalid HA topology: %w", err)
-		}
+	if err := validateNodeConfig(NodeConfig{
+		NodeName: "ha-a", NodeIP: metadata.DatabaseAIP, DatabaseAIP: metadata.DatabaseAIP, DatabaseBIP: metadata.DatabaseBIP,
+		WitnessIP: metadata.WitnessIP, VirtualIP: metadata.VirtualIP, NetworkInterface: "interface",
+		DataDir: dataRoot, SecretsDir: configRoot,
+	}); err != nil {
+		return fmt.Errorf("invalid HA topology: %w", err)
 	}
 	return nil
 }

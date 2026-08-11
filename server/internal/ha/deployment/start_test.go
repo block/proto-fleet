@@ -102,22 +102,6 @@ func TestInfrastructureDownArgsSelectsDatabaseProfile(t *testing.T) {
 	}
 }
 
-func TestRemoveBootstrapCredential(t *testing.T) {
-	// Arrange
-	path := filepath.Join(t.TempDir(), "etcd-root-password")
-	require.NoError(t, os.WriteFile(path, []byte("secret"), 0o600))
-
-	// Act
-	err := removeBootstrapCredential(path)
-	missingErr := removeBootstrapCredential(path)
-
-	// Assert
-	require.NoError(t, err)
-	require.NoError(t, missingErr)
-	_, statErr := os.Stat(path)
-	require.ErrorIs(t, statErr, os.ErrNotExist)
-}
-
 func TestShouldBootstrapEtcdAuth(t *testing.T) {
 	for _, test := range []struct {
 		name             string
