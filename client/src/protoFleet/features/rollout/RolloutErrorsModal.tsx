@@ -1,7 +1,9 @@
 import type { ReactElement } from "react";
 
 import { rolloutErrorImpactCount, rolloutProcessLabel } from "./rolloutDisplayUtils";
-import type { RolloutEvent } from "./rolloutTypes";
+import type { RolloutErrorImpact, RolloutEvent } from "./rolloutTypes";
+import List from "@/shared/components/List";
+import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal from "@/shared/components/Modal";
 
 interface RolloutErrorsModalProps {
@@ -13,6 +15,36 @@ interface RolloutErrorsModalProps {
 function impactedMinerLabel(count: number): string {
   return `${count.toLocaleString()} impacted ${count === 1 ? "miner" : "miners"}`;
 }
+
+type RolloutErrorColumn = "message" | "impactedMiners";
+
+const rolloutErrorColumns: RolloutErrorColumn[] = ["message", "impactedMiners"];
+
+const rolloutErrorColTitles: ColTitles<RolloutErrorColumn> = {
+  message: "Error",
+  impactedMiners: "Impacted miners",
+};
+
+function TextCell({ value, emphasis = false }: { value: string; emphasis?: boolean }): ReactElement {
+  return (
+    <span className={emphasis ? "text-emphasis-300 break-words text-text-primary" : "break-words text-text-primary"}>
+      {value}
+    </span>
+  );
+}
+
+const rolloutErrorColConfig: ColConfig<RolloutErrorImpact, string, RolloutErrorColumn> = {
+  message: {
+    component: (error) => <TextCell value={error.message} emphasis />,
+    width: "w-[55%]",
+    allowWrap: true,
+  },
+  impactedMiners: {
+    component: (error) => <TextCell value={error.impactedMiners.join(", ")} />,
+    width: "w-[45%]",
+    allowWrap: true,
+  },
+};
 
 function RolloutErrorsModal({ open, event, onDismiss }: RolloutErrorsModalProps): ReactElement | null {
   if (!open) {
@@ -41,49 +73,19 @@ function RolloutErrorsModal({ open, event, onDismiss }: RolloutErrorsModalProps)
         },
       ]}
     >
-      {errors.length === 0 ? (
-        <div className="py-10 text-center text-300 text-text-primary-70">No errors to show.</div>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-border-5">
-          <div className="hidden grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 border-b border-border-5 bg-core-primary-5 px-4 py-3 text-200 text-text-primary-50 tablet:grid">
-            <div>Error</div>
-            <div>Impacted miners</div>
-          </div>
-          <div className="divide-y divide-border-5">
-            {errors.map((error) => {
-              const impactedCount = error.impactedMiners.length;
-              return (
-                <div
-                  key={error.id}
-                  className="grid gap-3 px-4 py-4 tablet:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] tablet:gap-4"
-                >
-                  <div className="min-w-0">
-                    <div className="text-200 text-text-primary-50 tablet:hidden">Error</div>
-                    <div className="mt-1 text-emphasis-300 break-words text-text-primary tablet:mt-0">
-                      {error.message}
-                    </div>
-                    <div className="mt-1 text-200 text-text-primary-50">{impactedMinerLabel(impactedCount)}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-200 text-text-primary-50 tablet:hidden">Impacted miners</div>
-                    <div className="mt-2 flex flex-wrap gap-2 tablet:mt-0">
-                      {error.impactedMiners.map((miner) => (
-                        <span
-                          key={miner}
-                          className="max-w-full rounded-full bg-core-primary-5 px-2 py-1 text-200 break-all text-text-primary"
-                          title={miner}
-                        >
-                          {miner}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <List<RolloutErrorImpact, string, RolloutErrorColumn>
+        activeCols={rolloutErrorColumns}
+        colTitles={rolloutErrorColTitles}
+        colConfig={rolloutErrorColConfig}
+        items={errors}
+        itemKey="id"
+        total={errors.length}
+        itemName={{ singular: "error", plural: "errors" }}
+        tableClassName="mb-0 w-full"
+        applyColumnWidthsToCells
+        stickyFirstColumn={false}
+        emptyStateRow={<div className="py-10 text-center text-300 text-text-primary-70">No errors to show.</div>}
+      />
     </Modal>
   );
 }
