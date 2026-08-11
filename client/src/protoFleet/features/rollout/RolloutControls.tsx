@@ -48,12 +48,16 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
     const strategy = value as RolloutStrategy;
     patch({
       strategy,
-      reviewAfterEachBatch: strategy === "allAtOnce" ? false : config.reviewAfterEachBatch,
+      reviewAfterEachBatch: strategy === "allAtOnce" || strategy === "delegated" ? false : config.reviewAfterEachBatch,
+      delegatedPolicyName:
+        strategy === "delegated" ? (config.delegatedPolicyName ?? "Regression analysis API") : undefined,
     });
   }
 
-  const showBatchFields = config.strategy === "batched" || config.strategy === "pilotThenContinue";
+  const showBatchFields =
+    config.strategy === "batched" || config.strategy === "pilotThenContinue" || config.strategy === "delegated";
   const showPilotFields = config.strategy === "pilotThenContinue";
+  const showDelegatedFields = config.strategy === "delegated";
   // Order only applies to paced runs. When hidden, Method spans the full row.
   const showOrder = config.strategy !== "allAtOnce";
 
@@ -133,6 +137,16 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
     />
   );
 
+  const delegatedPolicyField = showDelegatedFields ? (
+    <Input
+      id="rollout-delegated-policy"
+      label="Decision source"
+      initValue={config.delegatedPolicyName ?? ""}
+      onChange={(value) => patch({ delegatedPolicyName: value })}
+      disabled={disabled}
+    />
+  ) : null;
+
   return (
     <section className="grid gap-3" data-testid="rollout-controls">
       <div>
@@ -183,6 +197,7 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
         </>
       ) : showBatchFields ? (
         <>
+          {delegatedPolicyField}
           {batchFields}
           {maxOfflineField}
         </>

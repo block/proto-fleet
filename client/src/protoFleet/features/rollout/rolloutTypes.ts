@@ -10,7 +10,7 @@
 export type RolloutProcessType = "firmware" | "reboot" | "curtailment";
 
 /** How the rollout is paced across its targets. */
-export type RolloutStrategy = "allAtOnce" | "batched" | "pilotThenContinue";
+export type RolloutStrategy = "allAtOnce" | "batched" | "pilotThenContinue" | "delegated";
 
 /**
  * Order targets are worked through. Only meaningful for a paced run; under
@@ -48,6 +48,8 @@ export interface RolloutPlanConfig {
   pilotSize?: number;
   /** Paced methods only: pause after every batch for operator review. */
   reviewAfterEachBatch?: boolean;
+  /** Delegated only: external source that decides when Fleet should continue. */
+  delegatedPolicyName?: string;
   scheduleType: RolloutScheduleType;
   /** ISO string when scheduleType is scheduleForLater. */
   scheduledStartAt?: string;
@@ -130,6 +132,8 @@ export interface RolloutEvent {
   batchIntervalSec?: number;
   currentBatch?: number;
   totalBatches?: number;
+  /** Delegated only: external source that decides when Fleet should continue. */
+  delegatedPolicyName?: string;
   startedAt?: string;
   scheduledStartAt?: string;
   /** Seconds remaining, for the ETA line. */

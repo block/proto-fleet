@@ -294,6 +294,9 @@ function ActiveRolloutStatus({
   const statItems: StatBlockProps[] = [
     { label: "Scope", value: event.scopeLabel || "—" },
     { label: "Method", value: pacingSummary(event) },
+    ...(event.strategy === "delegated" && event.delegatedPolicyName
+      ? [{ label: "Decision source", value: event.delegatedPolicyName }]
+      : []),
     // Order only applies to a paced run. Under "all at once" there's no first/last.
     ...(event.strategy === "allAtOnce" ? [] : [{ label: "Order", value: orderLabels[event.order] }]),
     { label: "Est. time remaining", value: etaValue },

@@ -60,6 +60,7 @@ function ReleaseChannelsTabInSitu(): ReactElement {
         onAddFile={noop}
         onFileActions={noop}
         onSelectScope={noop}
+        onSelectPinnedMiners={noop}
         onDismiss={() => setModalOpen(false)}
         onSave={() => setModalOpen(false)}
       />
@@ -89,6 +90,7 @@ function ManageReleaseChannelInSitu(): ReactElement {
         onAddFile={noop}
         onFileActions={noop}
         onSelectScope={noop}
+        onSelectPinnedMiners={noop}
         onDismiss={noop}
         onSave={noop}
       />
