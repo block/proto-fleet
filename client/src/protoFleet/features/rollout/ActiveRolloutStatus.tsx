@@ -7,9 +7,10 @@ import {
   pacingSummary,
   phaseLabel,
   rolloutCompletionPercent,
+  rolloutErrorImpactCount,
   rolloutLifecycleActions,
-  rolloutMetricDelta,
   type RolloutMetricDelta,
+  rolloutMetricDelta,
   type RolloutMetricDeltaIntent,
   rolloutPhaseCount,
   rolloutProgressSegments,
@@ -18,7 +19,6 @@ import {
 import type { RolloutEvent } from "./rolloutTypes";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
-import RolloutFieldInfo from "@/protoFleet/features/rollout/RolloutFieldInfo";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -53,6 +53,7 @@ interface ActiveRolloutStatusProps {
   onContinueFromPilot?: () => void;
   onRetryFailed?: () => void;
   onViewMiners?: () => void;
+  onViewErrors?: () => void;
 }
 
 interface StatBlockProps {
@@ -121,25 +122,21 @@ function DeltaChip({ delta }: { delta: RolloutMetricDelta }): ReactElement {
 function PerformanceStrip({
   event,
   embedded = false,
+  onViewErrors,
 }: {
   event: RolloutEvent;
   embedded?: boolean;
+  onViewErrors?: () => void;
 }): ReactElement | null {
   const temperatureUnit = useTemperatureUnit();
-  if (!event.performance || event.performance.metrics.length === 0) {
+  const hasErrorSummary = event.performance?.errors !== undefined;
+  const errorCount = rolloutErrorImpactCount(event.performance?.errors);
+  if (!event.performance || (event.performance.metrics.length === 0 && !hasErrorSummary)) {
     return null;
   }
+
   return (
     <div className="mt-6" data-testid="active-rollout-performance">
-      <div className="mb-3 flex items-center gap-2">
-        <div className="text-emphasis-300 text-text-primary">Telemetry</div>
-        <RolloutFieldInfo
-          ariaLabel="About telemetry deltas"
-          body="Compares current telemetry with a baseline captured before the update. Colors reflect outcome, so higher temperature or error rate appears red."
-          testId="active-rollout-telemetry-info-button"
-          popoverTestId="active-rollout-telemetry-info-popover"
-        />
-      </div>
       <div
         className={clsx(
           "grid gap-y-5 text-text-primary",
@@ -160,6 +157,27 @@ function PerformanceStrip({
             </div>
           );
         })}
+        {hasErrorSummary ? (
+          <div className="min-w-0">
+            <div className="text-200 text-text-primary-50">Errors</div>
+            {errorCount > 0 && onViewErrors ? (
+              <button
+                type="button"
+                className="mt-1 cursor-pointer text-emphasis-300 text-text-primary underline underline-offset-2 hover:opacity-70 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base focus-visible:outline-none"
+                onClick={onViewErrors}
+                data-testid="active-rollout-errors-link"
+                aria-label={`View ${errorCount.toLocaleString()} errors`}
+              >
+                {errorCount.toLocaleString()}
+              </button>
+            ) : (
+              <div className="mt-1 text-emphasis-300 text-text-primary">{errorCount.toLocaleString()}</div>
+            )}
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-3 text-200 text-text-primary-50">
+        Compares current telemetry with a baseline captured before the update.
       </div>
     </div>
   );
@@ -210,6 +228,7 @@ function ActiveRolloutStatus({
   onContinueFromPilot,
   onRetryFailed,
   onViewMiners,
+  onViewErrors,
 }: ActiveRolloutStatusProps): ReactElement {
   const isRunning = event.state === "inProgress";
   const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
@@ -364,7 +383,7 @@ function ActiveRolloutStatus({
         )}
 
         {/* Baseline telemetry for pilot review. */}
-        <PerformanceStrip event={event} embedded={embedded} />
+        <PerformanceStrip event={event} embedded={embedded} onViewErrors={onViewErrors} />
 
         {/* Progress section: summary, elapsed time, bar, then legend. */}
         <div className="mt-6 grid gap-3" data-testid="active-rollout-progress">

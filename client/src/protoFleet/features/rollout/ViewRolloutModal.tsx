@@ -17,6 +17,7 @@ interface ViewRolloutModalProps {
   onContinueFromPilot?: () => void;
   onRetryFailed?: () => void;
   onViewMiners?: () => void;
+  onViewErrors?: () => void;
 }
 
 type ModalButton = NonNullable<ComponentProps<typeof Modal>["buttons"]>[number];
@@ -79,6 +80,7 @@ function ViewRolloutModal({
   onContinueFromPilot,
   onRetryFailed,
   onViewMiners,
+  onViewErrors,
 }: ViewRolloutModalProps): ReactElement | null {
   if (!event) {
     return null;
@@ -121,6 +123,7 @@ function ViewRolloutModal({
         onContinueFromPilot={onContinueFromPilot}
         onRetryFailed={onRetryFailed}
         onViewMiners={onViewMiners}
+        onViewErrors={onViewErrors}
       />
     </Modal>
   );

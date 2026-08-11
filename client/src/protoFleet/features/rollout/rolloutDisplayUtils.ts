@@ -1,4 +1,5 @@
 import type {
+  RolloutErrorImpact,
   RolloutEvent,
   RolloutOrder,
   RolloutPerfMetric,
@@ -386,8 +387,6 @@ export function formatRolloutMetric(metric: RolloutPerfMetric, temperatureUnit: 
       const displayValue = temperatureUnit === "F" ? convertCtoF(metric.current) : metric.current;
       return `${getDisplayValue(displayValue)} °${temperatureUnit}`;
     }
-    case "errorRate":
-      return `${getDisplayValue(metric.current)}%`;
   }
 }
 
@@ -422,9 +421,6 @@ function metricDeltaMode(metric: RolloutPerfMetric): NonNullable<RolloutPerfMetr
   if (metric.unit === "temperature") {
     return "absolute";
   }
-  if (metric.unit === "errorRate") {
-    return "percentagePoints";
-  }
   return "percent";
 }
 
@@ -446,8 +442,6 @@ function formatRolloutMetricDelta(metric: RolloutPerfMetric, temperatureUnit: Te
       const unit = metric.unit === "temperature" ? ` °${temperatureUnit}` : "";
       return `${sign}${getDisplayValue(Math.abs(absoluteChange))}${unit}`;
     }
-    case "percentagePoints":
-      return `${sign}${getDisplayValue(Math.abs(rawChange))} pp`;
     case "percent": {
       const percent = metric.baseline === 0 ? 0 : (rawChange / metric.baseline) * 100;
       return `${sign}${Math.abs(percent).toFixed(1)}%`;
@@ -464,4 +458,8 @@ export function rolloutMetricDelta(metric: RolloutPerfMetric, temperatureUnit: T
     intent: rolloutMetricDeltaIntent(metric.unit, change),
     deltaText: formatRolloutMetricDelta(metric, temperatureUnit),
   };
+}
+
+export function rolloutErrorImpactCount(errors: RolloutErrorImpact[] | undefined): number {
+  return errors?.reduce((count, error) => count + error.impactedMiners.length, 0) ?? 0;
 }

@@ -20,7 +20,7 @@ interface RolloutMinersModalProps {
 }
 
 type RolloutMinerColumn =
-  "miner" | "rollout" | "type" | "ipAddress" | "hashrate" | "power" | "efficiency" | "temperature" | "errorRate";
+  "miner" | "rollout" | "type" | "ipAddress" | "hashrate" | "power" | "efficiency" | "temperature" | "errors";
 
 const rolloutMinerColumns: RolloutMinerColumn[] = [
   "miner",
@@ -31,7 +31,7 @@ const rolloutMinerColumns: RolloutMinerColumn[] = [
   "power",
   "efficiency",
   "temperature",
-  "errorRate",
+  "errors",
 ];
 
 function rolloutMinerColTitles(event: RolloutEvent): ColTitles<RolloutMinerColumn> {
@@ -44,7 +44,7 @@ function rolloutMinerColTitles(event: RolloutEvent): ColTitles<RolloutMinerColum
     power: "Power",
     efficiency: "Efficiency",
     temperature: "Temp",
-    errorRate: "Error rate",
+    errors: "Errors",
   };
 }
 
@@ -64,6 +64,19 @@ function TextCell({ value }: { value: string }): ReactElement {
   return (
     <span className="break-words text-text-primary" title={value}>
       {value}
+    </span>
+  );
+}
+
+function ErrorsCell({ metric }: { metric: RolloutMinerTelemetryValue }): ReactElement {
+  const hasErrors = metric.value !== "0" && metric.value !== "Pinned";
+
+  return (
+    <span
+      className={hasErrors ? "break-words text-intent-critical-fill" : "break-words text-text-primary"}
+      title={metric.value}
+    >
+      {metric.value}
     </span>
   );
 }
@@ -136,9 +149,9 @@ function createRolloutMinerColConfig(event: RolloutEvent): ColConfig<RolloutMine
       component: (miner) => <MetricCell metric={miner.temperature} unit="temperature" />,
       width: "w-[112px]",
     },
-    errorRate: {
-      component: (miner) => <MetricCell metric={miner.errorRate} unit="errorRate" />,
-      width: "w-[112px]",
+    errors: {
+      component: (miner) => <ErrorsCell metric={miner.errors} />,
+      width: "w-[96px]",
     },
   };
 }

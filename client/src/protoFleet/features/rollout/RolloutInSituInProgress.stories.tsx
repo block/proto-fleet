@@ -20,6 +20,7 @@ import {
   inProgressRebootEvent,
   rolloutMinerRowsForEvent,
 } from "@/protoFleet/features/rollout/rollout.fixtures";
+import RolloutErrorsModal from "@/protoFleet/features/rollout/RolloutErrorsModal";
 import RolloutMinersModal from "@/protoFleet/features/rollout/RolloutMinersModal";
 import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
 import type { RolloutEvent } from "@/protoFleet/features/rollout/rolloutTypes";
@@ -49,6 +50,7 @@ const noop = () => undefined;
 
 function ViewRolloutStoryModal({ event, onDismiss }: { event: RolloutEvent; onDismiss: () => void }): ReactElement {
   const [minersOpen, setMinersOpen] = useState(false);
+  const [errorsOpen, setErrorsOpen] = useState(false);
 
   return (
     <>
@@ -59,6 +61,7 @@ function ViewRolloutStoryModal({ event, onDismiss }: { event: RolloutEvent; onDi
         onPause={noop}
         onCancelRemaining={noop}
         onViewMiners={() => setMinersOpen(true)}
+        onViewErrors={() => setErrorsOpen(true)}
       />
       <RolloutMinersModal
         open={minersOpen}
@@ -66,6 +69,7 @@ function ViewRolloutStoryModal({ event, onDismiss }: { event: RolloutEvent; onDi
         miners={rolloutMinerRowsForEvent(event)}
         onDismiss={() => setMinersOpen(false)}
       />
+      <RolloutErrorsModal open={errorsOpen} event={event} onDismiss={() => setErrorsOpen(false)} />
     </>
   );
 }
@@ -206,6 +210,7 @@ export const FirmwareSettingsPage: Story = {
 
 function EnergyUiStory(): ReactElement {
   const [minersOpen, setMinersOpen] = useState(false);
+  const [errorsOpen, setErrorsOpen] = useState(false);
   const event = inProgressCurtailmentEvent;
 
   return (
@@ -225,6 +230,7 @@ function EnergyUiStory(): ReactElement {
             onPause={noop}
             onCancelRemaining={noop}
             onViewMiners={() => setMinersOpen(true)}
+            onViewErrors={() => setErrorsOpen(true)}
           />
           <CurtailmentHistory events={mockCurtailmentHistoryEvents} pageSize={5} />
         </section>
@@ -235,6 +241,7 @@ function EnergyUiStory(): ReactElement {
         miners={rolloutMinerRowsForEvent(event)}
         onDismiss={() => setMinersOpen(false)}
       />
+      <RolloutErrorsModal open={errorsOpen} event={event} onDismiss={() => setErrorsOpen(false)} />
     </AppShell>
   );
 }

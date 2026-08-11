@@ -9,6 +9,7 @@ import { releaseChannels } from "@/protoFleet/features/rollout/releaseChannel.fi
 import ReleaseChannelsTable from "@/protoFleet/features/rollout/ReleaseChannelsTable";
 import { rolloutMinerRowsForEvent } from "@/protoFleet/features/rollout/rollout.fixtures";
 import { inScopeTargetCount } from "@/protoFleet/features/rollout/rolloutDisplayUtils";
+import RolloutErrorsModal from "@/protoFleet/features/rollout/RolloutErrorsModal";
 import RolloutMinersModal from "@/protoFleet/features/rollout/RolloutMinersModal";
 import type { RolloutEvent, RolloutPhaseRollup } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useFleetStore } from "@/protoFleet/store";
@@ -65,6 +66,7 @@ export function AppShell({ children }: { children: ReactNode }): ReactElement {
  */
 function InlineRolloutCard({ event }: { event: RolloutEvent }): ReactElement {
   const [minersOpen, setMinersOpen] = useState(false);
+  const [errorsOpen, setErrorsOpen] = useState(false);
   const rolloutMiners = useMemo(() => rolloutMinerRowsForEvent(event), [event]);
 
   return (
@@ -78,6 +80,7 @@ function InlineRolloutCard({ event }: { event: RolloutEvent }): ReactElement {
         onContinueFromPilot={noop}
         onRetryFailed={noop}
         onViewMiners={() => setMinersOpen(true)}
+        onViewErrors={() => setErrorsOpen(true)}
       />
       <RolloutMinersModal
         open={minersOpen}
@@ -85,6 +88,7 @@ function InlineRolloutCard({ event }: { event: RolloutEvent }): ReactElement {
         miners={rolloutMiners}
         onDismiss={() => setMinersOpen(false)}
       />
+      <RolloutErrorsModal open={errorsOpen} event={event} onDismiss={() => setErrorsOpen(false)} />
     </>
   );
 }
