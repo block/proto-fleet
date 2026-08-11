@@ -452,11 +452,12 @@ func TestService_SetRackSlotPosition_RejectsNonMember(t *testing.T) {
 }
 
 func TestService_SetRackSlotPosition_InBoundsMemberSucceeds(t *testing.T) {
-	svc, mockStore, _ := newTestService(t)
+	svc, mockStore, mockActivityStore := newTestServiceWithActivityAssertions(t)
 	ctx := testCtx(t)
 
-	// Arrange: in-bounds cell on a 2×2 rack for an existing member. The
-	// collection label + site are read under the lock, after the write.
+	const siteID int64 = 77
+
+	// Arrange: in-bounds cell on a 2×2 rack for an existing member.
 	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
 		Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
 	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
@@ -465,10 +466,31 @@ func TestService_SetRackSlotPosition_InBoundsMemberSucceeds(t *testing.T) {
 		Return(&pb.RackInfo{Rows: 2, Columns: 2}, nil)
 	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), testCollectionID, testOrgID).
 		Return(map[string]*int64{"device-1": nil}, nil)
-	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), testCollectionID, "device-1", int32(1), int32(1), testOrgID).
-		Return(nil)
-	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
-		Return(&pb.DeviceCollection{Id: testCollectionID, Type: pb.CollectionType_COLLECTION_TYPE_RACK, Label: "R1"}, nil)
+	// Pin the authoritative read AFTER the write: the activity event's label +
+	// site must come from the post-write, under-lock snapshot, so this test
+	// fails if the GetCollection read is moved ahead of the slot write.
+	gomock.InOrder(
+		mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), testCollectionID, "device-1", int32(1), int32(1), testOrgID).
+			Return(nil),
+		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+			Return(&pb.DeviceCollection{
+				Id:        testCollectionID,
+				Type:      pb.CollectionType_COLLECTION_TYPE_RACK,
+				Label:     "R1",
+				Placement: &commonpb.PlacementRefs{Site: &commonpb.ResourceRef{Id: siteID}},
+			}, nil),
+	)
+
+	// The event carries the rack's label + site read under the lock.
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			assert.Equal(t, "set_rack_slot", event.Type)
+			require.NotNil(t, event.ScopeLabel)
+			assert.Equal(t, "R1", *event.ScopeLabel)
+			require.NotNil(t, event.SiteID)
+			assert.Equal(t, siteID, *event.SiteID)
+			return nil
+		})
 
 	// Act
 	resp, err := svc.SetRackSlotPosition(ctx, &pb.SetRackSlotPositionRequest{
