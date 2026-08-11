@@ -1,8 +1,13 @@
 import type { ReactElement } from "react";
 
 import RolloutColumnState from "./RolloutColumnState";
-import { rolloutProcessLabel, rolloutStatusColumnLabel } from "./rolloutDisplayUtils";
-import type { RolloutEvent, RolloutMinerRow, RolloutMinerTelemetryValue } from "./rolloutTypes";
+import {
+  type RolloutMetricDeltaIntent,
+  rolloutMetricDeltaIntent,
+  rolloutProcessLabel,
+  rolloutStatusColumnLabel,
+} from "./rolloutDisplayUtils";
+import type { RolloutEvent, RolloutMetricUnit, RolloutMinerRow, RolloutMinerTelemetryValue } from "./rolloutTypes";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal from "@/shared/components/Modal";
@@ -61,26 +66,36 @@ function TextCell({ value }: { value: string }): ReactElement {
   );
 }
 
-function deltaTextColor(delta: string): string {
-  if (delta.startsWith("+")) {
-    return "text-intent-success-fill";
-  }
+const deltaTextColor: Record<RolloutMetricDeltaIntent, string> = {
+  positive: "text-intent-success-fill",
+  negative: "text-intent-critical-fill",
+  neutral: "text-text-primary-50",
+};
 
-  if (delta.startsWith("-")) {
-    return "text-intent-critical-fill";
+function deltaIntent(unit: RolloutMetricUnit, delta: string): RolloutMetricDeltaIntent {
+  const normalized = delta.trim().toLowerCase();
+  if (normalized === "offline") {
+    return "negative";
   }
-
-  return "text-text-primary-50";
+  if (normalized.startsWith("+")) {
+    return rolloutMetricDeltaIntent(unit, 1);
+  }
+  if (normalized.startsWith("-") || normalized.startsWith("−")) {
+    return rolloutMetricDeltaIntent(unit, -1);
+  }
+  return "neutral";
 }
 
-function MetricCell({ metric }: { metric: RolloutMinerTelemetryValue }): ReactElement {
+function MetricCell({ metric, unit }: { metric: RolloutMinerTelemetryValue; unit: RolloutMetricUnit }): ReactElement {
+  const deltaColor = metric.delta ? deltaTextColor[deltaIntent(unit, metric.delta)] : "";
+
   return (
     <span
       className="flex min-w-0 items-baseline gap-2 text-text-primary"
       title={metric.delta ? `${metric.value} ${metric.delta}` : metric.value}
     >
       <span className="min-w-0 truncate">{metric.value}</span>
-      {metric.delta ? <span className={`shrink-0 ${deltaTextColor(metric.delta)}`}>{metric.delta}</span> : null}
+      {metric.delta ? <span className={`shrink-0 ${deltaColor}`}>{metric.delta}</span> : null}
     </span>
   );
 }
@@ -104,19 +119,19 @@ function createRolloutMinerColConfig(event: RolloutEvent): ColConfig<RolloutMine
       width: "w-36",
     },
     hashrate: {
-      component: (miner) => <MetricCell metric={miner.hashrate} />,
+      component: (miner) => <MetricCell metric={miner.hashrate} unit="hashrate" />,
       width: "w-36",
     },
     power: {
-      component: (miner) => <MetricCell metric={miner.power} />,
+      component: (miner) => <MetricCell metric={miner.power} unit="power" />,
       width: "w-32",
     },
     efficiency: {
-      component: (miner) => <MetricCell metric={miner.efficiency} />,
+      component: (miner) => <MetricCell metric={miner.efficiency} unit="efficiency" />,
       width: "w-36",
     },
     temperature: {
-      component: (miner) => <MetricCell metric={miner.temperature} />,
+      component: (miner) => <MetricCell metric={miner.temperature} unit="temperature" />,
       width: "w-32",
     },
   };

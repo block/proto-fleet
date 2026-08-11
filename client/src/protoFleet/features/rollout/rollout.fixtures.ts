@@ -14,6 +14,7 @@ export const batchedFirmwareConfig: RolloutPlanConfig = {
   maxConcurrentOffline: 50,
   batchSize: 20,
   batchIntervalSec: 60,
+  reviewAfterEachBatch: false,
   scheduleType: "startNow",
 };
 
@@ -33,6 +34,7 @@ export const pilotFirmwareConfig: RolloutPlanConfig = {
   pilotSize: 10,
   batchSize: 25,
   batchIntervalSec: 90,
+  reviewAfterEachBatch: true,
   scheduleType: "scheduleForLater",
   scheduledStartAt: "2026-08-14T20:00:00.000Z",
 };
@@ -45,6 +47,7 @@ export const batchedRebootConfig: RolloutPlanConfig = {
   maxConcurrentOffline: 20,
   batchSize: 10,
   batchIntervalSec: 45,
+  reviewAfterEachBatch: false,
   scheduleType: "startNow",
 };
 
@@ -65,6 +68,7 @@ export const batchedCurtailmentConfig: RolloutPlanConfig = {
   maxConcurrentOffline: 60,
   batchSize: 60,
   batchIntervalSec: 30,
+  reviewAfterEachBatch: false,
   scheduleType: "startNow",
 };
 
@@ -228,9 +232,9 @@ export const inProgressFirmwareEvent: RolloutEvent = {
   totalBatches: 12,
   startedAt: new Date(Date.now() - 372_000).toISOString(),
   estimatedSecondsRemaining: 420,
-  // Cohort holding its pre-rollout performance, the mid-flight deltas are all
-  // small: hashrate/power read a slight red "−", efficiency/temp a slight green
-  // "+". The healthy mid-flight case.
+  // Cohort holding its pre-rollout performance, the mid-flight deltas are small.
+  // Color follows metric outcome: lower power is good; higher efficiency J/TH
+  // and higher temperature are bad.
   performance: {
     metrics: [
       { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 1596 },
