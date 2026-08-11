@@ -445,8 +445,8 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"health",
 		"auth-status",
+		"health",
 		"reset",
 		"role:patroni",
 		"permission:patroni:/service/proto-fleet/:readwrite",
@@ -502,7 +502,7 @@ func TestBootstrapEtcdAuthVerifiesExistingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"health", "auth-status", "verify-policy"}; !slices.Equal(client.calls, want) {
+	if want := []string{"auth-status", "verify-policy"}; !slices.Equal(client.calls, want) {
 		t.Fatalf("bootstrap calls = %v, want %v", client.calls, want)
 	}
 
