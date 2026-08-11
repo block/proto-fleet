@@ -1,10 +1,9 @@
 package deployment
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -126,41 +125,23 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	requireMode(t, filepath.Join(exportDir, publicCAName+bundleChecksumSuffix), 0o644)
 }
 
-func TestReadHostBundleRejectsUnsafeArchiveEntries(t *testing.T) {
-	tests := []struct {
-		name      string
-		entryName string
-		entryType byte
-		contents  []byte
-		wantError string
-	}{
-		{name: "traversal", entryName: "../service-ca.key", entryType: tar.TypeReg, wantError: "unsafe path"},
-		{name: "symlink", entryName: "secrets/service-ca.crt", entryType: tar.TypeSymlink, wantError: "regular file"},
-		{name: "unexpected", entryName: "secrets/operator-notes", entryType: tar.TypeReg, wantError: "unexpected entry"},
-		{name: "oversized", entryName: "secrets/service-ca.crt", entryType: tar.TypeReg, contents: make([]byte, maxBundleFileSize+1), wantError: "too large"},
+func TestReadHostBundleRejectsUnexpectedEntry(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "bundle.json")
+	metadata := bundleMetadata{
+		FormatVersion: bundleFormatVersion, Role: "ha-c", NodeIP: testHostIPs[2],
+		DatabaseAIP: testHostIPs[0], DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2],
+		VirtualIP: testVirtualIP, Version: "v0.2.10", Commit: "abc123",
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Arrange
-			path := filepath.Join(t.TempDir(), "bundle.tar.gz")
-			metadata := bundleMetadata{
-				FormatVersion: bundleFormatVersion, Role: "ha-c", NodeIP: testHostIPs[2],
-				DatabaseAIP: testHostIPs[0], DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2],
-				VirtualIP: testVirtualIP, Version: "v0.2.10", Commit: "abc123",
-			}
-			contents := tt.contents
-			if contents == nil {
-				contents = []byte("bad")
-			}
-			writeTestBundle(t, path, metadata, archiveTestEntry{name: tt.entryName, typeFlag: tt.entryType, contents: contents})
+	writeTestBundle(t, path, metadata, map[string][]byte{"secrets/operator-notes": []byte("bad")})
 
-			// Act
-			_, err := readHostBundle(path)
+	// Act
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+	_, err = decodeHostBundle(contents)
 
-			// Assert
-			require.ErrorContains(t, err, tt.wantError)
-		})
-	}
+	// Assert
+	require.ErrorContains(t, err, "unexpected entry")
 }
 
 func TestInstallHostBundleValidatesIdentityAndRelease(t *testing.T) {
@@ -281,32 +262,17 @@ func TestInstallHostBundleDeletesBundleWhileServiceConverges(t *testing.T) {
 	require.NoFileExists(t, bundlePath+bundleChecksumSuffix)
 }
 
-type archiveTestEntry struct {
-	name     string
-	typeFlag byte
-	contents []byte
-}
-
-func writeTestBundle(t *testing.T, path string, metadata bundleMetadata, entries ...archiveTestEntry) {
+func writeTestBundle(t *testing.T, path string, metadata bundleMetadata, entries map[string][]byte) {
 	t.Helper()
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
-	require.NoError(t, err)
-	gzipWriter := gzip.NewWriter(file)
-	tarWriter := tar.NewWriter(gzipWriter)
 	metadataJSON, err := metadata.marshal()
 	require.NoError(t, err)
-	require.NoError(t, writeTarEntry(tarWriter, bundleMetadataFile, metadataJSON, 0o600))
-	for _, entry := range entries {
-		header := &tar.Header{Name: entry.name, Typeflag: entry.typeFlag, Mode: 0o600, Size: int64(len(entry.contents))}
-		require.NoError(t, tarWriter.WriteHeader(header))
-		if entry.typeFlag == tar.TypeReg {
-			_, err = tarWriter.Write(entry.contents)
-			require.NoError(t, err)
-		}
+	files := map[string][]byte{bundleMetadataFile: metadataJSON}
+	for name, contents := range entries {
+		files[name] = contents
 	}
-	require.NoError(t, tarWriter.Close())
-	require.NoError(t, gzipWriter.Close())
-	require.NoError(t, file.Close())
+	contents, err := json.Marshal(files)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, contents, 0o600))
 }
 
 func testGuidedRelease(t *testing.T, version, commit string) string {

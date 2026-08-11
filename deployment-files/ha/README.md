@@ -81,11 +81,11 @@ For each peer, transfer the release, official checksum, matching host bundle,
 and bundle checksum. For example, for `ha-b`:
 
 ```bash
-VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" proto-fleet-ha-bundles/proto-fleet-ha-ha-b.tar.gz proto-fleet-ha-bundles/proto-fleet-ha-ha-b.tar.gz.sha256 "${HOST}:/var/tmp/"
+VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" proto-fleet-ha-bundles/proto-fleet-ha-ha-b.json proto-fleet-ha-bundles/proto-fleet-ha-ha-b.json.sha256 "${HOST}:/var/tmp/"
 ```
 
 ```bash
-VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; ssh -t "$HOST" "set -eu; umask 077; cd /var/tmp; sha256sum --check 'proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256'; stage=\$(mktemp -d /var/tmp/proto-fleet-ha.XXXXXX); tar -xzf 'proto-fleet-${VERSION}-${ARCH}.tar.gz' -C \"\$stage\"; exec \"\$stage/deployment/ha/fleet-ha\" install /var/tmp/proto-fleet-ha-ha-b.tar.gz"
+VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; ssh -t "$HOST" "set -eu; umask 077; cd /var/tmp; sha256sum --check 'proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256'; stage=\$(mktemp -d /var/tmp/proto-fleet-ha.XXXXXX); tar -xzf 'proto-fleet-${VERSION}-${ARCH}.tar.gz' -C \"\$stage\"; exec \"\$stage/deployment/ha/fleet-ha\" install /var/tmp/proto-fleet-ha-ha-b.json"
 ```
 
 Repeat with `HOST=ha-c` and the `ha-c` bundle. Each installer verifies the

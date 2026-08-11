@@ -1,10 +1,8 @@
 package deployment
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,7 +15,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 
 	"golang.org/x/term"
@@ -29,9 +26,6 @@ const (
 	bundleChecksumSuffix = ".sha256"
 	publicCAName         = "proto-fleet-ha-service-ca.crt"
 	maxBundleSize        = 2 << 20
-	maxBundleContents    = 4 << 20
-	maxBundleFileSize    = 512 << 10
-	maxBundleEntries     = 32
 )
 
 type clusterMetadata struct {
@@ -236,9 +230,6 @@ func makeBundleExportDir(source string) (string, error) {
 }
 
 func installPreparedHost(ctx context.Context, source, bundlePath string, release clusterMetadata, scanner *bufio.Scanner, confirm bool, deps guidedInstallDependencies) error {
-	if err := verifyBundleChecksum(bundlePath); err != nil {
-		return err
-	}
 	bundle, err := readHostBundle(bundlePath)
 	if err != nil {
 		return err
@@ -393,58 +384,17 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 }
 
 func readHostBundle(path string) (preparedHostBundle, error) {
-	info, err := secureFileInfo(path, 0o600)
+	contents, err := verifyBundleChecksum(path)
 	if err != nil {
-		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
+		return preparedHostBundle{}, err
 	}
-	if err := requireCurrentOwner(info, "host bundle"); err != nil {
-		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
-	}
-	if info.Size() > maxBundleSize {
-		return preparedHostBundle{}, errors.New("host bundle rejected: archive is too large")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return preparedHostBundle{}, fmt.Errorf("open host bundle: %w", err)
-	}
-	defer file.Close()
-	gzipReader, err := gzip.NewReader(io.LimitReader(file, maxBundleSize+1))
-	if err != nil {
-		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
-	}
-	defer gzipReader.Close()
-	tarReader := tar.NewReader(gzipReader)
+	return decodeHostBundle(contents)
+}
+
+func decodeHostBundle(contents []byte) (preparedHostBundle, error) {
 	files := make(map[string][]byte)
-	total := int64(0)
-	for count := 0; ; count++ {
-		header, err := tarReader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: read archive: %w", err)
-		}
-		if count >= maxBundleEntries {
-			return preparedHostBundle{}, errors.New("host bundle rejected: too many entries")
-		}
-		if filepath.IsAbs(header.Name) || filepath.Clean(header.Name) != header.Name || header.Name == "." || strings.Contains(header.Name, "\\") || strings.HasPrefix(header.Name, "../") {
-			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: unsafe path %q", header.Name)
-		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
-			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %s must be a regular file", header.Name)
-		}
-		if header.Size < 0 || header.Size > maxBundleFileSize || total+header.Size > maxBundleContents {
-			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: entry %s is too large", header.Name)
-		}
-		if _, duplicate := files[header.Name]; duplicate {
-			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: duplicate entry %s", header.Name)
-		}
-		contents, err := io.ReadAll(io.LimitReader(tarReader, header.Size+1))
-		if err != nil || int64(len(contents)) != header.Size {
-			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: read entry %s", header.Name)
-		}
-		files[header.Name] = contents
-		total += header.Size
+	if err := json.Unmarshal(contents, &files); err != nil {
+		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: invalid JSON: %w", err)
 	}
 	metadataJSON, ok := files[bundleMetadataFile]
 	if !ok {
@@ -523,100 +473,64 @@ func expectedHostBundleEntries(role string) map[string]struct{} {
 }
 
 func writeBundleWithChecksum(path string, files map[string][]byte) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	contents, err := json.Marshal(files)
 	if err != nil {
-		return fmt.Errorf("create protected bundle %s: %w", path, err)
+		return fmt.Errorf("encode host bundle: %w", err)
 	}
-	digest := sha256.New()
-	gzipWriter := gzip.NewWriter(io.MultiWriter(file, digest))
-	tarWriter := tar.NewWriter(gzipWriter)
-	names := make([]string, 0, len(files))
-	for name := range files {
-		names = append(names, name)
+	if err := writeFile(path, contents, 0o600); err != nil {
+		return err
 	}
-	sort.Strings(names)
-	for _, name := range names {
-		if err := writeTarEntry(tarWriter, name, files[name], secretFileMode(filepath.Base(name))); err != nil {
-			_ = file.Close()
-			return err
-		}
-	}
-	if err := tarWriter.Close(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("finish bundle archive: %w", err)
-	}
-	if err := gzipWriter.Close(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("compress bundle archive: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close bundle archive: %w", err)
-	}
-	checksum := fmt.Sprintf("%x  %s\n", digest.Sum(nil), filepath.Base(path))
+	digest := sha256.Sum256(contents)
+	checksum := fmt.Sprintf("%x  %s\n", digest, filepath.Base(path))
 	if err := writeFile(path+bundleChecksumSuffix, []byte(checksum), 0o600); err != nil {
 		return err
 	}
 	return nil
 }
 
-func writeTarEntry(writer *tar.Writer, name string, contents []byte, mode os.FileMode) error {
-	header := &tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: int64(mode.Perm()), Size: int64(len(contents))}
-	if err := writer.WriteHeader(header); err != nil {
-		return fmt.Errorf("write bundle entry %s: %w", name, err)
-	}
-	if _, err := writer.Write(contents); err != nil {
-		return fmt.Errorf("write bundle contents %s: %w", name, err)
-	}
-	return nil
-}
-
-func verifyBundleChecksum(path string) error {
+func verifyBundleChecksum(path string) ([]byte, error) {
 	checksumPath := path + bundleChecksumSuffix
 	info, err := secureFileInfo(checksumPath, 0o600)
 	if err != nil {
-		return fmt.Errorf("host bundle checksum rejected: %w", err)
+		return nil, fmt.Errorf("host bundle checksum rejected: %w", err)
 	}
 	if err := requireCurrentOwner(info, "host bundle checksum"); err != nil {
-		return fmt.Errorf("host bundle checksum rejected: %w", err)
+		return nil, fmt.Errorf("host bundle checksum rejected: %w", err)
 	}
 	if info.Size() > 1024 {
-		return errors.New("host bundle checksum file is too large")
+		return nil, errors.New("host bundle checksum file is too large")
 	}
 	checksum, err := os.ReadFile(checksumPath)
 	if err != nil {
-		return fmt.Errorf("read host bundle checksum: %w", err)
+		return nil, fmt.Errorf("read host bundle checksum: %w", err)
 	}
 	fields := strings.Fields(string(checksum))
 	if len(fields) != 2 || fields[1] != filepath.Base(path) || len(fields[0]) != sha256.Size*2 {
-		return errors.New("host bundle checksum file is malformed")
+		return nil, errors.New("host bundle checksum file is malformed")
 	}
 	want, err := hex.DecodeString(fields[0])
 	if err != nil {
-		return errors.New("host bundle checksum file is malformed")
+		return nil, errors.New("host bundle checksum file is malformed")
 	}
 	bundleInfo, err := secureFileInfo(path, 0o600)
 	if err != nil {
-		return fmt.Errorf("host bundle rejected: %w", err)
+		return nil, fmt.Errorf("host bundle rejected: %w", err)
 	}
 	if err := requireCurrentOwner(bundleInfo, "host bundle"); err != nil {
-		return fmt.Errorf("host bundle rejected: %w", err)
+		return nil, fmt.Errorf("host bundle rejected: %w", err)
 	}
 	if bundleInfo.Size() > maxBundleSize {
-		return errors.New("host bundle rejected: archive is too large")
+		return nil, errors.New("host bundle rejected: document is too large")
 	}
-	bundle, err := os.Open(path)
+	bundle, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("open host bundle: %w", err)
+		return nil, fmt.Errorf("read host bundle: %w", err)
 	}
-	defer bundle.Close()
-	digest := sha256.New()
-	if _, err := io.Copy(digest, bundle); err != nil {
-		return fmt.Errorf("read host bundle: %w", err)
+	digest := sha256.Sum256(bundle)
+	if !bytes.Equal(digest[:], want) {
+		return nil, errors.New("host bundle checksum does not match")
 	}
-	if !strings.EqualFold(hex.EncodeToString(digest.Sum(nil)), hex.EncodeToString(want)) {
-		return errors.New("host bundle checksum does not match")
-	}
-	return nil
+	return bundle, nil
 }
 
 func readReleaseIdentity(path string) (clusterMetadata, error) {
@@ -753,11 +667,11 @@ func removeCopiedExports(exportDir string) error {
 }
 
 func hostBundleName(role string) string {
-	return "proto-fleet-ha-" + role + ".tar.gz"
+	return "proto-fleet-ha-" + role + ".json"
 }
 
 func secretFileMode(name string) os.FileMode {
-	if name == bundleMetadataFile || strings.HasSuffix(name, ".crt") || strings.HasSuffix(name, ".pub") {
+	if strings.HasSuffix(name, ".crt") || strings.HasSuffix(name, ".pub") {
 		return 0o644
 	}
 	return 0o600
