@@ -658,11 +658,11 @@ func verifyInstallVirtualIP(ctx context.Context, config NodeConfig) error {
 	if err == nil {
 		return nil
 	}
+	if config.NodeName == "ha-a" {
+		return fmt.Errorf("HA virtual IP is already owned or cannot be checked: %s", commandError(output, err))
+	}
 
 	peerIP := config.DatabaseAIP
-	if config.NodeName == "ha-a" {
-		peerIP = config.DatabaseBIP
-	}
 	vipMAC, vipErr := neighborMAC(ctx, config.NetworkInterface, config.VirtualIP)
 	peerMAC, peerErr := neighborMAC(ctx, config.NetworkInterface, peerIP)
 	if vipErr == nil && peerErr == nil && vipMAC == peerMAC {
