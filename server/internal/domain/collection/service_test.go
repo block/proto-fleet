@@ -11,6 +11,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -2417,6 +2418,157 @@ func TestService_UpdateCollection_RackSettingsPersistsPlacementAndCascades(t *te
 	require.NoError(t, err)
 	assert.Equal(t, "Floor 2", resp.Collection.GetRackInfo().Zone)
 	assert.Equal(t, building, *resp.Collection.GetRackInfo().BuildingId)
+	_ = mockSiteStore
+}
+
+// TestVerifyAuthorizedPlacement covers the fail-closed check that binds a
+// placement write to the sites the handler authorized on unlocked reads.
+func TestVerifyAuthorizedPlacement(t *testing.T) {
+	siteA, siteB := int64(1), int64(2)
+
+	t.Run("no authorized placement in context is a no-op (trusted caller)", func(t *testing.T) {
+		require.NoError(t, verifyAuthorizedPlacement(context.Background(), &siteA, &siteB))
+	})
+
+	t.Run("locked sites match authorized sites", func(t *testing.T) {
+		ctx := authz.WithAuthorizedPlacement(context.Background(), authz.AuthorizedPlacement{CurrentSiteID: &siteA, TargetSiteID: &siteB})
+		require.NoError(t, verifyAuthorizedPlacement(ctx, &siteA, &siteB))
+	})
+
+	t.Run("target drifted since authorization is rejected", func(t *testing.T) {
+		ctx := authz.WithAuthorizedPlacement(context.Background(), authz.AuthorizedPlacement{CurrentSiteID: &siteA, TargetSiteID: &siteB})
+		driftedTarget := int64(9)
+		err := verifyAuthorizedPlacement(ctx, &siteA, &driftedTarget)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	})
+
+	t.Run("source drifted since authorization is rejected", func(t *testing.T) {
+		ctx := authz.WithAuthorizedPlacement(context.Background(), authz.AuthorizedPlacement{CurrentSiteID: &siteA, TargetSiteID: &siteB})
+		driftedSource := int64(9)
+		err := verifyAuthorizedPlacement(ctx, &driftedSource, &siteB)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	})
+}
+
+// TestService_UpdateCollection_RejectsPlacementDriftUnderLock proves the wiring:
+// when the site resolved under the lock differs from the site the handler
+// authorized (a building moved sites in between), the update path rejects
+// before any write — closing the authorization TOCTOU.
+func TestService_UpdateCollection_RejectsPlacementDriftUnderLock(t *testing.T) {
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	})
+
+	collectionID := int64(43)
+	lockedSite := int64(7)
+	building := int64(70)
+	// The handler authorized against site 9 (what building 70 resolved to at
+	// authorization time); under the lock building 70 now resolves to site 7.
+	authorizedTarget := int64(9)
+	ctx := authz.WithAuthorizedPlacement(testCtx(t), authz.AuthorizedPlacement{TargetSiteID: &authorizedTarget})
+
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building).Return(&lockedSite, nil).Times(2)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, lockedSite).Return(nil)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, building).Return(nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	// No UpdateRackInfo / UpdateRackPlacement / UpdateCollection: the drift check
+	// aborts before any write.
+
+	label := "Rack"
+	_, err := svc.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		CollectionId: collectionID,
+		Label:        &label,
+		TypeDetails: &pb.UpdateCollectionRequest_RackInfo{
+			RackInfo: &pb.RackInfo{
+				Rows: 4, Columns: 8,
+				OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+				BuildingId:  &building,
+			},
+		},
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	_ = mockSiteStore
+}
+
+// TestService_CreateCollection_RejectsPlacementDriftUnderLock proves the create
+// path binds the destination to the handler's authorization the same way the
+// update path does: when a building moves sites between the handler's unlocked
+// resolution and the locked write, the create aborts before any write.
+func TestService_CreateCollection_RejectsPlacementDriftUnderLock(t *testing.T) {
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	})
+
+	lockedSite := int64(7)
+	building := int64(70)
+	// New rack (no current site); handler authorized target site 9, but under
+	// the lock building 70 now resolves to site 7.
+	authorizedTarget := int64(9)
+	ctx := authz.WithAuthorizedPlacement(testCtx(t), authz.AuthorizedPlacement{TargetSiteID: &authorizedTarget})
+
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building).Return(&lockedSite, nil).Times(2)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, lockedSite).Return(nil)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, building).Return(nil)
+	// No CreateCollection / CreateRackExtension: the drift check aborts first.
+
+	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
+		Type:  pb.CollectionType_COLLECTION_TYPE_RACK,
+		Label: "Rack",
+		TypeDetails: &pb.CreateCollectionRequest_RackInfo{
+			RackInfo: &pb.RackInfo{
+				Rows: 4, Columns: 8,
+				OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+				BuildingId:  &building,
+			},
+		},
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+	_ = mockSiteStore
+}
+
+// TestService_SaveRack_CreateRejectsPlacementDriftUnderLock covers the SaveRack
+// create branch (device_set_id unset): like the other create/update paths it
+// binds the destination to the handler's authorization and aborts before any
+// write when the building moved sites between authorization and the lock.
+func TestService_SaveRack_CreateRejectsPlacementDriftUnderLock(t *testing.T) {
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	})
+
+	lockedSite := int64(7)
+	building := int64(70)
+	authorizedTarget := int64(9) // what building 70 resolved to at authorization time
+	ctx := authz.WithAuthorizedPlacement(testCtx(t), authz.AuthorizedPlacement{TargetSiteID: &authorizedTarget})
+
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building).Return(&lockedSite, nil).Times(2)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, lockedSite).Return(nil)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, building).Return(nil)
+	// No CreateCollection / CreateRackExtension: the drift check aborts first.
+
+	_, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		Label: "Rack",
+		RackInfo: &pb.RackInfo{
+			Rows: 4, Columns: 8,
+			OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			BuildingId:  &building,
+		},
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{},
+			},
+		},
+	}, false)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
 	_ = mockSiteStore
 }
 
