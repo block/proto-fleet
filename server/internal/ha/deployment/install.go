@@ -82,7 +82,6 @@ type installDependencies struct {
 	validateHost func(context.Context, string) (NodeConfig, error)
 	run          func(context.Context, string, ...string) ([]byte, error)
 	runInput     func(context.Context, string, string, ...string) error
-	runDir       func(context.Context, string, string, ...string) ([]byte, error)
 	sourceRoot   func() (string, error)
 	verifyVIP    func(context.Context, NodeConfig) error
 	sleep        func(time.Duration)
@@ -92,7 +91,7 @@ func defaultInstallDependencies() installDependencies {
 	return installDependencies{
 		goos: runtime.GOOS, goarch: runtime.GOARCH, pageSize: os.Getpagesize(),
 		readFile: os.ReadFile, lstat: os.Lstat, lookPath: exec.LookPath, requireEmpty: requireEmptyDir, validateHost: ValidateHost,
-		run: runCommand, runInput: runWithInput, runDir: runCommandInDir,
+		run: runCommand, runInput: runWithInput,
 		sourceRoot: releaseRoot, verifyVIP: verifyInstallVirtualIP, sleep: time.Sleep,
 	}
 }
@@ -188,7 +187,7 @@ func inspectInstallBase(ctx context.Context, source string, deps installDependen
 	if output, err := deps.run(ctx, "systemctl", "show", "--property=Version", "--value"); err != nil || strings.TrimSpace(string(output)) == "" {
 		return installPlatform{}, installedDependencies{}, fmt.Errorf("HA install requires a running systemd manager: %s", commandError(output, err))
 	}
-	if err := validateRelease(ctx, source, deps); err != nil {
+	if err := validateRelease(source, deps.readFile); err != nil {
 		return installPlatform{}, installedDependencies{}, err
 	}
 	installed, err := inspectDedicatedHost(ctx, deps)
@@ -271,28 +270,9 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 		if strings.TrimSpace(string(output)) != "" {
 			return installedDependencies{}, errors.New("existing Docker installation has existing containers; remove them before installing Proto Fleet HA")
 		}
-	} else {
-		for _, path := range []string{"/var/lib/docker", "/var/lib/containerd", "/lib/systemd/system/docker.service"} {
-			if _, statErr := deps.lstat(path); statErr == nil {
-				return installedDependencies{}, fmt.Errorf("partial Docker installation found at %s; repair or remove it before installing Proto Fleet HA", path)
-			} else if !errors.Is(statErr, os.ErrNotExist) {
-				return installedDependencies{}, fmt.Errorf("inspect %s: %w", path, statErr)
-			}
-		}
 	}
 
-	keepalivedInstalled := false
 	if _, err := deps.lookPath("keepalived"); err == nil {
-		keepalivedInstalled = true
-	} else if info, statErr := deps.lstat("/usr/sbin/keepalived"); statErr == nil {
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-			return installedDependencies{}, errors.New("partial keepalived installation found at /usr/sbin/keepalived; repair or remove it before installing Proto Fleet HA")
-		}
-		keepalivedInstalled = true
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return installedDependencies{}, fmt.Errorf("inspect /usr/sbin/keepalived: %w", statErr)
-	}
-	if keepalivedInstalled {
 		installed.keepalived = true
 		if state, err := systemdUnitState(ctx, deps, "is-active", "keepalived.service"); state != "inactive" {
 			if err != nil {
@@ -300,16 +280,6 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 			}
 			return installedDependencies{}, fmt.Errorf("keepalived must be inactive before HA installation; found %s", state)
 		}
-		if state, err := systemdUnitState(ctx, deps, "is-enabled", "keepalived.service"); state != "disabled" {
-			if err != nil {
-				return installedDependencies{}, fmt.Errorf("inspect keepalived enabled state: %w", err)
-			}
-			return installedDependencies{}, fmt.Errorf("keepalived must be disabled before HA installation; found %s", state)
-		}
-	} else if _, statErr := deps.lstat("/lib/systemd/system/keepalived.service"); statErr == nil {
-		return installedDependencies{}, errors.New("partial keepalived installation found; repair or remove it before installing Proto Fleet HA")
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return installedDependencies{}, fmt.Errorf("inspect keepalived package state: %w", statErr)
 	}
 	return installed, nil
 }
@@ -407,15 +377,14 @@ func parseOSRelease(contents string) map[string]string {
 	return values
 }
 
-func validateRelease(ctx context.Context, source string, deps installDependencies) error {
+func validateRelease(source string, readFile func(string) ([]byte, error)) error {
 	required := []string{
-		"deployment-manifest.sha256", "version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/timescaledb.tar.gz",
+		"version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/timescaledb.tar.gz",
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
-		"client/Dockerfile", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
-		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl",
-		"ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl", "ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf",
-		"ha/proto-fleet-ha-firewall.service", "ha/nftables-systemd.conf", "ha/nftables-reload.conf", "ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
-		"client/nginx.https.conf",
+		"client/Dockerfile", "client/nginx.https.conf", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
+		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl", "ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl",
+		"ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf", "ha/proto-fleet-ha-firewall.service", "ha/nftables-systemd.conf", "ha/nftables-reload.conf",
+		"ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
 	}
 	for _, name := range required {
 		info, err := os.Lstat(filepath.Join(source, name))
@@ -423,87 +392,19 @@ func validateRelease(ctx context.Context, source string, deps installDependencie
 			return fmt.Errorf("release is missing %s", name)
 		}
 	}
+	if _, err := haDatabaseImage(source, readFile); err != nil {
+		return err
+	}
 	assets, err := os.ReadDir(filepath.Join(source, "client", "protoFleet", "assets"))
-	hasBuiltAsset := false
+	if err != nil {
+		return fmt.Errorf("read built Proto Fleet client assets: %w", err)
+	}
 	for _, asset := range assets {
-		hasBuiltAsset = hasBuiltAsset || asset.Type().IsRegular()
-	}
-	if err != nil || !hasBuiltAsset {
-		return errors.New("release is missing built Proto Fleet client assets")
-	}
-	if err := validateReleaseTree(source); err != nil {
-		return err
-	}
-	output, err := deps.runDir(ctx, source, "sha256sum", "--check", "deployment-manifest.sha256")
-	if err != nil {
-		return fmt.Errorf("verify release manifest: %s", commandError(output, err))
-	}
-	if _, err := haDatabaseImage(source, deps.readFile); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validateReleaseTree(source string) error {
-	manifest, err := os.ReadFile(filepath.Join(source, "deployment-manifest.sha256"))
-	if err != nil {
-		return fmt.Errorf("read release manifest: %w", err)
-	}
-	expected := make(map[string]struct{})
-	for line := range strings.SplitSeq(strings.TrimSpace(string(manifest)), "\n") {
-		if len(line) < 67 || line[64:66] != "  " {
-			return errors.New("release manifest contains an invalid entry")
-		}
-		digest, name := line[:64], line[66:]
-		relative := strings.TrimPrefix(name, "./")
-		if strings.Trim(digest, "0123456789abcdefABCDEF") != "" || relative == name || relative == "." ||
-			filepath.IsAbs(relative) || filepath.Clean(relative) != relative || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-			return errors.New("release manifest contains an invalid entry")
-		}
-		if _, duplicate := expected[name]; duplicate {
-			return fmt.Errorf("release manifest contains duplicate path %s", name)
-		}
-		expected[name] = struct{}{}
-	}
-	actual := make(map[string]struct{})
-	err = filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == source || entry.IsDir() {
+		if asset.Type().IsRegular() {
 			return nil
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return fmt.Errorf("inspect %s: %w", path, err)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("release contains unsupported entry %s", path)
-		}
-		relative, err := filepath.Rel(source, path)
-		if err != nil {
-			return fmt.Errorf("resolve release path %s: %w", path, err)
-		}
-		name := "./" + filepath.ToSlash(relative)
-		if name != "./deployment-manifest.sha256" {
-			actual[name] = struct{}{}
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("validate release tree: %w", err)
 	}
-	for name := range expected {
-		if _, ok := actual[name]; !ok {
-			return fmt.Errorf("release manifest references missing file %s", name)
-		}
-	}
-	for name := range actual {
-		if _, ok := expected[name]; !ok {
-			return fmt.Errorf("release contains unlisted file %s", name)
-		}
-	}
-	return nil
+	return errors.New("release is missing built Proto Fleet client assets")
 }
 
 func installARPing(ctx context.Context, deps installDependencies) error {
@@ -568,10 +469,8 @@ func installPackages(ctx context.Context, platform installPlatform, installed in
 			return fmt.Errorf("restore HA service startup after package installation: %s", commandError(output, err))
 		}
 	}
-	if !installed.keepalived {
-		if output, err := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "keepalived.service"); err != nil {
-			return fmt.Errorf("disable keepalived until the database role is ready: %s", commandError(output, err))
-		}
+	if output, err := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "keepalived.service"); err != nil {
+		return fmt.Errorf("disable keepalived until the database role is ready: %s", commandError(output, err))
 	}
 	return nil
 }
@@ -670,9 +569,6 @@ func snapshotRelease(ctx context.Context, source string, deps installDependencie
 		if output, err := deps.run(ctx, "sudo", args...); err != nil {
 			return fmt.Errorf("install HA release: %s", commandError(output, err))
 		}
-	}
-	if output, err := deps.runDir(ctx, installRoot, "sha256sum", "--check", "deployment-manifest.sha256"); err != nil {
-		return fmt.Errorf("verify installed HA release snapshot: %s", commandError(output, err))
 	}
 	return nil
 }
@@ -967,14 +863,4 @@ func releaseRoot() (string, error) {
 		return "", errors.New("fleet-ha install must run from a packaged release")
 	}
 	return root, nil
-}
-
-func runCommandInDir(ctx context.Context, dir, name string, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	command.Dir = dir
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return output, fmt.Errorf("run %s: %w", name, err)
-	}
-	return output, nil
 }

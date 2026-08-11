@@ -115,13 +115,13 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	}
 	for _, name := range []string{hostBundleName("ha-a"), hostBundleName("ha-b"), hostBundleName("ha-c")} {
 		requireMode(t, filepath.Join(exportDir, name), 0o600)
-		requireMode(t, filepath.Join(exportDir, name+bundleChecksumSuffix), 0o600)
+		require.NoFileExists(t, filepath.Join(exportDir, name+".sha256"))
 	}
 	publicCA, err := os.ReadFile(filepath.Join(exportDir, publicCAName))
 	require.NoError(t, err)
 	require.Equal(t, serviceCA, publicCA)
 	requireMode(t, filepath.Join(exportDir, publicCAName), 0o644)
-	requireMode(t, filepath.Join(exportDir, publicCAName+bundleChecksumSuffix), 0o644)
+	require.NoFileExists(t, filepath.Join(exportDir, publicCAName+".sha256"))
 }
 
 func TestReadHostBundleRejectsUnexpectedEntry(t *testing.T) {
