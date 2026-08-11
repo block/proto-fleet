@@ -147,8 +147,10 @@ device-list, and mixed records. New topology-only or composite records can
 continue to persist with the existing `mixed` scope type plus the richer JSON
 object, avoiding a migration and new database scope-type values. For response
 profiles, the same JSON object should also carry an authorization envelope
-(`authorized_site_ids` plus an `org_wide_authorized` flag) captured when the
-profile is created or updated.
+with separate miner-scope and facility-fan site coverage captured when the
+profile is created or updated. The fan dimension must preserve the existing
+requirement for both `site:read` and `curtailment:manage`; miner coverage
+continues to require `curtailment:manage`.
 Persist the same envelope on an event when all-paired topology reconciliation
 is enabled; normal frozen-target events continue to rely on authorization at
 Preview/Start plus their concrete target rows.
@@ -291,9 +293,10 @@ with the proto source.
 
 - Add a single server-side scope-resolution result that reports:
   - validated selector IDs and types,
-  - the covered site IDs,
+  - the miner-covered site IDs,
   - whether any selected resource/member is unassigned,
-  - the resolved current device identifiers.
+  - the resolved current device identifiers,
+  - separately resolved facility-fan site IDs and unassigned status.
 - Reuse strict current-topology resolution for Preview, Start,
   response-profile Create/Update, profile execution, and automation-rule
   profile checks. Require `curtailment:manage` at every covered site; require
@@ -309,24 +312,28 @@ with the proto source.
   moved device; it must never admit a device outside the caller's or event's
   authorization envelope.
 - On response-profile Create/Update, persist the resolved authorization
-  envelope in the existing `scope_json`: exact covered site IDs for narrowed
-  authorization, or `org_wide_authorized=true` when org-wide permission was
-  required and granted.
+  envelope in the existing `scope_json`: exact miner-covered site IDs, exact
+  facility-fan site IDs, and separate org-wide authorization flags for either
+  dimension when site coverage is incomplete or unassigned. Preserve the
+  current `site:read` plus `curtailment:manage` checks for every fan site rather
+  than treating miner-scope authorization as permission to control fans.
 - Backfill existing API-created profiles only where the original authorization
   envelope is provable from persisted scope: whole-org scope becomes
-  `org_wide_authorized=true`, and site-only scope retains its exact site IDs.
-  Profiles containing explicit miners or any otherwise ambiguous coverage are
-  marked `reauthorization_required` until an operator with current authority
-  reviews and resaves them. Automation must reject a profile with a missing or
-  unproven envelope; it must never derive authority from a miner's current site
-  at execution time. Surface this state in profile Get/List so it can be fixed
-  or deleted.
+  org-wide miner authorization, and site-only scope with no facility fans
+  retains its exact miner site IDs. Profiles containing explicit miners,
+  facility fans without persisted site coverage, or any otherwise ambiguous
+  coverage are marked `reauthorization_required` until an operator with current
+  authority reviews and resaves them. Automation must reject a profile with a
+  missing or unproven envelope; it must never derive authority from a miner's
+  or fan's current site at execution time. Surface this state in profile
+  Get/List so it can be fixed or deleted.
 - Before automation execution, resolve current topology coverage again and
-  require it to remain inside the stored authorization envelope. A rack or
-  building moved to another site, a group gaining an out-of-envelope member,
+  resolve current facility-fan sites, and require both dimensions to remain
+  inside the stored authorization envelope. A rack or building moved to
+  another site, a group gaining an out-of-envelope member, a fan moving sites,
   or newly unassigned membership must fail with a clear FailedPrecondition
-  instead of silently broadening the operation. Org-wide-authorized profiles
-  may follow current membership across sites.
+  instead of silently broadening the operation. A dimension with proven
+  org-wide authorization may follow current membership across sites.
 - When Start enables all-paired topology reconciliation, stamp the applicable
   authorization envelope onto the event. Each reconciliation pass must compare
   current topology coverage with that envelope before admitting targets.
@@ -337,16 +344,18 @@ with the proto source.
   sites.
 - Do not require current topology resolution for response-profile Get/List or
   Delete. Authorize those operations against the profile's persisted
-  authorization envelope and hydrate its stored typed IDs even when a target
-  was deleted or moved. Surface unresolved targets as unavailable/stale so an
-  authorized operator can inspect, edit, or delete the profile; Create/Update
-  and every execution path still perform strict current-topology validation,
+  miner and facility-fan envelope dimensions, including `site:read` on fan
+  sites, and hydrate stored typed IDs even when a target was deleted or moved.
+  Surface unresolved targets as unavailable/stale so an authorized operator
+  can inspect, edit, or delete the profile; Create/Update and every execution
+  path still perform strict current-topology and current-fan-site validation,
   so a stale ID must be removed or replaced before resave and can never execute.
 - When a profile has a missing or unproven authorization envelope, require
-  org-wide `curtailment:manage` for Get/List/Delete and reauthorization. Do not
-  fall back to current topology or current miner locations to grant access.
-  Site-scoped operators do not see the profile until an org-wide operator
-  establishes a proven envelope or deletes it.
+  org-wide `curtailment:manage` for Get/List/Delete and reauthorization, plus
+  org-wide `site:read` when it contains facility fans. Do not fall back to
+  current topology, miner locations, or fan locations to grant access.
+  Site-scoped operators do not see the profile until an org-wide operator with
+  the required permissions establishes a proven envelope or deletes it.
 
 ### 6. Cover manual and automated execution
 
@@ -408,6 +417,10 @@ Backend unit/store/integration coverage:
   sites before reauthorization, org-wide-only Get/List/Delete access while the
   envelope is missing or unproven, site-scoped filtering, and automation
   failing closed before reauthorization.
+- Facility-fan authorization tests for a fan outside the miner scope, fan site
+  movement, unassigned/stale fans, `site:read` without `curtailment:manage` and
+  vice versa, CRUD/list filtering against persisted fan-site coverage, and
+  automation failing when current fan coverage exceeds its envelope.
 - Empty/unknown-scope tests proving Preview, Start, profile save/execution, and
   automation never infer whole organization; cover an intentional
   infrastructure-only plan separately.
@@ -462,8 +475,11 @@ developer approval.
   unresolved target as stale, and fails strict resave or execution until fixed.
 - Existing profiles receive a provable whole-org/site authorization envelope
   or are marked as requiring operator reauthorization. Automation cannot run a
-  profile with a missing or unproven envelope, and only an org-wide manager can
-  view, delete, or reauthorize it.
+  profile with a missing or unproven envelope, and only an operator with the
+  required org-wide permissions can view, delete, or reauthorize it.
+- Response-profile envelopes independently cover miner and facility-fan sites;
+  profile CRUD and execution preserve both `site:read` and
+  `curtailment:manage` requirements for every selected fan site.
 - Whole organization is always explicit. Empty, unknown, or unsupported miner
   scope never widens to whole-org targeting.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
