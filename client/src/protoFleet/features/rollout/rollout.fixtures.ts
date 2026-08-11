@@ -1,4 +1,5 @@
 import type {
+  RolloutErrorImpact,
   RolloutEvent,
   RolloutMinerRow,
   RolloutPlanConfig,
@@ -72,7 +73,7 @@ export const batchedCurtailmentConfig: RolloutPlanConfig = {
   scheduleType: "startNow",
 };
 
-type RolloutMinerIdentity = Omit<RolloutMinerRow, "phase">;
+type RolloutMinerIdentity = Omit<RolloutMinerRow, "phase" | "errors">;
 
 const rolloutMinerIdentities: RolloutMinerIdentity[] = [
   {
@@ -84,7 +85,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.46 kW", delta: "-0.2%" },
     efficiency: { value: "17.4 J/TH", delta: "+0.1%" },
     temperature: { value: "62.4 C", delta: "+0.4 C" },
-    errorRate: { value: "0.8%", delta: "+0.1 pp" },
   },
   {
     id: "miner-b03-02",
@@ -95,7 +95,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.50 kW", delta: "+0.1%" },
     efficiency: { value: "17.4 J/TH", delta: "+0.1%" },
     temperature: { value: "63.0 C", delta: "+0.6 C" },
-    errorRate: { value: "0.4%", delta: "-0.2 pp" },
   },
   {
     id: "miner-b03-03",
@@ -106,7 +105,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.45 kW", delta: "-0.3%" },
     efficiency: { value: "17.5 J/TH", delta: "+0.2%" },
     temperature: { value: "64.1 C", delta: "+1.0 C" },
-    errorRate: { value: "2.2%", delta: "+1.4 pp" },
   },
   {
     id: "miner-b04-01",
@@ -117,7 +115,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.70 kW", delta: "+0.1%" },
     efficiency: { value: "16.2 J/TH", delta: "+0.1%" },
     temperature: { value: "61.8 C", delta: "+0.2 C" },
-    errorRate: { value: "0.3%", delta: "0 pp" },
   },
   {
     id: "miner-b04-02",
@@ -128,7 +125,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.69 kW", delta: "-0.1%" },
     efficiency: { value: "16.3 J/TH", delta: "+0.2%" },
     temperature: { value: "62.6 C", delta: "+0.7 C" },
-    errorRate: { value: "1.1%", delta: "+0.6 pp" },
   },
   {
     id: "miner-b04-03",
@@ -139,7 +135,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "0.14 kW" },
     efficiency: { value: "Offline" },
     temperature: { value: "42.0 C" },
-    errorRate: { value: "No response", delta: "Offline" },
   },
   {
     id: "miner-b05-01",
@@ -150,7 +145,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.51 kW", delta: "-0.2%" },
     efficiency: { value: "18.7 J/TH", delta: "+0.4%" },
     temperature: { value: "65.5 C", delta: "+1.5 C" },
-    errorRate: { value: "2.8%", delta: "+1.7 pp" },
   },
   {
     id: "miner-b05-02",
@@ -161,7 +155,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.52 kW", delta: "+0.1%" },
     efficiency: { value: "18.5 J/TH", delta: "+0.3%" },
     temperature: { value: "64.7 C", delta: "+0.9 C" },
-    errorRate: { value: "1.4%", delta: "+0.8 pp" },
   },
   {
     id: "miner-b05-03",
@@ -172,7 +165,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.49 kW", delta: "-0.3%" },
     efficiency: { value: "18.7 J/TH", delta: "+0.5%" },
     temperature: { value: "66.2 C", delta: "+1.8 C" },
-    errorRate: { value: "3.4%", delta: "+2.1 pp" },
   },
   {
     id: "miner-b06-01",
@@ -183,7 +175,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.02 kW" },
     efficiency: { value: "21.9 J/TH" },
     temperature: { value: "60.9 C" },
-    errorRate: { value: "0.6%" },
   },
   {
     id: "miner-b06-02",
@@ -194,7 +185,6 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "3.04 kW" },
     efficiency: { value: "21.9 J/TH" },
     temperature: { value: "61.3 C" },
-    errorRate: { value: "0.5%" },
   },
   {
     id: "miner-b06-03",
@@ -205,18 +195,83 @@ const rolloutMinerIdentities: RolloutMinerIdentity[] = [
     power: { value: "0 kW" },
     efficiency: { value: "Pinned" },
     temperature: { value: "Idle" },
-    errorRate: { value: "Pinned" },
+  },
+];
+
+const inProgressFirmwareErrors: RolloutErrorImpact[] = [
+  {
+    id: "checksum-mismatch",
+    message: "Payload checksum mismatch",
+    impactedMiners: ["b03-s21-03"],
+  },
+  {
+    id: "post-update-timeout",
+    message: "Miner did not report after update",
+    impactedMiners: ["b04-s21-03"],
+  },
+  {
+    id: "pool-connection-timeout",
+    message: "Pool connection timeout",
+    impactedMiners: ["b05-m60-01", "b05-m60-03"],
+  },
+];
+
+const pilotFirmwareErrors: RolloutErrorImpact[] = [
+  {
+    id: "pilot-temp-threshold",
+    message: "Temperature threshold exceeded",
+    impactedMiners: ["b03-s21-03"],
+  },
+  {
+    id: "pilot-post-update-timeout",
+    message: "Miner did not report after update",
+    impactedMiners: ["b04-s21-03"],
   },
 ];
 
 const phaseSamplesByState: Record<RolloutState, RolloutTargetPhase[]> = {
   scheduled: ["queued", "queued", "queued", "queued", "excluded"],
-  inProgress: ["done", "done", "inProgress", "inProgress", "retrying", "queued", "queued", "failed", "excluded"],
-  pausedAtPilotGate: ["done", "done", "done", "failed", "queued", "queued", "excluded"],
+  inProgress: [
+    "done",
+    "done",
+    "failed",
+    "inProgress",
+    "retrying",
+    "failed",
+    "failed",
+    "queued",
+    "failed",
+    "queued",
+    "queued",
+    "excluded",
+  ],
+  pausedAtPilotGate: [
+    "done",
+    "done",
+    "failed",
+    "done",
+    "done",
+    "failed",
+    "queued",
+    "queued",
+    "queued",
+    "queued",
+    "excluded",
+    "queued",
+  ],
   paused: ["done", "done", "done", "queued", "queued", "queued", "excluded"],
   completed: ["done", "done", "done", "done", "done", "done", "excluded"],
   completedWithFailures: ["done", "done", "done", "failed", "failed", "done", "excluded"],
 };
+
+function minerErrorCountForEvent(event: RolloutEvent, minerName: string): number {
+  return (
+    event.performance?.errors?.reduce(
+      (count, error) => count + (error.impactedMiners.includes(minerName) ? 1 : 0),
+      0,
+    ) ?? 0
+  );
+}
 
 export function rolloutMinerRowsForEvent(event: RolloutEvent): RolloutMinerRow[] {
   const phaseSamples = phaseSamplesByState[event.state];
@@ -225,6 +280,7 @@ export function rolloutMinerRowsForEvent(event: RolloutEvent): RolloutMinerRow[]
     ...miner,
     id: `${event.processType}-${miner.id}`,
     phase: phaseSamples[index % phaseSamples.length],
+    errors: { value: minerErrorCountForEvent(event, miner.name).toLocaleString() },
   }));
 }
 
@@ -254,8 +310,8 @@ export const inProgressFirmwareEvent: RolloutEvent = {
       { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.55 },
       // Temperature stored in Celsius; rendered in the operator's °C/°F preference.
       { label: "Avg temp", unit: "temperature", baseline: 62.0, current: 62.4 },
-      { label: "Error rate", unit: "errorRate", baseline: 0.5, current: 1.1 },
     ],
+    errors: inProgressFirmwareErrors,
   },
   rollups: [
     { phase: "done", count: 96 },
@@ -292,8 +348,8 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
       { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.72 },
       // Temperature stored in Celsius; rendered in the operator's °C/°F preference.
       { label: "Avg temp", unit: "temperature", baseline: 63.0, current: 64.2 },
-      { label: "Error rate", unit: "errorRate", baseline: 0.5, current: 2.3 },
     ],
+    errors: pilotFirmwareErrors,
   },
   rollups: [
     { phase: "done", count: 8 },

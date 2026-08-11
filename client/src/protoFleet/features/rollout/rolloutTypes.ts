@@ -60,10 +60,10 @@ export interface RolloutPhaseRollup {
 }
 
 /** Which telemetry a perf metric reports. */
-export type RolloutMetricUnit = "hashrate" | "power" | "efficiency" | "temperature" | "errorRate";
+export type RolloutMetricUnit = "hashrate" | "power" | "efficiency" | "temperature";
 
 /** How the metric delta should be formatted. */
-export type RolloutMetricDeltaMode = "percent" | "absolute" | "percentagePoints";
+export type RolloutMetricDeltaMode = "percent" | "absolute";
 
 /**
  * One tracked metric for the pilot-review performance readout. Deltas are
@@ -74,16 +74,24 @@ export interface RolloutPerfMetric {
   unit: RolloutMetricUnit;
   deltaMode?: RolloutMetricDeltaMode;
   /** Value at rollout start, in the unit's base scale (hashrate TH, power kW,
-   * efficiency J/TH, temperature °C, error rate percentage points).
+   * efficiency J/TH, temperature °C).
    * Temperature is converted for display. */
   baseline: number;
   /** Current pilot-cohort value, same scale as `baseline`. */
   current: number;
 }
 
+/** One error string and the miners currently impacted by it. */
+export interface RolloutErrorImpact {
+  id: string;
+  message: string;
+  impactedMiners: string[];
+}
+
 /** Baseline-vs-current performance for a rollout's acted-on cohort. */
 export interface RolloutPerformance {
   metrics: RolloutPerfMetric[];
+  errors?: RolloutErrorImpact[];
 }
 
 /** A telemetry value plus its optional change from the rollout baseline. */
@@ -103,7 +111,7 @@ export interface RolloutMinerRow {
   power: RolloutMinerTelemetryValue;
   efficiency: RolloutMinerTelemetryValue;
   temperature: RolloutMinerTelemetryValue;
-  errorRate: RolloutMinerTelemetryValue;
+  errors: RolloutMinerTelemetryValue;
 }
 
 /** The live/finished rollout an ActiveRolloutStatus card renders. */
