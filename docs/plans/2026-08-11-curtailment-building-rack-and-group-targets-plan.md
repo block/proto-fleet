@@ -74,11 +74,16 @@ Resolve topology membership on the backend, not in the browser:
 - For FULL_FLEET with `Target all paired miners`, extend the durable closed-loop
   policy to every composable miner selector: sites, buildings, racks, groups,
   and explicit miners. The reconciler re-resolves the union while the event is
-  active, admits newly paired/in-scope miners, and releases miners that become
-  unpaired or leave the selected topology. A truly UNPAIRED miner cannot
-  receive commands and remains outside ownership until it becomes paired;
-  paired-like but temporarily unavailable miners retain the existing
-  `UNAVAILABLE` behavior.
+  active and admits newly paired/in-scope miners. A newly considered UNPAIRED
+  miner cannot receive commands and remains outside ownership until it becomes
+  paired; paired-like but temporarily unavailable miners retain the existing
+  `UNAVAILABLE` behavior. When an owned target becomes unpaired or leaves the
+  selected topology, release it immediately only if no Curtail command could
+  have been dispatched. A dispatched or confirmed target becomes a durable
+  restore obligation: retain ownership and use the normal safe restore
+  lifecycle before release. If it is unreachable or unpaired, retry after it
+  becomes commandable; if facility fans are off, defer miner restoration until
+  the existing fan-before-miner restore sequence makes restoration safe.
 
 Use explicit proto cases for buildings, racks, and groups rather than encoding
 racks and groups into the legacy `device_set_ids` case. This preserves target
@@ -125,6 +130,15 @@ feature satisfies the repository's Buf `FILE` compatibility policy; do not add
 new runtime/storage support or reinterpret those numbers as buildings, racks,
 or groups. Remove the deprecated declarations in a separate intentional API
 cleanup if the repository's breaking-change policy is relaxed for them.
+
+Bound selector cardinality using named shared constants: at most 256 IDs for
+each topology type (sites, buildings, racks, and groups), at most 1,024 topology
+IDs across the normalized union, at most 10,000 explicit device identifiers,
+and at most 1,024 repeated `CurtailmentScope` entries. Apply protobuf
+`max_items` validation where the wire shape permits and enforce the normalized
+per-type/aggregate limits again in the domain for direct requests, response
+profiles, automation execution, and persisted all-paired reconciliation. The
+frontend mirrors these limits for usability; the server remains authoritative.
 
 Extend the Go domain `Scope` and JSON codec with `building_ids`, `rack_ids`, and
 `group_ids`, and remove generic `DeviceSetIDs`/`device_set_ids` domain and JSON
@@ -210,6 +224,9 @@ with the proto source.
   `MarshalScopeJSON`, and `ScopeFromJSON`.
 - Ensure a whole-org entry still dominates narrower selectors and mixed
   entries are normalized/deduplicated deterministically.
+- Add `max_items` validation to every repeated scope/identifier field and
+  domain validation for the normalized per-type and aggregate selector limits.
+  Reject oversized persisted profile/event scopes before resolving them.
 - Remove generic device-set translation, domain/JSON decode/render paths,
   frontend `deviceSetIds` scope state, and the special unsupported-device-set
   preview branch. Keep only deprecated protobuf declarations/field numbers as
@@ -247,11 +264,16 @@ with the proto source.
 - On every all-paired reconciliation pass, resolve the current union and:
   - admit miners that newly enter the selected topology or become paired,
   - retain paired-like unavailable miners under policy ownership,
-  - release miners that leave every selected selector or become UNPAIRED,
+  - immediately release miners that leave every selector or become UNPAIRED
+    only when no Curtail command could have been dispatched,
+  - move dispatched or confirmed miners that leave scope into the existing safe
+    restore lifecycle and retain ownership until restore confirmation,
+  - persist and retry restore obligations for unreachable/unpaired miners, and
+    respect facility-fan sequencing before issuing their restore command,
   - deduplicate miners that match multiple selector categories.
 - Apply the same topology scope to cooldown/admission queries and preserve the
   existing event/device exclusivity guarantees while targets are added,
-  reopened, or released.
+  reopened, restored, or released.
 
 ### 5. Make authorization fail closed
 
@@ -265,6 +287,15 @@ with the proto source.
   covered site; require org-wide permission when scope coverage is incomplete
   or includes unassigned resources. Picker filtering is usability only, never
   authorization.
+- Treat Preview as a point-in-time estimate, but make Start and every all-paired
+  reconciliation admission atomic with authorization-envelope enforcement.
+  Selector validation, membership expansion, current site coverage, and target
+  claim/insertion must use one transaction/locked snapshot, or every
+  materialized device and current site must be revalidated inside the target
+  claim transaction. Dispatch starts only after that transaction commits.
+  A concurrent topology move must make the claim fail/retry or exclude the
+  moved device; it must never admit a device outside the caller's or event's
+  authorization envelope.
 - On response-profile Create/Update, persist the resolved authorization
   envelope in the existing `scope_json`: exact covered site IDs for narrowed
   authorization, or `org_wide_authorized=true` when org-wide permission was
@@ -280,9 +311,10 @@ with the proto source.
   authorization envelope onto the event. Each reconciliation pass must compare
   current topology coverage with that envelope before admitting targets.
   Out-of-envelope miners are not admitted, already-owned miners that move
-  outside the envelope are released, and the event surfaces an actionable
-  authorization-change reason. An org-wide-authorized event may continue
-  following the selected topology across sites.
+  outside the envelope follow the same dispatch-aware restore-before-release
+  rule, and the event surfaces an actionable authorization-change reason. An
+  org-wide-authorized event may continue following the selected topology across
+  sites.
 - Apply the same resolution to profile list/get filtering so users never see or
   mutate topology-scoped profiles outside their current grant.
 
@@ -325,10 +357,15 @@ Backend unit/store/integration coverage:
 - Cooldown, active-event exclusion, fixed-kW, and full-fleet selection over
   each topology scope.
 - All-paired reconciliation for building/rack/group membership additions,
-  removals, cross-selector overlap, unpair/re-pair transitions, and paired-like
-  unavailable miners.
+  removals before dispatch, removals after confirmed curtailment, cross-selector
+  overlap, unpair/re-pair restore retries, facility-fan sequencing, and
+  paired-like unavailable miners.
 - Authorization for one-site, multi-site, cross-site group, unassigned,
-  narrowed-role, and topology-change-after-profile-save cases.
+  narrowed-role, and topology-change-after-profile-save cases, including race
+  tests that move topology across sites between resolution and target claim.
+- Per-type and aggregate selector-limit tests for direct Preview/Start,
+  response-profile create/update, automation execution, and forged oversized
+  persisted scopes.
 - Response-profile CRUD/list filtering and automation execution with each new
   scope.
 - Regression coverage for whole-org, multi-site, explicit-miner, and
@@ -365,8 +402,14 @@ developer approval.
   affect future profile executions, not the in-flight event.
 - FULL_FLEET events with `Target all paired miners` continuously re-resolve the
   selected site/building/rack/group/miner union: newly paired or newly assigned
-  miners are admitted, while unpaired or no-longer-in-scope miners are
-  released.
+  miners are admitted. Unpaired or no-longer-in-scope miners are released
+  immediately only when undispatched; any miner that may already be curtailed
+  remains owned until it completes the safe restore lifecycle.
+- Start and each reconciliation pass atomically bind topology membership,
+  authorization-envelope validation, and target claim before dispatch, so a
+  concurrent cross-site move cannot admit an unauthorized miner.
+- Per-type and aggregate selector limits bound direct and persisted scope
+  resolution and are enforced server-side after normalization.
 - Deleted, wrong-type, cross-org, unassigned, or unauthorized topology targets
   fail closed with actionable errors and never broaden to whole-org scope.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
