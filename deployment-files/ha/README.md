@@ -63,17 +63,17 @@ VERSION=v0.0.0 ARCH=arm64 HOST=ha-a; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz"
 VERSION=v0.0.0 ARCH=arm64 HOST=ha-a; ssh -t "$HOST" "set -eu; umask 077; cd /var/tmp; sha256sum --check 'proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256'; stage=\$(mktemp -d /var/tmp/proto-fleet-ha.XXXXXX); tar -xzf 'proto-fleet-${VERSION}-${ARCH}.tar.gz' -C \"\$stage\"; exec \"\$stage/deployment/ha/fleet-ha\" install"
 ```
 
-The wizard detects `ha-a`'s local address and interface, then asks only for the
-`ha-b` address, `ha-c` address, and VIP. It validates the host and release,
-shows the complete topology and planned changes, and waits for `INSTALL` before
-changing the host.
+The wizard asks for the `ha-b` address, `ha-c` address, and VIP, then derives
+`ha-a`'s local address and interface from the route to `ha-b`. It validates the
+host and release, shows the complete topology and planned changes, and waits
+for `INSTALL` before changing the host.
 
-The wizard then creates protected bundles for all three hosts, an offline
-recovery bundle, and a separate public service CA certificate. Run the single
-copy-and-verify command it prints from the operator machine. Keep the recovery
-directory off the cluster. Return to the wizard and type `COPIED`; it deletes
-the peer and recovery exports from `ha-a` and continues installing that host.
-Deletion unlinks the files and is not a guaranteed secure erase.
+The wizard then creates protected bundles for all three hosts and a separate
+public service CA certificate. Run the single copy-and-verify command it prints
+from the operator machine. Return to the wizard and type `COPIED`; it deletes
+the copied peer exports from `ha-a` and continues installing that host. Protect
+the host bundles while installing the peers, then delete the operator copies
+after all three installations succeed.
 
 ### 2. Install `ha-b` and `ha-c`
 
@@ -81,7 +81,7 @@ For each peer, transfer the release, official checksum, matching host bundle,
 and bundle checksum. For example, for `ha-b`:
 
 ```bash
-VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" proto-fleet-ha-recovery/proto-fleet-ha-ha-b.tar.gz proto-fleet-ha-recovery/proto-fleet-ha-ha-b.tar.gz.sha256 "${HOST}:/var/tmp/"
+VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; scp "proto-fleet-${VERSION}-${ARCH}.tar.gz" "proto-fleet-${VERSION}-${ARCH}.tar.gz.sha256" proto-fleet-ha-bundles/proto-fleet-ha-ha-b.tar.gz proto-fleet-ha-bundles/proto-fleet-ha-ha-b.tar.gz.sha256 "${HOST}:/var/tmp/"
 ```
 
 ```bash
@@ -99,22 +99,22 @@ to browsers and API clients. Verify that its fingerprint matches the value
 printed in the authenticated `ha-a` installer session:
 
 ```bash
-openssl x509 -in proto-fleet-ha-recovery/proto-fleet-ha-service-ca.crt -noout -fingerprint -sha256
+openssl x509 -in proto-fleet-ha-bundles/proto-fleet-ha-service-ca.crt -noout -fingerprint -sha256
 ```
 
 Import only this certificate into each client's trusted root store. On
 Debian-based clients:
 
 ```bash
-sudo install -m 0644 proto-fleet-ha-recovery/proto-fleet-ha-service-ca.crt /usr/local/share/ca-certificates/proto-fleet-ha-service-ca.crt
+sudo install -m 0644 proto-fleet-ha-bundles/proto-fleet-ha-service-ca.crt /usr/local/share/ca-certificates/proto-fleet-ha-service-ca.crt
 sudo update-ca-certificates
 ```
 
 Use the platform trust-store UI or equivalent managed policy on other clients.
-Never distribute or import the recovery archive or `service-ca.key`; the
-recovery archive contains cluster credentials and the CA private key.
+Never distribute or import a host bundle; it contains that node's private keys
+and cluster credentials.
 
-### Installer behavior and recovery
+### Installer behavior and failure handling
 
 Before changing the host, the command validates the release manifest, Linux
 platform, apt/systemd prerequisites, architecture, page size, network identity

@@ -27,7 +27,6 @@ const (
 	bundleFormatVersion  = 1
 	bundleMetadataFile   = "bundle.json"
 	bundleChecksumSuffix = ".sha256"
-	recoveryBundleName   = "proto-fleet-ha-recovery.tar.gz"
 	publicCAName         = "proto-fleet-ha-service-ca.crt"
 	maxBundleSize        = 2 << 20
 	maxBundleContents    = 4 << 20
@@ -191,7 +190,7 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 		return err
 	}
 
-	if err := writeInstallerOutput(deps.output, "[bundle generation] Creating protected host and recovery bundles...\n"); err != nil {
+	if err := writeInstallerOutput(deps.output, "[bundle generation] Creating protected host bundles...\n"); err != nil {
 		return err
 	}
 	exportDir, err := deps.makeExportDir(source)
@@ -207,7 +206,7 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if err := requireAcknowledgement(scanner, deps.prompts, "Type COPIED after the command succeeds: ", "COPIED"); err != nil {
 		return fmt.Errorf("bundle exports remain at %s: %w", exportDir, err)
 	}
-	if err := removePeerAndRecoveryExports(exportDir); err != nil {
+	if err := removeCopiedExports(exportDir); err != nil {
 		return err
 	}
 
@@ -380,25 +379,10 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 		}
 	}
 
-	recoveryFiles := make(map[string][]byte)
-	entries, err := os.ReadDir(filepath.Join(secretsRoot, "offline"))
+	publicCA, err := os.ReadFile(filepath.Join(secretsRoot, "offline", "service-ca.crt"))
 	if err != nil {
-		return fmt.Errorf("inspect generated recovery credentials: %w", err)
+		return fmt.Errorf("read generated service CA: %w", err)
 	}
-	for _, entry := range entries {
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("generated recovery entry %s is not a regular file", entry.Name())
-		}
-		contents, err := os.ReadFile(filepath.Join(secretsRoot, "offline", entry.Name()))
-		if err != nil {
-			return fmt.Errorf("read generated recovery credential %s: %w", entry.Name(), err)
-		}
-		recoveryFiles[entry.Name()] = contents
-	}
-	if err := writeBundleWithChecksum(filepath.Join(exportDir, recoveryBundleName), recoveryFiles); err != nil {
-		return err
-	}
-	publicCA := recoveryFiles["service-ca.crt"]
 	publicCAPath := filepath.Join(exportDir, publicCAName)
 	if err := writeFile(publicCAPath, publicCA, 0o644); err != nil {
 		return err
@@ -721,8 +705,8 @@ func printBundleCopyCommand(output io.Writer, exportDir, nodeIP string) error {
 		fingerprint[index] = fmt.Sprintf("%02X", value)
 	}
 	return writeInstallerOutput(output, "\nService CA SHA-256 fingerprint: %s\n"+
-		"Copy and verify the host bundles, recovery bundle, and public service CA from your operator machine before continuing:\n"+
-		"mkdir -p proto-fleet-ha-recovery && scp -p '%s@%s:%s/*' proto-fleet-ha-recovery/ && (cd proto-fleet-ha-recovery && if command -v sha256sum >/dev/null; then sha256sum --check *.sha256; else shasum -a 256 --check *.sha256; fi)\n",
+		"Copy and verify the host bundles and public service CA from your operator machine before continuing:\n"+
+		"mkdir -p proto-fleet-ha-bundles && scp -p '%s@%s:%s/*' proto-fleet-ha-bundles/ && (cd proto-fleet-ha-bundles && if command -v sha256sum >/dev/null; then sha256sum --check *.sha256; else shasum -a 256 --check *.sha256; fi)\n",
 		strings.Join(fingerprint, ":"), username, nodeIP, exportDir)
 }
 
@@ -757,8 +741,8 @@ func requireAcknowledgement(scanner *bufio.Scanner, output io.Writer, prompt, ex
 	return nil
 }
 
-func removePeerAndRecoveryExports(exportDir string) error {
-	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c"), recoveryBundleName, publicCAName} {
+func removeCopiedExports(exportDir string) error {
+	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c"), publicCAName} {
 		for _, path := range []string{filepath.Join(exportDir, name), filepath.Join(exportDir, name+bundleChecksumSuffix)} {
 			if err := os.Remove(path); err != nil {
 				return fmt.Errorf("remove copied bundle export %s: %w", path, err)
