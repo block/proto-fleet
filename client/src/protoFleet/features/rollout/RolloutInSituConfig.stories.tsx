@@ -1,4 +1,4 @@
-import { type ReactElement, useMemo, useState } from "react";
+import { type ReactElement, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { FileDropZone, FileSelectedStatus } from "@/protoFleet/components/FirmwareUpload";
@@ -6,40 +6,25 @@ import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
-import ActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar";
-import BulkActionsWidget, { BulkActionsPopover } from "@/protoFleet/features/fleetManagement/components/BulkActions";
-import type { BulkAction } from "@/protoFleet/features/fleetManagement/components/BulkActions/types";
-import {
-  type DeviceAction,
-  deviceActions,
-  type PerformanceAction,
-  performanceActions,
-} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 import { allAtOnceRebootConfig, batchedFirmwareConfig } from "@/protoFleet/features/rollout/rollout.fixtures";
 import RolloutConfigModal from "@/protoFleet/features/rollout/RolloutConfigModal";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useRolloutConfigModalState } from "@/protoFleet/features/rollout/useRolloutConfigModalState";
-import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
-import { ChevronDown, Curtail, Reboot, Settings } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
-import { variants } from "@/shared/components/Button";
+import { Curtail, Reboot, Settings } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
-import { PopoverProvider } from "@/shared/components/Popover";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import Select from "@/shared/components/Select";
 
-/**
- * Rollout launch surfaces opened from the fleet bulk-actions bar.
- */
+/** Story-only launch controls for bulk rollout config surfaces. */
 const meta = {
   title: "Proto Fleet/Rollout/In Situ/Config",
   parameters: {
     layout: "fullscreen",
   },
-  decorators: [withMockedMinerSelectionApis],
 } satisfies Meta;
 
 export default meta;
@@ -48,10 +33,9 @@ type Story = StoryObj;
 
 const noop = () => undefined;
 
-// ---- Bulk actions -----------------------------------------------------------
+// ---- Bulk launch controls ---------------------------------------------------
 // Firmware, reboot, and curtailment each open their process-specific config UI.
 
-type SupportedAction = DeviceAction | PerformanceAction;
 type OpenModal = "firmware" | "reboot" | "curtail" | null;
 
 function SectionTitle({ children }: { children: string }): ReactElement {
@@ -117,8 +101,8 @@ function FirmwareRolloutModal({ onDismiss }: { onDismiss: () => void }): ReactEl
     <Modal
       title="Add firmware payload"
       onDismiss={onDismiss}
-      divider={false}
       testId="firmware-rollout-modal"
+      forceTitleCollapsed
       buttons={
         hasPayload
           ? [
@@ -252,79 +236,44 @@ const curtailPreview: CurtailmentPlanPreview = {
 };
 
 function BulkActionsStory(): ReactElement {
-  const selectedMiners = useMemo(() => Array.from({ length: 222 }, (_, i) => `M-${i}`), []);
   const [openModal, setOpenModal] = useState<OpenModal>(null);
-  const [currentAction, setCurrentAction] = useState<SupportedAction | null>(null);
 
   // Reboot uses the generic RolloutConfigModal. It defaults to all-at-once,
   // with batching and scheduling available as advanced options.
   const rebootState = useRolloutConfigModalState(allAtOnceRebootConfig);
 
-  const open = (action: SupportedAction, modal: Exclude<OpenModal, null>) => {
-    setCurrentAction(action);
-    setOpenModal(modal);
-  };
-
-  const actions = useMemo<BulkAction<SupportedAction>[]>(
-    () => [
-      {
-        action: deviceActions.firmwareUpdate,
-        title: "Update firmware",
-        icon: <Settings />,
-        actionHandler: () => open(deviceActions.firmwareUpdate, "firmware"),
-        requiresConfirmation: false,
-      },
-      {
-        action: deviceActions.reboot,
-        title: "Reboot",
-        icon: <Reboot />,
-        actionHandler: () => open(deviceActions.reboot, "reboot"),
-        requiresConfirmation: false,
-      },
-      {
-        action: performanceActions.curtail,
-        title: "Curtail",
-        icon: <Curtail />,
-        actionHandler: () => open(performanceActions.curtail, "curtail"),
-        requiresConfirmation: false,
-      },
-    ],
-    [],
-  );
-
   return (
     <div className="min-h-screen bg-surface-base">
-      <div className="px-10 pt-10 pb-40 text-300 text-text-primary-70">
+      <div className="px-10 pt-10">
         <div className="mb-2 text-heading-300 text-text-primary">Fleet</div>
-        Select miners to reveal the bulk-actions bar, then launch a process. Firmware opens the "Add firmware payload"
-        modal with rollout controls; Reboot opens the generic rollout config modal; Curtail opens the full-screen
-        curtailment configuration.
+        <div className="mb-6 text-300 text-text-primary-70">222 miners selected</div>
+        <div className="flex flex-wrap gap-3">
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="Bulk firmware update"
+            prefixIcon={<Settings />}
+            onClick={() => setOpenModal("firmware")}
+            testId="rollout-config-launch-firmware"
+          />
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="Bulk reboot"
+            prefixIcon={<Reboot />}
+            onClick={() => setOpenModal("reboot")}
+            testId="rollout-config-launch-reboot"
+          />
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="Bulk curtail"
+            prefixIcon={<Curtail />}
+            onClick={() => setOpenModal("curtail")}
+            testId="rollout-config-launch-curtailment"
+          />
+        </div>
       </div>
-      <ActionBar
-        className="fixed right-0 bottom-4 left-0 z-[45]"
-        selectedItems={selectedMiners}
-        selectionMode="subset"
-        renderActions={() => (
-          <PopoverProvider>
-            <BulkActionsWidget<SupportedAction>
-              buttonTitle="Bulk actions"
-              buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
-              actions={actions}
-              onCancel={noop}
-              currentAction={currentAction}
-              renderPopover={(beforeEach, closePopover) => (
-                <BulkActionsPopover<SupportedAction>
-                  actions={actions}
-                  beforeEach={beforeEach}
-                  testId="rollout-bulk-popover"
-                  closePopover={closePopover}
-                />
-              )}
-              testId="rollout-bulk"
-            />
-          </PopoverProvider>
-        )}
-      />
       {openModal === "firmware" ? <FirmwareRolloutModal onDismiss={() => setOpenModal(null)} /> : null}
       {openModal === "reboot" ? (
         <RolloutConfigModal
