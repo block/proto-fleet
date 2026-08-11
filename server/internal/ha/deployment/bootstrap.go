@@ -86,9 +86,6 @@ func BootstrapEtcdAuth(ctx context.Context, envPath, rootPasswordFile string) er
 }
 
 func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPassword, patroniPassword, fleetPassword string) error {
-	if err := client.Healthy(ctx); err != nil {
-		return fmt.Errorf("check local etcd member health: %w", err)
-	}
 	authEnabled, err := client.AuthEnabled(ctx)
 	if err != nil {
 		return fmt.Errorf("check authentication status: %w", err)
@@ -98,6 +95,9 @@ func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPass
 			return fmt.Errorf("verify existing authentication policy: %w", err)
 		}
 		return nil
+	}
+	if err := client.Healthy(ctx); err != nil {
+		return fmt.Errorf("check local etcd member health: %w", err)
 	}
 	if err := client.ResetAuth(ctx); err != nil {
 		return fmt.Errorf("reset incomplete authentication policy: %w", err)
