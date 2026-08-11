@@ -59,10 +59,12 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.Contains(t, prompts.String(), "Type COPIED")
 	require.Contains(t, prompts.String(), "Docker:    reuse existing installation")
 	require.NotContains(t, output.String(), testEtcdRootPassword)
+	require.Contains(t, output.String(), "Service CA SHA-256 fingerprint:")
 	require.Contains(t, output.String(), "scp")
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-a")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-b")))
 	require.NoFileExists(t, filepath.Join(exportDir, recoveryBundleName))
+	require.NoFileExists(t, filepath.Join(exportDir, publicCAName))
 }
 
 func TestBundleExportDirectoryIsOutsideRelease(t *testing.T) {
@@ -97,11 +99,13 @@ func TestPrepareInstallBundlesSeparatesRecoveryCredentials(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
+	var serviceCA []byte
 	for _, role := range []string{"ha-a", "ha-b", "ha-c"} {
 		bundle, err := readHostBundle(filepath.Join(exportDir, hostBundleName(role)))
 		require.NoError(t, err)
 		require.Equal(t, role, bundle.metadata.Role)
 		require.NotContains(t, bundle.files, "secrets/service-ca.key")
+		serviceCA = bundle.files["secrets/service-ca.crt"]
 		_, hasRootPassword := bundle.files[etcdRootPasswordFile]
 		require.Equal(t, role == "ha-a", hasRootPassword)
 	}
@@ -112,6 +116,11 @@ func TestPrepareInstallBundlesSeparatesRecoveryCredentials(t *testing.T) {
 		requireMode(t, filepath.Join(exportDir, name), 0o600)
 		requireMode(t, filepath.Join(exportDir, name+bundleChecksumSuffix), 0o600)
 	}
+	publicCA, err := os.ReadFile(filepath.Join(exportDir, publicCAName))
+	require.NoError(t, err)
+	require.Equal(t, serviceCA, publicCA)
+	requireMode(t, filepath.Join(exportDir, publicCAName), 0o644)
+	requireMode(t, filepath.Join(exportDir, publicCAName+bundleChecksumSuffix), 0o644)
 }
 
 func TestReadHostBundleRejectsUnsafeArchiveEntries(t *testing.T) {

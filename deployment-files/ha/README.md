@@ -68,12 +68,12 @@ The wizard detects `ha-a`'s local address and interface, then asks only for the
 shows the complete topology and planned changes, and waits for `INSTALL` before
 changing the host.
 
-The wizard then creates protected bundles for all three hosts and an offline
-recovery bundle. Run the single copy-and-verify command it prints from the
-operator machine. Keep the recovery directory off the cluster. Return to the
-wizard and type `COPIED`; it deletes the peer and recovery exports from `ha-a`
-and continues installing that host. Deletion unlinks the files and is not a
-guaranteed secure erase.
+The wizard then creates protected bundles for all three hosts, an offline
+recovery bundle, and a separate public service CA certificate. Run the single
+copy-and-verify command it prints from the operator machine. Keep the recovery
+directory off the cluster. Return to the wizard and type `COPIED`; it deletes
+the peer and recovery exports from `ha-a` and continues installing that host.
+Deletion unlinks the files and is not a guaranteed secure erase.
 
 ### 2. Install `ha-b` and `ha-c`
 
@@ -91,6 +91,30 @@ VERSION=v0.0.0 ARCH=arm64 HOST=ha-b; ssh -t "$HOST" "set -eu; umask 077; cd /var
 Repeat with `HOST=ha-c` and the `ha-c` bundle. Each installer verifies the
 bundle, derives the local interface, shows its plan, and waits for `INSTALL`.
 No environment or secret file is edited by hand.
+
+### 3. Trust the service CA on clients
+
+The copied `proto-fleet-ha-service-ca.crt` is public and is safe to distribute
+to browsers and API clients. Verify that its fingerprint matches the value
+printed in the authenticated `ha-a` installer session:
+
+```bash
+openssl x509 -in proto-fleet-ha-recovery/proto-fleet-ha-service-ca.crt -noout -fingerprint -sha256
+```
+
+Import only this certificate into each client's trusted root store. On
+Debian-based clients:
+
+```bash
+sudo install -m 0644 proto-fleet-ha-recovery/proto-fleet-ha-service-ca.crt /usr/local/share/ca-certificates/proto-fleet-ha-service-ca.crt
+sudo update-ca-certificates
+```
+
+Use the platform trust-store UI or equivalent managed policy on other clients.
+Never distribute or import the recovery archive or `service-ca.key`; the
+recovery archive contains cluster credentials and the CA private key.
+
+### Installer behavior and recovery
 
 Before changing the host, the command validates the release manifest, Linux
 platform, apt/systemd prerequisites, architecture, page size, network identity
