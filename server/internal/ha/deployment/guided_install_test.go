@@ -29,7 +29,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 		return hostIdentity{address: testHostIPs[0], networkInterface: "enp1s0"}, nil
 	}
 	deps.interfaceForIP = func(string) (string, error) { return "enp1s0", nil }
-	deps.makeExportDir = func() (string, error) {
+	deps.makeExportDir = func(string) (string, error) {
 		return exportDir, os.Mkdir(exportDir, 0o700)
 	}
 	deps.inspect = func(context.Context, string, NodeConfig) (installedDependencies, error) {
@@ -63,6 +63,24 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-a")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-b")))
 	require.NoFileExists(t, filepath.Join(exportDir, recoveryBundleName))
+}
+
+func TestBundleExportDirectoryIsOutsideRelease(t *testing.T) {
+	// Arrange
+	parent := t.TempDir()
+	source := filepath.Join(parent, "release")
+	require.NoError(t, os.Mkdir(source, 0o700))
+
+	// Act
+	exportDir, err := makeBundleExportDir(source)
+
+	// Assert
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(exportDir)) })
+	require.Equal(t, parent, filepath.Dir(exportDir))
+	info, err := os.Stat(exportDir)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
 
 func TestPrepareInstallBundlesSeparatesRecoveryCredentials(t *testing.T) {
@@ -315,7 +333,7 @@ func testGuidedDependencies(source string, input *strings.Reader, output, prompt
 			return hostIdentity{address: testHostIPs[0], networkInterface: "eth0"}, nil
 		},
 		interfaceForIP: func(string) (string, error) { return "eth0", nil },
-		makeExportDir:  func() (string, error) { return os.MkdirTemp("", "fleet-ha-test-exports-") },
+		makeExportDir:  func(string) (string, error) { return os.MkdirTemp("", "fleet-ha-test-exports-") },
 		inspect: func(context.Context, string, NodeConfig) (installedDependencies, error) {
 			return installedDependencies{}, nil
 		},

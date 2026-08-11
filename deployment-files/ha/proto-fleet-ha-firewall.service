@@ -1,5 +1,6 @@
 [Unit]
 Description=Proto Fleet HA firewall
+After=nftables.service
 Before=docker.service proto-fleet-ha.service
 
 [Service]

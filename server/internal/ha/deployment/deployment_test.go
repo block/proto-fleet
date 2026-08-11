@@ -214,6 +214,7 @@ func TestPreflight(t *testing.T) {
 	firewallApplied := false
 	routeSource := testHostIPs[0]
 	routeViaGateway := false
+	databasePeerViaGateway := false
 	arpingConflict := false
 	listeners := ""
 	var arpingArgs []string
@@ -231,6 +232,9 @@ func TestPreflight(t *testing.T) {
 				return nil, nil
 			}
 			if name == "ip" {
+				if databasePeerViaGateway && args[2] == testHostIPs[1] {
+					return []byte(fmt.Sprintf("%s via 10.40.0.1 dev eth0 src %s\n", args[2], routeSource)), nil
+				}
 				if routeViaGateway && args[2] == "10.40.0.100" {
 					return []byte(fmt.Sprintf("%s via 10.40.0.1 dev eth0 src %s\n", args[2], routeSource)), nil
 				}
@@ -281,6 +285,16 @@ func TestPreflight(t *testing.T) {
 	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/26")}
 	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "IPv4 network") {
 		t.Fatalf("preflight(VIP outside interface network) error = %v", err)
+	}
+	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
+	databasePeerViaGateway = true
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "database peer") {
+		t.Fatalf("preflight(routed database peer) error = %v", err)
+	}
+	databasePeerViaGateway = false
+	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/32")}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "database peer") {
+		t.Fatalf("preflight(database peer outside interface prefix) error = %v", err)
 	}
 	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
 
