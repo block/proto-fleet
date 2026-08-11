@@ -234,6 +234,10 @@ with separate org-wide flags for incomplete or unbounded dimensions.
 - On reconciliation, admit newly eligible/paired members, deduplicate overlap,
   retain unavailable ownership, and apply the restore-before-release rules
   above to targets leaving the union.
+- If admission finds the event's facility fans off, persist a fans-on
+  transition, wait the airflow delay, then re-resolve/re-authorize before
+  claiming and curtailing the miner. Turn fans off again only after every owned
+  target is confirmed curtailed; recovery resumes this sequence after crashes.
 - Treat every active closed-loop logical scope as a reservation, including
   matching miners not yet represented by target rows. Flagged explicit-miner
   policies use the same reservation path.
@@ -290,8 +294,11 @@ admin requirement, topology, and quotas before claiming targets.
 
 ### 7. Roll out fail-closed behavior safely
 
-1. Ship proto/server parsing, schema-version support, profile revisions, and
-   automation binding storage without emitting topology scopes.
+1. Ship a compatibility-floor server that rejects unknown nonempty scope keys,
+   plus proto parsing, schema versions, profile revisions, automation bindings,
+   and a durable topology-scope feature gate, without emitting topology scopes.
+   Require every replica at this floor before opening the gate; rollback below
+   it requires disabling affected automation and draining topology events first.
 2. Deploy the frontend that always sends the new version and explicit
    whole-org scope.
 3. Inventory and remediate persisted data:
@@ -328,7 +335,8 @@ Backend coverage:
   empty/cross-site groups, and unassigned resources.
 - Frozen versus topology-following FULL_FLEET behavior, empty watchers,
   explicit-miner snapshot compatibility, flagged explicit-miner policy,
-  reservation conflicts, pairing transitions, and restore obligations.
+  reservation conflicts, pairing transitions, fan-on admission (including
+  crash/concurrency recovery), and restore obligations.
 - Authorization races for empty watchers and moved fans, separate fan coverage,
   stale CRUD recovery, missing envelopes, current permission revocation,
   Admin/SuperAdmin demotion, and current topology exceeding an envelope.
@@ -373,7 +381,8 @@ snapshots without explicit approval.
 - Schema versions and opaque revisions prevent stale clients or profile races
   from broadening or silently retargeting a scope.
 - Rollout remediates ambiguous/oversized records and drains unsafe active events
-  without new admissions or stranded miners.
+  without new admissions or stranded miners; the durable compatibility floor
+  prevents mixed-version execution or unsafe rollback of topology scopes.
 - Response profiles reuse existing scope JSON; automation bindings use a new
   immutable up/down migration. Proto and generated output are committed
   together.
