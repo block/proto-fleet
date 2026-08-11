@@ -155,7 +155,7 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/nftables-systemd.conf" "nft -c -f /etc/proto-fleet/ha/firewall.nft"
     assert_contains "${HA_DIR}/nftables-systemd.conf" "systemctl stop docker.service"
     assert_contains "${HA_DIR}/nftables-systemd.conf" "ExecStopPost=/usr/bin/systemctl stop docker.service"
-    assert_not_contains "${HA_DIR}/nftables-systemd.conf" "--no-block"
+    assert_contains "${HA_DIR}/nftables-systemd.conf" "systemctl --no-block start docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "Requires=proto-fleet-ha-firewall.service docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "BindsTo=docker.service"
     assert_contains "${HA_DIR}/proto-fleet-ha.service" "PartOf=docker.service"
