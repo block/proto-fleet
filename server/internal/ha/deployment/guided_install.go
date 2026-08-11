@@ -80,7 +80,7 @@ type guidedInstallDependencies struct {
 	prompts         io.Writer
 	terminal        func() bool
 	sourceRoot      func() (string, error)
-	primaryIdentity func(context.Context) (hostIdentity, error)
+	primaryIdentity func(context.Context, string) (hostIdentity, error)
 	interfaceForIP  func(string) (string, error)
 	makeExportDir   func(string) (string, error)
 	inspect         func(context.Context, string, NodeConfig) (installedDependencies, error)
@@ -100,15 +100,15 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 			return term.IsTerminal(int(os.Stdin.Fd()))
 		},
 		sourceRoot: releaseRoot,
-		primaryIdentity: func(ctx context.Context) (hostIdentity, error) {
-			output, err := runCommand(ctx, "ip", "route", "get", "1.1.1.1")
+		primaryIdentity: func(ctx context.Context, peer string) (hostIdentity, error) {
+			output, err := runCommand(ctx, "ip", "route", "get", peer)
 			if err != nil {
-				return hostIdentity{}, fmt.Errorf("detect primary network route: %s", commandError(output, err))
+				return hostIdentity{}, fmt.Errorf("detect HA peer route: %s", commandError(output, err))
 			}
 			address, addressOK := routeSource(output)
 			networkInterface, interfaceOK := routeDevice(output)
 			if !addressOK || !interfaceOK {
-				return hostIdentity{}, errors.New("detect primary network route: response did not contain a source address and interface")
+				return hostIdentity{}, errors.New("detect HA peer route: response did not contain a source address and interface")
 			}
 			return hostIdentity{address: address, networkInterface: networkInterface}, nil
 		},
@@ -149,12 +149,8 @@ func guidedInstall(ctx context.Context, bundlePath string, deps guidedInstallDep
 }
 
 func prepareAndInstallCluster(ctx context.Context, source string, release clusterMetadata, scanner *bufio.Scanner, deps guidedInstallDependencies) error {
-	identity, err := deps.primaryIdentity(ctx)
-	if err != nil {
-		return err
-	}
 	metadata := release
-	metadata.DatabaseAIP = identity.address
+	var err error
 	if metadata.DatabaseBIP, err = readPrompt(scanner, deps.prompts, "ha-b IPv4 address: "); err != nil {
 		return err
 	}
@@ -164,6 +160,11 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if metadata.VirtualIP, err = readPrompt(scanner, deps.prompts, "Virtual IPv4 address: "); err != nil {
 		return err
 	}
+	identity, err := deps.primaryIdentity(ctx, metadata.DatabaseBIP)
+	if err != nil {
+		return err
+	}
+	metadata.DatabaseAIP = identity.address
 	if err := validateClusterMetadata(metadata); err != nil {
 		return err
 	}
@@ -721,7 +722,7 @@ func printBundleCopyCommand(output io.Writer, exportDir, nodeIP string) error {
 	}
 	return writeInstallerOutput(output, "\nService CA SHA-256 fingerprint: %s\n"+
 		"Copy and verify the host bundles, recovery bundle, and public service CA from your operator machine before continuing:\n"+
-		"mkdir -p proto-fleet-ha-recovery && scp '%s@%s:%s/*' proto-fleet-ha-recovery/ && (cd proto-fleet-ha-recovery && if command -v sha256sum >/dev/null; then sha256sum --check *.sha256; else shasum -a 256 --check *.sha256; fi)\n",
+		"mkdir -p proto-fleet-ha-recovery && scp -p '%s@%s:%s/*' proto-fleet-ha-recovery/ && (cd proto-fleet-ha-recovery && if command -v sha256sum >/dev/null; then sha256sum --check *.sha256; else shasum -a 256 --check *.sha256; fi)\n",
 		strings.Join(fingerprint, ":"), username, nodeIP, exportDir)
 }
 

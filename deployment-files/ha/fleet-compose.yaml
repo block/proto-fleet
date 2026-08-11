@@ -9,6 +9,8 @@ services:
     environment:
       # External traffic reaches Fleet through local nginx and the shared VIP.
       HTTP_LISTEN_ADDRESS: "127.0.0.1:4000"
+      # HA does not support the update checker or its UI; do not interpolate a parent value.
+      UPDATES_ENABLED: "false"
       FLEET_HA_ENABLED: "true"
       FLEET_HA_ETCD_ENDPOINTS: "https://${HA_DB_A_IP}:2379,https://${HA_DB_B_IP}:2379,https://${HA_DCS_C_IP}:2379"
       FLEET_HA_ENDPOINT_IP: "${HA_VIRTUAL_IP}"

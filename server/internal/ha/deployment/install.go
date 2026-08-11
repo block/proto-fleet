@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,6 +49,29 @@ type installPlatform struct {
 type installedDependencies struct {
 	docker     bool
 	keepalived bool
+}
+
+type nftablesRuleset struct {
+	Nftables []nftablesRulesetEntry `json:"nftables"`
+}
+
+type nftablesRulesetEntry struct {
+	Chain *nftablesChain `json:"chain"`
+	Rule  *nftablesRule  `json:"rule"`
+}
+
+type nftablesChain struct {
+	Family string `json:"family"`
+	Table  string `json:"table"`
+	Name   string `json:"name"`
+	Hook   string `json:"hook"`
+	Policy string `json:"policy"`
+}
+
+type nftablesRule struct {
+	Family string `json:"family"`
+	Table  string `json:"table"`
+	Chain  string `json:"chain"`
 }
 
 type installDependencies struct {
@@ -133,6 +157,9 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	}
 	fmt.Println("[package setup] Installing missing host dependencies...")
 	if err := installPackages(ctx, platform, installed, deps); err != nil {
+		return err
+	}
+	if err := rejectIncompatibleNftablesInputChains(ctx, deps); err != nil {
 		return err
 	}
 	fmt.Println("[configuration] Installing the release, secrets, firewall, and service units...")
@@ -654,6 +681,53 @@ func installPackages(ctx context.Context, platform installPlatform, installed in
 	return nil
 }
 
+func rejectIncompatibleNftablesInputChains(ctx context.Context, deps installDependencies) error {
+	ruleset, err := deps.run(ctx, "sudo", "nft", "-j", "list", "ruleset")
+	if err != nil {
+		return fmt.Errorf("inspect existing nftables firewall: %s", commandError(ruleset, err))
+	}
+	if err := validateNftablesInputChains(ruleset); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateNftablesInputChains(ruleset []byte) error {
+	var parsed nftablesRuleset
+	if err := json.Unmarshal(ruleset, &parsed); err != nil {
+		return fmt.Errorf("parse existing nftables ruleset: %w", err)
+	}
+	inputChains := make(map[string]nftablesChain)
+	for _, entry := range parsed.Nftables {
+		chain := entry.Chain
+		if chain == nil || chain.Hook != "input" {
+			continue
+		}
+		if chain.Policy != "" && chain.Policy != "accept" {
+			return incompatibleNftablesInputChain(*chain, "policy "+chain.Policy)
+		}
+		inputChains[nftablesChainKey(chain.Family, chain.Table, chain.Name)] = *chain
+	}
+	for _, entry := range parsed.Nftables {
+		rule := entry.Rule
+		if rule == nil {
+			continue
+		}
+		if chain, ok := inputChains[nftablesChainKey(rule.Family, rule.Table, rule.Chain)]; ok {
+			return incompatibleNftablesInputChain(chain, "contains rules")
+		}
+	}
+	return nil
+}
+
+func nftablesChainKey(family, table, chain string) string {
+	return family + "\x00" + table + "\x00" + chain
+}
+
+func incompatibleNftablesInputChain(chain nftablesChain, reason string) error {
+	return fmt.Errorf("existing nftables input chain %s %s %s is incompatible (%s); HA installation requires a dedicated host firewall without input filtering, so remove the input-hook chain before retrying (unrelated non-input nftables tables and chains are preserved)", chain.Family, chain.Table, chain.Name, reason)
+}
+
 func verifyInstallVirtualIP(ctx context.Context, config NodeConfig) error {
 	output, err := runCommand(ctx, "sudo", "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
 	if err == nil {
@@ -743,7 +817,7 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 	if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", temp, filepath.Join(configRoot, "node.env")); err != nil {
 		return fmt.Errorf("install node configuration: %s", commandError(output, err))
 	}
-	baseEnv, err := writeInstallTemp("fleet-base.env", "DB_USERNAME=fleet\nDB_PASSWORD=unused\nUPDATES_ENABLED=false\n", 0o600)
+	baseEnv, err := writeInstallTemp("fleet-base.env", "DB_USERNAME=fleet\nDB_PASSWORD=unused\n", 0o600)
 	if err != nil {
 		return err
 	}
