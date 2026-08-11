@@ -205,6 +205,11 @@ with the proto source.
 - Reuse/extract the Schedule building, rack, and group selection modals,
   including select-all, empty/error states, stale selection preservation, and
   site filters.
+- Do not reuse the Schedule pickers' current behavior of pruning IDs absent
+  from the live inventory. Add an explicit curtailment/profile mode that keeps
+  stored missing IDs selected, renders them from hydrated profile metadata (or
+  their ID) as unavailable/stale, and removes them only through an operator's
+  explicit action. Preserve the existing pruning behavior for Schedule callers.
 - Pass the topbar-derived `SiteFilterFields` from both parent flows. Pass the
   same scope to the miner selector and hide rack/group miner facets when the
   current role lacks `rack:read`, following `ScheduleModal`.
@@ -337,6 +342,11 @@ with the proto source.
   authorized operator can inspect, edit, or delete the profile; Create/Update
   and every execution path still perform strict current-topology validation,
   so a stale ID must be removed or replaced before resave and can never execute.
+- When a profile has a missing or unproven authorization envelope, require
+  org-wide `curtailment:manage` for Get/List/Delete and reauthorization. Do not
+  fall back to current topology or current miner locations to grant access.
+  Site-scoped operators do not see the profile until an org-wide operator
+  establishes a proven envelope or deletes it.
 
 ### 6. Cover manual and automated execution
 
@@ -358,6 +368,9 @@ Frontend unit/component coverage:
 - Shared modal tests in both variants for buttons, selection counts, clear/
   select-all, active-site filtering, stale selection preservation, and
   permission-gated pickers.
+- Picker tests proving the curtailment/profile mode retains and labels missing
+  rack/group IDs until explicit removal while Schedule mode keeps its existing
+  pruning behavior.
 - Response-profile API tests proving create/update payloads and list/reload
   hydration retain each target type without relying on the in-memory session
   cache.
@@ -392,8 +405,9 @@ Backend unit/store/integration coverage:
   resave until corrected.
 - Authorization-envelope rollout tests for provable whole-org/site backfills,
   explicit-miner and mixed profiles requiring reauthorization, a miner moving
-  sites before reauthorization, and automation failing closed while the
-  envelope is missing or unproven.
+  sites before reauthorization, org-wide-only Get/List/Delete access while the
+  envelope is missing or unproven, site-scoped filtering, and automation
+  failing closed before reauthorization.
 - Empty/unknown-scope tests proving Preview, Start, profile save/execution, and
   automation never infer whole organization; cover an intentional
   infrastructure-only plan separately.
@@ -448,7 +462,8 @@ developer approval.
   unresolved target as stale, and fails strict resave or execution until fixed.
 - Existing profiles receive a provable whole-org/site authorization envelope
   or are marked as requiring operator reauthorization. Automation cannot run a
-  profile with a missing or unproven envelope.
+  profile with a missing or unproven envelope, and only an org-wide manager can
+  view, delete, or reauthorize it.
 - Whole organization is always explicit. Empty, unknown, or unsupported miner
   scope never widens to whole-org targeting.
 - Whole-org/site all-paired behavior, explicit-miner targeting, facility-fan
