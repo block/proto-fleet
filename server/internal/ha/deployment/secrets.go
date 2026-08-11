@@ -22,6 +22,7 @@ const (
 	fleetEtcdPasswordFile   = "fleet-etcd-password"   //nolint:gosec // Filename, not a credential.
 	patroniEtcdPasswordFile = "patroni-etcd-password" //nolint:gosec // Filename, not a credential.
 	fleetEnvironmentFile    = "fleet.env"             //nolint:gosec // Filename, not a credential.
+	certificateValidity     = 10 * 365 * 24 * time.Hour
 )
 
 var databasePasswordFiles = []string{
@@ -226,7 +227,7 @@ func newCertificateAuthority(now time.Time) (certificateAuthority, error) {
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: "Proto Fleet HA Root CA"},
 		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.Add(3650 * 24 * time.Hour),
+		NotAfter:              now.Add(certificateValidity),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
@@ -260,7 +261,7 @@ func issueCertificate(dir, name, commonName string, address netip.Addr, ca certi
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: commonName},
 		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.Add(825 * 24 * time.Hour),
+		NotAfter:              now.Add(certificateValidity),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           usages,
 		BasicConstraintsValid: true,

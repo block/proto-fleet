@@ -91,6 +91,10 @@ func TestGenerateSecrets(t *testing.T) {
 		if err := verifyEndpointCertificate(filepath.Join(dir, "etcd-server.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth); err != nil {
 			t.Errorf("verify %s etcd server certificate: %v", node, err)
 		}
+		serverCertificate, err := readCertificate(filepath.Join(dir, "etcd-server.crt"))
+		if err != nil || !serverCertificate.NotAfter.Equal(ca.NotAfter) {
+			t.Errorf("%s service certificate expiry does not match the CA: %v", node, err)
+		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "etcd-peer.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth); err != nil {
 			t.Errorf("verify %s etcd peer certificate: %v", node, err)
 		}
