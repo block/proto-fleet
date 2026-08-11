@@ -63,10 +63,14 @@ jobs:
       found: ${{ steps.pr.outputs.found }}
       number: ${{ steps.pr.outputs.number }}
       base_sha: ${{ steps.pr.outputs.base_sha }}
+      base_ref: ${{ steps.pr.outputs.base_ref }}
+      default_branch: ${{ steps.pr.outputs.default_branch }}
       head_sha: ${{ steps.pr.outputs.head_sha }}
+      config_enforced: ${{ steps.policy_mode.outputs.config_enforced || 'true' }}
+      stacked_advisory: ${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}
       decision: ${{ steps.evaluate_policy.outputs.decision || steps.bootstrap_policy.outputs.decision || 'needs-human-review' }}
       passed: ${{ steps.evaluate_policy.outputs.passed || steps.bootstrap_policy.outputs.passed || 'false' }}
-      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
+      enforced: ${{ steps.evaluate_policy.outputs.enforced || steps.policy_mode.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}
     env:
       CODEX_MODEL: gpt-5.5
       CODEX_REASONING_EFFORT: high
@@ -199,6 +203,39 @@ jobs:
           echo "available=true" >> "$GITHUB_OUTPUT"
           echo "path=$(pwd)" >> "$GITHUB_OUTPUT"
           echo "Using review policy code from the trusted default branch ${DEFAULT_BRANCH}."
+
+      - name: Select review policy mode
+        id: policy_mode
+        if: steps.pr.outputs.found == 'true' && steps.policy_source.outputs.available == 'true'
+        env:
+          POLICY_ROOT: ${{ steps.policy_source.outputs.path }}
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          DEFAULT_BRANCH: ${{ steps.pr.outputs.default_branch }}
+        run: |
+          stacked_advisory=false
+          if [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
+            stacked_advisory=true
+          fi
+
+          config_enforced="$(python3 - <<'PY'
+          import json
+          import os
+
+          config_path = os.path.join(os.environ["POLICY_ROOT"], ".github", "review-policy.json")
+          with open(config_path, encoding="utf-8") as handle:
+              config = json.load(handle)
+          print("false" if config.get("enforce", True) is False else "true")
+          PY
+          )"
+
+          enforced="$config_enforced"
+          if [ "$stacked_advisory" = "true" ]; then
+            enforced=false
+          fi
+
+          echo "config_enforced=${config_enforced}" >> "$GITHUB_OUTPUT"
+          echo "stacked_advisory=${stacked_advisory}" >> "$GITHUB_OUTPUT"
+          echo "enforced=${enforced}" >> "$GITHUB_OUTPUT"
 
       - name: Use bootstrap fallback decision
         id: bootstrap_policy
@@ -420,6 +457,8 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           AUTHOR: ${{ steps.pr.outputs.author }}
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+          DEFAULT_BRANCH: ${{ steps.pr.outputs.default_branch }}
           HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set +e
@@ -432,6 +471,8 @@ jobs:
             --pr-number "$PR_NUMBER" \
             --author "$AUTHOR" \
             --base-sha "$BASE_SHA" \
+            --base-ref "$BASE_REF" \
+            --default-branch "$DEFAULT_BRANCH" \
             --head-sha "$HEAD_SHA"
           status=$?
           decision="$(python3 -c 'import json, os; print(json.load(open(os.environ["RESULT_JSON"]))["decision"])' 2>/dev/null || echo error)"
@@ -467,6 +508,8 @@ jobs:
           PR_NUMBER: ${{ needs.evaluate.outputs.number }}
           BASE_SHA: ${{ needs.evaluate.outputs.base_sha }}
           HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
+          CONFIG_ENFORCED: ${{ needs.evaluate.outputs.config_enforced || 'true' }}
+          STACKED_ADVISORY: ${{ needs.evaluate.outputs.stacked_advisory || 'false' }}
           DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
           PASSED: ${{ needs.evaluate.outputs.passed || 'false' }}
           ENFORCED: ${{ needs.evaluate.outputs.enforced || 'true' }}
@@ -481,6 +524,8 @@ jobs:
             const issue_number = Number(process.env.PR_NUMBER);
             const baseSha = process.env.BASE_SHA;
             const headSha = process.env.HEAD_SHA;
+            const configEnforced = process.env.CONFIG_ENFORCED === 'true';
+            const stackedAdvisory = process.env.STACKED_ADVISORY === 'true';
             const statusContext = enforced ? 'Review Policy' : 'Review Policy Advisory';
             const descriptions = {
               'trusted-author-low-risk': 'Trusted author and low-risk gates passed.',
@@ -530,6 +575,18 @@ jobs:
               return;
             }
 
+            if (stackedAdvisory && configEnforced) {
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: headSha,
+                state: 'pending',
+                context: 'Review Policy',
+                description: 'Stacked PR result is advisory; default-branch PR must pass Review Policy.',
+                target_url: process.env.TARGET_URL,
+              });
+            }
+
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -561,6 +618,7 @@ jobs:
         env:
           DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
           PR_NUMBER: ${{ needs.evaluate.outputs.number }}
+          BASE_SHA: ${{ needs.evaluate.outputs.base_sha }}
           HEAD_SHA: ${{ needs.evaluate.outputs.head_sha }}
         with:
           script: |
@@ -576,9 +634,14 @@ jobs:
               : 'needs-human-review';
             const desired = labels[decision] || labels['needs-human-review'];
             const issue_number = Number(process.env.PR_NUMBER);
+            const baseSha = process.env.BASE_SHA;
             const headSha = process.env.HEAD_SHA;
             if (!Number.isInteger(issue_number) || issue_number <= 0) {
               core.setFailed(`Invalid pull request number for review policy label sync: ${process.env.PR_NUMBER}`);
+              return;
+            }
+            if (!baseSha) {
+              core.setFailed('Missing evaluated base SHA for review policy label sync.');
               return;
             }
             if (!headSha) {
@@ -616,10 +679,10 @@ jobs:
                 repo: context.repo.repo,
                 pull_number: issue_number,
               });
-              if (pr.state !== 'open' || pr.head.sha !== headSha) {
+              if (pr.state !== 'open' || pr.head.sha !== headSha || pr.base.sha !== baseSha) {
                 core.notice(
-                  `Skipping stale Review Policy label sync for ${headSha}; ` +
-                  `pull request #${issue_number} now points at ${pr.head.sha}.`
+                  `Skipping stale Review Policy label sync for ${baseSha}...${headSha}; ` +
+                  `pull request #${issue_number} now points at ${pr.base.sha}...${pr.head.sha}.`
                 );
                 return;
               }

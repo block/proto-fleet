@@ -103,6 +103,7 @@ class ReviewPolicyTest(unittest.TestCase):
         workflow_text = read_workflow("review-policy.yml")
         workflow = load_workflow("review-policy.yml")
         publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
+        evaluate_outputs = workflow["jobs"]["evaluate"]["outputs"]
         classifier_step = next(
             step
             for step in workflow["jobs"]["evaluate"]["steps"]
@@ -120,11 +121,42 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertNotIn("Review policy only evaluates PRs based on the repository default branch", workflow_text)
         self.assertIn("Using review policy code from the trusted default branch", workflow_text)
         self.assertIn("REVIEW_BASE_SHA: ${{ steps.pr.outputs.base_sha }}", workflow_text)
+        self.assertIn("BASE_REF: ${{ steps.pr.outputs.base_ref }}", workflow_text)
+        self.assertIn("DEFAULT_BRANCH: ${{ steps.pr.outputs.default_branch }}", workflow_text)
+        self.assertIn('--base-ref "$BASE_REF"', workflow_text)
+        self.assertIn('--default-branch "$DEFAULT_BRANCH"', workflow_text)
+        self.assertEqual(evaluate_outputs["enforced"], "${{ steps.evaluate_policy.outputs.enforced || steps.policy_mode.outputs.enforced || steps.bootstrap_policy.outputs.enforced || 'true' }}")
+        self.assertEqual(evaluate_outputs["stacked_advisory"], "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}")
+        self.assertEqual(evaluate_outputs["config_enforced"], "${{ steps.policy_mode.outputs.config_enforced || 'true' }}")
+        self.assertIn("stacked_advisory=true", workflow_text)
         self.assertEqual(publish_env["DECISION"], "${{ needs.evaluate.outputs.decision || 'needs-human-review' }}")
         self.assertEqual(publish_env["PASSED"], "${{ needs.evaluate.outputs.passed || 'false' }}")
         self.assertEqual(publish_env["ENFORCED"], "${{ needs.evaluate.outputs.enforced || 'true' }}")
         self.assertEqual(classifier_step["timeout-minutes"], 10)
         self.assertIn("Tiny non-sensitive server utility changes are eligible", classifier_step["with"]["prompt"])
+
+    def test_workflow_invalidates_enforced_status_for_enforced_stacked_advisory(self):
+        workflow_text = read_workflow("review-policy.yml")
+        workflow = load_workflow("review-policy.yml")
+        publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
+
+        self.assertEqual(publish_env["CONFIG_ENFORCED"], "${{ needs.evaluate.outputs.config_enforced || 'true' }}")
+        self.assertEqual(publish_env["STACKED_ADVISORY"], "${{ needs.evaluate.outputs.stacked_advisory || 'false' }}")
+        self.assertIn("stackedAdvisory && configEnforced", workflow_text)
+        self.assertIn("context: 'Review Policy'", workflow_text)
+        self.assertIn("state: 'pending'", workflow_text)
+        self.assertIn("Stacked PR result is advisory; default-branch PR must pass Review Policy.", workflow_text)
+
+    def test_workflow_label_sync_is_bound_to_base_and_head(self):
+        workflow_text = read_workflow("review-policy.yml")
+        workflow = load_workflow("review-policy.yml")
+        label_env = workflow["jobs"]["sync-label"]["steps"][0]["env"]
+
+        self.assertEqual(label_env["BASE_SHA"], "${{ needs.evaluate.outputs.base_sha }}")
+        self.assertEqual(label_env["HEAD_SHA"], "${{ needs.evaluate.outputs.head_sha }}")
+        self.assertIn("Missing evaluated base SHA for review policy label sync", workflow_text)
+        self.assertIn("pr.head.sha !== headSha || pr.base.sha !== baseSha", workflow_text)
+        self.assertIn("Skipping stale Review Policy label sync for ${baseSha}...${headSha}", workflow_text)
 
     def test_path_matches_double_star_root_file(self):
         self.assertTrue(policy.path_matches("package.json", "**/package.json"))
@@ -181,6 +213,12 @@ class ReviewPolicyTest(unittest.TestCase):
             ),
             ["deployment-files/docker-compose.yaml", "deployment-files/ha/install.sh"],
         )
+
+    def test_effective_enforcement_keeps_stacked_prs_advisory(self):
+        self.assertFalse(policy.effective_enforcement(False, "main", "main"))
+        self.assertTrue(policy.effective_enforcement(True, "main", "main"))
+        self.assertFalse(policy.effective_enforcement(True, "feature-base", "main"))
+        self.assertTrue(policy.effective_enforcement(True, None, "main"))
 
     def test_low_risk_config_allows_small_server_app_changes_to_reach_classifier(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
