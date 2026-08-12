@@ -63,6 +63,7 @@ const pageMarginX = "mx-6 tablet:mx-10 laptop:mx-14";
 /** A horizontal rule with label chips sitting on top of it. */
 const railChrome =
   "relative flex items-center font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5";
+const railChip = "relative bg-surface-base";
 
 /** Latest reading for each rail temperature, keyed the way rails refer to them. */
 type RailReadings = Record<RailReading, Measurement | undefined>;

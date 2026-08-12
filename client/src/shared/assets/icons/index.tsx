@@ -45,6 +45,7 @@ import Immersion from "./Immersion";
 import Info from "./Info";
 import InfoInverted from "./InfoInverted";
 import LEDIndicator from "./LEDIndicator";
+import LightBulb from "./LightBulb";
 import Lightning from "./Lightning";
 import LightningAlt from "./LightningAlt";
 import Location from "./Location";
@@ -81,6 +82,7 @@ import Terminal from "./Terminal";
 import ThemeDark from "./ThemeDark";
 import ThemeLight from "./ThemeLight";
 import ThemeSystem from "./ThemeSystem";
+import Thermometer from "./Thermometer";
 import Trash from "./Trash";
 import Triangle from "./Triangle";
 import type { IconProps } from "./types";
@@ -135,6 +137,7 @@ export {
   Info,
   InfoInverted,
   LEDIndicator,
+  LightBulb,
   Lightning,
   LightningAlt,
   Location,
@@ -168,6 +171,7 @@ export {
   Stop,
   Success,
   Terminal,
+  Thermometer,
   ThemeDark,
   ThemeLight,
   ThemeSystem,
