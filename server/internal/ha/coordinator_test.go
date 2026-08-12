@@ -140,6 +140,43 @@ func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 	require.Equal(t, holder, coordinator.HolderID())
 }
 
+func TestCoordinatorRetainsActiveLifetimeAcrossTransientTimelineMismatch(t *testing.T) {
+	store := &fakeLeaseStore{}
+	coordinator := newCoordinatorWithHolder(
+		&sequenceObserver{results: []observerResult{
+			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+			{err: fmt.Errorf("promotion observation: %w", ErrTimelineMismatch)},
+			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		}},
+		store,
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+	require.NoError(t, coordinator.step(t.Context()))
+	activeCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+	validSnapshot := coordinator.Snapshot()
+	validTimer := coordinator.leaseTimer
+
+	require.NoError(t, coordinator.step(t.Context()))
+	retainedCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+	require.Same(t, activeCtx, retainedCtx)
+	require.NoError(t, activeCtx.Err())
+	require.False(t, coordinator.Snapshot().ObservationAvailable)
+	require.Equal(t, validSnapshot.FreshUntil, coordinator.Snapshot().FreshUntil)
+	require.Same(t, validTimer, coordinator.leaseTimer)
+	require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
+
+	require.NoError(t, coordinator.step(t.Context()))
+	convergedCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+	require.Same(t, activeCtx, convergedCtx)
+	require.NoError(t, activeCtx.Err())
+	require.True(t, coordinator.Snapshot().ObservationAvailable)
+	require.Equal(t, []string{"acquire", "renew", "renew"}, store.callSequence())
+}
+
 func TestCoordinatorGivesPeersAnAcquisitionWindowAfterPassiveProofFailure(t *testing.T) {
 	// Arrange
 	holder := uuid.New()
@@ -469,6 +506,36 @@ type actionThenErrorObserver struct {
 	err         error
 }
 
+type succeedOnceThenErrorObserver struct {
+	mu          sync.Mutex
+	observation WriterObservation
+	err         error
+	calls       int
+}
+
+func (o *succeedOnceThenErrorObserver) ObserveAndRun(
+	ctx context.Context,
+	action func(context.Context, WriterObservation) error,
+) (WriterObservation, error) {
+	o.mu.Lock()
+	o.calls++
+	calls := o.calls
+	o.mu.Unlock()
+	if calls > 1 {
+		return WriterObservation{}, o.err
+	}
+	if err := action(ctx, o.observation); err != nil {
+		return WriterObservation{}, err
+	}
+	return o.observation, nil
+}
+
+func (o *succeedOnceThenErrorObserver) callCount() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.calls
+}
+
 func (o actionThenErrorObserver) ObserveAndRun(
 	ctx context.Context,
 	action func(context.Context, WriterObservation) error,
@@ -487,6 +554,7 @@ type observerResult struct {
 type sequenceObserver struct {
 	mu      sync.Mutex
 	results []observerResult
+	calls   chan struct{}
 }
 
 func (s *sequenceObserver) ObserveAndRun(
@@ -497,6 +565,9 @@ func (s *sequenceObserver) ObserveAndRun(
 	result := s.results[0]
 	s.results = s.results[1:]
 	s.mu.Unlock()
+	if s.calls != nil {
+		s.calls <- struct{}{}
+	}
 	if result.err != nil {
 		return WriterObservation{}, result.err
 	}
