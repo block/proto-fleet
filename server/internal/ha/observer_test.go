@@ -413,6 +413,21 @@ func TestObserverRejectsTimelineMismatchWhenDCSWriterChanges(t *testing.T) {
 	require.ErrorIs(t, err, ErrWriterChanged)
 }
 
+func TestObserverRejectsExpiredLeaderLeaseBeforeTimelineMismatch(t *testing.T) {
+	observer := validObserver([]DCSSnapshot{validDCSSnapshot(), validDCSSnapshot()})
+	dcs, ok := observer.dcs.(*fakeDCSReader)
+	require.True(t, ok)
+	dcs.leaseTTL = 0
+	observer.patroni = fakePatroniReader{identity: PatroniIdentity{
+		Role:     "primary",
+		Timeline: 8,
+	}}
+
+	observed, err := observer.Observe(t.Context())
+	require.ErrorIs(t, err, ErrLeaderLeaseExpired)
+	require.Equal(t, WriterObservation{}, observed)
+}
+
 func TestObserverRejectsNonPrimaryPatroniMember(t *testing.T) {
 	observer := validObserver([]DCSSnapshot{validDCSSnapshot()})
 	observer.patroni = fakePatroniReader{identity: PatroniIdentity{

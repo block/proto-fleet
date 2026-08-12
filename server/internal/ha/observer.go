@@ -171,6 +171,9 @@ func (o *Observer) observeAndRun(
 		if closingErr != nil {
 			return WriterObservation{}, closingErr
 		}
+		if _, leaseErr := o.leaderLeaseDeadline(ctx, second.LeaderLeaseID); leaseErr != nil {
+			return WriterObservation{}, leaseErr
+		}
 		return writerObservation(second, connected), fmt.Errorf(
 			"%w: PostgreSQL=%d Patroni=%d",
 			ErrTimelineMismatch,
@@ -189,22 +192,27 @@ func (o *Observer) observeAndRun(
 		return WriterObservation{}, err
 	}
 
-	ttlRequestStarted := time.Now()
-	ttl, err := o.dcs.LeaseTTL(ctx, second.LeaderLeaseID)
+	proofDeadline, err := o.leaderLeaseDeadline(ctx, second.LeaderLeaseID)
 	if err != nil {
-		return WriterObservation{}, fmt.Errorf("validate DCS leader lease: %w", err)
-	}
-	if ttl <= 0 {
-		return WriterObservation{}, ErrLeaderLeaseExpired
-	}
-	proofDeadline := ttlRequestStarted.Add(ttl)
-	if !proofDeadline.After(time.Now()) {
-		return WriterObservation{}, ErrLeaderLeaseExpired
+		return WriterObservation{}, err
 	}
 
 	observed = writerObservation(second, connected)
 	observed.DCSProofDeadline = proofDeadline
 	return observed, nil
+}
+
+func (o *Observer) leaderLeaseDeadline(ctx context.Context, leaseID int64) (time.Time, error) {
+	ttlRequestStarted := time.Now()
+	ttl, err := o.dcs.LeaseTTL(ctx, leaseID)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("validate DCS leader lease: %w", err)
+	}
+	proofDeadline := ttlRequestStarted.Add(ttl)
+	if ttl <= 0 || !proofDeadline.After(time.Now()) {
+		return time.Time{}, ErrLeaderLeaseExpired
+	}
+	return proofDeadline, nil
 }
 
 func (o *Observer) confirmDCSUnchanged(
