@@ -4,28 +4,31 @@ import clsx from "clsx";
 import { useAsicMetric } from "../AsicMetricContext";
 import AsicPopover from "./AsicPopover";
 import { getAsicUniqueId } from "./utility";
-import { useAsicColor } from "@/protoOS/features/kpis/hooks";
-import {
-  AsicData,
-  convertAndFormatMeasurement,
-  getAsicName,
-  type Measurement,
-  useTemperatureUnit,
-} from "@/protoOS/store";
+import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
+import { AsicData, convertAndFormatMeasurement, type Measurement, useTemperatureUnit } from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
 
 interface AsicButtonProps {
   asic: AsicData;
+  backgroundColor: string; // Resolved by AsicTable so the theme palette is read once per grid
   hashboardSerial: string;
   showPopover: string | undefined;
   setShowPopover: Dispatch<SetStateAction<string | undefined>>;
   totalAsicCount: number; // Pass this in to avoid calling useMinerHashboard
 }
 
-const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalAsicCount }: AsicButtonProps) => {
+const AsicButton = ({
+  asic,
+  backgroundColor,
+  hashboardSerial,
+  showPopover,
+  setShowPopover,
+  totalAsicCount,
+}: AsicButtonProps) => {
   const { triggerRef: asicRef } = usePopover();
   const { selectedMetric } = useAsicMetric();
   const temperatureUnit = useTemperatureUnit();
+  const layout = useHashboardLayout();
 
   const currentAsicId = useMemo(
     () => (asic.index !== undefined ? getAsicUniqueId(asic.index, hashboardSerial) : undefined),
@@ -34,10 +37,7 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
 
   const shouldShowPopover = currentAsicId !== undefined && showPopover === currentAsicId;
 
-  const backgroundColor = useAsicColor(asic);
-  const asicName = useMemo(() => {
-    return asic.index !== undefined ? getAsicName(totalAsicCount, asic.index) : "";
-  }, [totalAsicCount, asic.index]);
+  const asicName = layout.labelCell(asic, totalAsicCount);
 
   const metricMeasurement = useMemo((): Measurement | undefined => {
     switch (selectedMetric) {
@@ -56,7 +56,7 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
 
   return (
     <div
-      className={clsx("relative mb-1.5 grow basis-0 rounded-xl p-[2px] shadow-[0_0_0_3px] phone:truncate", {
+      className={clsx("relative rounded-xl shadow-[0_0_0_3px]", layout.cell.frame, {
         "shadow-transparent": !shouldShowPopover,
         "shadow-intent-info-fill": shouldShowPopover,
       })}
@@ -71,10 +71,13 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
       ) : null}
       <button
         style={{ backgroundColor }}
-        className="asic-button w-full cursor-default truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary"
+        className={clsx(
+          "asic-button w-full cursor-default truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary",
+          layout.cell.fill,
+        )}
       >
-        <div className="bg-transparent hover:bg-surface-overlay">
-          <div className="flex flex-col items-center gap-1 px-1 py-3">
+        <div className={clsx("bg-transparent hover:bg-surface-overlay", layout.cell.fill)}>
+          <div className={clsx("flex flex-col items-center gap-1 px-1", layout.cell.content)}>
             <div className="text-text-primary-50">{asicName}</div>
             {renderMetricValue()}
           </div>

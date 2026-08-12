@@ -1,7 +1,10 @@
-import { Dispatch, SetStateAction } from "react";
+import { Dispatch, SetStateAction, useMemo } from "react";
+import clsx from "clsx";
 
-import { getAsicsRows } from "../utility";
+import { groupAsicsByRow } from "../utility";
 import AsicButton from "./AsicButton";
+import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
+import { getAsicColor, useAsicPalette } from "@/protoOS/features/kpis/hooks";
 import { AsicData } from "@/protoOS/store";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -15,6 +18,12 @@ interface AsicTableProps {
 }
 
 const AsicTable = ({ asics, hashboardSerialNumber, pending, showPopover, setShowPopover }: AsicTableProps) => {
+  const layout = useHashboardLayout();
+  // Resolved once for the whole grid; see useAsicPalette.
+  const palette = useAsicPalette();
+
+  const rows = useMemo(() => groupAsicsByRow(asics), [asics]);
+
   return (
     <div className="relative mt-6 h-full">
       <div className="flex h-full">
@@ -26,22 +35,21 @@ const AsicTable = ({ asics, hashboardSerialNumber, pending, showPopover, setShow
           </div>
         ) : (
           <>
-            <div className="w-full -space-y-[2px]">
-              {getAsicsRows(asics).map((row) => (
-                <div className="flex gap-1.5" key={`asic-${row}`}>
-                  {asics
-                    .filter((asic) => asic.row === row)
-                    .map((asic) => (
-                      <PopoverProvider key={`asic-${asic.row}-${asic.column}`}>
-                        <AsicButton
-                          asic={asic}
-                          hashboardSerial={hashboardSerialNumber}
-                          showPopover={showPopover}
-                          setShowPopover={setShowPopover}
-                          totalAsicCount={asics.length}
-                        />
-                      </PopoverProvider>
-                    ))}
+            <div className={layout.grid.frame}>
+              {rows.map(({ row, asics: rowAsics }) => (
+                <div className={clsx("flex", layout.grid.row)} key={`asic-${row}`}>
+                  {rowAsics.map((asic) => (
+                    <PopoverProvider key={`asic-${asic.row}-${asic.column}`}>
+                      <AsicButton
+                        asic={asic}
+                        backgroundColor={getAsicColor(palette, asic.temperature?.latest?.value)}
+                        hashboardSerial={hashboardSerialNumber}
+                        showPopover={showPopover}
+                        setShowPopover={setShowPopover}
+                        totalAsicCount={asics.length}
+                      />
+                    </PopoverProvider>
+                  ))}
                 </div>
               ))}
             </div>

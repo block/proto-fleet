@@ -33,6 +33,15 @@ describe("useMinerStore.resetDeviceData", () => {
     expect((after.networkInfo as unknown as Record<string, unknown>).mac).toBeUndefined();
   });
 
+  test("clears the derived device type so a rig doesn't inherit a module's layout", () => {
+    useMinerStore.getState().systemInfo.setSystemInfo({ model: "CU1" } as never);
+    expect(useMinerStore.getState().systemInfo.deviceType).toBe("containerModule");
+
+    useMinerStore.getState().resetDeviceData();
+
+    expect(useMinerStore.getState().systemInfo.deviceType).toBeUndefined();
+  });
+
   test("preserves UI preferences and onboarding/identity flags", () => {
     const s = useMinerStore.getState();
     s.minerStatus.setOnboarded(true);
@@ -45,5 +54,37 @@ describe("useMinerStore.resetDeviceData", () => {
     expect(after.minerStatus.onboarded).toBe(true);
     expect(after.minerStatus.defaultPasswordActive).toBe(false);
     expect(after.ui.theme).toBe(theme);
+  });
+});
+
+// deviceType is the single point where a device is classified, and every
+// device-specific rendering decision reads it, so pin it directly.
+describe("systemInfo.deviceType", () => {
+  const setSystemInfo = (info: Record<string, unknown>) =>
+    useMinerStore.getState().systemInfo.setSystemInfo(info as never);
+
+  beforeEach(() => {
+    useMinerStore.getState().resetDeviceData();
+  });
+
+  test("is undefined before any system info arrives", () => {
+    expect(useMinerStore.getState().systemInfo.deviceType).toBeUndefined();
+  });
+
+  test.each([
+    ["CU1", "containerModule"],
+    ["cu1", "containerModule"],
+    ["Rig", "rig"],
+    ["", "rig"],
+  ])("derives %s as %s", (model, expected) => {
+    setSystemInfo({ model });
+    expect(useMinerStore.getState().systemInfo.deviceType).toBe(expected);
+  });
+
+  test("survives a partial update that omits model", () => {
+    setSystemInfo({ model: "CU1" });
+    setSystemInfo({ product_name: "Proto CU1" });
+
+    expect(useMinerStore.getState().systemInfo.deviceType).toBe("containerModule");
   });
 });

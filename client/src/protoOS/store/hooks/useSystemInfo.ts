@@ -1,4 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
+import type { DeviceType } from "../slices/systemInfoSlice";
 import useMinerStore from "../useMinerStore";
 
 const PROTO_RIG_PRODUCT_NAME = "Proto Rig";
@@ -36,13 +37,27 @@ export const useSystemInfoPending = () => useMinerStore((state) => state.systemI
 export const useSystemInfoError = () => useMinerStore((state) => state.systemInfo.error);
 
 /**
- * Hook to check if the device is a Proto Rig
+ * Hook to check if the device is a Proto Rig.
+ *
+ * Narrower than `useDeviceType`: this matches the specific "Proto Rig" product,
+ * whereas `useDeviceType` returns "rig" for anything that isn't a container
+ * module. Use `useDeviceType` for device-specific rendering.
  */
 export const useIsProtoRig = () => {
   return useMinerStore((state) => {
     return state.systemInfo.product_name === PROTO_RIG_PRODUCT_NAME;
   });
 };
+
+/**
+ * Hook to get the connected device type.
+ *
+ * Derived at the ingestion boundary (see `systemInfoSlice`) so this stays a
+ * plain field read: the value is reference-stable, making it cheap enough to
+ * call from every cell of a 312-ASIC grid. Defaults to "rig" before system
+ * info arrives, matching how the UI already behaved.
+ */
+export const useDeviceType = (): DeviceType => useMinerStore((state) => state.systemInfo.deviceType ?? "rig");
 
 /**
  * Hook to check if the web server is running

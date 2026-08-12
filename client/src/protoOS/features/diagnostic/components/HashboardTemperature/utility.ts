@@ -11,14 +11,38 @@ export const sortAsics = (asics: AsicData[]) => {
   });
 };
 
-// returns the unique rows from the asics that have position data
-// e.g. [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-export const getAsicsRows = (asics: AsicData[]) => {
-  return [
-    ...new Set(
-      asics.filter((asic) => asic.row !== undefined && asic.column !== undefined).map((asic) => asic.row as number),
-    ),
-  ];
+/**
+ * Groups ASICs into display rows in one pass.
+ *
+ * A row appears only if at least one ASIC on it carries full position data, but
+ * the row then holds every ASIC sharing that row index. Row order follows first
+ * appearance in `asics`, so a sorted input yields sorted rows.
+ */
+export const groupAsicsByRow = (asics: AsicData[]): { row: number; asics: AsicData[] }[] => {
+  const asicsByRow = new Map<number, AsicData[]>();
+
+  for (const asic of asics) {
+    if (asic.row === undefined) continue;
+
+    const bucket = asicsByRow.get(asic.row);
+    if (bucket) {
+      bucket.push(asic);
+    } else {
+      asicsByRow.set(asic.row, [asic]);
+    }
+  }
+
+  const rows: { row: number; asics: AsicData[] }[] = [];
+  const seen = new Set<number>();
+
+  for (const asic of asics) {
+    if (asic.row === undefined || asic.column === undefined || seen.has(asic.row)) continue;
+
+    seen.add(asic.row);
+    rows.push({ row: asic.row, asics: asicsByRow.get(asic.row)! });
+  }
+
+  return rows;
 };
 
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";

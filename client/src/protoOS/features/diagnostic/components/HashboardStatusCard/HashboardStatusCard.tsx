@@ -4,6 +4,7 @@ import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusMo
 import Card from "@/protoOS/features/diagnostic/components/Card";
 import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
 import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
+import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
 import {
   useAsicDataTransform,
   useErrorsByComponent,
@@ -30,6 +31,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   const asics = useMinerHashboardAsics(serialNumber);
   const navigate = useNavigate();
   const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
+  const layout = useHashboardLayout();
 
   // Transform protoOS asic data to shared component format
   const asicData = useAsicDataTransform(asics);
@@ -54,7 +56,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
       <CardHeader
         title={name}
         statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
-        componentIcon={<HashboardIndicator width="w-4" position={position} />}
+        componentIcon={layout.card.showSlotIndicator ? <HashboardIndicator width="w-4" position={position} /> : null}
         onInfoIconClick={() => setShowComponentStatusModal(true)}
         actions={
           <Button variant="secondary" size="compact" onClick={handleViewClick}>
@@ -70,7 +72,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
           <LabeledValue value={<PowerValue value={power} />} label="Power" />
           <LabeledValue value={<HashRateValue value={hashrate} />} label="Hashrate" />
         </div>
-        <AsicTablePreview asics={asicData} />
+        <AsicTablePreview asics={asicData} rowHeight={layout.card.previewRowHeight} />
       </div>
       <StatusModal
         open={showComponentStatusModal}

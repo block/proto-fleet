@@ -19,6 +19,10 @@ export interface AsicTablePreviewProps {
     empty: string; // Default: var(--color-core-primary-5)
   };
 
+  // Fixed pixel height for each ASIC cell/row. Defaults to the compact 6px bar
+  // (`h-1.5`). container modules pass 16px to reinforce the vertical layout.
+  rowHeight?: number;
+
   className?: string;
 }
 
@@ -30,6 +34,7 @@ export interface AsicCellProps {
   warningThreshold: number;
   criticalThreshold: number;
   dangerThreshold: number;
+  rowHeight?: number;
   colors: {
     normal: string;
     warning: string;

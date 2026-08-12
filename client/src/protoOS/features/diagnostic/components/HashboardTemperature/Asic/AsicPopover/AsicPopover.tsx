@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import AsicChart from "./AsicChart";
 import AsicPopoverRow from "./AsicPopoverRow";
 import { convertTelemetryHashrateToChartData, convertTelemetryTemperatureToChartData } from "./utility";
+import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
 import { AsicData, convertAndFormatMeasurement, formatValue } from "@/protoOS/store";
 import { useIntervalMs, useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
@@ -12,7 +13,6 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { formatHashrateWithUnit } from "@/shared/utils/telemetryFormat";
 
 // import { dangerTemp } from "../../constants";
-import { getRowLabel } from "@/shared/utils/utility";
 
 interface AsicPopoverProps {
   asic: AsicData;
@@ -23,6 +23,7 @@ interface AsicPopoverProps {
 const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverProps) => {
   const temperatureUnit = useTemperatureUnit();
   const intervalMs = useIntervalMs();
+  const layout = useHashboardLayout();
 
   // Convert telemetry data to chart format
   const { temperatureData, hashrateData } = useMemo(() => {
@@ -56,10 +57,7 @@ const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverPr
     >
       <div className="space-y-1">
         <div className="text-200 text-text-primary-70">ASIC</div>
-        <div className="text-heading-200 text-text-primary">
-          {getRowLabel(asic.row || 0)}
-          {(asic.column || 0) + 1}
-        </div>
+        <div className="text-heading-200 text-text-primary">{layout.labelDetail(asic)}</div>
         {/* TODO: update this condition when we have set indicators */}
         {/* {(asic.temp_c || 0) >= dangerTemp && (
           <div className="text-200 text-intent-warning-text text-wrap">

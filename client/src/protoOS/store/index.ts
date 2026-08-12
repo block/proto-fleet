@@ -27,6 +27,14 @@ export { convertValueUnits, formatValue, convertAndFormatMeasurement } from "./u
 
 export { getAsicId } from "./utils/getAsicId";
 export { getAsicName } from "./utils/getAsicName";
+export {
+  getContainerAsicLabel,
+  getContainerRowLabel,
+  CONTAINER_HASHBOARD_COLUMNS,
+  CONTAINER_HASHBOARD_ROWS,
+  CONTAINER_HASHBOARD_ROW_LETTERS,
+  CONTAINER_HASHBOARD_ROW_ORDER,
+} from "./utils/containerHashboardLayout";
 
 export {
   useMiner,
@@ -145,6 +153,7 @@ export {
   useSystemInfoPending,
   useSystemInfoError,
   useIsProtoRig,
+  useDeviceType,
   useIsWebServerRunning,
   useIsMiningDriverRunning,
   useHasFirmwareUpdate,
@@ -153,6 +162,8 @@ export {
   useSetSystemInfoError,
   useSetSystemInfoPending,
 } from "./hooks/useSystemInfo";
+
+export type { DeviceType } from "./slices/systemInfoSlice";
 
 export {
   useNetworkInfo,
