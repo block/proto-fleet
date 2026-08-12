@@ -20,7 +20,7 @@ function CardHeader({
   return (
     <div className="flex flex-row items-center gap-6">
       <div className="flex basis-full items-center gap-2 truncate" title={title}>
-        <div className="shrink-0">{statusIcon}</div>
+        {statusIcon ? <div className="shrink-0">{statusIcon}</div> : null}
         <span className="text-emphasis-300 text-text-primary">{title}</span>
       </div>
       <div className="flex items-center gap-3">

@@ -12,6 +12,7 @@ import {
   useBayCount,
   useControlBoard,
   useCoolingMode,
+  useDeviceType,
   useFanIds,
   useHashboardSerialsByBay,
   usePsuIds,
@@ -140,13 +141,61 @@ const ControlBoardSection = () => {
 };
 ControlBoardSection.displayName = "ControlBoardSection";
 
+// A single controller card's display values. Live latency and a second
+// controller are backend gaps for container modules (tracked in the
+// containers plan), so the production path derives one controller from the
+// store and omits latency. Stories pass an explicit `controllers` array to
+// preview the full two-controller design (latency, distinct CPU, warnings).
+export interface ControllerConfig {
+  title: string;
+  latency?: number;
+  cpuCapacity?: number;
+  hasWarning?: boolean;
+}
+
+// Container modules group the PSU and controllers under a single "Other
+// hardware" section (Frame 2), instead of the rig's separate "PSU" and
+// "Control Board" sections. PSU cards reuse the real store-backed PsuStatusCard;
+// controller cards reuse ControlBoardStatusCard with per-controller props.
+export const OtherHardwareSection = ({ controllers }: { controllers?: ControllerConfig[] }) => {
+  const psuIds = usePsuIds();
+  const controlBoard = useControlBoard();
+
+  const controllerCards: ControllerConfig[] = controllers ?? (controlBoard ? [{ title: "Controller 1" }] : []);
+
+  return (
+    <ComponentSection title="Hardware">
+      <div className="grid items-start gap-1 tablet:grid-cols-2 desktop:grid-cols-3">
+        {psuIds.map((slot) => (
+          <PsuStatusCard key={`psu-${slot}`} slot={slot} showComponentIcon={false} />
+        ))}
+        {controllerCards.map((controller, index) => (
+          <ControlBoardStatusCard
+            key={`controller-${index}`}
+            title={controller.title}
+            latency={controller.latency}
+            cpuCapacity={controller.cpuCapacity}
+            hasWarning={controller.hasWarning}
+          />
+        ))}
+      </div>
+    </ComponentSection>
+  );
+};
+OtherHardwareSection.displayName = "OtherHardwareSection";
+
 function DiagnosticView({ className }: DiagnosticViewProps) {
   useTelemetry({ level: ["hashboard", "asic", "psu"] });
   const [selectedComponent, setSelectedComponent] = useState<ComponentFilterType>("all");
+  const deviceType = useDeviceType();
 
   const shouldShowComponent = (component: ComponentFilterType) => {
     return selectedComponent === "all" || selectedComponent === component;
   };
+
+  // Container modules combine PSU + controllers into one "Other hardware"
+  // section; it stays visible under the "PSUs" or "Control Board" filters.
+  const shouldShowOtherHardware = shouldShowComponent("psus") || shouldShowComponent("controlBoard");
 
   return (
     <div className={`w-full space-y-6 ${className || ""}`}>
@@ -168,17 +217,27 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
           </ErrorBoundary>
         ) : null}
 
-        {shouldShowComponent("psus") ? (
-          <ErrorBoundary>
-            <PsusSection />
-          </ErrorBoundary>
-        ) : null}
+        {deviceType === "containerModule" ? (
+          shouldShowOtherHardware ? (
+            <ErrorBoundary>
+              <OtherHardwareSection />
+            </ErrorBoundary>
+          ) : null
+        ) : (
+          <>
+            {shouldShowComponent("psus") ? (
+              <ErrorBoundary>
+                <PsusSection />
+              </ErrorBoundary>
+            ) : null}
 
-        {shouldShowComponent("controlBoard") ? (
-          <ErrorBoundary>
-            <ControlBoardSection />
-          </ErrorBoundary>
-        ) : null}
+            {shouldShowComponent("controlBoard") ? (
+              <ErrorBoundary>
+                <ControlBoardSection />
+              </ErrorBoundary>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   );

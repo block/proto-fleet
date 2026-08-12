@@ -12,9 +12,13 @@ import VoltageValue from "@/shared/components/VoltageValue";
 
 interface PsuStatusCardProps {
   slot: number;
+  // Container modules group the single PSU with the controllers under one
+  // "Hardware" section, where the slot-position indicator is meaningless clutter.
+  // Rigs omit this prop, so the indicator renders exactly as before.
+  showComponentIcon?: boolean;
 }
 
-function PsuStatusCard({ slot }: PsuStatusCardProps) {
+function PsuStatusCard({ slot, showComponentIcon = true }: PsuStatusCardProps) {
   // Fetch data directly from store
   const psuData = useMinerPsu(slot);
   const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
@@ -46,7 +50,7 @@ function PsuStatusCard({ slot }: PsuStatusCardProps) {
       <CardHeader
         title={name}
         statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
-        componentIcon={<PsuIndicator position={position} />}
+        componentIcon={showComponentIcon ? <PsuIndicator position={position} /> : null}
         onInfoIconClick={() => setShowComponentStatusModal(true)}
       />
 
