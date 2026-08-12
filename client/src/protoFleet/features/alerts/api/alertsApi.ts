@@ -559,6 +559,7 @@ export async function listHistory(input: {
   active_only?: boolean;
   // Active-only drill-in: this alert's firing instances, one per affected miner.
   alert_name?: string;
+  // The alert's rule group, matched exactly; "" is the group of rules carrying no rule label.
   rule_group?: string;
 }): Promise<HistoryPage> {
   const res = await alertHistoryClient.listAlerts({
@@ -566,8 +567,7 @@ export async function listHistory(input: {
     pageSize: input.page_size ?? 0,
     activeOnly: input.active_only ?? false,
     alertName: input.alert_name ?? "",
-    // Presence matters: undefined matches any group, "" matches the rows whose rule label is absent.
-    ruleGroup: input.rule_group,
+    ruleGroup: input.rule_group ?? "",
   });
   return { alerts: res.alerts.map(historyFromProto), next_cursor: res.nextCursor };
 }
@@ -581,13 +581,11 @@ const activeGroupFromProto = (g: ProtoActiveAlertGroup): ActiveAlertGroup => ({
   alert_name: RENAMED_ALERTS[g.alertName] ?? g.alertName,
   stored_alert_name: g.alertName,
   rule_group: g.ruleGroup,
-  severity: g.severity,
   // JSON-encoded so no pair of groups can concatenate to the same key.
   key: JSON.stringify([g.ruleGroup, g.alertName]),
   device_count: Number(g.deviceCount),
   alert_count: Number(g.alertCount),
   first_started_at: isoFromTs(g.firstStartedAt),
-  summary: g.summary,
 });
 
 export async function listActiveAlertGroups(): Promise<ActiveAlertGroupsPage> {

@@ -159,9 +159,7 @@ func TestNotificationHistoryStore_ListActiveGroups_RollsUpPerAlert(t *testing.T)
 	assert.Equal(t, "Device Offline", groups[0].AlertName)
 	assert.Equal(t, int64(3), groups[0].DeviceCount)
 	assert.Equal(t, int64(3), groups[0].AlertCount)
-	assert.Equal(t, "critical", groups[0].Severity)
-	// severity/template/summary come off the newest instance in the group.
-	assert.Equal(t, "device-2 is offline", groups[0].Summary)
+	// Earliest start across the group: how long the alert has been firing somewhere in the fleet.
 	assert.WithinDuration(t, now.Add(-10*time.Minute), groups[0].FirstStartedAt, time.Minute)
 
 	assert.Equal(t, "Device Temperature High", groups[1].AlertName)
@@ -248,8 +246,8 @@ func TestNotificationActiveSync_FingerprintlessKeyIncludesRuleGroup(t *testing.T
 		assert.Equal(t, int64(1), g.DeviceCount)
 	}
 	assert.ElementsMatch(t,
-		[]string{"down per user rule", "down per default rule"},
-		[]string{groups[0].Summary, groups[1].Summary},
+		[]string{"user-rules", "defaults"},
+		[]string{groups[0].RuleGroup, groups[1].RuleGroup},
 	)
 }
 
@@ -269,18 +267,19 @@ func TestNotificationHistoryStore_ListActiveByAlert_EmptyRuleGroupMatchesExactly
 	insertDeviceAlert(t, db, orgID, "Device Offline", "", "device-ungrouped", "down", now)
 	insertDeviceAlert(t, db, orgID, "Device Offline", "defaults", "device-grouped", "down", now)
 
-	exact, err := store.ListActiveByAlert(t.Context(), orgID, notificationhistory.ActiveAlertFilter{
-		AlertName: "Device Offline", RuleGroup: strPtr(""), AfterKey: "", Limit: 50,
+	ungrouped, err := store.ListActiveByAlert(t.Context(), orgID, notificationhistory.ActiveAlertFilter{
+		AlertName: "Device Offline", RuleGroup: "", AfterKey: "", Limit: 50,
 	})
 	require.NoError(t, err)
-	require.Len(t, exact, 1)
-	assert.Equal(t, "device-ungrouped", exact[0].DeviceID)
+	require.Len(t, ungrouped, 1)
+	assert.Equal(t, "device-ungrouped", ungrouped[0].DeviceID)
 
-	wildcard, err := store.ListActiveByAlert(t.Context(), orgID, notificationhistory.ActiveAlertFilter{
-		AlertName: "Device Offline", RuleGroup: nil, AfterKey: "", Limit: 50,
+	grouped, err := store.ListActiveByAlert(t.Context(), orgID, notificationhistory.ActiveAlertFilter{
+		AlertName: "Device Offline", RuleGroup: "defaults", AfterKey: "", Limit: 50,
 	})
 	require.NoError(t, err)
-	assert.Len(t, wildcard, 2, "a nil rule group still spans every group of that name")
+	require.Len(t, grouped, 1)
+	assert.Equal(t, "device-grouped", grouped[0].DeviceID)
 }
 
 func TestNotificationHistoryStore_ListActiveByAlert_PagesOneAlert(t *testing.T) {
@@ -303,7 +302,7 @@ func TestNotificationHistoryStore_ListActiveByAlert_PagesOneAlert(t *testing.T) 
 	insertDeviceAlert(t, db, orgID, "Device Temperature High", "defaults", "device-9", "too hot", now.Add(-time.Minute))
 
 	first, err := store.ListActiveByAlert(t.Context(), orgID, notificationhistory.ActiveAlertFilter{
-		AlertName: "Device Offline", RuleGroup: strPtr("defaults"), AfterKey: "", Limit: 3,
+		AlertName: "Device Offline", RuleGroup: "defaults", AfterKey: "", Limit: 3,
 	})
 	require.NoError(t, err)
 	require.Len(t, first, 3, "only the requested alert's instances, capped at the page size")
@@ -319,7 +318,7 @@ func TestNotificationHistoryStore_ListActiveByAlert_PagesOneAlert(t *testing.T) 
 
 	cursor := first[len(first)-1].AlertKey
 	second, err := store.ListActiveByAlert(t.Context(), orgID, notificationhistory.ActiveAlertFilter{
-		AlertName: "Device Offline", RuleGroup: strPtr("defaults"), AfterKey: cursor, Limit: 3,
+		AlertName: "Device Offline", RuleGroup: "defaults", AfterKey: cursor, Limit: 3,
 	})
 	require.NoError(t, err)
 	require.Len(t, second, 2, "the keyset cursor continues past the first page without repeating it")
@@ -331,16 +330,9 @@ func TestNotificationHistoryStore_ListActiveByAlert_PagesOneAlert(t *testing.T) 
 	}
 	assert.ElementsMatch(t, devices, paged, "every affected miner is paged exactly once")
 
-	// An absent rule group matches the name in any group.
-	anyGroup, err := store.ListActiveByAlert(t.Context(), orgID, notificationhistory.ActiveAlertFilter{
-		AlertName: "Device Offline", RuleGroup: nil, AfterKey: "", Limit: 50,
-	})
-	require.NoError(t, err)
-	assert.Len(t, anyGroup, 5)
-
 	// A mismatched rule group matches nothing, so a name reused across groups stays separated.
 	otherGroup, err := store.ListActiveByAlert(t.Context(), orgID, notificationhistory.ActiveAlertFilter{
-		AlertName: "Device Offline", RuleGroup: strPtr("other"), AfterKey: "", Limit: 50,
+		AlertName: "Device Offline", RuleGroup: "other", AfterKey: "", Limit: 50,
 	})
 	require.NoError(t, err)
 	assert.Empty(t, otherGroup)

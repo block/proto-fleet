@@ -183,7 +183,7 @@ WHERE na.organization_id = sqlc.arg('organization_id')
   AND na.status = 'firing'
   AND na.received_at >= sqlc.arg('active_since') -- drop alerts not re-asserted within the freshness window
   AND na.alert_name = sqlc.arg('alert_name')
-  AND (sqlc.narg('rule_group')::text IS NULL OR na.rule_group = sqlc.narg('rule_group'))
+  AND na.rule_group = sqlc.arg('rule_group')
   AND (sqlc.narg('after_key')::text IS NULL OR na.alert_key > sqlc.narg('after_key'))
 ORDER BY na.alert_key
 LIMIT sqlc.arg('page_limit');
@@ -191,45 +191,20 @@ LIMIT sqlc.arg('page_limit');
 -- name: ListActiveNotificationGroups :many
 -- Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
 -- keeps titles unique per folder and a rule_group label maps to one folder, so a title repeats only across labels.
-WITH grouped AS (
-    SELECT
-        na.alert_name,
-        na.rule_group,
-        COUNT(*)::bigint AS alert_count,
-        -- FILTER, not COUNT(DISTINCT NULLIF(...)): equivalent, but only the bare column matches
-        -- idx_notification_active_org_rollup's ordering, so this streams out of the GroupAggregate unsorted.
-        (COUNT(DISTINCT na.device_id) FILTER (WHERE na.device_id <> ''))::bigint AS device_count,
-        MIN(COALESCE(na.starts_at, na.received_at))::timestamptz AS first_started_at,
-        MAX(na.received_at)::timestamptz AS last_received_at
-    FROM notification_active na
-    WHERE na.organization_id = sqlc.arg('organization_id')
-      AND na.status = 'firing'
-      AND na.received_at >= sqlc.arg('active_since') -- drop alerts not re-asserted within the freshness window
-    GROUP BY na.alert_name, na.rule_group
-    ORDER BY device_count DESC, alert_count DESC, last_received_at DESC, na.alert_name
-    LIMIT sqlc.arg('page_limit')
-)
+-- Identity and counts only: per-instance detail would have to be picked off one instance, and the drill-in already
+-- reports it per row.
 SELECT
-    g.alert_name,
-    g.rule_group,
-    latest.severity::text AS severity,
-    latest.template::text AS template,
-    latest.summary::text AS summary,
-    g.alert_count,
-    g.device_count,
-    g.first_started_at
-FROM grouped g
--- severity/template/summary off the newest instance, not aggregated, so a group never blends two instances'
--- values; seeking per capped-page row beats sorting every instance of every group to take one.
-CROSS JOIN LATERAL (
-    SELECT na.severity, na.template, na.summary
-    FROM notification_active na
-    WHERE na.organization_id = sqlc.arg('organization_id')
-      AND na.status = 'firing'
-      AND na.received_at >= sqlc.arg('active_since')
-      AND na.alert_name = g.alert_name
-      AND na.rule_group = g.rule_group
-    ORDER BY na.history_id DESC
-    LIMIT 1
-) latest
-ORDER BY g.device_count DESC, g.alert_count DESC, g.last_received_at DESC, g.alert_name;
+    na.alert_name,
+    na.rule_group,
+    COUNT(*)::bigint AS alert_count,
+    -- FILTER, not COUNT(DISTINCT NULLIF(...)): equivalent, but only the bare column matches
+    -- idx_notification_active_org_rollup's ordering, so this streams out of the GroupAggregate unsorted.
+    (COUNT(DISTINCT na.device_id) FILTER (WHERE na.device_id <> ''))::bigint AS device_count,
+    MIN(COALESCE(na.starts_at, na.received_at))::timestamptz AS first_started_at
+FROM notification_active na
+WHERE na.organization_id = sqlc.arg('organization_id')
+  AND na.status = 'firing'
+  AND na.received_at >= sqlc.arg('active_since') -- drop alerts not re-asserted within the freshness window
+GROUP BY na.alert_name, na.rule_group
+ORDER BY device_count DESC, alert_count DESC, MAX(na.received_at) DESC, na.alert_name
+LIMIT sqlc.arg('page_limit');

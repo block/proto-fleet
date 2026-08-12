@@ -836,8 +836,8 @@ type Querier interface {
 	ListActiveCurtailmentTargetDevicesByOrg(ctx context.Context, orgID int64) ([]string, error)
 	// Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
 	// keeps titles unique per folder and a rule_group label maps to one folder, so a title repeats only across labels.
-	// severity/template/summary off the newest instance, not aggregated, so a group never blends two instances'
-	// values; seeking per capped-page row beats sorting every instance of every group to take one.
+	// Identity and counts only: per-instance detail would have to be picked off one instance, and the drill-in already
+	// reports it per row.
 	ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error)
 	// Current firing alerts (one row per alert instance), served from the incrementally-maintained
 	// notification_active table, which also retains resolved tombstones; device name/MAC are joined live

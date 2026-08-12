@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useActiveAlertGroups } from "@/protoFleet/features/alerts/api/useActiveAlertGroups";
-import { AlertNameCell, SummaryCell, TimestampText } from "@/protoFleet/features/alerts/components/alertColumns";
+import { TimestampText } from "@/protoFleet/features/alerts/components/alertColumns";
 import AlertInstancesModal from "@/protoFleet/features/alerts/components/AlertInstancesModal";
 import StatusDot from "@/protoFleet/features/alerts/components/StatusDot";
 import { countLabel } from "@/protoFleet/features/alerts/lib/alertCountLabels";
@@ -11,25 +11,24 @@ import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
-// A device-less rule can fire on several non-device dimensions at once and the callout's summary describes only
-// the newest, so the count is what says the rest are firing too.
+// A device-less rule can fire on several non-device dimensions at once, and the rollup names the rule rather
+// than any one of them, so the count is what says the others are firing too.
 const calloutTitle = (group: ActiveAlertGroup) =>
   group.alert_count > 1 ? `${group.alert_name} — ${countLabel(group.alert_count, "instance")}` : group.alert_name;
 
-type AlertColumns = "alert" | "miners" | "since" | "summary";
+type AlertColumns = "alert" | "miners" | "since";
 
 const alertColTitles: ColTitles<AlertColumns> = {
   alert: "Alert",
   miners: "Affected Miners",
   since: "Firing Since",
-  summary: "Summary",
 };
 
-const alertActiveCols: AlertColumns[] = ["alert", "miners", "since", "summary"];
+const alertActiveCols: AlertColumns[] = ["alert", "miners", "since"];
 
 const alertColConfig: ColConfig<ActiveAlertGroup, string, AlertColumns> = {
   alert: {
-    component: AlertNameCell,
+    component: (group) => <span className="text-emphasis-300 text-text-primary">{group.alert_name}</span>,
     width: "w-72",
     allowWrap: true,
   },
@@ -42,11 +41,6 @@ const alertColConfig: ColConfig<ActiveAlertGroup, string, AlertColumns> = {
   since: {
     component: (group) => <TimestampText iso={group.first_started_at} />,
     width: "w-48",
-  },
-  summary: {
-    component: SummaryCell,
-    width: "w-80",
-    allowWrap: true,
   },
 };
 
@@ -92,12 +86,11 @@ const ActiveAlertsCard = () => {
           {calloutAlerts.map((group) => (
             <Callout
               key={group.key}
-              intent={group.severity === "critical" ? "danger" : "warning"}
+              intent="warning"
               prefixIcon={<Alert />}
               title={calloutTitle(group)}
-              subtitle={group.summary}
-              // One instance is fully described by the subtitle; past that the others are only reachable here.
-              buttonText={group.alert_count > 1 ? "View instances" : undefined}
+              // What each instance actually says lives on the drill-in, so it is offered even for a single one.
+              buttonText="View instances"
               buttonOnClick={() => setSelectedGroup(group)}
             />
           ))}

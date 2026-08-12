@@ -33,11 +33,9 @@ const buildGroup = (overrides: Partial<ActiveAlertGroup> = {}): ActiveAlertGroup
     // Only a renamed alert differs from what the server stored, so follow alert_name unless a case says otherwise.
     stored_alert_name: overrides.alert_name ?? "Alert",
     rule_group: "miner",
-    severity: "warning",
     device_count: 1,
     alert_count: 1,
     first_started_at: "2026-07-01T00:00:00Z",
-    summary: "",
     ...overrides,
   };
   // key is derived by the API mapper, not sent by the server, so the fixture derives it too.
@@ -81,7 +79,7 @@ describe("ActiveAlertsCard", () => {
     activeGroupsMock.mockReturnValue(
       buildResult({
         groups: [
-          buildGroup({ alert_name: "Miner Offline", severity: "critical", device_count: 5000 }),
+          buildGroup({ alert_name: "Miner Offline", device_count: 5000 }),
           buildGroup({ alert_name: "Hashrate dropped", device_count: 12 }),
         ],
       }),
@@ -125,7 +123,6 @@ describe("ActiveAlertsCard", () => {
             alert_name: "Curtailment Fan Restore Failed",
             rule_group: "proto-fleet-curtailment",
             device_count: 0,
-            summary: "Facility fan restore failed before miners resumed.",
           }),
         ],
       }),
@@ -135,8 +132,8 @@ describe("ActiveAlertsCard", () => {
     // No blast radius to rank, so it must not become a rollup row reading "0 miners".
     expect(screen.getAllByTestId("callout")).toHaveLength(1);
     expect(screen.queryByText("Affected Miners")).not.toBeInTheDocument();
-    // Its one instance is already described by the callout's subtitle, so there is nothing to drill into.
-    expect(screen.queryByText("View instances")).not.toBeInTheDocument();
+    // The rollup says nothing about the one instance, so the drill-in is still the only place it is described.
+    expect(screen.getByText("View instances")).toBeVisible();
   });
 
   it("counts the instances of a device-less alert firing on more than one source", () => {
@@ -148,26 +145,23 @@ describe("ActiveAlertsCard", () => {
             rule_group: "proto-fleet-curtailment",
             device_count: 0,
             alert_count: 2,
-            summary: "Curtailment source maestro-b is unreachable.",
           }),
         ],
       }),
     );
     render(<ActiveAlertsCard />);
 
-    // The summary names only the newest source, so the count is what tells the operator another is down.
+    // The callout names the rule, so the count is what tells the operator more than one source is down.
     const callout = within(screen.getByTestId("callout"));
     expect(callout.getByText("Curtailment Source Unreachable — 2 instances")).toBeVisible();
-    expect(callout.getByText("Curtailment source maestro-b is unreachable.")).toBeVisible();
   });
 
-  it("drills into a device-less alert's instances, which its summary alone cannot name", async () => {
+  it("drills into a device-less alert's instances, which the rollup alone cannot name", async () => {
     const group = buildGroup({
       alert_name: "Curtailment Source Unreachable",
       rule_group: "proto-fleet-curtailment",
       device_count: 0,
       alert_count: 2,
-      summary: "Curtailment source maestro-b is unreachable.",
     });
     activeGroupsMock.mockReturnValue(buildResult({ groups: [group] }));
     pagedAlertsMock.mockReturnValue(
@@ -201,24 +195,12 @@ describe("ActiveAlertsCard", () => {
     expect(screen.queryByText("MAC Address")).not.toBeInTheDocument();
   });
 
-  it("renders one callout per fleet-wide alert with severity-mapped intent", () => {
+  it("renders one callout per fleet-wide alert", () => {
     activeGroupsMock.mockReturnValue(
       buildResult({
         groups: [
-          buildGroup({
-            alert_name: "Metric ingest stalled",
-            rule_group: "proto-fleet-self",
-            severity: "critical",
-            device_count: 0,
-            summary: "No telemetry received in 5 minutes",
-          }),
-          buildGroup({
-            alert_name: "Host CPU high",
-            rule_group: "proto-fleet-system",
-            severity: "warning",
-            device_count: 0,
-            summary: "CPU usage above 90% for 10 minutes",
-          }),
+          buildGroup({ alert_name: "Metric ingest stalled", rule_group: "proto-fleet-self", device_count: 0 }),
+          buildGroup({ alert_name: "Host CPU high", rule_group: "proto-fleet-system", device_count: 0 }),
         ],
       }),
     );
@@ -226,16 +208,8 @@ describe("ActiveAlertsCard", () => {
 
     const callouts = screen.getAllByTestId("callout");
     expect(callouts).toHaveLength(2);
-
-    const selfCallout = within(callouts[0]);
-    expect(selfCallout.getByText("Metric ingest stalled")).toBeVisible();
-    expect(selfCallout.getByText("No telemetry received in 5 minutes")).toBeVisible();
-    expect(callouts[0].querySelector(".text-intent-critical-fill")).not.toBeNull();
-
-    const systemCallout = within(callouts[1]);
-    expect(systemCallout.getByText("Host CPU high")).toBeVisible();
-    expect(systemCallout.getByText("CPU usage above 90% for 10 minutes")).toBeVisible();
-    expect(callouts[1].querySelector(".text-intent-warning-fill")).not.toBeNull();
+    expect(within(callouts[0]).getByText("Metric ingest stalled")).toBeVisible();
+    expect(within(callouts[1]).getByText("Host CPU high")).toBeVisible();
   });
 
   it("renders a source-scoped alert as a callout alongside miner alert rows", () => {
@@ -244,9 +218,7 @@ describe("ActiveAlertsCard", () => {
         groups: [
           buildGroup({
             alert_name: "Curtailment Source Unreachable",
-            severity: "critical",
             device_count: 0,
-            summary: "Source maestro-a is disconnected",
           }),
           buildGroup({ alert_name: "Hashrate dropped", device_count: 3 }),
         ],

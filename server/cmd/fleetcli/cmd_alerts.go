@@ -329,8 +329,7 @@ func generatedAlertsCommand() *cli.Command {
 								req.AlertName = cmd.String("alert-name")
 							}
 							if cmd.IsSet("rule-group") {
-								value := cmd.String("rule-group")
-								req.RuleGroup = &value
+								req.RuleGroup = cmd.String("rule-group")
 							}
 							if err := generatedValidateRequest(req); err != nil {
 								return nil, err

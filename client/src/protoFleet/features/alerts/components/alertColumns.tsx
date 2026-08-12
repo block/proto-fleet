@@ -2,15 +2,14 @@ import StatusDot from "@/protoFleet/features/alerts/components/StatusDot";
 import type { AlertHistoryEntry } from "@/protoFleet/features/alerts/types";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
-// Shared alert-row cells, reused by the history table, the active-alert rollup, and the affected-miners modal.
+// Shared alert-row cells, reused by the history table and the affected-miners modal.
 export const StatusCell = (entry: Pick<AlertHistoryEntry, "status">) => (
   <StatusDot dotClass={entry.status === "resolved" ? "bg-intent-success-fill" : "bg-intent-critical-fill"}>
     {entry.status === "resolved" ? "Resolved" : "Firing"}
   </StatusDot>
 );
 
-// Named on the fields it reads, so the active-alert rollup can share it with the per-instance tables.
-export const AlertNameCell = (entry: Pick<AlertHistoryEntry, "alert_name" | "severity">) => (
+export const AlertNameCell = (entry: AlertHistoryEntry) => (
   <span className="flex items-center gap-2">
     <span className="text-emphasis-300 text-text-primary">{entry.alert_name}</span>
     {entry.severity ? (
@@ -34,6 +33,6 @@ export const DeviceMacCell = (entry: AlertHistoryEntry) => (
   <span className="text-text-primary-50">{entry.device_mac || "—"}</span>
 );
 
-export const SummaryCell = (entry: Pick<AlertHistoryEntry, "summary">) => (
+export const SummaryCell = (entry: AlertHistoryEntry) => (
   <span className="text-text-primary-50">{entry.summary || "—"}</span>
 );

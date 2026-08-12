@@ -136,46 +136,21 @@ func (q *Queries) InsertNotificationHistory(ctx context.Context, arg InsertNotif
 }
 
 const listActiveNotificationGroups = `-- name: ListActiveNotificationGroups :many
-WITH grouped AS (
-    SELECT
-        na.alert_name,
-        na.rule_group,
-        COUNT(*)::bigint AS alert_count,
-        -- FILTER, not COUNT(DISTINCT NULLIF(...)): equivalent, but only the bare column matches
-        -- idx_notification_active_org_rollup's ordering, so this streams out of the GroupAggregate unsorted.
-        (COUNT(DISTINCT na.device_id) FILTER (WHERE na.device_id <> ''))::bigint AS device_count,
-        MIN(COALESCE(na.starts_at, na.received_at))::timestamptz AS first_started_at,
-        MAX(na.received_at)::timestamptz AS last_received_at
-    FROM notification_active na
-    WHERE na.organization_id = $1
-      AND na.status = 'firing'
-      AND na.received_at >= $2 -- drop alerts not re-asserted within the freshness window
-    GROUP BY na.alert_name, na.rule_group
-    ORDER BY device_count DESC, alert_count DESC, last_received_at DESC, na.alert_name
-    LIMIT $3
-)
 SELECT
-    g.alert_name,
-    g.rule_group,
-    latest.severity::text AS severity,
-    latest.template::text AS template,
-    latest.summary::text AS summary,
-    g.alert_count,
-    g.device_count,
-    g.first_started_at
-FROM grouped g
-CROSS JOIN LATERAL (
-    SELECT na.severity, na.template, na.summary
-    FROM notification_active na
-    WHERE na.organization_id = $1
-      AND na.status = 'firing'
-      AND na.received_at >= $2
-      AND na.alert_name = g.alert_name
-      AND na.rule_group = g.rule_group
-    ORDER BY na.history_id DESC
-    LIMIT 1
-) latest
-ORDER BY g.device_count DESC, g.alert_count DESC, g.last_received_at DESC, g.alert_name
+    na.alert_name,
+    na.rule_group,
+    COUNT(*)::bigint AS alert_count,
+    -- FILTER, not COUNT(DISTINCT NULLIF(...)): equivalent, but only the bare column matches
+    -- idx_notification_active_org_rollup's ordering, so this streams out of the GroupAggregate unsorted.
+    (COUNT(DISTINCT na.device_id) FILTER (WHERE na.device_id <> ''))::bigint AS device_count,
+    MIN(COALESCE(na.starts_at, na.received_at))::timestamptz AS first_started_at
+FROM notification_active na
+WHERE na.organization_id = $1
+  AND na.status = 'firing'
+  AND na.received_at >= $2 -- drop alerts not re-asserted within the freshness window
+GROUP BY na.alert_name, na.rule_group
+ORDER BY device_count DESC, alert_count DESC, MAX(na.received_at) DESC, na.alert_name
+LIMIT $3
 `
 
 type ListActiveNotificationGroupsParams struct {
@@ -187,9 +162,6 @@ type ListActiveNotificationGroupsParams struct {
 type ListActiveNotificationGroupsRow struct {
 	AlertName      string
 	RuleGroup      string
-	Severity       string
-	Template       string
-	Summary        string
 	AlertCount     int64
 	DeviceCount    int64
 	FirstStartedAt time.Time
@@ -197,8 +169,8 @@ type ListActiveNotificationGroupsRow struct {
 
 // Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
 // keeps titles unique per folder and a rule_group label maps to one folder, so a title repeats only across labels.
-// severity/template/summary off the newest instance, not aggregated, so a group never blends two instances'
-// values; seeking per capped-page row beats sorting every instance of every group to take one.
+// Identity and counts only: per-instance detail would have to be picked off one instance, and the drill-in already
+// reports it per row.
 func (q *Queries) ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error) {
 	rows, err := q.query(ctx, q.listActiveNotificationGroupsStmt, listActiveNotificationGroups, arg.OrganizationID, arg.ActiveSince, arg.PageLimit)
 	if err != nil {
@@ -211,9 +183,6 @@ func (q *Queries) ListActiveNotificationGroups(ctx context.Context, arg ListActi
 		if err := rows.Scan(
 			&i.AlertName,
 			&i.RuleGroup,
-			&i.Severity,
-			&i.Template,
-			&i.Summary,
 			&i.AlertCount,
 			&i.DeviceCount,
 			&i.FirstStartedAt,
@@ -364,7 +333,7 @@ WHERE na.organization_id = $1
   AND na.status = 'firing'
   AND na.received_at >= $2 -- drop alerts not re-asserted within the freshness window
   AND na.alert_name = $3
-  AND ($4::text IS NULL OR na.rule_group = $4)
+  AND na.rule_group = $4
   AND ($5::text IS NULL OR na.alert_key > $5)
 ORDER BY na.alert_key
 LIMIT $6
@@ -374,7 +343,7 @@ type ListActiveNotificationsByAlertParams struct {
 	OrganizationID int64
 	ActiveSince    time.Time
 	AlertName      string
-	RuleGroup      sql.NullString
+	RuleGroup      string
 	AfterKey       sql.NullString
 	PageLimit      int32
 }

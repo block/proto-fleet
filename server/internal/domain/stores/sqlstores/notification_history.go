@@ -218,7 +218,7 @@ func (s *SQLNotificationHistoryStore) ListActiveByAlert(ctx context.Context, org
 	rows, err := s.GetQueries(ctx).ListActiveNotificationsByAlert(ctx, sqlc.ListActiveNotificationsByAlertParams{
 		OrganizationID: organizationID,
 		AlertName:      filter.AlertName,
-		RuleGroup:      ptrToNullString(filter.RuleGroup),
+		RuleGroup:      filter.RuleGroup,
 		AfterKey:       emptyToNullString(filter.AfterKey),
 		PageLimit:      filter.Limit,
 		ActiveSince:    time.Now().Add(-activeAlertStaleAfter),
@@ -268,9 +268,6 @@ func (s *SQLNotificationHistoryStore) ListActiveGroups(ctx context.Context, orga
 		out = append(out, notificationhistory.ActiveAlertGroup{
 			AlertName:      row.AlertName,
 			RuleGroup:      row.RuleGroup,
-			Severity:       row.Severity,
-			Template:       row.Template,
-			Summary:        row.Summary,
 			AlertCount:     row.AlertCount,
 			DeviceCount:    row.DeviceCount,
 			FirstStartedAt: row.FirstStartedAt,

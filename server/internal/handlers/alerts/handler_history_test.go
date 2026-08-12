@@ -2,20 +2,16 @@ package alerts
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"google.golang.org/protobuf/proto"
 
 	alertsv1 "github.com/block/proto-fleet/server/generated/grpc/alerts/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -154,9 +150,6 @@ func TestListActiveAlertGroups_ReturnsRollup(t *testing.T) {
 	lister := &stubLister{groups: []notificationhistory.ActiveAlertGroup{{
 		AlertName:      "MinerOffline",
 		RuleGroup:      "proto-fleet-defaults",
-		Severity:       "critical",
-		Template:       "device_offline",
-		Summary:        "Device device-42 is offline",
 		AlertCount:     5_000,
 		DeviceCount:    5_000,
 		FirstStartedAt: started,
@@ -181,30 +174,28 @@ func TestListActiveAlertGroups_ReturnsRollup(t *testing.T) {
 	require.Equal(t, int32(activeGroupsMaxPageSize+1), lister.lastLimit)
 }
 
-// summary is free-text from rule annotations, so it follows the same miner:read gate as the drill-in rows.
-func TestListActiveAlertGroups_RedactsSummaryWithoutMinerRead(t *testing.T) {
+// The rollup reports rule identity and counts only, so a viewer without miner:read reads the same rows a
+// miner reader does — there is no device identity or rule-annotation free text in it to redact.
+func TestListActiveAlertGroups_NeedsNoMinerRead(t *testing.T) {
 	groups := []notificationhistory.ActiveAlertGroup{
-		{AlertName: "MinerOffline", Template: "device_offline", Summary: "Device device-42 is offline"},
-		{AlertName: "Curtailment Source Unreachable", Template: "mqtt-disconnected", Summary: "Source maestro-a is unreachable"},
+		{AlertName: "MinerOffline", DeviceCount: 5_000, AlertCount: 5_000},
 	}
-	h := NewHandler(nil, &stubLister{groups: groups})
 
-	resp, err := h.ListActiveAlertGroups(
+	withoutMiner, err := NewHandler(nil, &stubLister{groups: groups}).ListActiveAlertGroups(
 		ctxWithPerms(authz.PermAlertRead),
 		connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
 	)
 	require.NoError(t, err)
-	require.Len(t, resp.Msg.Groups, 2)
-	require.Empty(t, resp.Msg.Groups[0].Summary)
-	// Source-level templates name the MQTT source, not a miner, so they stay visible.
-	require.Equal(t, "Source maestro-a is unreachable", resp.Msg.Groups[1].Summary)
-
-	withMiner, err := h.ListActiveAlertGroups(
+	withMiner, err := NewHandler(nil, &stubLister{groups: groups}).ListActiveAlertGroups(
 		ctxWithPerms(authz.PermAlertRead, authz.PermMinerRead),
 		connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
 	)
 	require.NoError(t, err)
-	require.Equal(t, "Device device-42 is offline", withMiner.Msg.Groups[0].Summary)
+
+	require.Len(t, withoutMiner.Msg.Groups, 1)
+	require.Equal(t, withMiner.Msg.Groups[0].AlertName, withoutMiner.Msg.Groups[0].AlertName)
+	require.Equal(t, withMiner.Msg.Groups[0].DeviceCount, withoutMiner.Msg.Groups[0].DeviceCount)
+	require.Equal(t, int64(5_000), withoutMiner.Msg.Groups[0].DeviceCount)
 }
 
 func TestListActiveAlertGroups_FlagsMoreBeyondCap(t *testing.T) {
@@ -241,7 +232,7 @@ func TestListAlerts_ActiveAlertDrillInPagesOnAlertKey(t *testing.T) {
 		connect.NewRequest(&alertsv1.ListAlertsRequest{
 			ActiveOnly: true,
 			AlertName:  "MinerOffline",
-			RuleGroup:  proto.String("proto-fleet-defaults"),
+			RuleGroup:  "proto-fleet-defaults",
 			PageSize:   25,
 			BeforeId:   "0a1b2c3d4e5f60718293a4b5c6d7e8f9",
 		}),
@@ -249,9 +240,21 @@ func TestListAlerts_ActiveAlertDrillInPagesOnAlertKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.Alerts, 1)
 	require.Equal(t, "MinerOffline", lister.lastFilter.AlertName)
-	require.Equal(t, "proto-fleet-defaults", *lister.lastFilter.RuleGroup)
+	require.Equal(t, "proto-fleet-defaults", lister.lastFilter.RuleGroup)
 	require.Equal(t, "0a1b2c3d4e5f60718293a4b5c6d7e8f9", lister.lastFilter.AfterKey)
 	require.Equal(t, int32(26), lister.lastLimit)
+}
+
+// "" is the group of rules carrying no rule label, so a group without a name can't mean "any group": it would
+// silently return the whole firing set where the caller asked for one rule's.
+func TestListAlerts_ActiveRuleGroupWithoutAlertNameIsRejected(t *testing.T) {
+	lister := &stubLister{rows: []notificationhistory.StoredNotification{deviceAlertRow()}}
+
+	_, err := NewHandler(nil, lister).ListAlerts(
+		ctxWithPerms(authz.PermAlertRead),
+		connect.NewRequest(&alertsv1.ListAlertsRequest{ActiveOnly: true, RuleGroup: "proto-fleet-defaults"}),
+	)
+	require.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 // Unfiltered active_only is the pre-drill-in current-state view: the whole firing set under the 200-row cap,
@@ -319,95 +322,4 @@ func TestListAlerts_HistoryRejectsBadCursor(t *testing.T) {
 		connect.NewRequest(&alertsv1.ListAlertsRequest{BeforeId: "not-a-number"}),
 	)
 	require.Error(t, err)
-}
-
-// countingLister counts rollup loads and can hold them open, so a test can prove concurrent callers share one.
-type countingLister struct {
-	stubLister
-	calls atomic.Int32
-	gate  chan struct{}
-}
-
-func (c *countingLister) ListActiveGroups(_ context.Context, _ int64, _ int32) ([]notificationhistory.ActiveAlertGroup, error) {
-	c.calls.Add(1)
-	if c.gate != nil {
-		<-c.gate
-	}
-	return c.groups, nil
-}
-
-func activeGroupFixture() []notificationhistory.ActiveAlertGroup {
-	return []notificationhistory.ActiveAlertGroup{
-		{AlertName: "MinerOffline", Template: "device_offline", Summary: "Device device-42 is offline", DeviceCount: 5_000},
-	}
-}
-
-// The rollup is org-global and only moves when Alertmanager re-asserts, so concurrent dashboards share one
-// aggregate rather than each driving a full scan of the org's firing set — the load that lands during an outage.
-func TestListActiveAlertGroups_ConcurrentViewersShareOneLoad(t *testing.T) {
-	lister := &countingLister{gate: make(chan struct{})}
-	lister.groups = activeGroupFixture()
-	h := NewHandler(nil, lister)
-
-	const viewers = 8
-	var wg sync.WaitGroup
-	errs := make([]error, viewers)
-	for i := range viewers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, errs[i] = h.ListActiveAlertGroups(
-				ctxWithPerms(authz.PermAlertRead),
-				connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
-			)
-		}()
-	}
-	// Let every viewer reach the cache before the load returns, so they queue on one slot rather than serialize.
-	require.Eventually(t, func() bool { return lister.calls.Load() >= 1 }, time.Second, time.Millisecond)
-	close(lister.gate)
-	wg.Wait()
-
-	for _, err := range errs {
-		require.NoError(t, err)
-	}
-	assert.Equal(t, int32(1), lister.calls.Load(), "eight concurrent viewers, one aggregate")
-}
-
-// A second poll inside the TTL is served from the snapshot rather than re-aggregating.
-func TestListActiveAlertGroups_RepeatPollWithinTTLReusesSnapshot(t *testing.T) {
-	lister := &countingLister{}
-	lister.groups = activeGroupFixture()
-	h := NewHandler(nil, lister)
-
-	for range 3 {
-		_, err := h.ListActiveAlertGroups(
-			ctxWithPerms(authz.PermAlertRead),
-			connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
-		)
-		require.NoError(t, err)
-	}
-	assert.Equal(t, int32(1), lister.calls.Load())
-}
-
-// The cache holds the store's rows, not the response: two callers sharing one snapshot must still be redacted
-// against their own miner:read grant, or the cache would leak device detail to a caller denied it.
-func TestListActiveAlertGroups_SharedSnapshotRedactsPerCaller(t *testing.T) {
-	lister := &countingLister{}
-	lister.groups = activeGroupFixture()
-	h := NewHandler(nil, lister)
-
-	withMiner, err := h.ListActiveAlertGroups(
-		ctxWithPerms(authz.PermAlertRead, authz.PermMinerRead),
-		connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
-	)
-	require.NoError(t, err)
-	withoutMiner, err := h.ListActiveAlertGroups(
-		ctxWithPerms(authz.PermAlertRead),
-		connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
-	)
-	require.NoError(t, err)
-
-	assert.Equal(t, int32(1), lister.calls.Load(), "both callers served from one aggregate")
-	assert.Equal(t, "Device device-42 is offline", withMiner.Msg.Groups[0].Summary)
-	assert.Empty(t, withoutMiner.Msg.Groups[0].Summary, "a shared snapshot must not carry another caller's grant")
 }

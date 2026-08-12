@@ -20,13 +20,12 @@ import (
 )
 
 type Handler struct {
-	svc          *alerts.Service
-	history      notificationhistory.Lister
-	activeGroups *activeGroupsCache
+	svc     *alerts.Service
+	history notificationhistory.Lister
 }
 
 func NewHandler(svc *alerts.Service, history notificationhistory.Lister) *Handler {
-	return &Handler{svc: svc, history: history, activeGroups: newActiveGroupsCache(history)}
+	return &Handler{svc: svc, history: history}
 }
 
 var (
@@ -389,19 +388,24 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
+	// A rule group alone names no rule: "" is a real group, so it can't mean "every group with this name" here
+	// and "no group filter" there. Reject it rather than silently widen the drill-in to the whole firing set.
+	if req.Msg.GetActiveOnly() && req.Msg.GetRuleGroup() != "" && req.Msg.GetAlertName() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("rule_group requires alert_name")
+	}
 	// Each branch names its own cursor as it dispatches, so the shape a caller gets back can't drift from the
-	// branch that produced it. Only a filtered active_only pages: unfiltered keeps the contract it had before.
+	// branch that produced it. Only the named-alert drill-in pages: unfiltered keeps the contract it had before.
 	var (
 		rows      []notificationhistory.StoredNotification
 		pageLimit = historyPageLimit(req.Msg.GetPageSize())
 		cursorOf  func(notificationhistory.StoredNotification) string
 	)
 	switch {
-	case req.Msg.GetActiveOnly() && (req.Msg.GetAlertName() != "" || req.Msg.RuleGroup != nil):
+	case req.Msg.GetActiveOnly() && req.Msg.GetAlertName() != "":
 		cursorOf = func(n notificationhistory.StoredNotification) string { return n.AlertKey }
 		rows, err = h.history.ListActiveByAlert(ctx, orgID, notificationhistory.ActiveAlertFilter{
 			AlertName: req.Msg.GetAlertName(),
-			RuleGroup: req.Msg.RuleGroup,
+			RuleGroup: req.Msg.GetRuleGroup(),
 			AfterKey:  req.Msg.GetBeforeId(),
 			Limit:     pageLimit + 1,
 		})
@@ -460,18 +464,15 @@ func parseBeforeID(s string) (*int64, error) {
 	return &v, nil
 }
 
-// ListActiveAlertGroups answers "what is firing right now" per rule. Counts carry no device identity, but summary
-// is free-text from rule annotations, so it takes the same miner:read gate as the drill-in rows.
+// ListActiveAlertGroups answers "what is firing right now" per rule. Rule identity and counts carry no device
+// identity and no rule-annotation free text, so this needs no miner:read gate; the drill-in rows still do.
 func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[alertsv1.ListActiveAlertGroupsRequest]) (*connect.Response[alertsv1.ListActiveAlertGroupsResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermAlertRead)
 	if err != nil {
 		return nil, err
 	}
-	includeDevice, err := h.canReadDeviceScope(ctx)
-	if err != nil {
-		return nil, err
-	}
-	groups, err := h.activeGroups.get(ctx, orgID)
+	// Over-fetch by one so a fleet past the cap is flagged rather than silently swallowed.
+	groups, err := h.history.ListActiveGroups(ctx, orgID, activeGroupsMaxPageSize+1)
 	if err != nil {
 		return nil, err
 	}
@@ -484,8 +485,6 @@ func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[
 		out = append(out, &alertsv1.ActiveAlertGroup{
 			AlertName:      g.AlertName,
 			RuleGroup:      g.RuleGroup,
-			Severity:       g.Severity,
-			Summary:        visibleSummary(g.Summary, g.Template, includeDevice),
 			AlertCount:     g.AlertCount,
 			DeviceCount:    g.DeviceCount,
 			FirstStartedAt: timestamppb.New(g.FirstStartedAt),

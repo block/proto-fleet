@@ -391,14 +391,14 @@ message ListAlertsRequest {
     string before_id = 1 [(buf.validate.field).string.max_len = 64];
     int32 page_size = 2 [(buf.validate.field).int32.gte = 0];
     // Return currently-active alerts instead of history. Unfiltered it is a current-state view, not a feed: the
-    // whole firing set in one capped response. Adding either filter below makes it the paged drill-in.
+    // whole firing set in one capped response. Naming an alert below makes it the paged drill-in.
     bool active_only = 3;
     // Narrows the active set to one rule's firing instances, one per affected miner (the per-alert drill-in).
     // Ignored unless active_only is set. 190 is Grafana's alert-rule title cap.
     string alert_name = 4 [(buf.validate.field).string.max_len = 190];
-    // Disambiguates an alert name reused across rule groups. Optional for presence: unset matches any group, and
-    // set to "" matches only rows with no rule label, so drilling into one can't pull in another group's miners.
-    optional string rule_group = 5 [(buf.validate.field).string.max_len = 190];
+    // The rule group alert_name belongs to, matched exactly, so drilling into one can't pull in another group's
+    // miners; "" is the group of rules carrying no rule label. Ignored unless alert_name is set.
+    string rule_group = 5 [(buf.validate.field).string.max_len = 190];
 }
 message ListAlertsResponse {
     repeated AlertHistoryEntry alerts = 1;
@@ -408,19 +408,17 @@ message ListAlertsResponse {
     string next_cursor = 3;
 }
 
-// One currently-firing alert rule and its blast radius.
+// One currently-firing alert rule and its blast radius. Identity and counts only: severity, summary and every
+// other per-instance detail live on the drill-in rows, which is the one place they describe a single alert.
 message ActiveAlertGroup {
     string alert_name = 1;
     string rule_group = 2;
-    string severity = 3;
     // Distinct miners firing this alert; 0 for fleet-wide and source-scoped alerts, which carry no device.
-    int64 device_count = 4;
+    int64 device_count = 3;
     // Firing instances in the group, which exceeds device_count only when a rule fires on a non-device dimension.
-    int64 alert_count = 5;
+    int64 alert_count = 4;
     // Earliest start across the group's instances: how long this alert has been firing somewhere in the fleet.
-    google.protobuf.Timestamp first_started_at = 6;
-    // The most recently received instance's summary; per-miner detail lives on the drill-in rows.
-    string summary = 7;
+    google.protobuf.Timestamp first_started_at = 5;
 }
 
 message ListActiveAlertGroupsRequest {}

@@ -1,4 +1,4 @@
--- 000137-000139 index alert_name, rule_group and device_id as raw text, so an oversized value would push an entry
+-- 000137-000138 index alert_name, rule_group and device_id as raw text, so an oversized value would push an entry
 -- past the btree tuple limit and fail the insert. 190 is Grafana's rule-title cap, 255 device_identifier's (000084).
 
 -- SHARE drains in-flight webhook writes, so none commits through the old trigger after the DELETE's snapshot and
