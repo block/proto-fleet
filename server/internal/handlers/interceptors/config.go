@@ -163,6 +163,7 @@ var SessionOnlyProcedures = []string{
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
 	alertsv1connect.HistoryServiceListAlertsProcedure,
+	alertsv1connect.HistoryServiceListActiveAlertGroupsProcedure,
 	// The updates surface is session-only across every procedure —
 	// uniform surface, same rationale as the authz entries above. Update
 	// status and the install command describe the instance's patch level,

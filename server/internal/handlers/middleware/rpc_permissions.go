@@ -302,6 +302,7 @@ var ProcedurePermissions = map[string]string{
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.HistoryServiceListAlertsProcedure:                        authz.PermAlertRead,
+	alertsv1connect.HistoryServiceListActiveAlertGroupsProcedure:             authz.PermAlertRead,
 
 	// OnboardingService — fleet-init status. Other onboarding procedures
 	// are unauthenticated (covered by UnauthenticatedProcedures).

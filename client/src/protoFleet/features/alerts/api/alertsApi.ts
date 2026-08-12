@@ -8,6 +8,7 @@ import {
   alertRuleClient,
 } from "@/protoFleet/api/clients";
 import {
+  type ActiveAlertGroup as ProtoActiveAlertGroup,
   type Channel as ProtoChannel,
   ChannelKind as ProtoChannelKind,
   HashrateMode as ProtoHashrateMode,
@@ -25,6 +26,7 @@ import {
   ValidationState as ProtoValidationState,
 } from "@/protoFleet/api/generated/alerts/v1/alerts_pb";
 import type {
+  ActiveAlertGroup,
   AlertHistoryEntry,
   AlertHistoryStatus,
   Channel,
@@ -547,18 +549,48 @@ export async function deleteMaintenanceWindow(id: string): Promise<void> {
 
 export interface HistoryPage {
   alerts: AlertHistoryEntry[];
-  has_more: boolean;
+  // Pass as the next request's before_id; empty on the last page, so it is also the has-more signal.
+  next_cursor: string;
 }
 
 export async function listHistory(input: {
   before_id?: string;
   page_size?: number;
   active_only?: boolean;
+  // Active-only drill-in: this alert's firing instances, one per affected miner.
+  alert_name?: string;
+  rule_group?: string;
 }): Promise<HistoryPage> {
   const res = await alertHistoryClient.listAlerts({
     beforeId: input.before_id ?? "",
     pageSize: input.page_size ?? 0,
     activeOnly: input.active_only ?? false,
+    alertName: input.alert_name ?? "",
+    // Presence matters: undefined matches any group, "" matches the rows whose rule label is absent.
+    ruleGroup: input.rule_group,
   });
-  return { alerts: res.alerts.map(historyFromProto), has_more: res.hasMore };
+  return { alerts: res.alerts.map(historyFromProto), next_cursor: res.nextCursor };
+}
+
+export interface ActiveAlertGroupsPage {
+  groups: ActiveAlertGroup[];
+  has_more: boolean;
+}
+
+const activeGroupFromProto = (g: ProtoActiveAlertGroup): ActiveAlertGroup => ({
+  alert_name: RENAMED_ALERTS[g.alertName] ?? g.alertName,
+  stored_alert_name: g.alertName,
+  rule_group: g.ruleGroup,
+  severity: g.severity,
+  // JSON-encoded so no pair of groups can concatenate to the same key.
+  key: JSON.stringify([g.ruleGroup, g.alertName]),
+  device_count: Number(g.deviceCount),
+  alert_count: Number(g.alertCount),
+  first_started_at: isoFromTs(g.firstStartedAt),
+  summary: g.summary,
+});
+
+export async function listActiveAlertGroups(): Promise<ActiveAlertGroupsPage> {
+  const res = await alertHistoryClient.listActiveAlertGroups({});
+  return { groups: res.groups.map(activeGroupFromProto), has_more: res.hasMore };
 }
