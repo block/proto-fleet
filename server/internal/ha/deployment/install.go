@@ -413,27 +413,36 @@ func validateRelease(source string, readFile func(string) ([]byte, error)) error
 	return errors.New("release is missing built Proto Fleet client assets")
 }
 
+func sudoStep(ctx context.Context, deps installDependencies, action string, args ...string) error {
+	output, err := deps.run(ctx, "sudo", args...)
+	if err != nil {
+		return fmt.Errorf("%s: %s", action, commandError(output, err))
+	}
+	return nil
+}
+
+func placeFile(ctx context.Context, deps installDependencies, action, source, target, mode string) error {
+	return sudoStep(ctx, deps, action, "install", "-D", "-o", "root", "-g", "root", "-m", mode, source, target)
+}
+
 func installValidationPrerequisites(ctx context.Context, needsARPing bool, deps installDependencies) error {
-	if output, err := deps.run(ctx, "sudo", "apt-get", "update"); err != nil {
-		return fmt.Errorf("refresh apt package indexes: %s", commandError(output, err))
+	if err := sudoStep(ctx, deps, "refresh apt package indexes", "apt-get", "update"); err != nil {
+		return err
 	}
 	packages := []string{"nftables"}
 	if needsARPing {
 		packages = append(packages, "iputils-arping")
 	}
-	if output, err := deps.run(ctx, "sudo", append([]string{"apt-get", "install", "-y"}, packages...)...); err != nil {
-		return fmt.Errorf("install HA validation prerequisites: %s", commandError(output, err))
-	}
-	return nil
+	return sudoStep(ctx, deps, "install HA validation prerequisites", append([]string{"apt-get", "install", "-y"}, packages...)...)
 }
 
 func installPackages(ctx context.Context, platform installPlatform, installed installedDependencies, deps installDependencies) error {
-	if output, err := deps.run(ctx, "sudo", "apt-get", "install", "-y", "ca-certificates", "curl", "iproute2"); err != nil {
-		return fmt.Errorf("install HA prerequisites: %s", commandError(output, err))
+	if err := sudoStep(ctx, deps, "install HA prerequisites", "apt-get", "install", "-y", "ca-certificates", "curl", "iproute2"); err != nil {
+		return err
 	}
 	if !installed.docker {
-		if output, err := deps.run(ctx, "sudo", "install", "-m", "0755", "-d", "/etc/apt/keyrings"); err != nil {
-			return fmt.Errorf("install HA prerequisites: %s", commandError(output, err))
+		if err := sudoStep(ctx, deps, "install HA prerequisites", "install", "-m", "0755", "-d", "/etc/apt/keyrings"); err != nil {
+			return err
 		}
 		key, err := deps.run(ctx, "curl", "-fsSL", "https://download.docker.com/linux/"+platform.repository+"/gpg")
 		if err != nil {
@@ -442,15 +451,15 @@ func installPackages(ctx context.Context, platform installPlatform, installed in
 		if err := deps.runInput(ctx, string(key), "sudo", "tee", "/etc/apt/keyrings/docker.asc"); err != nil {
 			return fmt.Errorf("install Docker repository key: %w", err)
 		}
-		if output, err := deps.run(ctx, "sudo", "chmod", "a+r", "/etc/apt/keyrings/docker.asc"); err != nil {
-			return fmt.Errorf("protect Docker repository key: %s", commandError(output, err))
+		if err := sudoStep(ctx, deps, "protect Docker repository key", "chmod", "a+r", "/etc/apt/keyrings/docker.asc"); err != nil {
+			return err
 		}
 		repository := "Types: deb\nURIs: https://download.docker.com/linux/" + platform.repository + "\nSuites: " + platform.suite + "\nComponents: stable\nArchitectures: " + deps.goarch + "\nSigned-By: /etc/apt/keyrings/docker.asc\n"
 		if err := deps.runInput(ctx, repository, "sudo", "tee", "/etc/apt/sources.list.d/docker.sources"); err != nil {
 			return fmt.Errorf("configure Docker repository: %w", err)
 		}
-		if output, err := deps.run(ctx, "sudo", "apt-get", "update"); err != nil {
-			return fmt.Errorf("install HA packages: %s", commandError(output, err))
+		if err := sudoStep(ctx, deps, "install HA packages", "apt-get", "update"); err != nil {
+			return err
 		}
 	}
 	services := make([]string, 0, 3)
@@ -464,24 +473,21 @@ func installPackages(ctx context.Context, platform installPlatform, installed in
 		packages = append(packages, "keepalived")
 	}
 	if len(services) > 0 {
-		if output, err := deps.run(ctx, "sudo", append([]string{"systemctl", "mask", "--runtime"}, services...)...); err != nil {
-			return fmt.Errorf("prevent HA services from starting before the firewall: %s", commandError(output, err))
+		if err := sudoStep(ctx, deps, "prevent HA services from starting before the firewall", append([]string{"systemctl", "mask", "--runtime"}, services...)...); err != nil {
+			return err
 		}
 	}
 	if len(packages) > 0 {
-		if output, err := deps.run(ctx, "sudo", append([]string{"apt-get", "install", "-y"}, packages...)...); err != nil {
-			return fmt.Errorf("install HA packages: %s", commandError(output, err))
+		if err := sudoStep(ctx, deps, "install HA packages", append([]string{"apt-get", "install", "-y"}, packages...)...); err != nil {
+			return err
 		}
 	}
 	if len(services) > 0 {
-		if output, err := deps.run(ctx, "sudo", append([]string{"systemctl", "unmask", "--runtime"}, services...)...); err != nil {
-			return fmt.Errorf("restore HA service startup after package installation: %s", commandError(output, err))
+		if err := sudoStep(ctx, deps, "restore HA service startup after package installation", append([]string{"systemctl", "unmask", "--runtime"}, services...)...); err != nil {
+			return err
 		}
 	}
-	if output, err := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "keepalived.service"); err != nil {
-		return fmt.Errorf("disable keepalived until the database role is ready: %s", commandError(output, err))
-	}
-	return nil
+	return sudoStep(ctx, deps, "disable keepalived until the database role is ready", "systemctl", "disable", "--now", "keepalived.service")
 }
 
 func rejectIncompatibleNftablesInputChains(ctx context.Context, deps installDependencies) error {
@@ -579,8 +585,8 @@ func snapshotRelease(ctx context.Context, source string, deps installDependencie
 		{"chmod", "-R", "a+rX,go-w", installRoot},
 		{"chmod", "0755", filepath.Join(installRoot, "ha", "fleet-ha")},
 	} {
-		if output, err := deps.run(ctx, "sudo", args...); err != nil {
-			return fmt.Errorf("install HA release: %s", commandError(output, err))
+		if err := sudoStep(ctx, deps, "install HA release", args...); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -602,13 +608,13 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		{"install", "-d", "-o", "root", "-g", "root", "-m", "0750", dataRoot},
 		{"cp", filepath.Join(installRoot, "client", "nginx.https.conf"), filepath.Join(installRoot, "client", "nginx.conf")},
 	} {
-		if output, err := deps.run(ctx, "sudo", args...); err != nil {
-			return fmt.Errorf("install HA release: %s", commandError(output, err))
+		if err := sudoStep(ctx, deps, "install HA release", args...); err != nil {
+			return err
 		}
 	}
 	for _, name := range copiedSecretFiles(config) {
-		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", filepath.Join(config.SecretsDir, name), filepath.Join(configRoot, name)); err != nil {
-			return fmt.Errorf("install HA secret %s: %s", name, commandError(output, err))
+		if err := placeFile(ctx, deps, "install HA secret "+name, filepath.Join(config.SecretsDir, name), filepath.Join(configRoot, name), "0600"); err != nil {
+			return err
 		}
 	}
 	installedConfig := config
@@ -618,16 +624,16 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		return err
 	}
 	defer os.Remove(temp)
-	if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", temp, filepath.Join(configRoot, "node.env")); err != nil {
-		return fmt.Errorf("install node configuration: %s", commandError(output, err))
+	if err := placeFile(ctx, deps, "install node configuration", temp, filepath.Join(configRoot, "node.env"), "0600"); err != nil {
+		return err
 	}
 	baseEnv, err := writeInstallTemp("fleet-base.env", "DB_USERNAME=fleet\nDB_PASSWORD=unused\n", 0o600)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(baseEnv)
-	if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", baseEnv, filepath.Join(configRoot, "base.env")); err != nil {
-		return fmt.Errorf("install Fleet base environment: %s", commandError(output, err))
+	if err := placeFile(ctx, deps, "install Fleet base environment", baseEnv, filepath.Join(configRoot, "base.env"), "0600"); err != nil {
+		return err
 	}
 	for sourceName, target := range map[string]string{
 		"proto-fleet-ha.service":          serviceUnit,
@@ -636,8 +642,8 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		"nftables-reload.conf":            nftablesReloadConfig,
 		"docker-systemd.conf":             dockerDropIn,
 	} {
-		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", sourceName), target); err != nil {
-			return fmt.Errorf("install HA systemd unit: %s", commandError(output, err))
+		if err := placeFile(ctx, deps, "install HA systemd unit", filepath.Join(installRoot, "ha", sourceName), target, "0644"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -666,8 +672,8 @@ func installFirewall(ctx context.Context, source string, config NodeConfig, deps
 		return err
 	}
 	defer os.Remove(temp)
-	if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", temp, filepath.Join(configRoot, "firewall.nft")); err != nil {
-		return fmt.Errorf("persist HA firewall: %s", commandError(output, err))
+	if err := placeFile(ctx, deps, "persist HA firewall", temp, filepath.Join(configRoot, "firewall.nft"), "0600"); err != nil {
+		return err
 	}
 	if output, err := deps.run(ctx, "sudo", "nft", "-c", "-f", nftablesReloadConfig); err != nil {
 		return fmt.Errorf("validate combined nftables reload: %s", commandError(output, err))
@@ -704,17 +710,14 @@ func installKeepalived(ctx context.Context, source string, config NodeConfig, de
 			return err
 		}
 		defer os.Remove(temp)
-		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", temp, name); err != nil {
-			return fmt.Errorf("install keepalived configuration: %s", commandError(output, err))
+		if err := placeFile(ctx, deps, "install keepalived configuration", temp, name, "0644"); err != nil {
+			return err
 		}
 	}
-	if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0755", filepath.Join(source, "ha", "scripts", "check-fleet-active.sh"), "/usr/local/libexec/proto-fleet/check-fleet-active"); err != nil {
-		return fmt.Errorf("install keepalived health check: %s", commandError(output, err))
+	if err := placeFile(ctx, deps, "install keepalived health check", filepath.Join(source, "ha", "scripts", "check-fleet-active.sh"), "/usr/local/libexec/proto-fleet/check-fleet-active", "0755"); err != nil {
+		return err
 	}
-	if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(source, "ha", "proto-fleet-ha-keepalived.conf"), "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf"); err != nil {
-		return fmt.Errorf("install keepalived service dependency: %s", commandError(output, err))
-	}
-	return nil
+	return placeFile(ctx, deps, "install keepalived service dependency", filepath.Join(source, "ha", "proto-fleet-ha-keepalived.conf"), "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf", "0644")
 }
 
 func prepareImages(ctx context.Context, source string, config NodeConfig, deps installDependencies) error {
@@ -767,8 +770,8 @@ func composeImage(source, name, prefix string, readFile func(string) ([]byte, er
 }
 
 func installDockerRecoveryHook(ctx context.Context, deps installDependencies) error {
-	if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "ha", "docker-ha-recovery-systemd.conf"), dockerRecoveryDropIn); err != nil {
-		return fmt.Errorf("install Docker HA recovery hook: %s", commandError(output, err))
+	if err := placeFile(ctx, deps, "install Docker HA recovery hook", filepath.Join(installRoot, "ha", "docker-ha-recovery-systemd.conf"), dockerRecoveryDropIn, "0644"); err != nil {
+		return err
 	}
 	if output, err := deps.run(ctx, "sudo", "systemctl", "daemon-reload"); err != nil {
 		return fmt.Errorf("reload Docker HA recovery hook: %s", commandError(output, err))
@@ -794,10 +797,7 @@ func installRootPassword(ctx context.Context, options InstallOptions, deps insta
 		return nil
 	}
 	const installedRootPassword = configRoot + "/etcd-root-password" //nolint:gosec // Credential file path, not a credential.
-	if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0600", options.EtcdRootPasswordFile, installedRootPassword); err != nil {
-		return fmt.Errorf("install etcd root password: %s", commandError(output, err))
-	}
-	return nil
+	return placeFile(ctx, deps, "install etcd root password", options.EtcdRootPasswordFile, installedRootPassword, "0600")
 }
 
 func initialStart(ctx context.Context, config NodeConfig, deps installDependencies) error {

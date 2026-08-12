@@ -11,21 +11,20 @@ import (
 	"strings"
 	"time"
 
+	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 const patroniDCSPath = "/service/proto-fleet/"
 
 type authBootstrapClient interface {
-	Healthy(ctx context.Context) error
 	AuthEnabled(ctx context.Context) (bool, error)
-	ResetAuth(ctx context.Context) error
-	AddRole(ctx context.Context, role string) error
+	EnsureRole(ctx context.Context, role string) error
 	GrantPermission(ctx context.Context, role, prefix string, permission clientv3.PermissionType) error
-	AddUser(ctx context.Context, user, password string) error
+	EnsureUser(ctx context.Context, user, password string) error
 	GrantRole(ctx context.Context, user, role string) error
 	EnableAuth(ctx context.Context) error
-	VerifyPolicy(ctx context.Context, rootPassword, patroniPassword, fleetPassword string) error
+	VerifyAccess(ctx context.Context, rootPassword, patroniPassword, fleetPassword string) error
 }
 
 type etcdAuthClient struct {
@@ -91,40 +90,34 @@ func bootstrapEtcdAuth(ctx context.Context, client authBootstrapClient, rootPass
 		return fmt.Errorf("check authentication status: %w", err)
 	}
 	if authEnabled {
-		if err := client.VerifyPolicy(ctx, rootPassword, patroniPassword, fleetPassword); err != nil {
-			return fmt.Errorf("verify existing authentication policy: %w", err)
+		if err := client.VerifyAccess(ctx, rootPassword, patroniPassword, fleetPassword); err != nil {
+			return fmt.Errorf("verify existing authentication access: %w", err)
 		}
 		return nil
-	}
-	if err := client.Healthy(ctx); err != nil {
-		return fmt.Errorf("check local etcd member health: %w", err)
-	}
-	if err := client.ResetAuth(ctx); err != nil {
-		return fmt.Errorf("reset incomplete authentication policy: %w", err)
 	}
 
 	steps := []struct {
 		name string
 		run  func() error
 	}{
-		{"add Patroni role", func() error { return client.AddRole(ctx, "patroni") }},
+		{"ensure Patroni role", func() error { return client.EnsureRole(ctx, "patroni") }},
 		{"grant Patroni DCS access", func() error {
 			return client.GrantPermission(ctx, "patroni", patroniDCSPath, clientv3.PermissionType(clientv3.PermReadWrite))
 		}},
-		{"add Patroni user", func() error { return client.AddUser(ctx, "patroni", patroniPassword) }},
+		{"ensure Patroni user", func() error { return client.EnsureUser(ctx, "patroni", patroniPassword) }},
 		{"grant Patroni role", func() error { return client.GrantRole(ctx, "patroni", "patroni") }},
-		{"add Fleet observer role", func() error { return client.AddRole(ctx, "fleet-observer") }},
+		{"ensure Fleet observer role", func() error { return client.EnsureRole(ctx, "fleet-observer") }},
 		{"grant Fleet read access", func() error {
 			return client.GrantPermission(ctx, "fleet-observer", patroniDCSPath, clientv3.PermissionType(clientv3.PermRead))
 		}},
-		{"add Fleet observer user", func() error { return client.AddUser(ctx, "fleet-observer", fleetPassword) }},
+		{"ensure Fleet observer user", func() error { return client.EnsureUser(ctx, "fleet-observer", fleetPassword) }},
 		{"grant Fleet observer role", func() error { return client.GrantRole(ctx, "fleet-observer", "fleet-observer") }},
-		{"add root role", func() error { return client.AddRole(ctx, "root") }},
-		{"add root user", func() error { return client.AddUser(ctx, "root", rootPassword) }},
+		{"ensure root role", func() error { return client.EnsureRole(ctx, "root") }},
+		{"ensure root user", func() error { return client.EnsureUser(ctx, "root", rootPassword) }},
 		{"grant root role", func() error { return client.GrantRole(ctx, "root", "root") }},
 		{"enable authentication", func() error { return client.EnableAuth(ctx) }},
-		{"verify authentication policy", func() error {
-			return client.VerifyPolicy(ctx, rootPassword, patroniPassword, fleetPassword)
+		{"verify authentication access", func() error {
+			return client.VerifyAccess(ctx, rootPassword, patroniPassword, fleetPassword)
 		}},
 	}
 	for _, step := range steps {
@@ -154,14 +147,6 @@ func readPassword(path string) (string, error) {
 	return password, nil
 }
 
-func (c *etcdAuthClient) Healthy(ctx context.Context) error {
-	_, err := c.client.Status(ctx, c.endpoint)
-	if err != nil {
-		return fmt.Errorf("get endpoint status: %w", err)
-	}
-	return nil
-}
-
 func (c *etcdAuthClient) AuthEnabled(ctx context.Context) (bool, error) {
 	status, err := c.client.AuthStatus(ctx)
 	if err != nil {
@@ -170,51 +155,13 @@ func (c *etcdAuthClient) AuthEnabled(ctx context.Context) (bool, error) {
 	return status.Enabled, nil
 }
 
-func (c *etcdAuthClient) ResetAuth(ctx context.Context) error {
-	users, err := c.client.UserList(ctx)
-	if err != nil {
-		return fmt.Errorf("list users: %w", err)
-	}
-	roles, err := c.client.RoleList(ctx)
-	if err != nil {
-		return fmt.Errorf("list roles: %w", err)
-	}
-	for _, user := range users.Users {
-		if !bootstrapAuthPrincipal(user) {
-			return fmt.Errorf("refusing to replace unexpected user %q", user)
-		}
-	}
-	for _, role := range roles.Roles {
-		if !bootstrapAuthPrincipal(role) {
-			return fmt.Errorf("refusing to replace unexpected role %q", role)
-		}
-	}
-	for _, user := range users.Users {
-		if _, err := c.client.UserDelete(ctx, user); err != nil {
-			return fmt.Errorf("delete user %q: %w", user, err)
-		}
-	}
-	for _, role := range roles.Roles {
-		if _, err := c.client.RoleDelete(ctx, role); err != nil {
-			return fmt.Errorf("delete role %q: %w", role, err)
-		}
-	}
-	return nil
-}
-
-func bootstrapAuthPrincipal(name string) bool {
-	switch name {
-	case "root", "patroni", "fleet-observer":
-		return true
-	default:
-		return false
-	}
-}
-
-func (c *etcdAuthClient) AddRole(ctx context.Context, role string) error {
+func (c *etcdAuthClient) EnsureRole(ctx context.Context, role string) error {
 	_, err := c.client.RoleAdd(ctx, role)
+	if errors.Is(err, rpctypes.ErrRoleAlreadyExist) {
+		return nil
+	}
 	if err != nil {
-		return fmt.Errorf("add role: %w", err)
+		return fmt.Errorf("ensure role: %w", err)
 	}
 	return nil
 }
@@ -227,10 +174,13 @@ func (c *etcdAuthClient) GrantPermission(ctx context.Context, role, prefix strin
 	return nil
 }
 
-func (c *etcdAuthClient) AddUser(ctx context.Context, user, password string) error {
+func (c *etcdAuthClient) EnsureUser(ctx context.Context, user, password string) error {
 	_, err := c.client.UserAdd(ctx, user, password)
+	if errors.Is(err, rpctypes.ErrUserAlreadyExist) {
+		_, err = c.client.UserChangePassword(ctx, user, password)
+	}
 	if err != nil {
-		return fmt.Errorf("add user: %w", err)
+		return fmt.Errorf("ensure user: %w", err)
 	}
 	return nil
 }
@@ -251,66 +201,39 @@ func (c *etcdAuthClient) EnableAuth(ctx context.Context) error {
 	return nil
 }
 
-func (c *etcdAuthClient) VerifyPolicy(ctx context.Context, rootPassword, patroniPassword, fleetPassword string) error {
+func (c *etcdAuthClient) VerifyAccess(ctx context.Context, rootPassword, patroniPassword, fleetPassword string) error {
 	root, err := c.authenticatedClient("root", rootPassword)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
 
-	users, err := root.UserList(ctx)
+	if _, err := root.Authenticate(ctx, "root", rootPassword); err != nil {
+		return fmt.Errorf("authenticate as root: %w", err)
+	}
+	patroni, err := c.authenticatedClient("patroni", patroniPassword)
 	if err != nil {
-		return fmt.Errorf("list users as root: %w", err)
+		return err
 	}
-	if !sameNames(users.Users, "fleet-observer", "patroni", "root") {
-		return fmt.Errorf("unexpected users: %v", users.Users)
+	defer patroni.Close()
+	probeKey := patroniDCSPath + "auth-smoke-test"
+	if _, err := patroni.Put(ctx, probeKey, "ok"); err != nil {
+		return fmt.Errorf("write DCS as patroni: %w", err)
 	}
-	roles, err := root.RoleList(ctx)
-	if err != nil {
-		return fmt.Errorf("list roles as root: %w", err)
+	if _, err := patroni.Delete(ctx, probeKey); err != nil {
+		return fmt.Errorf("remove Patroni DCS smoke test: %w", err)
 	}
-	if !sameNames(roles.Roles, "fleet-observer", "patroni", "root") {
-		return fmt.Errorf("unexpected roles: %v", roles.Roles)
-	}
-	for _, expected := range []struct {
-		user       string
-		password   string
-		permission clientv3.PermissionType
-	}{
-		{"root", rootPassword, clientv3.PermissionType(clientv3.PermReadWrite)},
-		{"patroni", patroniPassword, clientv3.PermissionType(clientv3.PermReadWrite)},
-		{"fleet-observer", fleetPassword, clientv3.PermissionType(clientv3.PermRead)},
-	} {
-		credential, err := c.authenticatedClient(expected.user, expected.password)
-		if err != nil {
-			return err
-		}
-		if _, err := credential.Authenticate(ctx, expected.user, expected.password); err != nil {
-			credential.Close()
-			return fmt.Errorf("authenticate as %s: %w", expected.user, err)
-		}
-		credential.Close()
 
-		user, err := root.UserGet(ctx, expected.user)
-		if err != nil {
-			return fmt.Errorf("get user %s: %w", expected.user, err)
-		}
-		if !sameNames(user.Roles, expected.user) {
-			return fmt.Errorf("user %s has unexpected roles: %v", expected.user, user.Roles)
-		}
-		role, err := root.RoleGet(ctx, expected.user)
-		if err != nil {
-			return fmt.Errorf("get role %s: %w", expected.user, err)
-		}
-		if expected.user == "root" {
-			if len(role.Perm) != 0 {
-				return errors.New("root role has unexpected explicit permissions")
-			}
-			continue
-		}
-		if len(role.Perm) != 1 || clientv3.PermissionType(role.Perm[0].PermType) != expected.permission || string(role.Perm[0].Key) != patroniDCSPath || string(role.Perm[0].RangeEnd) != clientv3.GetPrefixRangeEnd(patroniDCSPath) {
-			return fmt.Errorf("role %s does not have the expected DCS permission", expected.user)
-		}
+	fleet, err := c.authenticatedClient("fleet-observer", fleetPassword)
+	if err != nil {
+		return err
+	}
+	defer fleet.Close()
+	if _, err := fleet.Get(ctx, patroniDCSPath, clientv3.WithPrefix(), clientv3.WithLimit(1)); err != nil {
+		return fmt.Errorf("read DCS as Fleet observer: %w", err)
+	}
+	if _, err := fleet.Put(ctx, probeKey, "denied"); !errors.Is(err, rpctypes.ErrPermissionDenied) {
+		return errors.New("Fleet observer unexpectedly has DCS write access")
 	}
 	return nil
 }
@@ -327,21 +250,4 @@ func (c *etcdAuthClient) authenticatedClient(user, password string) (*clientv3.C
 		return nil, fmt.Errorf("connect as %s: %w", user, err)
 	}
 	return client, nil
-}
-
-func sameNames(got []string, want ...string) bool {
-	if len(got) != len(want) {
-		return false
-	}
-	wanted := make(map[string]struct{}, len(want))
-	for _, name := range want {
-		wanted[name] = struct{}{}
-	}
-	for _, name := range got {
-		if _, ok := wanted[name]; !ok {
-			return false
-		}
-		delete(wanted, name)
-	}
-	return len(wanted) == 0
 }

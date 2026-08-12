@@ -105,11 +105,10 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	for _, role := range []string{"ha-a", "ha-b", "ha-c"} {
 		bundle, err := readHostBundle(filepath.Join(exportDir, hostBundleName(role)))
 		require.NoError(t, err)
-		require.Equal(t, role, bundle.metadata.Role)
-		require.NotContains(t, bundle.files, "secrets/service-ca.key")
-		serviceCA = bundle.files["secrets/service-ca.crt"]
-		_, hasRootPassword := bundle.files[etcdRootPasswordFile]
-		require.Equal(t, role == "ha-a", hasRootPassword)
+		require.Equal(t, role, bundle.Metadata.Role)
+		require.NotContains(t, bundle.Secrets, "service-ca.key")
+		serviceCA = bundle.Secrets["service-ca.crt"]
+		require.Equal(t, role == "ha-a", len(bundle.EtcdRootPassword) != 0)
 	}
 	for _, name := range []string{hostBundleName("ha-a"), hostBundleName("ha-b"), hostBundleName("ha-c")} {
 		requireMode(t, filepath.Join(exportDir, name), 0o600)
@@ -130,15 +129,20 @@ func TestReadHostBundleRejectsUnexpectedEntry(t *testing.T) {
 		DatabaseAIP: testHostIPs[0], DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2],
 		VirtualIP: testVirtualIP, Version: "v0.2.10", Commit: "abc123",
 	}
-	writeTestBundle(t, path, metadata, map[string][]byte{"secrets/operator-notes": []byte("bad")})
-
-	// Act
+	writeTestBundle(t, path, metadata, map[string][]byte{"operator-notes": []byte("bad")})
 	contents, err := os.ReadFile(path)
 	require.NoError(t, err)
+	var document map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(contents, &document))
+	document["unexpected"] = json.RawMessage(`true`)
+	contents, err = json.Marshal(document)
+	require.NoError(t, err)
+
+	// Act
 	_, err = decodeHostBundle(contents)
 
 	// Assert
-	require.ErrorContains(t, err, "unexpected entry")
+	require.ErrorContains(t, err, "unknown field")
 }
 
 func TestInstallHostBundleValidatesIdentityAndRelease(t *testing.T) {
@@ -212,24 +216,20 @@ func testBundleMetadata(role string) bundleMetadata {
 
 func writeValidTestBundle(t *testing.T, path string, metadata bundleMetadata) {
 	t.Helper()
-	entries := make(map[string][]byte)
-	for name := range expectedHostBundleEntries(metadata.Role) {
-		if name != bundleMetadataFile {
-			entries[name] = []byte("test")
-		}
+	secrets := make(map[string][]byte)
+	for _, name := range copiedSecretFiles(NodeConfig{NodeName: metadata.Role}) {
+		secrets[name] = []byte("test")
 	}
-	writeTestBundle(t, path, metadata, entries)
+	writeTestBundle(t, path, metadata, secrets)
 }
 
-func writeTestBundle(t *testing.T, path string, metadata bundleMetadata, entries map[string][]byte) {
+func writeTestBundle(t *testing.T, path string, metadata bundleMetadata, secrets map[string][]byte) {
 	t.Helper()
-	metadataJSON, err := metadata.marshal()
-	require.NoError(t, err)
-	files := map[string][]byte{bundleMetadataFile: metadataJSON}
-	for name, contents := range entries {
-		files[name] = contents
+	bundle := preparedHostBundle{Metadata: metadata, Secrets: secrets}
+	if metadata.Role == "ha-a" {
+		bundle.EtcdRootPassword = []byte("test")
 	}
-	contents, err := json.Marshal(files)
+	contents, err := json.Marshal(bundle)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, contents, 0o600))
 }

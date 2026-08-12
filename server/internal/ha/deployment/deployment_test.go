@@ -19,6 +19,19 @@ var testHostIPs = [3]string{"10.40.0.11", "10.40.0.12", "10.40.0.13"}
 
 const testVirtualIP = "10.40.0.100"
 
+func verifyEndpointCertificate(path, ip string, roots *x509.CertPool, usages ...x509.ExtKeyUsage) error {
+	certificate, err := readCertificate(path)
+	if err != nil {
+		return err
+	}
+	for _, usage := range usages {
+		if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: ip, KeyUsages: []x509.ExtKeyUsage{usage}}); err != nil {
+			return fmt.Errorf("verify %s certificate: %w", ip, err)
+		}
+	}
+	return nil
+}
+
 func TestRenderFirewall(t *testing.T) {
 	config := NodeConfig{
 		NodeIP:           testHostIPs[0],
@@ -374,58 +387,6 @@ func TestPreflight(t *testing.T) {
 	if err := os.Chmod(publicIdentity, 0o644); err != nil { //nolint:gosec // Restores the generated public certificate mode.
 		t.Fatal(err)
 	}
-	serverKeyPath := filepath.Join(generated, "ha-a", "etcd-server.key")
-	serverKey, err := os.ReadFile(serverKeyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	peerKey, err := os.ReadFile(filepath.Join(generated, "ha-a", "etcd-peer.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(serverKeyPath, peerKey, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "certificate does not match private key") {
-		t.Fatalf("preflight(mismatched certificate key) error = %v", err)
-	}
-	if err := os.WriteFile(serverKeyPath, serverKey, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fleetCertificatePath := filepath.Join(generated, "ha-a", "fleet-client.crt")
-	fleetCertificate, err := os.ReadFile(fleetCertificatePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	postgresCertificate, err := os.ReadFile(filepath.Join(generated, "ha-a", "postgres.crt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(fleetCertificatePath, postgresCertificate, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "fleet-client certificate") {
-		t.Fatalf("preflight(certificate for host IP instead of VIP) error = %v", err)
-	}
-	if err := os.WriteFile(fleetCertificatePath, fleetCertificate, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	jwtKeyPath := filepath.Join(generated, "ha-a", "etcd-jwt.key")
-	jwtKey, err := os.ReadFile(jwtKeyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(jwtKeyPath, serverKey, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "public key does not match private key") {
-		t.Fatalf("preflight(mismatched JWT key) error = %v", err)
-	}
-	if err := os.WriteFile(jwtKeyPath, jwtKey, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
 	if err := os.WriteFile(filepath.Join(dataDir, "postgres", "PG_VERSION"), []byte("18"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -450,8 +411,6 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 	}
 	want := []string{
 		"auth-status",
-		"health",
-		"reset",
 		"role:patroni",
 		"permission:patroni:/service/proto-fleet/:readwrite",
 		"user:patroni:patroni-pass",
@@ -464,7 +423,7 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 		"user:root:root-pass",
 		"grant:root:root",
 		"auth",
-		"verify-policy",
+		"verify-access",
 	}
 	if !slices.Equal(client.calls, want) {
 		t.Fatalf("bootstrap calls:\n%v\nwant:\n%v", client.calls, want)
@@ -479,23 +438,7 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 	}
 }
 
-func TestBootstrapEtcdAuthResumesPartialSetup(t *testing.T) {
-	// Arrange
-	client := &recordingAuthClient{existing: true}
-
-	// Act
-	err := bootstrapEtcdAuth(context.Background(), client, "root-pass", "patroni-pass", "fleet-pass")
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(client.calls, "auth") {
-		t.Fatal("bootstrap did not enable authentication after reconciling existing principals")
-	}
-}
-
-func TestBootstrapEtcdAuthVerifiesExistingPolicy(t *testing.T) {
+func TestBootstrapEtcdAuthVerifiesExistingAccess(t *testing.T) {
 	// Arrange
 	client := &recordingAuthClient{authEnabled: true}
 
@@ -506,23 +449,19 @@ func TestBootstrapEtcdAuthVerifiesExistingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"auth-status", "verify-policy"}; !slices.Equal(client.calls, want) {
+	if want := []string{"auth-status", "verify-access"}; !slices.Equal(client.calls, want) {
 		t.Fatalf("bootstrap calls = %v, want %v", client.calls, want)
 	}
 
-	invalid := &recordingAuthClient{authEnabled: true, failAt: "verify-policy"}
+	invalid := &recordingAuthClient{authEnabled: true, failAt: "verify-access"}
 	if err := bootstrapEtcdAuth(context.Background(), invalid, "root-pass", "patroni-pass", "fleet-pass"); err == nil {
 		t.Fatal("bootstrap accepted an unverified existing authentication policy")
-	}
-	if slices.Contains(invalid.calls, "reset") {
-		t.Fatal("bootstrap tried to reset an enabled authentication policy")
 	}
 }
 
 type recordingAuthClient struct {
 	calls       []string
 	failAt      string
-	existing    bool
 	authEnabled bool
 }
 
@@ -534,22 +473,13 @@ func (c *recordingAuthClient) record(call string) error {
 	return nil
 }
 
-func (c *recordingAuthClient) Healthy(context.Context) error { return c.record("health") }
 func (c *recordingAuthClient) AuthEnabled(context.Context) (bool, error) {
 	if err := c.record("auth-status"); err != nil {
 		return false, err
 	}
 	return c.authEnabled, nil
 }
-func (c *recordingAuthClient) ResetAuth(context.Context) error {
-	err := c.record("reset")
-	c.existing = false
-	return err
-}
-func (c *recordingAuthClient) AddRole(_ context.Context, role string) error {
-	if c.existing {
-		return errors.New("role already exists")
-	}
+func (c *recordingAuthClient) EnsureRole(_ context.Context, role string) error {
 	return c.record("role:" + role)
 }
 func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix string, permission clientv3.PermissionType) error {
@@ -559,18 +489,15 @@ func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix st
 	}
 	return c.record(fmt.Sprintf("permission:%s:%s:%s", role, prefix, name))
 }
-func (c *recordingAuthClient) AddUser(_ context.Context, user, password string) error {
-	if c.existing {
-		return errors.New("user already exists")
-	}
+func (c *recordingAuthClient) EnsureUser(_ context.Context, user, password string) error {
 	return c.record("user:" + user + ":" + password)
 }
 func (c *recordingAuthClient) GrantRole(_ context.Context, user, role string) error {
 	return c.record("grant:" + user + ":" + role)
 }
 func (c *recordingAuthClient) EnableAuth(context.Context) error { return c.record("auth") }
-func (c *recordingAuthClient) VerifyPolicy(context.Context, string, string, string) error {
-	return c.record("verify-policy")
+func (c *recordingAuthClient) VerifyAccess(context.Context, string, string, string) error {
+	return c.record("verify-access")
 }
 
 func testNodeEnv(t *testing.T, dir, dataDir, secretsDir string) string {

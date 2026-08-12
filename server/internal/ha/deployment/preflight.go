@@ -2,13 +2,9 @@ package deployment
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"crypto"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -294,46 +290,6 @@ func validateSecrets(config NodeConfig) error {
 		}
 	}
 
-	ca, err := readCertificate(filepath.Join(config.SecretsDir, "service-ca.crt"))
-	if err != nil {
-		return fmt.Errorf("read service CA: %w", err)
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(ca)
-	if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, "etcd-server.crt"), config.NodeIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
-		return fmt.Errorf("etcd server certificate: %w", err)
-	}
-	if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, "etcd-peer.crt"), config.NodeIP, roots, x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth); err != nil {
-		return fmt.Errorf("etcd peer certificate: %w", err)
-	}
-	if config.isDatabaseNode() {
-		for _, name := range []string{"patroni-rest.crt", "postgres.crt"} {
-			if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, name), config.NodeIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-		}
-		if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, "fleet-client.crt"), config.VirtualIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
-			return fmt.Errorf("fleet-client certificate: %w", err)
-		}
-	}
-	certificateNames := []string{"etcd-server", "etcd-peer"}
-	if config.isDatabaseNode() {
-		certificateNames = append(certificateNames, "patroni-rest", "postgres", "fleet-client")
-	}
-	for _, name := range certificateNames {
-		if err := verifyCertificateKeyPair(
-			filepath.Join(config.SecretsDir, name+".crt"),
-			filepath.Join(config.SecretsDir, name+".key"),
-		); err != nil {
-			return fmt.Errorf("%s identity: %w", name, err)
-		}
-	}
-	if err := verifyPublicKeyPair(
-		filepath.Join(config.SecretsDir, "etcd-jwt.pub"),
-		filepath.Join(config.SecretsDir, "etcd-jwt.key"),
-	); err != nil {
-		return fmt.Errorf("etcd JWT identity: %w", err)
-	}
 	return nil
 }
 
@@ -390,80 +346,6 @@ func loadFleetEnvironment(path string) (map[string]string, error) {
 		return nil, fmt.Errorf("read Fleet environment file: %w", err)
 	}
 	return values, nil
-}
-
-func verifyEndpointCertificate(path, ip string, roots *x509.CertPool, usages ...x509.ExtKeyUsage) error {
-	certificate, err := readCertificate(path)
-	if err != nil {
-		return err
-	}
-	for _, usage := range usages {
-		if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: ip, KeyUsages: []x509.ExtKeyUsage{usage}}); err != nil {
-			return fmt.Errorf("verify %s: %w", filepath.Base(path), err)
-		}
-	}
-	return nil
-}
-
-func verifyCertificateKeyPair(certificatePath, privateKeyPath string) error {
-	certificate, err := readCertificate(certificatePath)
-	if err != nil {
-		return err
-	}
-	publicKey, err := publicKeyFromPrivateKey(privateKeyPath)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(certificate.RawSubjectPublicKeyInfo, publicKey) {
-		return errors.New("certificate does not match private key")
-	}
-	return nil
-}
-
-func verifyPublicKeyPair(publicKeyPath, privateKeyPath string) error {
-	contents, err := os.ReadFile(publicKeyPath)
-	if err != nil {
-		return fmt.Errorf("read public key: %w", err)
-	}
-	block, _ := pem.Decode(contents)
-	if block == nil || block.Type != "PUBLIC KEY" {
-		return errors.New("invalid PEM public key")
-	}
-	if _, err := x509.ParsePKIXPublicKey(block.Bytes); err != nil {
-		return fmt.Errorf("parse public key: %w", err)
-	}
-	privatePublicKey, err := publicKeyFromPrivateKey(privateKeyPath)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(block.Bytes, privatePublicKey) {
-		return errors.New("public key does not match private key")
-	}
-	return nil
-}
-
-func publicKeyFromPrivateKey(path string) ([]byte, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read private key: %w", err)
-	}
-	block, _ := pem.Decode(contents)
-	if block == nil || block.Type != "PRIVATE KEY" {
-		return nil, errors.New("invalid PEM private key")
-	}
-	privateKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse private key: %w", err)
-	}
-	signer, ok := privateKey.(crypto.Signer)
-	if !ok {
-		return nil, errors.New("private key cannot provide a public key")
-	}
-	publicKey, err := x509.MarshalPKIXPublicKey(signer.Public())
-	if err != nil {
-		return nil, fmt.Errorf("encode public key: %w", err)
-	}
-	return publicKey, nil
 }
 
 func requireEmptyDir(path, label string) error {

@@ -21,7 +21,6 @@ import (
 
 const (
 	bundleFormatVersion = 1
-	bundleMetadataFile  = "bundle.json"
 	publicCAName        = "proto-fleet-ha-service-ca.crt"
 	maxBundleSize       = 2 << 20
 )
@@ -47,17 +46,10 @@ type bundleMetadata struct {
 	Commit        string `json:"release_commit"`
 }
 
-func (m bundleMetadata) marshal() ([]byte, error) {
-	contents, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("encode host bundle metadata: %w", err)
-	}
-	return append(contents, '\n'), nil
-}
-
 type preparedHostBundle struct {
-	metadata bundleMetadata
-	files    map[string][]byte
+	Metadata         bundleMetadata    `json:"metadata"`
+	Secrets          map[string][]byte `json:"secrets"`
+	EtcdRootPassword []byte            `json:"etcd_root_password,omitempty"`
 }
 
 type hostIdentity struct {
@@ -234,13 +226,13 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 	if err != nil {
 		return err
 	}
-	if bundle.metadata.Version != release.Version || bundle.metadata.Commit != release.Commit {
+	if bundle.Metadata.Version != release.Version || bundle.Metadata.Commit != release.Commit {
 		return fmt.Errorf("host bundle release does not match this release: bundle=%s@%s local=%s@%s",
-			bundle.metadata.Version, bundle.metadata.Commit, release.Version, release.Commit)
+			bundle.Metadata.Version, bundle.Metadata.Commit, release.Version, release.Commit)
 	}
-	networkInterface, err := deps.interfaceForIP(bundle.metadata.NodeIP)
+	networkInterface, err := deps.interfaceForIP(bundle.Metadata.NodeIP)
 	if err != nil {
-		return fmt.Errorf("bundle node address %s is not assigned to this host", bundle.metadata.NodeIP)
+		return fmt.Errorf("bundle node address %s is not assigned to this host", bundle.Metadata.NodeIP)
 	}
 	stagingDir, err := os.MkdirTemp("", "proto-fleet-ha-install-")
 	if err != nil {
@@ -266,14 +258,14 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 		if err != nil {
 			return err
 		}
-		if err := printInstallSummary(deps.prompts, bundle.metadata, networkInterface, installed); err != nil {
+		if err := printInstallSummary(deps.prompts, bundle.Metadata, networkInterface, installed); err != nil {
 			return err
 		}
 		if err := requireAcknowledgement(scanner, deps.prompts, "Type INSTALL to continue: ", "INSTALL"); err != nil {
 			return err
 		}
 	}
-	if err := writeInstallerOutput(deps.output, "Installing %s from the verified host bundle...\n", bundle.metadata.Role); err != nil {
+	if err := writeInstallerOutput(deps.output, "Installing %s from the verified host bundle...\n", bundle.Metadata.Role); err != nil {
 		return err
 	}
 	installErr := deps.install(ctx, options)
@@ -291,19 +283,16 @@ func stageHostBundle(bundle preparedHostBundle, stagingDir, networkInterface str
 	if err := os.Mkdir(secretsDir, 0o700); err != nil {
 		return InstallOptions{}, fmt.Errorf("create staged secrets directory: %w", err)
 	}
-	for path, contents := range bundle.files {
-		if !strings.HasPrefix(path, "secrets/") {
-			continue
-		}
-		name := strings.TrimPrefix(path, "secrets/")
+	for _, name := range copiedSecretFiles(NodeConfig{NodeName: bundle.Metadata.Role}) {
+		contents := bundle.Secrets[name]
 		if err := writeFile(filepath.Join(secretsDir, name), contents, secretFileMode(name)); err != nil {
 			return InstallOptions{}, err
 		}
 	}
 	config := NodeConfig{
-		NodeName: bundle.metadata.Role, NodeIP: bundle.metadata.NodeIP,
-		DatabaseAIP: bundle.metadata.DatabaseAIP, DatabaseBIP: bundle.metadata.DatabaseBIP,
-		WitnessIP: bundle.metadata.WitnessIP, VirtualIP: bundle.metadata.VirtualIP,
+		NodeName: bundle.Metadata.Role, NodeIP: bundle.Metadata.NodeIP,
+		DatabaseAIP: bundle.Metadata.DatabaseAIP, DatabaseBIP: bundle.Metadata.DatabaseBIP,
+		WitnessIP: bundle.Metadata.WitnessIP, VirtualIP: bundle.Metadata.VirtualIP,
 		NetworkInterface: networkInterface, DataDir: dataRoot, SecretsDir: secretsDir,
 	}
 	nodeEnvPath := filepath.Join(stagingDir, "node.env")
@@ -311,9 +300,9 @@ func stageHostBundle(bundle preparedHostBundle, stagingDir, networkInterface str
 		return InstallOptions{}, err
 	}
 	options := InstallOptions{NodeEnvPath: nodeEnvPath}
-	if rootPassword, ok := bundle.files[etcdRootPasswordFile]; ok {
+	if len(bundle.EtcdRootPassword) != 0 {
 		options.EtcdRootPasswordFile = filepath.Join(stagingDir, etcdRootPasswordFile)
-		if err := writeFile(options.EtcdRootPasswordFile, rootPassword, 0o600); err != nil {
+		if err := writeFile(options.EtcdRootPasswordFile, bundle.EtcdRootPassword, 0o600); err != nil {
 			return InstallOptions{}, err
 		}
 	}
@@ -339,27 +328,23 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 			WitnessIP: metadata.WitnessIP, VirtualIP: metadata.VirtualIP,
 			Version: metadata.Version, Commit: metadata.Commit,
 		}
-		metadataJSON, err := bundleMetadata.marshal()
-		if err != nil {
-			return err
-		}
-		files := map[string][]byte{bundleMetadataFile: metadataJSON}
+		bundle := preparedHostBundle{Metadata: bundleMetadata, Secrets: make(map[string][]byte)}
 		config := NodeConfig{NodeName: role}
 		for _, name := range copiedSecretFiles(config) {
 			contents, err := os.ReadFile(filepath.Join(secretsRoot, role, name))
 			if err != nil {
 				return fmt.Errorf("read generated %s secret %s: %w", role, name, err)
 			}
-			files["secrets/"+name] = contents
+			bundle.Secrets[name] = contents
 		}
 		if role == "ha-a" {
 			contents, err := os.ReadFile(filepath.Join(secretsRoot, "offline", etcdRootPasswordFile))
 			if err != nil {
 				return fmt.Errorf("read generated etcd root password: %w", err)
 			}
-			files[etcdRootPasswordFile] = contents
+			bundle.EtcdRootPassword = contents
 		}
-		if err := writeBundle(filepath.Join(exportDir, hostBundleName(role)), files); err != nil {
+		if err := writeBundle(filepath.Join(exportDir, hostBundleName(role)), bundle); err != nil {
 			return err
 		}
 	}
@@ -391,35 +376,27 @@ func readHostBundle(path string) (preparedHostBundle, error) {
 }
 
 func decodeHostBundle(contents []byte) (preparedHostBundle, error) {
-	files := make(map[string][]byte)
-	if err := json.Unmarshal(contents, &files); err != nil {
+	var bundle preparedHostBundle
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&bundle); err != nil {
 		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: invalid JSON: %w", err)
 	}
-	metadataJSON, ok := files[bundleMetadataFile]
-	if !ok {
-		return preparedHostBundle{}, errors.New("host bundle rejected: missing bundle metadata")
-	}
-	var metadata bundleMetadata
-	decoder := json.NewDecoder(bytes.NewReader(metadataJSON))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&metadata); err != nil {
-		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: invalid metadata: %w", err)
-	}
-	if err := validateBundleMetadata(metadata); err != nil {
+	if err := validateBundleMetadata(bundle.Metadata); err != nil {
 		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
 	}
-	expected := expectedHostBundleEntries(metadata.Role)
-	for name := range files {
-		if _, ok := expected[name]; !ok {
-			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: unexpected entry %s", name)
+	for _, name := range copiedSecretFiles(NodeConfig{NodeName: bundle.Metadata.Role}) {
+		if len(bundle.Secrets[name]) == 0 {
+			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: missing secret %s", name)
 		}
-		delete(expected, name)
 	}
-	if len(expected) != 0 {
-		return preparedHostBundle{}, errors.New("host bundle rejected: bundle is incomplete")
+	if bundle.Metadata.Role == "ha-a" && len(bundle.EtcdRootPassword) == 0 {
+		return preparedHostBundle{}, errors.New("host bundle rejected: missing etcd root password")
 	}
-	delete(files, bundleMetadataFile)
-	return preparedHostBundle{metadata: metadata, files: files}, nil
+	if bundle.Metadata.Role != "ha-a" && len(bundle.EtcdRootPassword) != 0 {
+		return preparedHostBundle{}, errors.New("host bundle rejected: etcd root password is only valid for ha-a")
+	}
+	return bundle, nil
 }
 
 func validateBundleMetadata(metadata bundleMetadata) error {
@@ -447,19 +424,8 @@ func validateClusterMetadata(metadata clusterMetadata) error {
 	return nil
 }
 
-func expectedHostBundleEntries(role string) map[string]struct{} {
-	expected := map[string]struct{}{bundleMetadataFile: {}}
-	for _, name := range copiedSecretFiles(NodeConfig{NodeName: role}) {
-		expected["secrets/"+name] = struct{}{}
-	}
-	if role == "ha-a" {
-		expected[etcdRootPasswordFile] = struct{}{}
-	}
-	return expected
-}
-
-func writeBundle(path string, files map[string][]byte) error {
-	contents, err := json.Marshal(files)
+func writeBundle(path string, bundle preparedHostBundle) error {
+	contents, err := json.Marshal(bundle)
 	if err != nil {
 		return fmt.Errorf("encode host bundle: %w", err)
 	}
