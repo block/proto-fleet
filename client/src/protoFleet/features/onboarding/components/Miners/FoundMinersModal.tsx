@@ -1,4 +1,5 @@
 import { Dispatch, SetStateAction, useCallback, useMemo, useState } from "react";
+import { foundSummary, isContainerModel } from "./foundMinersLabels";
 import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { createModelFilter, filterByModel } from "@/protoFleet/utils/minerFilters";
@@ -65,13 +66,20 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
     return miners.filter((miner) => filterByModel(miner, activeFilters));
   }, [miners, activeFilters]);
 
+  // Split the discovered total by entity so the modal header matches the inline
+  // FoundMiners summary ("N containers and M miners found on your network").
+  const summaryTitle = useMemo(() => {
+    const containerCount = miners.reduce((total, miner) => total + (isContainerModel(miner.model) ? 1 : 0), 0);
+    return foundSummary(containerCount, miners.length - containerCount);
+  }, [miners]);
+
   return (
     <Modal
       open={open}
       onDismiss={onDismiss}
       size="large"
       divider={false}
-      title={`${miners.length} miners found on your network`}
+      title={summaryTitle}
       description="Selected miners will be added to your fleet."
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden phone:!h-[calc(100dvh-theme(spacing.10))] phone:max-h-[calc(100dvh-theme(spacing.10))]"
       bodyClassName="flex min-h-0 flex-1 flex-col"

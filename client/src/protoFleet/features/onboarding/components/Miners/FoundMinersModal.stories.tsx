@@ -76,3 +76,58 @@ export const Default = () => {
     </>
   );
 };
+
+// Mixed containers + rigs: header splits the total to match the inline
+// FoundMiners summary ("N containers and M miners found on your network").
+const mixedMiners = [
+  {
+    $typeName: "pairing.v1.Device" as const,
+    deviceIdentifier: "cu-001",
+    model: "CU1",
+    ipAddress: "192.168.1.30",
+    macAddress: "AA:BB:CC:DD:EE:30",
+    selected: true,
+  },
+  {
+    $typeName: "pairing.v1.Device" as const,
+    deviceIdentifier: "cu-002",
+    model: "CU1",
+    ipAddress: "192.168.1.31",
+    macAddress: "AA:BB:CC:DD:EE:31",
+    selected: true,
+  },
+  {
+    $typeName: "pairing.v1.Device" as const,
+    deviceIdentifier: "miner-101",
+    model: "S21 Pro",
+    ipAddress: "192.168.1.40",
+    macAddress: "AA:BB:CC:DD:EE:40",
+    selected: true,
+  },
+] as MinerWithSelected[];
+
+export const MixedContainersAndRigs = () => {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <>
+      {!open ? (
+        <div className="flex h-screen items-center justify-center">
+          <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
+            Show Modal
+          </button>
+        </div>
+      ) : null}
+      <FoundMinersModal
+        open={open}
+        miners={mixedMiners}
+        models={["CU1", "S21 Pro"]}
+        setDeselectedMiners={(deselected) => action("setDeselectedMiners")(deselected)}
+        onDismiss={() => {
+          action("onDismiss")();
+          setOpen(false);
+        }}
+      />
+    </>
+  );
+};

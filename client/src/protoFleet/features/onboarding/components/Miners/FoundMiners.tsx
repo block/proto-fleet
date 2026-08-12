@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { deviceGroupLabel, entityNoun, foundSummary, isContainerModel } from "./foundMinersLabels";
 import type { MinerWithModel } from "./types";
 import { AuthenticationMethod } from "@/protoFleet/api/generated/capabilities/v1/capabilities_pb";
 import { type Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
@@ -131,11 +132,18 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
         <Header
           inline
           title={(() => {
-            const totalMinerCount = modelEntries.reduce((total, item) => total + item.miners.length, 0);
+            const containerCount = modelEntries.reduce(
+              (total, item) => total + (isContainerModel(item.model) ? item.miners.length : 0),
+              0,
+            );
+            const minerCount = modelEntries.reduce(
+              (total, item) => total + (isContainerModel(item.model) ? 0 : item.miners.length),
+              0,
+            );
             if (miners.length === 0 && skeletonVisible) return "Finding miners on your network";
             if (miners.length === 0) return "No miners found";
-            if (isScanning) return `Finding miners on your network... ${totalMinerCount} found so far`;
-            return `${totalMinerCount} miners found on your network`;
+            if (isScanning) return `Finding miners on your network... ${containerCount + minerCount} found so far`;
+            return foundSummary(containerCount, minerCount);
           })()}
           titleSize="text-heading-300"
           description={
@@ -160,9 +168,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                 <div className="flex gap-4">
                   {isProtoRig(model.manufacturer) ? <LogoAlt width="w-[20px]" /> : <Fleet width="w-[20px]" />}
                   <div>
-                    <div className="h-6 text-emphasis-300">
-                      {model.manufacturer} {model.model}
-                    </div>
+                    <div className="h-6 text-emphasis-300">{deviceGroupLabel(model.manufacturer, model.model)}</div>
                     {supportsAutoAuth(model.manufacturer, model.supportedAuthenticationMethods) ? (
                       <div className="text-200 text-text-primary-70">Authenticated with default username/password</div>
                     ) : (
@@ -172,7 +178,12 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                 </div>
 
                 <div className="h-6 text-emphasis-300">
-                  {model.miners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier)).length} miners
+                  {(() => {
+                    const selectedCount = model.miners.filter(
+                      (miner) => !deselectedMiners.includes(miner.deviceIdentifier),
+                    ).length;
+                    return `${selectedCount} ${entityNoun(model.model, selectedCount)}`;
+                  })()}
                 </div>
               </Row>
               {modelEntries.length > index + 1 ? <Divider /> : null}
