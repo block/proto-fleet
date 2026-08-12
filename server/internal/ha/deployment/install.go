@@ -26,6 +26,7 @@ const (
 	firewallUnit          = "/etc/systemd/system/proto-fleet-ha-firewall.service"
 	nftablesDropIn        = "/etc/systemd/system/nftables.service.d/proto-fleet-ha.conf"
 	nftablesReloadConfig  = configRoot + "/nftables-reload.conf"
+	firewallReplaceConfig = configRoot + "/firewall-replace.nft"
 	dockerDropIn          = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
 	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
 	minimumComposeVersion = "v2.24.4" // fleet-compose.yaml uses !override, added in this Compose release.
@@ -393,7 +394,7 @@ func validateRelease(source string, readFile func(string) ([]byte, error)) error
 		"version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/fleet.tar.gz", "images/timescaledb.tar.gz",
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/nginx.https.conf", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
-		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl", "ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl",
+		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl", "ha/firewall-replace.nft", "ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl",
 		"ha/proto-fleet-ha.service", "ha/proto-fleet-ha-keepalived.conf", "ha/proto-fleet-ha-firewall.service", "ha/nftables-systemd.conf", "ha/nftables-reload.conf",
 		"ha/docker-systemd.conf", "ha/docker-ha-recovery-systemd.conf", "ha/scripts/check-fleet-active.sh",
 	}
@@ -645,6 +646,7 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		"proto-fleet-ha-firewall.service": firewallUnit,
 		"nftables-systemd.conf":           nftablesDropIn,
 		"nftables-reload.conf":            nftablesReloadConfig,
+		"firewall-replace.nft":            firewallReplaceConfig,
 		"docker-systemd.conf":             dockerDropIn,
 	} {
 		if err := placeFile(ctx, deps, "install HA systemd unit", filepath.Join(installRoot, "ha", sourceName), target, "0644"); err != nil {

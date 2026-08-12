@@ -17,16 +17,20 @@ func applyFirewall(ctx context.Context, config NodeConfig, templatePath string) 
 	if err != nil {
 		return err
 	}
-	if err := runWithInput(ctx, rules, "sudo", "nft", "-c", "-f", "-"); err != nil {
+	// Keep an existing ruleset active until nft atomically commits its replacement.
+	_, _ = runCommand(ctx, "sudo", "nft", "add", "table", "inet", "proto_fleet_ha")
+	replacement := firewallReplacement(rules)
+	if err := runWithInput(ctx, replacement, "sudo", "nft", "-c", "-f", "-"); err != nil {
 		return fmt.Errorf("validate HA firewall: %w", err)
 	}
-	// Older supported nft versions lack the idempotent `destroy table` command.
-	// Delete only the profile-owned table and ignore its first-install not-found error.
-	_, _ = runCommand(ctx, "sudo", "nft", "delete", "table", "inet", "proto_fleet_ha")
-	if err := runWithInput(ctx, rules, "sudo", "nft", "-f", "-"); err != nil {
+	if err := runWithInput(ctx, replacement, "sudo", "nft", "-f", "-"); err != nil {
 		return fmt.Errorf("apply HA firewall: %w", err)
 	}
 	return nil
+}
+
+func firewallReplacement(rules string) string {
+	return "delete table inet proto_fleet_ha\n" + rules
 }
 
 func renderFirewall(template string, config NodeConfig) (string, error) {

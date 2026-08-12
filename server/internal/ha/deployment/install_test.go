@@ -736,6 +736,7 @@ func testInstallRelease(t *testing.T) string {
 		"ha/compose.yaml":                                        "services:\n  patroni:\n    image: proto-fleet-timescaledb-ha:test\n",
 		"ha/fleet-compose.yaml":                                  "services: {}\n",
 		"ha/firewall.nft.tmpl":                                   "${HA_NODE_IP} ${HA_DB_A_IP} ${HA_DB_B_IP} ${HA_DCS_C_IP} ${HA_NETWORK_INTERFACE}\n",
+		"ha/firewall-replace.nft":                                "delete table inet proto_fleet_ha\ninclude \"/etc/proto-fleet/ha/firewall.nft\"\n",
 		"ha/keepalived.conf.tmpl":                                "${HA_NODE_IP} ${HA_PEER_IP} ${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE} ${HA_ENDPOINT_HEARTBEAT_FILE} ${HA_SECRETS_DIR}\n",
 		"ha/keepalived-systemd.conf.tmpl":                        "${HA_VIRTUAL_IP} ${HA_NETWORK_INTERFACE}\n",
 		"ha/proto-fleet-ha.service":                              "[Service]\n",

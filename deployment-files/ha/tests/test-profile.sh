@@ -148,9 +148,11 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=/usr/sbin/ip address flush to ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
     assert_not_contains "${HA_DIR}/firewall.nft.tmpl" "destroy table"
     assert_contains "${HA_DIR}/firewall.nft.tmpl" "tcp dport 40000 drop"
-    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft"
-    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStartPre=/usr/sbin/nft -c -f /etc/proto-fleet/ha/firewall.nft"
-    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStartPre=-/usr/sbin/nft delete table inet proto_fleet_ha"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStartPre=-/usr/sbin/nft add table inet proto_fleet_ha"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStartPre=/usr/sbin/nft -c -f /etc/proto-fleet/ha/firewall-replace.nft"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall-replace.nft"
+    assert_contains "${HA_DIR}/firewall-replace.nft" "delete table inet proto_fleet_ha"
+    assert_contains "${HA_DIR}/firewall-replace.nft" 'include "/etc/proto-fleet/ha/firewall.nft"'
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "BindsTo=nftables.service"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "After=nftables.service"
     assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "PartOf=nftables.service"

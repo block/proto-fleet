@@ -8,9 +8,9 @@ Before=docker.service proto-fleet-ha.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=/usr/sbin/nft -c -f /etc/proto-fleet/ha/firewall.nft
-ExecStartPre=-/usr/sbin/nft delete table inet proto_fleet_ha
-ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall.nft
+ExecStartPre=-/usr/sbin/nft add table inet proto_fleet_ha
+ExecStartPre=/usr/sbin/nft -c -f /etc/proto-fleet/ha/firewall-replace.nft
+ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall-replace.nft
 
 [Install]
 WantedBy=multi-user.target
