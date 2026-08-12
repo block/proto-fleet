@@ -66,7 +66,10 @@ function bannerSubtitle(event: RolloutEvent): string {
   const failed = rolloutPhaseCount(event.rollups, "failed");
   const doneVerb = phaseLabel(event.processType, "done").toLowerCase();
 
-  const parts = [`${done.toLocaleString()} of ${inScope.toLocaleString()} miners ${doneVerb}`];
+  const parts = [
+    ...(event.state === "stabilizingTelemetry" ? ["Waiting for telemetry"] : []),
+    `${done.toLocaleString()} of ${inScope.toLocaleString()} miners ${doneVerb}`,
+  ];
   if (failed > 0) {
     parts.push(`${failed.toLocaleString()} failed`);
   }

@@ -9,18 +9,21 @@ import TargetSelectButton, { targetSelectPlaceholderLabel } from "@/protoFleet/c
 import { ActiveRolloutBanner } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
 import {
+  AnimatedFirmwareBatchReviewSeriesInSitu,
   AnimatedFirmwareInSitu,
+  AnimatedFirmwarePilotReviewSeriesInSitu,
   FirmwareInSitu,
   FirmwareReleaseChannelsTab,
   FirmwareSettingsSurface,
 } from "@/protoFleet/features/rollout/activeRolloutStoryHelpers";
 import {
+  batchReviewFirmwareEvent,
   completedFirmwareEvent,
-  completedWithFailuresFirmwareEvent,
   inProgressFirmwareEvent,
   pausedFirmwareEvent,
   pilotGateFirmwareEvent,
   scheduledFirmwareEvent,
+  stabilizingFirmwareEvent,
 } from "@/protoFleet/features/rollout/rollout.fixtures";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import { rolloutPlanReadout } from "@/protoFleet/features/rollout/rolloutDisplayUtils";
@@ -36,7 +39,7 @@ import Select from "@/shared/components/Select";
  * These stories show the rollout card in its expected page context.
  */
 const meta = {
-  title: "Proto Fleet/Rollout/In Situ/Firmware Lifecycle",
+  title: "Proto Fleet/Rollout/Framework/Lifecycle/Firmware",
   component: ActiveRolloutStatus,
   parameters: {
     layout: "fullscreen",
@@ -114,7 +117,7 @@ const scheduledFirmwareScopeTargets = [
   { label: "Miners", value: targetSelectPlaceholderLabel },
 ];
 
-const animatedAllAtOnceFirmwareEvent: RolloutEvent = {
+const animatedSingleBatchFirmwareEvent: RolloutEvent = {
   processType: "firmware",
   state: "inProgress",
   title: "Firmware update to 5.1.0",
@@ -134,12 +137,18 @@ const animatedAllAtOnceFirmwareEvent: RolloutEvent = {
 
 const animatedBatchesReviewFirmwareEvent: RolloutEvent = {
   ...inProgressFirmwareEvent,
+  totalTargets: 66,
+  excludedTargets: 6,
+  batchSize: 20,
+  batchIntervalSec: 60,
   currentBatch: 1,
+  totalBatches: 3,
   reviewAfterEachBatch: true,
+  estimatedSecondsRemaining: 180,
   rollups: [
     { phase: "inProgress", count: 20 },
-    { phase: "queued", count: 202 },
-    { phase: "excluded", count: 18 },
+    { phase: "queued", count: 40 },
+    { phase: "excluded", count: 6 },
   ],
 };
 
@@ -147,12 +156,9 @@ const animatedPilotReviewFirmwareEvent: RolloutEvent = {
   ...inProgressFirmwareEvent,
   strategy: "pilotThenContinue",
   pilotSize: 10,
-  batchSize: 25,
-  batchIntervalSec: 90,
   currentBatch: 1,
-  totalBatches: 10,
-  reviewAfterEachBatch: true,
-  estimatedSecondsRemaining: 810,
+  totalBatches: 2,
+  reviewAfterEachBatch: false,
   rollups: [
     { phase: "inProgress", count: 10 },
     { phase: "queued", count: 212 },
@@ -427,8 +433,18 @@ export const InProgress: Story = {
   render: () => <FirmwareInSitu event={inProgressFirmwareEvent} />,
 };
 
+export const WaitingForTelemetry: Story = {
+  name: "Waiting for telemetry",
+  render: () => <FirmwareInSitu event={stabilizingFirmwareEvent} />,
+};
+
 export const Paused: Story = {
   render: () => <FirmwareInSitu event={pausedFirmwareEvent} />,
+};
+
+export const BatchReview: Story = {
+  name: "Batch review",
+  render: () => <FirmwareInSitu event={batchReviewFirmwareEvent} />,
 };
 
 export const PilotReview: Story = {
@@ -440,28 +456,23 @@ export const Completed: Story = {
   render: () => <FirmwareInSitu event={completedFirmwareEvent} />,
 };
 
-export const CompletedWithFailures: Story = {
-  name: "Completed with failures",
-  render: () => <FirmwareInSitu event={completedWithFailuresFirmwareEvent} />,
-};
-
-export const AnimatedAllAtOnce: Story = {
-  name: "Animated all at once",
-  render: function renderAnimatedAllAtOnce(): ReactElement {
-    return <AnimatedFirmwareInSitu base={animatedAllAtOnceFirmwareEvent} defaultDetailsOpen />;
+export const AnimatedSingleBatch: Story = {
+  name: "Animated single batch",
+  render: function renderAnimatedSingleBatch(): ReactElement {
+    return <AnimatedFirmwareInSitu base={animatedSingleBatchFirmwareEvent} />;
   },
 };
 
-export const AnimatedBatchesWithReview: Story = {
-  name: "Animated batches with review",
-  render: function renderAnimatedBatchesWithReview(): ReactElement {
-    return <AnimatedFirmwareInSitu base={animatedBatchesReviewFirmwareEvent} defaultDetailsOpen />;
+export const AnimatedBatchReviewSeries: Story = {
+  name: "Animated batch review series",
+  render: function renderAnimatedBatchReviewSeries(): ReactElement {
+    return <AnimatedFirmwareBatchReviewSeriesInSitu base={animatedBatchesReviewFirmwareEvent} />;
   },
 };
 
 export const AnimatedPilotWithReview: Story = {
   name: "Animated pilot with review",
   render: function renderAnimatedPilotWithReview(): ReactElement {
-    return <AnimatedFirmwareInSitu base={animatedPilotReviewFirmwareEvent} defaultDetailsOpen />;
+    return <AnimatedFirmwarePilotReviewSeriesInSitu base={animatedPilotReviewFirmwareEvent} />;
   },
 };

@@ -9,7 +9,7 @@ import ReleaseChannelsTable from "@/protoFleet/features/rollout/ReleaseChannelsT
 
 /** Release channels rendered on the Firmware settings page. */
 const meta = {
-  title: "Proto Fleet/Rollout/In Situ/Release Channels",
+  title: "Proto Fleet/Firmware/Release Channels",
   parameters: {
     layout: "fullscreen",
     // FirmwareSettingsSurface provides its own MemoryRouter.

@@ -2,26 +2,26 @@ import { type ReactElement, type ReactNode, useEffect, useId, useState } from "r
 import clsx from "clsx";
 
 import {
-  formatRolloutMetric,
   orderLabels,
-  pacingSummary,
+  pacingDetail,
   phaseLabel,
+  rolloutActiveHeaderDetail,
+  rolloutActiveSectionLabel,
+  rolloutActiveStatusLabel,
   rolloutCompletionPercent,
-  rolloutErrorImpactCount,
   rolloutLifecycleActions,
-  type RolloutMetricDelta,
-  rolloutMetricDelta,
-  type RolloutMetricDeltaIntent,
   rolloutPhaseCount,
   rolloutProgressSegments,
   rolloutStageLabel,
 } from "./rolloutDisplayUtils";
+import RolloutErrorCallout from "./RolloutErrorCallout";
+import RolloutPerformanceStrip from "./RolloutPerformanceStrip";
 import type { RolloutEvent } from "./rolloutTypes";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
-import { useTemperatureUnit } from "@/protoFleet/store";
-import { Alert, Success } from "@/shared/assets/icons";
+import { Alert, Info, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout, { intents } from "@/shared/components/Callout";
 import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -52,7 +52,7 @@ interface ActiveRolloutStatusProps {
   onPause?: () => void;
   onResume?: () => void;
   onCancelRemaining?: () => void;
-  onContinueFromPilot?: () => void;
+  onContinueFromReview?: () => void;
   onRetryFailed?: () => void;
   onViewMiners?: () => void;
   onViewErrors?: () => void;
@@ -62,6 +62,22 @@ interface StatBlockProps {
   label: string;
   value: string;
   detail?: string;
+}
+
+interface SectionHeaderProps {
+  title: string;
+  children?: ReactNode;
+}
+
+function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
+  return (
+    <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
+      <div className="min-w-0">
+        <Header title={title} titleSize="text-heading-200" />
+        {children ? <div className="mt-1 text-300 text-text-primary">{children}</div> : null}
+      </div>
+    </div>
+  );
 }
 
 // Same lockup as ActiveCurtailmentStatus' StatBlock, so rollout detail reads
@@ -103,107 +119,11 @@ function StatRow({ label, value, detail, divider }: StatBlockProps & { divider: 
   );
 }
 
-// Deltas keep the signed value, but color by outcome for the metric. A
-// temperature increase is bad even though the sign is positive.
-const deltaTextColor: Record<RolloutMetricDeltaIntent, string> = {
-  positive: "text-intent-success-fill",
-  negative: "text-intent-critical-fill",
-  neutral: "text-text-primary-50",
-};
-
-/**
- * Signed metric delta rendered beside the current value.
- */
-function DeltaChip({ delta }: { delta: RolloutMetricDelta }): ReactElement {
-  return <span className={deltaTextColor[delta.intent]}>{delta.deltaText}</span>;
-}
-
-function errorCountLabel(count: number): string {
-  return `${count.toLocaleString()} ${count === 1 ? "error" : "errors"}`;
-}
-
-/**
- * Baseline-vs-current telemetry for pilot review.
- */
-function PerformanceStrip({
-  event,
-  embedded = false,
-  onViewErrors,
-}: {
-  event: RolloutEvent;
-  embedded?: boolean;
-  onViewErrors?: () => void;
-}): ReactElement | null {
-  const temperatureUnit = useTemperatureUnit();
-  const hasErrorSummary = event.performance?.errors !== undefined;
-  const errorCount = rolloutErrorImpactCount(event.performance?.errors);
-  if (!event.performance || (event.performance.metrics.length === 0 && !hasErrorSummary)) {
-    return null;
+function telemetryStabilizingSubtitle(etaValue: string): string {
+  if (etaValue === "Calculating") {
+    return "Review becomes available after miners stabilize.";
   }
-
-  return (
-    <div className="mt-6" data-testid="active-rollout-performance">
-      <div
-        className={clsx(
-          "grid gap-y-5 text-text-primary",
-          embedded ? "gap-x-8 tablet:grid-cols-2 laptop:grid-cols-5" : "gap-x-12 tablet:grid-cols-5",
-        )}
-      >
-        {event.performance.metrics.map((metric) => {
-          const value = formatRolloutMetric(metric, temperatureUnit);
-          return (
-            <div key={metric.label} className="min-w-0">
-              <div className="text-200 text-text-primary-50">{metric.label}</div>
-              <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-emphasis-300 text-text-primary">
-                <span className={clsx("min-w-0", embedded ? "whitespace-nowrap" : "truncate")} title={value}>
-                  {value}
-                </span>
-                <DeltaChip delta={rolloutMetricDelta(metric, temperatureUnit)} />
-              </div>
-            </div>
-          );
-        })}
-        {hasErrorSummary ? (
-          <div className="min-w-0">
-            <div className="text-200 text-text-primary-50">Errors</div>
-            {errorCount > 0 && onViewErrors ? (
-              <button
-                type="button"
-                className="mt-1 cursor-pointer text-emphasis-300 text-text-primary underline underline-offset-2 hover:opacity-70 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base focus-visible:outline-none"
-                onClick={onViewErrors}
-                data-testid="active-rollout-errors-link"
-                aria-label={`View ${errorCount.toLocaleString()} errors`}
-              >
-                {errorCount.toLocaleString()}
-              </button>
-            ) : (
-              <div className="mt-1 text-emphasis-300 text-text-primary">{errorCount.toLocaleString()}</div>
-            )}
-          </div>
-        ) : null}
-      </div>
-      <div className="mt-3 text-200 text-text-primary-50">
-        Compares the 30-minute pre-update baseline with post-update telemetry after miners stabilize.
-      </div>
-    </div>
-  );
-}
-
-function statusHeadline(event: RolloutEvent): string {
-  switch (event.state) {
-    case "scheduled":
-      return "Scheduled";
-    case "inProgress":
-      return "In progress";
-    case "pausedAtPilotGate":
-      return "Paused for pilot review";
-    case "paused":
-      return "Paused";
-    case "completed":
-      return "Completed";
-    case "completedWithFailures":
-      return "Completed with failures";
-  }
+  return `Review becomes available in ${etaValue}.`;
 }
 
 function statusIcon(event: RolloutEvent): ReactNode {
@@ -211,9 +131,12 @@ function statusIcon(event: RolloutEvent): ReactNode {
     return <Alert className="text-intent-critical-fill" />;
   }
   if (event.state === "completed") {
-    return <Success className="text-core-primary-fill" />;
+    return <Success className="text-intent-success-fill" />;
   }
-  if (event.state === "paused" || event.state === "pausedAtPilotGate") {
+  if (event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview") {
+    return <Info className="text-text-primary" />;
+  }
+  if (event.state === "paused") {
     return <Alert className="text-core-accent-fill" />;
   }
   return <ProgressCircular indeterminate className="text-core-primary-fill" />;
@@ -256,14 +179,22 @@ function ActiveRolloutStatus({
   onPause,
   onResume,
   onCancelRemaining,
-  onContinueFromPilot,
+  onContinueFromReview,
   onRetryFailed,
   onViewMiners,
   onViewErrors,
 }: ActiveRolloutStatusProps): ReactElement {
   const detailsId = useId();
-  const [detailsOpen, setDetailsOpen] = useState(defaultDetailsOpen);
+  const isReviewGate = event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview";
+  const detailsStateKey = isReviewGate ? `${event.state}-${event.currentBatch ?? "current"}` : "default";
+  const [detailsState, setDetailsState] = useState(() => ({
+    key: detailsStateKey,
+    open: defaultDetailsOpen || isReviewGate,
+  }));
+  const detailsOpen =
+    embedded || (detailsState.key === detailsStateKey ? detailsState.open : defaultDetailsOpen || isReviewGate);
   const isRunning = event.state === "inProgress";
+  const isTelemetryStabilizing = event.state === "stabilizingTelemetry";
   const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
   const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
   const done = rolloutPhaseCount(event.rollups, "done");
@@ -274,12 +205,12 @@ function ActiveRolloutStatus({
   // Live-ticking elapsed timer while running, matching the curtailment card.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!isRunning || !event.startedAt) {
+    if ((!isRunning && !isTelemetryStabilizing) || !event.startedAt) {
       return;
     }
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [isRunning, event.startedAt]);
+  }, [isRunning, isTelemetryStabilizing, event.startedAt]);
   const elapsedSeconds = event.startedAt
     ? Math.max(Math.floor((now - new Date(event.startedAt).getTime()) / 1000), 0)
     : 0;
@@ -290,20 +221,18 @@ function ActiveRolloutStatus({
       : isTerminal
         ? "N/A"
         : "Calculating";
+  const pacing = pacingDetail(event);
 
   const statItems: StatBlockProps[] = [
-    { label: "Scope", value: event.scopeLabel || "N/A" },
-    { label: "Method", value: pacingSummary(event) },
-    // Order only applies to a paced run. Under "all at once" there's no first/last.
+    ...(embedded ? [{ label: "Scope", value: event.scopeLabel || "N/A" }] : []),
+    { label: pacing.method, value: pacing.value },
+    // Order only applies to paced or pilot runs. Under "single batch" there's no first/last.
     ...(event.strategy === "allAtOnce" ? [] : [{ label: "Order", value: orderLabels[event.order] }]),
-    { label: "Est. time remaining", value: etaValue },
+    { label: isTelemetryStabilizing ? "Review available" : "Est. time remaining", value: etaValue },
   ];
 
   // Progress summary + elapsed live in the progress section, rather than the stat grid.
   const progressSummary = `${done.toLocaleString()} of ${inScope.toLocaleString()} miners ${doneVerb} (${percent}%)`;
-  const errorCount = rolloutErrorImpactCount(event.performance?.errors);
-  const hasCollapsedErrorLink = !detailsOpen && errorCount > 0;
-
   const actions = hideActions
     ? []
     : rolloutLifecycleActions(event, {
@@ -311,7 +240,7 @@ function ActiveRolloutStatus({
         onPause,
         onResume,
         onCancelRemaining,
-        onContinueFromPilot,
+        onContinueFromReview,
         onRetryFailed,
       });
   const visibleActions = actions.filter((action) => action.key !== "cancel");
@@ -346,9 +275,11 @@ function ActiveRolloutStatus({
   return (
     <section className={clsx("grid gap-3", className)}>
       {embedded ? null : (
-        <div className="min-w-0">
-          <Header title={event.title} titleSize="text-heading-200" />
-        </div>
+        <SectionHeader title={rolloutActiveSectionLabel(event.processType)}>
+          <div className="max-w-xl">
+            <div className="text-emphasis-300">{rolloutActiveHeaderDetail(event)}</div>
+          </div>
+        </SectionHeader>
       )}
       <div
         className={clsx(
@@ -388,13 +319,26 @@ function ActiveRolloutStatus({
             {statusIcon(event)}
           </div>
           <div data-testid="active-rollout-primary-lockup">
-            <div className="text-heading-50 text-text-primary-70">{statusHeadline(event)}</div>
+            <div className="text-heading-50 text-text-primary-70">{rolloutActiveStatusLabel(event.processType)}</div>
             <div className="text-heading-300 text-text-primary">{rolloutStageLabel(event)}</div>
           </div>
         </div>
 
-        {/* Progress stays visible in the collapsed card; rollout setup and telemetry
-            sit behind the disclosure below. */}
+        <RolloutErrorCallout event={event} onReviewErrors={onViewErrors} />
+
+        {isTelemetryStabilizing ? (
+          <Callout
+            className="mt-6"
+            intent={intents.information}
+            prefixIcon={<Info />}
+            testId="active-rollout-telemetry-stabilizing-banner"
+            title="Telemetry is stabilizing"
+            subtitle={telemetryStabilizingSubtitle(etaValue)}
+          />
+        ) : null}
+
+        {/* Progress stays visible in the collapsed card. Embedded modal details
+            remain expanded because the modal is already the detail destination. */}
         <div className="mt-6 grid gap-3" data-testid="active-rollout-progress">
           <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
             <div className="text-200 text-text-primary-50">{progressSummary}</div>
@@ -406,34 +350,30 @@ function ActiveRolloutStatus({
           <ProgressLegend event={event} segments={segments} />
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-200">
-          <button
-            type="button"
-            className="cursor-pointer text-text-primary underline underline-offset-2 hover:opacity-70 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base focus-visible:outline-none"
-            aria-expanded={detailsOpen}
-            aria-controls={detailsId}
-            data-testid="active-rollout-details-toggle"
-            onClick={() => setDetailsOpen((open) => !open)}
-          >
-            {detailsOpen ? "Hide details" : "View details"}
-          </button>
-          {hasCollapsedErrorLink && onViewErrors ? (
+        {embedded ? null : (
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-200">
             <button
               type="button"
-              className="cursor-pointer text-intent-critical-fill underline underline-offset-2 hover:opacity-70 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base focus-visible:outline-none"
-              onClick={onViewErrors}
-              data-testid="active-rollout-collapsed-errors-link"
-              aria-label={`View ${errorCountLabel(errorCount)}`}
+              className="cursor-pointer text-text-primary underline underline-offset-2 hover:opacity-70 focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base focus-visible:outline-none"
+              aria-expanded={detailsOpen}
+              aria-controls={detailsId}
+              data-testid="active-rollout-details-toggle"
+              onClick={() => setDetailsState({ key: detailsStateKey, open: !detailsOpen })}
             >
-              {errorCountLabel(errorCount)}
+              {detailsOpen ? "Hide details" : "View details"}
             </button>
-          ) : hasCollapsedErrorLink ? (
-            <span className="text-intent-critical-fill">{errorCountLabel(errorCount)}</span>
-          ) : null}
-        </div>
+          </div>
+        )}
 
         {detailsOpen ? (
-          <div id={detailsId} className="mt-6 border-t border-border-5 pt-6" data-testid="active-rollout-details">
+          <div
+            id={detailsId}
+            className={clsx(
+              "border-t border-border-5",
+              embedded ? "mt-4 pt-5" : "-mx-6 mt-6 px-6 pt-6 tablet:-mx-10 tablet:mt-10 tablet:px-10 tablet:pt-10",
+            )}
+            data-testid="active-rollout-details"
+          >
             {/* Stat lockups: in the modal (embedded) they read as standard
                 label/value table rows; in the standalone card they use the same
                 multi-column stat grid as ActiveCurtailmentStatus (grid-cols-5,
@@ -451,15 +391,21 @@ function ActiveRolloutStatus({
                 ))}
               </div>
             ) : (
-              <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5">
+              <div className="grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
                 {statItems.map((item) => (
                   <StatBlock key={item.label} label={item.label} value={item.value} detail={item.detail} />
                 ))}
               </div>
             )}
 
-            {/* Baseline telemetry for pilot review. */}
-            <PerformanceStrip event={event} embedded={embedded} onViewErrors={onViewErrors} />
+            {pacing.detail ? (
+              <div className="mt-3 text-200 text-text-primary-70" data-testid="active-rollout-pacing-helper">
+                {pacing.detail}
+              </div>
+            ) : null}
+
+            {/* Baseline telemetry for running batches and review gates. */}
+            <RolloutPerformanceStrip event={event} embedded={embedded} />
           </div>
         ) : null}
       </div>

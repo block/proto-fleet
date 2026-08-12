@@ -1,4 +1,5 @@
 import type {
+  CurtailmentTelemetryPhase,
   RolloutErrorImpact,
   RolloutEvent,
   RolloutOrder,
@@ -16,9 +17,9 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertCtoF, formatEfficiency, formatHashrate, formatPowerKwOrDash } from "@/shared/utils/telemetryFormat";
 
 export const strategyLabels: Record<RolloutStrategy, string> = {
-  allAtOnce: "All at once",
-  batched: "In batches",
-  pilotThenContinue: "Pilot group, then continue",
+  allAtOnce: "Single batch",
+  batched: "Multiple batches",
+  pilotThenContinue: "Pilot batch, then remaining",
 };
 
 /** Action-specific noun for rollout CTA labels. */
@@ -42,6 +43,20 @@ export function rolloutProcessLabel(processType: RolloutProcessType): string {
   return processDisplayLabels[processType];
 }
 
+const processActiveSectionLabels: Record<RolloutProcessType, string> = {
+  firmware: "Active firmware update",
+  reboot: "Active reboot",
+  curtailment: "Active curtailment",
+};
+
+export function rolloutActiveSectionLabel(processType: RolloutProcessType): string {
+  return processActiveSectionLabels[processType];
+}
+
+export function rolloutActiveHeaderDetail(event: Pick<RolloutEvent, "title" | "scopeLabel">): string {
+  return event.scopeLabel ? `${event.title} (Applies to ${event.scopeLabel})` : event.title;
+}
+
 const processStatusColumnLabels: Record<RolloutProcessType, string> = {
   firmware: "Update status",
   reboot: "Reboot status",
@@ -50,6 +65,16 @@ const processStatusColumnLabels: Record<RolloutProcessType, string> = {
 
 export function rolloutStatusColumnLabel(processType: RolloutProcessType): string {
   return processStatusColumnLabels[processType];
+}
+
+const processActiveStatusLabels: Record<RolloutProcessType, string> = {
+  firmware: "Update status",
+  reboot: "Reboot status",
+  curtailment: "Dispatch status",
+};
+
+export function rolloutActiveStatusLabel(processType: RolloutProcessType): string {
+  return processActiveStatusLabels[processType];
 }
 
 /** Lowercase present-tense verb for strategy help text. */
@@ -89,10 +114,10 @@ export const orderLabels: Record<RolloutOrder, string> = {
 export function strategyHelpText(processType: RolloutProcessType): Record<RolloutStrategy, string> {
   const verb = rolloutProcessVerb(processType);
   return {
-    allAtOnce: `All in-scope miners ${verb} simultaneously. This has the highest uptime impact and is limited by the max miners offline setting.`,
-    batched: `Miners ${verb} in fixed-size waves, pausing for the interval between each so a bounded number are ever offline at once.`,
+    allAtOnce: `All in-scope miners ${verb} as one batch. The max miners offline setting still limits active work.`,
+    batched: `Miners ${verb} in multiple batches, pausing for the configured interval between each batch.`,
     pilotThenContinue:
-      "A small pilot wave runs first, then it pauses for your review before continuing to the rest in batches.",
+      "A pilot batch runs first, then pauses for review before the remaining miners continue as one batch.",
   };
 }
 
@@ -188,7 +213,7 @@ export function rolloutPhaseCount(rollups: RolloutPhaseRollup[], phase: RolloutT
 }
 
 /** Targets that will actually be acted on (total minus excluded). */
-export function inScopeTargetCount(event: RolloutEvent): number {
+export function inScopeTargetCount(event: Pick<RolloutEvent, "totalTargets" | "excludedTargets">): number {
   return Math.max(event.totalTargets - event.excludedTargets, 0);
 }
 
@@ -241,7 +266,16 @@ export function rolloutPlanReadout(args: {
   }
 
   if (config.strategy === "allAtOnce") {
-    return `All ${inScopeCount.toLocaleString()} miners at once`;
+    return `${inScopeCount.toLocaleString()} miners in a single batch`;
+  }
+
+  if (config.strategy === "pilotThenContinue") {
+    const pilot = config.pilotSize ?? 0;
+    if (pilot <= 0) {
+      return null;
+    }
+    const remaining = Math.max(inScopeCount - pilot, 0);
+    return `Pilot batch of ${pilot.toLocaleString()}, then ${remaining.toLocaleString()} remaining miners`;
   }
 
   const { batchSize, batchIntervalSec } = config;
@@ -249,12 +283,9 @@ export function rolloutPlanReadout(args: {
     return null;
   }
 
-  // Pilot runs first as its own gated wave; the rest continue in batches.
-  const pilot = config.strategy === "pilotThenContinue" ? (config.pilotSize ?? 0) : 0;
-  const remaining = Math.max(inScopeCount - pilot, 0);
-  const batches = Math.ceil(remaining / batchSize);
+  const batches = Math.ceil(inScopeCount / batchSize);
 
-  const durationSec = estimateRolloutSeconds({ inScopeCount: remaining, batchSize, batchIntervalSec });
+  const durationSec = estimateRolloutSeconds({ inScopeCount, batchSize, batchIntervalSec });
   const over = durationSec && durationSec > 0 ? ` over ~${formatDuration(durationSec)}` : "";
   const batchWord = batches === 1 ? "batch" : "batches";
   const review = config.reviewAfterEachBatch
@@ -262,12 +293,7 @@ export function rolloutPlanReadout(args: {
       ? ", auto-continue when healthy"
       : ", review after each batch"
     : "";
-  const batchPhrase = `About ${batches.toLocaleString()} ${batchWord}${over}${review}`;
-
-  if (pilot > 0) {
-    return `Pilot of ${pilot.toLocaleString()}, then ${batchPhrase}`;
-  }
-  return batchPhrase;
+  return `About ${batches.toLocaleString()} ${batchWord}${over}${review}`;
 }
 
 export function pacingSummary(
@@ -282,25 +308,93 @@ export function pacingSummary(
   >,
 ): string {
   if (event.strategy === "allAtOnce") {
-    return "All at once";
+    return "Single batch";
   }
-  const review = event.reviewAfterEachBatch
-    ? event.autoContinueOnHealthyTelemetry
-      ? ", auto-continue when healthy"
-      : ", review after each batch"
-    : "";
-  const batches =
-    event.batchSize && event.batchIntervalSec
-      ? `batches of ${event.batchSize.toLocaleString()} every ${event.batchIntervalSec}s`
-      : null;
+  const review =
+    event.strategy === "batched" && event.reviewAfterEachBatch
+      ? event.autoContinueOnHealthyTelemetry
+        ? ", auto-continue when healthy"
+        : ", review after each batch"
+      : "";
   if (event.strategy === "pilotThenContinue") {
-    const pilot = event.pilotSize ? `Pilot of ${event.pilotSize.toLocaleString()}` : "Pilot group";
-    return batches ? `${pilot}, then ${batches}${review}` : `${pilot}, then continue${review}`;
+    const pilot = event.pilotSize ? `Pilot batch of ${event.pilotSize.toLocaleString()}` : "Pilot batch";
+    return `${pilot}, then remaining`;
   }
   if (event.batchSize && event.batchIntervalSec) {
-    return `Batches of ${event.batchSize.toLocaleString()} every ${event.batchIntervalSec}s${review}`;
+    return `Multiple batches, ${event.batchSize.toLocaleString()} miners every ${event.batchIntervalSec}s${review}`;
   }
   return strategyLabels[event.strategy];
+}
+
+export interface PacingDetail {
+  method: string;
+  value: string;
+  detail?: string;
+}
+
+function reviewPacingDetail(
+  event: Pick<RolloutEvent, "reviewAfterEachBatch" | "autoContinueOnHealthyTelemetry">,
+): string | undefined {
+  if (!event.reviewAfterEachBatch) {
+    return undefined;
+  }
+  return event.autoContinueOnHealthyTelemetry ? "Auto-continue when healthy" : "Review after each batch";
+}
+
+export function pacingDetail(
+  event: Pick<
+    RolloutEvent,
+    | "strategy"
+    | "batchSize"
+    | "batchIntervalSec"
+    | "pilotSize"
+    | "reviewAfterEachBatch"
+    | "autoContinueOnHealthyTelemetry"
+    | "totalTargets"
+    | "excludedTargets"
+  >,
+): PacingDetail {
+  if (event.strategy === "allAtOnce") {
+    return {
+      method: strategyLabels.allAtOnce,
+      value: `${inScopeTargetCount(event).toLocaleString()} miners in one batch`,
+    };
+  }
+
+  if (event.strategy === "pilotThenContinue") {
+    const inScope = inScopeTargetCount(event);
+    const pilotSize = event.pilotSize ?? 0;
+    const remaining = Math.max(inScope - pilotSize, 0);
+    return {
+      method: strategyLabels.pilotThenContinue,
+      value: pilotSize > 0 ? `${pilotSize.toLocaleString()} miners in pilot batch` : "Pilot batch first",
+      detail:
+        pilotSize > 0 ? `${remaining.toLocaleString()} remaining miners after review` : "Remaining miners after review",
+    };
+  }
+
+  const detail = reviewPacingDetail(event);
+  if (event.batchSize && event.batchIntervalSec) {
+    return {
+      method: strategyLabels.batched,
+      value: `${event.batchSize.toLocaleString()} miners every ${event.batchIntervalSec}s`,
+      detail,
+    };
+  }
+
+  if (event.batchSize) {
+    return {
+      method: strategyLabels.batched,
+      value: `${event.batchSize.toLocaleString()} miners per batch`,
+      detail,
+    };
+  }
+
+  return {
+    method: strategyLabels.batched,
+    value: "Batch size not set",
+    detail,
+  };
 }
 
 /** Primary lockup headline for the current rollout step. */
@@ -308,17 +402,27 @@ export function rolloutStageLabel(event: RolloutEvent): string {
   switch (event.state) {
     case "scheduled":
       return "Scheduled";
+    case "stabilizingTelemetry":
+      return "Waiting for telemetry";
     case "paused":
       return "Paused";
     case "pausedAtPilotGate":
-      return "Pilot review";
+      return "Pilot batch review";
+    case "pausedAtBatchReview":
+      if (event.currentBatch && event.totalBatches) {
+        return `Batch ${event.currentBatch} review`;
+      }
+      return "Batch review";
     case "completed":
-      return "Completed";
+      return event.processType === "curtailment" ? "Curtailed" : "Completed";
     case "completedWithFailures":
       return "Completed with failures";
     case "inProgress":
       if (event.strategy === "allAtOnce") {
-        return "Updating all at once";
+        return phaseLabel(event.processType, "inProgress");
+      }
+      if (event.strategy === "pilotThenContinue") {
+        return event.currentBatch && event.currentBatch > 1 ? "Remaining batch" : "Pilot batch";
       }
       if (event.currentBatch && event.totalBatches) {
         return `Batch ${event.currentBatch} of ${event.totalBatches}`;
@@ -341,7 +445,7 @@ export interface RolloutLifecycleHandlers {
   onPause?: () => void;
   onResume?: () => void;
   onCancelRemaining?: () => void;
-  onContinueFromPilot?: () => void;
+  onContinueFromReview?: () => void;
   onRetryFailed?: () => void;
 }
 
@@ -370,7 +474,7 @@ export function rolloutLifecycleActions(
 ): RolloutLifecycleAction[] {
   const isRunning = event.state === "inProgress";
   const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
-  const showPilotGate = event.state === "pausedAtPilotGate";
+  const showReviewGate = event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview";
   const isScheduled = event.state === "scheduled";
   const failed = rolloutPhaseCount(event.rollups, "failed");
   const actions: RolloutLifecycleAction[] = [];
@@ -379,12 +483,12 @@ export function rolloutLifecycleActions(
   if (handlers.onManage && !isTerminal && !isScheduled) {
     actions.push({ key: "manage", text: "Manage", variant: "secondary", onClick: handlers.onManage });
   }
-  if (handlers.onContinueFromPilot && showPilotGate) {
+  if (handlers.onContinueFromReview && showReviewGate) {
     actions.push({
       key: "continue",
       text: "Continue",
       variant: "primary",
-      onClick: handlers.onContinueFromPilot,
+      onClick: handlers.onContinueFromReview,
     });
   }
   if (handlers.onResume && event.state === "paused") {
@@ -437,16 +541,28 @@ export interface RolloutMetricDelta {
   deltaText: string;
 }
 
-function isMetricIncreasePositive(unit: RolloutPerfMetric["unit"]): boolean {
-  return unit === "hashrate";
+function isMetricIncreasePositive(
+  unit: RolloutPerfMetric["unit"],
+  processType?: RolloutProcessType,
+  curtailmentTelemetryPhase?: CurtailmentTelemetryPhase,
+): boolean {
+  const isCurtailmentDispatch = processType === "curtailment" && curtailmentTelemetryPhase !== "restore";
+  return unit === "hashrate" && !isCurtailmentDispatch;
 }
 
 /** Map a raw movement to the outcome it represents for the metric. */
-export function rolloutMetricDeltaIntent(unit: RolloutPerfMetric["unit"], change: number): RolloutMetricDeltaIntent {
+export function rolloutMetricDeltaIntent(
+  unit: RolloutPerfMetric["unit"],
+  change: number,
+  processType?: RolloutProcessType,
+  curtailmentTelemetryPhase?: CurtailmentTelemetryPhase,
+): RolloutMetricDeltaIntent {
   if (change === 0) {
     return "neutral";
   }
-  return change > 0 === isMetricIncreasePositive(unit) ? "positive" : "negative";
+  return change > 0 === isMetricIncreasePositive(unit, processType, curtailmentTelemetryPhase)
+    ? "positive"
+    : "negative";
 }
 
 function metricDeltaMode(metric: RolloutPerfMetric): NonNullable<RolloutPerfMetric["deltaMode"]> {
@@ -485,16 +601,25 @@ function formatRolloutMetricDelta(metric: RolloutPerfMetric, temperatureUnit: Te
 }
 
 /** Compare a metric's current value to its captured baseline. */
-export function rolloutMetricDelta(metric: RolloutPerfMetric, temperatureUnit: TemperatureUnit): RolloutMetricDelta {
+export function rolloutMetricDelta(
+  metric: RolloutPerfMetric,
+  temperatureUnit: TemperatureUnit,
+  processType?: RolloutProcessType,
+  curtailmentTelemetryPhase?: CurtailmentTelemetryPhase,
+): RolloutMetricDelta {
   const { baseline, current } = metric;
   const change = current - baseline;
   return {
     change,
-    intent: rolloutMetricDeltaIntent(metric.unit, change),
+    intent: rolloutMetricDeltaIntent(metric.unit, change, processType, curtailmentTelemetryPhase),
     deltaText: formatRolloutMetricDelta(metric, temperatureUnit),
   };
 }
 
 export function rolloutErrorImpactCount(errors: RolloutErrorImpact[] | undefined): number {
-  return errors?.reduce((count, error) => count + error.impactedMiners.length, 0) ?? 0;
+  return new Set(errors?.flatMap((error) => error.impactedMiners) ?? []).size;
+}
+
+export function rolloutErrorCount(errors: RolloutErrorImpact[] | undefined): number {
+  return errors?.length ?? 0;
 }

@@ -37,7 +37,7 @@ import Select from "@/shared/components/Select";
 
 /** Story-only launch controls for bulk rollout config surfaces. */
 const meta = {
-  title: "Proto Fleet/Rollout/In Situ/Config",
+  title: "Proto Fleet/Rollout/Configuration/Bulk Actions",
   parameters: {
     layout: "fullscreen",
   },
@@ -296,7 +296,7 @@ function BulkActionButton({
 function BulkActionsStory(): ReactElement {
   const [openModal, setOpenModal] = useState<OpenModal>(null);
 
-  // Reboot uses the generic RolloutConfigModal. It defaults to all-at-once,
+  // Reboot uses the generic RolloutConfigModal. It defaults to single batch,
   // with batching and scheduling available as advanced options.
   const rebootState = useRolloutConfigModalState(allAtOnceRebootConfig);
 

@@ -3,7 +3,6 @@ import type {
   RolloutEvent,
   RolloutMinerRow,
   RolloutPlanConfig,
-  RolloutState,
   RolloutTargetPhase,
 } from "./rolloutTypes";
 
@@ -33,9 +32,7 @@ export const pilotFirmwareConfig: RolloutPlanConfig = {
   order: "leastEfficientFirst",
   maxConcurrentOffline: 50,
   pilotSize: 10,
-  batchSize: 25,
-  batchIntervalSec: 90,
-  reviewAfterEachBatch: true,
+  reviewAfterEachBatch: false,
   scheduleType: "scheduleForLater",
   scheduledStartAt: "2026-08-14T20:00:00.000Z",
 };
@@ -91,7 +88,7 @@ export const batchedCurtailmentConfig: RolloutPlanConfig = {
   scheduleType: "startNow",
 };
 
-type RolloutMinerIdentity = Omit<RolloutMinerRow, "phase" | "errors">;
+type RolloutMinerIdentity = Omit<RolloutMinerRow, "phase">;
 
 const rolloutMinerIdentities: RolloutMinerIdentity[] = [
   {
@@ -247,59 +244,103 @@ const pilotFirmwareErrors: RolloutErrorImpact[] = [
   },
 ];
 
-const phaseSamplesByState: Record<RolloutState, RolloutTargetPhase[]> = {
-  scheduled: ["queued", "queued", "queued", "queued", "excluded"],
-  inProgress: [
-    "done",
-    "done",
-    "failed",
-    "inProgress",
-    "retrying",
-    "failed",
-    "failed",
-    "queued",
-    "failed",
-    "queued",
-    "queued",
-    "excluded",
-  ],
-  pausedAtPilotGate: [
-    "done",
-    "done",
-    "failed",
-    "done",
-    "done",
-    "failed",
-    "queued",
-    "queued",
-    "queued",
-    "queued",
-    "excluded",
-    "queued",
-  ],
-  paused: ["done", "done", "done", "queued", "queued", "queued", "excluded"],
-  completed: ["done", "done", "done", "done", "done", "done", "excluded"],
-  completedWithFailures: ["done", "done", "done", "failed", "failed", "done", "excluded"],
-};
+const completedFirmwareErrors: RolloutErrorImpact[] = [
+  {
+    id: "firmware-install-timeout",
+    message: "Firmware install timed out",
+    impactedMiners: ["b03-s21-03", "b04-s21-03", "b05-m60-01", "b05-m60-03"],
+  },
+  {
+    id: "firmware-version-check-failed",
+    message: "Firmware version check failed",
+    impactedMiners: ["b03-s21-01", "b03-s21-02", "b04-s21-01", "b04-s21-02"],
+  },
+  {
+    id: "firmware-reconnect-timeout",
+    message: "Miner did not report after update",
+    impactedMiners: ["b05-m60-02", "b06-s19-01", "b06-s19-02", "b06-s19-03"],
+  },
+];
+
+const completedFirmwareMetrics = [
+  { label: "Hashrate", unit: "hashrate" as const, baseline: 1600, current: 1608 },
+  { label: "Power", unit: "power" as const, baseline: 28.0, current: 27.6 },
+  { label: "Efficiency", unit: "efficiency" as const, baseline: 17.5, current: 17.16 },
+  { label: "Avg temp", unit: "temperature" as const, baseline: 62.0, current: 61.6 },
+];
+
+const inProgressRebootErrors: RolloutErrorImpact[] = [
+  {
+    id: "reboot-heartbeat-timeout",
+    message: "Heartbeat timeout after reboot",
+    impactedMiners: ["b04-s21-03"],
+  },
+  {
+    id: "reboot-pool-reconnect-timeout",
+    message: "Pool connection did not recover",
+    impactedMiners: ["b06-s19-03"],
+  },
+];
+
+const completedRebootErrors: RolloutErrorImpact[] = [
+  {
+    id: "reboot-reconnect-timeout",
+    message: "Miner did not come back online after reboot",
+    impactedMiners: ["b03-s21-03", "b04-s21-03", "b06-s19-03"],
+  },
+];
+
+const completedRebootMetrics = [
+  { label: "Hashrate", unit: "hashrate" as const, baseline: 680, current: 682 },
+  { label: "Power", unit: "power" as const, baseline: 116.0, current: 115.4 },
+  { label: "Efficiency", unit: "efficiency" as const, baseline: 17.1, current: 16.92 },
+  { label: "Avg temp", unit: "temperature" as const, baseline: 62.1, current: 61.9 },
+];
+
+const inProgressCurtailmentErrors: RolloutErrorImpact[] = [
+  {
+    id: "curtailment-command-timeout",
+    message: "Curtailment command timed out",
+    impactedMiners: ["b03-s21-03", "b04-s21-03"],
+  },
+  {
+    id: "curtailment-power-threshold",
+    message: "Power draw remains above target",
+    impactedMiners: ["b05-m60-03"],
+  },
+];
 
 function minerErrorCountForEvent(event: RolloutEvent, minerName: string): number {
-  return (
-    event.performance?.errors?.reduce(
-      (count, error) => count + (error.impactedMiners.includes(minerName) ? 1 : 0),
-      0,
-    ) ?? 0
-  );
+  return event.errors?.reduce((count, error) => count + (error.impactedMiners.includes(minerName) ? 1 : 0), 0) ?? 0;
+}
+
+function sampledMinerPhase(event: RolloutEvent, index: number, sampleCount: number): RolloutTargetPhase {
+  const rollups = event.rollups.filter((rollup) => rollup.count > 0);
+  const total = rollups.reduce((count, rollup) => count + rollup.count, 0);
+  if (total === 0) {
+    return "queued";
+  }
+
+  const samplePosition = ((index + 0.5) / sampleCount) * total;
+  let cumulativeCount = 0;
+  for (const rollup of rollups) {
+    cumulativeCount += rollup.count;
+    if (samplePosition <= cumulativeCount) {
+      return rollup.phase;
+    }
+  }
+  return rollups[rollups.length - 1]?.phase ?? "queued";
 }
 
 export function rolloutMinerRowsForEvent(event: RolloutEvent): RolloutMinerRow[] {
-  const phaseSamples = phaseSamplesByState[event.state];
-
-  return rolloutMinerIdentities.map((miner, index) => ({
-    ...miner,
-    id: `${event.processType}-${miner.id}`,
-    phase: phaseSamples[index % phaseSamples.length],
-    errors: { value: minerErrorCountForEvent(event, miner.name).toLocaleString() },
-  }));
+  return rolloutMinerIdentities.map((miner, index) => {
+    const errorCount = minerErrorCountForEvent(event, miner.name);
+    return {
+      ...miner,
+      id: `${event.processType}-${miner.id}`,
+      phase: errorCount > 0 ? "failed" : sampledMinerPhase(event, index, rolloutMinerIdentities.length),
+    };
+  });
 }
 
 /** A firmware rollout mid-flight, the in-progress detail card. */
@@ -329,8 +370,23 @@ export const inProgressFirmwareEvent: RolloutEvent = {
       // Temperature stored in Celsius; rendered in the operator's °C/°F preference.
       { label: "Avg temp", unit: "temperature", baseline: 62.0, current: 62.4 },
     ],
-    errors: inProgressFirmwareErrors,
   },
+  rollups: [
+    { phase: "done", count: 96 },
+    { phase: "inProgress", count: 24 },
+    { phase: "retrying", count: 6 },
+    { phase: "queued", count: 96 },
+    { phase: "excluded", count: 18 },
+  ],
+};
+
+/** In-progress firmware update with impacted miners, for error-case stories. */
+export const inProgressWithErrorsFirmwareEvent: RolloutEvent = {
+  ...inProgressFirmwareEvent,
+  performance: {
+    metrics: inProgressFirmwareEvent.performance?.metrics ?? [],
+  },
+  errors: inProgressFirmwareErrors,
   rollups: [
     { phase: "done", count: 96 },
     { phase: "inProgress", count: 24 },
@@ -341,7 +397,7 @@ export const inProgressFirmwareEvent: RolloutEvent = {
   ],
 };
 
-/** Paused at the pilot-approval gate, the pilot wave finished, awaiting a
+/** Paused at the pilot-approval gate, the pilot batch finished, awaiting a
  * Continue / Cancel remaining decision. */
 export const pilotGateFirmwareEvent: RolloutEvent = {
   processType: "firmware",
@@ -352,10 +408,8 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
   order: "leastEfficientFirst",
   totalTargets: 240,
   excludedTargets: 18,
-  batchSize: 25,
-  batchIntervalSec: 90,
   currentBatch: 1,
-  totalBatches: 10,
+  totalBatches: 2,
   startedAt: new Date(Date.now() - 180_000).toISOString(),
   // Baseline captured when the rollout started. The readout shows the numbers;
   // the Continue/Cancel remaining call stays with the operator.
@@ -367,14 +421,59 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
       // Temperature stored in Celsius; rendered in the operator's °C/°F preference.
       { label: "Avg temp", unit: "temperature", baseline: 63.0, current: 64.2 },
     ],
-    errors: pilotFirmwareErrors,
   },
+  rollups: [
+    { phase: "done", count: 10 },
+    { phase: "queued", count: 212 },
+    { phase: "excluded", count: 18 },
+  ],
+};
+
+/** Pilot firmware review with impacted miners, for error-case stories. */
+export const pilotReviewWithErrorsFirmwareEvent: RolloutEvent = {
+  ...pilotGateFirmwareEvent,
+  performance: {
+    metrics: pilotGateFirmwareEvent.performance?.metrics ?? [],
+  },
+  errors: pilotFirmwareErrors,
   rollups: [
     { phase: "done", count: 8 },
     { phase: "failed", count: 2 },
     { phase: "queued", count: 212 },
     { phase: "excluded", count: 18 },
   ],
+};
+
+/** Paused after a batch completed, awaiting a per-batch review decision. */
+export const batchReviewFirmwareEvent: RolloutEvent = {
+  ...inProgressFirmwareEvent,
+  state: "pausedAtBatchReview",
+  currentBatch: 5,
+  reviewAfterEachBatch: true,
+  startedAt: new Date(Date.now() - 420_000).toISOString(),
+  estimatedSecondsRemaining: 420,
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 1598 },
+      { label: "Power", unit: "power", baseline: 28.0, current: 27.9 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.56 },
+      { label: "Avg temp", unit: "temperature", baseline: 62.0, current: 62.6 },
+    ],
+  },
+  rollups: [
+    { phase: "done", count: 104 },
+    { phase: "queued", count: 118 },
+    { phase: "excluded", count: 18 },
+  ],
+};
+
+/** Batch complete, waiting for the post-update telemetry window before review. */
+export const stabilizingFirmwareEvent: RolloutEvent = {
+  ...batchReviewFirmwareEvent,
+  state: "stabilizingTelemetry",
+  startedAt: new Date(Date.now() - 420_000).toISOString(),
+  estimatedSecondsRemaining: 1_380,
+  performance: undefined,
 };
 
 /** Finished with some failures, the retained activity record. */
@@ -393,6 +492,10 @@ export const completedWithFailuresFirmwareEvent: RolloutEvent = {
   totalBatches: 12,
   startedAt: new Date(Date.now() - 900_000).toISOString(),
   estimatedSecondsRemaining: 0,
+  performance: {
+    metrics: completedFirmwareMetrics,
+  },
+  errors: completedFirmwareErrors,
   rollups: [
     { phase: "done", count: 210 },
     { phase: "failed", count: 12 },
@@ -459,10 +562,30 @@ export const completedFirmwareEvent: RolloutEvent = {
   totalBatches: 12,
   startedAt: new Date(Date.now() - 900_000).toISOString(),
   estimatedSecondsRemaining: 0,
+  performance: {
+    metrics: completedFirmwareMetrics,
+  },
   rollups: [
     { phase: "done", count: 222 },
     { phase: "excluded", count: 18 },
   ],
+};
+
+/** Scheduled reboot, waiting on the selected start time. */
+export const scheduledRebootEvent: RolloutEvent = {
+  processType: "reboot",
+  state: "scheduled",
+  title: "Reboot",
+  scopeLabel: "Rack A3",
+  strategy: "batched",
+  order: "leastEfficientFirst",
+  totalTargets: 40,
+  excludedTargets: 0,
+  batchSize: 10,
+  batchIntervalSec: 45,
+  totalBatches: 4,
+  scheduledStartAt: "2026-08-14T20:00:00.000Z",
+  rollups: [{ phase: "queued", count: 40 }],
 };
 
 /** A reboot rollout for stacked-banner stories. */
@@ -481,10 +604,88 @@ export const inProgressRebootEvent: RolloutEvent = {
   totalBatches: 4,
   startedAt: new Date(Date.now() - 120_000).toISOString(),
   estimatedSecondsRemaining: 120,
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 680, current: 672 },
+      { label: "Power", unit: "power", baseline: 116.0, current: 115.6 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.1, current: 17.2 },
+      { label: "Avg temp", unit: "temperature", baseline: 62.1, current: 62.5 },
+    ],
+  },
   rollups: [
     { phase: "done", count: 28 },
     { phase: "inProgress", count: 6 },
     { phase: "queued", count: 6 },
+  ],
+};
+
+/** In-progress reboot with impacted miners, for error-case stories. */
+export const inProgressWithErrorsRebootEvent: RolloutEvent = {
+  ...inProgressRebootEvent,
+  performance: {
+    metrics: inProgressRebootEvent.performance?.metrics ?? [],
+  },
+  errors: inProgressRebootErrors,
+  rollups: [
+    { phase: "done", count: 28 },
+    { phase: "inProgress", count: 6 },
+    { phase: "queued", count: 3 },
+    { phase: "failed", count: 3 },
+  ],
+};
+
+/** Paused after a reboot batch completed, awaiting review. */
+export const batchReviewRebootEvent: RolloutEvent = {
+  ...inProgressRebootEvent,
+  state: "pausedAtBatchReview",
+  currentBatch: 2,
+  reviewAfterEachBatch: true,
+  startedAt: new Date(Date.now() - 150_000).toISOString(),
+  estimatedSecondsRemaining: 90,
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 680, current: 676 },
+      { label: "Power", unit: "power", baseline: 116.0, current: 115.8 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.1, current: 17.15 },
+      { label: "Avg temp", unit: "temperature", baseline: 62.1, current: 62.4 },
+    ],
+  },
+  rollups: [
+    { phase: "done", count: 20 },
+    { phase: "queued", count: 20 },
+  ],
+};
+
+/** Batch complete, waiting for reboot telemetry to settle before review. */
+export const stabilizingRebootEvent: RolloutEvent = {
+  ...batchReviewRebootEvent,
+  state: "stabilizingTelemetry",
+  startedAt: new Date(Date.now() - 150_000).toISOString(),
+  estimatedSecondsRemaining: 1_650,
+  performance: undefined,
+};
+
+/** Paused at the reboot pilot-review gate. */
+export const pilotGateRebootEvent: RolloutEvent = {
+  ...inProgressRebootEvent,
+  state: "pausedAtPilotGate",
+  strategy: "pilotThenContinue",
+  pilotSize: 5,
+  currentBatch: 1,
+  totalBatches: 2,
+  startedAt: new Date(Date.now() - 80_000).toISOString(),
+  estimatedSecondsRemaining: 45,
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 680, current: 675 },
+      { label: "Power", unit: "power", baseline: 116.0, current: 115.7 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.1, current: 17.18 },
+      { label: "Avg temp", unit: "temperature", baseline: 62.1, current: 62.6 },
+    ],
+  },
+  rollups: [
+    { phase: "done", count: 5 },
+    { phase: "queued", count: 35 },
   ],
 };
 
@@ -525,6 +726,9 @@ export const completedRebootEvent: RolloutEvent = {
   totalBatches: 4,
   startedAt: new Date(Date.now() - 240_000).toISOString(),
   estimatedSecondsRemaining: 0,
+  performance: {
+    metrics: completedRebootMetrics,
+  },
   rollups: [{ phase: "done", count: 40 }],
 };
 
@@ -544,18 +748,39 @@ export const completedWithFailuresRebootEvent: RolloutEvent = {
   totalBatches: 4,
   startedAt: new Date(Date.now() - 240_000).toISOString(),
   estimatedSecondsRemaining: 0,
+  performance: {
+    metrics: completedRebootMetrics,
+  },
+  errors: completedRebootErrors,
   rollups: [
     { phase: "done", count: 37 },
     { phase: "failed", count: 3 },
   ],
 };
 
+/** Scheduled curtailment, waiting on the selected start time. */
+export const scheduledCurtailmentEvent: RolloutEvent = {
+  processType: "curtailment",
+  state: "scheduled",
+  title: "ERCOT ERS obligation",
+  scopeLabel: "Austin",
+  strategy: "batched",
+  order: "leastEfficientFirst",
+  totalTargets: 240,
+  excludedTargets: 0,
+  batchSize: 60,
+  batchIntervalSec: 30,
+  totalBatches: 4,
+  scheduledStartAt: "2026-08-14T20:00:00.000Z",
+  rollups: [{ phase: "queued", count: 240 }],
+};
+
 /** A curtailment rollout, shown as a peer process in the stacked banners. */
 export const inProgressCurtailmentEvent: RolloutEvent = {
   processType: "curtailment",
   state: "inProgress",
-  title: "Curtailment",
-  scopeLabel: "Whole site",
+  title: "ERCOT ERS obligation",
+  scopeLabel: "Austin",
   strategy: "batched",
   order: "leastEfficientFirst",
   totalTargets: 240,
@@ -566,9 +791,99 @@ export const inProgressCurtailmentEvent: RolloutEvent = {
   totalBatches: 4,
   startedAt: new Date(Date.now() - 90_000).toISOString(),
   estimatedSecondsRemaining: 90,
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 800 },
+      { label: "Power", unit: "power", baseline: 840.0, current: 610.0 },
+      { label: "Avg temp", unit: "temperature", baseline: 64.0, current: 61.5 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.4 },
+    ],
+  },
   rollups: [
     { phase: "done", count: 118 },
     { phase: "inProgress", count: 40 },
     { phase: "queued", count: 82 },
+  ],
+};
+
+/** In-progress curtailment with impacted miners, for error-case stories. */
+export const inProgressWithErrorsCurtailmentEvent: RolloutEvent = {
+  ...inProgressCurtailmentEvent,
+  performance: {
+    metrics: inProgressCurtailmentEvent.performance?.metrics ?? [],
+  },
+  errors: inProgressCurtailmentErrors,
+  rollups: [
+    { phase: "done", count: 118 },
+    { phase: "inProgress", count: 40 },
+    { phase: "queued", count: 79 },
+    { phase: "failed", count: 3 },
+  ],
+};
+
+/** Curtailment paused mid-flight, holding before the next dispatch. */
+export const pausedCurtailmentEvent: RolloutEvent = {
+  ...inProgressCurtailmentEvent,
+  state: "paused",
+  currentBatch: 2,
+  startedAt: new Date(Date.now() - 120_000).toISOString(),
+  rollups: [
+    { phase: "done", count: 120 },
+    { phase: "queued", count: 120 },
+  ],
+};
+
+/** Paused after a curtailment batch completed, awaiting review. */
+export const batchReviewCurtailmentEvent: RolloutEvent = {
+  ...inProgressCurtailmentEvent,
+  state: "pausedAtBatchReview",
+  currentBatch: 2,
+  reviewAfterEachBatch: true,
+  startedAt: new Date(Date.now() - 150_000).toISOString(),
+  estimatedSecondsRemaining: 60,
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 800 },
+      { label: "Power", unit: "power", baseline: 840.0, current: 612.0 },
+      { label: "Avg temp", unit: "temperature", baseline: 64.0, current: 61.8 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.45 },
+    ],
+  },
+  rollups: [
+    { phase: "done", count: 120 },
+    { phase: "queued", count: 120 },
+  ],
+};
+
+/** Dispatch complete, waiting for miner telemetry to settle before review. */
+export const stabilizingCurtailmentEvent: RolloutEvent = {
+  ...batchReviewCurtailmentEvent,
+  state: "stabilizingTelemetry",
+  startedAt: new Date(Date.now() - 150_000).toISOString(),
+  estimatedSecondsRemaining: 1_650,
+  performance: undefined,
+};
+
+/** Paused at the curtailment pilot-review gate. */
+export const pilotGateCurtailmentEvent: RolloutEvent = {
+  ...inProgressCurtailmentEvent,
+  state: "pausedAtPilotGate",
+  strategy: "pilotThenContinue",
+  pilotSize: 30,
+  currentBatch: 1,
+  totalBatches: 2,
+  startedAt: new Date(Date.now() - 90_000).toISOString(),
+  estimatedSecondsRemaining: 30,
+  performance: {
+    metrics: [
+      { label: "Hashrate", unit: "hashrate", baseline: 1600, current: 1400 },
+      { label: "Power", unit: "power", baseline: 840.0, current: 720.0 },
+      { label: "Avg temp", unit: "temperature", baseline: 64.0, current: 62.9 },
+      { label: "Efficiency", unit: "efficiency", baseline: 17.5, current: 17.48 },
+    ],
+  },
+  rollups: [
+    { phase: "done", count: 30 },
+    { phase: "queued", count: 210 },
   ],
 };
