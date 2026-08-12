@@ -116,24 +116,24 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 		}
 	}
 
+	fmt.Println("[package setup] Installing missing host dependencies...")
+	if err := installValidationPrerequisites(ctx, config.isDatabaseNode(), deps); err != nil {
+		return err
+	}
+	if config.isDatabaseNode() {
+		if err := deps.verifyVIP(ctx, config); err != nil {
+			return err
+		}
+	}
+	if err := rejectIncompatibleNftablesInputChains(ctx, deps); err != nil {
+		return err
+	}
 	if err := snapshotRelease(ctx, source, deps); err != nil {
 		return errors.Join(err, removeReleaseSnapshot(ctx, deps))
 	}
 	source = installRoot
 
-	if config.isDatabaseNode() {
-		if err := installARPing(ctx, deps); err != nil {
-			return errors.Join(err, removeReleaseSnapshot(ctx, deps))
-		}
-		if err := deps.verifyVIP(ctx, config); err != nil {
-			return errors.Join(err, removeReleaseSnapshot(ctx, deps))
-		}
-	}
-	fmt.Println("[package setup] Installing missing host dependencies...")
 	if err := installPackages(ctx, platform, installed, deps); err != nil {
-		return err
-	}
-	if err := rejectIncompatibleNftablesInputChains(ctx, deps); err != nil {
 		return err
 	}
 	fmt.Println("[configuration] Installing the release, secrets, firewall, and service units...")
@@ -269,6 +269,12 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 		}
 		if strings.TrimSpace(string(output)) != "" {
 			return installedDependencies{}, errors.New("existing Docker installation has existing containers; remove them before installing Proto Fleet HA")
+		}
+	} else {
+		for _, path := range []string{"/var/lib/docker", "/var/lib/containerd"} {
+			if err := deps.requireEmpty(path, "residual container runtime state"); err != nil {
+				return installedDependencies{}, fmt.Errorf("HA install failed: %w", err)
+			}
 		}
 	}
 
@@ -407,14 +413,16 @@ func validateRelease(source string, readFile func(string) ([]byte, error)) error
 	return errors.New("release is missing built Proto Fleet client assets")
 }
 
-func installARPing(ctx context.Context, deps installDependencies) error {
-	for _, args := range [][]string{
-		{"apt-get", "update"},
-		{"apt-get", "install", "-y", "iputils-arping"},
-	} {
-		if output, err := deps.run(ctx, "sudo", args...); err != nil {
-			return fmt.Errorf("install HA virtual IP probe: %s", commandError(output, err))
-		}
+func installValidationPrerequisites(ctx context.Context, needsARPing bool, deps installDependencies) error {
+	if output, err := deps.run(ctx, "sudo", "apt-get", "update"); err != nil {
+		return fmt.Errorf("refresh apt package indexes: %s", commandError(output, err))
+	}
+	packages := []string{"nftables"}
+	if needsARPing {
+		packages = append(packages, "iputils-arping")
+	}
+	if output, err := deps.run(ctx, "sudo", append([]string{"apt-get", "install", "-y"}, packages...)...); err != nil {
+		return fmt.Errorf("install HA validation prerequisites: %s", commandError(output, err))
 	}
 	return nil
 }
@@ -455,14 +463,15 @@ func installPackages(ctx context.Context, platform installPlatform, installed in
 		services = append(services, "keepalived.service")
 		packages = append(packages, "keepalived")
 	}
-	packages = append(packages, "nftables")
 	if len(services) > 0 {
 		if output, err := deps.run(ctx, "sudo", append([]string{"systemctl", "mask", "--runtime"}, services...)...); err != nil {
 			return fmt.Errorf("prevent HA services from starting before the firewall: %s", commandError(output, err))
 		}
 	}
-	if output, err := deps.run(ctx, "sudo", append([]string{"apt-get", "install", "-y"}, packages...)...); err != nil {
-		return fmt.Errorf("install HA packages: %s", commandError(output, err))
+	if len(packages) > 0 {
+		if output, err := deps.run(ctx, "sudo", append([]string{"apt-get", "install", "-y"}, packages...)...); err != nil {
+			return fmt.Errorf("install HA packages: %s", commandError(output, err))
+		}
 	}
 	if len(services) > 0 {
 		if output, err := deps.run(ctx, "sudo", append([]string{"systemctl", "unmask", "--runtime"}, services...)...); err != nil {
@@ -494,7 +503,7 @@ func validateNftablesInputChains(ruleset []byte) error {
 	inputChains := make(map[string]nftablesChain)
 	for _, entry := range parsed.Nftables {
 		chain := entry.Chain
-		if chain == nil || chain.Hook != "input" {
+		if chain == nil || chain.Hook != "input" || isReservedHAFirewallTable(chain.Family, chain.Table) {
 			continue
 		}
 		if chain.Policy != "" && chain.Policy != "accept" {
@@ -512,6 +521,10 @@ func validateNftablesInputChains(ruleset []byte) error {
 		}
 	}
 	return nil
+}
+
+func isReservedHAFirewallTable(family, table string) bool {
+	return family == "inet" && table == "proto_fleet_ha"
 }
 
 func nftablesChainKey(family, table, chain string) string {

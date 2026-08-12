@@ -46,7 +46,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	enable := callIndex(calls, "sudo systemctl enable proto-fleet-ha.service")
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
-	packages := callIndex(calls, "iputils-arping")
+	aptUpdate := callIndex(calls, "sudo apt-get update")
+	nftablesPackage := callIndex(calls, "sudo apt-get install -y nftables")
 	nftablesCompatibility := callIndex(calls, "sudo nft -j list ruleset")
 	serviceMask := callIndex(calls, "sudo systemctl mask --runtime docker.service docker.socket keepalived.service")
 	dockerPackages := callIndex(calls, "sudo apt-get install -y docker-ce")
@@ -54,8 +55,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageBuild := callIndex(calls, "build fleet-api fleet-client")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if packages < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(packages < vipCheck && packages < nftablesCompatibility && nftablesCompatibility < keepalived && keepalived < firewall && serviceMask < dockerPackages && dockerPackages < serviceUnmask && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
+	if aptUpdate < 0 || nftablesPackage < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
+		!(aptUpdate < nftablesPackage && nftablesPackage < vipCheck && vipCheck < nftablesCompatibility && nftablesCompatibility < serviceMask && serviceMask < dockerPackages && dockerPackages < serviceUnmask && nftablesCompatibility < keepalived && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -95,6 +96,10 @@ func TestInstallRejectsExistingNftablesInputFilteringBeforeConfiguration(t *test
 	require.ErrorContains(t, err, "dedicated host firewall without input filtering")
 	joined := strings.Join(calls, "\n")
 	require.True(t, inspectedNftables)
+	require.Contains(t, joined, "sudo apt-get install -y nftables")
+	require.NotContains(t, joined, "sudo cp -a")
+	require.NotContains(t, joined, "docker-ce")
+	require.NotContains(t, joined, "apt-get install -y keepalived")
 	require.NotContains(t, joined, filepath.Join(configRoot, "node.env"))
 	require.NotContains(t, joined, firewallUnit)
 }
@@ -110,6 +115,9 @@ func TestValidateNftablesInputChains(t *testing.T) {
 		{name: "empty input base chain without policy", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input"}}]}`},
 		{name: "input base chain has rules", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input","policy":"accept"}},{"rule":{"family":"inet","table":"filter","chain":"input","expr":[{"accept":null}]}}]}`, wantError: "contains rules"},
 		{name: "input base chain drops by policy", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input","policy":"drop"}}]}`, wantError: "policy drop"},
+		{name: "reserved HA table is replaced", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"proto_fleet_ha","name":"input","hook":"input","policy":"drop"}},{"rule":{"family":"inet","table":"proto_fleet_ha","chain":"input","expr":[{"drop":null}]}}]}`},
+		{name: "reserved table name in another family is rejected", ruleset: `{"nftables":[{"chain":{"family":"ip","table":"proto_fleet_ha","name":"input","hook":"input","policy":"drop"}}]}`, wantError: "policy drop"},
+		{name: "similarly named table is rejected", ruleset: `{"nftables":[{"chain":{"family":"inet","table":"proto_fleet_ha_old","name":"input","hook":"input","policy":"drop"}}]}`, wantError: "policy drop"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -396,6 +404,12 @@ func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 		}
 		return "", fmt.Errorf("not found")
 	}
+	deps.requireEmpty = func(path, _ string) error {
+		if path == "/var/lib/docker" || path == "/var/lib/containerd" {
+			return fmt.Errorf("unexpected state in %s", path)
+		}
+		return nil
+	}
 	run := deps.run
 	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		command := strings.Join(append([]string{name}, args...), " ")
@@ -421,6 +435,7 @@ func TestInstallReusesIdleDockerAndKeepalived(t *testing.T) {
 	require.NotContains(t, joined, "download.docker.com")
 	require.NotContains(t, joined, "docker-ce")
 	require.NotContains(t, joined, "apt-get install -y keepalived")
+	require.Less(t, callIndex(calls, "sudo apt-get update"), callIndex(calls, "sudo apt-get install -y nftables"))
 	require.Contains(t, joined, "sudo systemctl disable --now keepalived.service")
 }
 
@@ -513,6 +528,30 @@ func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
 				}
 			},
 			wantError: "/etc/systemd/system/docker.service.d",
+		},
+		{
+			name: "Docker is absent with residual data",
+			configure: func(deps *installDependencies) {
+				deps.requireEmpty = func(path, _ string) error {
+					if path == "/var/lib/docker" {
+						return fmt.Errorf("unexpected entry in %s", path)
+					}
+					return nil
+				}
+			},
+			wantError: "/var/lib/docker",
+		},
+		{
+			name: "containerd is absent with residual data",
+			configure: func(deps *installDependencies) {
+				deps.requireEmpty = func(path, _ string) error {
+					if path == "/var/lib/containerd" {
+						return fmt.Errorf("unexpected entry in %s", path)
+					}
+					return nil
+				}
+			},
+			wantError: "/var/lib/containerd",
 		},
 	}
 	for _, tt := range tests {
@@ -611,7 +650,7 @@ func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
 	require.ErrorContains(t, err, "VIP is in use")
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, "iputils-arping")
-	require.Contains(t, joined, "sudo rm -rf -- "+installBase)
+	require.NotContains(t, joined, "sudo cp -a")
 	require.NotContains(t, joined, "docker-ce")
 	require.NotContains(t, joined, "/etc/apt/keyrings/docker.asc")
 }

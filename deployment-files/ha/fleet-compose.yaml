@@ -2,6 +2,9 @@ services:
   fleet-api:
     # Restart process failures, but let systemd reapply the HA start gate after Docker restarts.
     restart: on-failure
+    # HA manages the shared VIP on the host; Fleet only needs raw sockets for nmap discovery.
+    cap_add: !override
+      - NET_RAW
     # Patroni provides PostgreSQL in HA deployments, so remove the base dependency.
     depends_on: !reset []
     # The 15s delay exceeds the 10s lease, giving the passive peer first chance after a restart.
