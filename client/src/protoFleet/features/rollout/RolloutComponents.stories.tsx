@@ -10,7 +10,7 @@ import type { RolloutPlanConfig, RolloutTargetPhase } from "@/protoFleet/feature
  * Isolated rollout components for focused visual review.
  */
 const meta = {
-  title: "Proto Fleet/Rollout/Components",
+  title: "Proto Fleet/Rollout/Framework/Components",
   parameters: {
     layout: "centered",
   },

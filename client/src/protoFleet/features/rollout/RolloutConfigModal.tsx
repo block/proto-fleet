@@ -18,6 +18,10 @@ interface RolloutConfigModalProps {
   onConfigChange: (next: RolloutPlanConfig) => void;
   onDismiss: () => void;
   onSubmit: () => void;
+  /** Overrides the create-flow CTA when editing an existing scheduled action. */
+  submitLabel?: string;
+  /** Adds scheduled-action cancellation alongside the save CTA. */
+  onCancelScheduled?: () => void;
   /** Scope target rows for the "Apply to" section. Omit when scope is fixed. */
   scopeTargets?: Array<{ label: string; value: string; onClick: () => void }>;
   /** In-scope target count for the live plan readout. */
@@ -48,6 +52,8 @@ function RolloutConfigModal({
   onConfigChange,
   onDismiss,
   onSubmit,
+  submitLabel,
+  onCancelScheduled,
   scopeTargets,
   inScopeCount,
   startDate,
@@ -68,8 +74,18 @@ function RolloutConfigModal({
       // CTAs in the top bar; keep the modal open on click so the host controls
       // dismissal after the submit resolves.
       buttons={[
+        ...(onCancelScheduled
+          ? [
+              {
+                text: `Cancel scheduled ${config.processType === "firmware" ? "update" : config.processType}`,
+                variant: variants.secondaryDanger,
+                onClick: onCancelScheduled,
+                dismissModalOnClick: false,
+              },
+            ]
+          : []),
         {
-          text: rolloutSubmitLabel(config.processType, isScheduled),
+          text: submitLabel ?? rolloutSubmitLabel(config.processType, isScheduled),
           variant: variants.primary,
           onClick: onSubmit,
           dismissModalOnClick: false,

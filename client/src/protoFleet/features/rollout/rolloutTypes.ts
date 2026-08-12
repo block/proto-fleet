@@ -9,12 +9,15 @@
 /** The kind of uptime-impacting process a rollout is running. */
 export type RolloutProcessType = "firmware" | "reboot" | "curtailment";
 
+/** Which half of the curtailment lifecycle the telemetry describes. */
+export type CurtailmentTelemetryPhase = "dispatch" | "restore";
+
 /** How the rollout is paced across its targets. */
 export type RolloutStrategy = "allAtOnce" | "batched" | "pilotThenContinue";
 
 /**
  * Order targets are worked through. Only meaningful for a paced run; under
- * "all at once" there is no first or last target.
+ * "single batch" there is no first or last target.
  */
 export type RolloutOrder = "leastEfficientFirst" | "random";
 
@@ -23,7 +26,14 @@ export type RolloutScheduleType = "startNow" | "scheduleForLater";
 
 /** Lifecycle state of an in-flight or finished rollout. */
 export type RolloutState =
-  "scheduled" | "inProgress" | "pausedAtPilotGate" | "paused" | "completed" | "completedWithFailures";
+  | "scheduled"
+  | "inProgress"
+  | "stabilizingTelemetry"
+  | "pausedAtPilotGate"
+  | "pausedAtBatchReview"
+  | "paused"
+  | "completed"
+  | "completedWithFailures";
 
 /**
  * Per-target phase, aggregated into the composition bar + counts.
@@ -41,12 +51,12 @@ export interface RolloutPlanConfig {
   order: RolloutOrder;
   /** Global ceiling. Never take more than this many targets offline at once. */
   maxConcurrentOffline: number;
-  /** Batched / pilot-then-continue only. */
+  /** Multiple-batch method only. */
   batchSize?: number;
   batchIntervalSec?: number;
-  /** Pilot-then-continue only: size of the first, gated wave. */
+  /** Pilot method only: size of the first, gated batch. */
   pilotSize?: number;
-  /** Paced methods only: pause after every batch for operator review. */
+  /** Multiple-batch method only: pause after every batch for operator review. */
   reviewAfterEachBatch?: boolean;
   /** When true, healthy batches continue without a manual click. */
   autoContinueOnHealthyTelemetry?: boolean;
@@ -94,7 +104,6 @@ export interface RolloutErrorImpact {
 /** Baseline-vs-current performance for a rollout's acted-on cohort. */
 export interface RolloutPerformance {
   metrics: RolloutPerfMetric[];
-  errors?: RolloutErrorImpact[];
 }
 
 /** Thresholds used when Fleet can continue a reviewed batch automatically. */
@@ -122,12 +131,14 @@ export interface RolloutMinerRow {
   power: RolloutMinerTelemetryValue;
   efficiency: RolloutMinerTelemetryValue;
   temperature: RolloutMinerTelemetryValue;
-  errors: RolloutMinerTelemetryValue;
 }
 
 /** The live/finished rollout an ActiveRolloutStatus card renders. */
 export interface RolloutEvent {
   processType: RolloutProcessType;
+  /** Curtailment only. Restoration evaluates hashrate like normal operation,
+   * rather than treating a reduction as the desired outcome. */
+  curtailmentTelemetryPhase?: CurtailmentTelemetryPhase;
   state: RolloutState;
   /** Human title, e.g. "Firmware update to 5.1.0". */
   title: string;
@@ -139,9 +150,9 @@ export interface RolloutEvent {
   excludedTargets: number;
   batchSize?: number;
   batchIntervalSec?: number;
-  /** Pilot-then-continue only: size of the first, gated wave. */
+  /** Pilot method only: size of the first, gated batch. */
   pilotSize?: number;
-  /** Paced methods only: pause after every batch for operator review. */
+  /** Multiple-batch method only: pause after every batch for operator review. */
   reviewAfterEachBatch?: boolean;
   /** When true, healthy batches continue without a manual click. */
   autoContinueOnHealthyTelemetry?: boolean;
@@ -151,9 +162,11 @@ export interface RolloutEvent {
   scheduledStartAt?: string;
   /** Seconds remaining, for the ETA line. */
   estimatedSecondsRemaining?: number;
-  /** Baseline-vs-current telemetry for the acted-on cohort. Present only once a
-   * rollout has captured a baseline (in-progress / pilot review); drives the
-   * "Performance vs baseline" strip. */
+  /** Baseline-vs-current telemetry for the acted-on cohort. Present once a
+   * rollout has captured a baseline; drives the performance strip for running
+   * batches and review gates. */
   performance?: RolloutPerformance;
+  /** Authoritative error details used by summaries and miner-level views. */
+  errors?: RolloutErrorImpact[];
   rollups: RolloutPhaseRollup[];
 }

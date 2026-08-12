@@ -53,6 +53,23 @@ describe("Modal", () => {
     expect(screen.getByTestId("modal").parentElement).toHaveStyle({ maxWidth: "1920px" });
   });
 
+  it("renders a leading header action before the desktop button group", () => {
+    render(
+      <Modal
+        title="Rollout details"
+        forceTitleCollapsed
+        headerLeadingAction={<button type="button">More</button>}
+        buttons={[{ text: "Manage", variant: "secondary", onClick: vi.fn() }]}
+      >
+        <div>Rollout content</div>
+      </Modal>,
+    );
+
+    const more = screen.getByRole("button", { name: "More" });
+    const manage = screen.getByRole("button", { name: "Manage" });
+    expect(more.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("keeps a fixed footer outside the scroll area while preserving the standard sticky header", () => {
     const onDismiss = vi.fn();
     render(

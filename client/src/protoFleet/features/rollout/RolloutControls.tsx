@@ -58,14 +58,15 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
 
   function patchStrategy(value: string): void {
     const strategy = value as RolloutStrategy;
+    const supportsBatchReview = strategy === "batched";
     patch({
       strategy,
-      reviewAfterEachBatch: strategy === "allAtOnce" ? false : config.reviewAfterEachBatch,
-      autoContinueOnHealthyTelemetry: strategy === "allAtOnce" ? false : config.autoContinueOnHealthyTelemetry,
+      reviewAfterEachBatch: supportsBatchReview ? config.reviewAfterEachBatch : false,
+      autoContinueOnHealthyTelemetry: supportsBatchReview ? config.autoContinueOnHealthyTelemetry : false,
     });
   }
 
-  const showBatchFields = config.strategy === "batched" || config.strategy === "pilotThenContinue";
+  const showBatchFields = config.strategy === "batched";
   const showPilotFields = config.strategy === "pilotThenContinue";
   // Order only applies to paced runs. When hidden, Method spans the full row.
   const showOrder = config.strategy !== "allAtOnce";
@@ -92,7 +93,7 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
   const pilotField = (
     <Input
       id="rollout-pilot-size"
-      label="Pilot group size (miners)"
+      label="Pilot batch size (miners)"
       type="number"
       inputMode="numeric"
       initValue={config.pilotSize ?? ""}
@@ -286,14 +287,10 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
       </div>
 
       {showPilotFields ? (
-        <>
-          {/* Pilot phase size pairs with the global offline ceiling. */}
-          <div className="grid gap-3 tablet:grid-cols-2">
-            {pilotField}
-            {maxOfflineField}
-          </div>
-          {batchFields}
-        </>
+        <div className="grid gap-3 tablet:grid-cols-2">
+          {pilotField}
+          {maxOfflineField}
+        </div>
       ) : showBatchFields ? (
         <>
           {batchFields}

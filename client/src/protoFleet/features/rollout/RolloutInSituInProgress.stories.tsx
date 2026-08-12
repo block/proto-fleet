@@ -20,8 +20,7 @@ import {
   inProgressRebootEvent,
   rolloutMinerRowsForEvent,
 } from "@/protoFleet/features/rollout/rollout.fixtures";
-import RolloutErrorsModal from "@/protoFleet/features/rollout/RolloutErrorsModal";
-import RolloutMinersModal from "@/protoFleet/features/rollout/RolloutMinersModal";
+import RolloutMinersModal, { type RolloutMinerFilter } from "@/protoFleet/features/rollout/RolloutMinersModal";
 import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
 import type { RolloutEvent } from "@/protoFleet/features/rollout/rolloutTypes";
 import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
@@ -36,7 +35,7 @@ import Header from "@/shared/components/Header";
  * launched. Uses the same shared primitives the real pages use.
  */
 const meta = {
-  title: "Proto Fleet/Rollout/In Situ/In Progress",
+  title: "Proto Fleet/Rollout/Framework/Context Surfaces",
   parameters: {
     layout: "fullscreen",
   },
@@ -49,8 +48,7 @@ type Story = StoryObj;
 const noop = () => undefined;
 
 function ViewRolloutStoryModal({ event, onDismiss }: { event: RolloutEvent; onDismiss: () => void }): ReactElement {
-  const [minersOpen, setMinersOpen] = useState(false);
-  const [errorsOpen, setErrorsOpen] = useState(false);
+  const [minerModalFilter, setMinerModalFilter] = useState<RolloutMinerFilter | null>(null);
 
   return (
     <>
@@ -60,16 +58,17 @@ function ViewRolloutStoryModal({ event, onDismiss }: { event: RolloutEvent; onDi
         onManage={noop}
         onPause={noop}
         onCancelRemaining={noop}
-        onViewMiners={() => setMinersOpen(true)}
-        onViewErrors={() => setErrorsOpen(true)}
+        onViewMiners={() => setMinerModalFilter("all")}
+        onViewErrors={() => setMinerModalFilter("errors")}
       />
       <RolloutMinersModal
-        open={minersOpen}
+        key={minerModalFilter ?? "closed"}
+        open={minerModalFilter !== null}
         event={event}
         miners={rolloutMinerRowsForEvent(event)}
-        onDismiss={() => setMinersOpen(false)}
+        initialFilter={minerModalFilter ?? "all"}
+        onDismiss={() => setMinerModalFilter(null)}
       />
-      <RolloutErrorsModal open={errorsOpen} event={event} onDismiss={() => setErrorsOpen(false)} />
     </>
   );
 }
@@ -209,8 +208,7 @@ export const FirmwareSettingsPage: Story = {
 // Shows a curtailment rollout in the Energy page frame.
 
 function EnergyUiStory(): ReactElement {
-  const [minersOpen, setMinersOpen] = useState(false);
-  const [errorsOpen, setErrorsOpen] = useState(false);
+  const [minerModalFilter, setMinerModalFilter] = useState<RolloutMinerFilter | null>(null);
   const event = inProgressCurtailmentEvent;
 
   return (
@@ -229,19 +227,20 @@ function EnergyUiStory(): ReactElement {
             onManage={noop}
             onPause={noop}
             onCancelRemaining={noop}
-            onViewMiners={() => setMinersOpen(true)}
-            onViewErrors={() => setErrorsOpen(true)}
+            onViewMiners={() => setMinerModalFilter("all")}
+            onViewErrors={() => setMinerModalFilter("errors")}
           />
           <CurtailmentHistory events={mockCurtailmentHistoryEvents} pageSize={5} />
         </section>
       </div>
       <RolloutMinersModal
-        open={minersOpen}
+        key={minerModalFilter ?? "closed"}
+        open={minerModalFilter !== null}
         event={event}
         miners={rolloutMinerRowsForEvent(event)}
-        onDismiss={() => setMinersOpen(false)}
+        initialFilter={minerModalFilter ?? "all"}
+        onDismiss={() => setMinerModalFilter(null)}
       />
-      <RolloutErrorsModal open={errorsOpen} event={event} onDismiss={() => setErrorsOpen(false)} />
     </AppShell>
   );
 }

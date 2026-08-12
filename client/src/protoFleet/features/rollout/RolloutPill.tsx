@@ -30,18 +30,23 @@ function pillDotClass(event: RolloutEvent): string {
       return "bg-intent-success-fill";
     case "paused":
     case "pausedAtPilotGate":
+    case "pausedAtBatchReview":
       return "bg-core-accent-fill";
     default:
       return "bg-intent-warning-fill";
   }
 }
 
-function pillStateWord(event: RolloutEvent): string {
+function pillStatePhrase(event: RolloutEvent): string {
   switch (event.state) {
     case "inProgress":
-      return phaseLabel(event.processType, "inProgress").toLowerCase();
+      return event.processType === "curtailment" ? "active" : "in progress";
+    case "stabilizingTelemetry":
+      return "waiting for telemetry";
     case "pausedAtPilotGate":
-      return "paused for review";
+      return "paused for pilot review";
+    case "pausedAtBatchReview":
+      return "paused for batch review";
     case "paused":
       return "paused";
     case "scheduled":
@@ -81,7 +86,7 @@ function RolloutPill({ event, detailsPath, onViewRollout }: RolloutPillProps): R
       ariaLabel={`${viewLabel} details for ${event.title}`}
       dotClassName={pillDotClass(event)}
       triggerClassName="rollout-pill-trigger"
-      triggerLabel={`${rolloutProcessLabel(event.processType)} ${pillStateWord(event)}`}
+      triggerLabel={`${rolloutProcessLabel(event.processType)} ${pillStatePhrase(event)}`}
     >
       {({ closePopover }) => (
         <div className="flex flex-col gap-3">

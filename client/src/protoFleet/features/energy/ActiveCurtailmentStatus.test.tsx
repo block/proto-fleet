@@ -350,7 +350,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Estimated time to restore")).toBeVisible();
     expect(screen.getByText("Immediate")).toBeVisible();
     expect(screen.queryByText("Estimated completion")).not.toBeInTheDocument();
-    // 8 resolved of 18 restorable (9 confirmed awaiting + 1 restore-failed).
+    // 8 resolved of 18 restorable (10 confirmed awaiting).
     expectProgressSummary("8 of 18 miners restored (44%)");
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Restore now");
