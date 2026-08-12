@@ -167,7 +167,11 @@ func (o *Observer) observeAndRun(
 	}
 	observed := writerObservation(first, connected)
 	if patroni.Timeline != connected.Timeline {
-		return observed, fmt.Errorf(
+		second, closingErr := o.confirmDCSUnchanged(ctx, first)
+		if closingErr != nil {
+			return WriterObservation{}, closingErr
+		}
+		return writerObservation(second, connected), fmt.Errorf(
 			"%w: PostgreSQL=%d Patroni=%d",
 			ErrTimelineMismatch,
 			connected.Timeline,
@@ -180,34 +184,9 @@ func (o *Observer) observeAndRun(
 		}
 	}
 
-	second, err := o.dcs.Snapshot(ctx, o.clusterPath)
+	second, err := o.confirmDCSUnchanged(ctx, first)
 	if err != nil {
-		return WriterObservation{}, fmt.Errorf("read final DCS snapshot: %w", err)
-	}
-	if err := validateDCSSnapshot(second); err != nil {
 		return WriterObservation{}, err
-	}
-	if second.ClusterID != first.ClusterID {
-		return WriterObservation{}, fmt.Errorf(
-			"%w: started with %s, finished with %s",
-			ErrDCSClusterIdentityMismatch,
-			first.ClusterID,
-			second.ClusterID,
-		)
-	}
-	if second.LeaderName != first.LeaderName ||
-		second.WriterGeneration != first.WriterGeneration ||
-		second.LeaderLeaseID != first.LeaderLeaseID ||
-		second.Member.APIURL != first.Member.APIURL ||
-		second.Member.ConnURL != first.Member.ConnURL {
-		return WriterObservation{}, fmt.Errorf(
-			"%w: started with %s@%d, finished with %s@%d",
-			ErrWriterChanged,
-			first.LeaderName,
-			first.WriterGeneration,
-			second.LeaderName,
-			second.WriterGeneration,
-		)
 	}
 
 	ttlRequestStarted := time.Now()
@@ -226,6 +205,42 @@ func (o *Observer) observeAndRun(
 	observed = writerObservation(second, connected)
 	observed.DCSProofDeadline = proofDeadline
 	return observed, nil
+}
+
+func (o *Observer) confirmDCSUnchanged(
+	ctx context.Context,
+	first DCSSnapshot,
+) (DCSSnapshot, error) {
+	second, err := o.dcs.Snapshot(ctx, o.clusterPath)
+	if err != nil {
+		return DCSSnapshot{}, fmt.Errorf("read final DCS snapshot: %w", err)
+	}
+	if err := validateDCSSnapshot(second); err != nil {
+		return DCSSnapshot{}, err
+	}
+	if second.ClusterID != first.ClusterID {
+		return DCSSnapshot{}, fmt.Errorf(
+			"%w: started with %s, finished with %s",
+			ErrDCSClusterIdentityMismatch,
+			first.ClusterID,
+			second.ClusterID,
+		)
+	}
+	if second.LeaderName != first.LeaderName ||
+		second.WriterGeneration != first.WriterGeneration ||
+		second.LeaderLeaseID != first.LeaderLeaseID ||
+		second.Member.APIURL != first.Member.APIURL ||
+		second.Member.ConnURL != first.Member.ConnURL {
+		return DCSSnapshot{}, fmt.Errorf(
+			"%w: started with %s@%d, finished with %s@%d",
+			ErrWriterChanged,
+			first.LeaderName,
+			first.WriterGeneration,
+			second.LeaderName,
+			second.WriterGeneration,
+		)
+	}
+	return second, nil
 }
 
 func writerObservation(
