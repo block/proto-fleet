@@ -531,6 +531,7 @@ jobs:
 
       - name: Build Fleet images
         run: |
+          cp deployment/client/nginx.https.conf deployment/client/nginx.conf
           docker build --tag "proto-fleet-api:${VERSION}" deployment/server
           docker build --tag "proto-fleet-client:${VERSION}" deployment/client
 
