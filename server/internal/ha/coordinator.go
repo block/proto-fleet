@@ -328,6 +328,9 @@ func (c *Coordinator) renewActive(ctx context.Context, expectedCtx context.Conte
 		},
 	)
 	if err != nil {
+		if errors.Is(err, ErrTimelineMismatch) {
+			return c.markActiveObservationUnavailable(activeCtx)
+		}
 		c.deactivate(err)
 		return err
 	}
@@ -340,6 +343,16 @@ func (c *Coordinator) renewActive(ctx context.Context, expectedCtx context.Conte
 		c.deactivate(err)
 		return err
 	}
+	return nil
+}
+
+func (c *Coordinator) markActiveObservationUnavailable(expectedCtx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.activeCtx != expectedCtx {
+		return ErrOwnershipLost
+	}
+	c.observed = false
 	return nil
 }
 
