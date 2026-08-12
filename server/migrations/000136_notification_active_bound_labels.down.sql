@@ -1,9 +1,25 @@
--- Restores 000094's unguarded sync function and its rule_group-less fallback. Fingerprintless rows go for the
--- same reason as on the way up: their key reverts, so the restored trigger could never resolve them.
+-- Restores 000094's unguarded sync function and its rule_group-less fallback, rekeying fingerprintless rows back
+-- onto it so their lifecycle state survives the rollback.
 LOCK TABLE notification_history IN SHARE MODE;
 LOCK TABLE notification_active IN SHARE MODE;
 
-DELETE FROM notification_active WHERE fingerprint = '';
+-- The old key can't tell two rule groups apart, so rows that split under 000136 have to collapse again. Keep the
+-- one the trigger itself would have kept (newest event, then newest row) and drop the rest.
+DELETE FROM notification_active na
+WHERE na.fingerprint = ''
+  AND EXISTS (
+      SELECT 1
+      FROM notification_active other
+      WHERE other.organization_id = na.organization_id
+        AND other.fingerprint = ''
+        AND other.alert_name = na.alert_name
+        AND other.device_id = na.device_id
+        AND (other.event_at, other.history_id) > (na.event_at, na.history_id)
+  );
+
+UPDATE notification_active
+SET alert_key = md5(alert_name || chr(31) || device_id)
+WHERE fingerprint = '';
 
 CREATE OR REPLACE FUNCTION notification_active_sync()
 RETURNS TRIGGER AS $$

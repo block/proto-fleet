@@ -17,8 +17,13 @@ WHERE LENGTH(alert_name) > 190
    OR strpos(device_id, chr(31)) > 0;
 
 -- The fallback identity gains rule_group: 000094 keyed on name and device alone, so two same-named rules firing
--- on one device overwrote each other. Existing fingerprintless rows hash differently now, so drop them.
-DELETE FROM notification_active WHERE fingerprint = '';
+-- on one device overwrote each other. Rekey the existing fingerprintless rows rather than dropping them: a
+-- deleted resolved row is a lost tombstone, and a delayed firing retry for that episode would reopen the alert
+-- with no prior state to lose to. No key can collide, because the purge above leaves no chr(31) in any part, so
+-- the old preimage holds exactly one separator and the new one exactly two.
+UPDATE notification_active
+SET alert_key = md5(alert_name || chr(31) || rule_group || chr(31) || device_id)
+WHERE fingerprint = '';
 
 CREATE OR REPLACE FUNCTION notification_active_sync()
 RETURNS TRIGGER AS $$
