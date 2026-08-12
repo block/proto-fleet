@@ -53,10 +53,10 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	dockerPackages := callIndex(calls, "sudo apt-get install -y docker-ce")
 	serviceUnmask := callIndex(calls, "sudo systemctl unmask --runtime docker.service docker.socket keepalived.service")
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
-	imageBuild := callIndex(calls, "build fleet-api fleet-client")
+	imageLoad := callIndex(calls, "images/fleet.tar.gz")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
-	if aptUpdate < 0 || nftablesPackage < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageBuild < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
-		!(aptUpdate < nftablesPackage && nftablesPackage < vipCheck && vipCheck < nftablesCompatibility && nftablesCompatibility < serviceMask && serviceMask < dockerPackages && dockerPackages < serviceUnmask && nftablesCompatibility < keepalived && keepalived < firewall && firewall < docker && docker < imageBuild && imageBuild < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
+	if aptUpdate < 0 || nftablesPackage < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || imageLoad < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || keepalived < 0 ||
+		!(aptUpdate < nftablesPackage && nftablesPackage < vipCheck && vipCheck < nftablesCompatibility && nftablesCompatibility < serviceMask && serviceMask < dockerPackages && dockerPackages < serviceUnmask && nftablesCompatibility < keepalived && keepalived < firewall && firewall < docker && docker < imageLoad && imageLoad < dockerRecovery && dockerRecovery < enable && enable < start && rootPasswordInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -64,6 +64,9 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	}
 	if callIndex(calls, "sudo chmod -R a+rX,go-w "+installRoot) < 0 {
 		t.Fatalf("installed release permissions were not normalized:\n%s", strings.Join(calls, "\n"))
+	}
+	if callIndex(calls, "build fleet-api fleet-client") >= 0 {
+		t.Fatalf("installer rebuilt checksum-covered Fleet images:\n%s", strings.Join(calls, "\n"))
 	}
 }
 
@@ -234,25 +237,29 @@ func TestInstallRejectsUnavailableSystemdBeforeMutation(t *testing.T) {
 	require.Equal(t, []string{"systemctl show --property=Version --value"}, calls)
 }
 
-func TestPrepareImagesRejectsMissingHADatabaseImage(t *testing.T) {
-	// Arrange
-	source := testInstallRelease(t)
-	config := NodeConfig{NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0]}
-	var calls []string
-	deps := testInstallerDependencies(source, config, &calls)
-	run := deps.run
-	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		if strings.Contains(strings.Join(args, " "), "docker image inspect proto-fleet-timescaledb-ha:test") {
-			return nil, errors.New("missing image")
-		}
-		return run(ctx, name, args...)
+func TestPrepareImagesRejectsMissingReleaseImage(t *testing.T) {
+	for _, image := range []string{"proto-fleet-timescaledb-ha:test", "proto-fleet-api:test"} {
+		t.Run(image, func(t *testing.T) {
+			// Arrange
+			source := testInstallRelease(t)
+			config := NodeConfig{NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0]}
+			var calls []string
+			deps := testInstallerDependencies(source, config, &calls)
+			run := deps.run
+			deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+				if strings.Contains(strings.Join(args, " "), "docker image inspect "+image) {
+					return nil, errors.New("missing image")
+				}
+				return run(ctx, name, args...)
+			}
+
+			// Act
+			err := prepareImages(t.Context(), source, config, deps)
+
+			// Assert
+			require.ErrorContains(t, err, "archive did not load required image "+image)
+		})
 	}
-
-	// Act
-	err := prepareImages(t.Context(), source, config, deps)
-
-	// Assert
-	require.ErrorContains(t, err, "archive did not load required HA database image")
 }
 
 func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
@@ -278,7 +285,7 @@ func TestInstallWitnessSelectsOnlyEtcd(t *testing.T) {
 	if !strings.Contains(joined, "sudo systemctl disable --now keepalived.service") {
 		t.Fatalf("witness did not disable keepalived:\n%s", joined)
 	}
-	for _, unexpected := range []string{"fleet-api", "fleet-client", "timescaledb.tar.gz", "proto-fleet-ha.service.d/keepalived.conf", "iputils-arping", " arping "} {
+	for _, unexpected := range []string{"fleet-api", "fleet-client", "fleet.tar.gz", "timescaledb.tar.gz", "proto-fleet-ha.service.d/keepalived.conf", "iputils-arping", " arping "} {
 		if strings.Contains(joined, unexpected) {
 			t.Fatalf("witness installed database-host service %q:\n%s", unexpected, joined)
 		}
@@ -621,13 +628,13 @@ func TestReleaseSnapshotCleanupOutlivesInstallCancellation(t *testing.T) {
 func TestValidateReleaseRejectsMissingRuntimeAsset(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
-	require.NoError(t, os.Remove(filepath.Join(source, "client", "nginx.https.conf")))
+	require.NoError(t, os.Remove(filepath.Join(source, "images", "fleet.tar.gz")))
 
 	// Act
 	err := validateRelease(source, os.ReadFile)
 
 	// Assert
-	require.ErrorContains(t, err, "release is missing client/nginx.https.conf")
+	require.ErrorContains(t, err, "release is missing images/fleet.tar.gz")
 }
 
 func TestInstallVIPConflictLeavesDockerUninstalled(t *testing.T) {
@@ -713,7 +720,7 @@ func testInstallRelease(t *testing.T) string {
 	root := t.TempDir()
 	required := map[string]string{
 		"version.txt":                                            "version: test\n",
-		"docker-compose.yaml":                                    "services: {}\n",
+		"docker-compose.yaml":                                    "services:\n  fleet-api:\n    image: proto-fleet-api:test\n  fleet-client:\n    image: proto-fleet-client:test\n",
 		"server/docker-compose.base.yaml":                        "services: {}\n",
 		"server/Dockerfile":                                      "FROM scratch\n",
 		"server/fleetd":                                          "binary",
@@ -724,6 +731,7 @@ func testInstallRelease(t *testing.T) string {
 		"server/virtual-plugin":                                  "binary",
 		"server/virtual-plugin.json":                             "config",
 		"images/timescaledb.tar.gz":                              "image",
+		"images/fleet.tar.gz":                                    "image",
 		"ha/fleet-ha":                                            "binary",
 		"ha/compose.yaml":                                        "services:\n  patroni:\n    image: proto-fleet-timescaledb-ha:test\n",
 		"ha/fleet-compose.yaml":                                  "services: {}\n",

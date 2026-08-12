@@ -385,7 +385,7 @@ func parseOSRelease(contents string) map[string]string {
 
 func validateRelease(source string, readFile func(string) ([]byte, error)) error {
 	required := []string{
-		"version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/timescaledb.tar.gz",
+		"version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/fleet.tar.gz", "images/timescaledb.tar.gz",
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/nginx.https.conf", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"ha/fleet-ha", "ha/compose.yaml", "ha/fleet-compose.yaml", "ha/firewall.nft.tmpl", "ha/keepalived.conf.tmpl", "ha/keepalived-systemd.conf.tmpl",
@@ -722,37 +722,48 @@ func prepareImages(ctx context.Context, source string, config NodeConfig, deps i
 		return fmt.Errorf("pull etcd image: %s", commandError(output, err))
 	}
 	if config.isDatabaseNode() {
-		if output, err := deps.run(ctx, "sudo", "docker", "load", "--input", filepath.Join(installRoot, "images", "timescaledb.tar.gz")); err != nil {
-			return fmt.Errorf("load HA database images: %s", commandError(output, err))
+		for _, archive := range []string{"timescaledb.tar.gz", "fleet.tar.gz"} {
+			if output, err := deps.run(ctx, "sudo", "docker", "load", "--input", filepath.Join(installRoot, "images", archive)); err != nil {
+				return fmt.Errorf("load release images from %s: %s", archive, commandError(output, err))
+			}
 		}
-		databaseImage, err := haDatabaseImage(source, deps.readFile)
-		if err != nil {
-			return err
+		images := []struct {
+			file   string
+			prefix string
+		}{
+			{file: "ha/compose.yaml", prefix: "proto-fleet-timescaledb-ha:"},
+			{file: "docker-compose.yaml", prefix: "proto-fleet-api:"},
+			{file: "docker-compose.yaml", prefix: "proto-fleet-client:"},
 		}
-		if output, err := deps.run(ctx, "sudo", "docker", "image", "inspect", databaseImage); err != nil {
-			return fmt.Errorf("release archive did not load required HA database image %s: %s", databaseImage, commandError(output, err))
-		}
-		args := fleetComposeArgs("build", "fleet-api", "fleet-client")
-		commandArgs := append([]string{filepath.Join(installRoot, "ha", "fleet-ha"), "compose"}, args...)
-		if output, err := deps.run(ctx, "sudo", commandArgs...); err != nil {
-			return fmt.Errorf("build Fleet images: %s", commandError(output, err))
+		for _, expected := range images {
+			image, err := composeImage(source, expected.file, expected.prefix, deps.readFile)
+			if err != nil {
+				return err
+			}
+			if output, err := deps.run(ctx, "sudo", "docker", "image", "inspect", image); err != nil {
+				return fmt.Errorf("release archive did not load required image %s: %s", image, commandError(output, err))
+			}
 		}
 	}
 	return nil
 }
 
 func haDatabaseImage(source string, readFile func(string) ([]byte, error)) (string, error) {
-	contents, err := readFile(filepath.Join(source, "ha", "compose.yaml"))
+	return composeImage(source, "ha/compose.yaml", "proto-fleet-timescaledb-ha:", readFile)
+}
+
+func composeImage(source, name, prefix string, readFile func(string) ([]byte, error)) (string, error) {
+	contents, err := readFile(filepath.Join(source, name))
 	if err != nil {
-		return "", fmt.Errorf("read HA Compose file: %w", err)
+		return "", fmt.Errorf("read %s: %w", name, err)
 	}
 	for line := range strings.SplitSeq(string(contents), "\n") {
 		image := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "image:"))
-		if strings.HasPrefix(image, "proto-fleet-timescaledb-ha:") {
+		if strings.HasPrefix(image, prefix) {
 			return image, nil
 		}
 	}
-	return "", errors.New("HA Compose file does not name the required database image")
+	return "", fmt.Errorf("%s does not name required image %s", name, prefix)
 }
 
 func installDockerRecoveryHook(ctx context.Context, deps installDependencies) error {

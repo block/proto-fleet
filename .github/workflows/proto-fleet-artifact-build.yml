@@ -421,7 +421,7 @@ jobs:
 
   build-proto-fleet:
     name: Build ProtoFleet deployment bundle (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     needs:
       - metadata
       - build-proto-fleet-server
@@ -430,7 +430,11 @@ jobs:
       - build-timescaledb-image
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     env:
       BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
       CHANNEL: ${{ needs.metadata.outputs.channel }}
@@ -525,6 +529,28 @@ jobs:
 
           deployment/scripts/pin-release-images.sh deployment "$VERSION"
 
+      - name: Build Fleet images
+        run: |
+          docker build --tag "proto-fleet-api:${VERSION}" deployment/server
+          docker build --tag "proto-fleet-client:${VERSION}" deployment/client
+
+          docker save \
+            --output fleet-${{ matrix.arch }}.tar \
+            "proto-fleet-api:${VERSION}" \
+            "proto-fleet-client:${VERSION}"
+
+          archive_manifest=$(tar -xOf fleet-${{ matrix.arch }}.tar manifest.json)
+          for image in \
+            "proto-fleet-api:${VERSION}" \
+            "proto-fleet-client:${VERSION}"; do
+            if ! grep -Fq "\"${image}\"" <<<"$archive_manifest"; then
+              echo "::error::Fleet image archive is missing ${image}."
+              exit 1
+            fi
+          done
+          gzip -9 fleet-${{ matrix.arch }}.tar
+          mv fleet-${{ matrix.arch }}.tar.gz deployment/images/fleet.tar.gz
+
       - name: Create version file
         run: |
           echo "version: $VERSION" > deployment/version.txt
@@ -558,6 +584,7 @@ jobs:
           tar -tzf "$bundle" > "$RUNNER_TEMP/deployment-bundle-contents.txt"
           for required_path in \
             deployment/docker-compose.updater.yaml \
+            deployment/images/fleet.tar.gz \
             deployment/updater/proto-fleet-updater \
             deployment/updater/proto-fleet-updater.service; do
             if ! grep -Fxq "$required_path" "$RUNNER_TEMP/deployment-bundle-contents.txt"; then
