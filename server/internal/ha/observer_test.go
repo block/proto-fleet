@@ -393,8 +393,11 @@ func TestObserverRejectsTimelineMismatch(t *testing.T) {
 		Timeline: 8,
 	}}
 
-	_, err := observer.Observe(t.Context())
+	observed, err := observer.Observe(t.Context())
 	require.ErrorIs(t, err, ErrTimelineMismatch)
+	require.Equal(t, "cluster-a", observed.DCSClusterID)
+	require.EqualValues(t, 41, observed.WriterGeneration)
+	require.Zero(t, observed.DCSProofDeadline)
 }
 
 func TestObserverRejectsNonPrimaryPatroniMember(t *testing.T) {

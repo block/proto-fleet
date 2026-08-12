@@ -145,7 +145,10 @@ func TestCoordinatorRetainsActiveLifetimeAcrossTransientTimelineMismatch(t *test
 	coordinator := newCoordinatorWithHolder(
 		&sequenceObserver{results: []observerResult{
 			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
-			{err: fmt.Errorf("promotion observation: %w", ErrTimelineMismatch)},
+			{
+				observation: coordinatorObservation("cluster-a", 41, time.Second),
+				err:         fmt.Errorf("promotion observation: %w", ErrTimelineMismatch),
+			},
 			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
 		}},
 		store,
@@ -175,6 +178,31 @@ func TestCoordinatorRetainsActiveLifetimeAcrossTransientTimelineMismatch(t *test
 	require.NoError(t, activeCtx.Err())
 	require.True(t, coordinator.Snapshot().ObservationAvailable)
 	require.Equal(t, []string{"acquire", "renew", "renew"}, store.callSequence())
+}
+
+func TestCoordinatorRejectsTimelineMismatchFromNewWriter(t *testing.T) {
+	store := &fakeLeaseStore{}
+	coordinator := newCoordinatorWithHolder(
+		&sequenceObserver{results: []observerResult{
+			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+			{
+				observation: coordinatorObservation("cluster-a", 42, time.Second),
+				err:         fmt.Errorf("promotion observation: %w", ErrTimelineMismatch),
+			},
+		}},
+		store,
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+	require.NoError(t, coordinator.step(t.Context()))
+	activeCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+
+	require.ErrorIs(t, coordinator.step(t.Context()), ErrWriterChanged)
+	require.ErrorIs(t, context.Cause(activeCtx), ErrWriterChanged)
+	_, _, active = coordinator.ActiveLifetime()
+	require.False(t, active)
+	require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
 }
 
 func TestCoordinatorGivesPeersAnAcquisitionWindowAfterPassiveProofFailure(t *testing.T) {
@@ -522,7 +550,7 @@ func (o *succeedOnceThenErrorObserver) ObserveAndRun(
 	calls := o.calls
 	o.mu.Unlock()
 	if calls > 1 {
-		return WriterObservation{}, o.err
+		return o.observation, o.err
 	}
 	if err := action(ctx, o.observation); err != nil {
 		return WriterObservation{}, err
@@ -569,7 +597,7 @@ func (s *sequenceObserver) ObserveAndRun(
 		s.calls <- struct{}{}
 	}
 	if result.err != nil {
-		return WriterObservation{}, result.err
+		return result.observation, result.err
 	}
 	if err := action(ctx, result.observation); err != nil {
 		return WriterObservation{}, err
