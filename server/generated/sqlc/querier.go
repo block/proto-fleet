@@ -834,10 +834,19 @@ type Querier interface {
 	// admission to skip miners already owned by other events without excluding
 	// the current targetless scope watcher.
 	ListActiveCurtailmentTargetDevicesByOrg(ctx context.Context, orgID int64) ([]string, error)
+	// Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
+	// keeps titles unique per folder and a rule_group label maps to one folder, so a title repeats only across labels.
+	// Identity and counts only: per-instance detail would have to be picked off one instance, and the drill-in already
+	// reports it per row.
+	ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error)
 	// Current firing alerts (one row per alert instance), served from the incrementally-maintained
 	// notification_active table, which also retains resolved tombstones; device name/MAC are joined live
-	// so they reflect current device records.
+	// so they reflect current device records. Ordered to match idx_notification_active_org_recent, so the freshness
+	// window is a range scan that stops at page_limit rather than a sort over the whole set.
 	ListActiveNotifications(ctx context.Context, arg ListActiveNotificationsParams) ([]ListActiveNotificationsRow, error)
+	// One rule's firing instances, one per affected miner: the drill-in behind a rollup row. Keyset on alert_key,
+	// not history_id: a re-assert rewrites history_id, lifting an unread row above the cursor and losing it.
+	ListActiveNotificationsByAlert(ctx context.Context, arg ListActiveNotificationsByAlertParams) ([]ListActiveNotificationsByAlertRow, error)
 	// The reconciler loops over this list at boot so every org has its
 	// per-org built-ins. The onboarding flow also seeds built-ins for
 	// new orgs inside its creation transaction.

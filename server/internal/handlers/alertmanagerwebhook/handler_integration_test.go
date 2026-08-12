@@ -534,6 +534,43 @@ func TestServeHTTP_SelfMonitoringFansOutToManyOrgsWithoutTruncation(t *testing.T
 }
 
 // payloads larger than the body cap return 413 and never touch the DB.
+// An oversized label would blow the btree tuple limit of notification_active's indexes and roll back the whole
+// batch, so ingest persists the alert while the trigger leaves it out of the active view.
+func TestServeHTTP_OversizedIndexedLabelsPersistedButNotActive(t *testing.T) {
+	h := newDBHarness(t)
+	handler := NewHandler(h.store, testWebhookToken, nil, nil)
+
+	oversized := strings.Repeat("é", 4096)
+	body, err := json.Marshal(map[string]any{
+		"version": "4",
+		"status":  "firing",
+		"alerts": []map[string]any{
+			{
+				"status":      "firing",
+				"labels":      map[string]string{"alertname": oversized, "rule_group": oversized, "organization_id": "7"},
+				"fingerprint": "fp-oversized",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	req := newAuthedRequest(t, body)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	rows := h.fetchRows(t)
+	require.Len(t, rows, 1)
+	require.Equal(t, oversized, rows[0].AlertName, "history keeps the label whole")
+	require.Equal(t, oversized, rows[0].RuleGroup)
+
+	lister, ok := h.store.(notificationhistory.Lister)
+	require.True(t, ok)
+	active, err := lister.ListActive(t.Context(), 7, 10)
+	require.NoError(t, err)
+	require.Empty(t, active)
+}
+
 func TestServeHTTP_OversizedBodyRejected(t *testing.T) {
 	h := newDBHarness(t)
 	handler := NewHandler(h.store, testWebhookToken, nil, nil)

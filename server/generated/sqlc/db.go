@@ -912,8 +912,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveCurtailmentTargetDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailmentTargetDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentTargetDevicesByOrg: %w", err)
 	}
+	if q.listActiveNotificationGroupsStmt, err = db.PrepareContext(ctx, listActiveNotificationGroups); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveNotificationGroups: %w", err)
+	}
 	if q.listActiveNotificationsStmt, err = db.PrepareContext(ctx, listActiveNotifications); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveNotifications: %w", err)
+	}
+	if q.listActiveNotificationsByAlertStmt, err = db.PrepareContext(ctx, listActiveNotificationsByAlert); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveNotificationsByAlert: %w", err)
 	}
 	if q.listActiveOrganizationIDsStmt, err = db.PrepareContext(ctx, listActiveOrganizationIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveOrganizationIDs: %w", err)
@@ -3114,9 +3120,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveCurtailmentTargetDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listActiveNotificationGroupsStmt != nil {
+		if cerr := q.listActiveNotificationGroupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveNotificationGroupsStmt: %w", cerr)
+		}
+	}
 	if q.listActiveNotificationsStmt != nil {
 		if cerr := q.listActiveNotificationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveNotificationsStmt: %w", cerr)
+		}
+	}
+	if q.listActiveNotificationsByAlertStmt != nil {
+		if cerr := q.listActiveNotificationsByAlertStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveNotificationsByAlertStmt: %w", cerr)
 		}
 	}
 	if q.listActiveOrganizationIDsStmt != nil {
@@ -4644,7 +4660,9 @@ type Queries struct {
 	listActiveCurtailedDevicesByOrgStmt                          *sql.Stmt
 	listActiveCurtailmentEventsStmt                              *sql.Stmt
 	listActiveCurtailmentTargetDevicesByOrgStmt                  *sql.Stmt
+	listActiveNotificationGroupsStmt                             *sql.Stmt
 	listActiveNotificationsStmt                                  *sql.Stmt
+	listActiveNotificationsByAlertStmt                           *sql.Stmt
 	listActiveOrganizationIDsStmt                                *sql.Stmt
 	listActivityLogsStmt                                         *sql.Stmt
 	listAlertChannelsStmt                                        *sql.Stmt
@@ -5185,7 +5203,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listActiveCurtailedDevicesByOrgStmt:                          q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                              q.listActiveCurtailmentEventsStmt,
 		listActiveCurtailmentTargetDevicesByOrgStmt:                  q.listActiveCurtailmentTargetDevicesByOrgStmt,
+		listActiveNotificationGroupsStmt:                             q.listActiveNotificationGroupsStmt,
 		listActiveNotificationsStmt:                                  q.listActiveNotificationsStmt,
+		listActiveNotificationsByAlertStmt:                           q.listActiveNotificationsByAlertStmt,
 		listActiveOrganizationIDsStmt:                                q.listActiveOrganizationIDsStmt,
 		listActivityLogsStmt:                                         q.listActivityLogsStmt,
 		listAlertChannelsStmt:                                        q.listAlertChannelsStmt,

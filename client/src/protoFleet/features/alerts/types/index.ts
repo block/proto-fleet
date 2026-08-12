@@ -137,6 +137,23 @@ export interface MaintenanceWindowWithActive extends MaintenanceWindow {
 
 export type AlertHistoryStatus = "firing" | "resolved";
 
+// One currently-firing alert and its blast radius. Rule identity and counts only: severity, summary and the
+// rest of the per-instance detail come back from the drill-in, which reports them per affected miner.
+export interface ActiveAlertGroup {
+  // Display title, which retired-rule mapping may rewrite; stored_alert_name is what the server filters on.
+  alert_name: string;
+  stored_alert_name: string;
+  rule_group: string;
+  // The (rule group, alert name) pair the server groups on, as one string: React key and drill-in identity.
+  key: string;
+  // 0 for fleet-wide and source-scoped alerts, which carry no device: the shape the views render is the
+  // server's to state, so no client-side rule-group list has to track the scopes a rule can fire on.
+  device_count: number;
+  // Firing instances, which exceeds device_count only for a rule firing on a non-device dimension (per MQTT source, say).
+  alert_count: number;
+  first_started_at: string;
+}
+
 export interface AlertHistoryEntry {
   id: string;
   received_at: string;

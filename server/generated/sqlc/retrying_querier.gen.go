@@ -3396,10 +3396,34 @@ func (q *retryingQuerier) ListActiveCurtailmentTargetDevicesByOrg(ctx context.Co
 	return result, err
 }
 
+func (q *retryingQuerier) ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error) {
+	var result []ListActiveNotificationGroupsRow
+	err := q.retrier.RetryQuery(ctx, "ListActiveNotificationGroups", func() error {
+		callResult, callErr := q.next.ListActiveNotificationGroups(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListActiveNotifications(ctx context.Context, arg ListActiveNotificationsParams) ([]ListActiveNotificationsRow, error) {
 	var result []ListActiveNotificationsRow
 	err := q.retrier.RetryQuery(ctx, "ListActiveNotifications", func() error {
 		callResult, callErr := q.next.ListActiveNotifications(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListActiveNotificationsByAlert(ctx context.Context, arg ListActiveNotificationsByAlertParams) ([]ListActiveNotificationsByAlertRow, error) {
+	var result []ListActiveNotificationsByAlertRow
+	err := q.retrier.RetryQuery(ctx, "ListActiveNotificationsByAlert", func() error {
+		callResult, callErr := q.next.ListActiveNotificationsByAlert(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

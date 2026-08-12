@@ -38,6 +38,8 @@ var (
 const (
 	historyDefaultPageSize = 50
 	historyMaxPageSize     = 200
+	// Distinct firing rules per org, not instances: a fleet with every rule firing at once still fits.
+	activeGroupsMaxPageSize = 200
 )
 
 func (h *Handler) authorize(ctx context.Context, permission string) (int64, error) {
@@ -386,29 +388,37 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
-	var rows []notificationhistory.StoredNotification
-	var pageLimit int32
-	if req.Msg.GetActiveOnly() {
-		// Active-only is a current-state view, not a feed: return the latest firing row per alert without keyset
-		// paging. Over-fetch by one so the response can flag (rather than silently swallow) an alert storm past the cap.
+	// A rule group alone names no rule: "" is a real group, so it can't mean "every group with this name" here
+	// and "no group filter" there. Reject it rather than silently widen the drill-in to the whole firing set.
+	if req.Msg.GetActiveOnly() && req.Msg.GetRuleGroup() != "" && req.Msg.GetAlertName() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("rule_group requires alert_name")
+	}
+	// Each branch names its own cursor as it dispatches, so the shape a caller gets back can't drift from the
+	// branch that produced it. Only the named-alert drill-in pages: unfiltered keeps the contract it had before.
+	var (
+		rows      []notificationhistory.StoredNotification
+		pageLimit = historyPageLimit(req.Msg.GetPageSize())
+		cursorOf  func(notificationhistory.StoredNotification) string
+	)
+	switch {
+	case req.Msg.GetActiveOnly() && req.Msg.GetAlertName() != "":
+		cursorOf = func(n notificationhistory.StoredNotification) string { return n.AlertKey }
+		rows, err = h.history.ListActiveByAlert(ctx, orgID, notificationhistory.ActiveAlertFilter{
+			AlertName: req.Msg.GetAlertName(),
+			RuleGroup: req.Msg.GetRuleGroup(),
+			AfterKey:  req.Msg.GetBeforeId(),
+			Limit:     pageLimit + 1,
+		})
+	case req.Msg.GetActiveOnly():
+		// Over-fetch by one so a storm past the cap is flagged rather than silently swallowed.
 		pageLimit = historyMaxPageSize
 		rows, err = h.history.ListActive(ctx, orgID, pageLimit+1)
-	} else {
-		pageLimit = req.Msg.GetPageSize()
-		if pageLimit <= 0 {
-			pageLimit = historyDefaultPageSize
-		}
-		if pageLimit > historyMaxPageSize {
-			pageLimit = historyMaxPageSize
-		}
+	default:
 		var beforeID *int64
-		if s := req.Msg.GetBeforeId(); s != "" {
-			v, parseErr := strconv.ParseInt(s, 10, 64)
-			if parseErr != nil {
-				return nil, fleeterror.NewInvalidArgumentError("invalid before_id: " + s)
-			}
-			beforeID = &v
+		if beforeID, err = parseBeforeID(req.Msg.GetBeforeId()); err != nil {
+			return nil, err
 		}
+		cursorOf = func(n notificationhistory.StoredNotification) string { return strconv.FormatInt(n.ID, 10) }
 		rows, err = h.history.List(ctx, orgID, beforeID, pageLimit+1)
 	}
 	if err != nil {
@@ -423,8 +433,65 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	for _, n := range rows {
 		out = append(out, historyEntryToProto(n, includeDevice))
 	}
+	// Off the last row of a full page only, so a final page advertises nothing to resume from.
+	nextCursor := ""
+	if hasMore && cursorOf != nil && len(rows) > 0 {
+		nextCursor = cursorOf(rows[len(rows)-1])
+	}
 	return connect.NewResponse(&alertsv1.ListAlertsResponse{
-		Alerts:  out,
+		Alerts:     out,
+		HasMore:    hasMore,
+		NextCursor: nextCursor,
+	}), nil
+}
+
+// historyPageLimit clamps a requested page size for both keyset-paged branches: the history feed and the drill-in.
+func historyPageLimit(requested int32) int32 {
+	if requested <= 0 {
+		return historyDefaultPageSize
+	}
+	return min(requested, historyMaxPageSize)
+}
+
+func parseBeforeID(s string) (*int64, error) {
+	if s == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentError("invalid before_id: " + s)
+	}
+	return &v, nil
+}
+
+// ListActiveAlertGroups answers "what is firing right now" per rule. Rule identity and counts carry no device
+// identity and no rule-annotation free text, so this needs no miner:read gate; the drill-in rows still do.
+func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[alertsv1.ListActiveAlertGroupsRequest]) (*connect.Response[alertsv1.ListActiveAlertGroupsResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermAlertRead)
+	if err != nil {
+		return nil, err
+	}
+	// Over-fetch by one so a fleet past the cap is flagged rather than silently swallowed.
+	groups, err := h.history.ListActiveGroups(ctx, orgID, activeGroupsMaxPageSize+1)
+	if err != nil {
+		return nil, err
+	}
+	hasMore := len(groups) > activeGroupsMaxPageSize
+	if hasMore {
+		groups = groups[:activeGroupsMaxPageSize]
+	}
+	out := make([]*alertsv1.ActiveAlertGroup, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, &alertsv1.ActiveAlertGroup{
+			AlertName:      g.AlertName,
+			RuleGroup:      g.RuleGroup,
+			AlertCount:     g.AlertCount,
+			DeviceCount:    g.DeviceCount,
+			FirstStartedAt: timestamppb.New(g.FirstStartedAt),
+		})
+	}
+	return connect.NewResponse(&alertsv1.ListActiveAlertGroupsResponse{
+		Groups:  out,
 		HasMore: hasMore,
 	}), nil
 }
@@ -751,12 +818,7 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 		out.DeviceName = n.DeviceName
 		out.DeviceMac = n.DeviceMAC
 	}
-	// Summary follows the template's scope: on device templates it names the
-	// miner, on source-level templates only the MQTT source, which is not
-	// miner identity and stays visible to any alert:read caller.
-	if includeDevice || isSourceLevelTemplate(n.Template) {
-		out.Summary = n.Summary
-	}
+	out.Summary = visibleSummary(n.Summary, n.Template, includeDevice)
 	if n.StartsAt != nil {
 		out.StartsAt = timestamppb.New(*n.StartsAt)
 	}
@@ -764,6 +826,15 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 		out.EndsAt = timestamppb.New(*n.EndsAt)
 	}
 	return out
+}
+
+// A device template's summary names the miner, so it needs miner:read; a source-level one names only the MQTT
+// source, which is not miner identity.
+func visibleSummary(summary, template string, includeDevice bool) string {
+	if includeDevice || isSourceLevelTemplate(template) {
+		return summary
+	}
+	return ""
 }
 
 // isSourceLevelTemplate reports whether the template scopes the alert to an
