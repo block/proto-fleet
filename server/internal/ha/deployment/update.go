@@ -53,12 +53,7 @@ func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) e
 	return nil
 }
 
-var releaseImageRepositories = [...]string{
-	"proto-fleet-api",
-	"proto-fleet-client",
-}
-
-// PrepareApplicationUpdate builds only the Fleet API and client from a verified release.
+// PrepareApplicationUpdate loads only the Fleet API and client from a verified release.
 func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	deps := defaultInstallDependencies()
 	if err := validateRelease(root, deps.readFile); err != nil {
@@ -67,23 +62,17 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	if err := validatePinnedInfrastructureGeneration(); err != nil {
 		return err
 	}
-	if err := pruneReleaseImages(ctx); err != nil {
-		return err
+	if output, err := deps.run(ctx, "docker", "load", "--input", filepath.Join(root, "images", "fleet.tar.gz")); err != nil {
+		return fmt.Errorf("load HA application update images: %s", commandError(output, err))
 	}
-	for _, args := range [][]string{{"image", "prune", "-f"}, {"builder", "prune", "-f"}} {
-		if output, err := runCommand(ctx, "docker", args...); err != nil {
-			return fmt.Errorf("clean previous HA application build artifacts: %s", commandError(output, err))
+	for _, prefix := range []string{"proto-fleet-api:", "proto-fleet-client:"} {
+		image, err := composeImage(root, "docker-compose.yaml", prefix, deps.readFile)
+		if err != nil {
+			return err
 		}
-	}
-	nginx, err := os.ReadFile(filepath.Join(root, "client", "nginx.https.conf"))
-	if err != nil {
-		return fmt.Errorf("read HA nginx configuration: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "client", "nginx.conf"), nginx, 0o644); err != nil {
-		return fmt.Errorf("prepare HA nginx configuration: %w", err)
-	}
-	if err := RunCompose(ctx, fleetComposeArgsAt(root, "build", "fleet-api", "fleet-client")); err != nil {
-		return fmt.Errorf("build HA application update: %w", err)
+		if output, err := deps.run(ctx, "docker", "image", "inspect", image); err != nil {
+			return fmt.Errorf("release archive did not load required image %s: %s", image, commandError(output, err))
+		}
 	}
 	return nil
 }
@@ -123,20 +112,6 @@ func deploymentVersion(path string) (string, error) {
 		}
 	}
 	return "", errors.New("installed HA application version is missing")
-}
-
-func pruneReleaseImages(ctx context.Context) error {
-	for _, repository := range releaseImageRepositories {
-		output, err := runCommand(ctx, "docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}", repository)
-		if err != nil {
-			return fmt.Errorf("list previous HA release images: %s", commandError(output, err))
-		}
-		for image := range strings.FieldsSeq(string(output)) {
-			// Docker refuses to remove images referenced by current or stopped containers.
-			_, _ = runCommand(ctx, "docker", "image", "rm", image)
-		}
-	}
-	return nil
 }
 
 // StopApplication stops only Fleet containers; the HA substrate keeps running.
