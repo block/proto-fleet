@@ -230,12 +230,16 @@ func TestHARuntimeSurvivesTransientTimelineMismatch(t *testing.T) {
 		requireReceiveContext(t, group.startedCh)
 		synctest.Wait()
 		require.True(t, runtime.Active())
+		validSnapshot := coordinator.Snapshot()
+		validTimer := coordinator.leaseTimer
 
 		time.Sleep(config.RenewInterval)
 		synctest.Wait()
 		requireReceive(t, observer.calls)
 		require.True(t, runtime.Active())
 		require.False(t, coordinator.Snapshot().ObservationAvailable)
+		require.Equal(t, validSnapshot.FreshUntil, coordinator.Snapshot().FreshUntil)
+		require.Same(t, validTimer, coordinator.leaseTimer)
 		require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
 
 		time.Sleep(config.RenewInterval)
@@ -309,10 +313,17 @@ func TestHARuntimePersistentTimelineMismatchExpiresExistingProof(t *testing.T) {
 		config := coordinatorTestConfig()
 		config.LeaseDuration = 10 * time.Second
 		config.RenewInterval = 3 * time.Second
-		observer := &succeedOnceThenErrorObserver{
-			observation: coordinatorObservation("cluster-a", 41, 20*time.Second),
+		observed := coordinatorObservation("cluster-a", 41, 20*time.Second)
+		mismatch := observerResult{
+			observation: observed,
 			err:         fmt.Errorf("promotion observation: %w", ErrTimelineMismatch),
 		}
+		observer := &sequenceObserver{results: []observerResult{
+			{observation: observed},
+			mismatch,
+			mismatch,
+			mismatch,
+		}}
 		store := &fakeLeaseStore{}
 		coordinator := newCoordinatorWithHolder(observer, store, config, uuid.New())
 		group := newRuntimeTestGroup()
@@ -331,7 +342,6 @@ func TestHARuntimePersistentTimelineMismatchExpiresExistingProof(t *testing.T) {
 		require.ErrorIs(t, runErr, ErrOwnershipExpired)
 		requireReceiveContext(t, group.abortedCh)
 		require.False(t, runtime.Active())
-		require.GreaterOrEqual(t, observer.callCount(), 2)
 		require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
 	})
 }
