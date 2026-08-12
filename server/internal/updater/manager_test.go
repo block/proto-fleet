@@ -223,7 +223,7 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
 	bundle := releaseBundle(t, "v1.1.0")
 	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
-	runner := &haRecordingRunner{fail: make(map[string]error)}
+	runner := &haRecordingRunner{}
 	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
 		cfg.DeploymentMode = DeploymentModeHA
 		cfg.SelfUpdatePath = installedUpdater
@@ -305,82 +305,25 @@ func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T
 	}
 }
 
-func TestManagerHARequiresQualifiedRelease(t *testing.T) {
-	for _, test := range []struct {
-		name                string
-		qualificationTarget string
-		wantPhase           updaterapi.Phase
-	}{
-		{name: "unqualified prerelease", wantPhase: updaterapi.PhaseFailed},
-		{name: "exact qualification target", qualificationTarget: "v1.1.0", wantPhase: updaterapi.PhaseSucceeded},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			installRoot := t.TempDir()
-			writeCurrentDeployment(t, installRoot, "v1.0.0")
-			bundle := releaseBundle(t, "v1.1.0")
-			server := releaseServerWithState(t, "v1.1.0", "amd64", bundle, "", true)
-			runner := &haRecordingRunner{fail: make(map[string]error)}
-			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
-				cfg.DeploymentMode = DeploymentModeHA
-				cfg.QualificationTarget = test.qualificationTarget
-			})
+func TestManagerHAAllowsOperatorSelectedRelease(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.3.0-rc.1")
+	server := releaseServer(t, "v1.3.0-rc.1", "amd64", bundle, "")
+	runner := &haRecordingRunner{}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
 
-			// Act
-			_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
-			require.NoError(t, err)
-			completed := waitForTerminal(t, manager)
+	// Act
+	_, err := manager.TriggerWithID("v1.3.0-rc.1", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
 
-			// Assert
-			assert.Equal(t, test.wantPhase, completed.Phase, completed.Error)
-			if test.wantPhase == updaterapi.PhaseFailed {
-				assert.Contains(t, completed.Error, "has not completed qualification")
-				assert.Empty(t, runner.Commands())
-			}
-		})
-	}
-}
-
-func TestManagerHARejectsUnqualifiedSourceRelease(t *testing.T) {
-	for _, test := range []struct {
-		name             string
-		source           string
-		mismatchedCommit bool
-	}{
-		{name: "missing source"},
-		{name: "different source", source: "v0.9.0"},
-		{name: "different source build", source: "v1.0.0", mismatchedCommit: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			installRoot := t.TempDir()
-			writeCurrentDeployment(t, installRoot, "v1.0.0")
-			if test.mismatchedCommit {
-				require.NoError(t, os.WriteFile(
-					filepath.Join(installRoot, "deployment", "version.txt"),
-					[]byte("version: v1.0.0\ncommit: 3333333333333333333333333333333333333333\n"),
-					0o600,
-				))
-			}
-			bundle := releaseBundleFrom(t, "v1.1.0", test.source)
-			server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
-			runner := &haRecordingRunner{fail: make(map[string]error)}
-			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
-				cfg.DeploymentMode = DeploymentModeHA
-			})
-
-			// Act
-			_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
-			require.NoError(t, err)
-			completed := waitForTerminal(t, manager)
-
-			// Assert
-			require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
-			assert.Contains(t, completed.Error, "does not allow HA updates")
-			assert.Empty(t, runner.Commands())
-			assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
-		})
-	}
+	// Assert
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	assert.Equal(t, "v1.3.0-rc.1", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 }
 
 func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
@@ -3040,13 +2983,11 @@ func newTestManagerWithConfig(
 		InstallRoot:              installRoot,
 		StateDir:                 filepath.Join(t.TempDir(), "state"),
 		DownloadBaseURL:          server.URL,
-		ReleaseAPIBaseURL:        server.URL + "/releases/tags",
 		HTTPClient:               server.Client(),
 		Runner:                   runner,
 		GOARCH:                   "amd64",
 		NewID:                    func() string { return "test-operation" },
 		allowTestDownloadBaseURL: true,
-		allowTestReleaseAPIBase:  true,
 	}
 	if configure != nil {
 		configure(&cfg)
@@ -3059,30 +3000,12 @@ func newTestManagerWithConfig(
 
 func releaseServer(t *testing.T, version, arch string, bundle []byte, checksumOverride string) *httptest.Server {
 	t.Helper()
-	return releaseServerWithState(t, version, arch, bundle, checksumOverride, false)
-}
-
-func releaseServerWithState(t *testing.T, version, arch string, bundle []byte, checksumOverride string, prerelease bool) *httptest.Server {
-	t.Helper()
 	archiveName := fmt.Sprintf("proto-fleet-%s-%s.tar.gz", version, arch)
 	checksum := fmt.Sprintf("%x", sha256.Sum256(bundle))
 	if checksumOverride != "" {
 		checksum = checksumOverride
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/releases/tags/"+version, func(w http.ResponseWriter, _ *http.Request) {
-		assets := make([]map[string]string, 13)
-		for index := range assets {
-			assets[index] = map[string]string{"name": fmt.Sprintf("release-asset-%d", index)}
-		}
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"tag_name":   version,
-			"draft":      false,
-			"prerelease": prerelease,
-			"body":       strings.Repeat("representative release notes\n", 256),
-			"assets":     assets,
-		}))
-	})
 	mux.HandleFunc("/"+version+"/"+archiveName, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(bundle)
 	})
@@ -3095,15 +3018,8 @@ func releaseServerWithState(t *testing.T, version, arch string, bundle []byte, c
 }
 
 func releaseBundle(t *testing.T, version string) []byte {
-	return releaseBundleFrom(t, version, "v1.0.0")
-}
-
-func releaseBundleFrom(t *testing.T, version, haUpdateFrom string) []byte {
 	t.Helper()
 	versionFile := "version: " + version + "\ncommit: " + targetReleaseCommit + "\n"
-	if haUpdateFrom != "" {
-		versionFile += "ha_update_from: " + haUpdateFrom + "\nha_update_from_commit: " + sourceReleaseCommit + "\n"
-	}
 	files := map[string]string{
 		"deployment/version.txt":                         versionFile,
 		"deployment/docker-compose.yaml":                 "services: {}\n",

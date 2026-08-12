@@ -53,11 +53,9 @@ const (
 	defaultCandidateTimeout  = 10 * time.Second
 	maxCommandLogBytes       = int64(64 << 20)
 	maxCandidateVersionBytes = int64(4096)
-	maxReleaseStateBytes     = int64(8 << 20)
 	maxRetainedOperationLogs = 8
 	maxRetainedLogBytes      = int64(256 << 20)
 	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
-	canonicalReleaseAPIBase  = "https://api.github.com/repos/block/proto-fleet/releases/tags"
 	processLockFilename      = "updater.lock"
 	activationMarkerFilename = "activation-swap.json"
 	activationMarkerTempName = ".activation-swap.json.tmp"
@@ -70,7 +68,6 @@ const (
 
 var (
 	canonicalRelease         = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
-	canonicalStableRelease   = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 	staleStateArtifactName   = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
 	staleStagingArtifactName = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
 	operationLogNamePattern  = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
@@ -144,26 +141,23 @@ func (execRunner) Run(ctx context.Context, dir string, output io.Writer, name st
 }
 
 type Config struct {
-	InstallRoot         string
-	StateDir            string
-	DownloadBaseURL     string
-	ReleaseAPIBaseURL   string
-	HTTPClient          *http.Client
-	Runner              CommandRunner
-	Now                 func() time.Time
-	NewID               func() string
-	GOARCH              string
-	SelfUpdatePath      string
-	PreflightTimeout    time.Duration
-	ActivationTimeout   time.Duration
-	CleanupTimeout      time.Duration
-	DeploymentMode      DeploymentMode
-	QualificationTarget string
+	InstallRoot       string
+	StateDir          string
+	DownloadBaseURL   string
+	HTTPClient        *http.Client
+	Runner            CommandRunner
+	Now               func() time.Time
+	NewID             func() string
+	GOARCH            string
+	SelfUpdatePath    string
+	PreflightTimeout  time.Duration
+	ActivationTimeout time.Duration
+	CleanupTimeout    time.Duration
+	DeploymentMode    DeploymentMode
 
 	// Tests inject an httptest TLS endpoint without opening a production
 	// configuration path for alternate release mirrors.
 	allowTestDownloadBaseURL bool
-	allowTestReleaseAPIBase  bool
 	// Tests inject deterministic state-write failures without weakening the
 	// production state-directory trust boundary.
 	beforePersistState func(updaterapi.Operation) error
@@ -584,9 +578,6 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.DeploymentMode != DeploymentModeStandalone && cfg.DeploymentMode != DeploymentModeHA {
 		return nil, fmt.Errorf("deployment mode must be standalone or ha")
 	}
-	if cfg.QualificationTarget != "" && (cfg.DeploymentMode != DeploymentModeHA || !canonicalStableRelease.MatchString(cfg.QualificationTarget)) {
-		return nil, fmt.Errorf("qualification target requires HA mode and a stable release tag")
-	}
 	if cfg.DownloadBaseURL == "" {
 		cfg.DownloadBaseURL = canonicalDownloadBaseURL
 	} else if cfg.DownloadBaseURL != canonicalDownloadBaseURL && !cfg.allowTestDownloadBaseURL {
@@ -596,17 +587,6 @@ func NewManager(cfg Config) (*Manager, error) {
 	if err != nil || downloadBase.Scheme != "https" || downloadBase.Host == "" ||
 		downloadBase.User != nil || downloadBase.RawQuery != "" || downloadBase.Fragment != "" {
 		return nil, fmt.Errorf("download base URL must use https")
-	}
-	if cfg.ReleaseAPIBaseURL == "" {
-		cfg.ReleaseAPIBaseURL = canonicalReleaseAPIBase
-	} else if cfg.ReleaseAPIBaseURL != canonicalReleaseAPIBase && !cfg.allowTestReleaseAPIBase {
-		return nil, fmt.Errorf("release API base URL must use the official GitHub API")
-	}
-	releaseAPIBase, err := url.Parse(cfg.ReleaseAPIBaseURL)
-	if err != nil || releaseAPIBase.Host == "" || releaseAPIBase.User != nil ||
-		releaseAPIBase.RawQuery != "" || releaseAPIBase.Fragment != "" ||
-		(releaseAPIBase.Scheme != "https" && !cfg.allowTestReleaseAPIBase) {
-		return nil, fmt.Errorf("release API base URL must use https")
 	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{
@@ -1100,11 +1080,6 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] starting upgrade to %s\n", m.cfg.Now().UTC().Format(time.RFC3339), targetVersion)
-	if err := m.requireQualifiedRelease(ctx, targetVersion); err != nil {
-		m.fail(operationID, err, recovery)
-		return
-	}
-
 	archiveName := fmt.Sprintf("proto-fleet-%s-%s.tar.gz", targetVersion, m.cfg.GOARCH)
 	archiveURL := strings.TrimSuffix(m.cfg.DownloadBaseURL, "/") + "/" + targetVersion + "/" + archiveName
 	artifactBase := operationArtifactBase(operationID)
@@ -1204,17 +1179,6 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		previousVersion, err = readInstalledVersion(filepath.Join(currentDeployment, "version.txt"))
 		if err != nil {
 			m.fail(operationID, fmt.Errorf("read current HA application version: %w", err), recovery)
-			return
-		}
-		allowedSource, sourceErr := readVersionField(filepath.Join(stageDeployment, "version.txt"), "ha_update_from")
-		if sourceErr != nil || allowedSource != previousVersion {
-			m.fail(operationID, fmt.Errorf("target release does not allow HA updates from %s", previousVersion), recovery)
-			return
-		}
-		previousCommit, previousCommitErr := readVersionField(filepath.Join(currentDeployment, "version.txt"), "commit")
-		allowedCommit, allowedCommitErr := readVersionField(filepath.Join(stageDeployment, "version.txt"), "ha_update_from_commit")
-		if previousCommitErr != nil || allowedCommitErr != nil || allowedCommit != previousCommit {
-			m.fail(operationID, fmt.Errorf("target release does not allow HA updates from the installed %s build", previousVersion), recovery)
 			return
 		}
 	}
@@ -1722,42 +1686,6 @@ func (m *Manager) removeFailedPreflightImages(
 			_, _ = fmt.Fprintf(logOutput, "warning: could not remove failed preflight image %s: %v\n", image, err)
 		}
 	}
-}
-
-func (m *Manager) requireQualifiedRelease(ctx context.Context, targetVersion string) error {
-	if m.cfg.DeploymentMode != DeploymentModeHA {
-		return nil
-	}
-	releaseURL := strings.TrimSuffix(m.cfg.ReleaseAPIBaseURL, "/") + "/" + url.PathEscape(targetVersion)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseURL, nil)
-	if err != nil {
-		return fmt.Errorf("create release-state request: %w", err)
-	}
-	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("X-Github-Api-Version", "2022-11-28")
-	response, err := m.cfg.HTTPClient.Do(request)
-	if err != nil {
-		return fmt.Errorf("verify HA release qualification: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("verify HA release qualification: release API returned %s", response.Status)
-	}
-	var release struct {
-		TagName    string `json:"tag_name"`
-		Draft      bool   `json:"draft"`
-		Prerelease bool   `json:"prerelease"`
-	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, maxReleaseStateBytes)).Decode(&release); err != nil {
-		return fmt.Errorf("decode HA release state: %w", err)
-	}
-	if release.TagName != targetVersion || release.Draft {
-		return fmt.Errorf("HA target release %s is not published", targetVersion)
-	}
-	if release.Prerelease && m.cfg.QualificationTarget != targetVersion {
-		return fmt.Errorf("HA target release %s has not completed qualification", targetVersion)
-	}
-	return nil
 }
 
 func (m *Manager) download(ctx context.Context, rawURL, path string, maxBytes int64) error {
@@ -2401,28 +2329,19 @@ func (m *Manager) persistLocked() error {
 }
 
 func readInstalledVersion(path string) (string, error) {
-	version, err := readVersionField(path, "version")
-	if err != nil {
-		return "", fmt.Errorf("read installed version: %w", err)
-	}
-	return version, nil
-}
-
-func readVersionField(path, field string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read version file: %w", err)
+		return "", fmt.Errorf("read installed version: read version file: %w", err)
 	}
-	prefix := field + ":"
 	for _, line := range strings.Split(string(data), "\n") {
-		if value, ok := strings.CutPrefix(strings.TrimSpace(line), prefix); ok {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "version:"); ok {
 			value = strings.TrimSpace(value)
 			if value != "" {
 				return value, nil
 			}
 		}
 	}
-	return "", fmt.Errorf("version file has no %s", field)
+	return "", fmt.Errorf("read installed version: version file has no version")
 }
 
 func verifyChecksum(ctx context.Context, archivePath, checksumPath, archiveName string) error {

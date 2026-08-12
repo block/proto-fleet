@@ -82,11 +82,10 @@ func run() error {
 		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("resolve install root: %w", err))
 	}
 	config := updater.Config{
-		InstallRoot:         absoluteInstallRoot,
-		StateDir:            *stateDir,
-		SelfUpdatePath:      *selfUpdatePath,
-		DeploymentMode:      updater.DeploymentMode(*deploymentMode),
-		QualificationTarget: os.Getenv("PROTO_FLEET_HA_QUALIFICATION_TARGET"),
+		InstallRoot:    absoluteInstallRoot,
+		StateDir:       *stateDir,
+		SelfUpdatePath: *selfUpdatePath,
+		DeploymentMode: updater.DeploymentMode(*deploymentMode),
 	}
 	if *repairStartup {
 		probeCtx, cancel := context.WithTimeout(context.Background(), time.Second)

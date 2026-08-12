@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -59,9 +57,6 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	if err := validateRelease(root, deps.readFile); err != nil {
 		return err
 	}
-	if err := validatePinnedInfrastructureGeneration(); err != nil {
-		return err
-	}
 	if output, err := deps.run(ctx, "docker", "load", "--input", filepath.Join(root, "images", "fleet.tar.gz")); err != nil {
 		return fmt.Errorf("load HA application update images: %s", commandError(output, err))
 	}
@@ -75,43 +70,6 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 		}
 	}
 	return nil
-}
-
-func validatePinnedInfrastructureGeneration() error {
-	currentVersion, err := deploymentVersion(filepath.Join(installRoot, "version.txt"))
-	if err != nil {
-		return err
-	}
-	pinnedImage, err := haDatabaseImage(filepath.Dir(configRoot), os.ReadFile)
-	if err != nil {
-		return fmt.Errorf("read pinned HA infrastructure version: %w", err)
-	}
-	return validateInfrastructureGeneration(currentVersion, pinnedImage)
-}
-
-func validateInfrastructureGeneration(currentVersion, pinnedImage string) error {
-	pinnedVersion := strings.TrimPrefix(pinnedImage, "proto-fleet-timescaledb-ha:")
-	pinnedVersion, _, _ = strings.Cut(pinnedVersion, "@")
-	if currentVersion != pinnedVersion {
-		return fmt.Errorf("chained HA application updates are not supported while infrastructure updates are deferred; application is %s but pinned infrastructure is %s", currentVersion, pinnedVersion)
-	}
-	return nil
-}
-
-func deploymentVersion(path string) (string, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read installed HA application version: %w", err)
-	}
-	for line := range strings.SplitSeq(string(contents), "\n") {
-		if version, ok := strings.CutPrefix(strings.TrimSpace(line), "version:"); ok {
-			version = strings.TrimSpace(version)
-			if version != "" {
-				return version, nil
-			}
-		}
-	}
-	return "", errors.New("installed HA application version is missing")
 }
 
 // StopApplication stops only Fleet containers; the HA substrate keeps running.
