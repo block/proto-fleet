@@ -165,15 +165,15 @@ func (o *Observer) observeAndRun(
 	if !isPrimaryRole(patroni.Role) {
 		return WriterObservation{}, fmt.Errorf("%w: Patroni role is %q", ErrWritableServerMismatch, patroni.Role)
 	}
+	observed := writerObservation(first, connected)
 	if patroni.Timeline != connected.Timeline {
-		return WriterObservation{}, fmt.Errorf(
+		return observed, fmt.Errorf(
 			"%w: PostgreSQL=%d Patroni=%d",
 			ErrTimelineMismatch,
 			connected.Timeline,
 			patroni.Timeline,
 		)
 	}
-	observed := writerObservation(first, connected)
 	if action != nil {
 		if err := action(ctx, observed); err != nil {
 			return WriterObservation{}, err

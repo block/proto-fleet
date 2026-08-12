@@ -208,7 +208,10 @@ func TestHARuntimeSurvivesTransientTimelineMismatch(t *testing.T) {
 		observer := &sequenceObserver{
 			results: []observerResult{
 				{observation: coordinatorObservation("cluster-a", 41, 20*time.Second)},
-				{err: fmt.Errorf("promotion observation: %w", ErrTimelineMismatch)},
+				{
+					observation: coordinatorObservation("cluster-a", 41, 20*time.Second),
+					err:         fmt.Errorf("promotion observation: %w", ErrTimelineMismatch),
+				},
 				{observation: coordinatorObservation("cluster-a", 41, 20*time.Second)},
 			},
 			calls: make(chan struct{}, 3),
