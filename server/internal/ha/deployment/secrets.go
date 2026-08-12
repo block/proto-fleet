@@ -37,7 +37,6 @@ type certificateAuthority struct {
 	certificate *x509.Certificate
 	key         *rsa.PrivateKey
 	certPEM     []byte
-	keyPEM      []byte
 }
 
 // GenerateSecrets creates the complete offline and per-host credential layout.
@@ -90,10 +89,6 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 	if err := writeFile(filepath.Join(offlineDir, "service-ca.crt"), ca.certPEM, 0o644); err != nil {
 		return err
 	}
-	if err := writeFile(filepath.Join(offlineDir, "service-ca.key"), ca.keyPEM, 0o600); err != nil {
-		return err
-	}
-
 	passwordFiles := append([]string{etcdRootPasswordFile, fleetEtcdPasswordFile}, databasePasswordFiles...)
 	for _, name := range passwordFiles {
 		password, randomErr := randomHex(32)
@@ -236,15 +231,10 @@ func newCertificateAuthority(now time.Time) (certificateAuthority, error) {
 	if err != nil {
 		return certificateAuthority{}, fmt.Errorf("create service CA certificate: %w", err)
 	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return certificateAuthority{}, fmt.Errorf("encode service CA key: %w", err)
-	}
 	return certificateAuthority{
 		certificate: template,
 		key:         key,
 		certPEM:     pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		keyPEM:      pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}),
 	}, nil
 }
 

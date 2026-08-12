@@ -271,6 +271,11 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 			return installedDependencies{}, errors.New("existing Docker installation has existing containers; remove them before installing Proto Fleet HA")
 		}
 	} else {
+		for _, command := range []string{"containerd", "runc"} {
+			if path, err := deps.lookPath(command); err == nil {
+				return installedDependencies{}, fmt.Errorf("HA install requires Docker's bundled container runtime; remove %s before installing: %s", command, path)
+			}
+		}
 		for _, path := range []string{"/var/lib/docker", "/var/lib/containerd"} {
 			if err := deps.requireEmpty(path, "residual container runtime state"); err != nil {
 				return installedDependencies{}, fmt.Errorf("HA install failed: %w", err)

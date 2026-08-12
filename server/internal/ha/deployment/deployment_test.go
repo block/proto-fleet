@@ -156,7 +156,6 @@ func TestGenerateSecrets(t *testing.T) {
 			t.Fatalf("%s Fleet environment differs from the offline copy", node)
 		}
 	}
-	requireMode(t, filepath.Join(output, "offline", "service-ca.key"), 0o600)
 	requireMode(t, filepath.Join(output, "ha-a", "etcd-server.key"), 0o600)
 	requireMode(t, filepath.Join(output, "offline", fleetEnvironmentFile), 0o600)
 	requireMode(t, filepath.Join(output, "ha-a", fleetEnvironmentFile), 0o600)

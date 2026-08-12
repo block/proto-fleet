@@ -157,9 +157,6 @@ func (c *etcdAuthClient) AuthEnabled(ctx context.Context) (bool, error) {
 
 func (c *etcdAuthClient) EnsureRole(ctx context.Context, role string) error {
 	_, err := c.client.RoleAdd(ctx, role)
-	if errors.Is(err, rpctypes.ErrRoleAlreadyExist) {
-		return nil
-	}
 	if err != nil {
 		return fmt.Errorf("ensure role: %w", err)
 	}
@@ -176,9 +173,6 @@ func (c *etcdAuthClient) GrantPermission(ctx context.Context, role, prefix strin
 
 func (c *etcdAuthClient) EnsureUser(ctx context.Context, user, password string) error {
 	_, err := c.client.UserAdd(ctx, user, password)
-	if errors.Is(err, rpctypes.ErrUserAlreadyExist) {
-		_, err = c.client.UserChangePassword(ctx, user, password)
-	}
 	if err != nil {
 		return fmt.Errorf("ensure user: %w", err)
 	}

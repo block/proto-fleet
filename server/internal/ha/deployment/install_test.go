@@ -549,16 +549,16 @@ func TestDedicatedHostRejectsConflictingDependencies(t *testing.T) {
 			wantError: "/var/lib/docker",
 		},
 		{
-			name: "containerd is absent with residual data",
+			name: "containerd is installed without Docker",
 			configure: func(deps *installDependencies) {
-				deps.requireEmpty = func(path, _ string) error {
-					if path == "/var/lib/containerd" {
-						return fmt.Errorf("unexpected entry in %s", path)
+				deps.lookPath = func(name string) (string, error) {
+					if name == "containerd" {
+						return "/usr/bin/containerd", nil
 					}
-					return nil
+					return "", os.ErrNotExist
 				}
 			},
-			wantError: "/var/lib/containerd",
+			wantError: "remove containerd before installing",
 		},
 	}
 	for _, tt := range tests {
