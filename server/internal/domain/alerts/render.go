@@ -93,8 +93,11 @@ func groupLine(g alertGroup, identities map[string]DeviceIdentity) string {
 			b.WriteString(fmt.Sprintf(" and %d more", more))
 		}
 	}
-	if g.Summary != "" {
-		b.WriteString("\n" + escapeMrkdwn(g.Summary))
+	for _, summary := range g.Summaries {
+		b.WriteString("\n" + escapeMrkdwn(summary))
+	}
+	if more := g.SummaryCount - len(g.Summaries); more > 0 {
+		b.WriteString(fmt.Sprintf("\n_…and %d more_", more))
 	}
 	return b.String()
 }
@@ -124,21 +127,27 @@ func mrkdwnSection(text string) map[string]any {
 // Miners named inline per alert before the "+N more" tail; the app holds the full list.
 const groupSampleDevices = 3
 
+// Distinct summaries named inline before the "+N more" tail, for rules that interpolate the firing instance.
+const groupSampleSummaries = 3
+
 // alertGroup is one rule's rollup within a delivery batch. Every outward-facing renderer groups through it, so
 // it carries device ids rather than display labels: each medium formats and escapes them its own way.
 type alertGroup struct {
 	Name      string
 	RuleGroup string
 	Severity  string
-	// One instance's summary (the batch's first). Provisioned and user rules render summary from the rule,
-	// not the instance ("Device hashrate is below 50 TH/s for at least 10m."), so it describes the group.
-	Summary string
+	// Distinct instance summaries, capped at groupSampleSummaries; SummaryCount is how many there were. Most
+	// rules render summary from the rule, so a group has one; the ones that interpolate the firing instance
+	// ("Curtailment source maestro-b is unreachable") have one per instance, and no single one describes them.
+	Summaries    []string
+	SummaryCount int
 	// Instances in the group, which exceeds DeviceCount only when a rule fires on a non-device dimension.
 	InstanceCount   int
 	DeviceCount     int
 	SampleDeviceIDs []string
-	// Dedupe set behind DeviceCount, released once the group is materialized.
-	devices map[string]bool
+	// Dedupe sets behind DeviceCount and SummaryCount, released once the group is materialized.
+	devices   map[string]bool
+	summaries map[string]bool
 }
 
 // groupAlerts rolls a batch up per firing rule (identified by alertname + rule group, matching the API's
@@ -158,12 +167,19 @@ func groupAlerts(alerts []Alert) []alertGroup {
 				Name:      name,
 				RuleGroup: a.Labels[ruleLabelRuleGroup],
 				Severity:  a.Labels["severity"],
-				Summary:   a.Annotations["summary"],
 				devices:   map[string]bool{},
+				summaries: map[string]bool{},
 			}
 			byKey[key] = g
 		}
 		g.InstanceCount++
+		if summary := a.Annotations["summary"]; summary != "" && !g.summaries[summary] {
+			g.summaries[summary] = true
+			g.SummaryCount++
+			if len(g.Summaries) < groupSampleSummaries {
+				g.Summaries = append(g.Summaries, summary)
+			}
+		}
 		id := a.Labels["device_id"]
 		if id == "" || g.devices[id] {
 			continue
@@ -176,7 +192,7 @@ func groupAlerts(alerts []Alert) []alertGroup {
 	out := make([]alertGroup, 0, len(byKey))
 	for _, g := range byKey {
 		g.DeviceCount = len(g.devices)
-		g.devices = nil
+		g.devices, g.summaries = nil, nil
 		out = append(out, *g)
 	}
 	// Widest blast radius first; name then rule group break every tie, so map order can't leak into the output.
@@ -231,9 +247,10 @@ type webhookAlert struct {
 // webhookAlertGroup is the alert-first rollup of the batch. The per-miner detail stays in firing/resolved, so
 // a consumer that only wants "what is firing and how bad" reads the groups and ignores the instance arrays.
 type webhookAlertGroup struct {
-	AlertName   string `json:"alert_name"`
-	Severity    string `json:"severity,omitempty"`
-	RuleGroup   string `json:"rule_group,omitempty"`
+	AlertName string `json:"alert_name"`
+	Severity  string `json:"severity,omitempty"`
+	RuleGroup string `json:"rule_group,omitempty"`
+	// One of the group's distinct summaries; the per-instance arrays carry every instance's own.
 	Summary     string `json:"summary,omitempty"`
 	DeviceCount int    `json:"device_count"`
 	AlertCount  int    `json:"alert_count"`
@@ -262,11 +279,15 @@ func renderWebhook(orgID int64, alerts []Alert, identities map[string]DeviceIden
 		groups := groupAlerts(list)
 		out := make([]webhookAlertGroup, 0, len(groups))
 		for _, g := range groups {
+			summary := ""
+			if len(g.Summaries) > 0 {
+				summary = g.Summaries[0]
+			}
 			out = append(out, webhookAlertGroup{
 				AlertName:   g.Name,
 				Severity:    g.Severity,
 				RuleGroup:   g.RuleGroup,
-				Summary:     g.Summary,
+				Summary:     summary,
 				DeviceCount: g.DeviceCount,
 				AlertCount:  g.InstanceCount,
 			})

@@ -1366,7 +1366,8 @@ export type ListAlertsRequest = Message<"alerts.v1.ListAlertsRequest"> & {
 
   /**
    * The rule group alert_name belongs to, matched exactly, so drilling into one can't pull in another group's
-   * miners; "" is the group of rules carrying no rule label. Ignored unless alert_name is set.
+   * miners; "" is the group of rules carrying no rule label. Rejected without alert_name, ignored without
+   * active_only.
    *
    * @generated from field: string rule_group = 5;
    */

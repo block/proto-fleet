@@ -397,7 +397,8 @@ message ListAlertsRequest {
     // Ignored unless active_only is set. 190 is Grafana's alert-rule title cap.
     string alert_name = 4 [(buf.validate.field).string.max_len = 190];
     // The rule group alert_name belongs to, matched exactly, so drilling into one can't pull in another group's
-    // miners; "" is the group of rules carrying no rule label. Ignored unless alert_name is set.
+    // miners; "" is the group of rules carrying no rule label. Rejected without alert_name, ignored without
+    // active_only.
     string rule_group = 5 [(buf.validate.field).string.max_len = 190];
 }
 message ListAlertsResponse {

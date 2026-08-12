@@ -156,8 +156,33 @@ func TestRenderSlackCountsInstancesForDevicelessAlerts(t *testing.T) {
 		}
 	}
 	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a"), source("maestro-b")}, nil))
-	// Two sources roll into one group, so the count is the only signal that more than one is down.
 	assert.Contains(t, text, "*Curtailment Source Unreachable* _(critical)_ — 2 instances")
+	// The rule interpolates the source into summary, so naming only one would leave the other unreported.
+	assert.Contains(t, text, "Curtailment source maestro-a is unreachable; cannot curtail.")
+	assert.Contains(t, text, "Curtailment source maestro-b is unreachable; cannot curtail.")
+}
+
+func TestRenderSlackTailsSummariesPastTheSampleCap(t *testing.T) {
+	source := func(kind string) Alert {
+		return Alert{
+			Status:      "firing",
+			Labels:      map[string]string{"alertname": "Curtailment Source Unreachable", "severity": "critical"},
+			Annotations: map[string]string{"summary": "Curtailment source " + kind + " is unreachable; cannot curtail."},
+		}
+	}
+	alerts := []Alert{source("a"), source("b"), source("c"), source("d"), source("e")}
+	text := allSectionText(t, renderSlack("", alerts, nil))
+	// Past the cap the section says how many it left out rather than growing without bound.
+	assert.Contains(t, text, "Curtailment source c is unreachable; cannot curtail.")
+	assert.NotContains(t, text, "Curtailment source d is unreachable")
+	assert.Contains(t, text, "…and 2 more")
+}
+
+// Every instance of a rule that renders summary from the rule carries the same text, so it stays one line.
+func TestRenderSlackKeepsOneSummaryForARuleTextGroup(t *testing.T) {
+	text := allSectionText(t, renderSlack("", outageAlerts(3), nil))
+	assert.Equal(t, 1, strings.Count(text, "Device is offline for at least five minutes."))
+	assert.NotContains(t, text, "…and")
 }
 
 func TestRenderSlackCountsEachMinerOnceAcrossAlerts(t *testing.T) {

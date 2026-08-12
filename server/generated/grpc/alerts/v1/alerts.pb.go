@@ -3274,7 +3274,8 @@ type ListAlertsRequest struct {
 	// Ignored unless active_only is set. 190 is Grafana's alert-rule title cap.
 	AlertName string `protobuf:"bytes,4,opt,name=alert_name,json=alertName,proto3" json:"alert_name,omitempty"`
 	// The rule group alert_name belongs to, matched exactly, so drilling into one can't pull in another group's
-	// miners; "" is the group of rules carrying no rule label. Ignored unless alert_name is set.
+	// miners; "" is the group of rules carrying no rule label. Rejected without alert_name, ignored without
+	// active_only.
 	RuleGroup     string `protobuf:"bytes,5,opt,name=rule_group,json=ruleGroup,proto3" json:"rule_group,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
