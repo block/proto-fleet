@@ -1,8 +1,8 @@
 import { Dispatch, SetStateAction, useCallback, useMemo, useState } from "react";
 import { foundSummary, isContainerModel } from "./foundMinersLabels";
+import { createFoundMinersModelFilter, filterFoundMinerByModel } from "./foundMinersModelFilter";
 import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import { createModelFilter, filterByModel } from "@/protoFleet/utils/minerFilters";
 import { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";
@@ -20,6 +20,11 @@ const minerColTitles = {
 const colConfig = {
   model: {
     width: "w-full pr-10",
+    // Relabel a container row's model cell to "Proto Container" so no raw code
+    // name ("CU1") leaks into the discovery table, matching the group label and
+    // the model filter option. Non-container rows keep their raw model string.
+    // Filtering/sorting still key off the untouched `miner.model` field.
+    component: (item: MinerWithSelectedAndAction) => (isContainerModel(item.model) ? "Proto Container" : item.model),
   },
   ipAddress: {
     width: "w-full pr-10",
@@ -60,10 +65,10 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
     [miners, setDeselectedMiners],
   );
 
-  const modelFilter = useMemo(() => createModelFilter(models), [models]);
+  const modelFilter = useMemo(() => createFoundMinersModelFilter(models), [models]);
 
   const filteredMiners = useMemo(() => {
-    return miners.filter((miner) => filterByModel(miner, activeFilters));
+    return miners.filter((miner) => filterFoundMinerByModel(miner, activeFilters));
   }, [miners, activeFilters]);
 
   // Split the discovered total by entity so the modal header matches the inline
@@ -94,7 +99,7 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
         <div className="min-h-0 flex-1 overflow-y-auto">
           <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
             filters={[modelFilter]}
-            filterItem={filterByModel}
+            filterItem={filterFoundMinerByModel}
             onFilterChange={setActiveFilters}
             filterSize={sizes.compact}
             activeCols={activeCols}

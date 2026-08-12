@@ -91,7 +91,7 @@ const mixedMiners = [
   {
     $typeName: "pairing.v1.Device" as const,
     deviceIdentifier: "cu-002",
-    model: "CU1",
+    model: "cu-200",
     ipAddress: "192.168.1.31",
     macAddress: "AA:BB:CC:DD:EE:31",
     selected: true,
@@ -121,7 +121,7 @@ export const MixedContainersAndRigs = () => {
       <FoundMinersModal
         open={open}
         miners={mixedMiners}
-        models={["CU1", "S21 Pro"]}
+        models={["CU1", "cu-200", "S21 Pro"]}
         setDeselectedMiners={(deselected) => action("setDeselectedMiners")(deselected)}
         onDismiss={() => {
           action("onDismiss")();

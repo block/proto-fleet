@@ -36,6 +36,24 @@ describe("minerFilters", () => {
       expect(filter.options).toHaveLength(1);
       expect(filter.defaultOptionIds).toEqual(["S19"]);
     });
+
+    it("should keep raw model labels by default", () => {
+      const filter = createModelFilter(["CU1", "S21 Pro"]);
+
+      expect(filter.options.map((o) => o.id)).toEqual(["CU1", "S21 Pro"]);
+      expect(filter.defaultOptionIds).toEqual(["CU1", "S21 Pro"]);
+      expect(filter.options.map((o) => o.label)).toEqual(["CU1", "S21 Pro"]);
+    });
+
+    it("should use custom display labels while keeping raw ids for filtering", () => {
+      const filter = createModelFilter(["CU1", "S21 Pro"], (model) =>
+        model.startsWith("CU") ? "Proto Container" : model,
+      );
+
+      expect(filter.options.map((o) => o.id)).toEqual(["CU1", "S21 Pro"]);
+      expect(filter.defaultOptionIds).toEqual(["CU1", "S21 Pro"]);
+      expect(filter.options.map((o) => o.label)).toEqual(["Proto Container", "S21 Pro"]);
+    });
   });
 
   describe("filterByModel", () => {

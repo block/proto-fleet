@@ -33,9 +33,9 @@ describe("entityNoun", () => {
 });
 
 describe("deviceGroupLabel", () => {
-  it('labels container groups simply "Container"', () => {
-    expect(deviceGroupLabel("Proto", "CU1")).toBe("Container");
-    expect(deviceGroupLabel("Proto", "cu-200")).toBe("Container");
+  it('labels container groups "Proto Container"', () => {
+    expect(deviceGroupLabel("Proto", "CU1")).toBe("Proto Container");
+    expect(deviceGroupLabel("Proto", "cu-200")).toBe("Proto Container");
   });
 
   it("drops a redundant manufacturer prefix already present in the model", () => {

@@ -16,13 +16,13 @@ export function entityNoun(model: string, count: number): string {
 
 /**
  * Display label for a discovered device group.
- * - Containers (model "CU…") are labelled simply "Container".
+ * - Containers (model "CU…") are labelled "Proto Container".
  * - Otherwise the manufacturer and model are joined ("Bitmain Antminer S21"),
  *   but a redundant manufacturer prefix is dropped when the model already leads
  *   with it as a whole word (manufacturer "Proto" + model "Proto Rig" -> "Proto Rig").
  */
 export function deviceGroupLabel(manufacturer: string, model: string): string {
-  if (isContainerModel(model)) return "Container";
+  if (isContainerModel(model)) return "Proto Container";
 
   const mfr = (manufacturer ?? "").trim();
   const mdl = (model ?? "").trim();
