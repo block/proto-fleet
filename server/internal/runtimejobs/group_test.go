@@ -253,6 +253,75 @@ func TestGroupStopAggregatesErrorsAndBecomesTerminal(t *testing.T) {
 	assert.ErrorIs(t, group.Err(), errA)
 }
 
+func TestGroupAbortCancelsThenHardAbortsAndStops(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	var events eventLog
+	var activationDone <-chan struct{}
+	job, err := NewJob("job", testAbortableLifecycle{
+		start: func(ctx context.Context) error {
+			activationDone = ctx.Done()
+			return nil
+		},
+		abort: func() {
+			select {
+			case <-activationDone:
+				events.add("abort")
+			default:
+				events.add("abort-before-cancel")
+			}
+		},
+		stop: func(context.Context) error {
+			events.add("stop")
+			return nil
+		},
+	})
+	require.NoError(t, err)
+	group := newTestGroup(t, job)
+	require.NoError(t, group.Start(context.Background()))
+
+	// Act
+	err = group.Abort(context.Background())
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, []string{"abort", "stop"}, events.snapshot())
+	assert.Equal(t, StateStopped, group.Status().State)
+}
+
+func TestGroupAbortHonorsCallerDeadline(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	aborted := make(chan struct{})
+	job, err := NewJob("job", testAbortableLifecycle{
+		start: noopJob,
+		abort: func() { close(aborted) },
+		stop: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+	require.NoError(t, err)
+	group := newTestGroup(t, job)
+	require.NoError(t, group.Start(context.Background()))
+	abortCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	// Act
+	err = group.Abort(abortCtx)
+
+	// Assert
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	select {
+	case <-aborted:
+	default:
+		t.Fatal("hard abort was not called")
+	}
+	assert.ErrorIs(t, group.Err(), context.DeadlineExceeded)
+}
+
 func TestGroupStopTimeoutIsGroupWideAndTerminal(t *testing.T) {
 	t.Parallel()
 

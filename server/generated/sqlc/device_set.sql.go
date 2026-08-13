@@ -434,6 +434,46 @@ func (q *Queries) DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelong
 	return belongs, err
 }
 
+const deviceSetsByIDs = `-- name: DeviceSetsByIDs :many
+SELECT id
+FROM device_set
+WHERE org_id = $1
+  AND type = $2
+  AND deleted_at IS NULL
+  AND id = ANY($3::bigint[])
+`
+
+type DeviceSetsByIDsParams struct {
+	OrgID   int64
+	SetType DeviceSetType
+	Ids     []int64
+}
+
+// Returns the subset of requested IDs that are live device sets of the given type in the org;
+// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
+func (q *Queries) DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.deviceSetsByIDsStmt, deviceSetsByIDs, arg.OrgID, arg.SetType, pq.Array(arg.Ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findDevicesWithSiteOrBuilding = `-- name: FindDevicesWithSiteOrBuilding :many
 SELECT device_identifier
 FROM device

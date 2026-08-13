@@ -17,8 +17,7 @@ type Lifecycle interface {
 	Stop(ctx context.Context) error
 }
 
-// Aborter cancels work that must not outlive active ownership. Stop must still
-// be called afterward to wait for cleanup and make the lifecycle restartable.
+// Aborter immediately cancels work that cannot wait for graceful shutdown.
 type Aborter interface {
 	Abort()
 }

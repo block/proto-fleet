@@ -745,3 +745,13 @@ WHERE org_id = sqlc.arg('org_id')
   AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND deleted_at IS NULL
   AND (site_id IS NOT NULL OR building_id IS NOT NULL);
+
+-- name: DeviceSetsByIDs :many
+-- Returns the subset of requested IDs that are live device sets of the given type in the org;
+-- the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
+SELECT id
+FROM device_set
+WHERE org_id = sqlc.arg('org_id')
+  AND type = sqlc.arg('set_type')
+  AND deleted_at IS NULL
+  AND id = ANY(sqlc.arg('ids')::bigint[]);

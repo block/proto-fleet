@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_instance_v1_updates: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChlpbnN0YW5jZS92MS91cGRhdGVzLnByb3RvEgtpbnN0YW5jZS52MSJ/CgtSZWxlYXNlSW5mbxIPCgd2ZXJzaW9uGAEgASgJEhkKEXJlbGVhc2Vfbm90ZXNfdXJsGAIgASgJEjAKDHB1Ymxpc2hlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKcHJlcmVsZWFzZRgEIAEoCCIYChZHZXRVcGRhdGVTdGF0dXNSZXF1ZXN0IuABChdHZXRVcGRhdGVTdGF0dXNSZXNwb25zZRIXCg9jdXJyZW50X3ZlcnNpb24YASABKAkSLAoHY2hhbm5lbBgCIAEoDjIbLmluc3RhbmNlLnYxLlJlbGVhc2VDaGFubmVsEjEKD2xhdGVzdF9lbGlnaWJsZRgDIAEoCzIYLmluc3RhbmNlLnYxLlJlbGVhc2VJbmZvEhgKEHVwZGF0ZV9hdmFpbGFibGUYBCABKAgSFwoPaW5zdGFsbF9jb21tYW5kGAUgASgJEhgKEHN0YXR1c19hdmFpbGFibGUYByABKAgiSAoYU2V0UmVsZWFzZUNoYW5uZWxSZXF1ZXN0EiwKB2NoYW5uZWwYASABKA4yGy5pbnN0YW5jZS52MS5SZWxlYXNlQ2hhbm5lbCIbChlTZXRSZWxlYXNlQ2hhbm5lbFJlc3BvbnNlKnAKDlJlbGVhc2VDaGFubmVsEh8KG1JFTEVBU0VfQ0hBTk5FTF9VTlNQRUNJRklFRBAAEhoKFlJFTEVBU0VfQ0hBTk5FTF9TVEFCTEUQARIhCh1SRUxFQVNFX0NIQU5ORUxfU1RBQkxFX0FORF9SQxACMt4BChVJbnN0YW5jZVVwZGF0ZVNlcnZpY2USYQoPR2V0VXBkYXRlU3RhdHVzEiMuaW5zdGFuY2UudjEuR2V0VXBkYXRlU3RhdHVzUmVxdWVzdBokLmluc3RhbmNlLnYxLkdldFVwZGF0ZVN0YXR1c1Jlc3BvbnNlIgOQAgESYgoRU2V0UmVsZWFzZUNoYW5uZWwSJS5pbnN0YW5jZS52MS5TZXRSZWxlYXNlQ2hhbm5lbFJlcXVlc3QaJi5pbnN0YW5jZS52MS5TZXRSZWxlYXNlQ2hhbm5lbFJlc3BvbnNlQrcBCg9jb20uaW5zdGFuY2UudjFCDFVwZGF0ZXNQcm90b1ABWklnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9pbnN0YW5jZS92MTtpbnN0YW5jZXYxogIDSVhYqgILSW5zdGFuY2UuVjHKAgtJbnN0YW5jZVxWMeICF0luc3RhbmNlXFYxXEdQQk1ldGFkYXRh6gIMSW5zdGFuY2U6OlYxYgZwcm90bzM",
+    "ChlpbnN0YW5jZS92MS91cGRhdGVzLnByb3RvEgtpbnN0YW5jZS52MSJ/CgtSZWxlYXNlSW5mbxIPCgd2ZXJzaW9uGAEgASgJEhkKEXJlbGVhc2Vfbm90ZXNfdXJsGAIgASgJEjAKDHB1Ymxpc2hlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKcHJlcmVsZWFzZRgEIAEoCCIYChZHZXRVcGRhdGVTdGF0dXNSZXF1ZXN0Iv0BChdHZXRVcGRhdGVTdGF0dXNSZXNwb25zZRIXCg9jdXJyZW50X3ZlcnNpb24YASABKAkSLAoHY2hhbm5lbBgCIAEoDjIbLmluc3RhbmNlLnYxLlJlbGVhc2VDaGFubmVsEjEKD2xhdGVzdF9lbGlnaWJsZRgDIAEoCzIYLmluc3RhbmNlLnYxLlJlbGVhc2VJbmZvEhgKEHVwZGF0ZV9hdmFpbGFibGUYBCABKAgSFwoPaW5zdGFsbF9jb21tYW5kGAUgASgJEhsKE29uZV9jbGlja19hdmFpbGFibGUYBiABKAgSGAoQc3RhdHVzX2F2YWlsYWJsZRgHIAEoCCJIChhTZXRSZWxlYXNlQ2hhbm5lbFJlcXVlc3QSLAoHY2hhbm5lbBgBIAEoDjIbLmluc3RhbmNlLnYxLlJlbGVhc2VDaGFubmVsIhsKGVNldFJlbGVhc2VDaGFubmVsUmVzcG9uc2UiwwIKEFVwZ3JhZGVPcGVyYXRpb24SCgoCaWQYASABKAkSFgoOdGFyZ2V0X3ZlcnNpb24YAiABKAkSKAoFcGhhc2UYAyABKA4yGS5pbnN0YW5jZS52MS5VcGdyYWRlUGhhc2USDwoHbWVzc2FnZRgEIAEoCRIuCgpzdGFydGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxjb21wbGV0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWVycm9yGAggASgJEhgKEHJlY292ZXJ5X2NvbW1hbmQYCSABKAkSFQoNaG9zdF9sb2dfcGF0aBgKIAEoCSIvChVUcmlnZ2VyVXBncmFkZVJlcXVlc3QSFgoOdGFyZ2V0X3ZlcnNpb24YASABKAkiSgoWVHJpZ2dlclVwZ3JhZGVSZXNwb25zZRIwCglvcGVyYXRpb24YASABKAsyHS5pbnN0YW5jZS52MS5VcGdyYWRlT3BlcmF0aW9uIhkKF0dldFVwZ3JhZGVTdGF0dXNSZXF1ZXN0ImgKGEdldFVwZ3JhZGVTdGF0dXNSZXNwb25zZRIaChJleGVjdXRvcl9hdmFpbGFibGUYASABKAgSMAoJb3BlcmF0aW9uGAIgASgLMh0uaW5zdGFuY2UudjEuVXBncmFkZU9wZXJhdGlvbipwCg5SZWxlYXNlQ2hhbm5lbBIfChtSRUxFQVNFX0NIQU5ORUxfVU5TUEVDSUZJRUQQABIaChZSRUxFQVNFX0NIQU5ORUxfU1RBQkxFEAESIQodUkVMRUFTRV9DSEFOTkVMX1NUQUJMRV9BTkRfUkMQAiqQAgoMVXBncmFkZVBoYXNlEh0KGVVQR1JBREVfUEhBU0VfVU5TUEVDSUZJRUQQABIYChRVUEdSQURFX1BIQVNFX1FVRVVFRBABEh0KGVVQR1JBREVfUEhBU0VfRE9XTkxPQURJTkcQAhIbChdVUEdSQURFX1BIQVNFX1ZFUklGWUlORxADEhkKFVVQR1JBREVfUEhBU0VfU1RBR0lORxAEEhsKF1VQR1JBREVfUEhBU0VfUFJFRkxJR0hUEAUSHAoYVVBHUkFERV9QSEFTRV9BQ1RJVkFUSU5HEAYSGwoXVVBHUkFERV9QSEFTRV9TVUNDRUVERUQQBxIYChRVUEdSQURFX1BIQVNFX0ZBSUxFRBAIMp8DChVJbnN0YW5jZVVwZGF0ZVNlcnZpY2USYQoPR2V0VXBkYXRlU3RhdHVzEiMuaW5zdGFuY2UudjEuR2V0VXBkYXRlU3RhdHVzUmVxdWVzdBokLmluc3RhbmNlLnYxLkdldFVwZGF0ZVN0YXR1c1Jlc3BvbnNlIgOQAgESYgoRU2V0UmVsZWFzZUNoYW5uZWwSJS5pbnN0YW5jZS52MS5TZXRSZWxlYXNlQ2hhbm5lbFJlcXVlc3QaJi5pbnN0YW5jZS52MS5TZXRSZWxlYXNlQ2hhbm5lbFJlc3BvbnNlElkKDlRyaWdnZXJVcGdyYWRlEiIuaW5zdGFuY2UudjEuVHJpZ2dlclVwZ3JhZGVSZXF1ZXN0GiMuaW5zdGFuY2UudjEuVHJpZ2dlclVwZ3JhZGVSZXNwb25zZRJkChBHZXRVcGdyYWRlU3RhdHVzEiQuaW5zdGFuY2UudjEuR2V0VXBncmFkZVN0YXR1c1JlcXVlc3QaJS5pbnN0YW5jZS52MS5HZXRVcGdyYWRlU3RhdHVzUmVzcG9uc2UiA5ACAUK3AQoPY29tLmluc3RhbmNlLnYxQgxVcGRhdGVzUHJvdG9QAVpJZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvaW5zdGFuY2UvdjE7aW5zdGFuY2V2MaICA0lYWKoCC0luc3RhbmNlLlYxygILSW5zdGFuY2VcVjHiAhdJbnN0YW5jZVxWMVxHUEJNZXRhZGF0YeoCDEluc3RhbmNlOjpWMWIGcHJvdG8z",
     [file_google_protobuf_timestamp],
   );
 
@@ -97,6 +97,14 @@ export type GetUpdateStatusResponse = Message<"instance.v1.GetUpdateStatusRespon
   installCommand: string;
 
   /**
+   * True only when the independently installed host executor is reachable.
+   * False keeps the copy-command fallback visible.
+   *
+   * @generated from field: bool one_click_available = 6;
+   */
+  oneClickAvailable: boolean;
+
+  /**
    * False until release discovery succeeds and after its latest list fetch
    * fails. Callers must not interpret update_available=false as up to date
    * while status is unavailable.
@@ -146,6 +154,141 @@ export const SetReleaseChannelResponseSchema: GenMessage<SetReleaseChannelRespon
   messageDesc(file_instance_v1_updates, 4);
 
 /**
+ * @generated from message instance.v1.UpgradeOperation
+ */
+export type UpgradeOperation = Message<"instance.v1.UpgradeOperation"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string target_version = 2;
+   */
+  targetVersion: string;
+
+  /**
+   * @generated from field: instance.v1.UpgradePhase phase = 3;
+   */
+  phase: UpgradePhase;
+
+  /**
+   * @generated from field: string message = 4;
+   */
+  message: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp started_at = 5;
+   */
+  startedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 6;
+   */
+  updatedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp completed_at = 7;
+   */
+  completedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: string error = 8;
+   */
+  error: string;
+
+  /**
+   * @generated from field: string recovery_command = 9;
+   */
+  recoveryCommand: string;
+
+  /**
+   * @generated from field: string host_log_path = 10;
+   */
+  hostLogPath: string;
+};
+
+/**
+ * Describes the message instance.v1.UpgradeOperation.
+ * Use `create(UpgradeOperationSchema)` to create a new message.
+ */
+export const UpgradeOperationSchema: GenMessage<UpgradeOperation> =
+  /*@__PURE__*/
+  messageDesc(file_instance_v1_updates, 5);
+
+/**
+ * @generated from message instance.v1.TriggerUpgradeRequest
+ */
+export type TriggerUpgradeRequest = Message<"instance.v1.TriggerUpgradeRequest"> & {
+  /**
+   * @generated from field: string target_version = 1;
+   */
+  targetVersion: string;
+};
+
+/**
+ * Describes the message instance.v1.TriggerUpgradeRequest.
+ * Use `create(TriggerUpgradeRequestSchema)` to create a new message.
+ */
+export const TriggerUpgradeRequestSchema: GenMessage<TriggerUpgradeRequest> =
+  /*@__PURE__*/
+  messageDesc(file_instance_v1_updates, 6);
+
+/**
+ * @generated from message instance.v1.TriggerUpgradeResponse
+ */
+export type TriggerUpgradeResponse = Message<"instance.v1.TriggerUpgradeResponse"> & {
+  /**
+   * @generated from field: instance.v1.UpgradeOperation operation = 1;
+   */
+  operation?: UpgradeOperation | undefined;
+};
+
+/**
+ * Describes the message instance.v1.TriggerUpgradeResponse.
+ * Use `create(TriggerUpgradeResponseSchema)` to create a new message.
+ */
+export const TriggerUpgradeResponseSchema: GenMessage<TriggerUpgradeResponse> =
+  /*@__PURE__*/
+  messageDesc(file_instance_v1_updates, 7);
+
+/**
+ * @generated from message instance.v1.GetUpgradeStatusRequest
+ */
+export type GetUpgradeStatusRequest = Message<"instance.v1.GetUpgradeStatusRequest"> & {};
+
+/**
+ * Describes the message instance.v1.GetUpgradeStatusRequest.
+ * Use `create(GetUpgradeStatusRequestSchema)` to create a new message.
+ */
+export const GetUpgradeStatusRequestSchema: GenMessage<GetUpgradeStatusRequest> =
+  /*@__PURE__*/
+  messageDesc(file_instance_v1_updates, 8);
+
+/**
+ * @generated from message instance.v1.GetUpgradeStatusResponse
+ */
+export type GetUpgradeStatusResponse = Message<"instance.v1.GetUpgradeStatusResponse"> & {
+  /**
+   * @generated from field: bool executor_available = 1;
+   */
+  executorAvailable: boolean;
+
+  /**
+   * @generated from field: instance.v1.UpgradeOperation operation = 2;
+   */
+  operation?: UpgradeOperation | undefined;
+};
+
+/**
+ * Describes the message instance.v1.GetUpgradeStatusResponse.
+ * Use `create(GetUpgradeStatusResponseSchema)` to create a new message.
+ */
+export const GetUpgradeStatusResponseSchema: GenMessage<GetUpgradeStatusResponse> =
+  /*@__PURE__*/
+  messageDesc(file_instance_v1_updates, 9);
+
+/**
  * @generated from enum instance.v1.ReleaseChannel
  */
 export enum ReleaseChannel {
@@ -169,6 +312,61 @@ export enum ReleaseChannel {
  * Describes the enum instance.v1.ReleaseChannel.
  */
 export const ReleaseChannelSchema: GenEnum<ReleaseChannel> = /*@__PURE__*/ enumDesc(file_instance_v1_updates, 0);
+
+/**
+ * @generated from enum instance.v1.UpgradePhase
+ */
+export enum UpgradePhase {
+  /**
+   * @generated from enum value: UPGRADE_PHASE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: UPGRADE_PHASE_QUEUED = 1;
+   */
+  QUEUED = 1,
+
+  /**
+   * @generated from enum value: UPGRADE_PHASE_DOWNLOADING = 2;
+   */
+  DOWNLOADING = 2,
+
+  /**
+   * @generated from enum value: UPGRADE_PHASE_VERIFYING = 3;
+   */
+  VERIFYING = 3,
+
+  /**
+   * @generated from enum value: UPGRADE_PHASE_STAGING = 4;
+   */
+  STAGING = 4,
+
+  /**
+   * @generated from enum value: UPGRADE_PHASE_PREFLIGHT = 5;
+   */
+  PREFLIGHT = 5,
+
+  /**
+   * @generated from enum value: UPGRADE_PHASE_ACTIVATING = 6;
+   */
+  ACTIVATING = 6,
+
+  /**
+   * @generated from enum value: UPGRADE_PHASE_SUCCEEDED = 7;
+   */
+  SUCCEEDED = 7,
+
+  /**
+   * @generated from enum value: UPGRADE_PHASE_FAILED = 8;
+   */
+  FAILED = 8,
+}
+
+/**
+ * Describes the enum instance.v1.UpgradePhase.
+ */
+export const UpgradePhaseSchema: GenEnum<UpgradePhase> = /*@__PURE__*/ enumDesc(file_instance_v1_updates, 1);
 
 /**
  * @generated from service instance.v1.InstanceUpdateService
@@ -195,5 +393,27 @@ export const InstanceUpdateService: GenService<{
     methodKind: "unary";
     input: typeof SetReleaseChannelRequestSchema;
     output: typeof SetReleaseChannelResponseSchema;
+  };
+  /**
+   * TriggerUpgrade asks the host updater to install the exact release that
+   * GetUpdateStatus currently offers. Gated by instance:update.
+   *
+   * @generated from rpc instance.v1.InstanceUpdateService.TriggerUpgrade
+   */
+  triggerUpgrade: {
+    methodKind: "unary";
+    input: typeof TriggerUpgradeRequestSchema;
+    output: typeof TriggerUpgradeResponseSchema;
+  };
+  /**
+   * GetUpgradeStatus reports durable host-side progress across fleetd
+   * restarts. Gated by instance:update.
+   *
+   * @generated from rpc instance.v1.InstanceUpdateService.GetUpgradeStatus
+   */
+  getUpgradeStatus: {
+    methodKind: "unary";
+    input: typeof GetUpgradeStatusRequestSchema;
+    output: typeof GetUpgradeStatusResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_instance_v1_updates, 0);

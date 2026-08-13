@@ -172,3 +172,39 @@ func TestMetricIngestStalledRule_NoPollableMiners(t *testing.T) {
 	got := runRule(t, db, rawSQL)
 	require.Equal(t, map[string]float64{"": 0}, got, "expected only the healthy global sentinel")
 }
+
+// TestHeartbeatRefreshPolicyWindowIsNarrow guards migration 000133. The rule
+// above reads a materialized_only aggregate, so its refresh policy has to keep
+// succeeding or the aggregate empties and the rule fires on healthy ingest.
+// 000082's 1-day start_offset re-scanned roughly a day of notification_metric_sample
+// every 30s, most of it compressed once 000121 cut chunks to 1 hour and compression
+// to 4 hours. Keep the window inside that uncompressed region: the rule only ever
+// reads max(bucket), so a wider backfill buys nothing and costs a refresh that can
+// outrun its own schedule.
+func TestHeartbeatRefreshPolicyWindowIsNarrow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	db := testutil.GetTestDB(t)
+
+	var startOffset time.Duration
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT extract(epoch from (j.config->>'start_offset')::interval)::bigint * 1000000000
+		FROM timescaledb_information.jobs j
+		WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
+		  AND j.hypertable_name IN (
+		      SELECT ca.view_name
+		      FROM timescaledb_information.continuous_aggregates ca
+		      WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat'
+		      UNION ALL
+		      SELECT ca.materialization_hypertable_name
+		      FROM timescaledb_information.continuous_aggregates ca
+		      WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat'
+		  )`).Scan(&startOffset),
+		"no refresh policy found on fleet_telemetry_poll_heartbeat")
+
+	require.LessOrEqual(t, startOffset, 4*time.Hour,
+		"refresh window must stay inside the 4h uncompressed region (see migration 000121)")
+	require.Greater(t, startOffset, 5*time.Minute,
+		"window must still comfortably exceed the rule's 5m staleness threshold")
+}

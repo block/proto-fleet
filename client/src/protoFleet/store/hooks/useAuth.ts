@@ -8,6 +8,8 @@ import { useFleetStore } from "../useFleetStore";
 
 export const useSessionExpiry = () => useFleetStore((state) => state.auth.sessionExpiry);
 
+export const useSessionGeneration = () => useFleetStore((state) => state.auth.sessionGeneration);
+
 export const useIsAuthenticated = () => useFleetStore((state) => state.auth.isAuthenticated);
 
 export const useUsername = () => useFleetStore((state) => state.auth.username);

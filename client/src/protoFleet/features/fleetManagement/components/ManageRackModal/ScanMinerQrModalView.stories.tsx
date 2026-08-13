@@ -44,12 +44,14 @@ const Harness = ({
   liveCamera = true,
   cameraStatus,
   cameraError = "",
+  assigning = false,
 }: {
   phase: ScanPhase;
   targetSlotLabel?: string;
   liveCamera?: boolean;
   cameraStatus?: string;
   cameraError?: string;
+  assigning?: boolean;
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scanRegionRef = useRef<HTMLDivElement | null>(null);
@@ -66,6 +68,7 @@ const Harness = ({
       cameraStatus={cameraStatus ?? (phase.kind === "scanning" ? "scanning" : "idle")}
       cameraError={cameraError}
       fileInputRef={fileInputRef}
+      assigning={assigning}
       onDismiss={action("onDismiss")}
       onConfirmFound={action("onConfirmFound")}
       onUndoAssignment={action("onUndoAssignment")}
@@ -143,6 +146,18 @@ export const FoundInAnotherRack: Story = {
       snapshot: mockSnapshot({ placement: { rack: { id: 7n, label: "Rack B-02" } } } as Partial<MinerStateSnapshot>),
       isReassignment: true,
     },
+  },
+};
+
+/** The confirmed assignment is mid-write: the dialog holds until it lands. */
+export const FoundAssignmentPending: Story = {
+  args: {
+    phase: {
+      kind: "found",
+      snapshot: mockSnapshot({ placement: { rack: { id: 7n, label: "Rack B-02" } } } as Partial<MinerStateSnapshot>),
+      isReassignment: true,
+    },
+    assigning: true,
   },
 };
 

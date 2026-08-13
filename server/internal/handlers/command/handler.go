@@ -282,7 +282,7 @@ func (h *Handler) GetCommandBatchLogBundle(
 	if _, err := middleware.RequirePermission(ctx, authz.PermMinerDownloadLogs, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	resp, err := h.commandSvc.GetCommandBatchLogBundle(req.Msg.BatchIdentifier)
+	resp, err := h.commandSvc.GetCommandBatchLogBundle(ctx, req.Msg.BatchIdentifier)
 	if err != nil {
 		return nil, err
 	}

@@ -25,20 +25,19 @@ type runtimeTestActivation struct {
 
 type runtimeTestOwner struct {
 	activations chan runtimeTestActivation
-	demotions   chan error
-	resumed     chan struct{}
+	stopped     chan struct{}
 }
 
 func newRuntimeTestOwner() *runtimeTestOwner {
 	return &runtimeTestOwner{
-		activations: make(chan runtimeTestActivation, 4),
-		demotions:   make(chan error, 4),
-		resumed:     make(chan struct{}, 4),
+		activations: make(chan runtimeTestActivation, 1),
+		stopped:     make(chan struct{}),
 	}
 }
 
 func (o *runtimeTestOwner) Run(ctx context.Context) error {
 	<-ctx.Done()
+	close(o.stopped)
 	return fmt.Errorf("runtime test owner stopped: %w", ctx.Err())
 }
 
@@ -51,39 +50,62 @@ func (o *runtimeTestOwner) WaitForActive(ctx context.Context) (context.Context, 
 	}
 }
 
-func (o *runtimeTestOwner) RequestDemotion(err error) {
-	o.demotions <- err
+func (o *runtimeTestOwner) Snapshot() Snapshot { return Snapshot{} }
+
+type missedActivationOwner struct{}
+
+func (missedActivationOwner) Run(context.Context) error {
+	return ErrOwnershipLost
 }
 
-func (o *runtimeTestOwner) ResumeAcquisition() {
-	o.resumed <- struct{}{}
+func (missedActivationOwner) WaitForActive(ctx context.Context) (context.Context, Token, error) {
+	<-ctx.Done()
+	return nil, Token{}, fmt.Errorf("wait for missed activation: %w", ctx.Err())
 }
+
+func (missedActivationOwner) Snapshot() Snapshot { return Snapshot{} }
 
 type runtimeTestGroup struct {
 	mu sync.Mutex
 
-	started     int
-	stopped     int
-	startErr    error
-	stopErr     error
-	terminalErr error
-	aborted     int
-	abortFirst  bool
-	startedCh   chan context.Context
-	stoppedCh   chan struct{}
+	started   int
+	stopped   int
+	aborted   int
+	startErr  error
+	stopErr   error
+	abortErr  error
+	abortWait <-chan struct{}
+	startedCh chan context.Context
+	stoppedCh chan struct{}
+	abortedCh chan context.Context
 }
 
 func newRuntimeTestGroup() *runtimeTestGroup {
 	return &runtimeTestGroup{
-		startedCh: make(chan context.Context, 4),
-		stoppedCh: make(chan struct{}, 4),
+		startedCh: make(chan context.Context, 1),
+		stoppedCh: make(chan struct{}, 1),
+		abortedCh: make(chan context.Context, 1),
 	}
+}
+
+func (g *runtimeTestGroup) Abort(ctx context.Context) error {
+	g.mu.Lock()
+	g.aborted++
+	err := g.abortErr
+	g.mu.Unlock()
+	g.abortedCh <- ctx
+	if g.abortWait != nil {
+		select {
+		case <-g.abortWait:
+		case <-ctx.Done():
+		}
+	}
+	return err
 }
 
 func (g *runtimeTestGroup) Start(ctx context.Context) error {
 	g.mu.Lock()
 	g.started++
-	g.aborted = 0
 	err := g.startErr
 	g.mu.Unlock()
 	g.startedCh <- ctx
@@ -93,29 +115,10 @@ func (g *runtimeTestGroup) Start(ctx context.Context) error {
 func (g *runtimeTestGroup) Stop(context.Context) error {
 	g.mu.Lock()
 	g.stopped++
-	g.abortFirst = g.aborted > 0
 	err := g.stopErr
 	g.mu.Unlock()
 	g.stoppedCh <- struct{}{}
 	return err
-}
-
-func (g *runtimeTestGroup) Abort() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.aborted++
-}
-
-func (g *runtimeTestGroup) wasAbortedBeforeStop() bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.abortFirst
-}
-
-func (g *runtimeTestGroup) Err() error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.terminalErr
 }
 
 func TestNewRuntimeRequiresExplicitCriticalHealth(t *testing.T) {
@@ -129,241 +132,224 @@ func TestNewRuntimeRequiresExplicitCriticalHealth(t *testing.T) {
 	require.ErrorContains(t, err, "requires a critical health check")
 }
 
-func TestRuntimeStartsOnlyForOwnedLifetimeAndDrainsOnDemotion(t *testing.T) {
+func TestHARuntimeStartsOnlyAfterOwnership(t *testing.T) {
+	// Arrange
 	owner := newRuntimeTestOwner()
 	group := newRuntimeTestGroup()
 	runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
 	runCtx, cancelRun := context.WithCancel(t.Context())
 	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
+	go func() { runResult <- runtime.Run(runCtx) }()
 
+	// Act
 	require.Never(t, runtime.Active, 20*time.Millisecond, time.Millisecond)
-	select {
-	case <-group.startedCh:
-		t.Fatal("passive runtime started jobs")
-	default:
-	}
-
 	activeCtx, cancelActive := context.WithCancel(t.Context())
-	owner.activations <- runtimeTestActivation{
-		ctx:   activeCtx,
-		token: Token{WriterGeneration: 7, LeaseEpoch: 11},
-	}
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+
+	// Assert
 	requireReceiveContext(t, group.startedCh)
 	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
 
-	requestCtx, release, err := runtime.Admit(t.Context())
-	require.NoError(t, err)
-
-	cancelActive()
-	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
-	requireReceive(t, group.stoppedCh)
-	require.Never(t, channelClosed(owner.resumed), 20*time.Millisecond, time.Millisecond)
-	release()
-	requireReceive(t, owner.resumed)
-	require.False(t, runtime.Active())
-
 	cancelRun()
+	cancelActive()
+	requireReceive(t, group.stoppedCh)
 	require.NoError(t, <-runResult)
 }
 
-func TestRuntimeAdmissionDrainTimeoutIsTerminal(t *testing.T) {
+func TestHARuntimeReturnsWhenOwnershipEndsBeforeActivationIsObserved(t *testing.T) {
+	// Arrange
+	runtime := newRuntime(missedActivationOwner{}, newRuntimeTestGroup(), alwaysHealthy, runtimeTestConfig())
+
+	// Act
+	err := runtime.Run(t.Context())
+
+	// Assert
+	require.ErrorIs(t, err, ErrOwnershipLost)
+	require.False(t, runtime.Active())
+}
+
+func TestHARuntimeAbortsOnOwnershipLoss(t *testing.T) {
+	// Arrange
 	owner := newRuntimeTestOwner()
 	group := newRuntimeTestGroup()
-	config := runtimeTestConfig()
-	config.CleanupTimeout = 20 * time.Millisecond
-	runtime := newRuntime(owner, group, alwaysHealthy, config)
-	runCtx, cancelRun := context.WithCancel(t.Context())
-	defer cancelRun()
+	runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
 	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
-
-	activeCtx, cancelActive := context.WithCancel(t.Context())
+	go func() { runResult <- runtime.Run(t.Context()) }()
+	activeCtx, cancelActive := context.WithCancelCause(t.Context())
 	owner.activations <- runtimeTestActivation{ctx: activeCtx}
-	requireReceiveContext(t, group.startedCh)
+	jobCtx := requireReceiveContext(t, group.startedCh)
 	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
-	_, release, err := runtime.Admit(t.Context())
+	requestCtx, release, err := runtime.Admit(t.Context())
 	require.NoError(t, err)
 	defer release()
 
-	cancelActive()
-	requireReceive(t, group.stoppedCh)
-	require.ErrorContains(t, <-runResult, "drain active Fleet requests")
-	select {
-	case <-owner.resumed:
-		t.Fatal("terminal admission drain failure resumed acquisition")
-	default:
-	}
+	// Act
+	cancelActive(ErrOwnershipLost)
+
+	// Assert
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, ErrRuntimeAborted)
+	require.ErrorIs(t, runErr, ErrOwnershipLost)
+	abortCtx := requireReceiveContext(t, group.abortedCh)
+	_, hasDeadline := abortCtx.Deadline()
+	require.True(t, hasDeadline)
+	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
+	require.False(t, runtime.Active())
+	require.Error(t, jobCtx.Err())
 }
 
-func TestRuntimeDemotesWhenCriticalHealthFailsAfterAdmission(t *testing.T) {
+func TestHARuntimeExitsWhenCriticalHealthFails(t *testing.T) {
+	// Arrange
 	owner := newRuntimeTestOwner()
 	group := newRuntimeTestGroup()
 	var healthy atomic.Bool
 	healthy.Store(true)
 	runtime := newRuntime(owner, group, healthy.Load, runtimeTestConfig())
-	runCtx, cancelRun := context.WithCancel(t.Context())
 	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
-
+	go func() { runResult <- runtime.Run(t.Context()) }()
 	activeCtx, cancelActive := context.WithCancel(t.Context())
 	defer cancelActive()
 	owner.activations <- runtimeTestActivation{ctx: activeCtx}
 	requireReceiveContext(t, group.startedCh)
 	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
-	requestCtx, release, err := runtime.Admit(t.Context())
-	require.NoError(t, err)
 
+	// Act
 	healthy.Store(false)
-	_ = requireReceiveError(t, owner.demotions)
-	requireReceive(t, group.stoppedCh)
-	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
-	release()
-	requireReceive(t, owner.resumed)
-	require.False(t, runtime.Active())
-	require.True(t, group.wasAbortedBeforeStop())
 
-	cancelRun()
-	require.NoError(t, <-runResult)
+	// Assert
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, ErrRuntimeAborted)
+	require.ErrorIs(t, runErr, errCriticalRuntimeUnhealthy)
+	requireReceiveContext(t, group.abortedCh)
+	require.False(t, runtime.Active())
 }
 
-func TestRuntimeDemotesWhenCriticalHealthFailsDuringStartup(t *testing.T) {
-	owner := newRuntimeTestOwner()
-	group := newRuntimeTestGroup()
-	runtime := newRuntime(owner, group, func() bool { return false }, runtimeTestConfig())
-	runCtx, cancelRun := context.WithCancel(t.Context())
-	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
+func TestEndpointMonitorAllowsDelayedStartupThenFailsClosed(t *testing.T) {
+	// Arrange
+	healthy := false
+	startedAt := time.Unix(100, 0)
+	monitor := newEndpointMonitor(func() bool { return healthy }, startedAt, endpointStartupTimeout)
 
+	// Act and assert
+	require.NoError(t, monitor.check(startedAt.Add(endpointHeartbeatTimeout)))
+	healthy = true
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout-time.Second)))
+	healthy = false
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout)))
+	healthy = true
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout+time.Second)))
+	healthy = false
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout+2*time.Second)))
+	require.NoError(t, monitor.check(startedAt.Add(endpointStartupTimeout+3*time.Second)))
+	require.ErrorIs(t, monitor.check(startedAt.Add(endpointStartupTimeout+4*time.Second)), errEndpointUnavailable)
+
+	neverReady := newEndpointMonitor(func() bool { return false }, startedAt, endpointStartupTimeout)
+	require.ErrorIs(t, neverReady.check(startedAt.Add(endpointStartupTimeout)), errEndpointUnavailable)
+}
+
+func TestEndpointLossStopsLeaseRenewalBeforeAbortCleanup(t *testing.T) {
+	// Arrange
+	owner := newRuntimeTestOwner()
+	abortWait := make(chan struct{})
+	group := newRuntimeTestGroup()
+	group.abortWait = abortWait
+	var endpointHealthy atomic.Bool
+	endpointChecked := make(chan struct{}, 1)
+	endpointHealthy.Store(true)
+	config := runtimeTestConfig()
+	config.EndpointHealthy = func() bool {
+		healthy := endpointHealthy.Load()
+		if healthy {
+			select {
+			case endpointChecked <- struct{}{}:
+			default:
+			}
+		}
+		return healthy
+	}
+	runtime := newRuntime(owner, group, alwaysHealthy, config)
+	runResult := make(chan error, 1)
+	go func() { runResult <- runtime.Run(t.Context()) }()
 	activeCtx, cancelActive := context.WithCancel(t.Context())
 	defer cancelActive()
-	owner.activations <- runtimeTestActivation{ctx: activeCtx}
-	requireReceiveContext(t, group.startedCh)
-	_ = requireReceiveError(t, owner.demotions)
-	requireReceive(t, group.stoppedCh)
-	requireReceive(t, owner.resumed)
-	require.False(t, runtime.Active())
-
-	cancelRun()
-	require.NoError(t, <-runResult)
-}
-
-func TestRuntimeStopsOwnershipAfterTerminalCleanupFailure(t *testing.T) {
-	owner := newRuntimeTestOwner()
-	group := newRuntimeTestGroup()
-	group.stopErr = errors.New("cleanup failed")
-	group.terminalErr = group.stopErr
-	runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
-	runCtx, cancelRun := context.WithCancel(t.Context())
-	defer cancelRun()
-	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
-
-	activeCtx, cancelActive := context.WithCancel(t.Context())
 	owner.activations <- runtimeTestActivation{ctx: activeCtx}
 	requireReceiveContext(t, group.startedCh)
 	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
-	cancelActive()
+	requireReceive(t, endpointChecked)
 
-	err := <-runResult
-	require.ErrorContains(t, err, "cleanup failed")
+	// Act
+	endpointHealthy.Store(false)
+	requireReceiveContext(t, group.abortedCh)
+
+	// Assert
+	requireReceive(t, owner.stopped)
+	close(abortWait)
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, ErrRuntimeAborted)
+	require.ErrorIs(t, runErr, errEndpointUnavailable)
 	require.False(t, runtime.Active())
 }
 
-func TestRuntimeStartFailureDemotesWithoutAdmission(t *testing.T) {
+func TestHARuntimeJoinsAbortCleanupError(t *testing.T) {
+	// Arrange
 	owner := newRuntimeTestOwner()
 	group := newRuntimeTestGroup()
-	group.startErr = errors.New("start failed")
+	cleanupErr := errors.New("cleanup failed")
+	group.abortErr = cleanupErr
 	runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
-	runCtx, cancelRun := context.WithCancel(t.Context())
 	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
-
-	activeCtx, cancelActive := context.WithCancel(t.Context())
-	defer cancelActive()
+	go func() { runResult <- runtime.Run(t.Context()) }()
+	activeCtx, cancelActive := context.WithCancelCause(t.Context())
 	owner.activations <- runtimeTestActivation{ctx: activeCtx}
 	requireReceiveContext(t, group.startedCh)
-	require.ErrorContains(t, requireReceiveError(t, owner.demotions), "start failed")
-	requireReceive(t, owner.resumed)
-	require.False(t, runtime.Active())
+	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
 
-	cancelRun()
-	require.NoError(t, <-runResult)
+	// Act
+	cancelActive(ErrOwnershipLost)
+
+	// Assert
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, ErrRuntimeAborted)
+	require.ErrorIs(t, runErr, ErrOwnershipLost)
+	require.ErrorIs(t, runErr, cleanupErr)
 }
 
-func TestRuntimeTerminalStartFailureStopsCoordinator(t *testing.T) {
-	owner := newRuntimeTestOwner()
-	group := newRuntimeTestGroup()
-	group.startErr = errors.New("start failed")
-	group.terminalErr = errors.New("rollback failed")
-	runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
-	runCtx, cancelRun := context.WithCancel(t.Context())
-	defer cancelRun()
-	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
-
-	activeCtx, cancelActive := context.WithCancel(t.Context())
-	defer cancelActive()
-	owner.activations <- runtimeTestActivation{ctx: activeCtx}
-	requireReceiveContext(t, group.startedCh)
-	err := <-runResult
-	require.ErrorContains(t, err, "rollback failed")
-	select {
-	case <-owner.resumed:
-		t.Fatal("terminal cleanup failure resumed acquisition")
-	default:
-	}
-}
-
-func TestStandaloneRuntimePreservesSingleHostLifecycle(t *testing.T) {
+func TestStandaloneRuntimePreservesGracefulLifecycle(t *testing.T) {
+	// Arrange
 	group := newRuntimeTestGroup()
 	runtime := newRuntime(nil, group, alwaysHealthy, runtimeTestConfig())
 	runCtx, cancelRun := context.WithCancel(t.Context())
 	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
+	go func() { runResult <- runtime.Run(runCtx) }()
 
+	// Act
 	requireReceiveContext(t, group.startedCh)
 	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
 	cancelRun()
+
+	// Assert
 	requireReceive(t, group.stoppedCh)
 	require.NoError(t, <-runResult)
 }
 
 func TestStandaloneRuntimeStopsWhenCriticalHealthFails(t *testing.T) {
+	// Arrange
 	group := newRuntimeTestGroup()
 	var healthy atomic.Bool
 	healthy.Store(true)
 	runtime := newRuntime(nil, group, healthy.Load, runtimeTestConfig())
-	runCtx, cancelRun := context.WithCancel(t.Context())
-	defer cancelRun()
 	runResult := make(chan error, 1)
-	go func() {
-		runResult <- runtime.Run(runCtx)
-	}()
-
+	go func() { runResult <- runtime.Run(t.Context()) }()
 	requireReceiveContext(t, group.startedCh)
 	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
 	requestCtx, release, err := runtime.Admit(t.Context())
 	require.NoError(t, err)
 	defer release()
 
+	// Act
 	healthy.Store(false)
+
+	// Assert
 	requireReceive(t, group.stoppedCh)
 	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
 	require.False(t, runtime.Active())
@@ -397,17 +383,6 @@ func requireReceiveContext(t *testing.T, ch <-chan context.Context) context.Cont
 		return ctx
 	case <-time.After(eventuallyTimeout):
 		t.Fatal("timed out waiting for context")
-		return nil
-	}
-}
-
-func requireReceiveError(t *testing.T, ch <-chan error) error {
-	t.Helper()
-	select {
-	case err := <-ch:
-		return err
-	case <-time.After(eventuallyTimeout):
-		t.Fatal("timed out waiting for error")
 		return nil
 	}
 }

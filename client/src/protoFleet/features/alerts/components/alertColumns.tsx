@@ -2,10 +2,10 @@ import StatusDot from "@/protoFleet/features/alerts/components/StatusDot";
 import type { AlertHistoryEntry } from "@/protoFleet/features/alerts/types";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
-// Shared alert-row cells, reused by the history table and the per-miner active-alerts modal.
-export const StatusBadge = ({ status }: { status: AlertHistoryEntry["status"] }) => (
-  <StatusDot dotClass={status === "resolved" ? "bg-intent-success-fill" : "bg-intent-critical-fill"}>
-    {status === "resolved" ? "Resolved" : "Firing"}
+// Shared alert-row cells, reused by the history table and the affected-miners modal.
+export const StatusCell = (entry: Pick<AlertHistoryEntry, "status">) => (
+  <StatusDot dotClass={entry.status === "resolved" ? "bg-intent-success-fill" : "bg-intent-critical-fill"}>
+    {entry.status === "resolved" ? "Resolved" : "Firing"}
   </StatusDot>
 );
 
@@ -18,8 +18,19 @@ export const AlertNameCell = (entry: AlertHistoryEntry) => (
   </span>
 );
 
-export const ReceivedCell = (entry: AlertHistoryEntry) => (
-  <span className="text-text-primary-50">{formatTimestamp(isoToEpochSeconds(entry.received_at))}</span>
+export const TimestampText = ({ iso }: { iso: string }) => (
+  <span className="text-text-primary-50">{formatTimestamp(isoToEpochSeconds(iso))}</span>
+);
+
+export const ReceivedCell = (entry: AlertHistoryEntry) => <TimestampText iso={entry.received_at} />;
+
+// Device name and MAC are redacted to "" without org-wide miner:read, hence the shared em-dash fallback.
+export const DeviceNameCell = (entry: AlertHistoryEntry) => (
+  <span className="text-text-primary-50">{entry.device_name || "—"}</span>
+);
+
+export const DeviceMacCell = (entry: AlertHistoryEntry) => (
+  <span className="text-text-primary-50">{entry.device_mac || "—"}</span>
 );
 
 export const SummaryCell = (entry: AlertHistoryEntry) => (

@@ -107,7 +107,7 @@ func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, col
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", collectionID)
 		}
-		return nil, fleeterror.NewInternalErrorf("failed to get collection: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get collection: %w", err)
 	}
 
 	collection := newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
@@ -124,7 +124,7 @@ func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, fleeterror.NewInternalErrorf("failed to get rack info: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to get rack info: %w", err)
 	}
 
 	rackInfo := &pb.RackInfo{
@@ -235,7 +235,7 @@ func (s *SQLCollectionStore) LockRackPlacementForWrite(ctx context.Context, coll
 		if errors.Is(err, sql.ErrNoRows) {
 			return interfaces.RackPlacement{}, fleeterror.NewNotFoundErrorf("rack %d not found", collectionID)
 		}
-		return interfaces.RackPlacement{}, fleeterror.NewInternalErrorf("failed to lock rack placement: %v", err)
+		return interfaces.RackPlacement{}, fleeterror.NewInternalErrorf("failed to lock rack placement: %w", err)
 	}
 	placement := interfaces.RackPlacement{
 		SiteID:     nullInt64ToPtr(row.SiteID),
@@ -388,7 +388,7 @@ func (s *SQLCollectionStore) GetDeviceSiteIDsByMembership(ctx context.Context, c
 		OrgID:       orgID,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to load device sites for rack members: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to load device sites for rack members: %w", err)
 	}
 	out := make(map[string]*int64, len(rows))
 	for _, row := range rows {
@@ -590,7 +590,7 @@ func (s *SQLCollectionStore) GetCollectionType(ctx context.Context, orgID int64,
 		if errors.Is(err, sql.ErrNoRows) {
 			return pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, fleeterror.NewNotFoundErrorf("collection not found: %d", collectionID)
 		}
-		return pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, fleeterror.NewInternalErrorf("failed to get collection type: %v", err)
+		return pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, fleeterror.NewInternalErrorf("failed to get collection type: %w", err)
 	}
 	return sqlDeviceSetTypeToProto(sqlType), nil
 }
@@ -942,7 +942,7 @@ func (s *SQLCollectionStore) SetRackSlotPosition(ctx context.Context, collection
 		if errors.As(err, &pgErr) && pgErr.ConstraintName == "uk_rack_slot_position" {
 			return fleeterror.NewInvalidArgumentErrorf("slot (%d, %d) is already occupied", row, column)
 		}
-		return fleeterror.NewInternalErrorf("failed to set rack slot position: %v", err)
+		return fleeterror.NewInternalErrorf("failed to set rack slot position: %w", err)
 	}
 	return nil
 }
@@ -1210,4 +1210,21 @@ func (s *SQLCollectionStore) GetDeviceIdentifiersByDeviceSetID(ctx context.Conte
 		return nil, fleeterror.NewInternalErrorf("failed to get device identifiers by device set ID: %v", err)
 	}
 	return ids, nil
+}
+
+// DeviceSetsByIDs returns the subset of requested IDs that are live device sets of the given type
+// in the org; callers diff against the request to detect cross-org, wrong-type, or missing ids.
+func (s *SQLCollectionStore) DeviceSetsByIDs(ctx context.Context, orgID int64, setType string, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).DeviceSetsByIDs(ctx, sqlc.DeviceSetsByIDsParams{
+		OrgID:   orgID,
+		SetType: sqlc.DeviceSetType(setType),
+		Ids:     ids,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to look up device sets by ID: %v", err)
+	}
+	return rows, nil
 }

@@ -44,6 +44,7 @@ services:
   patroni:
     profiles:
       - database
+    # Release packaging replaces this local-build tag with the bundle version.
     image: proto-fleet-timescaledb-ha:latest
     network_mode: host
     # Bootstrap needs root to copy host-owned 0600 secrets; the entrypoint drops to postgres.

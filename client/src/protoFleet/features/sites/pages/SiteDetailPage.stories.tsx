@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
@@ -18,6 +18,7 @@ import {
   SiteSchema,
   SiteWithCountsSchema,
 } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { SitesContext } from "@/protoFleet/api/SitesContext";
 import { useFleetStore } from "@/protoFleet/store";
 
 const SITE_ID = 1n;
@@ -213,6 +214,25 @@ const makeBuildingStats = (fixture: BuildingFixture): GetBuildingStatsResponse =
 const sum = (buildings: BuildingFixture[], selector: (building: BuildingFixture) => number) =>
   buildings.reduce((total, building) => total + selector(building), 0);
 
+// Shared by installMocks (for the listSites stub) and the story's
+// SitesContext value, so both describe the same site.
+const siteWithCounts = (scenario: SiteDetailScenario) =>
+  create(SiteWithCountsSchema, {
+    site: create(SiteSchema, {
+      id: SITE_ID,
+      name: scenario.name,
+      locationCity: scenario.city,
+      locationState: scenario.state,
+      address: scenario.address,
+      postalCode: scenario.postalCode,
+      country: "US",
+      powerCapacityMw: scenario.powerCapacityMw,
+    }),
+    buildingCount: BigInt(scenario.buildings.length),
+    rackCount: BigInt(sum(scenario.buildings, (building) => building.rackCount)),
+    deviceCount: BigInt(sum(scenario.buildings, (building) => building.deviceCount)),
+  });
+
 const installMocks = (scenario: SiteDetailScenario) => {
   const siteBuildings = scenario.buildings.map(makeBuilding);
   const buildingStatsById = new Map(
@@ -226,21 +246,7 @@ const installMocks = (scenario: SiteDetailScenario) => {
   const sleepingCount = sum(scenario.buildings, (building) => building.sleepingCount);
   const totalPowerKw = sum(scenario.buildings, (building) => building.powerKw ?? 0);
 
-  const site = create(SiteWithCountsSchema, {
-    site: create(SiteSchema, {
-      id: SITE_ID,
-      name: scenario.name,
-      locationCity: scenario.city,
-      locationState: scenario.state,
-      address: scenario.address,
-      postalCode: scenario.postalCode,
-      country: "US",
-      powerCapacityMw: scenario.powerCapacityMw,
-    }),
-    buildingCount: BigInt(scenario.buildings.length),
-    rackCount: BigInt(rackCount),
-    deviceCount: BigInt(deviceCount),
-  });
+  const site = siteWithCounts(scenario);
 
   useFleetStore.setState((state) => {
     state.auth.permissions = ["site:read", "site:manage"];
@@ -282,14 +288,32 @@ const SiteDetailStory = ({ scenario = "mixed", frameClassName }: SiteDetailStory
     installMocks(selectedScenario);
   }, [selectedScenario]);
 
+  // The page reads its site catalog from SitesProvider, so the story has to
+  // supply the context itself — mocking sitesClient.listSites isn't enough.
+  const sitesValue = useMemo(
+    () => ({
+      sites: [siteWithCounts(selectedScenario)],
+      sitesError: null,
+      sitesLoaded: true,
+      sitesSettled: true,
+      sitesPermissionDenied: false,
+      siteCatalogAccessGranted: true,
+      refetchSites: () => undefined,
+      registerSitesPoll: () => () => undefined,
+    }),
+    [selectedScenario],
+  );
+
   const story = (
-    <MemoryRouter initialEntries={[`/sites/${SITE_ID.toString()}`]}>
-      <Routes>
-        <Route path="/sites/:id" element={<SiteDetailPage />} />
-        <Route path="/buildings/:id" element={<div className="p-10 text-300">Building detail route</div>} />
-        <Route path="/fleet" element={<div className="p-10 text-300">Fleet route</div>} />
-      </Routes>
-    </MemoryRouter>
+    <SitesContext.Provider value={sitesValue}>
+      <MemoryRouter initialEntries={[`/sites/${SITE_ID.toString()}`]}>
+        <Routes>
+          <Route path="/sites/:id" element={<SiteDetailPage />} />
+          <Route path="/buildings/:id" element={<div className="p-10 text-300">Building detail route</div>} />
+          <Route path="/fleet" element={<div className="p-10 text-300">Fleet route</div>} />
+        </Routes>
+      </MemoryRouter>
+    </SitesContext.Provider>
   );
 
   return frameClassName ? <div className={frameClassName}>{story}</div> : story;

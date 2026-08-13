@@ -3,7 +3,7 @@
 - **Status**: approved
 - **Author(s)**: Ankit Goswami (@ankitgoswami)
 - **Created**: 2026-07-13
-- **Last updated**: 2026-07-14
+- **Last updated**: 2026-08-04
 
 ## Summary
 
@@ -29,7 +29,7 @@ This RFC deliberately scopes the HA promise to the real-time control plane. Curt
 The HA design needs to satisfy four requirements:
 
 - **No single point of failure** in the supported HA topology.
-- **Automatic recovery** of curtailment dispatch, with a target recovery time under 60 seconds.
+- **Automatic recovery** of curtailment dispatch, with a target recovery time under 180 seconds.
 - **Correctness over convenience**: never run two active control dispatchers at once.
 - **Deployment simplicity** across on-prem and cloud installs.
 
@@ -180,7 +180,7 @@ Non-Fleet consumers are handled separately:
 
 - Deployment scripts that currently `docker compose exec timescaledb ...` must become Patroni-aware and run write steps only against the current primary.
 - Grafana is not on the dispatch RTO path. It can use a best-effort Postgres datasource in v1. If Grafana cannot cleanly use the same HA writer targeting, that is not a blocker for control-plane HA.
-- `ha-status.sh` and operator-protected `/health/ha` are the authoritative HA status surfaces in v1.
+- `fleet-ha status` and loopback-only `/health/ha` are the authoritative HA status surfaces in v1.
 - HA failure alerts are derived from those control-plane status surfaces, not from Grafana dashboard availability or telemetry history.
 
 PostgreSQL documents multi-host connection strings and writable-session targeting:
@@ -205,11 +205,11 @@ Rules:
 - Acquire succeeds when the row is absent, expired according to DB time, or already held by the same process incarnation.
 - Renew succeeds only when `name`, `holder_id`, and `lease_epoch` still match and the lease has not expired according to DB time.
 - A process that resumes after its lease expires must reacquire the lease and receive a new epoch before active runtime can resume.
-- Active renews every few seconds with a short TTL.
+- Active renews every few seconds with a 10-second TTL.
 - Lease renewal and `/health/active` depend on critical active-runtime health. If the active instance cannot run required control loops, it must stop passing active health and stop renewing or relinquish the lease.
-- Every active-only runtime loop carries the activation epoch and confirms the local coordinator still owns that epoch before dispatching or claiming work.
-- External side effects must be fenced at the nearest durable boundary. Effects that cannot be receiver-fenced must be idempotent, cancelable, or reconciled before the implementation can claim zero dual dispatch.
-- A stalled old active that resumes after takeover cannot dispatch because its epoch is stale.
+- Command write transactions are bounded to 5 seconds, and state transitions require the expected prior state.
+- When command execution starts, it preserves `PENDING` work and fails `PROCESSING` work because the device outcome is unknown. The existing reaper then handles stale work and terminal batches on its normal schedule.
+- After an active process loses ownership or critical runtime health, it exits instead of trying to demote and restart active work in place. The service supervisor restarts it in passive mode.
 
 This lease model intentionally allows future per-subsystem leases, but v1 does not use them. Active/active Fleet is out of scope.
 
@@ -220,13 +220,13 @@ Both Fleet app instances run continuously.
 | Mode | Behavior |
 | ---- | -------- |
 | Active | Holds `fleet-active`; passes `/health/active`; serves product traffic; accepts Fleet Node ControlStreams; runs active-only runtime services. |
-| Passive | Does not hold `fleet-active`; fails `/health/active`; serves load-balancer-safe health and operator-protected HA status; rejects product traffic and Fleet Node ControlStreams with a machine-readable `not-active` detail. |
+| Passive | Does not hold `fleet-active`; fails `/health/active`; serves load-balancer-safe health and local HA status; rejects product traffic and Fleet Node ControlStreams with a machine-readable `not-active` detail. |
 
 Passive is deliberately dumb in v1. It does not need a carefully audited read-only API allowlist. The stable endpoint should not send normal UI/API traffic to passive.
 
 ### Runtime supervisor
 
-Add a runtime supervisor that starts and stops active-only services on lease transitions. Startup moves from "all runtime work starts when the process starts" to "active runtime work starts only after activation."
+Add a runtime supervisor that starts active-only services after lease acquisition. In HA mode, ownership loss terminates the process so the external service supervisor provides a clean restart.
 
 Active-only work in v1 includes:
 
@@ -239,8 +239,7 @@ Active-only work in v1 includes:
 Always-on services:
 
 - HTTP server;
-- load-balancer-safe health endpoints and operator-protected HA diagnostics;
-- auth/session plumbing needed to answer status endpoints;
+- load-balancer-safe health endpoints and loopback-only HA diagnostics;
 - components required to construct service dependencies but not start active work.
 
 Activation must trigger required control reconciliation promptly enough to meet the RTO target.
@@ -251,8 +250,7 @@ Add a single active-mode request gate for product traffic:
 
 - In active mode, requests proceed normally.
 - In passive mode, Connect/gRPC product traffic fails with `Unavailable` and a machine-readable `not-active` detail; other product transports use the equivalent retryable status.
-- Load-balancer-safe health endpoints and operator-protected HA diagnostics bypass active gating.
-- Bypassing active gating does not bypass auth; HA diagnostics still require operator access.
+- Load-balancer-safe health endpoints and loopback-only HA diagnostics bypass active gating.
 
 Fleet Node ControlStreams are explicitly gated:
 
@@ -272,25 +270,21 @@ Endpoints:
 | `/health` | Load-balancer-safe | Process liveness. Does not check DB or HA state. |
 | `/health/ready` | Load-balancer-safe | Fleet app can reach a database. Returns minimal readiness only. |
 | `/health/active` | Load-balancer-safe | Fleet app is the active controller and can safely run real-time control. Returns minimal active/passive status only. |
-| `/health/ha` | Operator-only | Admin-authenticated diagnostics: lease holder/epoch, DB primary, replication mode, quorum, degraded reasons. Redact sensitive hostnames and internal addresses where possible. |
+| `/health/ha` | Loopback-only | Redacted local runtime state: version, role, observation freshness, endpoint health, active lease expiry, and generic reason codes. |
 
 `/health/active` is intentionally narrow. It must not fail because Grafana is down, telemetry history is stale, alert history is unavailable, or dashboards cannot query.
 
-`/health/ha` is not a load-balancer health check and must not be exposed wherever unauthenticated `/health` endpoints are exposed. It bypasses active-mode gating so either Fleet app host can report diagnostics, but it still requires admin auth in every supported profile. Network allowlists can be added as defense in depth, not as the primary auth boundary.
+`/health/ha` is not a load-balancer health check. It binds to loopback and nginx explicitly returns 404 for the same path through the VIP. Local host or SSH access is the authentication boundary; v1 does not add bearer credentials for this endpoint.
 
-`ha-status.sh` provides the operator view:
+`fleet-ha status` provides the operator view as redacted JSON and exits nonzero when failover readiness is degraded:
 
-- Patroni cluster table;
-- etcd quorum;
-- sync standby and replication lag;
-- active Fleet holder and lease epoch;
-- VIP/load-balancer target;
-- `FAILOVER READY: YES/NO`;
-- degraded reason.
+- local runtime role, observation freshness, and endpoint health;
+- separate control and failover readiness;
+- generic reason codes for etcd quorum, writable Postgres, database redundancy, Fleet redundancy and version agreement, and VIP health.
 
-The v1 HA contract requires degraded readiness to be visible through `/health/ha` and `ha-status.sh`. Grafana dashboards, alert history, and notification metrics remain best-effort; they must not be the only source of HA degraded-state reporting.
+The v1 HA contract requires degraded readiness to be visible through `/health/ha` and `fleet-ha status`. Grafana dashboards, alert history, and notification metrics remain best-effort; they must not be the only source of HA degraded-state reporting.
 
-Live HA alerting is control-plane owned. The supported alert source should evaluate the same state exposed through `/health/ha` and `ha-status.sh`, including active Fleet count, lease freshness, DB primary reachability, sync standby health, etcd quorum, replication lag, and VIP/load-balancer target. Alert delivery can use the install's notification mechanism, but alert generation must not depend on Grafana, telemetry ingestion, dashboard queries, or alert-history storage being healthy. Grafana can visualize these states when available; it is not the source of truth for v1 HA failure detection.
+Future HA alerting should evaluate the same state exposed through `/health/ha` and `fleet-ha status`. Alert delivery and dashboards are outside the initial supported profile.
 
 ## Deployment model
 
@@ -323,7 +317,7 @@ The exact installer flags, templates, compose files, and runbook commands belong
 | Failure | Expected behavior |
 | ------- | ----------------- |
 | Active Fleet app process dies | Lease expires; peer activates and starts active runtime. |
-| Active Fleet app hangs | Lease renewal stops or epoch checks fail; peer takes over; old active cannot dispatch with stale epoch. |
+| Active Fleet app hangs | Lease renewal stops; the process exits or is replaced after lease expiry, and the peer takes over. |
 | DB primary dies | Patroni promotes standby; new Fleet DB connections select the read-write host; lease renews or is reacquired. |
 | Sync standby dies | Fleet continues in async-degraded mode after the configured behavior; HA status reports `FAILOVER READY: NO`. |
 | Witness host dies | Service continues; quorum tolerance is degraded; HA status reports degraded readiness. |
@@ -341,12 +335,12 @@ The HA mode is not supported until these gates pass.
 Activation and fencing:
 
 - Two Fleet app processes against the same DB produce exactly one active holder.
-- Killing active Fleet activates the peer within 15 seconds.
+- Killing active Fleet keeps end-to-end curtailment recovery under 180 seconds.
 - Partial active-runtime failure causes `/health/active` to fail and allows the peer to take over.
-- Network partition tests produce zero dual dispatch.
+- Network partition tests prove guarded transitions cannot overwrite command state after ownership loss.
 - Passive mode rejects all product traffic, including non-RPC HTTP routes, while preserving the explicit health and operator-status bypasses.
 - Lease loss terminates already accepted product streams and active-scoped request work.
-- A stalled active process cannot dispatch after lease loss, emit stale external side effects, or renew an expired lease with its old epoch.
+- A stalled active process cannot overwrite terminal command state or renew an expired lease with its old epoch.
 - Fleet-scale reconnect tests avoid synchronized ControlStream reconnect storms during failover.
 
 Database and durability:
@@ -359,8 +353,8 @@ Database and durability:
 
 Real-time control:
 
-- Full curtailment dispatch recovery after a single failure completes within 60 seconds across repeated trials.
-- MQTT curtailment intake failover resumes on the new active Fleet app within the RTO target without dual processing.
+- Full curtailment dispatch recovery after a single failure completes within 180 seconds across repeated trials.
+- MQTT curtailment intake failover resumes on the new active Fleet app within the RTO target; pending command work resumes and interrupted attempts are failed.
 
 Deployment and diagnostics:
 
@@ -371,14 +365,14 @@ Deployment and diagnostics:
 - HA management-plane ports are restricted to HA peers and approved operator diagnostics paths; cloud or untrusted network profiles add authenticated transport.
 - HA alerts fire from control-plane status for standby loss, quorum loss, active holder anomalies, replication lag, and endpoint targeting failures even when Grafana or telemetry history is unavailable.
 - Telemetry/Grafana failures do not fail `/health/active`.
-- Unauthenticated health endpoints do not expose HA topology, and `/health/ha` requires operator access.
+- Public health endpoints do not expose HA topology, and `/health/ha` is reachable only on loopback.
 
 ## Drawbacks
 
 - **More moving parts than single-host installs**. Patroni, etcd, and a witness host add operational surface area.
 - **The default durability mode is intentionally degraded after standby loss**. Auto-degrade keeps control running but exposes the site to data loss on a second failure until redundancy is restored.
 - **Passive Fleet is not a read-only replica**. This simplifies correctness but means passive hosts are not useful for normal UI/API browsing in v1.
-- **Historical views can be incomplete during incidents**. Operators may lose dashboard fidelity exactly when an incident is happening; live HA alerting, `ha-status.sh`, and operator-protected `/health/ha` become the authoritative status surfaces.
+- **Historical views can be incomplete during incidents**. Operators may lose dashboard fidelity exactly when an incident is happening; `fleet-ha status` and loopback-only `/health/ha` become the authoritative status surfaces.
 - **Local artifacts are not automatically HA**. Firmware and command artifacts need shared/replicated storage before they can be part of the v1 HA guarantee.
 - **Implementation touches startup wiring**. Moving runtime services behind an activation supervisor changes `fleetd` lifecycle code and needs careful tests.
 
@@ -397,7 +391,7 @@ Deployment and diagnostics:
 
 ## Unresolved questions
 
-- **Exact Patroni timings**. Initial targets are chosen to fit the 60s RTO, but final `ttl`, `loop_wait`, and `retry_timeout` values must be set from lab measurements.
+- **Exact Patroni timings**. Initial targets are chosen to fit the 180-second curtailment RTO, but final `ttl`, `loop_wait`, and `retry_timeout` values must be confirmed by lab measurements.
 - **Critical write classification**. The implementation must audit write paths and decide which writes require critical durability and which are best-effort.
 - **Artifact HA boundary**. Firmware and command artifact behavior after failover needs a product decision: document re-upload in v1, add rsync, or require shared storage for covered command types.
 - **Grafana HA datasource**. Grafana is out of the RTO path, but the install should still decide whether dashboards use best-effort single-host datasource config, multi-host config if supported, or an explicit "not HA" warning.
@@ -409,11 +403,11 @@ Deployment and diagnostics:
 | Phase | Goal | Scope | Behavior change |
 | ----- | ---- | ----- | --------------- |
 | 1 | DB writer routing | Multi-host DSN, read-write targeting, stale pooled connection discard, failover retry classification | Fleet can reconnect to the current DB writer without HAProxy. |
-| 2 | Active lease | `fleet_runtime_lease`, sqlc queries, `ha.Coordinator`, `/health/active`, operator-protected `/health/ha` | Fleet can decide active/passive state safely. |
+| 2 | Active lease | `fleet_runtime_lease`, sqlc queries, `ha.Coordinator`, `/health/active` | Fleet can decide active/passive state safely. |
 | 3 | Runtime supervision | Move active-only services behind a supervisor; immediate reconciler tick on activation | Passive Fleet stays warm but does not dispatch or mutate control state. |
 | 4 | Passive gating and Fleet Node retry | Active-mode request gate, ControlStream `not-active`, Fleet Node fast retry and stream liveness tuning | Traffic can safely route only to active Fleet. |
-| 5 | HA substrate | Patroni image/config, etcd, keepalived/VRRP VIP templates, peer-connectivity preflight, install/join flow, `ha-status.sh` | Operators can install the on-prem HA profile. |
-| 6 | Degraded-mode observability | Alerts and status for standby loss, quorum loss, active count, replication lag, failover readiness | Operators can distinguish full HA from control-only/degraded operation. |
+| 5 | HA substrate | Patroni image/config, etcd, keepalived/VRRP VIP templates, peer-connectivity preflight, install/join flow | Operators can install the on-prem HA profile. |
+| 6 | Degraded-mode observability | Local status for standby loss, quorum loss, active count, replication lag, and failover readiness | Operators can distinguish full HA from control-only/degraded operation. |
 | 7 | Lab and cloud references | Repeated failover tests, partition tests, runbook, cloud deployment reference | The install mode can be marked supported after validation gates pass. |
 
 Each phase should preserve existing single-host installs. `FLEET_HA_ENABLED=false` remains the default outside the HA profile.

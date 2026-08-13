@@ -51,6 +51,7 @@ func (s *Service) SetRuleRouting(ctx context.Context, orgID int64, ruleID string
 		s.invalidateDeliveryPolicyCache(orgID)
 		rule.Routing = nil
 		s.applyPauseStateBestEffort(ctx, orgID, rule)
+		s.attachConfigBestEffort(ctx, orgID, rule)
 		return rule, nil
 	}
 	policy.RuleUID = ruleID
@@ -72,6 +73,9 @@ func (s *Service) SetRuleRouting(ctx context.Context, orgID int64, ruleID string
 	}
 	rule.Routing = policy
 	s.applyPauseStateBestEffort(ctx, orgID, rule)
+	// The client upserts this response wholesale: without config decoration a
+	// scoped user rule would repaint as org-wide and lose its Edit action.
+	s.attachConfigBestEffort(ctx, orgID, rule)
 	return rule, nil
 }
 

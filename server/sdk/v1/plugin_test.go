@@ -257,6 +257,18 @@ func (f fakeCurtailingDevice) Uncurtail(ctx context.Context, req UncurtailReques
 	return nil
 }
 
+type fakeCurtailmentConfigDevice struct {
+	fakeDevice
+	applyFunc func(ctx context.Context, config CurtailmentConfig) error
+}
+
+func (f fakeCurtailmentConfigDevice) ApplyCurtailmentConfig(ctx context.Context, config CurtailmentConfig) error {
+	if f.applyFunc != nil {
+		return f.applyFunc(ctx, config)
+	}
+	return nil
+}
+
 func (f fakeDevice) SetCoolingMode(ctx context.Context, mode CoolingMode) error {
 	if f.setCoolingModeFunc != nil {
 		return f.setCoolingModeFunc(ctx, mode)
@@ -1188,6 +1200,99 @@ func TestDriverGRPCServer_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailmen
 	require.True(t, ok, "should be able to extract gRPC status from %v", err)
 	assert.Equal(t, codes.Unimplemented, st.Code())
 	assert.Contains(t, st.Message(), "device does not support curtailment")
+}
+
+func TestDriverGRPCServer_ApplyCurtailmentConfig(t *testing.T) {
+	device := fakeCurtailmentConfigDevice{
+		applyFunc: func(_ context.Context, config CurtailmentConfig) error {
+			assert.True(t, config.Enabled)
+			assert.Equal(t, "closed", config.FailPolicy)
+			require.Len(t, config.Providers, 1)
+			assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, config.Providers[0].Brokers)
+			assert.Equal(t, "secret", config.Providers[0].Password)
+			return nil
+		},
+	}
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": device},
+	}
+
+	_, err := server.ApplyCurtailmentConfig(context.Background(), &pb.ApplyCurtailmentConfigRequest{
+		Ref: &pb.DeviceRef{DeviceId: "device-123"},
+		Config: &pb.CurtailmentConfig{
+			Enabled:    true,
+			FailPolicy: "closed",
+			Providers: []*pb.CurtailmentProviderConfig{{
+				Name:     "maestro",
+				Brokers:  []string{"10.0.0.1", "10.0.0.2"},
+				Password: "secret",
+			}},
+		},
+	})
+
+	require.NoError(t, err)
+}
+
+func TestDriverGRPCServer_ApplyCurtailmentConfigRejectsUnsupportedDevice(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeDevice{}},
+	}
+
+	_, err := server.ApplyCurtailmentConfig(context.Background(), &pb.ApplyCurtailmentConfigRequest{
+		Ref:    &pb.DeviceRef{DeviceId: "device-123"},
+		Config: &pb.CurtailmentConfig{},
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestDriverGRPCServer_ApplyCurtailmentConfigRejectsIncompleteRequest(t *testing.T) {
+	server := &DriverGRPCServer{}
+	tests := map[string]*pb.ApplyCurtailmentConfigRequest{
+		"nil request":    nil,
+		"missing ref":    {Config: &pb.CurtailmentConfig{}},
+		"missing config": {Ref: &pb.DeviceRef{DeviceId: "device-123"}},
+	}
+
+	for name, req := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := server.ApplyCurtailmentConfig(t.Context(), req)
+
+			require.Error(t, err)
+			st, ok := status.FromError(err)
+			require.True(t, ok, "should be able to extract gRPC status from %v", err)
+			assert.Equal(t, codes.InvalidArgument, st.Code())
+		})
+	}
+}
+
+func TestCurtailmentConfigProtoRoundTrip(t *testing.T) {
+	config := CurtailmentConfig{
+		Enabled:               true,
+		FailPolicy:            "closed",
+		RestorePolicy:         "respect_manual_stop",
+		NATSURL:               "nats://localhost:4222",
+		MCDDGRPCAddress:       "127.0.0.1:2122",
+		StatusPublishInterval: "15s",
+		Providers: []CurtailmentProviderConfig{{
+			Name:             "maestro",
+			Type:             "maestro_mqtt",
+			Enabled:          true,
+			Brokers:          []string{"10.0.0.1", "10.0.0.2"},
+			Port:             1883,
+			Username:         "operator",
+			Password:         "secret",
+			Topic:            "maestro/target",
+			QOS:              1,
+			StaleAfter:       "4m",
+			ReconnectBackoff: "5s",
+		}},
+	}
+
+	assert.Equal(t, config, curtailmentConfigFromProto(curtailmentConfigToProto(config)))
 }
 
 func TestDriverGRPCServer_UpdateFirmwarePreservesMetadata(t *testing.T) {

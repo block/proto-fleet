@@ -1,4 +1,5 @@
-FROM proto-fleet-timescaledb:latest
+ARG TIMESCALEDB_IMAGE_TAG=latest
+FROM proto-fleet-timescaledb:${TIMESCALEDB_IMAGE_TAG}
 
 ARG SOURCE_COMMIT=unknown
 

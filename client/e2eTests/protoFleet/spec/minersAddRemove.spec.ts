@@ -77,7 +77,7 @@ test.describe("Miners UNPAIR - ADD actions", () => {
     }
   });
 
-  test("UNPAIR - ADD a single miner", async ({ minersPage, commonSteps, addMinersPage }) => {
+  test("UNPAIR - ADD a single miner", { tag: "@smoke" }, async ({ minersPage, commonSteps, addMinersPage }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 

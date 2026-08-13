@@ -49,8 +49,8 @@ jobs:
           INPUT_IS_PRERELEASE: ${{ inputs.is_prerelease }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
-            echo "::error::Version '$INPUT_VERSION' must only contain letters, numbers, dots, underscores, or hyphens."
+          if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$INPUT_VERSION" == "latest" ]]; then
+            echo "::error::Version '$INPUT_VERSION' must be a release-specific Docker tag (1-128 letters, numbers, dots, underscores, or hyphens; not 'latest')."
             exit 1
           fi
 
@@ -170,6 +170,21 @@ jobs:
           go mod download
           go build -v -ldflags "-X main.version=$VERSION" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
           go build -v -o fleet-ha-${{ matrix.arch }} ./cmd/fleet-ha
+          updater_binary="proto-fleet-updater-${{ matrix.arch }}"
+          CGO_ENABLED=0 go build -v -ldflags "-X main.version=$VERSION" -o "$updater_binary" ./cmd/fleet-updater
+          if ! command -v readelf >/dev/null || ! readelf -h "$updater_binary" >/dev/null; then
+            echo "::error::Unable to inspect the host updater ELF binary"
+            exit 1
+          fi
+          if readelf -l "$updater_binary" | grep INTERP >/dev/null || readelf -d "$updater_binary" | grep NEEDED >/dev/null; then
+            echo "::error::Host updater must be statically linked for supported Linux hosts"
+            exit 1
+          fi
+          updater_version=$("./$updater_binary" --version)
+          if [[ "$updater_version" != "$VERSION" ]]; then
+            echo "::error::Host updater reports version '$updater_version', expected '$VERSION'"
+            exit 1
+          fi
           echo "version: $VERSION" > version.txt
           echo "is_prerelease: $IS_PRERELEASE" >> version.txt
           echo "build_date: $BUILD_DATE" >> version.txt
@@ -206,6 +221,7 @@ jobs:
           tar -czf "proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" \
             fleetd-${{ matrix.arch }} \
             fleet-ha-${{ matrix.arch }} \
+            proto-fleet-updater-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
             virtual-plugin-${{ matrix.arch }} \
@@ -338,6 +354,7 @@ jobs:
 
   build-timescaledb-image:
     name: Build TimescaleDB images (${{ matrix.arch }})
+    needs: [metadata]
     strategy:
       matrix:
         include:
@@ -346,6 +363,8 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    env:
+      IMAGE_TAG: ${{ needs.metadata.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -356,24 +375,40 @@ jobs:
       - name: Build TimescaleDB images
         run: |
           docker buildx build \
-            -t proto-fleet-timescaledb:latest \
+            --tag "proto-fleet-timescaledb:${IMAGE_TAG}" \
             --load \
             server/timescaledb
 
           docker build \
             --file deployment-files/ha/patroni.Dockerfile \
             --build-arg SOURCE_COMMIT="${GITHUB_SHA}" \
-            --tag proto-fleet-timescaledb-ha:latest \
+            --build-arg "TIMESCALEDB_IMAGE_TAG=${IMAGE_TAG}" \
+            --tag "proto-fleet-timescaledb-ha:${IMAGE_TAG}" \
             deployment-files/ha
 
           ./deployment-files/ha/tests/validate-image.sh \
-            proto-fleet-timescaledb-ha:latest \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}" \
             "${GITHUB_SHA}"
 
           docker save \
             --output timescaledb-${{ matrix.arch }}.tar \
-            proto-fleet-timescaledb:latest \
-            proto-fleet-timescaledb-ha:latest
+            "proto-fleet-timescaledb:${IMAGE_TAG}" \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}"
+
+          ARCHIVE_MANIFEST=$(tar -xOf timescaledb-${{ matrix.arch }}.tar manifest.json)
+          for image in \
+            "proto-fleet-timescaledb:${IMAGE_TAG}" \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}"; do
+            if ! grep -Fq "\"${image}\"" <<<"$ARCHIVE_MANIFEST"; then
+              echo "::error::TimescaleDB archive is missing required image ${image}."
+              exit 1
+            fi
+          done
+          if grep -Fq ':latest"' <<<"$ARCHIVE_MANIFEST"; then
+            echo "::error::TimescaleDB archive must not contain shared latest tags."
+            exit 1
+          fi
+
           gzip -9 --force timescaledb-${{ matrix.arch }}.tar
           echo "${{ matrix.arch }} image size: $(du -h timescaledb-${{ matrix.arch }}.tar.gz | cut -f1)"
 
@@ -440,6 +475,8 @@ jobs:
           cd deployment/server
           mv fleetd-${{ matrix.arch }} fleetd
           mv fleet-ha-${{ matrix.arch }} fleet-ha
+          mkdir -p ../updater
+          mv proto-fleet-updater-${{ matrix.arch }} ../updater/proto-fleet-updater
           mv proto-plugin-${{ matrix.arch }} proto-plugin
           mv antminer-plugin-${{ matrix.arch }} antminer-plugin
           mv virtual-plugin-${{ matrix.arch }} virtual-plugin
@@ -469,6 +506,8 @@ jobs:
           cp deployment-files/docker-compose.alerts.yaml deployment/
           cp deployment-files/docker-compose.system-monitoring.yaml deployment/
           cp deployment-files/docker-compose.tracing.yaml deployment/
+          cp deployment-files/docker-compose.updater.yaml deployment/
+          cp deployment-files/updater/proto-fleet-updater.service deployment/updater/
           cp -a server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
@@ -479,9 +518,12 @@ jobs:
           mv deployment/server/fleet-ha deployment/ha/fleet-ha
           chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
           chmod +x deployment/ha/scripts/*.sh deployment/ha/tests/*.sh
+          chmod +x deployment/updater/proto-fleet-updater
 
           mkdir -p deployment/images
           cp /tmp/timescaledb-images/timescaledb-${{ matrix.arch }}.tar.gz deployment/images/timescaledb.tar.gz
+
+          deployment/scripts/pin-release-images.sh deployment "$VERSION"
 
       - name: Create version file
         run: |
@@ -492,13 +534,43 @@ jobs:
             echo "channel: $CHANNEL" >> deployment/version.txt
           fi
 
+      - name: Create immutable deployment manifest
+        run: |
+          cd deployment
+          unsupported_entries=$(find . ! -type f ! -type d -print)
+          if [ -n "$unsupported_entries" ]; then
+            echo "Deployment bundle contains unsupported non-regular entries:" >&2
+            printf '  %s\n' "$unsupported_entries" >&2
+            exit 1
+          fi
+          find . -type f ! -path './deployment-manifest.sha256' -print0 \
+            | LC_ALL=C sort -z \
+            | xargs -0 sha256sum \
+            > deployment-manifest.sha256
+
       - name: Package ProtoFleet deployment bundle
         run: |
-          tar -czf "proto-fleet-${VERSION}-${{ matrix.arch }}.tar.gz" deployment
+          bundle="proto-fleet-${VERSION}-${{ matrix.arch }}.tar.gz"
+          tar -czf "$bundle" deployment
+          sha256sum "$bundle" > "$bundle.sha256"
+          sha256sum -c "$bundle.sha256"
+
+          tar -tzf "$bundle" > "$RUNNER_TEMP/deployment-bundle-contents.txt"
+          for required_path in \
+            deployment/docker-compose.updater.yaml \
+            deployment/updater/proto-fleet-updater \
+            deployment/updater/proto-fleet-updater.service; do
+            if ! grep -Fxq "$required_path" "$RUNNER_TEMP/deployment-bundle-contents.txt"; then
+              echo "::error::Deployment bundle is missing $required_path"
+              exit 1
+            fi
+          done
 
       - name: Upload deployment bundle artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: proto-fleet-deployment-bundle-${{ matrix.arch }}
-          path: proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
+          path: |
+            proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
+            proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz.sha256
           retention-days: ${{ inputs.retention_days }}

@@ -197,7 +197,7 @@ func (s *SQLNotificationHistoryStore) ListActive(ctx context.Context, organizati
 			DeviceMAC:  row.DeviceMac,
 			Notification: notificationhistory.Notification{
 				AlertName: row.AlertName,
-				// ListActiveNotifications filters to status = 'firing', so every returned row is firing.
+				// The query filters to status = 'firing', so every returned row is firing.
 				Status:         "firing",
 				Severity:       row.Severity,
 				RuleGroup:      row.RuleGroup,
@@ -209,6 +209,68 @@ func (s *SQLNotificationHistoryStore) ListActive(ctx context.Context, organizati
 				StartsAt:       nullTimeToPtr(row.StartsAt),
 				EndsAt:         nullTimeToPtr(row.EndsAt),
 			},
+		})
+	}
+	return out, nil
+}
+
+func (s *SQLNotificationHistoryStore) ListActiveByAlert(ctx context.Context, organizationID int64, filter notificationhistory.ActiveAlertFilter) ([]notificationhistory.StoredNotification, error) {
+	rows, err := s.GetQueries(ctx).ListActiveNotificationsByAlert(ctx, sqlc.ListActiveNotificationsByAlertParams{
+		OrganizationID: organizationID,
+		AlertName:      filter.AlertName,
+		RuleGroup:      filter.RuleGroup,
+		AfterKey:       emptyToNullString(filter.AfterKey),
+		PageLimit:      filter.Limit,
+		ActiveSince:    time.Now().Add(-activeAlertStaleAfter),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list active notifications by alert: %w", err)
+	}
+	out := make([]notificationhistory.StoredNotification, 0, len(rows))
+	for _, row := range rows {
+		org := row.OrganizationID
+		out = append(out, notificationhistory.StoredNotification{
+			ID:         row.HistoryID,
+			ReceivedAt: row.ReceivedAt,
+			DeviceName: row.DeviceName,
+			DeviceMAC:  row.DeviceMac,
+			AlertKey:   row.AlertKey,
+			Notification: notificationhistory.Notification{
+				AlertName: row.AlertName,
+				// The query filters to status = 'firing', so every returned row is firing.
+				Status:         "firing",
+				Severity:       row.Severity,
+				RuleGroup:      row.RuleGroup,
+				Fingerprint:    row.Fingerprint,
+				OrganizationID: &org,
+				DeviceID:       row.DeviceID,
+				Template:       row.Template,
+				Summary:        row.Summary,
+				StartsAt:       nullTimeToPtr(row.StartsAt),
+				EndsAt:         nullTimeToPtr(row.EndsAt),
+			},
+		})
+	}
+	return out, nil
+}
+
+func (s *SQLNotificationHistoryStore) ListActiveGroups(ctx context.Context, organizationID int64, limit int32) ([]notificationhistory.ActiveAlertGroup, error) {
+	rows, err := s.GetQueries(ctx).ListActiveNotificationGroups(ctx, sqlc.ListActiveNotificationGroupsParams{
+		OrganizationID: organizationID,
+		PageLimit:      limit,
+		ActiveSince:    time.Now().Add(-activeAlertStaleAfter),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list active notification groups: %w", err)
+	}
+	out := make([]notificationhistory.ActiveAlertGroup, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, notificationhistory.ActiveAlertGroup{
+			AlertName:      row.AlertName,
+			RuleGroup:      row.RuleGroup,
+			AlertCount:     row.AlertCount,
+			DeviceCount:    row.DeviceCount,
+			FirstStartedAt: row.FirstStartedAt,
 		})
 	}
 	return out, nil

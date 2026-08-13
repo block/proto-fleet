@@ -14,12 +14,34 @@ service InstanceUpdateService {
     // SetReleaseChannel switches the instance between Stable and Stable + RC.
     // Gated by instance:update.
     rpc SetReleaseChannel(SetReleaseChannelRequest) returns (SetReleaseChannelResponse);
+
+    // TriggerUpgrade asks the host updater to install the exact release that
+    // GetUpdateStatus currently offers. Gated by instance:update.
+    rpc TriggerUpgrade(TriggerUpgradeRequest) returns (TriggerUpgradeResponse);
+
+    // GetUpgradeStatus reports durable host-side progress across fleetd
+    // restarts. Gated by instance:update.
+    rpc GetUpgradeStatus(GetUpgradeStatusRequest) returns (GetUpgradeStatusResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
 }
 
 enum ReleaseChannel {
     RELEASE_CHANNEL_UNSPECIFIED = 0;
     RELEASE_CHANNEL_STABLE = 1;
     RELEASE_CHANNEL_STABLE_AND_RC = 2;
+}
+
+enum UpgradePhase {
+    UPGRADE_PHASE_UNSPECIFIED = 0;
+    UPGRADE_PHASE_QUEUED = 1;
+    UPGRADE_PHASE_DOWNLOADING = 2;
+    UPGRADE_PHASE_VERIFYING = 3;
+    UPGRADE_PHASE_STAGING = 4;
+    UPGRADE_PHASE_PREFLIGHT = 5;
+    UPGRADE_PHASE_ACTIVATING = 6;
+    UPGRADE_PHASE_SUCCEEDED = 7;
+    UPGRADE_PHASE_FAILED = 8;
 }
 
 message ReleaseInfo {
@@ -40,6 +62,9 @@ message GetUpdateStatusResponse {
     // Full copy-paste installer invocation for latest_eligible; empty when
     // update_available is false.
     string install_command = 5;
+    // True only when the independently installed host executor is reachable.
+    // False keeps the copy-command fallback visible.
+    bool one_click_available = 6;
     // False until release discovery succeeds and after its latest list fetch
     // fails. Callers must not interpret update_available=false as up to date
     // while status is unavailable.
@@ -51,3 +76,31 @@ message SetReleaseChannelRequest {
 }
 
 message SetReleaseChannelResponse {}
+
+message UpgradeOperation {
+    string id = 1;
+    string target_version = 2;
+    UpgradePhase phase = 3;
+    string message = 4;
+    google.protobuf.Timestamp started_at = 5;
+    google.protobuf.Timestamp updated_at = 6;
+    google.protobuf.Timestamp completed_at = 7;
+    string error = 8;
+    string recovery_command = 9;
+    string host_log_path = 10;
+}
+
+message TriggerUpgradeRequest {
+    string target_version = 1;
+}
+
+message TriggerUpgradeResponse {
+    UpgradeOperation operation = 1;
+}
+
+message GetUpgradeStatusRequest {}
+
+message GetUpgradeStatusResponse {
+    bool executor_available = 1;
+    UpgradeOperation operation = 2;
+}

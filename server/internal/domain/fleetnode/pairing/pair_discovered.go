@@ -323,6 +323,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 	}
 	if boundDeviceID != 0 {
 		s.scheduleTelemetryIdentifierBestEffort(ctx, telemetrymodels.DeviceIdentifier(identifier), boundDeviceID, orgID)
+		s.reapplyRigConfigBestEffort(ctx, orgID, assignedBy)
 	}
 	return persisted, nil
 }

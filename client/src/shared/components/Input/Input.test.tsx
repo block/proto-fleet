@@ -111,6 +111,42 @@ describe("Input", () => {
   });
 });
 
+describe("Input sanitize", () => {
+  test("rejects a character instead of displaying it", () => {
+    const onChange = vi.fn();
+    render(
+      <Input
+        id="count"
+        label="Count"
+        testId="count-input"
+        sanitize={(value) => value.replace(/\D/g, "")}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByTestId("count-input") as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "5" } });
+    expect(input.value).toBe("5");
+    expect(onChange).toHaveBeenLastCalledWith("5", "count");
+
+    // The case a caller cannot fix from outside: sanitizing "5a" returns the
+    // "5" already on screen, so a caller sanitizing in onChange would have no
+    // prop change to re-sync the display from. The rejected character must not
+    // survive, and onChange must never be told something the field is not
+    // showing.
+    fireEvent.change(input, { target: { value: "5a" } });
+    expect(input.value).toBe("5");
+    expect(onChange).toHaveBeenLastCalledWith("5", "count");
+  });
+
+  test("leaves the value untouched when no sanitize is given", () => {
+    render(<Input id="free" label="Free" testId="free-input" />);
+    const input = screen.getByTestId("free-input") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "5a" } });
+    expect(input.value).toBe("5a");
+  });
+});
+
 describe("Input ARIA attributes", () => {
   test("renders aria-required when required prop is set", () => {
     render(<Input id="email" label="Email" required />);

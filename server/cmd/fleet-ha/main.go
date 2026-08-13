@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
@@ -27,10 +29,10 @@ func run(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "generate-secrets":
-		if len(args) != 5 {
-			return errors.New("usage: fleet-ha generate-secrets OUTPUT_DIR DB_A_IP DB_B_IP DCS_C_IP")
+		if len(args) != 6 {
+			return errors.New("usage: fleet-ha generate-secrets OUTPUT_DIR DB_A_IP DB_B_IP DCS_C_IP VIRTUAL_IP")
 		}
-		return deployment.GenerateSecrets(args[1], [3]string{args[2], args[3], args[4]})
+		return deployment.GenerateSecrets(args[1], [3]string{args[2], args[3], args[4]}, args[5])
 	case "preflight":
 		if len(args) > 3 {
 			return errors.New("usage: fleet-ha preflight [node.env] [firewall.nft.tmpl]")
@@ -60,11 +62,53 @@ func run(ctx context.Context, args []string) error {
 		}
 		fmt.Println("etcd authentication enabled with Patroni read/write and Fleet read-only roles")
 		return nil
+	case "render-keepalived":
+		if len(args) != 4 {
+			return errors.New("usage: fleet-ha render-keepalived NODE_ENV TEMPLATE OUTPUT")
+		}
+		if err := deployment.RenderKeepalivedConfig(args[1], args[2], args[3]); err != nil {
+			return err
+		}
+		fmt.Printf("keepalived configuration written to %s\n", args[3])
+		return nil
+	case "compose":
+		if len(args) < 2 {
+			return errors.New("usage: fleet-ha compose COMPOSE_ARGS...")
+		}
+		return deployment.RunCompose(ctx, args[1:])
+	case "status":
+		return runStatus(ctx, args[1:], os.Stdout, deployment.Status)
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth> ...")
+	return errors.New("usage: fleet-ha <generate-secrets|preflight|bootstrap-etcd-auth|render-keepalived|compose|status> ...")
+}
+
+type statusReader func(context.Context, string) (deployment.StatusReport, error)
+
+func runStatus(ctx context.Context, args []string, output io.Writer, read statusReader) error {
+	envPath := defaultNodeEnv
+	if len(args) > 1 || (len(args) == 1 && len(args[0]) > 0 && args[0][0] == '-') {
+		return errors.New("usage: fleet-ha status [node.env]")
+	}
+	if len(args) == 1 {
+		envPath = args[0]
+	}
+
+	report, err := read(ctx, envPath)
+	if err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(output)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(report); err != nil {
+		return fmt.Errorf("write HA status: %w", err)
+	}
+	if report.Control == nil || !report.Control.FailoverReady {
+		return errors.New("HA failover readiness check failed")
+	}
+	return nil
 }

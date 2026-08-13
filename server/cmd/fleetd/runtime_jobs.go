@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
@@ -169,6 +170,19 @@ func serveFleetRuntime(
 	}
 }
 
+// stopRuntimeJobGroupAfterRun avoids repeating cleanup already completed by a fatal HA abort.
+func stopRuntimeJobGroupAfterRun(
+	runErr error,
+	group runtimeJobGroupStopper,
+	commandExecution runtimejobs.Lifecycle,
+	timeout time.Duration,
+) {
+	if errors.Is(runErr, ha.ErrRuntimeAborted) {
+		return
+	}
+	stopRuntimeJobGroup(group, commandExecution, timeout)
+}
+
 // stopRuntimeJobGroup gives the group one graceful-shutdown budget. Command
 // execution receives a final independent budget because its activation is
 // detached from group cancellation to preserve shutdown ordering.
@@ -198,6 +212,7 @@ type runtimeJobLifecycles struct {
 	scheduleProcessor         runtimejobs.Lifecycle
 	curtailmentReconciler     runtimejobs.Lifecycle
 	curtailmentMQTTSubscriber runtimejobs.Lifecycle
+	curtailmentRigConfig      runtimejobs.Lifecycle
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
@@ -232,6 +247,7 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
 		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
+		{name: "curtailment-rig-config", lifecycle: lifecycles.curtailmentRigConfig},
 	}
 	for _, job := range required {
 		if err := add(job.name, job.lifecycle); err != nil {

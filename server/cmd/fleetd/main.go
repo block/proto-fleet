@@ -178,7 +178,18 @@ var reflectEnabledServices = []string{
 	instancev1connect.InstanceUpdateServiceName,
 }
 
-func start(config *Config) error {
+func start(config *Config) (result error) {
+	if err := config.HA.Validate(); err != nil {
+		return fmt.Errorf("invalid HA configuration: %w", err)
+	}
+	if err := validateHAHTTPAddress(*config); err != nil {
+		return err
+	}
+	if config.HA.Enabled {
+		if err := config.DB.ValidateHA(); err != nil {
+			return fmt.Errorf("invalid HA database configuration: %w", err)
+		}
+	}
 	// Construct one configured registry before starting services. The CRUD
 	// service uses it now; the Phase 5 reconciler will share this same instance.
 	infrastructureDriverRegistry, err := infrastructureDomain.NewConfiguredDriverRegistry(config.Infrastructure)
@@ -571,10 +582,14 @@ func start(config *Config) error {
 		Cipher:           encryptSvc,
 		Runtime:          mqttSubscriber,
 		ConnectionTester: mqttConnectionTester,
+		RigConfigApplier: commandSvc,
+		RigConfigStore:   mqttingest.NewSQLCRigConfigReconciliationStore(mqttQueries),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt settings service: %w", err)
 	}
+	pairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
+	fleetNodePairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
 
 	// Feeds the MQTT curtailment default alert rules; skipped when the
 	// metrics pipeline is off so its periodic queries aren't wasted work.
@@ -601,8 +616,10 @@ func start(config *Config) error {
 	// silences (rule pause / maintenance windows), and the internal history webhook.
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
 	alertRouteStore := sqlstores.NewSQLAlertRouteStore(conn)
+	alertRuleConfigStore := sqlstores.NewSQLAlertRuleConfigStore(conn)
 	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
-	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
+	alertScopeLookup := alertScopeStores{sites: siteStore, buildings: buildingStore, sets: collectionStore}
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
 
 	// Both updates URLs end up inside a copy-paste upgrade command, so an
 	// http:// base must fail startup (explicit Validate, like Plugins above —
@@ -614,7 +631,7 @@ func start(config *Config) error {
 	// answers version/status calls, reading the zero snapshot as "no offer".
 	releaseChecker := updatesDomain.NewChecker(config.Updates, version)
 	updatesSvc := updatesDomain.NewService(config.Updates, version, releaseChecker,
-		db.NewFailoverResettingQuerier(db.NewRetryDB(conn)))
+		db.NewFailoverResettingQuerier(db.NewRetryDB(conn)), activitySvc)
 
 	// The public listener is bound before this group starts. This channel keeps
 	// the first system heartbeat from clearing its stale alert before then.
@@ -651,6 +668,7 @@ func start(config *Config) error {
 		scheduleProcessor:         scheduleProcessor,
 		curtailmentReconciler:     curtailmentRec,
 		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
 		systemMonitoring:          systemMonitoring,
@@ -663,13 +681,22 @@ func start(config *Config) error {
 	if err != nil {
 		return fmt.Errorf("create runtime job group: %w", err)
 	}
-	// HA configuration is not exposed yet, so production stays standalone.
-	fleetRuntime, err := ha.NewStandaloneRuntime(runtimeJobGroup, executionService.IsRunning)
+	fleetRuntime, closeHA, err := ha.NewConfiguredRuntime(
+		config.HA,
+		conn,
+		runtimeJobGroup,
+		executionService.IsRunning,
+	)
 	if err != nil {
 		return fmt.Errorf("create Fleet runtime: %w", err)
 	}
 	defer func() {
-		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
+		if err := closeHA(); err != nil {
+			slog.Error("Failed to close HA services", "error", err)
+		}
+	}()
+	defer func() {
+		stopRuntimeJobGroupAfterRun(result, runtimeJobGroup, executionService, shutdownTimeout)
 	}()
 
 	middlewares := []server.Middleware{
@@ -692,9 +719,13 @@ func start(config *Config) error {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/health", health.NewHandler())
+	mux.HandleFunc("/health", health.NewHandler(version))
 	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn, fleetRuntime))
 	mux.HandleFunc("/health/active", health.NewActiveHandler(fleetRuntime))
+	if config.HA.Enabled {
+		mux.HandleFunc("/health/ha", health.NewHAHandler(version, fleetRuntime))
+		mux.HandleFunc("/health/passive", health.NewPassiveHandler(fleetRuntime))
+	}
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
@@ -820,4 +851,24 @@ func newHTTP2Server(config HTTPConfig) *http2.Server {
 	return &http2.Server{
 		WriteByteTimeout: config.WriteByteTimeout,
 	}
+}
+
+// alertScopeStores adapts the site/building/device-set stores to the alerts
+// domain's ScopeLookup for rule-scope ownership validation.
+type alertScopeStores struct {
+	sites     *sqlstores.SQLSiteStore
+	buildings *sqlstores.SQLBuildingStore
+	sets      *sqlstores.SQLCollectionStore
+}
+
+func (a alertScopeStores) SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	return a.sites.SitesByIDs(ctx, orgID, ids)
+}
+
+func (a alertScopeStores) BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	return a.buildings.BuildingsByIDs(ctx, orgID, ids)
+}
+
+func (a alertScopeStores) DeviceSetsByIDs(ctx context.Context, orgID int64, setType string, ids []int64) ([]int64, error) {
+	return a.sets.DeviceSetsByIDs(ctx, orgID, setType, ids)
 }

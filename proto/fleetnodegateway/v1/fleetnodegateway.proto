@@ -333,6 +333,7 @@ message MinerCommand {
         FirmwareUpdateAction firmware_update = 15;
         GetFirmwareUpdateStatusAction get_firmware_update_status = 16;
         GetCoolingModeAction get_cooling_mode = 17;
+        ApplyCurtailmentConfigAction apply_curtailment_config = 18;
     }
 }
 
@@ -378,6 +379,10 @@ message FirmwareUpdateAction {
 
 message CurtailAction {
     curtailment.v1.CurtailmentLevel level = 1;
+}
+
+message ApplyCurtailmentConfigAction {
+    NodeEncryptedPayload encrypted_config = 1 [(buf.validate.field).required = true];
 }
 
 message SetCoolingModeAction {

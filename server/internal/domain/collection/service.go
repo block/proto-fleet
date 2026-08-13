@@ -16,6 +16,7 @@ import (
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -196,6 +197,45 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 	return siteID, buildingID, nil
 }
 
+// ResolveBuildingSite returns a building's parent site_id so the handlers can
+// narrow the site:manage check to a building-only placement. Unlocked read for
+// the authorization decision only; the observed site is bound to the write via
+// authz.WithAuthorizedPlacement and re-checked under lock (verifyAuthorizedPlacement).
+// Returns (nil, nil) for a site-less building, NotFound for a missing one.
+func (s *Service) ResolveBuildingSite(ctx context.Context, orgID, buildingID int64) (*int64, error) {
+	return s.collectionStore.GetBuildingSite(ctx, orgID, buildingID)
+}
+
+// ResolveRackSite returns a rack's current site_id (nil for a site-less rack or
+// a non-rack collection). Unlocked read the handlers use to authorize a move
+// against the SOURCE site; bound to the write and re-checked under lock.
+func (s *Service) ResolveRackSite(ctx context.Context, orgID, collectionID int64) (*int64, error) {
+	rackInfo, err := s.collectionStore.GetRackInfo(ctx, collectionID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if rackInfo == nil {
+		return nil, nil
+	}
+	return rackInfo.SiteId, nil
+}
+
+// verifyAuthorizedPlacement fails the write closed when the locked current/
+// target sites no longer match the sites the handler authorized — i.e. a
+// concurrent move slipped in between authorization and this write. A no-op when
+// no authz.AuthorizedPlacement is set (an internal/trusted caller).
+func verifyAuthorizedPlacement(ctx context.Context, lockedCurrentSite, lockedTargetSite *int64) error {
+	ap, ok := authz.AuthorizedPlacementFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	if !int64PtrEqual(ap.CurrentSiteID, lockedCurrentSite) || !int64PtrEqual(ap.TargetSiteID, lockedTargetSite) {
+		return fleeterror.NewFailedPreconditionError(
+			"rack placement changed since authorization; refresh and retry")
+	}
+	return nil
+}
+
 // enforceBuildingRackCapacity rejects placing a rack into buildingID when
 // the building's grid (aisles×racks_per_aisle) is already full. netNew is
 // the count of racks newly joining the building: 1 for a create or a
@@ -352,6 +392,11 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			var err error
 			siteID, buildingID, err = s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
 			if err != nil {
+				return nil, err
+			}
+			// New rack, no current site: bind the destination to what the handler
+			// authorized, failing closed if the building moved sites since.
+			if err := verifyAuthorizedPlacement(ctx, nil, siteID); err != nil {
 				return nil, err
 			}
 		}
@@ -574,6 +619,11 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 
 		siteID, buildingID, err := s.resolveAndLockRackPlacement(txCtx, params.OrgID, placement)
 		if err != nil {
+			return nil, err
+		}
+		// All racks are new and share one placement, so one check binds the
+		// destination to what the handler authorized.
+		if err := verifyAuthorizedPlacement(txCtx, nil, siteID); err != nil {
 			return nil, err
 		}
 		if buildingID != nil {
@@ -1990,16 +2040,65 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
+		// Gate on type before locking. Type is immutable, so this pre-lock read
+		// can't go stale; authoritative label + site for the activity event are
+		// re-read under the lock below.
+		collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
 			return nil, err
 		}
-		if coll.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		if collType != pb.CollectionType_COLLECTION_TYPE_RACK {
 			return nil, fleeterror.NewInvalidArgumentError("slot positions can only be set on rack collections")
 		}
 
-		// Device membership is enforced by the store query joining on device_set_membership.
+		// Lock the rack row FOR UPDATE before reading grid + membership so the
+		// checks hold for the write; without it a concurrent resize could shrink
+		// the grid out from under an in-bounds position. Same rack-first lock the
+		// batch path takes.
+		if _, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
+			return nil, err
+		}
+
+		// Reject out-of-bounds cells. A RACK always has a device_set_rack row, so
+		// nil is a broken invariant. Guard both bounds so a negative coordinate
+		// (which bypasses the proto interceptor on a direct call) returns
+		// InvalidArgument rather than tripping the SQL CHECK as a 500, matching
+		// the batch and SaveRack paths.
+		rackInfo, err := s.collectionStore.GetRackInfo(ctx, req.CollectionId, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if rackInfo == nil {
+			return nil, fleeterror.NewInternalErrorf("rack %d has no rack extension row", req.CollectionId)
+		}
+		if req.Position.Row < 0 || req.Position.Row >= rackInfo.Rows {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", req.Position.Row, rackInfo.Rows)
+		}
+		if req.Position.Column < 0 || req.Position.Column >= rackInfo.Columns {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", req.Position.Column, rackInfo.Columns)
+		}
+
+		// Confirm membership: the store's INSERT ... SELECT silently writes zero
+		// rows for a non-member and returns no error, so a bare call would report
+		// a placement that never landed.
+		members, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, req.CollectionId, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := members[req.DeviceIdentifier]; !ok {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"device %q is not a member of rack %d, so its slot cannot be set", req.DeviceIdentifier, req.CollectionId)
+		}
+
 		if err := s.collectionStore.SetRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, req.Position.Row, req.Position.Column, info.OrganizationID); err != nil {
+			return nil, err
+		}
+
+		// Read the collection under the lock so the activity event's label + site
+		// reflect the state we wrote to, not a pre-lock snapshot a concurrent
+		// rename/move could have staled.
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
+		if err != nil {
 			return nil, err
 		}
 
@@ -2676,6 +2775,11 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 	if err != nil {
 		return nil, err
 	}
+	// New rack, no current site: bind the destination to what the handler
+	// authorized, failing closed if the building moved sites since.
+	if err := verifyAuthorizedPlacement(ctx, nil, newSiteID); err != nil {
+		return nil, err
+	}
 
 	// A brand-new rack placed into a building is always a net-new member.
 	if newBuildingID != nil {
@@ -2870,6 +2974,13 @@ func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *sessio
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// Bind authorization to the locked reality: reject if a concurrent move
+	// changed the current or target site since the handler authorized this move.
+	// Under the rack lock, so it can't be raced past.
+	if err := verifyAuthorizedPlacement(ctx, current.SiteID, newSiteID); err != nil {
+		return nil, err
 	}
 
 	// Re-validate under the rack lock before any write. A concurrent SaveRack

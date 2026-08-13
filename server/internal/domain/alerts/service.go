@@ -32,13 +32,15 @@ type ChannelTester interface {
 }
 
 type Service struct {
-	grafana  *Grafana
-	channels ChannelStore
-	routes   RouteStore
-	crypto   Cipher
-	tester   ChannelTester
-	policy   DestinationPolicy
-	now      func() time.Time
+	grafana     *Grafana
+	channels    ChannelStore
+	routes      RouteStore
+	configs     RuleConfigStore
+	crypto      Cipher
+	tester      ChannelTester
+	scopeLookup ScopeLookup
+	policy      DestinationPolicy
+	now         func() time.Time
 	// Serializes user-rule creation so the quota read-then-create can't race.
 	userRuleMu sync.Mutex
 }
@@ -47,8 +49,8 @@ type DestinationPolicy struct {
 	AllowPrivateDestinations bool `help:"Allow alert destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
 }
 
-func NewService(g *Grafana, channels ChannelStore, routes RouteStore, crypto Cipher, tester ChannelTester, policy DestinationPolicy) *Service {
-	return &Service{grafana: g, channels: channels, routes: routes, crypto: crypto, tester: tester, policy: policy, now: time.Now}
+func NewService(g *Grafana, channels ChannelStore, routes RouteStore, configs RuleConfigStore, crypto Cipher, tester ChannelTester, scopeLookup ScopeLookup, policy DestinationPolicy) *Service {
+	return &Service{grafana: g, channels: channels, routes: routes, configs: configs, crypto: crypto, tester: tester, scopeLookup: scopeLookup, policy: policy, now: time.Now}
 }
 
 var ErrZeroOrgID = errors.New("alerts: organization id is required")
@@ -491,7 +493,12 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Fail closed here (unlike the requireRule gate): rendering routed rules as default would mislead operators.
+	// Fail closed (unlike requireRule, which backs pause/maintenance actions that must survive a
+	// store outage): rendering routed rules as default or scoped rules as org-wide misleads operators.
+	if err := s.attachConfigs(ctx, orgID, out); err != nil {
+		return nil, err
+	}
+	s.sweepRuleConfigsBestEffort(ctx, orgID, out)
 	if err := s.attachRouting(ctx, orgID, out); err != nil {
 		return nil, err
 	}
@@ -547,6 +554,99 @@ func (s *Service) visibleRulesNoPauseState(ctx context.Context, orgID int64) ([]
 	return out, nil
 }
 
+// attachConfigBestEffort decorates a mutation response like attachRoutingBestEffort: the mutation
+// is already committed, so a config-read hiccup degrades the response rather than failing the action.
+func (s *Service) attachConfigBestEffort(ctx context.Context, orgID int64, rule *Rule) {
+	if s.configs == nil {
+		return
+	}
+	cfg, err := s.configs.GetConfig(ctx, orgID, rule.ID)
+	if err != nil {
+		// Flag rather than silently omit: an absent config also means "not
+		// editable", so the client must know to keep its last-known value.
+		rule.ConfigUnknown = true
+		slog.Warn("alerts.rule_config_decorate", "org_id", orgID, "rule_id", rule.ID, "error", err)
+		return
+	}
+	if cfg == nil {
+		cfg = legacyRuleConfig(ctx, orgID, rule.ID, rule.Template, rule.legacyConfigJSON)
+	}
+	rule.Config = cfg
+	markConfigOutOfSync(ctx, orgID, rule)
+}
+
+// markConfigOutOfSync flags an interrupted save; it compares every compiled field, not just SQL (name/duration
+// live only in Title/For; 1 PH/s and 1000 TH/s share SQL), on every decoration path so a later mutation can't erase it.
+func markConfigOutOfSync(ctx context.Context, orgID int64, rule *Rule) {
+	if rule.Config == nil {
+		return
+	}
+	// "" means no refId-A rawSql was found — a config always compiles to non-empty SQL,
+	// so that is itself a divergence, not a reason to skip the comparison.
+	if rule.CompiledSQL == "" {
+		rule.ConfigOutOfSync = true
+		slog.WarnContext(ctx, "alerts.rule_config_out_of_sync", "org_id", orgID, "rule_id", rule.ID, "reason", "no_compiled_sql")
+		return
+	}
+	sql, summary, description := compileTemplate(orgID, *rule.Config)
+	if sql == rule.CompiledSQL &&
+		strings.TrimSpace(rule.Config.Name) == rule.Name &&
+		rule.Config.DurationSeconds == rule.DurationSeconds &&
+		summary == rule.Summary &&
+		description == rule.Description {
+		return
+	}
+	rule.ConfigOutOfSync = true
+	slog.WarnContext(ctx, "alerts.rule_config_out_of_sync", "org_id", orgID, "rule_id", rule.ID)
+}
+
+// attachConfigs overlays stored rule configs, falling back to the legacy annotation until a rule's first
+// update writes a row. Fails closed: a rule rendered without its config would misreport an org-wide scope.
+func (s *Service) attachConfigs(ctx context.Context, orgID int64, rules []Rule) error {
+	if s.configs == nil {
+		return nil
+	}
+	cfgs, err := s.configs.ListConfigs(ctx, orgID, ruleUIDs(rules))
+	if err != nil {
+		return fmt.Errorf("list rule configs: %w", err)
+	}
+	for i := range rules {
+		cfg, ok := cfgs[rules[i].ID]
+		if !ok {
+			rules[i].Config = legacyRuleConfig(ctx, orgID, rules[i].ID, rules[i].Template, rules[i].legacyConfigJSON)
+			markConfigOutOfSync(ctx, orgID, &rules[i])
+			continue
+		}
+		rules[i].Config = &cfg
+		markConfigOutOfSync(ctx, orgID, &rules[i])
+	}
+	return nil
+}
+
+func ruleUIDs(rules []Rule) []string {
+	uids := make([]string, len(rules))
+	for i := range rules {
+		uids[i] = rules[i].ID
+	}
+	return uids
+}
+
+// sweepRuleConfigsBestEffort reclaims rows whose rule Grafana no longer lists (ambiguous create failures
+// keep theirs; see CreateRule). rules is authoritative, and the store spares recent rows for in-flight creates.
+func (s *Service) sweepRuleConfigsBestEffort(ctx context.Context, orgID int64, rules []Rule) {
+	if s.configs == nil {
+		return
+	}
+	n, err := s.configs.SweepConfigs(ctx, orgID, ruleUIDs(rules))
+	if err != nil {
+		slog.Warn("alerts.rule_config_sweep", "org_id", orgID, "error", err)
+		return
+	}
+	if n > 0 {
+		slog.InfoContext(ctx, "alerts.rule_config_sweep", "org_id", orgID, "reclaimed", n)
+	}
+}
+
 // Mutes via a marker pause-silence rather than flipping isPaused: Grafana 11.6+ forbids the provisioning API from editing YAML-provisioned rules.
 func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) (*Rule, error) {
 	if err := requireOrg(orgID); err != nil {
@@ -560,6 +660,7 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) 
 		// The no-op response is upserted by the client like any other: without decoration its
 		// nil routing serializes as an explicit DEFAULT and overwrites the real policy client-side.
 		s.attachRoutingBestEffort(ctx, orgID, rule)
+		s.attachConfigBestEffort(ctx, orgID, rule)
 		return rule, nil
 	}
 	silence := buildPauseSilence(orgID, id, actor, s.now())
@@ -573,6 +674,7 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) 
 	out := *rule
 	out.Enabled = false
 	s.attachRoutingBestEffort(ctx, orgID, &out)
+	s.attachConfigBestEffort(ctx, orgID, &out)
 	return &out, nil
 }
 
@@ -620,6 +722,7 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 		return nil, err
 	}
 	s.attachRoutingBestEffort(ctx, orgID, updated)
+	s.attachConfigBestEffort(ctx, orgID, updated)
 	return updated, nil
 }
 
@@ -862,10 +965,8 @@ func validateMaintenanceWindowScope(scope MaintenanceWindowScope) error {
 			return fleeterror.NewInvalidArgumentError("rule_id is required for a rule-scoped maintenance window")
 		}
 	case MaintenanceWindowScopeGroup, MaintenanceWindowScopeSite:
-		// Not yet supported: a group/site silence would emit a group_id/site_id matcher,
-		// but the provisioned alert rules only label instances with organization_id and
-		// device_id, so the silence would be saved and shown active while muting nothing.
-		// Reject until the alert queries emit the matching label (see proto-fleet-rules.yaml).
+		// Not yet supported: only scope-limited user rules label instances with site_id, so the
+		// silence would save and show active while muting almost nothing (see proto-fleet-rules.yaml).
 		return fleeterror.NewInvalidArgumentErrorf("maintenance window scope %q is not yet supported", scope.Kind)
 	case MaintenanceWindowScopeDevice:
 		if len(scope.DeviceIDs) == 0 {
@@ -1101,18 +1202,9 @@ func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
 	if r.Annotations != nil {
 		out.Summary = r.Annotations["summary"]
 		out.Description = r.Annotations["description"]
-		if raw := r.Annotations[ruleAnnotationConfig]; raw != "" {
-			var cfg RuleConfig
-			err := json.Unmarshal([]byte(raw), &cfg)
-			// A config that fails validation or disagrees with the template label
-			// must not round-trip into the editor (the client hides Edit on nil).
-			if err == nil && validateRuleConfig(cfg) == nil && cfg.Template() == out.Template {
-				out.Config = &cfg
-			} else {
-				slog.Warn("alerts.rule_config_invalid", "rule_uid", r.UID, "error", err)
-			}
-		}
+		out.legacyConfigJSON = r.Annotations[ruleAnnotationConfig]
 	}
+	out.CompiledSQL = ruleRawSQL(r.Data)
 	return out
 }
 

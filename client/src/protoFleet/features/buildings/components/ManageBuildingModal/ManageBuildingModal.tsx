@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import ManageRacksModal from "../ManageRacksModal";
+import BuildingRacksPicker, { type CreatedRack } from "../BuildingRacksPicker";
 import { type RackSelectionDelta } from "../ManageRacksModal/rackSelectionDelta";
 import SearchRacksModal from "../SearchRacksModal";
-import { type AssignmentEntry, buildByNameAssignments, buildManualAssignments } from "./assignmentMath";
+import {
+  type AssignmentEntry,
+  buildByNameAssignments,
+  buildManualAssignments,
+  buildPlacementDelta,
+  isPlacementDeltaEmpty,
+} from "./assignmentMath";
 import BuildingGridPane from "./BuildingGridPane";
 import { assignedRackScope, buildingRackScope } from "./buildingRackScope";
 import BuildingRacksPane, { type AssignedRackRow } from "./BuildingRacksPane";
@@ -124,7 +130,9 @@ const ManageBuildingModal = ({
   // Snapshot of the server's positions at load time so Save only fires
   // assignRacksToBuilding for racks whose position actually changed. Keyed
   // by rackId → "aisle:position" (or "unplaced") so we can string-compare.
-  const initialPlacementRef = useRef<Map<string, string>>(new Map());
+  // State rather than a ref because the Save CTA's dirty gate is derived
+  // from it — a ref wouldn't re-derive when the load resolves.
+  const [initialPlacement, setInitialPlacement] = useState<Map<string, string>>(new Map());
 
   // Synchronous in-flight guard for Save dispatches. setState batching
   // means the `isSaving` prop driving the button's `disabled` lags one
@@ -163,7 +171,7 @@ const ManageBuildingModal = ({
               : "unplaced",
           );
         }
-        initialPlacementRef.current = snapshot;
+        setInitialPlacement(snapshot);
         setIsLoading(false);
       },
       onError: (msg) => {
@@ -211,6 +219,12 @@ const ManageBuildingModal = ({
     }
     return m;
   }, [activeAssignments]);
+
+  // The exact batches Save would dispatch.
+  const placementDelta = useMemo(
+    () => buildPlacementDelta(entries, rackToCell, initialPlacement),
+    [entries, rackToCell, initialPlacement],
+  );
 
   // Assigned-racks list shown in the left pane. positionLabel is derived
   // from the activeAssignments so byName mode shows the auto-placement.
@@ -318,16 +332,14 @@ const ManageBuildingModal = ({
     setShowSearchRacks(true);
   }, []);
 
-  // Gate a reparent behind the warning dialog, then STAGE it on confirm — the
-  // rack joins the working set but nothing is written until the outer Save.
-  // Parity with the miner side (promptReparent → setRackMiners): a reparent is
-  // staged, and the actual move rides handleSave's member-only
-  // AssignRacksToBuilding (targetBuildingId → the rack moves out of its old
-  // building, cascading its miners) exactly like any newly-added rack. A staged
-  // rack is seeded into the picker, so buildRackPickerItem shows it as
-  // "in this building" on reopen — never a reassignment row that a later
-  // toggle-off / Select all / deselect could silently drop. Cancelling leaves
-  // the working set untouched and the picker open.
+  // Gate a reparent behind the warning dialog; confirming runs the caller's
+  // membership commit, which moves the rack into this building via a
+  // member-only AssignRacksToBuilding (targetBuildingId → the rack leaves its
+  // old building, cascading its miners) exactly like any newly-added rack.
+  // Once committed the rack is seeded into the picker, so buildRackPickerItem
+  // shows it as "in this building" on reopen — never a reassignment row that a
+  // later toggle-off / Select all / deselect could silently drop. Cancelling
+  // writes nothing and leaves the picker open.
   const promptReparent = useCallback((racks: ReparentedRack[], apply: () => void) => {
     setReparentConfirm({
       racks,
@@ -338,10 +350,154 @@ const ManageBuildingModal = ({
     });
   }, []);
 
-  // SearchRacksModal confirm — add the rack to the working set if missing
-  // and assign to the cell that was selected when the popover opened. When the
-  // rack is currently placed elsewhere, commit the move behind the reparent
-  // confirm (its miners move with it) before staging the cell.
+  // Chunked AssignRacksToBuilding dispatcher shared by the membership commits
+  // and the placement Save. Buildings can be 100×100 = 10,000 cells and this
+  // modal loads every page, so a large batch would otherwise blow past the
+  // proto's 1000-rack request cap. Chunks run sequentially so a mid-chain
+  // failure stops the chain; onChunkCommitted lets the caller tell "nothing
+  // landed" from "partial commit".
+  const dispatchAssign = useCallback(
+    async (
+      racks: RackPlacementInput[],
+      targetBuildingId?: bigint,
+      onChunkCommitted?: (chunk: RackPlacementInput[]) => void,
+    ) => {
+      if (racks.length === 0) return;
+      for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
+        const chunk = racks.slice(i, i + RACKS_PER_RPC);
+        await new Promise<void>((resolve, reject) => {
+          void assignRacksToBuilding({
+            racks: chunk,
+            targetBuildingId,
+            onSuccess: () => resolve(),
+            onError: (msg) => reject(new Error(msg)),
+          });
+        });
+        onChunkCommitted?.(chunk);
+      }
+    },
+    [assignRacksToBuilding],
+  );
+
+  // Membership commit. The rack pickers own building membership, so a confirmed
+  // selection is written straight away and only placement stays staged for
+  // Save. Newcomers go in as member-only assigns (no cell) and land in the
+  // load-time snapshot as "unplaced", so freshly-committed membership doesn't
+  // read as pending placement dirt on the Save gate.
+  //
+  // The caller owns the working-set update — each entry point merges rows
+  // differently — and should skip it when this returns false.
+  // Drops racks from every piece of local state that keys off them, for use the
+  // moment an unassign is known to have persisted.
+  const forgetRacks = useCallback((rackIds: bigint[]) => {
+    const gone = new Set(rackIds.map((id) => id.toString()));
+    setEntries((prev) => prev.filter((e) => !gone.has(e.rackId.toString())));
+    setInitialPlacement((prev) => {
+      const next = new Map(prev);
+      for (const id of gone) next.delete(id);
+      return next;
+    });
+    setSelectedRackId((prev) => (prev !== null && gone.has(prev.toString()) ? null : prev));
+  }, []);
+
+  const commitMembership = useCallback(
+    async (added: AssignmentEntry[], removed: bigint[]): Promise<boolean> => {
+      if (savingRef.current) return false;
+      const currentIds = new Set(entries.map((e) => e.rackId.toString()));
+      const newcomers = added.filter((a) => !currentIds.has(a.rackId.toString()));
+      // Nothing to write. The caller may still have a placement change to
+      // stage (e.g. re-placing a rack that's already a member).
+      if (newcomers.length === 0 && removed.length === 0) return true;
+
+      // Capacity guard — mirrors handleSave's and the server's
+      // AssignRacksToBuilding cap. Skipped when the grid is unconfigured
+      // (capacity 0): racks can join before a layout is set.
+      const capacity = aislesNum * racksPerAisleNum;
+      const nextCount = entries.length + newcomers.length - removed.length;
+      if (capacity > 0 && nextCount > capacity) {
+        setErrorMsg(
+          `This building has ${capacity} rack positions (${aislesNum} aisles × ${racksPerAisleNum} per aisle), ` +
+            `but the change would assign ${nextCount} racks. Remove some racks or increase the layout.`,
+        );
+        return false;
+      }
+
+      savingRef.current = true;
+      setErrorMsg("");
+      setIsSaving(true);
+      try {
+        // Removals first: they free their cells before any newcomer lands, and
+        // the reverse order would trip the capacity check above on a swap.
+        if (removed.length > 0) {
+          // Fold in each chunk as it lands, not once the whole batch resolves.
+          // A >1000-rack removal spans several AssignRacksToBuilding calls; if
+          // an earlier chunk commits and a later one fails, dropping only the
+          // committed ids keeps the working set and host truthful instead of
+          // showing already-unassigned racks as members. The callers skip their
+          // own update when this returns false, so this is the only place they
+          // land.
+          const committedRemovals: bigint[] = [];
+          try {
+            await dispatchAssign(
+              removed.map((rackId) => ({ rackId })),
+              undefined,
+              (chunk) => {
+                for (const c of chunk) committedRemovals.push(c.rackId);
+              },
+            );
+          } finally {
+            if (committedRemovals.length > 0) {
+              forgetRacks(committedRemovals);
+              onSaved?.(building);
+            }
+          }
+        }
+        if (newcomers.length > 0) {
+          // Same partial-commit shape on the add path: if an early chunk lands
+          // and a later one fails, the host's rack count is already stale, so
+          // refresh it even though the throw below leaves the newcomers for the
+          // caller's reseed to pick up.
+          let addedAny = false;
+          try {
+            await dispatchAssign(
+              newcomers.map((a) => ({ rackId: a.rackId })),
+              building.id,
+              () => {
+                addedAny = true;
+              },
+            );
+          } catch (err) {
+            if (addedAny) onSaved?.(building);
+            throw err;
+          }
+        }
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "Failed to update racks";
+        setErrorMsg(`Failed to update racks: ${detail}.`);
+        return false;
+      } finally {
+        savingRef.current = false;
+        setIsSaving(false);
+      }
+
+      // Removals were folded in as they landed; only the newcomers are left to
+      // record, so freshly-committed membership doesn't read as pending dirt.
+      setInitialPlacement((prev) => {
+        const next = new Map(prev);
+        for (const a of newcomers) next.set(a.rackId.toString(), "unplaced");
+        return next;
+      });
+      // Rack counts changed on the host's building cache.
+      onSaved?.(building);
+      return true;
+    },
+    [entries, aislesNum, racksPerAisleNum, dispatchAssign, building, forgetRacks, onSaved],
+  );
+
+  // SearchRacksModal confirm — commit the rack into this building if it isn't
+  // a member yet, then stage it at the cell that was selected when the popover
+  // opened. A rack currently placed elsewhere goes behind the reparent confirm
+  // (its miners move with it) before either happens.
   const handleSearchRackConfirm = useCallback(
     (rackId: bigint, label: string, reparent?: ReparentedRack) => {
       const targetKey = selectedCellKey;
@@ -349,7 +505,16 @@ const ManageBuildingModal = ({
         setShowSearchRacks(false);
         return;
       }
-      const apply = () => {
+      const apply = async () => {
+        const ok = await commitMembership([{ rackId, label }], []);
+        // Close on failure like the Manage racks path: commitMembership renders
+        // its error on this modal, behind the search popover, so leaving the
+        // popover open would make the click look like a no-op with the reason
+        // hidden.
+        if (!ok) {
+          setShowSearchRacks(false);
+          return;
+        }
         const { aisle, position } = parseCellKey(targetKey);
         setEntries((prev) => {
           const idStr = rackId.toString();
@@ -371,73 +536,93 @@ const ManageBuildingModal = ({
         setShowSearchRacks(false);
       };
       if (reparent) {
-        promptReparent([reparent], apply);
+        promptReparent([reparent], () => void apply());
       } else {
-        apply();
+        void apply();
       }
     },
-    [selectedCellKey, promptReparent],
+    [selectedCellKey, promptReparent, commitMembership],
   );
 
-  const handleRemoveRack = useCallback((rackId: bigint) => {
-    setEntries((prev) => prev.filter((e) => e.rackId !== rackId));
-    setSelectedRackId((prev) => (prev === rackId ? null : prev));
-  }, []);
+  // Row-level "Remove rack" — an immediate unassign (the rack moves out of the
+  // building; it is not deleted). commitMembership's removal path forgets the
+  // rack (dropping the row and clearing any selection on it) as the write
+  // lands, so there's nothing left to reconcile here.
+  const handleRemoveRack = useCallback(
+    async (rackId: bigint) => {
+      await commitMembership([], [rackId]);
+    },
+    [commitMembership],
+  );
 
   const currentRackIds = useMemo(() => entries.map((e) => e.rackId), [entries]);
 
-  // ManageRacksModal confirm — apply the delta against the working
-  // set. `added` joins entries (unplaced) without disturbing existing
-  // positions; `removed` drops only those entries. Racks not in either
-  // list are untouched, so a seeded rack that didn't appear in the
-  // picker's listRacks response (race / paging gap) is preserved.
-  // `delta.reassigned` (racks currently placed elsewhere) commits the move
-  // behind the reparent confirm — their miners move with them — before the
-  // working-set change lands.
+  // ManageRacksModal Save — the picker owns building membership, so the delta is
+  // written here rather than staged. `added` joins entries unplaced (placement
+  // is still the operator's to set, on this modal's Save); `removed` drops only
+  // those entries. Racks in neither list are untouched, so a seeded rack the
+  // picker's listRacks response omitted (race / paging gap) is preserved.
+  // Racks currently in another building arrive already confirmed — the picker
+  // owns that warning, since it is the surface where they were chosen.
   const handleManageRacksConfirm = useCallback(
     (delta: RackSelectionDelta) => {
-      const apply = () => {
+      void (async () => {
         const removedSet = new Set(delta.removed.map((id) => id.toString()));
-        setEntries((prev) => {
-          const kept = prev.filter((e) => !removedSet.has(e.rackId.toString()));
-          const knownIds = new Set(kept.map((e) => e.rackId.toString()));
-          const newcomers: AssignmentEntry[] = [];
-          for (const a of delta.added) {
-            if (knownIds.has(a.rackId.toString())) continue;
-            newcomers.push({ rackId: a.rackId, label: a.label });
-          }
-          return [...kept, ...newcomers];
-        });
+        const kept = entries.filter((e) => !removedSet.has(e.rackId.toString()));
+        const knownIds = new Set(kept.map((e) => e.rackId.toString()));
+        const newcomers: AssignmentEntry[] = [];
+        for (const a of delta.added) {
+          if (knownIds.has(a.rackId.toString())) continue;
+          newcomers.push({ rackId: a.rackId, label: a.label });
+        }
+        const ok = await commitMembership(newcomers, delta.removed);
+        // Closes either way. This modal's error callout sits behind the picker,
+        // and on a partial failure commitMembership has already folded in the
+        // removals that landed — so the picker's staged selection is the stale
+        // view of the two, not something worth keeping to retry from.
+        setShowManageRacks(false);
+        if (!ok) return;
+        setEntries([...kept, ...newcomers]);
         setSelectedRackId(null);
         setSelectedCellKey(null);
-        setShowManageRacks(false);
-      };
-      if (delta.reassigned.length > 0) {
-        promptReparent(delta.reassigned, apply);
-      } else {
-        apply();
-      }
+      })();
     },
-    [promptReparent],
+    [entries, commitMembership],
   );
 
-  // Save: walk activeAssignments, diff against the load-time snapshot, and
-  // fire AssignRacksToBuilding once per target building bucket.
-  //
-  // All racks staying in this building (placements, unplacements,
-  // swaps, "move into occupied cell") ship as a single mixed batch.
-  // The server's AssignRacksToBuilding transaction now runs a two-pass
-  // write internally — pass 1 clears every requested rack's cell, then
-  // pass 2 writes the new (aisle, position) values — so the partial
-  // unique index uk_device_set_rack_building_position can't collide
-  // mid-batch. That removes the old client-side vacate-then-place
-  // split (and its "retry to finish saving" partial-failure path).
-  //
-  // Racks removed from this building go in a second call with
-  // targetBuildingId=undefined since they need a different building
-  // bucket. Layout writes live in BuildingSettingsModal.
+  // Racks created from inside the picker. The create call placed them in this
+  // building already, so there is no membership write to make — they join the
+  // working set unplaced, exactly like a picker addition, and this modal's Save
+  // is where the operator gives them grid positions.
+  const handleRacksCreated = useCallback(
+    (racks: CreatedRack[]) => {
+      setEntries((prev) => {
+        const known = new Set(prev.map((e) => e.rackId.toString()));
+        const newcomers = racks
+          .filter((r) => !known.has(r.rackId.toString()))
+          .map((r) => ({ rackId: r.rackId, label: r.label }));
+        return newcomers.length > 0 ? [...prev, ...newcomers] : prev;
+      });
+      // The create already placed them in the building, so the host's rack count
+      // is stale from this moment — not from whenever Save happens. An operator
+      // who dismisses without saving still made this change.
+      onSaved?.(building);
+    },
+    [building, onSaved],
+  );
+
+  // Save owns rack placement only — membership commits in the pickers and
+  // layout lives in BuildingSettingsModal. Dispatches placementDelta's buckets
+  // as AssignRacksToBuilding calls against building.id.
   const handleSave = useCallback(async () => {
     if (savingRef.current) return;
+    // Nothing to dispatch. Falling through would toast a save that wrote
+    // nothing, so close instead — reviewing the layout and keeping it as-is is a
+    // legitimate outcome, not an error.
+    if (isPlacementDeltaEmpty(placementDelta)) {
+      onDismiss();
+      return;
+    }
 
     // Capacity guard — mirrors ManageRackModal's slot check and the
     // server's AssignRacksToBuilding cap. A building holds at most
@@ -459,140 +644,35 @@ const ManageBuildingModal = ({
     setErrorMsg("");
     setIsSaving(true);
     try {
-      const initial = initialPlacementRef.current;
-      const currentIds = new Set(entries.map((e) => e.rackId.toString()));
+      const { unassign, inBuildingVacate, inBuildingPlace } = placementDelta;
 
-      const inBuilding: RackPlacementInput[] = [];
-      const unassign: RackPlacementInput[] = [];
-
-      for (const entry of entries) {
-        const idStr = entry.rackId.toString();
-        const placedKey = rackToCell.get(idStr);
-        const next = placedKey
-          ? (() => {
-              const { aisle, position } = parseCellKey(placedKey);
-              return `${aisle}:${position}`;
-            })()
-          : "unplaced";
-        const prior = initial.get(idStr) ?? "missing";
-        if (prior === next) continue;
-
-        // Single mixed batch.
-        //   - placedKey present → place at the new (aisle, position).
-        //     Covers both first-time placement and moves; the server's
-        //     pass-1 clear handles any prior occupant inside the batch.
-        //   - placedKey absent + prior previously placed → send a
-        //     member-only entry. The server NULLs the rack's cell in
-        //     pass 1 (no pass-2 write because no position is supplied).
-        //   - placedKey absent + prior === "missing" → rack is new to
-        //     the working set with no chosen cell yet. Send a member-
-        //     only assign so the BE links the rack to this building
-        //     even without a position. Without this branch, racks
-        //     added via Manage racks but never dragged to a cell
-        //     silently drop on save.
-        if (placedKey) {
-          const { aisle, position } = parseCellKey(placedKey);
-          inBuilding.push({
-            rackId: entry.rackId,
-            aisleIndex: aisle,
-            positionInAisle: position,
-          });
-        } else {
-          inBuilding.push({ rackId: entry.rackId });
-        }
-      }
-
-      // Racks removed from this building (in snapshot, not in entries)
-      // need an explicit unassign — different target building bucket so
-      // they can't ride the in-building batch.
-      for (const idStr of initial.keys()) {
-        if (currentIds.has(idStr)) continue;
-        unassign.push({ rackId: BigInt(idStr) });
-      }
-
-      // Buildings can be 100×100 = 10,000 cells, and this modal loads
-      // every page, so a large floor-plan save with >1000 changed/
-      // removed racks would otherwise hit request validation. Chunk
-      // each phase into RPC-sized batches (RACKS_PER_RPC), dispatched
-      // sequentially so a mid-chain failure stops the chain (handled by
-      // the catch blocks below). Vacate-before-place is enforced across
-      // chunks by the two-pass dispatch below — the server only orders
-      // clear-then-place within a single RPC, so unassigns and cell-
-      // clears must all complete before any place runs.
       // Tracks whether any chunk has committed so the catch below can
-      // distinguish "nothing landed" from "partial commit" — operator
+      // distinguish "nothing landed" from "partial commit" — the operator
       // needs to know to refresh before retrying when chunks N..M ran
       // before chunk N+1 failed.
       let savedAtLeastOne = false;
-      const dispatch = async (racks: RackPlacementInput[], targetBuildingId?: bigint) => {
-        if (racks.length === 0) return;
-        for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
-          const chunk = racks.slice(i, i + RACKS_PER_RPC);
-          await new Promise<void>((resolve, reject) => {
-            void assignRacksToBuilding({
-              racks: chunk,
-              targetBuildingId,
-              onSuccess: () => resolve(),
-              onError: (msg) => reject(new Error(msg)),
-            });
-          });
-          savedAtLeastOne = true;
-        }
+      const onChunk = () => {
+        savedAtLeastOne = true;
       };
 
-      // Two-pass shape across chunks: vacate ALL cells before placing
-      // ANY rack at a new cell. The server's clear-then-place ordering
-      // only applies within a single AssignRacksToBuilding tx, so a
-      // >1000-rack save where chunk 2 still owns the cell chunk 1 is
-      // trying to claim would trip uk_device_set_rack_building_position.
-      //
-      // Partition the in-building bucket so the vacate pass also clears
-      // the OLD cell of every mover — a rack with both a snapshot
-      // position and a new place entry. Otherwise a cross-chunk swap
-      // (rack A's new cell is rack B's old cell, A lands in chunk 1, B
-      // in chunk 2) would still trip the partial unique index because
-      // B's old cell wouldn't vacate until chunk 2 runs.
-      //   - vacate entries (no aisle/position) — racks staying in the
-      //     building but clearing their cell. Includes:
-      //       * explicit cell-clear entries built above,
-      //       * a synthetic pre-place vacate for every mover, dedup'd by
-      //         rackId so we never send two clears for the same rack.
-      //   - place entries (with aisle/position) — racks landing at a
-      //     specific cell. These can only run after every vacate above
-      //     (plus the unassign bucket) has committed.
-      const inBuildingVacate: RackPlacementInput[] = [];
-      const inBuildingPlace: RackPlacementInput[] = [];
-      const seenVacate = new Set<string>();
-      for (const entry of inBuilding) {
-        const idStr = entry.rackId.toString();
-        const prior = initial.get(idStr) ?? "missing";
-        const wasPlaced = prior !== "unplaced" && prior !== "missing";
-
-        if (entry.aisleIndex !== undefined && entry.positionInAisle !== undefined) {
-          // Mover (had a prior cell) → schedule a pre-place vacate so
-          // its old cell is free before any placement chunk runs.
-          if (wasPlaced && !seenVacate.has(idStr)) {
-            inBuildingVacate.push({ rackId: entry.rackId });
-            seenVacate.add(idStr);
-          }
-          inBuildingPlace.push(entry);
-        } else if (!seenVacate.has(idStr)) {
-          // Already a cell-clear-in-place entry.
-          inBuildingVacate.push({ rackId: entry.rackId });
-          seenVacate.add(idStr);
-        }
-      }
-
       try {
-        // Pass 1: all vacates (unassign bucket + in-building cell-
-        // clears). dispatch short-circuits when the list is empty.
-        await dispatch(unassign, undefined);
-        await dispatch(inBuildingVacate, building.id);
+        // Two-pass shape across chunks: vacate ALL cells (buildPlacementDelta
+        // already folded each mover's old cell into inBuildingVacate) before
+        // placing ANY rack at a new cell. The server's clear-then-place
+        // ordering only applies within a single AssignRacksToBuilding tx, so
+        // a >1000-rack save where chunk 2 still owns the cell chunk 1 is
+        // trying to claim would trip uk_device_set_rack_building_position.
+        //
+        // Pass 1: all vacates. The unassign bucket is normally empty now that
+        // removals commit in the pickers — it stays wired as a reconcile path
+        // for any entry that leaves the list without a write.
+        await dispatchAssign(unassign, undefined, onChunk);
+        await dispatchAssign(inBuildingVacate, building.id, onChunk);
 
         // Pass 2: all places. By now every cell that will be reused
         // has been vacated, so no two writes collide on the partial
         // unique index — even across >1000-rack chunked saves.
-        await dispatch(inBuildingPlace, building.id);
+        await dispatchAssign(inBuildingPlace, building.id, onChunk);
       } catch (err) {
         const detail = err instanceof Error ? err.message : "Failed to save rack positions";
         if (savedAtLeastOne) {
@@ -605,14 +685,14 @@ const ManageBuildingModal = ({
         return;
       }
 
-      pushToast({ message: `Building "${building.name}" saved`, status: STATUSES.success });
+      pushToast({ message: `Rack positions saved`, status: STATUSES.success });
       onSaved?.(building);
       onDismiss();
     } finally {
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [building, rackToCell, entries, aislesNum, racksPerAisleNum, assignRacksToBuilding, onSaved, onDismiss]);
+  }, [building, placementDelta, entries, aislesNum, racksPerAisleNum, dispatchAssign, onSaved, onDismiss]);
 
   if (!open) return null;
 
@@ -627,9 +707,9 @@ const ManageBuildingModal = ({
       <FullScreenTwoPaneModal
         open={open}
         title={subtitle ? `${title} — ${subtitle}` : title}
-        // Dismiss without Save writes nothing: reparents stage into the working
-        // set instead of committing on confirm, so the server is untouched until
-        // Save and a plain dismiss needs no host refresh.
+        // Dismissing abandons only staged placement — membership changes have
+        // already committed (and already fired onSaved), so there's nothing
+        // left for a dismiss to reconcile.
         onDismiss={onDismiss}
         isBusy={isSaving}
         buttons={[
@@ -660,6 +740,13 @@ const ManageBuildingModal = ({
             text: isSaving ? "Saving…" : "Save",
             variant: variants.primary,
             onClick: handleSave,
+            // Dirty-gated: Save writes rack placement, so with no pending
+            // change there's nothing to commit. isLoading stays in the gate
+            // because the baseline snapshot isn't loaded yet — everything
+            // would read clean for the wrong reason.
+            // No dirty gate: the no-op case closes in handleSave, where it can
+            // be told apart from a real save. The load guards stay — a delta
+            // diffed against a placement that never arrived isn't a write.
             disabled: isSaving || isLoading || !!loadError,
             loading: isSaving,
             testId: "manage-building-save",
@@ -728,17 +815,15 @@ const ManageBuildingModal = ({
       />
 
       {showManageRacks ? (
-        <ManageRacksModal
-          open={showManageRacks}
+        <BuildingRacksPicker
           siteId={siteId}
-          currentBuildingId={building.id}
-          scope={rackScope}
-          assignedScope={assignedScope}
-          allSites={activeSite.kind === "all"}
+          buildingId={building.id}
           buildingName={building.name}
-          initialSelectedRackIds={currentRackIds}
+          currentRackIds={currentRackIds}
           onDismiss={() => setShowManageRacks(false)}
           onConfirm={handleManageRacksConfirm}
+          onCreated={handleRacksCreated}
+          saving={isSaving}
         />
       ) : null}
 
@@ -763,8 +848,8 @@ const ManageBuildingModal = ({
         <RackReparentWarningDialog
           racks={reparentConfirm.racks}
           buildingName={building.name}
-          // onConfirm stages the move into the working set and clears this
-          // dialog; the actual write happens on the outer Save.
+          // onConfirm clears this dialog and lets the membership commit run —
+          // accepting the warning is what authorizes the reparent write.
           onCancel={() => setReparentConfirm(null)}
           onConfirm={reparentConfirm.onConfirm}
         />

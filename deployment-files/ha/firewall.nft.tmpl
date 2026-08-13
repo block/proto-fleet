@@ -12,6 +12,17 @@ table inet proto_fleet_ha {
     chain protect_ha_ports {
         type filter hook input priority -10; policy accept;
 
+        # Trust VRRP only between Fleet-capable hosts on the configured HA network.
+        ip protocol vrrp iifname "${HA_NETWORK_INTERFACE}" ip saddr @database_nodes ip daddr ${HA_NODE_IP} accept
+        ip protocol vrrp drop
+
+        # Clients enter through nginx; fleet-api remains local-only.
+        iifname "lo" tcp dport 4000 accept
+        tcp dport 4000 drop
+
+        # The HA image runs fleetd directly; never expose the image's debug port.
+        tcp dport 40000 drop
+
         tcp dport 2380 ip saddr @ha_nodes accept
         tcp dport 2380 drop
 

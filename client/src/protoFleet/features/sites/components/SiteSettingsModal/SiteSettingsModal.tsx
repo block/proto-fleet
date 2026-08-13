@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { type SiteFormValues } from "@/protoFleet/api/sites";
 import {
@@ -14,11 +14,10 @@ import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
-// "createReturn" is the state when the operator clicks "Edit details" from
-// ManageSiteModal during the create flow — they're already mid-create, so the
-// CTAs read Delete (discard pending site) + Save (apply changes and return to
-// the manage view) instead of Cancel + Continue.
-export type SiteSettingsModalMode = "create" | "createReturn" | "edit";
+// "create" is the initial site-details step. Continue persists the site
+// (CreateSite) and hands off to ManageSiteModal in edit mode; once the site
+// exists, "Edit details" reopens this modal in "edit" mode (UpdateSite).
+export type SiteSettingsModalMode = "create" | "edit";
 
 interface SiteSettingsModalCommonProps {
   open: boolean;
@@ -29,12 +28,7 @@ interface SiteSettingsModalCommonProps {
 
 export type SiteSettingsModalProps = SiteSettingsModalCommonProps &
   (
-    | { mode: "create"; onContinue: (values: SiteFormValues) => void }
-    | {
-        mode: "createReturn";
-        onContinue: (values: SiteFormValues) => void;
-        onDeleteRequested: () => void;
-      }
+    | { mode: "create"; onContinue: (values: SiteFormValues) => Promise<void> | void }
     | {
         mode: "edit";
         onSave: (values: SiteFormValues) => Promise<void> | void;
@@ -64,16 +58,19 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
     initialValues.powerCapacityMw > 0 ? String(initialValues.powerCapacityMw) : "",
   );
   const [capacityError, setCapacityError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
 
+  // Validate-on-submit rather than gating the CTA: a disabled button can't say
+  // what's wrong with the form. Collects every problem in one pass so the
+  // operator sees all of them at once instead of one per click.
   const buildValues = useCallback((): SiteFormValues | null => {
     const capacity = parseCapacity(capacityText);
-    if (capacity === null) {
-      setCapacityError("Enter a number ≥ 0");
-      return null;
-    }
-    setCapacityError(null);
+    const trimmedName = name.trim();
+    setCapacityError(capacity === null ? "Enter a number ≥ 0" : null);
+    setNameError(trimmedName === "" ? "Enter a site name" : null);
+    if (capacity === null || trimmedName === "") return null;
     return {
-      name: name.trim(),
+      name: trimmedName,
       address: address.trim(),
       locationCity: city.trim(),
       locationState: state.trim(),
@@ -86,18 +83,46 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
     };
   }, [name, address, city, state, postalCode, country, timezone, capacityText, notes, initialValues.networkConfig]);
 
+  // Compared against the same normalized shape buildValues produces, so
+  // trailing whitespace or a capacity retyped as "12.50" doesn't read as an
+  // edit. buildValues sets the field errors as a side effect, so the comparison
+  // uses its own parse instead of calling it here.
+  const isDirty = useMemo(() => {
+    const capacity = parseCapacity(capacityText);
+    return (
+      name.trim() !== initialValues.name ||
+      address.trim() !== initialValues.address ||
+      city.trim() !== initialValues.locationCity ||
+      state.trim() !== initialValues.locationState ||
+      postalCode.trim() !== initialValues.postalCode ||
+      (country || "US") !== (initialValues.country || "US") ||
+      timezone !== initialValues.timezone ||
+      capacity !== initialValues.powerCapacityMw ||
+      notes !== initialValues.notes
+    );
+  }, [name, address, city, state, postalCode, country, timezone, capacityText, notes, initialValues]);
+
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
+    // Invalid: the errors buildValues just set are now on the fields.
     if (!values) return;
     if (props.mode === "edit") {
+      // Valid but unchanged. UpdateSite would succeed and report having saved
+      // something it didn't, so close instead of round-tripping. Not an error
+      // state — keeping what's already there is a legitimate outcome.
+      if (!isDirty) {
+        onDismiss();
+        return;
+      }
       await props.onSave(values);
     } else {
-      props.onContinue(values);
+      await props.onContinue(values);
     }
-  }, [buildValues, props]);
+  }, [buildValues, isDirty, onDismiss, props]);
 
-  const nameValid = name.trim().length > 0;
-  const primaryDisabled = !nameValid || saving;
+  // Only the in-flight guard. Validation and the no-diff check both run on
+  // click so they can explain themselves; a disabled CTA can't.
+  const primaryDisabled = saving;
 
   const buttons =
     props.mode === "create"
@@ -106,10 +131,14 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
             text: "Cancel",
             variant: variants.secondary,
             onClick: onDismiss,
+            disabled: saving,
             testId: "site-settings-modal-cancel",
           },
           {
-            text: "Continue",
+            // Named for the write it performs (CreateSite) rather than "Continue"
+            // — the site exists once this lands, even if the operator bails out
+            // of the manage step that follows.
+            text: saving ? "Creating…" : "Create site",
             variant: variants.primary,
             onClick: handlePrimary,
             disabled: primaryDisabled,
@@ -150,15 +179,19 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           id="site-settings-name"
           label="Name"
           initValue={name}
-          onChange={(v) => setName(v)}
+          onChange={(v) => {
+            setName(v);
+            if (nameError) setNameError(null);
+          }}
           maxLength={255}
           required
           autoFocus
+          error={nameError ?? false}
           testId="site-settings-name-input"
         />
         <Input
           id="site-settings-address"
-          label="Address"
+          label="Address (optional)"
           initValue={address}
           onChange={(v) => setAddress(v)}
           maxLength={255}
@@ -185,7 +218,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
         <div className="grid grid-cols-2 gap-4">
           <Input
             id="site-settings-city"
-            label="City"
+            label="City (optional)"
             initValue={city}
             onChange={(v) => setCity(v)}
             maxLength={255}
@@ -193,7 +226,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
           />
           <Select
             id="site-settings-state"
-            label={country === "CA" ? "Province" : "State"}
+            label={country === "CA" ? "Province (optional)" : "State (optional)"}
             options={country === "CA" ? CA_PROVINCE_OPTIONS : US_STATE_OPTIONS}
             value={state}
             onChange={(v) => {
@@ -210,7 +243,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
         </div>
         <Input
           id="site-settings-postal-code"
-          label="Postal code"
+          label="Postal code (optional)"
           initValue={postalCode}
           onChange={(v) => setPostalCode(v)}
           maxLength={32}
@@ -218,7 +251,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
         />
         <Select
           id="site-settings-timezone"
-          label="Timezone"
+          label="Timezone (optional)"
           options={TIMEZONE_OPTIONS}
           value={timezone}
           onChange={setTimezone}
@@ -227,7 +260,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
         />
         <Input
           id="site-settings-capacity"
-          label="Power capacity"
+          label="Power capacity (optional)"
           initValue={capacityText}
           onChange={(v) => {
             setCapacityText(v);
@@ -239,7 +272,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
         />
         <Textarea
           id="site-settings-notes"
-          label="Notes"
+          label="Notes (optional)"
           initValue={notes}
           onChange={(v) => setNotes(v)}
           rows={4}

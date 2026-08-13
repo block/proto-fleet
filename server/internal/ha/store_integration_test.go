@@ -17,22 +17,22 @@ func TestLeaseStoreAcquireAndRenewUseDatabaseTime(t *testing.T) {
 	store, reader := leaseTestSurfaces(t)
 	holder := uuid.New()
 
-	ownership, err := store.Acquire(
+	active, err := store.Acquire(
 		t.Context(), databaseObservation(t, reader, "cluster-a", 41), holder, 2*time.Second,
 	)
 	require.NoError(t, err)
-	require.Equal(t, holder, ownership.HolderID)
-	require.Equal(t, Token{WriterGeneration: 41, LeaseEpoch: 1}, ownership.Token)
-	require.WithinDuration(t, ownership.DatabaseTime.Add(2*time.Second), ownership.ExpiresAt, 50*time.Millisecond)
+	require.Equal(t, holder, active.HolderID)
+	require.Equal(t, Token{WriterGeneration: 41, LeaseEpoch: 1}, active.Token)
+	require.WithinDuration(t, active.DatabaseTime.Add(2*time.Second), active.ExpiresAt, 50*time.Millisecond)
 
 	renewed, err := store.Renew(
 		t.Context(),
 		databaseObservation(t, reader, "cluster-a", 41),
-		ownership,
+		active,
 		time.Second,
 	)
 	require.NoError(t, err)
-	require.Equal(t, ownership.Token, renewed.Token)
+	require.Equal(t, active.Token, renewed.Token)
 	require.WithinDuration(t, renewed.DatabaseTime.Add(time.Second), renewed.ExpiresAt, 50*time.Millisecond)
 }
 
@@ -66,42 +66,6 @@ func TestRacingCoordinatorsProduceOneOwner(t *testing.T) {
 	require.Equal(t, 1, countMatchingErrors(errs, ErrLeaseUnavailable))
 }
 
-func TestLeaseStoreCoordinatorDemotionRequiresExpiryBeforeSameWriterReacquisition(t *testing.T) {
-	store, reader := leaseTestSurfaces(t)
-	observed := databaseObservation(t, reader, "cluster-a", 41)
-	observer := &sequenceObserver{
-		results: []observerResult{
-			{observation: observed},
-			{err: errors.New("DCS unavailable")},
-			{observation: observed},
-			{observation: observed},
-		},
-	}
-	config := coordinatorTestConfig()
-	config.LeaseDuration = shortIntegrationLeaseDuration
-	coordinator := newCoordinatorWithHolder(observer, store, config, uuid.New())
-
-	require.NoError(t, coordinator.step(t.Context()))
-	first := coordinator.Snapshot()
-	firstHolder := first.HolderID
-
-	require.Error(t, coordinator.step(t.Context()))
-	require.Equal(t, StatePassive, coordinator.Snapshot().State)
-	require.NotEqual(t, firstHolder, coordinator.HolderID())
-
-	coordinator.ResumeAcquisition()
-	require.ErrorIs(t, coordinator.step(t.Context()), ErrLeaseUnavailable)
-
-	waitForLeaseExpiry(t, Ownership{
-		DatabaseTime: first.ExpiresAt.Add(-config.LeaseDuration),
-		ExpiresAt:    first.ExpiresAt,
-	})
-	require.NoError(t, coordinator.step(t.Context()))
-	second := coordinator.Snapshot()
-	require.Equal(t, StateActive, second.State)
-	require.Greater(t, second.Token.LeaseEpoch, first.Token.LeaseEpoch)
-}
-
 func TestPromotionAfterLostAsyncLeaseStateSupersedesUnexpiredLease(t *testing.T) {
 	store, reader := leaseTestSurfaces(t)
 	// This unexpired generation-41 row represents lease state acknowledged on
@@ -129,7 +93,7 @@ func TestLeaseStoreRejectsClusterIdentityMismatch(t *testing.T) {
 	_, err = store.Acquire(
 		t.Context(), databaseObservation(t, reader, "cluster-b", 42), uuid.New(), time.Minute,
 	)
-	require.ErrorIs(t, err, ErrLeaseUnavailable)
+	require.ErrorIs(t, err, ErrDCSClusterIdentityMismatch)
 }
 
 func TestLeaseStoreRejectsGenerationRegression(t *testing.T) {
@@ -142,7 +106,7 @@ func TestLeaseStoreRejectsGenerationRegression(t *testing.T) {
 	_, err = store.Acquire(
 		t.Context(), databaseObservation(t, reader, "cluster-a", 41), uuid.New(), time.Minute,
 	)
-	require.ErrorIs(t, err, ErrLeaseUnavailable)
+	require.ErrorIs(t, err, ErrWriterChanged)
 }
 
 func TestLeaseStoreSameGenerationWaitsForExpiry(t *testing.T) {
@@ -202,7 +166,7 @@ func TestLeaseStoreSameHolderAfterExpiryAdvancesEpoch(t *testing.T) {
 
 func TestLeaseStoreRenewRequiresExactOwnership(t *testing.T) {
 	store, reader := leaseTestSurfaces(t)
-	ownership, err := store.Acquire(
+	active, err := store.Acquire(
 		t.Context(), databaseObservation(t, reader, "cluster-a", 41), uuid.New(), time.Minute,
 	)
 	require.NoError(t, err)
@@ -215,7 +179,7 @@ func TestLeaseStoreRenewRequiresExactOwnership(t *testing.T) {
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
-			wrong := ownership
+			wrong := active
 			mutate(&wrong)
 			_, renewErr := store.Renew(
 				t.Context(),
@@ -239,26 +203,26 @@ func TestLeaseStoreRejectsDifferentWritableServerIdentity(t *testing.T) {
 	observed.ServerAddress = "203.0.113.1"
 
 	_, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
-	require.ErrorIs(t, err, ErrLeaseUnavailable)
+	require.ErrorIs(t, err, ErrWriterChanged)
 
-	ownership, err := store.Acquire(
+	active, err := store.Acquire(
 		t.Context(),
 		databaseObservation(t, reader, "cluster-a", 41),
 		uuid.New(),
 		time.Minute,
 	)
 	require.NoError(t, err)
-	require.Equal(t, Token{WriterGeneration: 41, LeaseEpoch: 1}, ownership.Token)
+	require.Equal(t, Token{WriterGeneration: 41, LeaseEpoch: 1}, active.Token)
 }
 
 func TestLeaseStoreRejectsRenewalOnDifferentWritableServerIdentity(t *testing.T) {
 	store, reader := leaseTestSurfaces(t)
 	observed := databaseObservation(t, reader, "cluster-a", 41)
-	ownership, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
+	active, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
 	require.NoError(t, err)
 	observed.Timeline++
 
-	_, err = store.Renew(t.Context(), observed, ownership, time.Minute)
+	_, err = store.Renew(t.Context(), observed, active, time.Minute)
 	require.ErrorIs(t, err, ErrOwnershipLost)
 }
 
@@ -284,7 +248,8 @@ func databaseObservation(
 
 func leaseTestSurfaces(t *testing.T) (*LeaseStore, postgresIdentityReader) {
 	t.Helper()
-	queries := sqlc.New(testutil.GetTestDB(t))
+	conn := testutil.GetTestDB(t)
+	queries := sqlc.New(conn)
 	return NewLeaseStore(queries), queries
 }
 

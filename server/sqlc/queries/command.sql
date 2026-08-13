@@ -22,24 +22,33 @@ INSERT INTO command_batch_log (
   $8
 );
 
--- name: MarkCommandBatchProcessing :exec
-UPDATE command_batch_log
+-- name: MarkCommandBatchProcessing :execrows
+UPDATE command_batch_log AS batch
 SET status = 'PROCESSING',
     started_at = NOW()
-WHERE uuid = $1;
+WHERE batch.uuid = $1
+  AND batch.status = 'PENDING'
+  AND EXISTS (
+    SELECT 1
+    FROM queue_message AS message
+    WHERE message.command_batch_log_uuid = batch.uuid
+      AND message.status = 'PROCESSING'
+  );
 
--- name: MarkCommandBatchFinished :exec
+-- name: MarkCommandBatchFinished :execrows
 UPDATE command_batch_log
 SET status = 'FINISHED',
    finished_at = NOW()
-WHERE uuid = $1;
+WHERE uuid = $1
+  AND status IN ('PENDING', 'PROCESSING');
 
--- name: MarkCommandBatchFinishedWithStartedAt :exec
+-- name: MarkCommandBatchFinishedWithStartedAt :execrows
 UPDATE command_batch_log
 SET status = 'FINISHED',
     started_at = NOW(),
     finished_at = NOW()
-WHERE uuid = $1;
+WHERE uuid = $1
+  AND status = 'PENDING';
 
 -- name: UpsertCommandOnDeviceLog :exec
 -- PostgreSQL version using CTE for the subquery.
@@ -135,6 +144,12 @@ SELECT
     cbl.type
 FROM command_batch_log cbl
 WHERE cbl.uuid = $1;
+
+-- name: LockCommandBatch :one
+SELECT status
+FROM command_batch_log
+WHERE uuid = $1
+FOR UPDATE;
 
 -- name: GetBatchHeaderForOrg :one
 -- Returns the batch header only if its recorded organization_id matches the

@@ -9,27 +9,31 @@ import (
 	"syscall"
 )
 
-var envLine = regexp.MustCompile(`^([A-Z][A-Z0-9_]*)=([A-Za-z0-9._/:@+=-]+)$`)
+var envLine = regexp.MustCompile(`^([A-Z][A-Z0-9_]*)=([A-Za-z0-9._/:@+=?,&-]+)$`)
 
 var allowedEnvKeys = map[string]func(*NodeConfig, string){
-	"HA_NODE_NAME":   func(c *NodeConfig, v string) { c.NodeName = v },
-	"HA_NODE_IP":     func(c *NodeConfig, v string) { c.NodeIP = v },
-	"HA_DB_A_IP":     func(c *NodeConfig, v string) { c.DatabaseAIP = v },
-	"HA_DB_B_IP":     func(c *NodeConfig, v string) { c.DatabaseBIP = v },
-	"HA_DCS_C_IP":    func(c *NodeConfig, v string) { c.WitnessIP = v },
-	"HA_DATA_DIR":    func(c *NodeConfig, v string) { c.DataDir = v },
-	"HA_SECRETS_DIR": func(c *NodeConfig, v string) { c.SecretsDir = v },
+	"HA_NODE_NAME":         func(c *NodeConfig, v string) { c.NodeName = v },
+	"HA_NODE_IP":           func(c *NodeConfig, v string) { c.NodeIP = v },
+	"HA_DB_A_IP":           func(c *NodeConfig, v string) { c.DatabaseAIP = v },
+	"HA_DB_B_IP":           func(c *NodeConfig, v string) { c.DatabaseBIP = v },
+	"HA_DCS_C_IP":          func(c *NodeConfig, v string) { c.WitnessIP = v },
+	"HA_VIRTUAL_IP":        func(c *NodeConfig, v string) { c.VirtualIP = v },
+	"HA_NETWORK_INTERFACE": func(c *NodeConfig, v string) { c.NetworkInterface = v },
+	"HA_DATA_DIR":          func(c *NodeConfig, v string) { c.DataDir = v },
+	"HA_SECRETS_DIR":       func(c *NodeConfig, v string) { c.SecretsDir = v },
 }
 
 // NodeConfig is the fixed three-host HA identity read from node.env.
 type NodeConfig struct {
-	NodeName    string
-	NodeIP      string
-	DatabaseAIP string
-	DatabaseBIP string
-	WitnessIP   string
-	DataDir     string
-	SecretsDir  string
+	NodeName         string
+	NodeIP           string
+	DatabaseAIP      string
+	DatabaseBIP      string
+	WitnessIP        string
+	VirtualIP        string
+	NetworkInterface string
+	DataDir          string
+	SecretsDir       string
 }
 
 func (c NodeConfig) isDatabaseNode() bool {
