@@ -49,7 +49,7 @@ function InteractiveTankCard({ label, attention, startOn, stats, seed }: Wrapper
       onToggle={setOn}
       onInfo={() => {}}
       stats={stats}
-      onClick={() => {}}
+      onModuleAction={() => {}}
     />
   );
 }

@@ -69,4 +69,18 @@ describe("TankCard", () => {
     expect(onInfo).toHaveBeenCalledTimes(1);
     expect(onClick).not.toHaveBeenCalled();
   });
+
+  it("keeps module actions separate from tank selection", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    const onModuleAction = vi.fn();
+    renderCard({ onClick, onModuleAction });
+
+    await user.click(screen.getByRole("button", { name: "Tank 1 module 1 actions" }));
+    await user.click(screen.getByTestId("module-action-sleep"));
+
+    expect(onModuleAction).toHaveBeenCalledWith(0, "sleep");
+    expect(onClick).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("module-actions-popover")).not.toBeInTheDocument();
+  });
 });

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ContainerControls, { type ContainerToggleControl } from "./ContainerControls";
 import FanCard from "./FanCard";
+import type { ModuleActionType } from "./moduleActions";
 import TankCard from "./TankCard";
 import type { TankModuleState } from "./TankModuleGrid";
 import type { Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -60,6 +61,13 @@ export interface ContainerOverviewProps {
   onTankInfo?: (id: string) => void;
   onFanInfo?: (id: string) => void;
   onSelectTank?: (id: string) => void;
+  /**
+   * Fired when a module action is chosen from a tank module tile's popover
+   * menu (View + Blink LEDs / Reboot / Sleep), with the tank id, the module's
+   * row-major index within that tank, and the chosen action. When omitted the
+   * module bars are plain, non-interactive status indicators.
+   */
+  onModuleAction?: (tankId: string, moduleIndex: number, action: ModuleActionType) => void;
   onViewMiners?: () => void;
   onViewDetails?: () => void;
 }
@@ -91,6 +99,7 @@ const ContainerOverview = ({
   onTankInfo,
   onFanInfo,
   onSelectTank,
+  onModuleAction,
   onViewMiners,
   onViewDetails,
 }: ContainerOverviewProps) => {
@@ -161,6 +170,9 @@ const ContainerOverview = ({
               onInfo={onTankInfo ? () => onTankInfo(tank.id) : undefined}
               stats={tank.stats}
               onClick={onSelectTank ? () => onSelectTank(tank.id) : undefined}
+              onModuleAction={
+                onModuleAction ? (moduleIndex, action) => onModuleAction(tank.id, moduleIndex, action) : undefined
+              }
             />
           ))}
         </div>

@@ -1,4 +1,5 @@
-import clsx from "clsx";
+import type { ModuleActionType } from "./moduleActions";
+import ModuleTile from "./ModuleTile";
 
 /**
  * Composite health of a single tank module. Deliberately a two-state model
@@ -13,6 +14,14 @@ interface TankModuleGridProps {
   rows: number;
   /** One entry per module bar, in row-major order. Missing entries read healthy. */
   modules: TankModuleState[];
+  /** Human label for the tank, used to build per-module accessible labels. */
+  label: string;
+  /**
+   * When supplied, each module bar becomes an action-menu trigger (View +
+   * Blink LEDs / Reboot / Sleep), called with the module's row-major index and
+   * the chosen action. When omitted the bars are plain status indicators.
+   */
+  onModuleAction?: (moduleIndex: number, action: ModuleActionType) => void;
 }
 
 /**
@@ -20,9 +29,10 @@ interface TankModuleGridProps {
  * analogue of RackHealthModule's RackDetailGrid, deliberately NOT the dense
  * fleet MiniRackGrid. Modules render as tall, generously spaced vertical bars:
  * a flat grey bar when healthy, and a three-cell orange bar (light body with a
- * brighter centre third) when the module needs attention.
+ * brighter centre third) when the module needs attention. Each bar can carry a
+ * popover action menu (see ModuleTile) when the caller wires onModuleAction.
  */
-const TankModuleGrid = ({ cols, rows, modules }: TankModuleGridProps) => {
+const TankModuleGrid = ({ cols, rows, modules, label, onModuleAction }: TankModuleGridProps) => {
   const total = cols * rows;
 
   return (
@@ -33,22 +43,14 @@ const TankModuleGrid = ({ cols, rows, modules }: TankModuleGridProps) => {
     >
       {Array.from({ length: total }, (_, i) => {
         const state = modules[i] ?? "healthy";
-        const attention = state === "attention";
 
         return (
-          <div
+          <ModuleTile
             key={i}
-            data-testid="tank-module"
-            data-module-state={state}
-            className={clsx(
-              "relative aspect-[4/7] overflow-hidden rounded-md",
-              attention ? "bg-core-accent-50" : "bg-core-primary-10",
-            )}
-          >
-            {/* Attention modules read as three equal-width cells: a bright centre
-                third over the light body. */}
-            {attention ? <span aria-hidden className="absolute inset-y-0 left-1/3 w-1/3 bg-core-accent-fill" /> : null}
-          </div>
+            state={state}
+            label={`${label} module ${i + 1}`}
+            onAction={onModuleAction ? (action) => onModuleAction(i, action) : undefined}
+          />
         );
       })}
     </div>

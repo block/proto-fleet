@@ -195,7 +195,7 @@ function InteractiveContainerOverview() {
       onMuteAlarm: () => {},
       onTankInfo: () => {},
       onFanInfo: () => {},
-      onSelectTank: () => {},
+      onModuleAction: () => {},
       onViewMiners: () => {},
       onViewDetails: () => {},
     }),

@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import type { ModuleActionType } from "./moduleActions";
 import TankModuleGrid, { type TankModuleState } from "./TankModuleGrid";
 import { InfoInverted } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -20,6 +21,12 @@ interface TankCardProps {
    */
   stats: string[];
   onClick?: () => void;
+  /**
+   * When supplied, each module bar becomes an action-menu trigger (View +
+   * Blink LEDs / Reboot / Sleep), called with the module's row-major index and
+   * the chosen action.
+   */
+  onModuleAction?: (moduleIndex: number, action: ModuleActionType) => void;
 }
 
 /**
@@ -30,7 +37,18 @@ interface TankCardProps {
  * the readouts across the card width. When the tank is off the body dims to
  * signal the inactive state without dropping the readouts.
  */
-const TankCard = ({ label, cols, rows, modules, on, onToggle, onInfo, stats, onClick }: TankCardProps) => {
+const TankCard = ({
+  label,
+  cols,
+  rows,
+  modules,
+  on,
+  onToggle,
+  onInfo,
+  stats,
+  onClick,
+  onModuleAction,
+}: TankCardProps) => {
   return (
     <div
       data-testid="tank-card"
@@ -72,8 +90,8 @@ const TankCard = ({ label, cols, rows, modules, on, onToggle, onInfo, stats, onC
       </div>
 
       {/* Module bars */}
-      <div className={clsx("relative px-5 pt-6 pb-5", !on && "opacity-40")}>
-        <TankModuleGrid cols={cols} rows={rows} modules={modules} />
+      <div className={clsx("px-5 pt-6 pb-5", !on && "opacity-40", onModuleAction && "relative z-20")}>
+        <TankModuleGrid cols={cols} rows={rows} modules={modules} label={label} onModuleAction={onModuleAction} />
       </div>
 
       {/* Footer readouts, spread across the row in equal-width cells */}
