@@ -231,7 +231,11 @@ site coverage, envelope validation, and target claim in one transaction. Within
 it, re-resolve and reauthorize every original selector, selected resource,
 membership, logical reservation, and facility fan—not only concrete miners.
 Lock relevant topology rows or compare topology revisions; dispatch only after
-commit.
+commit. Immediately before each physical Curtail send, the dispatcher must
+reload the claimed miner's current topology and the event's persisted envelope,
+then reauthorize the principal with no intervening asynchronous work. A failed
+check sends no command, marks the watcher degraded, and safely restores any
+previously dispatched ownership; the claim alone is never authority to send.
 
 Replace the org-scoped `RequirePermission(..., ResourceContext{})` entry gates
 across Preview/Start, response-profile/automation, and event Get/List/Update/Stop
@@ -351,6 +355,8 @@ Backend coverage:
 - Authorization races for empty watchers and moved fans, separate fan coverage,
   stale CRUD recovery, current permission revocation,
   Admin/SuperAdmin demotion, and current topology exceeding an envelope.
+- A miner moving outside the envelope after claim/commit but before dispatch is
+  rejected by the final send-time check and receives no Curtail command.
 - Site-scoped Start followed by event List/Get/Update/Stop, denial outside the
   persisted envelope, and proof that selector resolution ignores envelope data.
 - Full executable-profile revision coverage, automation binding races,
@@ -388,8 +394,9 @@ snapshots without explicit approval.
   coverage; unassigned/unbounded targets require org-wide permission.
 - Selector JSON and authorization envelopes are stored separately; envelope
   coverage can never become an executable site selector.
-- Target claims are atomic with topology and authorization checks, and active
-  logical reservations prevent competing events from stealing future members.
+- Target claims are atomic with topology and authorization checks; a final
+  current-envelope check gates each physical send, and active logical
+  reservations prevent competing events from stealing future members.
 - Dispatched targets remain owned through fan-aware safe restoration when they
   leave scope, lose authorization, become unpaired, or their principal is
   demoted.
