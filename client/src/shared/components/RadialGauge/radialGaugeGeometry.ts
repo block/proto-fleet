@@ -34,7 +34,7 @@ export function getRadialGaugeGeometry({
   const clamped = Math.max(0, Math.min(100, value));
   const clampedSweep = Math.max(1, Math.min(360, sweep));
 
-  const radius = (size - strokeWidth) / 2;
+  const radius = Math.max(0, (size - strokeWidth) / 2);
   const circumference = 2 * Math.PI * radius;
   const trackLength = (clampedSweep / 360) * circumference;
   const trackGap = circumference - trackLength;

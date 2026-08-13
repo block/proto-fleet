@@ -61,8 +61,7 @@ const RadialGauge = ({
   // viewBox; both arcs share this radius (a common centre line) so the value
   // arc stays a correct fraction of the track and starts at the same point.
   const geometryStroke = Math.max(strokeWidth, valueStroke);
-  const radius = (size - geometryStroke) / 2;
-  const { trackLength, trackGap, valueLength, valueGap, rotation } = getRadialGaugeGeometry({
+  const { radius, trackLength, trackGap, valueLength, valueGap, rotation } = getRadialGaugeGeometry({
     value,
     size,
     strokeWidth: geometryStroke,

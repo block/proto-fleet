@@ -42,6 +42,17 @@ describe("getRadialGaugeGeometry", () => {
     expect(big.trackLength).toBeCloseTo(big.circumference);
   });
 
+  it("clamps the radius and dash geometry when the stroke exceeds the size", () => {
+    const g = getRadialGaugeGeometry({ size: 20, strokeWidth: 24, sweep: 360, value: 50 });
+
+    expect(g.radius).toBe(0);
+    expect(g.circumference).toBe(0);
+    expect(g.trackLength).toBe(0);
+    expect(g.trackGap).toBe(0);
+    expect(g.valueLength).toBe(0);
+    expect(g.valueGap).toBe(0);
+  });
+
   it("centres a full ring at the top and rotates a partial sweep to open at the bottom", () => {
     expect(getRadialGaugeGeometry({ ...base, sweep: 360, value: 50 }).rotation).toBe(-90);
     // 270° sweep leaves a 90° gap, centred at the bottom → offset by 45°.

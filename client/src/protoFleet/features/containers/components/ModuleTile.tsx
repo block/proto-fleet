@@ -12,8 +12,8 @@ import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface ModuleTileProps {
-  /** Composite health of the module this tile represents. */
-  state: TankModuleState;
+  /** Composite health of the module this tile represents, including a detail-only powered-off state. */
+  state: TankModuleState | "offline";
   label: string;
   /**
    * Fired with the chosen action when the caller wires an interactive tile.
@@ -29,7 +29,7 @@ interface ModuleTileProps {
  * RowActionsMenu uses — a desktop Popover and a phone ActionSheet. The menu is
  * anchored to the tile itself rather than a separate ellipsis affordance.
  */
-const ModuleBar = ({ state }: { state: TankModuleState }) => {
+const ModuleBar = ({ state }: { state: ModuleTileProps["state"] }) => {
   const attention = state === "attention";
   return (
     <>
@@ -40,10 +40,10 @@ const ModuleBar = ({ state }: { state: TankModuleState }) => {
   );
 };
 
-const barClassName = (state: TankModuleState) =>
+const barClassName = (state: ModuleTileProps["state"]) =>
   clsx(
     "relative aspect-[4/7] overflow-hidden rounded-md",
-    state === "attention" ? "bg-core-accent-50" : "bg-core-primary-10",
+    state === "attention" ? "bg-core-accent-50" : state === "offline" ? "bg-core-primary-20" : "bg-core-primary-10",
   );
 
 const ModuleTileInner = ({

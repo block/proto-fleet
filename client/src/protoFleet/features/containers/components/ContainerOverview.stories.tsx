@@ -7,6 +7,7 @@ import ContainerOverview, {
   type ContainerOverviewProps,
   type ContainerTank,
 } from "./ContainerOverview";
+import { FleetShellStoryDecorator } from "./FleetShellStoryDecorator";
 import type { TankModuleState } from "./TankModuleGrid";
 import {
   AggregatedValueSchema,
@@ -49,7 +50,7 @@ const initialTanks: ContainerTank[] = [
     cols: TANK_COLS,
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 0, 11),
-    stats: ["48/48 boards", "65.5°", "12.3 kW"],
+    stats: ["16/16 modules", "65.5°", "12.3 kW"],
     tempLabel: "65.5°",
     powerLabel: "12.3 kW",
   },
@@ -60,7 +61,7 @@ const initialTanks: ContainerTank[] = [
     cols: TANK_COLS,
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 2, 23),
-    stats: ["44/48 boards", "67.1°", "11.8 kW"],
+    stats: ["14/16 modules", "67.1°", "11.8 kW"],
     tempLabel: "67.1°",
     powerLabel: "11.8 kW",
   },
@@ -71,7 +72,7 @@ const initialTanks: ContainerTank[] = [
     cols: TANK_COLS,
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 1, 37),
-    stats: ["45/48 boards", "64.2°", "11.5 kW"],
+    stats: ["15/16 modules", "64.2°", "11.5 kW"],
     tempLabel: "64.2°",
     powerLabel: "11.5 kW",
   },
@@ -82,7 +83,7 @@ const initialTanks: ContainerTank[] = [
     cols: TANK_COLS,
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 3, 41),
-    stats: ["42/48 boards", "68.9°", "11.1 kW"],
+    stats: ["13/16 modules", "68.9°", "11.1 kW"],
     tempLabel: "68.9°",
     powerLabel: "11.1 kW",
   },
@@ -93,7 +94,7 @@ const initialTanks: ContainerTank[] = [
     cols: TANK_COLS,
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 0, 53),
-    stats: ["48/48 boards", "65.0°", "12.4 kW"],
+    stats: ["16/16 modules", "65.0°", "12.4 kW"],
     tempLabel: "65.0°",
     powerLabel: "12.4 kW",
   },
@@ -104,7 +105,7 @@ const initialTanks: ContainerTank[] = [
     cols: TANK_COLS,
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 0, 67),
-    stats: ["0/48 boards", "—", "0.0 kW"],
+    stats: ["0/16 modules", "—", "0.0 kW"],
     tempLabel: "—",
     powerLabel: "0.0 kW",
   },
@@ -135,7 +136,11 @@ const initialControls: ContainerToggleControl[] = [
   { id: "logo-light", label: "Logo light", icon: "light", on: true },
 ];
 
-const breadcrumb = [{ label: "Sites", to: "/fleet/sites" }, { label: "Kati 1A", to: "/sites/1" }, { label: "CT1-01" }];
+const breadcrumb = [
+  { label: "Sites", to: "/fleet/sites" },
+  { label: "Kati 1A", to: "/sites/1" },
+  { label: "Container 01" },
+];
 
 /**
  * Deterministic mock telemetry so the performance charts render with a stable,
@@ -193,7 +198,7 @@ function InteractiveContainerOverview() {
   const props: ContainerOverviewProps = useMemo(
     () => ({
       breadcrumb,
-      title: "CT1-01",
+      title: "Container 01",
       kpis,
       tanks,
       fans,
@@ -220,7 +225,7 @@ function InteractiveContainerOverview() {
 }
 
 const meta: Meta<typeof InteractiveContainerOverview> = {
-  title: "Proto Fleet/Containers/Container Overview",
+  title: "Proto Containers/Overview/Overview",
   component: InteractiveContainerOverview,
   parameters: {
     layout: "fullscreen",
@@ -237,3 +242,27 @@ export default meta;
 type Story = StoryObj<typeof InteractiveContainerOverview>;
 
 export const Default: Story = {};
+
+// ----------------------------------------------------------------------------
+// Overview inside the REAL Fleet app chrome (icon nav rail). Frames the same
+// InteractiveContainerOverview inside AppLayout via the shared
+// FleetShellStoryDecorator so the consolidated section shows the chrome, not
+// just the bare page — matching the running demo on :6060 and the shared flow
+// screenshots.
+// ----------------------------------------------------------------------------
+export const InFleetShell: Story = {
+  name: "In Fleet Shell (icon nav)",
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Container overview mounted inside the REAL Fleet app chrome: the primary icon nav rail (Home / Fleet / Groups / Energy / Activity / Settings) down the left, with the overview page rendered in the content area. This is the same shell + page composition the demo shows on :6060 — proof of the icon nav around the overview, not just the bare component. Backend-free: a seeded session drives the nav rail and a fetch shim keeps the shell pollers quiet.",
+      },
+    },
+  },
+  render: () => (
+    <FleetShellStoryDecorator>
+      <InteractiveContainerOverview />
+    </FleetShellStoryDecorator>
+  ),
+};
