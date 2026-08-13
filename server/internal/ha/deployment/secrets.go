@@ -22,10 +22,10 @@ const (
 	fleetEtcdPasswordFile   = "fleet-etcd-password"   //nolint:gosec // Filename, not a credential.
 	patroniEtcdPasswordFile = "patroni-etcd-password" //nolint:gosec // Filename, not a credential.
 	fleetEnvironmentFile    = "fleet.env"             //nolint:gosec // Filename, not a credential.
+	certificateValidity     = 10 * 365 * 24 * time.Hour
 )
 
 var databasePasswordFiles = []string{
-	fleetEtcdPasswordFile,
 	patroniEtcdPasswordFile,
 	"patroni-rest-password",
 	"postgres-superuser-password",
@@ -37,7 +37,6 @@ type certificateAuthority struct {
 	certificate *x509.Certificate
 	key         *rsa.PrivateKey
 	certPEM     []byte
-	keyPEM      []byte
 }
 
 // GenerateSecrets creates the complete offline and per-host credential layout.
@@ -90,11 +89,7 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 	if err := writeFile(filepath.Join(offlineDir, "service-ca.crt"), ca.certPEM, 0o644); err != nil {
 		return err
 	}
-	if err := writeFile(filepath.Join(offlineDir, "service-ca.key"), ca.keyPEM, 0o600); err != nil {
-		return err
-	}
-
-	passwordFiles := append([]string{etcdRootPasswordFile}, databasePasswordFiles...)
+	passwordFiles := append([]string{etcdRootPasswordFile, fleetEtcdPasswordFile}, databasePasswordFiles...)
 	for _, name := range passwordFiles {
 		password, randomErr := randomHex(32)
 		if randomErr != nil {
@@ -150,6 +145,10 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 	if err := writeFile(filepath.Join(offlineDir, "etcd-jwt.pub"), jwtPublicPEM, 0o644); err != nil {
 		return err
 	}
+	fleetEtcdPassword, err := os.ReadFile(filepath.Join(offlineDir, fleetEtcdPasswordFile))
+	if err != nil {
+		return fmt.Errorf("read offline %s: %w", fleetEtcdPasswordFile, err)
+	}
 
 	hosts := []struct {
 		name     string
@@ -169,6 +168,9 @@ func GenerateSecrets(outputDir string, hostIPs [3]string, virtualIP string) (err
 			return err
 		}
 		if err := writeFile(filepath.Join(nodeDir, "etcd-jwt.pub"), jwtPublicPEM, 0o644); err != nil {
+			return err
+		}
+		if err := writeFile(filepath.Join(nodeDir, fleetEtcdPasswordFile), fleetEtcdPassword, 0o600); err != nil {
 			return err
 		}
 		if err := issueCertificate(nodeDir, "etcd-server", "etcd-"+host.name, host.address, ca, now, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
@@ -220,7 +222,7 @@ func newCertificateAuthority(now time.Time) (certificateAuthority, error) {
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: "Proto Fleet HA Root CA"},
 		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.Add(3650 * 24 * time.Hour),
+		NotAfter:              now.Add(certificateValidity),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
@@ -229,15 +231,10 @@ func newCertificateAuthority(now time.Time) (certificateAuthority, error) {
 	if err != nil {
 		return certificateAuthority{}, fmt.Errorf("create service CA certificate: %w", err)
 	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return certificateAuthority{}, fmt.Errorf("encode service CA key: %w", err)
-	}
 	return certificateAuthority{
 		certificate: template,
 		key:         key,
 		certPEM:     pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		keyPEM:      pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}),
 	}, nil
 }
 
@@ -254,7 +251,7 @@ func issueCertificate(dir, name, commonName string, address netip.Addr, ca certi
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: commonName},
 		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.Add(825 * 24 * time.Hour),
+		NotAfter:              now.Add(certificateValidity),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           usages,
 		BasicConstraintsValid: true,
