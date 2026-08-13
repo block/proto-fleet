@@ -1,9 +1,11 @@
 import { useState } from "react";
 import ContainerControls, { type ContainerToggleControl } from "./ContainerControls";
+import ContainerStatusModal from "./ContainerStatusModal";
 import FanCard from "./FanCard";
 import type { ModuleActionType } from "./moduleActions";
 import TankCard from "./TankCard";
 import type { TankModuleState } from "./TankModuleGrid";
+import TankPowerConfirmationDialog from "./TankPowerConfirmationDialog";
 import type { Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import Breadcrumb, { type BreadcrumbSegment } from "@/shared/components/Breadcrumb";
@@ -24,6 +26,16 @@ export interface ContainerTank {
   modules: TankModuleState[];
   /** Footer readouts, e.g. ["48/48 boards", "65.5°", "12.3 kW"]. */
   stats: string[];
+  /**
+   * Temperature readout for the (ⓘ) status glance, mirroring the card footer
+   * (e.g. "65.5°"). Optional — the glance shows a dash when absent.
+   */
+  tempLabel?: string;
+  /**
+   * Power readout for the (ⓘ) status glance, mirroring the card footer
+   * (e.g. "12.3 kW"). Optional — the glance shows a dash when absent.
+   */
+  powerLabel?: string;
 }
 
 export interface ContainerFan {
@@ -58,7 +70,19 @@ export interface ContainerOverviewProps {
   onToggleControl?: (id: string, on: boolean) => void;
   onResetAlarm?: () => void;
   onMuteAlarm?: () => void;
+  /**
+   * Optional override for a tank card's (ⓘ). When omitted, the (ⓘ) opens the
+   * built-in tank-level status glance (module health breakdown + temp/power)
+   * reusing the shared StatusModal framework; the full drill-down stays the
+   * Subtank detail page reached via onSelectTank (card-body click). Supply this
+   * to intercept the (ⓘ) click instead.
+   */
   onTankInfo?: (id: string) => void;
+  /**
+   * Optional override for a fan card's (ⓘ). When omitted, the (ⓘ) opens the
+   * built-in component-status glance (speed / PWM + running state) reusing the
+   * shared StatusModal framework; supply this to intercept the click instead.
+   */
   onFanInfo?: (id: string) => void;
   onSelectTank?: (id: string) => void;
   /**
@@ -104,6 +128,28 @@ const ContainerOverview = ({
   onViewDetails,
 }: ContainerOverviewProps) => {
   const [duration, setDuration] = useState<FleetDuration>("24h");
+  // A tank toggle drives the tank's PDU (line power to every module), so it is
+  // confirmed before firing. Holds the pending {id, label, next-on} until the
+  // operator confirms or cancels the destructive remote action.
+  const [pendingTank, setPendingTank] = useState<{ id: string; label: string; on: boolean } | null>(null);
+  // The fan whose (ⓘ) is open in the component-status glance, or null when
+  // closed. Owned here (like pendingTank) so the glance is self-contained; the
+  // caller can still intercept via onFanInfo.
+  const [statusFanId, setStatusFanId] = useState<string | null>(null);
+  // The tank whose (ⓘ) is open in the component-status glance, or null when
+  // closed. The (ⓘ) is a quick tank-level summary; the full drill-down is the
+  // Subtank detail page (onSelectTank, card-body click). Caller can intercept
+  // via onTankInfo.
+  const [statusTankId, setStatusTankId] = useState<string | null>(null);
+
+  const confirmTankToggle = () => {
+    if (!pendingTank) return;
+    onToggleTank(pendingTank.id, pendingTank.on);
+    setPendingTank(null);
+  };
+
+  const statusFan = statusFanId !== null ? (fans.find((fan) => fan.id === statusFanId) ?? null) : null;
+  const statusTank = statusTankId !== null ? (tanks.find((tank) => tank.id === statusTankId) ?? null) : null;
 
   const headerButtons = [
     {
@@ -166,8 +212,8 @@ const ContainerOverview = ({
               rows={tank.rows}
               modules={tank.modules}
               on={tank.on}
-              onToggle={(on) => onToggleTank(tank.id, on)}
-              onInfo={onTankInfo ? () => onTankInfo(tank.id) : undefined}
+              onToggle={(on) => setPendingTank({ id: tank.id, label: tank.label, on })}
+              onInfo={() => (onTankInfo ? onTankInfo(tank.id) : setStatusTankId(tank.id))}
               stats={tank.stats}
               onClick={onSelectTank ? () => onSelectTank(tank.id) : undefined}
               onModuleAction={
@@ -196,7 +242,7 @@ const ContainerOverview = ({
               speedLabel={fan.speedLabel}
               on={fan.on}
               onToggle={(on) => onToggleFan(fan.id, on)}
-              onInfo={onFanInfo ? () => onFanInfo(fan.id) : undefined}
+              onInfo={() => (onFanInfo ? onFanInfo(fan.id) : setStatusFanId(fan.id))}
             />
           ))}
         </div>
@@ -272,6 +318,23 @@ const ContainerOverview = ({
         </div>
         <DeviceSetPerformanceSection duration={duration} gapClassName="gap-4" metrics={metrics} />
       </section>
+
+      <TankPowerConfirmationDialog
+        open={pendingTank !== null}
+        label={pendingTank?.label ?? ""}
+        turningOn={pendingTank?.on ?? false}
+        onCancel={() => setPendingTank(null)}
+        onConfirm={confirmTankToggle}
+      />
+
+      <ContainerStatusModal
+        fan={statusFan}
+        tank={statusTank}
+        onClose={() => {
+          setStatusFanId(null);
+          setStatusTankId(null);
+        }}
+      />
     </div>
   );
 };

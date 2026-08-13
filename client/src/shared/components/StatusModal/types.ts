@@ -39,7 +39,7 @@ export type MinerStatusModalProps = {
 /**
  * Types for ComponentStatusModalContent
  */
-export type ComponentType = "hashboard" | "psu" | "fan" | "controlBoard" | "other";
+export type ComponentType = "hashboard" | "psu" | "fan" | "controlBoard" | "tank" | "other";
 
 // Component details for displaying metrics, visualization, and metadata
 export interface ComponentMetric {

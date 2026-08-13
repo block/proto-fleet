@@ -4,7 +4,7 @@ import ComponentMetadata from "./ComponentMetadata";
 import StatusModalLayout, { type StatusModalLayoutError } from "./StatusModalLayout";
 import type { ComponentStatusModalProps } from "./types";
 import { formatReportedTimestamp } from "./utils";
-import { Alert, ControlBoard, Fan, Hashboard, LightningAlt } from "@/shared/assets/icons";
+import { Alert, ControlBoard, Fan, Hashboard, Immersion, LightningAlt } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { DialogIcon } from "@/shared/components/Dialog";
 
@@ -33,6 +33,8 @@ const renderComponentIcon = (componentType: ComponentStatusModalProps["component
       return <LightningAlt className={componentIconClassName} />;
     case "controlBoard":
       return <ControlBoard className={componentIconClassName} />;
+    case "tank":
+      return <Immersion className={componentIconClassName} />;
     default:
       return <Alert className={componentIconClassName} />;
   }

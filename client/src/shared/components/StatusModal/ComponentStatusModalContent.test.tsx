@@ -8,6 +8,7 @@ vi.mock("@/shared/assets/icons", () => ({
   ControlBoard: vi.fn((props) => <span data-testid="controlboard-icon" className={props.className} />),
   Fan: vi.fn((props) => <span data-testid="fan-icon" className={props.className} />),
   Hashboard: vi.fn((props) => <span data-testid="hashboard-icon" className={props.className} />),
+  Immersion: vi.fn((props) => <span data-testid="tank-icon" className={props.className} />),
   LightningAlt: vi.fn((props) => <span data-testid="psu-icon" className={props.className} />),
 }));
 
@@ -50,6 +51,11 @@ describe("ComponentStatusModalContent", () => {
     it("should render ControlBoard icon for controlBoard component type", () => {
       render(<ComponentStatusModalContent {...baseProps} componentType="controlBoard" />);
       expect(screen.getByTestId("controlboard-icon")).toBeInTheDocument();
+    });
+
+    it("should render Immersion icon for tank component type", () => {
+      render(<ComponentStatusModalContent {...baseProps} componentType="tank" />);
+      expect(screen.getByTestId("tank-icon")).toBeInTheDocument();
     });
 
     it("should render Alert icon for other component type", () => {

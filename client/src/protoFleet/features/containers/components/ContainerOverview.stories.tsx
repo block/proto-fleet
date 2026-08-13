@@ -50,6 +50,8 @@ const initialTanks: ContainerTank[] = [
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 0, 11),
     stats: ["48/48 boards", "65.5°", "12.3 kW"],
+    tempLabel: "65.5°",
+    powerLabel: "12.3 kW",
   },
   {
     id: "t2",
@@ -59,6 +61,8 @@ const initialTanks: ContainerTank[] = [
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 2, 23),
     stats: ["44/48 boards", "67.1°", "11.8 kW"],
+    tempLabel: "67.1°",
+    powerLabel: "11.8 kW",
   },
   {
     id: "t3",
@@ -68,6 +72,8 @@ const initialTanks: ContainerTank[] = [
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 1, 37),
     stats: ["45/48 boards", "64.2°", "11.5 kW"],
+    tempLabel: "64.2°",
+    powerLabel: "11.5 kW",
   },
   {
     id: "t4",
@@ -77,6 +83,8 @@ const initialTanks: ContainerTank[] = [
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 3, 41),
     stats: ["42/48 boards", "68.9°", "11.1 kW"],
+    tempLabel: "68.9°",
+    powerLabel: "11.1 kW",
   },
   {
     id: "t5",
@@ -86,6 +94,8 @@ const initialTanks: ContainerTank[] = [
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 0, 53),
     stats: ["48/48 boards", "65.0°", "12.4 kW"],
+    tempLabel: "65.0°",
+    powerLabel: "12.4 kW",
   },
   {
     id: "t6",
@@ -95,6 +105,8 @@ const initialTanks: ContainerTank[] = [
     rows: TANK_ROWS,
     modules: makeModules(MODULES_PER_TANK, 0, 67),
     stats: ["0/48 boards", "—", "0.0 kW"],
+    tempLabel: "—",
+    powerLabel: "0.0 kW",
   },
 ];
 
@@ -193,8 +205,10 @@ function InteractiveContainerOverview() {
         setControls((prev) => prev.map((control) => (control.id === id ? { ...control, on } : control))),
       onResetAlarm: () => {},
       onMuteAlarm: () => {},
-      onTankInfo: () => {},
-      onFanInfo: () => {},
+      // onTankInfo / onFanInfo omitted so the card (ⓘ) buttons open the
+      // built-in component-status glances (Item 11), not story overrides. The
+      // tank (ⓘ) is a quick tank-level summary; onSelectTank (card-body click)
+      // is the full Subtank drill-down.
       onModuleAction: () => {},
       onViewMiners: () => {},
       onViewDetails: () => {},

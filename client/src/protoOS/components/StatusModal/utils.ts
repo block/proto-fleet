@@ -36,6 +36,8 @@ export const getComponentTitle = (type: ComponentType): string => {
       return "PSU status";
     case "controlBoard":
       return "Control board status";
+    case "tank":
+      return "Tank status";
     case "other":
       return "Needs attention";
   }
