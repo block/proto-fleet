@@ -231,13 +231,15 @@ Lock relevant topology rows or compare topology revisions; dispatch only after
 commit.
 
 Replace the org-scoped `RequirePermission(..., ResourceContext{})` entry gates
-across Preview/Start and response-profile/automation RPCs with authentication/
-org derivation followed by their scoped resolver or persisted-envelope checks;
-otherwise site-scoped grants cannot reach those authorization paths.
+across Preview/Start, response-profile/automation, and event Get/List/Update/Stop
+RPCs with authentication/org derivation followed by scoped resolution or
+persisted-envelope checks. Event Get/Update/Stop authorize against that event's
+envelope; List returns only events whose envelopes the caller can access.
 
-On profile Create/Update, persist the union of selected-resource and current-
-member site coverage plus the independent fan-site coverage in `scope_json`,
-with separate org-wide flags for incomplete or unbounded dimensions.
+Keep `scope_json` executable-selector-only. On profile Create/Update, persist
+selected-resource/current-member site coverage, independent fan-site coverage,
+and separate unbounded flags in a dedicated authorization-envelope column that
+target resolution never interprets as selectors.
 
 ### 5. Preserve closed-loop ownership and exclusivity
 
@@ -261,7 +263,7 @@ with separate org-wide flags for incomplete or unbounded dimensions.
   it moves into a watched scope retains its owner; mark the watcher degraded
   and retry after release.
 - Persist the authorization envelope, authorizing principal, and whether
-  admin-only controls are required on every closed-loop event. Each admission
+  admin-only controls are required on every event. Each closed-loop admission
   reloads current permissions, current Admin/SuperAdmin role when required, and
   current topology before claiming a target.
 - Permission revocation, role demotion, or out-of-envelope topology stops new
@@ -284,12 +286,13 @@ Create/Update/enable/execution. Use persisted envelopes for recovery operations:
 | Automation Create/Update/enable/OFF start | Require strict topology, exact executable-profile revision/envelope, current principal permissions, and current Admin/SuperAdmin role for admin-only controls. |
 | Automation ON/stop with an active event | Restore from the event's durable targets and fan settings without requiring the current profile revision/topology/admin grant; never admit or recurtail targets. |
 
-Add immutable up/down migrations for automation-rule binding fields: executable-
-profile revision, miner/fan envelope, execution principal, and required-admin
-marker. In the same transaction that saves/enables a rule, lock the profile,
-compare the handler-authorized revision/envelope, and persist that exact
-binding. Extend the existing store-side fan-settings race check; mismatch
-returns FailedPrecondition without saving.
+Add immutable up/down migrations for separate profile/event authorization-
+envelope columns and automation-rule binding fields: executable-profile
+revision, miner/fan envelope, execution principal, and required-admin marker.
+In the same transaction that saves/enables a rule, lock the profile, compare the
+handler-authorized revision/envelope, and persist that exact binding. Extend the
+existing store-side fan-settings race check; mismatch returns FailedPrecondition
+without saving.
 
 Reload the bound user or service-account permissions at every trigger; never
 fall back to the profile creator or an ambient system principal.
@@ -314,8 +317,9 @@ admin requirement, topology, and quotas before claiming targets.
    revision, or binding fail closed.
 3. Deploy the frontend that always sends the new version and explicit whole-org
    scope, raise the minimum accepted schema version, then open the feature gate.
-   Rollback below the minimum server version requires disabling automation and
-   draining topology-scoped events first.
+   Rollback below the minimum requires closing the gate, blocking profile Test/
+   Start/Create/Update, disabling dependent automation, draining topology events,
+   and deleting topology-scoped profiles before an older server starts.
 
 ## Verification
 
@@ -343,6 +347,8 @@ Backend coverage:
 - Authorization races for empty watchers and moved fans, separate fan coverage,
   stale CRUD recovery, current permission revocation,
   Admin/SuperAdmin demotion, and current topology exceeding an envelope.
+- Site-scoped Start followed by event List/Get/Update/Stop, denial outside the
+  persisted envelope, and proof that selector resolution ignores envelope data.
 - Full executable-profile revision coverage, automation binding races,
   `rebind_required`, stale rule management, ON/stop recovery after profile or
   permission changes, and fail-closed rollout sequencing.
@@ -376,6 +382,8 @@ snapshots without explicit approval.
   empty, unknown, and infrastructure-only scope never widens to whole org.
 - Authorization includes selected resources, members, and independent fan
   coverage; unassigned/unbounded targets require org-wide permission.
+- Selector JSON and authorization envelopes are stored separately; envelope
+  coverage can never become an executable site selector.
 - Target claims are atomic with topology and authorization checks, and active
   logical reservations prevent competing events from stealing future members.
 - Dispatched targets remain owned through fan-aware safe restoration when they
@@ -387,6 +395,6 @@ snapshots without explicit approval.
   from broadening or silently retargeting a scope.
 - The deployment gate prevents mixed-version execution; missing versioned scope,
   envelope, revision, or binding data is rejected rather than preserved.
-- Response profiles reuse existing scope JSON; automation bindings use a new
-  immutable up/down migration. Proto and generated output are committed
-  together.
+- Response profiles keep executable selectors in existing scope JSON; immutable
+  up/down migrations add separate profile/event envelopes and automation
+  bindings. Proto and generated output are committed together.
