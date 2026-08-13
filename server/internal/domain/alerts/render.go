@@ -3,6 +3,7 @@ package alerts
 import (
 	"cmp"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -14,6 +15,8 @@ const (
 	slackSectionMaxRunes = 2900
 	// Cap alert sections so header + link + 2 headings + overflow line stay under Slack's 50-block limit.
 	slackMaxAlertSections = 40
+	// Keep the instance name from crowding the alert counts out of the truncated header.
+	slackInstanceMaxRunes = 50
 )
 
 // renderSlack builds a Block Kit message that carries no alerting-engine internals. Alerts are rolled up per
@@ -22,7 +25,7 @@ func renderSlack(publicURL string, alerts []Alert, identities map[string]DeviceI
 	firing, resolved := partitionAlerts(alerts)
 	firingGroups := groupAlerts(firing)
 	resolvedGroups := groupAlerts(resolved)
-	title := slackTitle(firingGroups, distinctDevices(firing))
+	title := slackTitle(publicURL, firingGroups, distinctDevices(firing))
 
 	blocks := []map[string]any{headerBlock(title)}
 	if publicURL != "" {
@@ -52,11 +55,17 @@ func renderSlack(publicURL string, alerts []Alert, identities map[string]DeviceI
 	return map[string]any{"text": title, "blocks": blocks}
 }
 
-func slackTitle(firing []alertGroup, firingDevices int) string {
-	if len(firing) == 0 {
-		return "✅ Proto Fleet — alerts resolved"
+func slackTitle(publicURL string, firing []alertGroup, firingDevices int) string {
+	// Several fleet instances can post to one channel, and nothing else in the message says which one fired, so
+	// the public URL's host names the sender. A value with no host is a misconfigured link, not an instance name.
+	product := "Proto Fleet"
+	if u, err := url.Parse(publicURL); err == nil && u.Host != "" {
+		product = fmt.Sprintf("%s (%s)", product, truncate(u.Host, slackInstanceMaxRunes))
 	}
-	base := fmt.Sprintf("🔴 Proto Fleet — %d alert%s firing", len(firing), plural(len(firing)))
+	if len(firing) == 0 {
+		return "✅ " + product + " — alerts resolved"
+	}
+	base := fmt.Sprintf("🔴 %s — %d alert%s firing", product, len(firing), plural(len(firing)))
 	// Fleet- and source-scoped alerts have no miners to count; don't claim "on 0 miners".
 	if firingDevices == 0 {
 		return base
@@ -102,11 +111,14 @@ func groupLine(g alertGroup, identities map[string]DeviceIdentity) string {
 	return b.String()
 }
 
-// escapeMrkdwn escapes Slack's reserved mrkdwn chars so user-controlled text can't break rendering or inject a `<url|text>` link.
+// escapeMrkdwn neutralizes the mrkdwn chars that let user-controlled text escape its own field: the link syntax,
+// and the backtick, since a code span opened in one field closes at the next backtick anywhere in the section.
+// It does not touch `*`, `_`, `~`, or `:shortcode:`, so user text can still format itself and interpolate emoji.
 func escapeMrkdwn(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "`", "")
 	return s
 }
 
@@ -217,10 +229,19 @@ func distinctDevices(alerts []Alert) int {
 	return len(seen)
 }
 
+// macCode renders a MAC as inline code, which is both how an identifier reads best and the only mrkdwn context
+// where Slack leaves `:shortcode:` alone — a colon-separated MAC otherwise interpolates `:ab:` as 🆎.
+func macCode(mac string) string {
+	if mac == "" {
+		return ""
+	}
+	return "`" + escapeMrkdwn(mac) + "`"
+}
+
 func deviceLabel(id string, identities map[string]DeviceIdentity) string {
 	ident := identities[id]
 	name := escapeMrkdwn(strings.TrimSpace(ident.Name))
-	mac := escapeMrkdwn(ident.MAC)
+	mac := macCode(ident.MAC)
 	switch {
 	case name != "" && mac != "":
 		return fmt.Sprintf("%s (%s)", name, mac)

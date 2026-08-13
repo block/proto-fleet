@@ -54,7 +54,7 @@ func TestRenderSlackHeaderLinksToInstance(t *testing.T) {
 	}
 	msg := renderSlack("https://fleet.example.com", sampleAlerts(), ids)
 
-	assert.Equal(t, "🔴 Proto Fleet — 2 alerts firing on 2 miners", msg["text"])
+	assert.Equal(t, "🔴 Proto Fleet (fleet.example.com) — 2 alerts firing on 2 miners", msg["text"])
 
 	blocks, ok := msg["blocks"].([]map[string]any)
 	require.True(t, ok)
@@ -66,17 +66,15 @@ func TestRenderSlackHeaderLinksToInstance(t *testing.T) {
 	body := mustJSON(t, msg)
 	assert.Contains(t, body, "*Firing*")
 	assert.Contains(t, body, "*Resolved*")
-	assert.Contains(t, body, "*Device Temperature High* _(warning)_ — miner-02 (11:22:33:44:55:66)")
+	assert.Contains(t, body, "*Device Temperature High* _(warning)_ — miner-02 (`11:22:33:44:55:66`)")
 	assert.Contains(t, body, "Max sensor temperature is above 90C.")
-	assert.Contains(t, body, "*Device Offline* _(warning)_ — miner-01 (aa:bb:cc:dd:ee:ff)")
+	assert.Contains(t, body, "*Device Offline* _(warning)_ — miner-01 (`aa:bb:cc:dd:ee:ff`)")
 }
 
 func TestRenderSlackOmitsLinkWhenNoPublicURL(t *testing.T) {
 	msg := renderSlack("", sampleAlerts(), nil)
 	body := mustJSON(t, msg)
 	assert.NotContains(t, body, "Open Proto Fleet")
-	// Header is still present.
-	assert.Contains(t, body, "Proto Fleet — 2 alerts firing")
 }
 
 func TestRenderSlackFallsBackToDeviceID(t *testing.T) {
@@ -84,9 +82,62 @@ func TestRenderSlackFallsBackToDeviceID(t *testing.T) {
 	assert.Contains(t, body, "— dev-b", "with no identity, the raw device id is shown")
 }
 
+func TestRenderSlackRendersMACsAsCode(t *testing.T) {
+	ids := map[string]DeviceIdentity{
+		// ":ab:" is a Slack shortcode (🆎) and "ab" is a valid octet, so a bare MAC interpolates mid-address.
+		"dev-a": {Name: "miner-01", MAC: "12:ab:34:cd:56:ef"},
+		// A backtick in any field of the section would close a MAC's span early, name and address alike.
+		"dev-b": {Name: "miner`02", MAC: "aa:`:bb"},
+	}
+	text := allSectionText(t, renderSlack("", sampleAlerts(), ids))
+
+	assert.Contains(t, text, "miner-01 (`12:ab:34:cd:56:ef`)")
+	assert.Contains(t, text, "miner02 (`aa::bb`)")
+}
+
 func TestRenderSlackAllResolvedTitle(t *testing.T) {
 	resolvedOnly := []Alert{{Status: "resolved", Labels: map[string]string{"alertname": "Device Offline"}}}
 	assert.Equal(t, "✅ Proto Fleet — alerts resolved", renderSlack("", resolvedOnly, nil)["text"])
+	// A quiet channel shared by several fleets still has to say whose alerts cleared.
+	msg := renderSlack("https://fleet.example.com", resolvedOnly, nil)
+	assert.Equal(t, "✅ Proto Fleet (fleet.example.com) — alerts resolved", msg["text"])
+}
+
+func TestRenderSlackNamesTheInstanceInTheTitle(t *testing.T) {
+	tests := []struct {
+		name      string
+		publicURL string
+		want      string
+	}{
+		{
+			name:      "host only, so the scheme and path stay out of the header",
+			publicURL: "https://fleet.rockdale.example.com/miners?tab=all",
+			want:      "🔴 Proto Fleet (fleet.rockdale.example.com) — 2 alerts firing on 2 miners",
+		},
+		{
+			name:      "port kept, since two local instances differ only by it",
+			publicURL: "http://localhost:8080",
+			want:      "🔴 Proto Fleet (localhost:8080) — 2 alerts firing on 2 miners",
+		},
+		{
+			name:      "no host to name, so the title is left as it was",
+			publicURL: "fleet.navarro.example.com",
+			want:      "🔴 Proto Fleet — 2 alerts firing on 2 miners",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, renderSlack(tc.publicURL, sampleAlerts(), nil)["text"])
+		})
+	}
+}
+
+func TestRenderSlackTruncatesALongInstanceName(t *testing.T) {
+	msg := renderSlack("https://"+strings.Repeat("a", 200)+".example.com", sampleAlerts(), nil)
+
+	want := "🔴 Proto Fleet (" + strings.Repeat("a", slackInstanceMaxRunes) + ") — 2 alerts firing on 2 miners"
+	assert.Equal(t, want, msg["text"], "the counts survive a hostname that would fill the header")
 }
 
 func TestRenderWebhookResolvesDeviceMetadata(t *testing.T) {
@@ -133,7 +184,7 @@ func outageAlerts(count int) []Alert {
 func TestRenderSlackRollsUpOneAlertAcrossManyMiners(t *testing.T) {
 	msg := renderSlack("https://fleet.example.com", outageAlerts(500), nil)
 
-	assert.Equal(t, "🔴 Proto Fleet — 1 alert firing on 500 miners", msg["text"])
+	assert.Equal(t, "🔴 Proto Fleet (fleet.example.com) — 1 alert firing on 500 miners", msg["text"])
 
 	blocks, ok := msg["blocks"].([]map[string]any)
 	require.True(t, ok)
