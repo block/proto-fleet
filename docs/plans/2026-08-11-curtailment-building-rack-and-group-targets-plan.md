@@ -32,8 +32,9 @@ copies independently.
 Settings > Schedules is the closest UI/domain precedent:
 
 - `ScheduleModal.tsx` orders Sites → Buildings → Racks → Groups → Miners.
-- Its building/rack/group modals already provide multi-select, loading, empty,
-  error, and site-filter behavior.
+- Its target pickers provide reusable loading, empty, error, multi-select, and
+  filtering behavior, but their independent flat selections should move to the
+  same drill-down experience as curtailment.
 - `server/internal/domain/schedule/targets/expand.go` expands logical targets
   and deduplicates their miner union.
 
@@ -57,14 +58,16 @@ clears narrower miner selectors. Infrastructure remains independent, and a
 request without a recognized miner selector is invalid even if fans are
 selected.
 
-Both modal variants use this order:
+Both modal variants use a repeatable hierarchical target builder. Ancestor
+selection constrains child catalogs (for example, Site A exposes only its
+buildings and their racks). Each completed target contributes one typed terminal
+selector; targets compose as a union, navigation ancestors are not additional
+selectors, and duplicate labels include ancestor context.
 
-1. Sites
-2. Buildings
-3. Racks
-4. Groups
-5. Miners
-6. Infrastructure
+The builder supports Sites, Buildings, Racks, Groups, and Miners, while
+Infrastructure remains an explicit independent selection. Exact interactions
+and presentation follow the pending design without changing these semantics.
+Schedules adopts the same shared behavior.
 
 Resolve topology membership on the backend. Persist logical selectors for
 response profiles and closed-loop events; persist concrete targets for frozen
@@ -97,6 +100,8 @@ When an owned miner leaves scope or becomes unpaired:
 
 - Add `buildingTargetIds`, `rackTargetIds`, and `groupTargetIds` beside
   `siteIds` and `deviceIdentifiers`. Keep fan fields outside the miner scope.
+- Treat target rows as a view model and normalize their terminal selectors into
+  those canonical collections before validation, persistence, Preview, or Start.
 - Create one pure curtailment-scope module for normalization, whole-org
   dominance, deterministic deduplication, proto construction/hydration,
   all-paired eligibility, counts, and summaries.
@@ -114,13 +119,16 @@ When an owned miner leaves scope or becomes unpaired:
   Custom plan. Settings Test saves and starts that same union without a
   whole-org fallback. `startRequestFromAutomationProfile` uses the same path.
 - Render summaries by real type, such as `2 buildings + 1 group`.
+- This UI-neutral model plus contracts, persistence, and backend resolution can
+  land before the final target-builder visuals are ready.
 
-### 2. Add shared Apply-to controls
+### 2. Add the shared drill-down target builder
 
-- Reuse/extract the Schedule building/rack/group pickers into a neutral
-  ProtoFleet location without creating imports between feature areas.
-- Preserve the topbar site as a soft inventory filter: it filters buildings,
-  racks, and miners; groups remain org-wide/cross-site.
+- Build the hierarchy in a neutral ProtoFleet location for both curtailment
+  variants and Schedules, without cross-feature imports. Filter child catalogs
+  by each target's ancestors and disambiguate duplicate labels; the topbar site
+  remains a soft initial filter rather than a hidden selector, and groups retain
+  cross-site semantics.
 - Add a curtailment/profile picker mode that retains missing stored IDs,
   labels them stale/unavailable from hydrated metadata or their ID, and removes
   them only through explicit operator action. Schedule callers retain their
@@ -320,8 +328,9 @@ admin requirement, topology, and quotas before claiming targets.
 
 Frontend coverage:
 
-- Both modal variants: ordering, counts, select-all/clear, site filters,
-  permissions, stale-ID preservation, and all-paired behavior.
+- Both modal variants and Schedules: ancestor-filtered drill-down, duplicate
+  labels, multiple-target unions, counts, permissions, stale-ID preservation,
+  and all-paired behavior where applicable.
 - Canonical request/hydration tests for each target type and mixed unions across
   Preview, Start, profile create/reload/edit/test, automation, and display.
 - Stale-browser schema rejection and profile/automation revision handling;
@@ -361,8 +370,10 @@ snapshots without explicit approval.
 
 ## Acceptance
 
-- Both Apply-to flows expose Sites, Buildings, Racks, Groups, Miners, and
-  Infrastructure with consistent union semantics and typed round trips.
+- Both Apply-to flows and Schedules use the same hierarchical builder: child
+  options follow selected ancestors, each completed target contributes one
+  typed terminal selector, and multiple targets resolve as a deduplicated union.
+- Infrastructure remains an explicit independent selection.
 - Preview, Start, profiles, automation, active events, and history use the same
   canonical scope conversion/resolution.
 - Normal and unflagged explicit-miner events remain snapshots; closed-loop
