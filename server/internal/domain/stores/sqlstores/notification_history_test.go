@@ -166,6 +166,43 @@ func TestNotificationHistoryStore_ListActiveGroups_RollsUpPerAlert(t *testing.T)
 	assert.Equal(t, int64(1), groups[1].DeviceCount)
 }
 
+// A group with no miners has no per-miner drill-in to describe it, so the rollup carries one summary; a group
+// with miners leaves its free text on the drill-in rows, which are gated on miner:read.
+func TestNotificationHistoryStore_ListActiveGroups_SummarizesOnlyDeviceLessGroups(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	db := testContext.DatabaseService.DB
+	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	store := sqlstores.NewSQLNotificationHistoryStore(db)
+	now := time.Now()
+
+	insertAlert(t, db, orgID, "Curtailment Source Unreachable", "curtailment", "", "source-a",
+		"maestro-a is unreachable", now.Add(-10*time.Minute))
+	insertAlert(t, db, orgID, "Curtailment Source Unreachable", "curtailment", "", "source-b",
+		"maestro-b is unreachable", now.Add(-2*time.Minute))
+	insertDeviceAlert(t, db, orgID, "Device Offline", "defaults", "device-1", "device-1 is offline", now.Add(-5*time.Minute))
+
+	groups, err := store.ListActiveGroups(t.Context(), orgID, 50)
+	require.NoError(t, err)
+	require.Len(t, groups, 2)
+
+	byName := make(map[string]notificationhistory.ActiveAlertGroup, len(groups))
+	for _, g := range groups {
+		byName[g.AlertName] = g
+	}
+
+	sourceGroup := byName["Curtailment Source Unreachable"]
+	assert.Equal(t, int64(0), sourceGroup.DeviceCount)
+	assert.Equal(t, int64(2), sourceGroup.AlertCount)
+	// The newest instance, so the summary names the source that most recently went unreachable.
+	assert.Equal(t, "maestro-b is unreachable", sourceGroup.Summary)
+
+	assert.Empty(t, byName["Device Offline"].Summary, "a group with miners reports no free text here")
+}
+
 // The trigger leaves an oversized label out of the active view (see 000136), and a real alert inserted alongside
 // it still lands, so a forged label can't hide the fleet's state.
 func TestNotificationActiveSync_SkipsOversizedIndexedLabels(t *testing.T) {

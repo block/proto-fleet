@@ -174,11 +174,12 @@ func TestListActiveAlertGroups_ReturnsRollup(t *testing.T) {
 	require.Equal(t, int32(activeGroupsMaxPageSize+1), lister.lastLimit)
 }
 
-// The rollup reports rule identity and counts only, so a viewer without miner:read reads the same rows a
-// miner reader does — there is no device identity or rule-annotation free text in it to redact.
+// The rollup reports rule identity, counts, and — only where there are no miners — a summary read off a
+// device-less instance, so a viewer without miner:read reads the same rows a miner reader does.
 func TestListActiveAlertGroups_NeedsNoMinerRead(t *testing.T) {
 	groups := []notificationhistory.ActiveAlertGroup{
 		{AlertName: "MinerOffline", DeviceCount: 5_000, AlertCount: 5_000},
+		{AlertName: "CurtailmentSourceUnreachable", AlertCount: 2, Summary: "maestro-b is unreachable"},
 	}
 
 	withoutMiner, err := NewHandler(nil, &stubLister{groups: groups}).ListActiveAlertGroups(
@@ -192,10 +193,13 @@ func TestListActiveAlertGroups_NeedsNoMinerRead(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.Len(t, withoutMiner.Msg.Groups, 1)
+	require.Len(t, withoutMiner.Msg.Groups, 2)
 	require.Equal(t, withMiner.Msg.Groups[0].AlertName, withoutMiner.Msg.Groups[0].AlertName)
 	require.Equal(t, withMiner.Msg.Groups[0].DeviceCount, withoutMiner.Msg.Groups[0].DeviceCount)
 	require.Equal(t, int64(5_000), withoutMiner.Msg.Groups[0].DeviceCount)
+	// It names a non-device dimension rather than a miner, so it is not redacted from a non-miner reader either.
+	require.Equal(t, "maestro-b is unreachable", withoutMiner.Msg.Groups[1].Summary)
+	require.Equal(t, withMiner.Msg.Groups[1].Summary, withoutMiner.Msg.Groups[1].Summary)
 }
 
 func TestListActiveAlertGroups_FlagsMoreBeyondCap(t *testing.T) {

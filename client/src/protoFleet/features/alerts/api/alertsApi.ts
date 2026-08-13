@@ -587,6 +587,7 @@ const activeGroupFromProto = (g: ProtoActiveAlertGroup): ActiveAlertGroup => ({
   device_count: Number(g.deviceCount),
   alert_count: Number(g.alertCount),
   first_started_at: isoFromTs(g.firstStartedAt),
+  summary: g.summary,
 });
 
 // The poll behind the header pill is an alarm, and a request that never settles stalls it with no error to show:

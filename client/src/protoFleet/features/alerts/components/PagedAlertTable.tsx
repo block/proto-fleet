@@ -19,6 +19,9 @@ interface PagedAlertTableProps {
   activeCols: AlertInstanceColumns[];
   colTitles: ColTitles<AlertInstanceColumns>;
   noDataElement: ReactNode;
+  // The surface behind the table: the sticky column paints it opaquely, and in dark mode the page and an
+  // elevated panel are different greys, so a table in a modal reads as a mismatched band without this.
+  stickyBgColor?: string;
 }
 
 // The keyset-paged table behind both per-instance views, the history feed and the drill-in: each supplies its
@@ -32,6 +35,7 @@ const PagedAlertTable = ({
   activeCols,
   colTitles,
   noDataElement,
+  stickyBgColor,
 }: PagedAlertTableProps) => {
   const isLoadingMore = loading && items.length > 0;
 
@@ -51,6 +55,7 @@ const PagedAlertTable = ({
           colTitles={colTitles}
           colConfig={alertInstanceColConfig}
           noDataElement={noDataElement}
+          stickyBgColor={stickyBgColor}
         />
       )}
 

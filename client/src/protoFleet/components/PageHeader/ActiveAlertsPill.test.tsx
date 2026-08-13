@@ -24,6 +24,8 @@ const buildGroup = (overrides: Partial<ActiveAlertGroup> = {}): ActiveAlertGroup
     device_count: 1,
     alert_count: 1,
     first_started_at: "2026-07-01T00:00:00Z",
+    // Only a group with no miners carries one, since only those have no drill-in to describe them.
+    summary: "",
     ...overrides,
   };
   // key is derived by the API mapper, not sent by the server, so the fixture derives it too.
@@ -131,6 +133,8 @@ describe("ActiveAlertsPill", () => {
     // The miner count is the alert's blast radius, not a per-miner row of its own.
     expect(screen.getByText("5,000 miners affected")).toBeInTheDocument();
     expect(screen.getByText("12 miners affected")).toBeInTheDocument();
+    // Each has miners to list, so each says it can be opened for them.
+    expect(screen.getAllByTestId("alert-drill-in-chevron")).toHaveLength(2);
   });
 
   it("lists the affected miners when an alert is clicked", async () => {
@@ -170,44 +174,43 @@ describe("ActiveAlertsPill", () => {
     expect(screen.getByText("Rig 1")).toBeInTheDocument();
   });
 
-  it("names a device-less alert instead of reporting it as affecting no miners", async () => {
+  it("says what a device-less alert reported inline, since it has no per-miner drill-in to open", async () => {
     renderPill({
-      groups: [buildGroup({ alert_name: "Metric ingest stalled", rule_group: "proto-fleet-self", device_count: 0 })],
+      groups: [
+        buildGroup({
+          alert_name: "Metric ingest stalled",
+          rule_group: "proto-fleet-self",
+          device_count: 0,
+          summary: "No telemetry received in 5 minutes",
+        }),
+      ],
     });
     await openPopover();
 
-    expect(screen.getByText("Metric ingest stalled")).toBeInTheDocument();
+    expect(screen.getByText("No telemetry received in 5 minutes")).toBeInTheDocument();
     expect(screen.queryByText("0 miners affected")).not.toBeInTheDocument();
-    // The rollup says nothing about the one instance, so the drill-in is still the only place it is described.
-    expect(screen.getByText("Metric ingest stalled").closest("button")).not.toBeNull();
+    // Nothing to drill into, so the row is inert and offers no affordance saying otherwise.
+    expect(screen.getByText("Metric ingest stalled").closest("button")).toBeNull();
+    expect(screen.queryByTestId("alert-drill-in-chevron")).not.toBeInTheDocument();
   });
 
-  it("drills into a device-less alert's instances, which the rollup alone cannot name", async () => {
-    const group = buildGroup({
-      alert_name: "Curtailment Source Unreachable",
-      rule_group: "proto-fleet-curtailment",
-      device_count: 0,
-      alert_count: 2,
+  it("counts the instances of a device-less alert firing on more than one dimension", async () => {
+    renderPill({
+      groups: [
+        buildGroup({
+          alert_name: "Curtailment Source Unreachable",
+          rule_group: "proto-fleet-curtailment",
+          device_count: 0,
+          alert_count: 2,
+          summary: "maestro-b is unreachable",
+        }),
+      ],
     });
-    pagedAlertsMock.mockReturnValue(
-      buildInstancesResult({
-        items: [
-          buildInstance({ id: "src-a", device_id: "", device_name: "", device_mac: "", summary: "maestro-a is down." }),
-          buildInstance({ id: "src-b", device_id: "", device_name: "", device_mac: "", summary: "maestro-b is down." }),
-        ],
-      }),
-    );
-
-    renderPill({ groups: [group] });
     await openPopover();
-    // The rollup names the rule, so the count is what tells the operator more than one source is down.
-    await userEvent.click(screen.getByText("Curtailment Source Unreachable — 2 instances"));
 
-    expect(screen.getByText("2 instances firing")).toBeInTheDocument();
-    expect(screen.getByText("maestro-a is down.")).toBeInTheDocument();
-    expect(screen.getByText("maestro-b is down.")).toBeInTheDocument();
-    // Device columns would be empty for every row, so the table leaves them out.
-    expect(screen.queryByText("MAC Address")).not.toBeInTheDocument();
+    // The summary names only the newest source, so the count is what tells the operator another is down.
+    expect(screen.getByText("Curtailment Source Unreachable — 2 instances")).toBeInTheDocument();
+    expect(screen.getByText("maestro-b is unreachable")).toBeInTheDocument();
   });
 
   it("surfaces a failed refresh alongside the alerts it could not update", async () => {

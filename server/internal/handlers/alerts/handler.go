@@ -464,8 +464,8 @@ func parseBeforeID(s string) (*int64, error) {
 	return &v, nil
 }
 
-// ListActiveAlertGroups answers "what is firing right now" per rule. Rule identity and counts carry no device
-// identity and no rule-annotation free text, so this needs no miner:read gate; the drill-in rows still do.
+// ListActiveAlertGroups answers "what is firing right now" per rule. No row carries device identity — the one
+// summary it does carry is read off a device-less instance — so this needs no miner:read gate; the drill-in does.
 func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[alertsv1.ListActiveAlertGroupsRequest]) (*connect.Response[alertsv1.ListActiveAlertGroupsResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermAlertRead)
 	if err != nil {
@@ -488,6 +488,7 @@ func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[
 			AlertCount:     g.AlertCount,
 			DeviceCount:    g.DeviceCount,
 			FirstStartedAt: timestamppb.New(g.FirstStartedAt),
+			Summary:        g.Summary,
 		})
 	}
 	return connect.NewResponse(&alertsv1.ListActiveAlertGroupsResponse{
