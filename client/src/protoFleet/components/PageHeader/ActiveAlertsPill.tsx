@@ -28,7 +28,7 @@ const ActiveAlertsPill = ({ groups, error, hasMore, onSelectGroup }: ActiveAlert
           className={degraded ? "text-intent-critical-fill" : "text-intent-warning-fill"}
         />
       }
-      popoverSize={popoverSizes.medium}
+      popoverSize={popoverSizes.wide}
       triggerClassName="active-alerts-pill-trigger"
       triggerLabel={groups.length > 0 ? countLabel(groups.length, "active alert") : "Alerts unavailable"}
     >
