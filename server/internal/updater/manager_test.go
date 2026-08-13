@@ -342,7 +342,7 @@ func TestManagerHAPostSwapRecoveryPersistenceFailureRestartsSelectedDeployment(t
 	assert.Equal(t, []string{"app-start", "v1.1.0", "any"}, commands[len(commands)-1].Args)
 }
 
-func TestManagerHAAllowsOperatorSelectedRelease(t *testing.T) {
+func TestManagerHARejectsDowngrade(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.4.0")
@@ -355,12 +355,12 @@ func TestManagerHAAllowsOperatorSelectedRelease(t *testing.T) {
 
 	// Act
 	_, err := manager.TriggerWithID("v1.3.0-rc.1", "11111111-1111-4111-8111-111111111111")
-	require.NoError(t, err)
-	completed := waitForTerminal(t, manager)
 
 	// Assert
-	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
-	assert.Equal(t, "v1.3.0-rc.1", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	require.ErrorIs(t, err, errTriggerPrecondition)
+	assert.ErrorContains(t, err, "target version v1.3.0-rc.1 must be newer than installed version v1.4.0")
+	assert.Empty(t, runner.Commands())
+	assert.Equal(t, "v1.4.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 }
 
 func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {

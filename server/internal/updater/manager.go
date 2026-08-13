@@ -990,7 +990,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 			fmt.Sprintf("installed version %q is not upgradeable", currentVersion),
 		)
 	}
-	if m.cfg.DeploymentMode == DeploymentModeStandalone && semver.Compare(targetVersion, currentVersion) <= 0 {
+	if semver.Compare(targetVersion, currentVersion) <= 0 {
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerPrecondition,
 			fmt.Sprintf("target version %s must be newer than installed version %s", targetVersion, currentVersion),
