@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -121,28 +122,45 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(exportDir, publicCAName+".sha256"))
 }
 
-func TestReadHostBundleRejectsUnexpectedEntry(t *testing.T) {
+func TestDecodeHostBundleRejectsUnexpectedContent(t *testing.T) {
 	// Arrange
 	path := filepath.Join(t.TempDir(), "bundle.json")
-	metadata := bundleMetadata{
-		FormatVersion: bundleFormatVersion, Role: "ha-c", NodeIP: testHostIPs[2],
-		DatabaseAIP: testHostIPs[0], DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2],
-		VirtualIP: testVirtualIP, Version: "v0.2.10", Commit: "abc123",
+	writeValidTestBundle(t, path, testBundleMetadata("ha-c"))
+	valid, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name   string
+		mutate func([]byte) []byte
+		error  string
+	}{
+		{name: "unknown top-level field", error: "unknown field", mutate: func(contents []byte) []byte {
+			var document map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(contents, &document))
+			document["unexpected"] = json.RawMessage(`true`)
+			mutated, err := json.Marshal(document)
+			require.NoError(t, err)
+			return mutated
+		}},
+		{name: "unused role secret", error: "secret not used by this role", mutate: func(contents []byte) []byte {
+			var bundle preparedHostBundle
+			require.NoError(t, json.Unmarshal(contents, &bundle))
+			bundle.Secrets["operator-notes"] = []byte("bad")
+			mutated, err := json.Marshal(bundle)
+			require.NoError(t, err)
+			return mutated
+		}},
+		{name: "trailing JSON", error: "after the bundle document", mutate: func(contents []byte) []byte {
+			return append(contents, []byte("\n{}")...)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			_, err := decodeHostBundle(test.mutate(slices.Clone(valid)))
+
+			// Assert
+			require.ErrorContains(t, err, test.error)
+		})
 	}
-	writeTestBundle(t, path, metadata, map[string][]byte{"operator-notes": []byte("bad")})
-	contents, err := os.ReadFile(path)
-	require.NoError(t, err)
-	var document map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(contents, &document))
-	document["unexpected"] = json.RawMessage(`true`)
-	contents, err = json.Marshal(document)
-	require.NoError(t, err)
-
-	// Act
-	_, err = decodeHostBundle(contents)
-
-	// Assert
-	require.ErrorContains(t, err, "unknown field")
 }
 
 func TestInstallHostBundleValidatesIdentityAndRelease(t *testing.T) {

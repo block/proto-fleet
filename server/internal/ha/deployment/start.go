@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -24,7 +25,7 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 	if err := RunCompose(ctx, []string{"--env-file", envPath, "--file", filepath.Join(installRoot, "ha", "compose.yaml"), "up", "-d", "--no-build", "etcd"}); err != nil {
 		return fmt.Errorf("start etcd: %w", err)
 	}
-	if err := waitForLocalEtcd(ctx, config.NodeIP); err != nil {
+	if err := waitForLocalEtcd(ctx, config); err != nil {
 		return err
 	}
 
@@ -95,13 +96,21 @@ func removeBootstrapCredential(path string) error {
 	return nil
 }
 
-func waitForLocalEtcd(ctx context.Context, nodeIP string) error {
+func waitForLocalEtcd(ctx context.Context, config NodeConfig) error {
+	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
+	if err != nil {
+		return fmt.Errorf("load local etcd TLS configuration: %w", err)
+	}
+	tlsConfig.ServerName = config.NodeIP
+	address := net.JoinHostPort(config.NodeIP, "2379")
 	deadline := time.NewTimer(time.Minute)
 	defer deadline.Stop()
 	for {
-		connection, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(nodeIP, "2380"))
-		if err == nil {
-			_ = connection.Close()
+		ready, err := probeLocalEtcdTLS(ctx, address, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("validate local etcd TLS: %w", err)
+		}
+		if ready {
 			return nil
 		}
 		select {
@@ -112,6 +121,21 @@ func waitForLocalEtcd(ctx context.Context, nodeIP string) error {
 		case <-time.After(2 * time.Second):
 		}
 	}
+}
+
+func probeLocalEtcdTLS(ctx context.Context, address string, tlsConfig *tls.Config) (bool, error) {
+	connection, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp", address)
+	if err != nil {
+		return false, nil
+	}
+	defer connection.Close()
+	tlsConnection := tls.Client(connection, tlsConfig)
+	handshakeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := tlsConnection.HandshakeContext(handshakeCtx); err != nil {
+		return false, fmt.Errorf("handshake with local etcd: %w", err)
+	}
+	return true, nil
 }
 
 func etcdAuthRequired(err error) bool {

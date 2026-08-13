@@ -382,13 +382,20 @@ func decodeHostBundle(contents []byte) (preparedHostBundle, error) {
 	if err := decoder.Decode(&bundle); err != nil {
 		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: invalid JSON: %w", err)
 	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return preparedHostBundle{}, errors.New("host bundle rejected: invalid JSON after the bundle document")
+	}
 	if err := validateBundleMetadata(bundle.Metadata); err != nil {
 		return preparedHostBundle{}, fmt.Errorf("host bundle rejected: %w", err)
 	}
-	for _, name := range copiedSecretFiles(NodeConfig{NodeName: bundle.Metadata.Role}) {
+	expectedSecrets := copiedSecretFiles(NodeConfig{NodeName: bundle.Metadata.Role})
+	for _, name := range expectedSecrets {
 		if len(bundle.Secrets[name]) == 0 {
 			return preparedHostBundle{}, fmt.Errorf("host bundle rejected: missing secret %s", name)
 		}
+	}
+	if len(bundle.Secrets) != len(expectedSecrets) {
+		return preparedHostBundle{}, errors.New("host bundle rejected: contains a secret not used by this role")
 	}
 	if bundle.Metadata.Role == "ha-a" && len(bundle.EtcdRootPassword) == 0 {
 		return preparedHostBundle{}, errors.New("host bundle rejected: missing etcd root password")

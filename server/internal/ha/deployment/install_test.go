@@ -134,6 +134,25 @@ func TestValidateNftablesInputChains(t *testing.T) {
 	}
 }
 
+func TestRejectIncompatibleNftablesInputChainsChecksPersistentConfig(t *testing.T) {
+	// Arrange
+	persistentChecked := false
+	deps := installDependencies{run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name == "sudo" && len(args) > 0 && args[0] == "unshare" {
+			persistentChecked = true
+			return []byte(`{"nftables":[{"chain":{"family":"inet","table":"filter","name":"input","hook":"input","policy":"drop"}}]}`), nil
+		}
+		return []byte(`{"nftables":[]}`), nil
+	}}
+
+	// Act
+	err := rejectIncompatibleNftablesInputChains(t.Context(), deps)
+
+	// Assert
+	require.True(t, persistentChecked)
+	require.ErrorContains(t, err, "policy drop")
+}
+
 func TestInstallFailureStopsServiceAfterCancellation(t *testing.T) {
 	// Arrange
 	source := testInstallRelease(t)
@@ -696,6 +715,9 @@ func testInstallerDependencies(source string, config NodeConfig, calls *[]string
 				return []byte("255\n"), nil
 			}
 			if strings.Join(append([]string{name}, args...), " ") == "sudo nft -j list ruleset" {
+				return []byte(`{"nftables":[]}`), nil
+			}
+			if name == "sudo" && len(args) > 0 && args[0] == "unshare" {
 				return []byte(`{"nftables":[]}`), nil
 			}
 			if name == "curl" {

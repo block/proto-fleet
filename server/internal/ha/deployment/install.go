@@ -504,7 +504,11 @@ func rejectIncompatibleNftablesInputChains(ctx context.Context, deps installDepe
 	if err := validateNftablesInputChains(ruleset); err != nil {
 		return err
 	}
-	return nil
+	persistentRuleset, err := deps.run(ctx, "sudo", "unshare", "--net", "--", "/bin/sh", "-c", "/usr/sbin/nft -f /etc/nftables.conf && /usr/sbin/nft -j list ruleset")
+	if err != nil {
+		return fmt.Errorf("inspect persistent nftables firewall in an isolated network namespace: %s", commandError(persistentRuleset, err))
+	}
+	return validateNftablesInputChains(persistentRuleset)
 }
 
 func validateNftablesInputChains(ruleset []byte) error {
