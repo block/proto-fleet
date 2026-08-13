@@ -54,11 +54,6 @@ func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) e
 	return nil
 }
 
-func RequireActive(ctx context.Context, envPath string) error {
-	_, err := requireActiveStatus(ctx, envPath)
-	return err
-}
-
 func requireActiveStatus(ctx context.Context, envPath string) (StatusReport, error) {
 	report, err := Status(ctx, envPath)
 	if err != nil {
@@ -78,7 +73,7 @@ func requireActiveStatus(ctx context.Context, envPath string) (StatusReport, err
 	return report, nil
 }
 
-func RequireUpdatedPeer(ctx context.Context, envPath, targetVersion string) error {
+func requireUpdatedPeer(ctx context.Context, envPath, targetVersion string) error {
 	config, err := loadNodeConfig(envPath)
 	if err != nil {
 		return err
@@ -98,15 +93,12 @@ func RequireUpdatedPeer(ctx context.Context, envPath, targetVersion string) erro
 	return nil
 }
 
-func ValidateActiveUpdate(ctx context.Context, envPath, targetVersion string) (string, error) {
-	report, err := requireActiveStatus(ctx, envPath)
+func ValidateActiveUpdate(ctx context.Context, envPath, targetVersion string) error {
+	_, err := requireActiveStatus(ctx, envPath)
 	if err != nil {
-		return "", err
+		return err
 	}
-	if err := RequireUpdatedPeer(ctx, envPath, targetVersion); err != nil {
-		return "", err
-	}
-	return report.Runtime.Version, nil
+	return requireUpdatedPeer(ctx, envPath, targetVersion)
 }
 
 // PrepareApplicationUpdate loads only the Fleet API and client from a verified release.
@@ -152,11 +144,17 @@ func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRo
 	}
 	// The crash-only design intentionally has no maintenance lease. If the role
 	// changes after this final proof, normal update recovery restarts Fleet.
-	// Role validation runs while Fleet still serves. Give Compose one second to
-	// stop cleanly, then let the outer deadline bound forced termination.
-	stopCtx, cancel := context.WithTimeout(ctx, ha.UpdateActiveStopTimeout)
-	defer cancel()
-	if err := RunCompose(stopCtx, fleetComposeArgsAt(root, "stop", "--timeout", "1", "fleet-api", "fleet-client")); err != nil {
+	composeCtx := ctx
+	args := fleetComposeArgsAt(root, "stop", "fleet-api", "fleet-client")
+	if expectedRole == ha.RoleActive {
+		// Bound only the serving node's interruption. A passive stop is not on the
+		// availability path and can use Compose's normal shutdown behavior.
+		stopCtx, cancel := context.WithTimeout(ctx, ha.UpdateActiveStopTimeout)
+		defer cancel()
+		composeCtx = stopCtx
+		args = fleetComposeArgsAt(root, "stop", "--timeout", "1", "fleet-api", "fleet-client")
+	}
+	if err := RunCompose(composeCtx, args); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
 	}
 	return nil
@@ -200,16 +198,8 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
 	args := fleetComposeArgsAt(root, "up", "-d", "--no-deps", "--no-build", "--pull", "never", "fleet-api", "fleet-client")
-	for {
-		err := RunCompose(ctx, args)
-		if err == nil {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("start HA application after Compose failure %v: %w", err, ctx.Err())
-		case <-time.After(2 * time.Second):
-		}
+	if err := RunCompose(ctx, args); err != nil {
+		return fmt.Errorf("start HA application: %w", err)
 	}
 	for {
 		report, err := Status(ctx, filepath.Join(configRoot, "node.env"))

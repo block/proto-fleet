@@ -153,8 +153,7 @@ type requireActiveCmd struct {
 }
 
 func (c *requireActiveCmd) Run(ctx context.Context) error {
-	_, err := deployment.ValidateActiveUpdate(ctx, c.NodeEnv, c.Version)
-	return err
+	return deployment.ValidateActiveUpdate(ctx, c.NodeEnv, c.Version)
 }
 
 type updatePreflightCmd struct{}
@@ -250,8 +249,7 @@ type updatePreflight func(context.Context, string, string, bool) error
 
 func validateHAUpdate(ctx context.Context, envPath, targetVersion string, complete bool) error {
 	if complete {
-		_, err := deployment.ValidateActiveUpdate(ctx, envPath, targetVersion)
-		return err
+		return deployment.ValidateActiveUpdate(ctx, envPath, targetVersion)
 	}
 	return deployment.ValidatePassiveUpdate(ctx, envPath, targetVersion)
 }

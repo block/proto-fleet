@@ -996,7 +996,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 		m.mu.RUnlock()
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerBusy,
-			fmt.Sprintf("HA application recovery for operation %s is pending", recoveryOperationID),
+			fmt.Sprintf("HA application recovery for operation %s is pending; restart proto-fleet-updater.service to retry recovery", recoveryOperationID),
 		)
 	}
 	m.mu.RUnlock()
@@ -1031,7 +1031,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	if m.operation != nil && m.operation.RecoveryPending {
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerBusy,
-			fmt.Sprintf("HA application recovery for operation %s is pending", m.operation.ID),
+			fmt.Sprintf("HA application recovery for operation %s is pending; restart proto-fleet-updater.service to retry recovery", m.operation.ID),
 		)
 	}
 	if m.closing {

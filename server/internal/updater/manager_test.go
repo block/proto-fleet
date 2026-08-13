@@ -2057,13 +2057,18 @@ func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
 	runner := &haRecordingRunner{}
-
-	// Act
-	err = RepairStartup(Config{
+	cfg := Config{
 		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
 		DeploymentMode: DeploymentModeHA, Runner: runner,
-	})
+	}
+
+	// Act
+	err = RepairStartup(cfg)
 	require.NoError(t, err)
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.NoError(t, manager.RecoverApplication())
 
 	// Assert
 	assert.Empty(t, runner.Commands())

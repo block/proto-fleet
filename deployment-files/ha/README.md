@@ -202,6 +202,10 @@ not complete within 35 seconds, it restarts the old local release without
 swapping. Qualification still requires a healthy takeover in less than 15
 seconds. This is a bounded interruption, not a zero-downtime update.
 
+If an update reports pending HA application recovery, retry recovery with
+`sudo systemctl restart proto-fleet-updater.service`. After the local Fleet
+application is healthy again, rerun the same `fleet-ha update` command.
+
 ## Qualification
 
 The distributions above are installer-compatible targets. The HA profile is
