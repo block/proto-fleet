@@ -51,7 +51,10 @@ const ActiveAlertsPopover = ({
             <>
               <div className="flex min-w-0 flex-col gap-1">
                 <div className="flex items-start gap-2">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-intent-warning-fill" />
+                  {/* One heading line tall, so the dot centers on the title's first line however the title wraps. */}
+                  <span className="flex h-6 shrink-0 items-center">
+                    <span className="h-2 w-2 rounded-full bg-intent-warning-fill" />
+                  </span>
                   <span className="min-w-0 text-heading-100 text-text-primary">{groupTitle(group)}</span>
                 </div>
                 <div className="pl-4">
