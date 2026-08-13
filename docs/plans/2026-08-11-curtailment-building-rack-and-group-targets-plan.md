@@ -279,7 +279,7 @@ Create/Update/enable/execution. Use persisted envelopes for recovery operations:
 | Valid profile Get/List/Delete | Authorize against persisted miner/fan envelope; hydrate stale typed IDs without live topology. |
 | Profile with missing/unproven envelope | Org-wide `curtailment:manage`, plus org-wide `site:read` when fans exist; no current-location fallback. |
 | Stale profile resave/execution | Reject until stale IDs are explicitly removed/replaced. |
-| Automation Get/List/Delete/disable | Authorize against the rule's bound envelope; remain available when profile topology or revision is stale. |
+| Automation Get/List/Delete/disable | Authorize against the bound envelope; if missing/unproven, require the same org-wide fallback as profiles. Remain available when profile topology or revision is stale. |
 | Automation Create/Update/enable/OFF start | Require strict topology, exact executable-profile revision/envelope, current principal permissions, and current Admin/SuperAdmin role for admin-only controls. |
 | Automation ON/stop with an active event | Restore from the event's durable targets and fan settings without requiring the current profile revision/topology/admin grant; never admit or recurtail targets. |
 
@@ -314,8 +314,9 @@ admin requirement, topology, and quotas before claiming targets.
 3. Inventory and remediate persisted data:
    - Backfill provable whole-org/site profile envelopes.
    - Mark ambiguous profiles `reauthorization_required`.
-   - Inventory enabled rules missing a proven revision, envelope, principal, or
-     admin marker; rebind, disable, or approve an announced cutoff.
+   - Inventory rules missing a proven revision, envelope, principal, or admin
+     marker; rebind/backfill or disable them while retaining org-wide-authorized
+     CRUD through the announced cutoff.
    - Mark oversized profiles `scope_limit_remediation_required`; keep Get/List/
      Delete and shrink-to-valid Update available.
    - Backfill active event envelopes only when scope and principal prove the
