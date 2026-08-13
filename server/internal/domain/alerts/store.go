@@ -53,6 +53,29 @@ type RouteStore interface {
 	ListPolicies(ctx context.Context, orgID int64) ([]RoutePolicy, error)
 }
 
+// RuleConfigStore persists user rule configs keyed by Grafana rule UID — annotations are unusable because
+// Grafana copies them onto every alert instance, bloating batches. Rows follow the route-policy lifecycle.
+type RuleConfigStore interface {
+	UpsertConfig(ctx context.Context, orgID int64, ruleUID string, cfg RuleConfig) error
+	// GetConfig returns nil (no error) when the rule has no stored config.
+	GetConfig(ctx context.Context, orgID int64, ruleUID string) (*RuleConfig, error)
+	// ListConfigs returns only the requested rule UIDs' configs, so orphan rows
+	// (ambiguous create failures; see CreateRule) never inflate the read path.
+	ListConfigs(ctx context.Context, orgID int64, ruleUIDs []string) (map[string]RuleConfig, error)
+	DeleteConfig(ctx context.Context, orgID int64, ruleUID string) error
+	// SweepConfigs deletes rows for rules absent from liveRuleUIDs, sparing recently written
+	// rows (in-flight creates store their config before the Grafana rule exists).
+	SweepConfigs(ctx context.Context, orgID int64, liveRuleUIDs []string) (int64, error)
+}
+
+// ScopeLookup reports which of the requested placement ids are live and org-owned, for rule-scope validation. Each method returns the subset of ids that exist; callers diff against the request.
+type ScopeLookup interface {
+	SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error)
+	BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error)
+	// setType is "rack" or "group" (device_set.type).
+	DeviceSetsByIDs(ctx context.Context, orgID int64, setType string, ids []int64) ([]int64, error)
+}
+
 // DeviceIdentity is the human-facing name + MAC for a device_id, for alert messages.
 type DeviceIdentity struct {
 	Name string

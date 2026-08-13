@@ -40,6 +40,12 @@ const (
 	// InstanceUpdateServiceSetReleaseChannelProcedure is the fully-qualified name of the
 	// InstanceUpdateService's SetReleaseChannel RPC.
 	InstanceUpdateServiceSetReleaseChannelProcedure = "/instance.v1.InstanceUpdateService/SetReleaseChannel"
+	// InstanceUpdateServiceTriggerUpgradeProcedure is the fully-qualified name of the
+	// InstanceUpdateService's TriggerUpgrade RPC.
+	InstanceUpdateServiceTriggerUpgradeProcedure = "/instance.v1.InstanceUpdateService/TriggerUpgrade"
+	// InstanceUpdateServiceGetUpgradeStatusProcedure is the fully-qualified name of the
+	// InstanceUpdateService's GetUpgradeStatus RPC.
+	InstanceUpdateServiceGetUpgradeStatusProcedure = "/instance.v1.InstanceUpdateService/GetUpgradeStatus"
 )
 
 // InstanceUpdateServiceClient is a client for the instance.v1.InstanceUpdateService service.
@@ -50,6 +56,12 @@ type InstanceUpdateServiceClient interface {
 	// SetReleaseChannel switches the instance between Stable and Stable + RC.
 	// Gated by instance:update.
 	SetReleaseChannel(context.Context, *connect.Request[v1.SetReleaseChannelRequest]) (*connect.Response[v1.SetReleaseChannelResponse], error)
+	// TriggerUpgrade asks the host updater to install the exact release that
+	// GetUpdateStatus currently offers. Gated by instance:update.
+	TriggerUpgrade(context.Context, *connect.Request[v1.TriggerUpgradeRequest]) (*connect.Response[v1.TriggerUpgradeResponse], error)
+	// GetUpgradeStatus reports durable host-side progress across fleetd
+	// restarts. Gated by instance:update.
+	GetUpgradeStatus(context.Context, *connect.Request[v1.GetUpgradeStatusRequest]) (*connect.Response[v1.GetUpgradeStatusResponse], error)
 }
 
 // NewInstanceUpdateServiceClient constructs a client for the instance.v1.InstanceUpdateService
@@ -73,6 +85,17 @@ func NewInstanceUpdateServiceClient(httpClient connect.HTTPClient, baseURL strin
 			baseURL+InstanceUpdateServiceSetReleaseChannelProcedure,
 			opts...,
 		),
+		triggerUpgrade: connect.NewClient[v1.TriggerUpgradeRequest, v1.TriggerUpgradeResponse](
+			httpClient,
+			baseURL+InstanceUpdateServiceTriggerUpgradeProcedure,
+			opts...,
+		),
+		getUpgradeStatus: connect.NewClient[v1.GetUpgradeStatusRequest, v1.GetUpgradeStatusResponse](
+			httpClient,
+			baseURL+InstanceUpdateServiceGetUpgradeStatusProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -80,6 +103,8 @@ func NewInstanceUpdateServiceClient(httpClient connect.HTTPClient, baseURL strin
 type instanceUpdateServiceClient struct {
 	getUpdateStatus   *connect.Client[v1.GetUpdateStatusRequest, v1.GetUpdateStatusResponse]
 	setReleaseChannel *connect.Client[v1.SetReleaseChannelRequest, v1.SetReleaseChannelResponse]
+	triggerUpgrade    *connect.Client[v1.TriggerUpgradeRequest, v1.TriggerUpgradeResponse]
+	getUpgradeStatus  *connect.Client[v1.GetUpgradeStatusRequest, v1.GetUpgradeStatusResponse]
 }
 
 // GetUpdateStatus calls instance.v1.InstanceUpdateService.GetUpdateStatus.
@@ -92,6 +117,16 @@ func (c *instanceUpdateServiceClient) SetReleaseChannel(ctx context.Context, req
 	return c.setReleaseChannel.CallUnary(ctx, req)
 }
 
+// TriggerUpgrade calls instance.v1.InstanceUpdateService.TriggerUpgrade.
+func (c *instanceUpdateServiceClient) TriggerUpgrade(ctx context.Context, req *connect.Request[v1.TriggerUpgradeRequest]) (*connect.Response[v1.TriggerUpgradeResponse], error) {
+	return c.triggerUpgrade.CallUnary(ctx, req)
+}
+
+// GetUpgradeStatus calls instance.v1.InstanceUpdateService.GetUpgradeStatus.
+func (c *instanceUpdateServiceClient) GetUpgradeStatus(ctx context.Context, req *connect.Request[v1.GetUpgradeStatusRequest]) (*connect.Response[v1.GetUpgradeStatusResponse], error) {
+	return c.getUpgradeStatus.CallUnary(ctx, req)
+}
+
 // InstanceUpdateServiceHandler is an implementation of the instance.v1.InstanceUpdateService
 // service.
 type InstanceUpdateServiceHandler interface {
@@ -101,6 +136,12 @@ type InstanceUpdateServiceHandler interface {
 	// SetReleaseChannel switches the instance between Stable and Stable + RC.
 	// Gated by instance:update.
 	SetReleaseChannel(context.Context, *connect.Request[v1.SetReleaseChannelRequest]) (*connect.Response[v1.SetReleaseChannelResponse], error)
+	// TriggerUpgrade asks the host updater to install the exact release that
+	// GetUpdateStatus currently offers. Gated by instance:update.
+	TriggerUpgrade(context.Context, *connect.Request[v1.TriggerUpgradeRequest]) (*connect.Response[v1.TriggerUpgradeResponse], error)
+	// GetUpgradeStatus reports durable host-side progress across fleetd
+	// restarts. Gated by instance:update.
+	GetUpgradeStatus(context.Context, *connect.Request[v1.GetUpgradeStatusRequest]) (*connect.Response[v1.GetUpgradeStatusResponse], error)
 }
 
 // NewInstanceUpdateServiceHandler builds an HTTP handler from the service implementation. It
@@ -120,12 +161,27 @@ func NewInstanceUpdateServiceHandler(svc InstanceUpdateServiceHandler, opts ...c
 		svc.SetReleaseChannel,
 		opts...,
 	)
+	instanceUpdateServiceTriggerUpgradeHandler := connect.NewUnaryHandler(
+		InstanceUpdateServiceTriggerUpgradeProcedure,
+		svc.TriggerUpgrade,
+		opts...,
+	)
+	instanceUpdateServiceGetUpgradeStatusHandler := connect.NewUnaryHandler(
+		InstanceUpdateServiceGetUpgradeStatusProcedure,
+		svc.GetUpgradeStatus,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/instance.v1.InstanceUpdateService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case InstanceUpdateServiceGetUpdateStatusProcedure:
 			instanceUpdateServiceGetUpdateStatusHandler.ServeHTTP(w, r)
 		case InstanceUpdateServiceSetReleaseChannelProcedure:
 			instanceUpdateServiceSetReleaseChannelHandler.ServeHTTP(w, r)
+		case InstanceUpdateServiceTriggerUpgradeProcedure:
+			instanceUpdateServiceTriggerUpgradeHandler.ServeHTTP(w, r)
+		case InstanceUpdateServiceGetUpgradeStatusProcedure:
+			instanceUpdateServiceGetUpgradeStatusHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -141,4 +197,12 @@ func (UnimplementedInstanceUpdateServiceHandler) GetUpdateStatus(context.Context
 
 func (UnimplementedInstanceUpdateServiceHandler) SetReleaseChannel(context.Context, *connect.Request[v1.SetReleaseChannelRequest]) (*connect.Response[v1.SetReleaseChannelResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("instance.v1.InstanceUpdateService.SetReleaseChannel is not implemented"))
+}
+
+func (UnimplementedInstanceUpdateServiceHandler) TriggerUpgrade(context.Context, *connect.Request[v1.TriggerUpgradeRequest]) (*connect.Response[v1.TriggerUpgradeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("instance.v1.InstanceUpdateService.TriggerUpgrade is not implemented"))
+}
+
+func (UnimplementedInstanceUpdateServiceHandler) GetUpgradeStatus(context.Context, *connect.Request[v1.GetUpgradeStatusRequest]) (*connect.Response[v1.GetUpgradeStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("instance.v1.InstanceUpdateService.GetUpgradeStatus is not implemented"))
 }

@@ -46,6 +46,8 @@ func commandKindLabel(t commandtype.Type) string {
 		return "curtail"
 	case commandtype.Uncurtail:
 		return "uncurtail"
+	case commandtype.ApplyCurtailmentConfig:
+		return "apply_curtailment_config"
 	default:
 		return strings.ToLower((&t).String())
 	}

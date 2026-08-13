@@ -17,30 +17,63 @@ import (
 
 var testHostIPs = [3]string{"10.40.0.11", "10.40.0.12", "10.40.0.13"}
 
+const testVirtualIP = "10.40.0.100"
+
 func TestRenderFirewall(t *testing.T) {
 	config := NodeConfig{
-		DatabaseAIP: testHostIPs[0],
-		DatabaseBIP: testHostIPs[1],
-		WitnessIP:   testHostIPs[2],
+		NodeIP:           testHostIPs[0],
+		DatabaseAIP:      testHostIPs[0],
+		DatabaseBIP:      testHostIPs[1],
+		WitnessIP:        testHostIPs[2],
+		NetworkInterface: "eth0",
 	}
-	template := "nodes = { ${HA_DB_A_IP}, ${HA_DB_B_IP}, ${HA_DCS_C_IP} }\n"
+	template := "nodes = { ${HA_DB_A_IP}, ${HA_DB_B_IP}, ${HA_DCS_C_IP} }\ninput = ${HA_NODE_IP} ${HA_NETWORK_INTERFACE}\n"
 	rules, err := renderFirewall(template, config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "nodes = { 10.40.0.11, 10.40.0.12, 10.40.0.13 }\n"
+	want := "nodes = { 10.40.0.11, 10.40.0.12, 10.40.0.13 }\ninput = 10.40.0.11 eth0\n"
 	if rules != want {
 		t.Fatalf("renderFirewall() = %q, want %q", rules, want)
 	}
 
-	if _, err := renderFirewall(template+"node = ${HA_NODE_IP}\n", config); err == nil {
+	if _, err := renderFirewall(template+"node = ${UNRESOLVED}\n", config); err == nil {
 		t.Fatal("renderFirewall accepted an unresolved placeholder")
+	}
+}
+
+func TestRenderKeepalivedConfig(t *testing.T) {
+	config := NodeConfig{
+		NodeName:         "ha-a",
+		NodeIP:           testHostIPs[0],
+		DatabaseAIP:      testHostIPs[0],
+		DatabaseBIP:      testHostIPs[1],
+		VirtualIP:        "10.40.0.100",
+		NetworkInterface: "eth0",
+		DataDir:          "/var/lib/proto-fleet/ha",
+		SecretsDir:       "/etc/proto-fleet/ha",
+	}
+	template := "source=${HA_NODE_IP}\npeer=${HA_PEER_IP}\nvip=${HA_VIRTUAL_IP}\ninterface=${HA_NETWORK_INTERFACE}\nheartbeat=${HA_ENDPOINT_HEARTBEAT_FILE}\nca=${HA_SECRETS_DIR}/service-ca.crt\n"
+
+	rendered, err := renderKeepalivedConfig(template, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "source=10.40.0.11\npeer=10.40.0.12\nvip=10.40.0.100\ninterface=eth0\nheartbeat=/run/proto-fleet-ha/endpoint-heartbeat\nca=/etc/proto-fleet/ha/service-ca.crt\n"
+	if rendered != want {
+		t.Fatalf("renderKeepalivedConfig() = %q, want %q", rendered, want)
+	}
+
+	config.NodeName = "ha-c"
+	_, err = renderKeepalivedConfig(template, config)
+	if err == nil || !strings.Contains(err.Error(), "Fleet hosts") {
+		t.Fatalf("renderKeepalivedConfig(witness) error = %v", err)
 	}
 }
 
 func TestGenerateSecrets(t *testing.T) {
 	output := filepath.Join(t.TempDir(), "generated")
-	if err := GenerateSecrets(output, testHostIPs); err != nil {
+	if err := GenerateSecrets(output, testHostIPs, testVirtualIP); err != nil {
 		t.Fatal(err)
 	}
 
@@ -67,21 +100,55 @@ func TestGenerateSecrets(t *testing.T) {
 	}
 	for i, node := range []string{"ha-a", "ha-b"} {
 		dir := filepath.Join(output, node)
-		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-db-password", "fleet-etcd-password", "patroni-etcd-password"} {
+		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-client.crt", "fleet-client.key", fleetEnvironmentFile, "fleet-db-password", "fleet-etcd-password", "patroni-etcd-password"} {
 			requireFile(t, filepath.Join(dir, name))
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "postgres.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth); err != nil {
 			t.Errorf("verify %s PostgreSQL certificate: %v", node, err)
 		}
+		if err := verifyEndpointCertificate(filepath.Join(dir, "fleet-client.crt"), testVirtualIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
+			t.Errorf("verify %s Fleet client certificate: %v", node, err)
+		}
+		if err := validateFleetEnvironment(filepath.Join(dir, fleetEnvironmentFile)); err != nil {
+			t.Errorf("validate %s Fleet environment: %v", node, err)
+		}
+	}
+	offlineFleetEnvironment, err := os.ReadFile(filepath.Join(output, "offline", fleetEnvironmentFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetDatabasePassword, err := readPassword(filepath.Join(output, "offline", "fleet-db-password"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDatabaseDSN := fmt.Sprintf(
+		"DB_DSN=postgresql://fleet:%s@%s:5432,%s:5432/fleet?target_session_attrs=read-write&sslmode=verify-full&sslrootcert=/etc/proto-fleet/ha/service-ca.crt\n",
+		fleetDatabasePassword,
+		testHostIPs[0],
+		testHostIPs[1],
+	)
+	if !strings.Contains(string(offlineFleetEnvironment), wantDatabaseDSN) {
+		t.Fatal("generated Fleet environment does not contain the HA database DSN")
+	}
+	for _, node := range []string{"ha-a", "ha-b"} {
+		nodeFleetEnvironment, err := os.ReadFile(filepath.Join(output, node, fleetEnvironmentFile))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(nodeFleetEnvironment) != string(offlineFleetEnvironment) {
+			t.Fatalf("%s Fleet environment differs from the offline copy", node)
+		}
 	}
 	requireMode(t, filepath.Join(output, "offline", "service-ca.key"), 0o600)
 	requireMode(t, filepath.Join(output, "ha-a", "etcd-server.key"), 0o600)
+	requireMode(t, filepath.Join(output, "offline", fleetEnvironmentFile), 0o600)
+	requireMode(t, filepath.Join(output, "ha-a", fleetEnvironmentFile), 0o600)
 
-	if err := GenerateSecrets(output, testHostIPs); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := GenerateSecrets(output, testHostIPs, testVirtualIP); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("GenerateSecrets(existing directory) error = %v", err)
 	}
 	badOutput := filepath.Join(t.TempDir(), "bad")
-	if err := GenerateSecrets(badOutput, [3]string{testHostIPs[0], testHostIPs[0], testHostIPs[2]}); err == nil {
+	if err := GenerateSecrets(badOutput, [3]string{testHostIPs[0], testHostIPs[0], testHostIPs[2]}, testVirtualIP); err == nil {
 		t.Fatal("GenerateSecrets accepted duplicate host IPs")
 	}
 	if _, err := os.Stat(badOutput); !errors.Is(err, os.ErrNotExist) {
@@ -132,7 +199,7 @@ func TestLoadNodeConfigRejectsUnsafeInput(t *testing.T) {
 func TestPreflight(t *testing.T) {
 	root := t.TempDir()
 	generated := filepath.Join(root, "generated")
-	if err := GenerateSecrets(generated, testHostIPs); err != nil {
+	if err := GenerateSecrets(generated, testHostIPs, testVirtualIP); err != nil {
 		t.Fatal(err)
 	}
 	dataDir := filepath.Join(root, "data")
@@ -146,12 +213,31 @@ func TestPreflight(t *testing.T) {
 	const firewallTemplatePath = "firewall.nft.tmpl"
 	firewallApplied := false
 	routeSource := testHostIPs[0]
+	routeViaGateway := false
+	arpingConflict := false
+	listeners := ""
+	var arpingArgs []string
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
 	host := hostEnvironment{
-		goos:     "linux",
-		localIPs: func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil },
+		goos:              "linux",
+		localIPs:          func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil },
+		interfacePrefixes: func(string) ([]netip.Prefix, error) { return prefixes, nil },
 		runCommand: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			if name == "sudo" && len(args) > 0 && args[0] == "arping" {
+				arpingArgs = slices.Clone(args)
+				if arpingConflict {
+					return []byte("reply from 10.40.0.100"), errors.New("exit status 1")
+				}
+				return nil, nil
+			}
 			if name == "ip" {
+				if routeViaGateway && args[2] == "10.40.0.100" {
+					return []byte(fmt.Sprintf("%s via 10.40.0.1 dev eth0 src %s\n", args[2], routeSource)), nil
+				}
 				return []byte(fmt.Sprintf("%s dev eth0 src %s\n", args[2], routeSource)), nil
+			}
+			if name == "ss" {
+				return []byte(listeners), nil
 			}
 			return nil, nil
 		},
@@ -174,12 +260,83 @@ func TestPreflight(t *testing.T) {
 	if !firewallApplied {
 		t.Fatal("preflight did not apply the firewall")
 	}
+	if !slices.Equal(arpingArgs, []string{"arping", "-D", "-I", "eth0", "-c", "2", "10.40.0.100"}) {
+		t.Fatalf("arping arguments = %q", arpingArgs)
+	}
+	for _, port := range []int{80, 443} {
+		listeners = fmt.Sprintf("LISTEN 0 4096 0.0.0.0:%d 0.0.0.0:*\n", port)
+		if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("TCP port %d is already occupied", port)) {
+			t.Fatalf("preflight(occupied Fleet port %d) error = %v", port, err)
+		}
+	}
+	listeners = ""
+
+	host.localIPs = func() ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr(testHostIPs[0]), netip.MustParseAddr("10.40.0.100")}, nil
+	}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "HA_VIRTUAL_IP is already assigned") {
+		t.Fatalf("preflight(assigned VIP) error = %v", err)
+	}
+	host.localIPs = func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil }
+	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/26")}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "IPv4 network") {
+		t.Fatalf("preflight(VIP outside interface network) error = %v", err)
+	}
+	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
 
 	routeSource = "10.40.0.99"
 	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "must use HA_NODE_IP") {
 		t.Fatalf("preflight(mismatched route source) error = %v", err)
 	}
 	routeSource = testHostIPs[0]
+	routeViaGateway = true
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "route to HA_VIRTUAL_IP") {
+		t.Fatalf("preflight(routed VIP) error = %v", err)
+	}
+	routeViaGateway = false
+	arpingConflict = true
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "HA_VIRTUAL_IP is in use") {
+		t.Fatalf("preflight(conflicting VIP) error = %v", err)
+	}
+	arpingConflict = false
+
+	witnessEnvPath := filepath.Join(root, "witness.env")
+	witnessEnv, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	witnessEnv = []byte(strings.NewReplacer(
+		"HA_NODE_NAME=ha-a", "HA_NODE_NAME=ha-c",
+		"HA_NODE_IP="+testHostIPs[0], "HA_NODE_IP="+testHostIPs[2],
+		filepath.Join(generated, "ha-a"), filepath.Join(generated, "ha-c"),
+	).Replace(string(witnessEnv)))
+	if err := os.WriteFile(witnessEnvPath, witnessEnv, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	host.localIPs = func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[2])}, nil }
+	host.interfacePrefixes = func(string) ([]netip.Prefix, error) {
+		t.Fatal("preflight queried the witness VIP interface")
+		return nil, nil
+	}
+	routeSource = testHostIPs[2]
+	routeViaGateway = true
+	arpingConflict = true
+	listeners = "LISTEN 0 4096 0.0.0.0:80 0.0.0.0:*\nLISTEN 0 4096 0.0.0.0:443 0.0.0.0:*\n"
+	host.applyFirewall = func(_ context.Context, gotConfig NodeConfig, _ string) error {
+		if gotConfig.NodeName != "ha-c" {
+			t.Fatalf("witness preflight node = %q", gotConfig.NodeName)
+		}
+		return nil
+	}
+	if _, err := preflight(context.Background(), witnessEnvPath, firewallTemplatePath, host); err != nil {
+		t.Fatalf("preflight(off-L2 witness) error = %v", err)
+	}
+	host.localIPs = func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil }
+	host.interfacePrefixes = func(string) ([]netip.Prefix, error) { return prefixes, nil }
+	routeSource = testHostIPs[0]
+	routeViaGateway = false
+	arpingConflict = false
+	listeners = ""
 
 	host.applyFirewall = func(context.Context, NodeConfig, string) error {
 		return errors.New("injected apply failure")
@@ -217,6 +374,24 @@ func TestPreflight(t *testing.T) {
 	if err := os.WriteFile(serverKeyPath, serverKey, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	fleetCertificatePath := filepath.Join(generated, "ha-a", "fleet-client.crt")
+	fleetCertificate, err := os.ReadFile(fleetCertificatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postgresCertificate, err := os.ReadFile(filepath.Join(generated, "ha-a", "postgres.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fleetCertificatePath, postgresCertificate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "fleet-client certificate") {
+		t.Fatalf("preflight(certificate for host IP instead of VIP) error = %v", err)
+	}
+	if err := os.WriteFile(fleetCertificatePath, fleetCertificate, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	jwtKeyPath := filepath.Join(generated, "ha-a", "etcd-jwt.key")
 	jwtKey, err := os.ReadFile(jwtKeyPath)
@@ -238,6 +413,15 @@ func TestPreflight(t *testing.T) {
 	}
 	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "pre-existing PostgreSQL state") {
 		t.Fatalf("preflight(existing database) error = %v", err)
+	}
+}
+
+func TestValidateVirtualIPPrefixRejectsNetworkAndBroadcast(t *testing.T) {
+	prefixes := []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
+	for _, virtualIP := range []string{"10.40.0.0", "10.40.0.255"} {
+		if err := validateVirtualIPPrefix(netip.MustParseAddr(testHostIPs[0]), netip.MustParseAddr(virtualIP), prefixes); err == nil || !strings.Contains(err.Error(), "network or broadcast") {
+			t.Fatalf("validateVirtualIPPrefix(%s) error = %v", virtualIP, err)
+		}
 	}
 }
 
@@ -314,6 +498,10 @@ HA_NODE_IP=%s
 HA_DB_A_IP=%s
 HA_DB_B_IP=%s
 HA_DCS_C_IP=%s
+
+HA_VIRTUAL_IP=10.40.0.100
+HA_NETWORK_INTERFACE=eth0
+
 HA_DATA_DIR=%s
 HA_SECRETS_DIR=%s
 `, testHostIPs[0], testHostIPs[0], testHostIPs[1], testHostIPs[2], dataDir, secretsDir)

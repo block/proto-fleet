@@ -22,10 +22,14 @@ The `install.sh` script sets up the Proto Fleet server components.
 ### Proto Fleet Installation Options
 
 ```bash
-Usage: install.sh [VERSION]
+Usage: install.sh [options] [VERSION]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
+Options:
+  --install-dir PATH       Use PATH without prompting.
+  --non-interactive        Fail instead of prompting; for an existing install
+                           with a complete deployment .env.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
@@ -38,7 +42,8 @@ Examples:
 bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh)
 
 # Install a specific version
-bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh) v0.1.0-beta-5
+VERSION=v0.2.10-rc.2
+bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSION/install.sh") "$VERSION"
 
 # Install the latest nightly prerelease (installer is fetched from the resolved
 # nightly release asset, not from the mutable nightly-channel branch)
@@ -49,9 +54,66 @@ bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSI
 The script will:
 
 - Check system compatibility (page size)
-- Download and extract the specified version
-- Preserve existing configuration files if present
+- Download the specified version and verify its published SHA-256 checksum
+- Extract the release and preserve existing configuration files
+- On Linux/systemd with rootful Docker, install the host updater used for
+  in-product one-click upgrades
 - Run the deployment script automatically
+
+## One-click upgrades
+
+After one manual install of a release that includes the host updater,
+permission-holding operators can upgrade an eligible stable or release
+candidate from the ProtoFleet update prompt. The confirmation explains the
+restart window and adds a no-downgrade warning for release candidates.
+
+The updater runs as `proto-fleet-updater.service`, outside the Docker Compose
+stack it restarts. Fleet API talks to it over
+`/run/proto-fleet-updater/updater.sock`; the application container is never
+given the host Docker socket. Before stopping Fleet, the updater:
+
+1. downloads the target bundle and its checksum over HTTPS;
+2. verifies the SHA-256 digest and safely extracts the archive;
+3. preserves `.env`, `ssl/`, and `server/influx_config/.env`;
+4. builds and validates the staged deployment with Fleet still running.
+
+Only then does it swap the staged deployment into place and restart the stack.
+The previous deployment remains at `<install-root>/deployment.previous` for
+operator inspection. Automatic rollback is deliberately disabled because
+database migrations are forward-only.
+
+The checksum sidecar detects transfer corruption and binds the expected asset
+name to its digest. Because the bundle and sidecar share the same GitHub
+Release origin, GitHub remains the publisher trust anchor; independent release
+signing is intentionally outside this phase.
+
+One-click upgrades are enabled on Linux hosts with systemd and rootful Docker,
+including WSL distributions configured with systemd. macOS, rootless Docker,
+and Linux hosts without systemd continue to show the exact manual upgrade
+command.
+
+### Failure recovery
+
+The client shows the terminal error, host log path, and a recovery command
+when Fleet is reachable. The same durable details remain on the host:
+
+```text
+/var/lib/proto-fleet-updater/state.json
+/var/lib/proto-fleet-updater/logs/<operation-id>.log
+```
+
+Inspect the service and latest operation with:
+
+```bash
+sudo systemctl status proto-fleet-updater.service
+sudo journalctl -u proto-fleet-updater.service
+sudo cat /var/lib/proto-fleet-updater/state.json
+```
+
+If activation failed, run the `recovery_command` from `state.json` as root.
+Do not replace the active deployment with `deployment.previous` after
+migrations may have started; an older binary may be incompatible with the
+newer schema.
 
 ## Optional Virtual Miners
 
@@ -235,6 +297,74 @@ The configs live under `server/monitoring/grafana/`:
 - `provisioning/alerting/notification-policies.yaml` — root routing
   tree (grouping + repeat interval).
 
+### When "Metric Ingest Stalled" fires
+
+The rule reads the `fleet_telemetry_poll_heartbeat` continuous aggregate,
+not the raw samples. That aggregate is `materialized_only` and carries its
+own retention policy, so if its refresh policy job stops, retention keeps
+deleting buckets until the aggregate is empty and the rule fires for every
+pollable organization while ingest is perfectly healthy.
+
+So the alert firing does not by itself mean ingest died. Check the raw
+samples first — this is the discriminator:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT organization_id, max(time) AS newest,
+       round(extract(epoch from now() - max(time))) AS staleness_seconds
+  FROM notification_metric_sample
+ WHERE metric = 'fleet_telemetry_poll_total'
+   AND time > now() - INTERVAL '15 minutes'
+ GROUP BY organization_id;
+SQL
+```
+
+If the newest raw sample is also stale, the stall is real: check fleet-api
+and its metrics writer (`docker logs … | grep 'metrics:'`). If raw samples
+are landing fine, the aggregate is the problem — check its refresh policy:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT s.job_id, s.job_status, s.last_successful_finish, s.total_failures
+  FROM timescaledb_information.job_stats s
+  JOIN timescaledb_information.jobs j ON j.job_id = s.job_id
+ WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
+   AND j.hypertable_name IN (
+       SELECT ca.view_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat'
+       UNION ALL
+       SELECT ca.materialization_hypertable_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat');
+SQL
+```
+
+The `proc_name` filter excludes the aggregate's retention policy, which is
+also registered against the same hypertable; matching the materialization
+hypertable name too covers the TimescaleDB versions that label a refresh
+policy that way rather than by view name.
+
+A `job_status` of `Paused`, or a `last_successful_finish` well in the past,
+confirms it. Resume the job with the `job_id` from above and backfill enough
+buckets to clear the alert:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT alter_job(<job_id>, scheduled => true);
+CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat',
+                                  now() - INTERVAL '2 hours',
+                                  now() - INTERVAL '1 minute');
+SQL
+```
+
+Keep this on psql's default autocommit — `refresh_continuous_aggregate()`
+cannot run inside a transaction block, so adding `--single-transaction` (or
+wrapping the statements in `BEGIN`) fails with that error.
+
 ### Enabling system monitoring
 
 Host system monitoring is **off by default** and requires the alerts
@@ -314,7 +444,7 @@ DD_CLIENT_TOKEN=your-datadog-rum-client-token
 # Optional
 DD_SITE=datadoghq.com          # your Datadog site (default: datadoghq.com)
 DD_SERVICE=proto-fleet-client  # service name (default: proto-fleet-client)
-DD_ENV=production              # environment tag (default: build env)
+DD_ENV=prod-site1              # environment tag; use prod-<site> so per-site data stays separable (default: build env)
 DD_RUM_SAMPLE_RATE=100         # RUM session sample rate (default: 100)
 DD_SESSION_REPLAY_SAMPLE_RATE=0  # Session Replay sample rate (default: 0, off)
 DD_TRACE_SAMPLE_RATE=100       # trace sample rate for API calls (default: 100)
@@ -348,10 +478,23 @@ DD_API_KEY=your-datadog-api-key
 
 # Optional
 DD_SITE=datadoghq.com            # your Datadog site (default: datadoghq.com)
-DD_ENV=production                # APM env tag (default: production)
+DD_ENV=prod-site1                # APM environment tag; use prod-<site> to match the RUM config (default: production)
+DD_HOSTNAME=fleet-host-1         # host tag on spans (default: this machine's hostname)
 FLEET_TELEMETRY_SAMPLE_RATE=1.0  # server-side trace sample cap (default: 1.0)
 FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true  # parent spans to RUM trace context (default: true)
 ```
+
+`DD_HOSTNAME` is stamped onto spans as `host.name`. Without it the Datadog
+exporter infers a hostname from inside the collector container, so traces
+hang off a host that nothing else reports. `run-fleet.sh` defaults it to the
+output of `hostname` and writes that value to `.env`; if you also run a
+Datadog Agent on this machine for host metrics or logs, set `DD_HOSTNAME` to
+the hostname that agent reports (its `DD_HOSTNAME`, or `datadog-agent
+hostname`) so APM traces and infra data resolve to the same host. Matching
+`DD_ENV` across the agent, this overlay, and the RUM config is what joins
+infra, APM, and RUM. The overlay itself treats `DD_HOSTNAME` as required, so
+driving `docker compose` with `docker-compose.tracing.yaml` by hand needs it
+set in `.env` or the shell.
 
 Unlike the RUM client token, `DD_API_KEY` is a secret Datadog API key;
 it stays in `.env` (mode 0600) and the collector container's

@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/pools/preflight"
@@ -35,9 +36,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
@@ -89,6 +92,14 @@ type Service struct {
 type resolvedDevice struct {
 	id         int64
 	identifier string
+}
+
+// curtailmentConfigQueuePayload deliberately has no plaintext representation.
+// Direct configs are encrypted at rest with the service master key; FleetNode
+// configs remain encrypted for their destination node and device.
+type curtailmentConfigQueuePayload struct {
+	LocalConfigCiphertext    string                    `json:"local_config_ciphertext,omitempty"`
+	FleetNodeEncryptedConfig *dto.NodeEncryptedPayload `json:"fleet_node_encrypted_config,omitempty"`
 }
 
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
@@ -212,6 +223,8 @@ func activityEventType(t commandtype.Type) string {
 		return "curtail"
 	case commandtype.Uncurtail:
 		return "uncurtail"
+	case commandtype.ApplyCurtailmentConfig:
+		return "apply_curtailment_config"
 	default:
 		return t.String()
 	}
@@ -468,7 +481,7 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (string, error) {
+	return db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (string, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 
@@ -491,40 +504,74 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 }
 
 func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
-	isProcessing, err := s.messageQueue.IsBatchProcessing(ctx, commandBatchLogUUID)
+	updated, err := db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (bool, error) {
+		rowsAffected, updateErr := q.MarkCommandBatchProcessing(ctx, commandBatchLogUUID)
+		return rowsAffected > 0, updateErr
+	})
 	if err != nil {
-		return false, fleeterror.NewInternalErrorf("error asking isProcessing: %v", err)
+		return false, fleeterror.NewInternalErrorf("error marking batch: %v", err)
 	}
-	if isProcessing {
-		err = db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
-			return q.MarkCommandBatchProcessing(ctx, commandBatchLogUUID)
-		})
-		if err != nil {
-			return false, fleeterror.NewInternalErrorf("error marking batch: %v", err)
-		}
-		return true, nil
-	}
-	return false, nil
+	return updated, nil
 }
 
 func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(ctx context.Context, commandBatchLogUUID string) error {
 	return func(ctx context.Context, commandBatchLogUUID string) error {
-		return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
+		updated, err := db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (bool, error) {
+			var rowsAffected int64
+			var updateErr error
 			if processingMarkedInDB {
-				return q.MarkCommandBatchFinished(ctx, commandBatchLogUUID)
+				rowsAffected, updateErr = q.MarkCommandBatchFinished(ctx, commandBatchLogUUID)
+			} else {
+				rowsAffected, updateErr = q.MarkCommandBatchFinishedWithStartedAt(ctx, commandBatchLogUUID)
 			}
-			return q.MarkCommandBatchFinishedWithStartedAt(ctx, commandBatchLogUUID)
+			return rowsAffected > 0, updateErr
 		})
+		if err != nil {
+			return err
+		}
+		if !updated {
+			slog.Debug("command batch already left expected state", "batch_uuid", commandBatchLogUUID)
+		}
+		return nil
 	}
 }
 
-func (s *Service) finishUnenqueuedCommandBatch(ctx context.Context, commandBatchLogUUID string) error {
+func (s *Service) reconcileFailedEnqueue(ctx context.Context, commandBatchLogUUID string, expectedMessages int, enqueueErr error) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 	defer cancel()
-	if err := s.getMarkFinishedBatchFunction(false)(cleanupCtx, commandBatchLogUUID); err != nil {
-		return fleeterror.NewInternalErrorf("command execution stopped before enqueue; failed to finish command batch: %v", err)
+
+	enqueueCommitted, err := db.WithTransactionTimeout(cleanupCtx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (bool, error) {
+		status, err := q.LockCommandBatch(cleanupCtx, commandBatchLogUUID)
+		if err != nil {
+			return false, err
+		}
+		messageCount, err := q.CountQueueMessagesByBatch(cleanupCtx, commandBatchLogUUID)
+		if err != nil {
+			return false, err
+		}
+		if messageCount == int64(expectedMessages) {
+			return true, nil // the enqueue committed before returning an ambiguous error
+		}
+		if messageCount != 0 {
+			return false, fmt.Errorf("enqueue created %d of %d expected queue messages", messageCount, expectedMessages)
+		}
+
+		if status != sqlc.BatchStatusEnumPENDING {
+			return false, nil
+		}
+		_, err = q.MarkCommandBatchFinishedWithStartedAt(cleanupCtx, commandBatchLogUUID)
+		return false, err
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf(
+			"command enqueue failed and reconciliation also failed: %w",
+			errors.Join(enqueueErr, err),
+		)
 	}
-	return fleeterror.NewInternalError("command execution service stopped before enqueue")
+	if enqueueCommitted {
+		return nil
+	}
+	return enqueueErr
 }
 
 func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
@@ -774,29 +821,13 @@ func (s *Service) prepareUpdateMinerPasswordDispatch(ctx context.Context, orgID 
 	if len(devices) == 0 {
 		return commandPayloadRedacted("update_miner_password"), nil, nil
 	}
-	identifiers := make([]string, 0, len(devices))
-	for _, device := range devices {
-		identifiers = append(identifiers, device.identifier)
-	}
-	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceCommandRoutesRow, error) {
-		return q.GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
-			OrgID:             orgID,
-			DeviceIdentifiers: identifiers,
-		})
-	})
+	routes, err := s.resolveDeviceCommandRoutes(ctx, orgID, devices)
 	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("resolve device command routes: %v", err)
-	}
-	routeByID := make(map[int64]sqlc.GetDeviceCommandRoutesRow, len(rows))
-	for _, row := range rows {
-		routeByID[row.ID] = row
+		return nil, nil, err
 	}
 	dispatches := make([]queue.EnqueueMessage, 0, len(devices))
-	for _, device := range devices {
-		route, ok := routeByID[device.id]
-		if !ok {
-			return nil, nil, fleeterror.NewInternalErrorf("missing command route for device %d", device.id)
-		}
+	for i, device := range devices {
+		route := routes[i]
 		if route.FleetNodeID.Valid {
 			encrypted, err := passwordupdate.Encrypt(route.EncryptionPubkey, passwordupdate.Secret{
 				DeviceIdentifier: device.identifier,
@@ -820,6 +851,90 @@ func (s *Service) prepareUpdateMinerPasswordDispatch(ctx context.Context, orgID 
 		dispatches = append(dispatches, queue.EnqueueMessage{DeviceID: device.id, Payload: payload})
 	}
 	return commandPayloadRedacted("update_miner_password"), dispatches, nil
+}
+
+func (s *Service) prepareCurtailmentConfigDispatch(ctx context.Context, orgID int64, devices []resolvedDevice, payload dto.ApplyCurtailmentConfigPayload) (interface{}, []queue.EnqueueMessage, error) {
+	if payload.Config == nil {
+		return nil, nil, fleeterror.NewInternalError("plaintext curtailment config is required before route encryption")
+	}
+	if len(devices) == 0 {
+		return commandPayloadRedacted("apply_curtailment_config"), nil, nil
+	}
+	routes, err := s.resolveDeviceCommandRoutes(ctx, orgID, devices)
+	if err != nil {
+		return nil, nil, err
+	}
+	dispatches := make([]queue.EnqueueMessage, 0, len(devices))
+	for i, device := range devices {
+		route := routes[i]
+		if route.FleetNodeID.Valid {
+			encrypted, err := curtailmentconfig.Encrypt(route.EncryptionPubkey, device.identifier, *payload.Config)
+			if err != nil {
+				if errors.Is(err, curtailmentconfig.ErrInvalidRecipientPublicKey) {
+					return nil, nil, fleeterror.NewFailedPreconditionErrorf("fleet node %d does not have an encryption key; re-enroll the fleet node before applying curtailment config", route.FleetNodeID.Int64)
+				}
+				return nil, nil, fleeterror.NewInternalErrorf("encrypt curtailment config for device %s: %v", device.identifier, err)
+			}
+			dispatches = append(dispatches, queue.EnqueueMessage{
+				DeviceID: device.id,
+				Payload: curtailmentConfigQueuePayload{
+					FleetNodeEncryptedConfig: protoNodeEncryptedPayloadToDTO(encrypted),
+				},
+			})
+			continue
+		}
+		localPayload, err := s.encryptLocalCurtailmentConfig(*payload.Config)
+		if err != nil {
+			return nil, nil, err
+		}
+		dispatches = append(dispatches, queue.EnqueueMessage{DeviceID: device.id, Payload: localPayload})
+	}
+	return commandPayloadRedacted("apply_curtailment_config"), dispatches, nil
+}
+
+func (s *Service) encryptLocalCurtailmentConfig(config sdk.CurtailmentConfig) (curtailmentConfigQueuePayload, error) {
+	if s.encryptService == nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalError("curtailment config encryption is not configured")
+	}
+	plaintext, err := json.Marshal(config)
+	if err != nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalErrorf("marshal local curtailment config: %v", err)
+	}
+	defer clear(plaintext)
+	encrypted, err := s.encryptService.Encrypt(plaintext)
+	if err != nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalErrorf("encrypt local curtailment config: %v", err)
+	}
+	return curtailmentConfigQueuePayload{LocalConfigCiphertext: encrypted}, nil
+}
+
+func (s *Service) resolveDeviceCommandRoutes(ctx context.Context, orgID int64, devices []resolvedDevice) ([]sqlc.GetDeviceCommandRoutesRow, error) {
+	identifiers := make([]string, 0, len(devices))
+	for _, device := range devices {
+		identifiers = append(identifiers, device.identifier)
+	}
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceCommandRoutesRow, error) {
+		return q.GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
+			OrgID:             orgID,
+			DeviceIdentifiers: identifiers,
+		})
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("resolve device command routes: %v", err)
+	}
+	routeByID := make(map[int64]sqlc.GetDeviceCommandRoutesRow, len(rows))
+	for _, row := range rows {
+		routeByID[row.ID] = row
+	}
+	routes := make([]sqlc.GetDeviceCommandRoutesRow, 0, len(devices))
+	for _, device := range devices {
+		route, ok := routeByID[device.id]
+		if !ok {
+			return nil, fleeterror.NewInternalErrorf("missing command route for device %d", device.id)
+		}
+		routes = append(routes, route)
+	}
+	return routes, nil
 }
 
 func protoNodeEncryptedPayloadToDTO(payload *gatewaypb.NodeEncryptedPayload) *dto.NodeEncryptedPayload {
@@ -920,7 +1035,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	}
 
 	logPayload := command.payload
-	queuePayloads := []queue.EnqueueMessage{}
+	var queuePayloads []queue.EnqueueMessage
 	if command.commandType == commandtype.UpdateMinerPassword {
 		passwordPayload, ok := command.payload.(dto.UpdateMinerPasswordPayload)
 		if !ok {
@@ -928,6 +1043,16 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		}
 		var err error
 		logPayload, queuePayloads, err = s.prepareUpdateMinerPasswordDispatch(ctx, info.OrganizationID, resolvedDevices, passwordPayload)
+		if err != nil {
+			return nil, err
+		}
+	} else if command.commandType == commandtype.ApplyCurtailmentConfig {
+		configPayload, ok := command.payload.(dto.ApplyCurtailmentConfigPayload)
+		if !ok {
+			return nil, fleeterror.NewInternalError("invalid curtailment config payload")
+		}
+		var err error
+		logPayload, queuePayloads, err = s.prepareCurtailmentConfigDispatch(ctx, info.OrganizationID, resolvedDevices, configPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -961,14 +1086,19 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		}
 		return s.messageQueue.EnqueueMany(workCtx, batchLogIdentifier, command.commandType, queuePayloads)
 	})
-	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
-		return nil, s.finishUnenqueuedCommandBatch(ctx, batchLogIdentifier)
-	}
 	if err != nil {
-		if len(queuePayloads) == 0 {
-			return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+		var enqueueErr error
+		switch {
+		case errors.Is(err, errExecutionStoppedBeforeEnqueue):
+			enqueueErr = fleeterror.NewInternalError("command execution service stopped before enqueue")
+		case len(queuePayloads) == 0:
+			enqueueErr = fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+		default:
+			enqueueErr = fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
 		}
-		return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
+		if err := s.reconcileFailedEnqueue(ctx, batchLogIdentifier, len(deviceIDs), enqueueErr); err != nil {
+			return nil, err
+		}
 	}
 
 	return &CommandResult{
@@ -1446,11 +1576,13 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
 		return s.enqueueWorkerNameReapplyMessages(workCtx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier)
 	})
-	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
-		return "", s.finishUnenqueuedCommandBatch(ctx, commandBatchLogUUID)
-	}
 	if err != nil {
-		return "", err
+		if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+			err = fleeterror.NewInternalError("command execution service stopped before enqueue")
+		}
+		if err := s.reconcileFailedEnqueue(ctx, commandBatchLogUUID, len(deviceIdentifiers), err); err != nil {
+			return "", err
+		}
 	}
 
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
@@ -1482,30 +1614,22 @@ func (s *Service) enqueueWorkerNameReapplyMessages(
 	deviceIDsByIdentifier map[string]int64,
 	desiredWorkerNamesByDeviceIdentifier map[string]string,
 ) error {
-	return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
-		commandType := commandtype.UpdateMiningPools
-		for _, deviceIdentifier := range deviceIdentifiers {
-			payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
+	messages := make([]queue.EnqueueMessage, 0, len(deviceIdentifiers))
+	for _, deviceIdentifier := range deviceIdentifiers {
+		messages = append(messages, queue.EnqueueMessage{
+			DeviceID: deviceIDsByIdentifier[deviceIdentifier],
+			Payload: dto.UpdateMiningPoolsPayload{
 				ReapplyCurrentPoolsWithStoredWorkerName: true,
 				DesiredWorkerName:                       desiredWorkerNamesByDeviceIdentifier[deviceIdentifier],
-			})
-			if err != nil {
-				return fleeterror.NewInternalErrorf("failed to marshal worker-name reapply payload: %v", err)
-			}
-
-			if err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
-				CommandBatchLogUuid: commandBatchLogUUID,
-				CommandType:         commandType.String(),
-				DeviceID:            deviceIDsByIdentifier[deviceIdentifier],
-				Status:              sqlc.QueueStatusEnumPENDING,
-				RetryCount:          0,
-				Payload:             pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: true},
-			}); err != nil {
-				return fleeterror.NewInternalErrorf("failed to enqueue worker-name reapply message: %v", err)
-			}
-		}
-		return nil
-	})
+			},
+		})
+	}
+	return s.messageQueue.EnqueueMany(
+		ctx,
+		commandBatchLogUUID,
+		commandtype.UpdateMiningPools,
+		messages,
+	)
 }
 
 func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
@@ -1637,6 +1761,47 @@ func (s *Service) Uncurtail(ctx context.Context, deviceSelector *pb.DeviceSelect
 	return result, nil
 }
 
+// ApplyCurtailmentConfigToProtoRigs replaces the rig-local fallback config on
+// every paired Proto rig in the caller's organization. Operators do not manage
+// a separate coverage list.
+func (s *Service) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config sdk.CurtailmentConfig) error {
+	allProtoRigs := protoRigCurtailmentSelector()
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, allProtoRigs, commandtype.ApplyCurtailmentConfig)
+	if err != nil {
+		return err
+	}
+	if len(identifiers) == 0 {
+		return nil
+	}
+	result, err := s.processCommand(ctx, &Command{
+		commandType: commandtype.ApplyCurtailmentConfig,
+		deviceSelector: &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: identifiers},
+			},
+		},
+		payload: dto.ApplyCurtailmentConfigPayload{Config: &config},
+	})
+	if err != nil {
+		return err
+	}
+	s.finalizeDispatch(ctx, result, "apply_curtailment_config", "Applied rig curtailment fallback config")
+	return nil
+}
+
+func protoRigCurtailmentSelector() *pb.DeviceSelector {
+	return &pb.DeviceSelector{
+		SelectionType: &pb.DeviceSelector_AllDevices{
+			AllDevices: &pb.DeviceFilter{
+				Manufacturers: []string{"Proto"},
+				PairingStatus: []fleetpb.PairingStatus{
+					fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+				},
+			},
+		},
+	}
+}
+
 // verifyUserCredentials verifies the provided username and password match the current authenticated user
 // This provides an additional security layer for sensitive operations
 func (s *Service) verifyUserCredentials(ctx context.Context, username string, password string) error {
@@ -1751,7 +1916,39 @@ func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamC
 	return responseChan, nil
 }
 
-func (s *Service) GetCommandBatchLogBundle(batchUUID string) (*pb.GetCommandBatchLogBundleResponse, error) {
+func (s *Service) GetCommandBatchLogBundle(ctx context.Context, batchUUID string) (*pb.GetCommandBatchLogBundleResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+
+	batch, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (sqlc.GetBatchHeaderForOrgRow, error) {
+		header, queryErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
+			Uuid:           batchUUID,
+			OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
+		})
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return header, fleeterror.NewNotFoundErrorf("command batch %s not found", batchUUID)
+		}
+		return header, queryErr
+	})
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil, err
+		}
+		return nil, fleeterror.NewInternalErrorf("error reading command batch: %v", err)
+	}
+	downloadLogs := commandtype.DownloadLogs
+	if batch.Type != downloadLogs.String() {
+		return nil, fleeterror.NewNotFoundErrorf("command batch %s not found", batchUUID)
+	}
+	if batch.Status != sqlc.BatchStatusEnumFINISHED {
+		return nil, fleeterror.NewInternalError("log bundle is not available yet, please try again later")
+	}
+	if err := s.filesService.EnsureBatchLogBundle(batchUUID); err != nil {
+		return nil, fleeterror.NewInternalErrorf("error bundling logs: %v", err)
+	}
+
 	file, err := s.filesService.GetBatchLogBundleFile(batchUUID)
 	if err != nil {
 		return nil, err

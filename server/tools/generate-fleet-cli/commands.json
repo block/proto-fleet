@@ -661,6 +661,13 @@
       "auth": "session_only"
     },
     {
+      "method": "/alerts.v1.HistoryService/ListActiveAlertGroups",
+      "group": "alerts",
+      "subgroup": "history",
+      "command": "active",
+      "auth": "session_only"
+    },
+    {
       "method": "/authz.v1.AuthzService/ListPermissions",
       "group": "roles",
       "command": "permissions",

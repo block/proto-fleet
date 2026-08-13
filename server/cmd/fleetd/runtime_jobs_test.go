@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,6 @@ func (noopLifecycle) Stop(context.Context) error  { return nil }
 type funcLifecycle struct {
 	start func(context.Context) error
 	stop  func(context.Context) error
-	abort func()
 }
 
 func (l funcLifecycle) Start(ctx context.Context) error {
@@ -36,12 +36,6 @@ func (l funcLifecycle) Stop(ctx context.Context) error {
 		return nil
 	}
 	return l.stop(ctx)
-}
-
-func (l funcLifecycle) Abort() {
-	if l.abort != nil {
-		l.abort()
-	}
 }
 
 type scriptedRuntimeJobGroupStopper struct {
@@ -73,6 +67,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		scheduleProcessor:         noopLifecycle{},
 		curtailmentReconciler:     noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
+		curtailmentRigConfig:      noopLifecycle{},
 		curtailmentAlertMetrics:   noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 		systemMonitoring:          noopLifecycle{},
@@ -91,6 +86,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"schedule-processor",
 		"curtailment-reconciler",
 		"curtailment-mqtt-subscriber",
+		"curtailment-rig-config",
 		"curtailment-alert-metrics",
 		"chunked-upload-cleanup",
 		"system-monitoring",
@@ -112,6 +108,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"schedule-processor",
 		"curtailment-reconciler",
 		"curtailment-mqtt-subscriber",
+		"curtailment-rig-config",
 		"chunked-upload-cleanup",
 	}, jobNames(jobs))
 }
@@ -158,6 +155,7 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		scheduleProcessor:         producer,
 		curtailmentReconciler:     noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
+		curtailmentRigConfig:      noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 	})
 	require.NoError(t, err)
@@ -170,29 +168,6 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 	default:
 		t.Fatal("command execution was not stopped")
 	}
-}
-
-func TestRuntimeJobGroupAbortsCommandExecution(t *testing.T) {
-	commandAborted := false
-	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
-		identityStateCleanup:      noopLifecycle{},
-		commandArtifactCleanup:    noopLifecycle{},
-		diagnosticsErrorCloser:    noopLifecycle{},
-		telemetry:                 noopLifecycle{},
-		ipScanner:                 noopLifecycle{},
-		commandExecution:          funcLifecycle{abort: func() { commandAborted = true }},
-		scheduleProcessor:         noopLifecycle{},
-		curtailmentReconciler:     noopLifecycle{},
-		curtailmentMQTTSubscriber: noopLifecycle{},
-		chunkedUploadCleanup:      noopLifecycle{},
-	})
-	require.NoError(t, err)
-	group, err := runtimejobs.NewGroup(jobs)
-	require.NoError(t, err)
-
-	group.Abort()
-
-	require.True(t, commandAborted)
 }
 
 func TestBackgroundLoopCanRestartAfterDraining(t *testing.T) {
@@ -257,6 +232,39 @@ func TestStopRuntimeJobGroupDoesNotRetrySuccessfulStop(t *testing.T) {
 	require.Len(t, group.contexts, 1)
 	_, hasDeadline := group.contexts[0].Deadline()
 	require.True(t, hasDeadline)
+}
+
+func TestStopRuntimeJobGroupAfterRunOnlySkipsHAAbort(t *testing.T) {
+	t.Run("HA abort", func(t *testing.T) {
+		// Arrange
+		group := &scriptedRuntimeJobGroupStopper{
+			stop: func(context.Context) error { return nil },
+		}
+
+		// Act
+		stopRuntimeJobGroupAfterRun(
+			errors.Join(errors.New("runtime failed"), ha.ErrRuntimeAborted),
+			group,
+			noopLifecycle{},
+			time.Second,
+		)
+
+		// Assert
+		require.Empty(t, group.contexts)
+	})
+
+	t.Run("standalone failure", func(t *testing.T) {
+		// Arrange
+		group := &scriptedRuntimeJobGroupStopper{
+			stop: func(context.Context) error { return nil },
+		}
+
+		// Act
+		stopRuntimeJobGroupAfterRun(errors.New("runtime failed"), group, noopLifecycle{}, time.Second)
+
+		// Assert
+		require.Len(t, group.contexts, 1)
+	})
 }
 
 func TestStopRuntimeJobGroupStopsCommandAfterGroupFailure(t *testing.T) {

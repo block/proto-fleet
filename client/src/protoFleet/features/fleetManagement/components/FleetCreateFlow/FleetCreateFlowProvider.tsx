@@ -16,7 +16,9 @@ import BuildingModals from "@/protoFleet/features/buildings/components/BuildingM
 import BuildingSettingsModal from "@/protoFleet/features/buildings/components/BuildingSettingsModal";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
+import ReparentWarningDialog from "@/protoFleet/features/fleetManagement/components/ManageRackModal/ReparentWarningDialog";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
+import { useCreateRack } from "@/protoFleet/features/fleetManagement/hooks/useCreateRack";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SiteSettingsModal from "@/protoFleet/features/sites/components/SiteSettingsModal";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
@@ -44,9 +46,10 @@ const MAX_DEVICE_BATCH = 10000;
 // with the operator's current miner selection, which in all-selection mode
 // resolves to the full fleet (capped only at MAX_DEVICE_BATCH). Without a
 // gate here, an oversized seed renders one MinersPane row per miner and
-// freezes the browser long before the save-time capacity guard fires. Cap
-// at the absolute max before ManageRackModal mounts — the exact
-// chosen-capacity check still runs at save once rows×columns are picked.
+// freezes the browser long before anything else fires. Cap at the absolute
+// max before the operator even reaches Rack Settings — the exact
+// chosen-capacity check runs server-side on the create, once rows×columns
+// are picked.
 const MAX_RACK_CAPACITY = 12 * 12;
 
 // A seed that moves racked miners into a new building/site sends
@@ -110,12 +113,14 @@ const FleetCreateFlowProvider = ({
   const activeSite = useFleetStore((state) => state.ui.activeSite);
   const scopedSiteId = useMemo(() => (activeSite.kind === "site" ? BigInt(activeSite.id) : undefined), [activeSite]);
 
-  // Rack create flow. rackSettings drives RackSettingsModal; once the
-  // operator continues, rackFormData opens ManageRackModal seeded with the
-  // selected miners. rackSeed survives the settings step so the miners reach
-  // the manage modal.
+  // Rack create flow. RackSettingsModal's "Create rack" creates the rack with
+  // the seeded miners already in it — one atomic SaveRack, so a failed seed
+  // can't leave an empty rack behind — then ManageRackModal opens on the real
+  // rack for positioning. rackSeed survives the settings step so the miners
+  // reach the create call.
   const [rackSettingsOpen, setRackSettingsOpen] = useState(false);
   const [rackFormData, setRackFormData] = useState<RackFormData | null>(null);
+  const [rackId, setRackId] = useState<bigint | null>(null);
   const [rackSeed, setRackSeed] = useState<RackCreateSeed | null>(null);
   // Holds a seed whose miners have a placement the new rack would clear,
   // until the operator confirms; null when no confirmation is pending.
@@ -124,6 +129,7 @@ const FleetCreateFlowProvider = ({
   const openRackSettings = useCallback((seed: RackCreateSeed) => {
     setRackSeed(seed);
     setRackFormData(null);
+    setRackId(null);
     setRackSettingsOpen(true);
   }, []);
 
@@ -153,13 +159,35 @@ const FleetCreateFlowProvider = ({
   const closeRackFlow = useCallback(() => {
     setRackSettingsOpen(false);
     setRackFormData(null);
+    setRackId(null);
     setRackSeed(null);
   }, []);
 
-  const handleRackSettingsContinue = useCallback((formData: RackFormData) => {
-    setRackSettingsOpen(false);
-    setRackFormData(formData);
-  }, []);
+  const {
+    createRack,
+    creating: creatingRack,
+    conflict: rackCreateConflict,
+    confirmConflict: confirmRackCreateConflict,
+    cancelConflict: cancelRackCreateConflict,
+  } = useCreateRack({
+    onCreated: (createdId, formData) => {
+      // The rack and its seeded miners are live. Pulse the lists now — the
+      // operator may well dismiss the manage step without positioning anything,
+      // and the rack still exists.
+      bumpEntities();
+      setRackSettingsOpen(false);
+      setRackSeed(null);
+      setRackFormData(formData);
+      setRackId(createdId);
+    },
+  });
+
+  // The seed's miners ride on the create itself, so membership and the rack
+  // land in one transaction.
+  const handleRackSettingsSubmit = useCallback(
+    (formData: RackFormData) => createRack(formData, rackSeed?.minerIds),
+    [createRack, rackSeed],
+  );
 
   const handleRackSaved = useCallback(() => {
     bumpEntities();
@@ -380,18 +408,30 @@ const FleetCreateFlowProvider = ({
           existingRacks={[]}
           defaultSiteId={scopedSiteId}
           onDismiss={closeRackFlow}
-          onContinue={handleRackSettingsContinue}
+          onSubmit={handleRackSettingsSubmit}
+          saving={creatingRack}
         />
       ) : null}
-      {rackFormData ? (
+      {rackFormData && rackId !== null ? (
         <ManageRackModal
-          show={!!rackFormData}
+          show
           rackSettings={rackFormData}
+          existingRackId={rackId}
           existingRacks={[]}
-          seededMinerIds={rackSeed?.minerIds}
           scopedSiteId={scopedSiteId}
           onDismiss={closeRackFlow}
           onSave={handleRackSaved}
+          // Membership commits land while this modal is open; pulse the lists so
+          // they're right even if the operator dismisses without positioning.
+          onSettingsPersisted={bumpEntities}
+        />
+      ) : null}
+      {rackCreateConflict ? (
+        <ReparentWarningDialog
+          count={rackCreateConflict.count}
+          rackLabel={rackCreateConflict.rackLabel}
+          onCancel={cancelRackCreateConflict}
+          onConfirm={confirmRackCreateConflict}
         />
       ) : null}
       {rackConflictSeed ? (

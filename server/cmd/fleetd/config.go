@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/command"
@@ -15,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/domain/updates"
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -25,6 +27,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
+
+func validateHAHTTPAddress(config Config) error {
+	if !config.HA.Enabled {
+		return nil
+	}
+	if config.HTTP.Address != ha.LocalStatusAddress {
+		return fmt.Errorf("HA requires HTTP listen address %q, got %q", ha.LocalStatusAddress, config.HTTP.Address)
+	}
+	return nil
+}
 
 type HTTPConfig struct {
 	Address           string        `help:"Address to listen on" default:"127.0.0.1:8080" env:"LISTEN_ADDRESS"`
@@ -60,6 +72,7 @@ type Config struct {
 	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
 	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
+	HA             ha.Config                    `embed:"" prefix:"ha-" envprefix:"FLEET_HA_"`
 
 	SystemMonitoring sysmon.Config `embed:"" prefix:"system-monitoring-" envprefix:"FLEET_SYSTEM_MONITORING_"`
 }

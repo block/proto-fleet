@@ -402,24 +402,3 @@ func sortAlerts(alerts []Alert) {
 		return alerts[i].Labels["device_id"] < alerts[j].Labels["device_id"]
 	})
 }
-
-// deviceSuffix renders " — <name> (<MAC>)" for an alert's device, falling back to the raw id.
-func deviceSuffix(a Alert, identities map[string]DeviceIdentity) string {
-	id := a.Labels["device_id"]
-	if id == "" {
-		return ""
-	}
-	ident := identities[id]
-	name := escapeMrkdwn(strings.TrimSpace(ident.Name))
-	mac := escapeMrkdwn(ident.MAC)
-	switch {
-	case name != "" && mac != "":
-		return fmt.Sprintf(" — %s (%s)", name, mac)
-	case name != "":
-		return " — " + name
-	case mac != "":
-		return " — " + mac
-	default:
-		return " — " + escapeMrkdwn(id)
-	}
-}

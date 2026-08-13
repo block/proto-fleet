@@ -1,10 +1,13 @@
 package deployment
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -20,19 +23,21 @@ import (
 )
 
 type hostEnvironment struct {
-	goos          string
-	localIPs      func() ([]netip.Addr, error)
-	runCommand    func(context.Context, string, ...string) ([]byte, error)
-	applyFirewall func(context.Context, NodeConfig, string) error
+	goos              string
+	localIPs          func() ([]netip.Addr, error)
+	interfacePrefixes func(string) ([]netip.Prefix, error)
+	runCommand        func(context.Context, string, ...string) ([]byte, error)
+	applyFirewall     func(context.Context, NodeConfig, string) error
 }
 
 // Preflight checks a clean host and loads the firewall required before startup.
 func Preflight(ctx context.Context, envPath, firewallTemplatePath string) (NodeConfig, error) {
 	host := hostEnvironment{
-		goos:          runtime.GOOS,
-		localIPs:      localAddresses,
-		runCommand:    runCommand,
-		applyFirewall: applyFirewall,
+		goos:              runtime.GOOS,
+		localIPs:          localAddresses,
+		interfacePrefixes: interfaceIPv4Prefixes,
+		runCommand:        runCommand,
+		applyFirewall:     applyFirewall,
 	}
 	return preflight(ctx, envPath, firewallTemplatePath, host)
 }
@@ -57,7 +62,6 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 	if !slices.Contains(addresses, nodeIP) {
 		return NodeConfig{}, errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
 	}
-
 	for _, peer := range []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP} {
 		if peer == config.NodeIP {
 			continue
@@ -71,13 +75,43 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
 		}
 	}
+	if config.isDatabaseNode() {
+		virtualIP, _ := netip.ParseAddr(config.VirtualIP)
+		if slices.Contains(addresses, virtualIP) {
+			return NodeConfig{}, errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
+		}
+		prefixes, err := host.interfacePrefixes(config.NetworkInterface)
+		if err != nil {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
+		}
+		if err := validateVirtualIPPrefix(nodeIP, virtualIP, prefixes); err != nil {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+		}
+		// VRRP moves the VIP with ARP, so it must be directly connected rather
+		// than routed through a gateway.
+		output, err := host.runCommand(ctx, "ip", "route", "get", config.VirtualIP)
+		if err != nil {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
+		}
+		source, sourceOK := routeSource(output)
+		device, deviceOK := routeDevice(output)
+		_, routedViaGateway := routeField(output, "via")
+		if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
+		}
+		// The privileged duplicate-address probe rejects a VIP already claimed by another host.
+		output, err = host.runCommand(ctx, "sudo", "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
+		if err != nil {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
+		}
+	}
 	listeners, err := host.runCommand(ctx, "ss", "-H", "-lnt")
 	if err != nil {
 		return NodeConfig{}, fmt.Errorf("HA preflight failed: inspect listening ports: %s", commandError(listeners, err))
 	}
 	ports := []int{2379, 2380}
 	if config.isDatabaseNode() {
-		ports = append(ports, 5432, 8008)
+		ports = append(ports, 80, 443, 4000, 5432, 8008)
 	}
 	for _, port := range ports {
 		if portIsListening(string(listeners), port) {
@@ -104,31 +138,39 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 
 func validateNodeConfig(config NodeConfig) error {
 	required := map[string]string{
-		"HA_NODE_NAME":   config.NodeName,
-		"HA_NODE_IP":     config.NodeIP,
-		"HA_DB_A_IP":     config.DatabaseAIP,
-		"HA_DB_B_IP":     config.DatabaseBIP,
-		"HA_DCS_C_IP":    config.WitnessIP,
-		"HA_DATA_DIR":    config.DataDir,
-		"HA_SECRETS_DIR": config.SecretsDir,
+		"HA_NODE_NAME":         config.NodeName,
+		"HA_NODE_IP":           config.NodeIP,
+		"HA_DB_A_IP":           config.DatabaseAIP,
+		"HA_DB_B_IP":           config.DatabaseBIP,
+		"HA_DCS_C_IP":          config.WitnessIP,
+		"HA_VIRTUAL_IP":        config.VirtualIP,
+		"HA_NETWORK_INTERFACE": config.NetworkInterface,
+		"HA_DATA_DIR":          config.DataDir,
+		"HA_SECRETS_DIR":       config.SecretsDir,
 	}
 	for key, value := range required {
 		if value == "" {
 			return fmt.Errorf("%s is required", key)
 		}
 	}
-
 	peers := []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP}
 	seen := make(map[netip.Addr]struct{}, len(peers))
 	for _, rawIP := range peers {
-		ip, err := netip.ParseAddr(rawIP)
-		if err != nil || !ip.Is4() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.As4()[0] == 0 {
+		ip, ok := parseRoutableIPv4(rawIP)
+		if !ok {
 			return errors.New("HA peer identity must be a routable literal IPv4 address")
 		}
 		if _, duplicate := seen[ip]; duplicate {
 			return errors.New("HA peer identities must be unique")
 		}
 		seen[ip] = struct{}{}
+	}
+	virtualIP, ok := parseRoutableIPv4(config.VirtualIP)
+	if !ok {
+		return errors.New("HA_VIRTUAL_IP must be a routable literal IPv4 address")
+	}
+	if _, duplicate := seen[virtualIP]; duplicate {
+		return errors.New("HA_VIRTUAL_IP must differ from every HA node address")
 	}
 
 	expectedIP := map[string]string{
@@ -161,9 +203,9 @@ func validateSecrets(config NodeConfig) error {
 	publicFiles := []string{"service-ca.crt", "etcd-server.crt", "etcd-peer.crt", "etcd-jwt.pub"}
 	keyFiles := []string{"etcd-server.key", "etcd-peer.key", "etcd-jwt.key"}
 	if config.isDatabaseNode() {
-		publicFiles = append(publicFiles, "patroni-rest.crt", "postgres.crt")
+		publicFiles = append(publicFiles, "patroni-rest.crt", "postgres.crt", "fleet-client.crt")
 		keyFiles = append(keyFiles,
-			"patroni-rest.key", "postgres.key",
+			"patroni-rest.key", "postgres.key", "fleet-client.key",
 		)
 	}
 	for _, name := range publicFiles {
@@ -191,6 +233,9 @@ func validateSecrets(config NodeConfig) error {
 		}
 	}
 	if config.isDatabaseNode() {
+		if err := validateFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile)); err != nil {
+			return fmt.Errorf("required Fleet environment file %s: %w", fleetEnvironmentFile, err)
+		}
 		for _, name := range databasePasswordFiles {
 			if _, err := readPassword(filepath.Join(config.SecretsDir, name)); err != nil {
 				return fmt.Errorf("required password file %s: %w", name, err)
@@ -216,10 +261,13 @@ func validateSecrets(config NodeConfig) error {
 				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
+		if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, "fleet-client.crt"), config.VirtualIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
+			return fmt.Errorf("fleet-client certificate: %w", err)
+		}
 	}
 	certificateNames := []string{"etcd-server", "etcd-peer"}
 	if config.isDatabaseNode() {
-		certificateNames = append(certificateNames, "patroni-rest", "postgres")
+		certificateNames = append(certificateNames, "patroni-rest", "postgres", "fleet-client")
 	}
 	for _, name := range certificateNames {
 		if err := verifyCertificateKeyPair(
@@ -236,6 +284,61 @@ func validateSecrets(config NodeConfig) error {
 		return fmt.Errorf("etcd JWT identity: %w", err)
 	}
 	return nil
+}
+
+func validateFleetEnvironment(path string) error {
+	values, err := loadFleetEnvironment(path)
+	if err != nil {
+		return err
+	}
+	if values["DB_DSN"] == "" {
+		return errors.New("DB_DSN is required")
+	}
+	if len(values["AUTH_CLIENT_SECRET_KEY"]) < 32 {
+		return errors.New("AUTH_CLIENT_SECRET_KEY must contain at least 32 characters")
+	}
+	masterKey, err := base64.StdEncoding.DecodeString(values["ENCRYPT_SERVICE_MASTER_KEY"])
+	if err != nil || len(masterKey) != 32 {
+		return errors.New("ENCRYPT_SERVICE_MASTER_KEY must be a base64-encoded 32-byte key")
+	}
+	return nil
+}
+
+func loadFleetEnvironment(path string) (map[string]string, error) {
+	info, err := secureFileInfo(path, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireCurrentOwner(info, fleetEnvironmentFile); err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open Fleet environment file: %w", err)
+	}
+	defer file.Close()
+
+	values := make(map[string]string, 3)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		match := envLine.FindStringSubmatch(scanner.Text())
+		if match == nil {
+			return nil, errors.New("contains a malformed entry")
+		}
+		key := match[1]
+		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" && key != "DB_DSN" {
+			return nil, fmt.Errorf("contains unknown key: %s", key)
+		}
+		if _, duplicate := values[key]; duplicate {
+			return nil, fmt.Errorf("contains duplicate key: %s", key)
+		}
+		values[key] = match[2]
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read Fleet environment file: %w", err)
+	}
+	return values, nil
 }
 
 func verifyEndpointCertificate(path, ip string, roots *x509.CertPool, usages ...x509.ExtKeyUsage) error {
@@ -348,6 +451,50 @@ func localAddresses() ([]netip.Addr, error) {
 	return result, nil
 }
 
+func interfaceIPv4Prefixes(name string) ([]netip.Prefix, error) {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil, fmt.Errorf("find interface %s: %w", name, err)
+	}
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return nil, fmt.Errorf("list addresses on interface %s: %w", name, err)
+	}
+	prefixes := make([]netip.Prefix, 0, len(addresses))
+	for _, address := range addresses {
+		prefix, err := netip.ParsePrefix(address.String())
+		if err == nil && prefix.Addr().Is4() {
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	return prefixes, nil
+}
+
+func validateVirtualIPPrefix(nodeIP, virtualIP netip.Addr, prefixes []netip.Prefix) error {
+	for _, prefix := range prefixes {
+		if prefix.Addr() != nodeIP {
+			continue
+		}
+		if !prefix.Contains(virtualIP) {
+			return errors.New("HA_VIRTUAL_IP must be on HA_NETWORK_INTERFACE's IPv4 network")
+		}
+		if prefix.Bits() <= 30 && (virtualIP == prefix.Masked().Addr() || virtualIP == ipv4Broadcast(prefix)) {
+			return errors.New("HA_VIRTUAL_IP must not be the network or broadcast address")
+		}
+		return nil
+	}
+	return errors.New("HA_NODE_IP is not assigned to HA_NETWORK_INTERFACE")
+}
+
+func ipv4Broadcast(prefix netip.Prefix) netip.Addr {
+	networkBytes := prefix.Masked().Addr().As4()
+	network := binary.BigEndian.Uint32(networkBytes[:])
+	hostMask := ^uint32(0) >> prefix.Bits()
+	var broadcast [4]byte
+	binary.BigEndian.PutUint32(broadcast[:], network|hostMask)
+	return netip.AddrFrom4(broadcast)
+}
+
 func runCommand(ctx context.Context, name string, args ...string) ([]byte, error) {
 	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
 	if err != nil {
@@ -368,13 +515,26 @@ func portIsListening(listeners string, port int) bool {
 }
 
 func routeSource(output []byte) (string, bool) {
+	return routeField(output, "src")
+}
+
+func routeDevice(output []byte) (string, bool) {
+	return routeField(output, "dev")
+}
+
+func routeField(output []byte, name string) (string, bool) {
 	fields := strings.Fields(string(output))
 	for i, field := range fields {
-		if field == "src" && i+1 < len(fields) {
+		if field == name && i+1 < len(fields) {
 			return fields[i+1], true
 		}
 	}
 	return "", false
+}
+
+func parseRoutableIPv4(raw string) (netip.Addr, bool) {
+	ip, err := netip.ParseAddr(raw)
+	return ip, err == nil && ip.Is4() && ip.IsGlobalUnicast() && ip.As4()[0] != 0
 }
 
 func commandError(output []byte, err error) string {

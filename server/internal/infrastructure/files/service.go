@@ -95,6 +95,7 @@ type Service struct {
 	commandArtifactCleanupInterval time.Duration
 
 	mu                      sync.Mutex
+	bundleCreationMu        sync.Mutex
 	firmwareMetadataReuseMu sync.RWMutex
 	checksumIndex           map[string][]string // SHA-256 hex -> reuse-eligible file IDs
 	firmwareChecksumByID    map[string]string   // fileID -> SHA-256 hex
@@ -478,10 +479,25 @@ func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*FSFile, error) {
 	return &FSFile{Filename: filename, Data: data}, nil
 }
 
+func (s *Service) EnsureBatchLogBundle(batchLogUUID string) error {
+	if findBatchBundlePath(batchLogUUID) != "" {
+		return nil
+	}
+
+	s.bundleCreationMu.Lock()
+	defer s.bundleCreationMu.Unlock()
+
+	if findBatchBundlePath(batchLogUUID) != "" {
+		return nil
+	}
+
+	_, err := s.bundleLogs(batchLogUUID)
+	return err
+}
+
 func (s *Service) DownloadLogsOnFinishedCallback(batchLogUUID string) func() error {
 	return func() error {
-		_, err := s.bundleLogs(batchLogUUID)
-		if err != nil {
+		if err := s.EnsureBatchLogBundle(batchLogUUID); err != nil {
 			return fleeterror.NewInternalErrorf("error bundling logs: %v", err)
 		}
 

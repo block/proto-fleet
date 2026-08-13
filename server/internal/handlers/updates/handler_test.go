@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	updates "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 var testPublishedAt = time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
@@ -133,5 +134,23 @@ func TestSetReleaseChannelPersistsAndStatusReflects(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.channel, resp.Msg.GetChannel())
 		})
+	}
+}
+
+func TestUpgradePhaseMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := map[updaterapi.Phase]instancev1.UpgradePhase{
+		updaterapi.PhaseQueued:      instancev1.UpgradePhase_UPGRADE_PHASE_QUEUED,
+		updaterapi.PhaseDownloading: instancev1.UpgradePhase_UPGRADE_PHASE_DOWNLOADING,
+		updaterapi.PhaseVerifying:   instancev1.UpgradePhase_UPGRADE_PHASE_VERIFYING,
+		updaterapi.PhaseStaging:     instancev1.UpgradePhase_UPGRADE_PHASE_STAGING,
+		updaterapi.PhasePreflight:   instancev1.UpgradePhase_UPGRADE_PHASE_PREFLIGHT,
+		updaterapi.PhaseActivating:  instancev1.UpgradePhase_UPGRADE_PHASE_ACTIVATING,
+		updaterapi.PhaseSucceeded:   instancev1.UpgradePhase_UPGRADE_PHASE_SUCCEEDED,
+		updaterapi.PhaseFailed:      instancev1.UpgradePhase_UPGRADE_PHASE_FAILED,
+	}
+	for phase, expected := range tests {
+		assert.Equal(t, expected, phaseToProto(phase), "phase %s", phase)
 	}
 }

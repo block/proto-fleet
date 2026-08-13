@@ -186,6 +186,8 @@ type Querier interface {
 	// reconciler retries on a later tick if a conflicting event resolves.
 	ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]CurtailmentTarget, error)
 	ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error)
+	ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error)
+	ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error)
 	ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error
 	// Nulls device.building_id for every direct-FK device pointing at the
 	// given building. Used by DeleteBuilding's soft-delete cascade so a
@@ -230,6 +232,7 @@ type Querier interface {
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
+	CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on
@@ -283,6 +286,7 @@ type Querier interface {
 	// deactivated. Same liveness filters as above so a deactivated user
 	// never inflates the count.
 	CountOrgScopeSuperAdminsExcludingUser(ctx context.Context, arg CountOrgScopeSuperAdminsExcludingUserParams) (int64, error)
+	CountQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) (int64, error)
 	CountRacksBySite(ctx context.Context, arg CountRacksBySiteParams) (int64, error)
 	// Total live racks currently assigned to a building (placed or
 	// unplaced — membership, not grid occupancy). Used by
@@ -314,6 +318,7 @@ type Querier interface {
 	CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error)
 	CreatePool(ctx context.Context, arg CreatePoolParams) (int64, error)
 	CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error
+	CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error
 	// org_id is denormalized onto device_set_rack so the building FK can be
 	// composite-keyed; inherit it from device_set so the caller's org_id
 	// must match. site_id / building_id are NULL for unassigned racks.
@@ -335,6 +340,7 @@ type Querier interface {
 	CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error)
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
 	DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error)
+	DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error
 	DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error)
 	DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error)
 	// Deletes reusable response profiles tied to a site as part of the
@@ -370,6 +376,9 @@ type Querier interface {
 	// device, and a stale AUTH_NEEDED result must not clobber that paired-like status.
 	DeviceHasActivePairing(ctx context.Context, arg DeviceHasActivePairingParams) (bool, error)
 	DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelongsToOrgParams) (bool, error)
+	// Returns the subset of requested IDs that are live device sets of the given type in the org;
+	// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
+	DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error)
 	DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error)
 	DisableSyncCommit(ctx context.Context) error
 	// Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
@@ -419,6 +428,7 @@ type Querier interface {
 	// miner with only a direct building (site NULL, building set, e.g. one
 	// assigned to a site-less building) must trip the confirm too.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
+	FinishTerminalCommandBatches(ctx context.Context, finishLimit int32) (int64, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any
 	// non-terminal event row. Unlike AdminTerminateCurtailmentEvent, this
 	// intentionally supports ACTIVE events and has no in-flight command gate because
@@ -433,6 +443,7 @@ type Querier interface {
 	GetAddedDeviceSiteConflicts(ctx context.Context, arg GetAddedDeviceSiteConflictsParams) ([]GetAddedDeviceSiteConflictsRow, error)
 	GetAlertChannel(ctx context.Context, arg GetAlertChannelParams) (AlertChannel, error)
 	GetAlertChannelByName(ctx context.Context, arg GetAlertChannelByNameParams) (AlertChannel, error)
+	GetAlertRuleConfig(ctx context.Context, arg GetAlertRuleConfigParams) (json.RawMessage, error)
 	// Returns command-eligible device information for an organization.
 	// Used when checking capabilities for "select all" operations.
 	GetAllDeviceInfoForCapabilityCheck(ctx context.Context, orgID int64) ([]GetAllDeviceInfoForCapabilityCheckRow, error)
@@ -698,6 +709,7 @@ type Querier interface {
 	GetPermissionByKey(ctx context.Context, key string) (Permission, error)
 	GetPermissionsByKeys(ctx context.Context, keys []string) ([]Permission, error)
 	GetPool(ctx context.Context, arg GetPoolParams) (Pool, error)
+	GetQueueMessagesByBatch(ctx context.Context, commandBatchLogUuid string) ([]GetQueueMessagesByBatchRow, error)
 	// Batch query to get rack label and formatted slot position for multiple devices at once.
 	// Returns at most one rack per device due to partial unique index.
 	GetRackDetailsForDevices(ctx context.Context, arg GetRackDetailsForDevicesParams) ([]GetRackDetailsForDevicesRow, error)
@@ -787,7 +799,7 @@ type Querier interface {
 	// VALUES form raised. Caller wraps generically (fleeterror.New
 	// InternalErrorf), so the surface is unchanged for present callers.
 	InsertError(ctx context.Context, arg InsertErrorParams) (int64, error)
-	InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error)
+	InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error)
 	// CASE bucket order must match CountMinersByState (device.sql) — the chart
 	// and the live legend classify devices with the same rules.
 	// State: 0=offline, 1=sleeping, 2=broken, 3=hashing, 4=unknown.
@@ -801,7 +813,6 @@ type Querier interface {
 	// the in-process metrics provider on every flush.
 	InsertNotificationMetricSamples(ctx context.Context, arg InsertNotificationMetricSamplesParams) error
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
-	IsBatchProcessing(ctx context.Context, commandBatchLogUuid string) (bool, error)
 	IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
 	// enforce the per-device single-writer rule.
@@ -823,10 +834,19 @@ type Querier interface {
 	// admission to skip miners already owned by other events without excluding
 	// the current targetless scope watcher.
 	ListActiveCurtailmentTargetDevicesByOrg(ctx context.Context, orgID int64) ([]string, error)
+	// Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
+	// keeps titles unique per folder and a rule_group label maps to one folder, so a title repeats only across labels.
+	// Identity and counts only: per-instance detail would have to be picked off one instance, and the drill-in already
+	// reports it per row.
+	ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error)
 	// Current firing alerts (one row per alert instance), served from the incrementally-maintained
 	// notification_active table, which also retains resolved tombstones; device name/MAC are joined live
-	// so they reflect current device records.
+	// so they reflect current device records. Ordered to match idx_notification_active_org_recent, so the freshness
+	// window is a range scan that stops at page_limit rather than a sort over the whole set.
 	ListActiveNotifications(ctx context.Context, arg ListActiveNotificationsParams) ([]ListActiveNotificationsRow, error)
+	// One rule's firing instances, one per affected miner: the drill-in behind a rollup row. Keyset on alert_key,
+	// not history_id: a re-assert rewrites history_id, lifting an unread row above the cursor and losing it.
+	ListActiveNotificationsByAlert(ctx context.Context, arg ListActiveNotificationsByAlertParams) ([]ListActiveNotificationsByAlertRow, error)
 	// The reconciler loops over this list at boot so every org has its
 	// per-org built-ins. The onboarding flow also seeds built-ins for
 	// new orgs inside its creation transaction.
@@ -844,6 +864,9 @@ type Querier interface {
 	ListAlertChannels(ctx context.Context, orgID int64) ([]AlertChannel, error)
 	// channel_ids counts only the org's live channels, so a soft-deleted channel drops out of every policy that referenced it.
 	ListAlertRoutePolicies(ctx context.Context, orgID int64) ([]ListAlertRoutePoliciesRow, error)
+	// Bounded to the caller's rule UIDs so orphan rows (see SweepAlertRuleConfigs)
+	// never inflate the list path.
+	ListAlertRuleConfigs(ctx context.Context, arg ListAlertRuleConfigsParams) ([]ListAlertRuleConfigsRow, error)
 	ListApiKeysByOrganization(ctx context.Context, organizationID int64) ([]ListApiKeysByOrganizationRow, error)
 	// The role-delete handler uses this to refuse deletion while
 	// assignments still reference the role; the response also lists the
@@ -1123,6 +1146,7 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
+	LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error)
 	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
 	// Physical fan commands run only while this exact lifecycle phase remains
 	// current. Holding the row lock through the command serializes Force Release's
@@ -1199,9 +1223,9 @@ type Querier interface {
 	// between the existence check and the cascade write. Returns the
 	// site id when alive; sql.ErrNoRows when soft-deleted or missing.
 	LockSiteForWrite(ctx context.Context, arg LockSiteForWriteParams) (int64, error)
-	MarkCommandBatchFinished(ctx context.Context, uuid string) error
-	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) error
-	MarkCommandBatchProcessing(ctx context.Context, uuid string) error
+	MarkCommandBatchFinished(ctx context.Context, uuid string) (int64, error)
+	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error)
+	MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error)
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
@@ -1231,8 +1255,9 @@ type Querier interface {
 	// Time range and include_closed are always applied as base filters.
 	// Uses cursor-based pagination with (severity, last_seen_at, error_id) ordering.
 	QueryErrors(ctx context.Context, arg QueryErrorsParams) ([]QueryErrorsRow, error)
-	ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapStuckFirmwareUpdateMessagesParams) ([]ReapStuckFirmwareUpdateMessagesRow, error)
-	ReapStuckProcessingMessages(ctx context.Context, arg ReapStuckProcessingMessagesParams) ([]ReapStuckProcessingMessagesRow, error)
+	// Startup reaping fails every PROCESSING row left by the previous process.
+	// Periodic reaping only fails rows that exceeded their command-specific cutoff.
+	ReapMessages(ctx context.Context, arg ReapMessagesParams) ([]ReapMessagesRow, error)
 	// Sets device.site_id = $target for every device in any live rack of
 	// the given building. Caller wraps this in the same tx as the building
 	// UPDATE. The JOIN on device_set with deleted_at IS NULL skips
@@ -1303,6 +1328,11 @@ type Querier interface {
 	// count to the prior :execrows shape.
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
+	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
+	// The command queue has bounded per-message retries. Reopen the organization
+	// generation when one config command becomes terminal so reconciliation keeps
+	// retrying instead of treating durable enqueue as durable device application.
+	RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, organizationID int64) error
 	// Reopen restore targets for curtailment. Counts let the store reject partial
 	// resets when another non-terminal event already has unresolved work for one
 	// of the same devices.
@@ -1311,12 +1341,14 @@ type Querier interface {
 	// desired_state='active' and clears phase-local cursors so the restorer
 	// has an unambiguous queue. Terminal states are untouched.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
+	ResetReapedFirmwareStatuses(ctx context.Context, deviceIds []int64) error
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
 	// active reconciler has positively reopened airflow; clearing them here can
 	// hide fans that remained off after a failed restore command.
 	ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
+	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
 	RevertScheduleToActive(ctx context.Context, id int64) error
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error
 	RevokeApiKey(ctx context.Context, arg RevokeApiKeyParams) (int64, error)
@@ -1337,7 +1369,8 @@ type Querier interface {
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
 	SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error)
-	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (CurtailmentMqttSourceConfig, error)
+	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
+	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).
 	// Caller must have already set building_id via UpdateRackPlacement —
 	// this query intentionally does not touch building_id so the two
@@ -1415,6 +1448,9 @@ type Querier interface {
 	SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error)
 	SoftDeleteUser(ctx context.Context, id int64) error
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
+	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
+	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.
+	SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error)
 	// Force every non-terminal target → RELEASED with the operator reason. This
 	// releases ownership without claiming that restore was attempted or failed.
 	SweepCurtailmentTargetsToReleased(ctx context.Context, arg SweepCurtailmentTargetsToReleasedParams) (int64, error)
@@ -1549,7 +1585,7 @@ type Querier interface {
 	// atomically in the UPDATE itself.
 	UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error)
 	UpdateLastLogin(ctx context.Context, id int64) error
-	UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error)
+	UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (UpdateMQTTSourceConfigRow, error)
 	UpdateMessageAfterFailure(ctx context.Context, arg UpdateMessageAfterFailureParams) (sql.Result, error)
 	UpdateMessagePermanentlyFailed(ctx context.Context, arg UpdateMessagePermanentlyFailedParams) (sql.Result, error)
 	UpdateMessageStatus(ctx context.Context, arg UpdateMessageStatusParams) (sql.Result, error)
@@ -1623,6 +1659,7 @@ type Querier interface {
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateUserUsername(ctx context.Context, arg UpdateUserUsernameParams) error
 	UpsertAlertRoutePolicy(ctx context.Context, arg UpsertAlertRoutePolicyParams) (AlertRoutePolicy, error)
+	UpsertAlertRuleConfig(ctx context.Context, arg UpsertAlertRuleConfigParams) error
 	// Seed reconciliation entry point. The ON CONFLICT target matches
 	// the partial unique index uq_role_org_builtin_key WHERE
 	// is_builtin = TRUE AND deleted_at IS NULL.

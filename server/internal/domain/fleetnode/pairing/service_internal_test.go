@@ -17,6 +17,11 @@ import (
 type pairServiceStore struct {
 	Store
 	identifier string
+	devices    []FleetNodeDevice
+}
+
+func (s *pairServiceStore) ListFleetNodeDevices(context.Context, int64, *int64) ([]FleetNodeDevice, error) {
+	return append([]FleetNodeDevice(nil), s.devices...), nil
 }
 
 func (s *pairServiceStore) DeviceExistsInOrg(context.Context, int64, int64) (bool, error) {
@@ -117,5 +122,33 @@ func TestPairDeviceDoesNotBlockOnPostCommitTelemetryScheduling(t *testing.T) {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("telemetry scheduling was not started")
+	}
+}
+
+func TestPairDeviceReappliesRigConfigAfterCommit(t *testing.T) {
+	assignedBy := int64(91)
+	reapplied := make(chan struct {
+		orgID  int64
+		userID int64
+	}, 1)
+	svc := NewService(
+		&pairServiceStore{identifier: "node-device"},
+		pairServiceEnrollmentStore{},
+		passThroughTransactor{},
+	).WithRigConfigReapplier(func(_ context.Context, orgID, userID int64) {
+		reapplied <- struct {
+			orgID  int64
+			userID int64
+		}{orgID: orgID, userID: userID}
+	})
+
+	require.NoError(t, svc.PairDevice(t.Context(), 12, 34, 56, &assignedBy))
+
+	select {
+	case got := <-reapplied:
+		require.Equal(t, int64(56), got.orgID)
+		require.Equal(t, assignedBy, got.userID)
+	case <-time.After(time.Second):
+		t.Fatal("rig config reapply was not started")
 	}
 }

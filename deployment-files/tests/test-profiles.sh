@@ -8,6 +8,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROFILES_DIR="$REPO_ROOT/deployment-files/profiles"
 BASE_COMPOSE="$REPO_ROOT/server/docker-compose.base.yaml"
 PROD_COMPOSE="$REPO_ROOT/deployment-files/docker-compose.yaml"
+PIN_RELEASE_IMAGES="$REPO_ROOT/deployment-files/scripts/pin-release-images.sh"
+RELEASE_TAG="v1.2.3"
 
 FAILURES=0
 
@@ -212,14 +214,44 @@ fi
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STRICT_TMP" "$STAGE"' EXIT
-mkdir -p "$STAGE/server" "$STAGE/client"
+mkdir -p "$STAGE/server" "$STAGE/client" "$STAGE/ha"
 cp "$PROD_COMPOSE" "$STAGE/"
+cp "$REPO_ROOT/deployment-files/docker-compose.updater.yaml" "$STAGE/"
+cp "$REPO_ROOT/deployment-files/ha/compose.yaml" "$STAGE/ha/"
 cp "$BASE_COMPOSE" "$STAGE/server/"
 cp -r "$PROFILES_DIR" "$STAGE/profiles"
 printf 'FROM scratch\n' > "$STAGE/server/Dockerfile"
 printf 'FROM scratch\n' > "$STAGE/client/Dockerfile"
 printf 'DB_USERNAME=fleet\nDB_PASSWORD=test\nAUTH_CLIENT_SECRET_KEY=test\nENCRYPT_SERVICE_MASTER_KEY=test\n' > "$STAGE/base-secrets.env"
 printf 'DB_USERNAME=fleet\nDB_PASSWORD=test\nAUTH_CLIENT_SECRET_KEY=test\nENCRYPT_SERVICE_MASTER_KEY=test\nPG_SHARED_BUFFERS=999MB\n' > "$STAGE/override.env"
+
+if "$PIN_RELEASE_IMAGES" "$STAGE" latest >/dev/null 2>&1; then
+    fail "release packaging accepted the shared latest image tag"
+else
+    pass "release packaging rejects the shared latest image tag"
+fi
+if "$PIN_RELEASE_IMAGES" "$STAGE" "$RELEASE_TAG"; then
+    pass "release packaging pins immutable image references"
+else
+    fail "release packaging could not pin immutable image references"
+fi
+for image in \
+    "proto-fleet-api:$RELEASE_TAG" \
+    "proto-fleet-client:$RELEASE_TAG" \
+    "proto-fleet-timescaledb:$RELEASE_TAG"; do
+    grep -Fq "image: $image" "$STAGE/docker-compose.yaml" || \
+        fail "packaged Compose is missing $image"
+done
+grep -Fq "image: proto-fleet-timescaledb-ha:$RELEASE_TAG" "$STAGE/ha/compose.yaml" || \
+    fail "packaged HA Compose is missing its release-specific image"
+if grep -Fq 'proto-fleet-api:latest' "$STAGE/docker-compose.yaml" || \
+   grep -Fq 'proto-fleet-client:latest' "$STAGE/docker-compose.yaml" || \
+   grep -Fq 'proto-fleet-timescaledb:latest' "$STAGE/docker-compose.yaml" || \
+   grep -Fq 'proto-fleet-timescaledb-ha:latest' "$STAGE/ha/compose.yaml"; then
+    fail "release packaging left a shared latest runtime image reference"
+else
+    pass "release packaging removes shared latest runtime image references"
+fi
 
 render() { # env-file args...
     (cd "$STAGE" && docker compose "$@" -f docker-compose.yaml config 2>"$STAGE/render.err")
@@ -243,6 +275,9 @@ assert_rendered() { # description rendered_output expected...
 
 out=$(render --env-file base-secrets.env)
 assert_rendered "no-profile render keeps defaults" "$out" \
+    "image: proto-fleet-api:$RELEASE_TAG" \
+    "image: proto-fleet-client:$RELEASE_TAG" \
+    "image: proto-fleet-timescaledb:$RELEASE_TAG" \
     "shared_buffers=256MB" "max_worker_processes=19" "wal_compression=off" \
     "shared_preload_libraries=timescaledb,pg_stat_statements" \
     "pg_stat_statements.track_utility=off" \
@@ -268,6 +303,29 @@ assert_rendered "max render" "$out" \
 out=$(render --env-file profiles/standard.env --env-file override.env)
 assert_rendered "operator .env overrides the profile" "$out" \
     "shared_buffers=999MB" "max_worker_processes=13"
+
+out=$(cd "$STAGE" && docker compose --env-file base-secrets.env \
+    -f docker-compose.yaml -f docker-compose.updater.yaml config 2>"$STAGE/render.err")
+assert_rendered "host updater overlay exposes only its Unix socket" "$out" \
+    'UPDATES_UPDATER_SOCKET_PATH: /run/proto-fleet-updater/updater.sock' \
+    'source: /run/proto-fleet-updater' \
+    'target: /run/proto-fleet-updater'
+if printf '%s\n' "$out" | awk '
+    $1 == "source:" && $2 == "/run/proto-fleet-updater" { in_socket = 1; target = 0; next }
+    in_socket && $1 == "target:" && $2 == "/run/proto-fleet-updater" { target = 1; next }
+    in_socket && target && $1 == "read_only:" && $2 == "true" { read_only = 1; exit }
+    in_socket && $1 == "source:" { in_socket = 0 }
+    END { exit !(read_only == 1) }
+'; then
+    pass "host updater socket mount is read-only"
+else
+    fail "host updater socket mount is not read-only"
+fi
+if printf '%s\n' "$out" | grep -qF '/var/run/docker.sock'; then
+    fail "host updater overlay exposes the Docker socket"
+else
+    pass "host updater overlay does not expose the Docker socket"
+fi
 
 # ----------------------------------------------------------------------------
 

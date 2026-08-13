@@ -2,18 +2,41 @@
  * Redirects to the original page stored in the "from" query parameter,
  * or to the home page if no parameter exists.
  *
- * Security: Only allows relative paths starting with "/" to prevent open redirect vulnerabilities.
+ * Security: only same-origin paths are allowed, to prevent open redirect
+ * vulnerabilities.
  */
 export const redirectFromFleetDown = () => {
   const params = new URLSearchParams(window.location.search);
   const from = params.get("from") || "/";
 
-  // Security: Validate that the redirect URL is a relative path
-  // Prevent external URLs, protocol-relative URLs, and JavaScript URLs
-  if (!from.startsWith("/") || from.startsWith("//")) {
-    window.location.href = "/";
-    return;
+  // The current origin controls the scheme and host, while the sanitizer
+  // guarantees the appended value is a slash-prefixed same-origin path.
+  // This shape is also verifiable by static analysis: CodeQL's redirect
+  // query only flags values that can control the start of the URL.
+  window.location.href = window.location.origin + sanitizeRedirectPath(from);
+};
+
+/**
+ * Returns `from` unchanged when it resolves to a same-origin path, "/" otherwise.
+ *
+ * Validation goes through the URL parser rather than string prefix checks:
+ * browsers normalize "\" to "/" when parsing URLs, so a payload like
+ * "/\evil.com" passes a startsWith("//") rejection yet still navigates to
+ * the external protocol-relative URL "//evil.com".
+ */
+const sanitizeRedirectPath = (from: string): string => {
+  if (!from.startsWith("/") || from.includes("\\")) {
+    return "/";
   }
 
-  window.location.href = from;
+  try {
+    const resolved = new URL(from, window.location.origin);
+    if (resolved.origin !== window.location.origin) {
+      return "/";
+    }
+  } catch {
+    return "/";
+  }
+
+  return from;
 };

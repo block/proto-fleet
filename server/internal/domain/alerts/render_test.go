@@ -3,6 +3,7 @@ package alerts
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,7 +54,7 @@ func TestRenderSlackHeaderLinksToInstance(t *testing.T) {
 	}
 	msg := renderSlack("https://fleet.example.com", sampleAlerts(), ids)
 
-	assert.Equal(t, "🔴 Proto Fleet — 2 alerts firing", msg["text"])
+	assert.Equal(t, "🔴 Proto Fleet — 2 alerts firing on 2 miners", msg["text"])
 
 	blocks, ok := msg["blocks"].([]map[string]any)
 	require.True(t, ok)
@@ -110,6 +111,134 @@ func TestRenderWebhookResolvesDeviceMetadata(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, resolved, 1)
 	assert.Equal(t, "Device Offline", resolved[0].AlertName)
+}
+
+// outageAlerts is one rule firing across many miners: the shape that used to render one Slack line per miner. Its
+// summary is the rule-level sentence, naming the threshold rather than the miner, so it must survive the rollup.
+func outageAlerts(count int) []Alert {
+	var out []Alert
+	for i := range count {
+		out = append(out, Alert{
+			Status: "firing",
+			Labels: map[string]string{
+				"alertname": "Device Offline", "severity": "critical",
+				"device_id": fmt.Sprintf("dev-%02d", i), "rule_group": "proto-fleet-defaults",
+			},
+			Annotations: map[string]string{"summary": "Device is offline for at least five minutes."},
+		})
+	}
+	return out
+}
+
+func TestRenderSlackRollsUpOneAlertAcrossManyMiners(t *testing.T) {
+	msg := renderSlack("https://fleet.example.com", outageAlerts(500), nil)
+
+	assert.Equal(t, "🔴 Proto Fleet — 1 alert firing on 500 miners", msg["text"])
+
+	blocks, ok := msg["blocks"].([]map[string]any)
+	require.True(t, ok)
+	// header + link + "Firing" heading + one rolled-up section: the miner count no longer drives block count.
+	assert.Len(t, blocks, 4)
+
+	text := allSectionText(t, msg)
+	assert.Contains(t, text, "*Device Offline* _(critical)_ — 500 miners")
+	assert.Contains(t, text, "dev-00, dev-01, dev-02 and 497 more")
+	// The rule's threshold text is the only thing that says what "offline" means; the rollup must keep it.
+	assert.Contains(t, text, "Device is offline for at least five minutes.")
+}
+
+func TestRenderSlackCountsInstancesForDevicelessAlerts(t *testing.T) {
+	source := func(kind string) Alert {
+		return Alert{
+			Status:      "firing",
+			Labels:      map[string]string{"alertname": "Curtailment Source Unreachable", "severity": "critical"},
+			Annotations: map[string]string{"summary": "Curtailment source " + kind + " is unreachable; cannot curtail."},
+		}
+	}
+	text := allSectionText(t, renderSlack("", []Alert{source("maestro-a"), source("maestro-b")}, nil))
+	assert.Contains(t, text, "*Curtailment Source Unreachable* _(critical)_ — 2 instances")
+	// The rule interpolates the source into summary, so naming only one would leave the other unreported.
+	assert.Contains(t, text, "Curtailment source maestro-a is unreachable; cannot curtail.")
+	assert.Contains(t, text, "Curtailment source maestro-b is unreachable; cannot curtail.")
+}
+
+func TestRenderSlackTailsSummariesPastTheSampleCap(t *testing.T) {
+	source := func(kind string) Alert {
+		return Alert{
+			Status:      "firing",
+			Labels:      map[string]string{"alertname": "Curtailment Source Unreachable", "severity": "critical"},
+			Annotations: map[string]string{"summary": "Curtailment source " + kind + " is unreachable; cannot curtail."},
+		}
+	}
+	alerts := []Alert{source("a"), source("b"), source("c"), source("d"), source("e")}
+	text := allSectionText(t, renderSlack("", alerts, nil))
+	// Past the cap the section says how many it left out rather than growing without bound.
+	assert.Contains(t, text, "Curtailment source c is unreachable; cannot curtail.")
+	assert.NotContains(t, text, "Curtailment source d is unreachable")
+	assert.Contains(t, text, "…and 2 more")
+}
+
+// Every instance of a rule that renders summary from the rule carries the same text, so it stays one line.
+func TestRenderSlackKeepsOneSummaryForARuleTextGroup(t *testing.T) {
+	text := allSectionText(t, renderSlack("", outageAlerts(3), nil))
+	assert.Equal(t, 1, strings.Count(text, "Device is offline for at least five minutes."))
+	assert.NotContains(t, text, "…and")
+}
+
+func TestRenderSlackCountsEachMinerOnceAcrossAlerts(t *testing.T) {
+	both := func(name string) Alert {
+		return Alert{
+			Status: "firing",
+			Labels: map[string]string{"alertname": name, "severity": "warning", "device_id": "dev-a"},
+		}
+	}
+	msg := renderSlack("", []Alert{both("Device Offline"), both("Device Hashrate Low")}, nil)
+	// One miner with two alerts is one affected miner, not two.
+	assert.Equal(t, "🔴 Proto Fleet — 2 alerts firing on 1 miner", msg["text"])
+}
+
+func TestRenderSlackOrdersGroupsByBlastRadius(t *testing.T) {
+	alerts := append(outageAlerts(5), Alert{
+		Status: "firing",
+		Labels: map[string]string{"alertname": "Device Temperature High", "severity": "warning", "device_id": "dev-x"},
+	})
+	text := allSectionText(t, renderSlack("", alerts, nil))
+	assert.Less(t, strings.Index(text, "Device Offline"), strings.Index(text, "Device Temperature High"))
+}
+
+func TestRenderSlackKeepsSummaryForFleetWideAlert(t *testing.T) {
+	// No device_id: the summary is the entire alert, so it must survive the rollup.
+	alerts := []Alert{{
+		Status:      "firing",
+		Labels:      map[string]string{"alertname": "Metric Ingest Stalled", "severity": "critical"},
+		Annotations: map[string]string{"summary": "No telemetry received in 5 minutes."},
+	}}
+	msg := renderSlack("", alerts, nil)
+	assert.Equal(t, "🔴 Proto Fleet — 1 alert firing", msg["text"], "no miners to count")
+	assert.Contains(t, allSectionText(t, msg), "No telemetry received in 5 minutes.")
+}
+
+func TestRenderWebhookIncludesGroupRollup(t *testing.T) {
+	out := renderWebhook(42, append(outageAlerts(500), sampleAlerts()...), nil)
+
+	groups, ok := out["firing_groups"].([]webhookAlertGroup)
+	require.True(t, ok)
+	require.Len(t, groups, 3)
+	assert.Equal(t, "Device Offline", groups[0].AlertName)
+	assert.Equal(t, 500, groups[0].DeviceCount)
+	assert.Equal(t, 500, groups[0].AlertCount)
+	assert.Equal(t, "Device is offline for at least five minutes.", groups[0].Summary, "the rule's threshold text survives the rollup")
+	// The per-miner detail is still there for consumers that want it.
+	firing, ok := out["firing"].([]webhookAlert)
+	require.True(t, ok)
+	assert.Len(t, firing, 502)
+
+	resolvedGroups, ok := out["resolved_groups"].([]webhookAlertGroup)
+	require.True(t, ok)
+	require.Len(t, resolvedGroups, 1)
+	assert.Equal(t, "Device Offline", resolvedGroups[0].AlertName)
+	assert.Equal(t, 1, resolvedGroups[0].DeviceCount)
+	assert.Equal(t, "Device is offline for at least five minutes.", resolvedGroups[0].Summary)
 }
 
 func TestRenderSlackEscapesUserControlledText(t *testing.T) {

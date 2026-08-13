@@ -234,6 +234,7 @@ func TestCommandsManifestSessionOnlyMethods(t *testing.T) {
 		"/alerts.v1.ChannelService/ListChannels",
 		"/alerts.v1.ChannelService/TestChannel",
 		"/alerts.v1.ChannelService/UpdateChannel",
+		"/alerts.v1.HistoryService/ListActiveAlertGroups",
 		"/alerts.v1.HistoryService/ListAlerts",
 		"/alerts.v1.MaintenanceWindowService/CreateMaintenanceWindow",
 		"/alerts.v1.MaintenanceWindowService/DeleteMaintenanceWindow",

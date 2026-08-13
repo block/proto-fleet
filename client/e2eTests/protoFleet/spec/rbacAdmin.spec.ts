@@ -74,32 +74,31 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     });
   });
 
-  test("Fleet-node read role can view nodes without enrollment controls", async ({
-    browser,
-    commonSteps,
-    page,
-    settingsNodesPage,
-  }) => {
-    await test.step("Mock the Nodes backend data", async () => {
-      await mockReadOnlyNodes(page);
-    });
-
-    await test.step("Provision a fleet-node-read role", async () => {
-      await provisionAdminRole(browser, test.info(), commonSteps, {
-        roleDescription: "View nodes without enrollment controls for RBAC coverage.",
-        permissionKeys: ["fleetnode:read"],
+  test(
+    "Fleet-node read role can view nodes without enrollment controls",
+    { tag: "@smoke" },
+    async ({ browser, commonSteps, page, settingsNodesPage }) => {
+      await test.step("Mock the Nodes backend data", async () => {
+        await mockReadOnlyNodes(page);
       });
-    });
 
-    await test.step("Open Nodes and validate management controls stay hidden", async () => {
-      await settingsNodesPage.navigateToNodesSettings();
-      await settingsNodesPage.waitForNodesListToLoad();
-      await settingsNodesPage.validateNodeVisible("node-01");
-      await settingsNodesPage.validateEnrollNodeHidden();
-      await settingsNodesPage.validateNodeActionHidden("Confirm enrollment");
-      await settingsNodesPage.validateNodeActionHidden("Revoke");
-    });
-  });
+      await test.step("Provision a fleet-node-read role", async () => {
+        await provisionAdminRole(browser, test.info(), commonSteps, {
+          roleDescription: "View nodes without enrollment controls for RBAC coverage.",
+          permissionKeys: ["fleetnode:read"],
+        });
+      });
+
+      await test.step("Open Nodes and validate management controls stay hidden", async () => {
+        await settingsNodesPage.navigateToNodesSettings();
+        await settingsNodesPage.waitForNodesListToLoad();
+        await settingsNodesPage.validateNodeVisible("node-01");
+        await settingsNodesPage.validateEnrollNodeHidden();
+        await settingsNodesPage.validateNodeActionHidden("Confirm enrollment");
+        await settingsNodesPage.validateNodeActionHidden("Revoke");
+      });
+    },
+  );
 
   test("Fleet-node manage role can open enrollment and confirmation controls", async ({
     browser,
@@ -139,33 +138,37 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     });
   });
 
-  test("API-key manage role can create and revoke API keys", async ({ browser, commonSteps, settingsApiKeysPage }) => {
-    const apiKeyName = generateRandomText(ADMIN_RBAC_API_KEY_PREFIX);
+  test(
+    "API-key manage role can create and revoke API keys",
+    { tag: "@smoke" },
+    async ({ browser, commonSteps, settingsApiKeysPage }) => {
+      const apiKeyName = generateRandomText(ADMIN_RBAC_API_KEY_PREFIX);
 
-    await test.step("Provision an API-key-manage role", async () => {
-      await provisionAdminRole(browser, test.info(), commonSteps, {
-        roleDescription: "Manage API keys for RBAC coverage.",
-        permissionKeys: ["apikey:manage"],
+      await test.step("Provision an API-key-manage role", async () => {
+        await provisionAdminRole(browser, test.info(), commonSteps, {
+          roleDescription: "Manage API keys for RBAC coverage.",
+          permissionKeys: ["apikey:manage"],
+        });
       });
-    });
 
-    await test.step("Open Integrations and create an API key", async () => {
-      await settingsApiKeysPage.navigateToApiKeysSettings();
-      await settingsApiKeysPage.validateApiKeysPageOpened();
-      await settingsApiKeysPage.clickCreateApiKey();
-      await settingsApiKeysPage.inputApiKeyName(apiKeyName);
-      await settingsApiKeysPage.clickCreateInModal();
-      await settingsApiKeysPage.validateApiKeyCreated();
-      await settingsApiKeysPage.clickDone();
-      await settingsApiKeysPage.validateApiKeyVisible(apiKeyName);
-    });
+      await test.step("Open Integrations and create an API key", async () => {
+        await settingsApiKeysPage.navigateToApiKeysSettings();
+        await settingsApiKeysPage.validateApiKeysPageOpened();
+        await settingsApiKeysPage.clickCreateApiKey();
+        await settingsApiKeysPage.inputApiKeyName(apiKeyName);
+        await settingsApiKeysPage.clickCreateInModal();
+        await settingsApiKeysPage.validateApiKeyCreated();
+        await settingsApiKeysPage.clickDone();
+        await settingsApiKeysPage.validateApiKeyVisible(apiKeyName);
+      });
 
-    await test.step("Revoke the API key", async () => {
-      await settingsApiKeysPage.clickRevokeApiKey(apiKeyName);
-      await settingsApiKeysPage.confirmRevokeApiKey();
-      await settingsApiKeysPage.validateApiKeyNotVisible(apiKeyName);
-    });
-  });
+      await test.step("Revoke the API key", async () => {
+        await settingsApiKeysPage.clickRevokeApiKey(apiKeyName);
+        await settingsApiKeysPage.confirmRevokeApiKey();
+        await settingsApiKeysPage.validateApiKeyNotVisible(apiKeyName);
+      });
+    },
+  );
 
   test("User-read role can list users without management controls", async ({
     browser,

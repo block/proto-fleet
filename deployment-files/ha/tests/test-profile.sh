@@ -71,6 +71,8 @@ test_patroni_contract() {
     assert_contains "$entrypoint" "render-patroni-config"
     assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
     assert_not_contains "$bootstrap" 'PGDATABASE="$connection_url"'
+    assert_contains "$dockerfile" 'ARG TIMESCALEDB_IMAGE_TAG=latest'
+    assert_contains "$dockerfile" 'FROM proto-fleet-timescaledb:${TIMESCALEDB_IMAGE_TAG}'
 
     [[ "$(grep -E '^[[:space:]]*USER[[:space:]]+' "$dockerfile" | tail -n 1)" == "USER postgres" ]] ||
         fail "Patroni image must default to the postgres user"
@@ -82,7 +84,69 @@ test_patroni_contract() {
     ' "$compose" || fail "Patroni must start as root before its entrypoint drops privileges"
 }
 
+test_fleet_ha_contract() {
+    local rendered release_dir secret_mount_count
+    rendered="$(mktemp)"
+    release_dir="$(mktemp -d)"
+    trap 'rm -f "$rendered"; rm -rf "$release_dir"' RETURN
+
+    mkdir -p "${release_dir}/ha" "${release_dir}/server"
+    cp "${HA_DIR}/../docker-compose.yaml" "${release_dir}/docker-compose.yaml"
+    cp "${HA_DIR}/fleet-compose.yaml" "${release_dir}/ha/fleet-compose.yaml"
+    cp "${HA_DIR}/../../server/docker-compose.base.yaml" "${release_dir}/server/docker-compose.base.yaml"
+
+    AUTH_CLIENT_SECRET_KEY=test-auth-secret \
+    DB_USERNAME=fleet \
+    DB_PASSWORD=test-db-password \
+    DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet \
+    ENCRYPT_SERVICE_MASTER_KEY=test-master-key \
+    HA_DB_A_IP=10.40.0.11 \
+    HA_DB_B_IP=10.40.0.12 \
+    HA_DCS_C_IP=10.40.0.13 \
+    HA_VIRTUAL_IP=10.40.0.100 \
+    HA_NETWORK_INTERFACE=eth0 \
+    HA_SECRETS_DIR=/etc/proto-fleet/ha \
+        docker compose \
+        --file "${release_dir}/docker-compose.yaml" \
+        --file "${release_dir}/ha/fleet-compose.yaml" \
+        config fleet-api fleet-client >"$rendered"
+
+    if grep -q '^  timescaledb:$' "$rendered"; then
+        fail "HA Fleet targets must not include the standalone database service"
+    fi
+    assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
+    assert_contains "$rendered" "FLEET_HA_ENABLED: \"true\""
+    assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
+    assert_contains "$rendered" "sleep 15; exec /app/fleetd"
+    assert_not_contains "$rendered" "/app/dlv"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/service-ca.crt"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-etcd-password"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.crt"
+    assert_contains "$rendered" "target: /etc/nginx/ssl/cert.pem"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.key"
+    assert_contains "$rendered" "target: /etc/nginx/ssl/key.pem"
+    secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
+    [[ "$secret_mount_count" -eq 4 ]] || fail "Fleet services must mount only their required HA secret files"
+    assert_not_contains "$rendered" "source: ${release_dir}/ssl"
+
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--cacert "$service_ca"'
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--resolve "${virtual_ip}:443:127.0.0.1"'
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" "--noproxy '*'"
+    assert_not_contains "${HA_DIR}/scripts/check-fleet-active.sh" "--insecure"
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" "Restart=on-failure"
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=/usr/sbin/ip address flush to ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
+    assert_contains "${HA_DIR}/firewall.nft.tmpl" "tcp dport 40000 drop"
+
+    for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
+        assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"
+        assert_contains "$nginx_config" "return 404;"
+    done
+}
+
 test_compose_uses_one_host_identity
 test_patroni_contract
+test_fleet_ha_contract
 
 echo "HA deployment profile checks passed"

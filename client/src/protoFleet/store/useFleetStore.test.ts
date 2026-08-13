@@ -58,6 +58,7 @@ describe("useFleetStore persistence", () => {
   it("preserves persisted org-scoped permissions", async () => {
     seedPersistedAuth({
       sessionExpiry: new Date(Date.now() + 60_000),
+      sessionGeneration: 7,
       isAuthenticated: true,
       username: "alice@example.com",
       role: "ADMIN",
@@ -70,6 +71,18 @@ describe("useFleetStore persistence", () => {
 
     expect(useFleetStore.getState().auth.permissions).toEqual(["site:read"]);
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(true);
+    expect(useFleetStore.getState().auth.sessionGeneration).toBe(7);
+  });
+
+  it("advances the session generation for replacement sessions with the same expiry", async () => {
+    const { useFleetStore } = await import("./useFleetStore");
+    const expiry = new Date(1_000);
+
+    useFleetStore.getState().auth.setSessionExpiry(expiry);
+    expect(useFleetStore.getState().auth.sessionGeneration).toBe(1);
+
+    useFleetStore.getState().auth.setSessionExpiry(new Date(expiry.getTime()));
+    expect(useFleetStore.getState().auth.sessionGeneration).toBe(2);
   });
 
   it("preserves org-scoped sessions with no permissions", async () => {

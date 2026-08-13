@@ -144,13 +144,15 @@ export async function createRackWithAssignedMiners(
     await racksPage.enableCustomRackLayout();
     await racksPage.inputColumns(RACK_COLUMNS);
     await racksPage.inputRows(RACK_ROWS);
-    await racksPage.clickContinueFromRackSettings();
+    await racksPage.clickCreateRackFromSettings();
 
     const selectedMinerIps = (await addSelectableMinersToSlots(racksPage, 2, [1, 2])).map((miner) => miner.ipAddress);
     test.expect(selectedMinerIps).toHaveLength(2);
 
-    await racksPage.clickSaveRack();
-    await racksPage.validateRackToast(rackLabel);
+    await racksPage.clickSaveMinerPositions();
+    // The persisted rack row is a more durable success signal than the transient
+    // save toast, especially on mobile flows that immediately continue into
+    // list navigation and follow-up assertions.
     await racksPage.clickViewList();
     await racksPage.waitForRackListToLoad({ allowEmpty: false });
 

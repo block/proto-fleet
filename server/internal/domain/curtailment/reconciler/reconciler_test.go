@@ -4426,6 +4426,49 @@ func TestReconciler_StopDeadlineCancelsInFlightWork(t *testing.T) {
 	require.NoError(t, r.Stop(context.Background()))
 }
 
+func TestReconciler_AbortCancelsDetachedWork(t *testing.T) {
+	// Arrange
+	store := newFakeStore()
+	workStarted := make(chan struct{})
+	workCanceled := make(chan struct{})
+	store.listEventsHook = func(ctx context.Context) {
+		close(workStarted)
+		<-ctx.Done()
+		close(workCanceled)
+	}
+	r := New(Config{TickInterval: time.Hour}, store, &fakeDispatcher{})
+	loopCtx, loopCancel := context.WithCancel(t.Context())
+	workCtx, workCancel := context.WithCancel(context.WithoutCancel(t.Context()))
+	r.loopCancel = loopCancel
+	r.workCancel = workCancel
+	workDone := make(chan struct{})
+	go func() {
+		defer close(workDone)
+		r.safeTick(workCtx)
+	}()
+	<-workStarted
+
+	// Act
+	r.Abort()
+
+	// Assert
+	select {
+	case <-loopCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Abort did not close curtailment admission")
+	}
+	select {
+	case <-workCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("Abort did not cancel detached curtailment work")
+	}
+	select {
+	case <-workDone:
+	case <-time.After(time.Second):
+		t.Fatal("canceled curtailment work did not return")
+	}
+}
+
 func TestReconciler_StopCancellationPreventsOverlappingRestart(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

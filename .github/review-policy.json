@@ -20,6 +20,7 @@
   "low_risk": {
     "max_changed_files": 10,
     "max_file_changes": 80,
+    "max_test_file_changes": 120,
     "max_total_changes": 200,
     "minimum_ai_confidence": 0.85,
     "trusted_actor_workflow": {
@@ -143,6 +144,10 @@
       "**/pyproject.toml",
       "**/requirements*.txt",
       "**/uv.lock"
+    ],
+    "deny_path_exceptions": [
+      "deployment-files/*.md",
+      "deployment-files/**/*.md"
     ]
   }
 }

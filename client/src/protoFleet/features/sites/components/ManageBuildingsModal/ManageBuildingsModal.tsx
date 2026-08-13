@@ -17,16 +17,29 @@ interface ManageBuildingsModalProps {
   open: boolean;
   // Parent site context drives the eligibility split.
   siteId: bigint;
-  // Building IDs currently in the site's working set. The modal seeds its
-  // selection with these so the operator sees current state and can add /
-  // remove in one flow.
+  // Building IDs currently assigned to the site. The modal seeds its selection
+  // with these so the operator sees current state and can add / remove in one
+  // flow, and diffs against them to gate Save.
   initialSelectedBuildingIds: bigint[];
   onDismiss: () => void;
-  // Returns the delta against initialSelectedBuildingIds: `added` is the
+  // Save. Receives the delta against initialSelectedBuildingIds: `added` is the
   // newly-checked buildings (id + label so the caller can render without a
   // separate lookup); `removed` is the seeded ids the operator unchecked.
   // Untouched buildings are in neither list — the caller leaves them as-is.
-  onConfirm: (delta: { added: { buildingId: bigint; label: string }[]; removed: bigint[] }) => void;
+  // This modal owns site membership, so the caller persists the delta here
+  // rather than staging it for a later save.
+  onConfirm: (delta: { added: { buildingId: bigint; label: string }[]; removed: bigint[] }) => Promise<void> | void;
+  // In-flight signal from the caller's write, mirrored into the CTA.
+  saving?: boolean;
+  // Hands off to the full building-create flow instead of picking an existing
+  // building. Leaving this way abandons the pending selection: Save is what
+  // commits it, so nothing was written. Omitted = no create affordance.
+  //
+  // Two callbacks rather than one with a variant argument, because a host that
+  // hasn't wired the batch RPC can't offer the second: presence of each prop is
+  // what decides whether its button renders.
+  onCreateNewLaunch?: () => void;
+  onCreateMultipleLaunch?: () => void;
 }
 
 const PAGE_SIZE = 25;
@@ -60,6 +73,9 @@ const ManageBuildingsModal = ({
   initialSelectedBuildingIds,
   onDismiss,
   onConfirm,
+  saving = false,
+  onCreateNewLaunch,
+  onCreateMultipleLaunch,
 }: ManageBuildingsModalProps) => {
   const { listAllBuildings } = useBuildings();
   const { listSites } = useSites();
@@ -139,10 +155,26 @@ const ManageBuildingsModal = ({
   const hasPreviousPage = page > 0;
   const hasNextPage = page < totalPages - 1;
 
+  // The exact membership change Save would write — note it isn't a plain
+  // set-difference: seeded ids the picker's response omitted, and rows that
+  // became ineligible, are excluded on purpose (see
+  // computeBuildingSelectionDelta), so a raw selection comparison would read as
+  // a change when there's nothing to send.
+  const delta = useMemo(
+    () => (items ? computeBuildingSelectionDelta(items, initialSelectedBuildingIds, selectedItems) : null),
+    [items, initialSelectedBuildingIds, selectedItems],
+  );
   const handleConfirm = useCallback(() => {
-    if (!items) return;
-    onConfirm(computeBuildingSelectionDelta(items, initialSelectedBuildingIds, selectedItems));
-  }, [items, selectedItems, initialSelectedBuildingIds, onConfirm]);
+    if (!delta) return;
+    // Nothing to write. AssignBuildingsToSite would report having changed
+    // membership it didn't touch, so close instead — reviewing the list and
+    // keeping it as-is is a legitimate outcome, not an error.
+    if (delta.added.length === 0 && delta.removed.length === 0) {
+      onDismiss();
+      return;
+    }
+    void onConfirm(delta);
+  }, [delta, onConfirm, onDismiss]);
 
   const handleSelectAll = useCallback(() => {
     if (!items) return;
@@ -159,14 +191,48 @@ const ManageBuildingsModal = ({
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
       bodyClassName="flex flex-1 min-h-0 flex-col"
-      onDismiss={onDismiss}
+      onDismiss={saving ? undefined : onDismiss}
       divider={false}
       testId="manage-buildings-modal"
       buttons={[
+        // ButtonGroup sorts the primary button last, so these land to the left
+        // of Save. Named for what they open rather than a generic "New
+        // building" — each preselects its side of the create modal's Single /
+        // Multiple toggle, so the label is the whole affordance.
+        ...(onCreateNewLaunch
+          ? [
+              {
+                text: "Create building",
+                variant: variants.secondary,
+                onClick: onCreateNewLaunch,
+                disabled: saving,
+                dismissModalOnClick: false,
+                testId: "manage-buildings-modal-create-new",
+              },
+            ]
+          : []),
+        ...(onCreateMultipleLaunch
+          ? [
+              {
+                text: "Create multiple buildings",
+                variant: variants.secondary,
+                onClick: onCreateMultipleLaunch,
+                disabled: saving,
+                dismissModalOnClick: false,
+                testId: "manage-buildings-modal-create-multiple",
+              },
+            ]
+          : []),
         {
-          text: "Continue",
+          // "Save" because this is where membership is written
+          // (AssignBuildingsToSite), not a step on the way to a later commit.
+          text: saving ? "Saving…" : "Save",
           variant: "primary",
           onClick: handleConfirm,
+          // Only the in-flight guard, plus not-yet-loaded: without the list
+          // there's no delta to compute, so a click could only misread the
+          // selection. The no-change case closes in handleConfirm instead.
+          disabled: saving || delta === null,
           dismissModalOnClick: false,
           testId: "manage-buildings-modal-confirm",
         },

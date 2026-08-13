@@ -293,6 +293,22 @@ func (*handlerMqttSettingsStore) CountAutomationRulesByMQTTSource(context.Contex
 	return 0, nil
 }
 
+func (*handlerMqttSettingsStore) RequestRigConfigReconciliation(context.Context, int64, int64) error {
+	return nil
+}
+
+func (*handlerMqttSettingsStore) ClaimRigConfigReconciliation(context.Context) (mqttingest.RigConfigReconciliation, error) {
+	return mqttingest.RigConfigReconciliation{}, mqttingest.ErrRigConfigReconciliationNotFound
+}
+
+func (*handlerMqttSettingsStore) CompleteRigConfigReconciliation(context.Context, int64, int64) error {
+	return nil
+}
+
+func (*handlerMqttSettingsStore) RetryRigConfigReconciliation(context.Context, int64, int64, string) error {
+	return nil
+}
+
 type handlerMqttCipher struct{}
 
 func (handlerMqttCipher) Encrypt(plaintext []byte) (string, error) {

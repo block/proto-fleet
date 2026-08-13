@@ -38,6 +38,8 @@ interface ManageMinersModalProps {
     filter: MinerListFilter | undefined,
     reassignedItems: string[],
   ) => Promise<string | undefined>;
+  // In-flight signal from the host's write, mirrored into the CTA.
+  saving?: boolean;
 }
 
 export default function ManageMinersModal({
@@ -49,11 +51,22 @@ export default function ManageMinersModal({
   scope,
   onDismiss,
   onConfirm,
+  saving = false,
 }: ManageMinersModalProps) {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [overflowError, setOverflowError] = useState("");
 
-  const handleContinue = useCallback(async () => {
+  // Whether an explicit selection differs from what's in the rack right now.
+  const changesMembership = useCallback(
+    (selectedItems: string[]) => {
+      if (selectedItems.length !== currentRackMiners.length) return true;
+      const current = new Set(currentRackMiners);
+      return selectedItems.some((id) => !current.has(id));
+    },
+    [currentRackMiners],
+  );
+
+  const handleSave = useCallback(async () => {
     const selection = selectionRef.current?.getSelection();
     if (!selection) return;
 
@@ -65,6 +78,15 @@ export default function ManageMinersModal({
     // to clear the filter first instead.
     if (blockedByFilter) {
       setOverflowError("Clear the Building or Rack filter to continue — it doesn't match this rack.");
+      return;
+    }
+
+    // Nothing to write: the selection still matches the rack's membership, so
+    // the write would report a change it didn't make. Close instead — reviewing
+    // the list and keeping it as-is is a legitimate outcome. "Select all"
+    // resolves server-side, so it can't be compared here and always commits.
+    if (!allSelected && !changesMembership(selectedItems)) {
+      onDismiss();
       return;
     }
 
@@ -81,7 +103,7 @@ export default function ManageMinersModal({
 
     const error = await onConfirm(selectedItems, allSelected, allSelected ? filter : undefined, reassignedItems);
     if (error) setOverflowError(error);
-  }, [maxSlots, onConfirm]);
+  }, [maxSlots, onConfirm, changesMembership, onDismiss]);
 
   if (!show) return null;
 
@@ -96,9 +118,14 @@ export default function ManageMinersModal({
       divider={false}
       buttons={[
         {
-          text: "Continue",
+          // Names the write it makes: this picker owns rack membership.
+          text: saving ? "Saving..." : "Save",
           variant: "primary",
-          onClick: handleContinue,
+          // Only the in-flight guard: the checks that used to gate this run in
+          // handleSave, where they can say what's wrong.
+          disabled: saving,
+          loading: saving,
+          onClick: handleSave,
           dismissModalOnClick: false,
         },
       ]}

@@ -56,6 +56,19 @@ export interface TemperatureRuleConfig {
   max_celsius: number;
 }
 
+// Which miners a rule fires for: the union of every listed placement (current membership) and the explicit device_ids. Absent/empty means the whole org.
+export interface RuleScope {
+  site_ids: string[];
+  device_ids: string[];
+  building_ids: string[];
+  rack_ids: string[];
+  group_ids: string[];
+  // Live "any site": any current or future site (excludes unassigned miners); supersedes site_ids.
+  all_sites: boolean;
+  // Server-set: this rule has device_ids but the caller lacks miner:read; render as a restricted subset, never as org-wide.
+  device_ids_redacted?: boolean;
+}
+
 // Exactly one of offline/hashrate/temperature is set.
 export interface RuleConfig {
   name: string;
@@ -63,6 +76,7 @@ export interface RuleConfig {
   offline?: Record<string, never>;
   hashrate?: HashrateRuleConfig;
   temperature?: TemperatureRuleConfig;
+  scope?: RuleScope;
 }
 
 // Where a rule's firing alerts deliver: every org channel, only the listed ones, or nowhere (in-app history only).
@@ -90,6 +104,10 @@ export interface Rule {
   config: RuleConfig | null;
   // Null when the server couldn't read routing; keep the last-known value instead of treating it as default.
   routing: RuleRouting | null;
+  // Server-set: the stored config no longer matches the SQL the rule evaluates (interrupted save); re-saving converges.
+  config_out_of_sync?: boolean;
+  // Server-set on mutation responses whose config read failed: keep the last-known config (like null routing) instead of reading the absent config as "not editable".
+  config_unknown?: boolean;
 }
 
 export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";
@@ -118,6 +136,23 @@ export interface MaintenanceWindowWithActive extends MaintenanceWindow {
 }
 
 export type AlertHistoryStatus = "firing" | "resolved";
+
+// One currently-firing alert and its blast radius. Rule identity and counts only: severity, summary and the
+// rest of the per-instance detail come back from the drill-in, which reports them per affected miner.
+export interface ActiveAlertGroup {
+  // Display title, which retired-rule mapping may rewrite; stored_alert_name is what the server filters on.
+  alert_name: string;
+  stored_alert_name: string;
+  rule_group: string;
+  // The (rule group, alert name) pair the server groups on, as one string: React key and drill-in identity.
+  key: string;
+  // 0 for fleet-wide and source-scoped alerts, which carry no device: the shape the views render is the
+  // server's to state, so no client-side rule-group list has to track the scopes a rule can fire on.
+  device_count: number;
+  // Firing instances, which exceeds device_count only for a rule firing on a non-device dimension (per MQTT source, say).
+  alert_count: number;
+  first_started_at: string;
+}
 
 export interface AlertHistoryEntry {
   id: string;
