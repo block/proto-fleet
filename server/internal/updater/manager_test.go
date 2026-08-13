@@ -305,6 +305,43 @@ func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T
 	}
 }
 
+func TestManagerHAPostSwapRecoveryPersistenceFailureRestartsSelectedDeployment(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{}
+	rejectTargetRecovery := true
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+		cfg.beforePersistState = func(operation updaterapi.Operation) error {
+			if operation.Phase == updaterapi.PhaseActivating &&
+				strings.Contains(operation.RecoveryCommand, "v1.1.0") &&
+				rejectTargetRecovery {
+				rejectTargetRecovery = false
+				return assert.AnError
+			}
+			return nil
+		}
+	})
+
+	// Act
+	_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "persist activation recovery command")
+	assert.Empty(t, completed.RecoveryCommand)
+	assert.False(t, rejectTargetRecovery, "test injection must reach the post-swap recovery write")
+	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	commands := runner.Commands()
+	require.NotEmpty(t, commands)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "any"}, commands[len(commands)-1].Args)
+}
+
 func TestManagerHAAllowsOperatorSelectedRelease(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
@@ -1057,7 +1094,7 @@ func TestManagerHAFailedActivationRestartsRestoredDeployment(t *testing.T) {
 	assert.Empty(t, persisted.RecoveryCommand)
 	commands := runner.Commands()
 	require.Len(t, commands, 1)
-	assert.Equal(t, []string{"app-start", "v1.0.0"}, commands[0].Args)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
 }
 
 func TestActivationMarkerWriteIsAtomicAndExclusive(t *testing.T) {

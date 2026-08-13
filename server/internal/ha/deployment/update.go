@@ -53,9 +53,15 @@ func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) e
 
 // PrepareApplicationUpdate loads only the Fleet API and client from a verified release.
 func PrepareApplicationUpdate(ctx context.Context, root string) error {
-	deps := defaultInstallDependencies()
+	return prepareApplicationUpdate(ctx, root, defaultInstallDependencies(), RunCompose)
+}
+
+func prepareApplicationUpdate(ctx context.Context, root string, deps installDependencies, runCompose func(context.Context, []string) error) error {
 	if err := validateRelease(root, deps.readFile); err != nil {
 		return err
+	}
+	if err := runCompose(ctx, fleetComposeArgsAt(root, "config", "--quiet", "fleet-api", "fleet-client")); err != nil {
+		return fmt.Errorf("validate HA application update Compose model: %w", err)
 	}
 	if output, err := deps.run(ctx, "docker", "load", "--input", filepath.Join(root, "images", "fleet.tar.gz")); err != nil {
 		return fmt.Errorf("load HA application update images: %s", commandError(output, err))
@@ -141,8 +147,11 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 }
 
 func applicationMayConverge(runtime ha.Status, targetVersion string, requirePassive bool) bool {
-	if runtime.Version != targetVersion || runtime.Observation != ha.ObservationCurrent {
+	if runtime.Version != targetVersion {
 		return false
+	}
+	if runtime.Observation != ha.ObservationCurrent {
+		return true
 	}
 	if requirePassive {
 		return runtime.Role == ha.RolePassive

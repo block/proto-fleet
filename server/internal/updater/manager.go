@@ -1250,7 +1250,12 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	}
 	recovery = m.activationRecoveryCommand(currentDeployment, targetVersion)
 	if err := m.setRecoveryCommand(operationID, recovery); err != nil {
-		m.fail(operationID, fmt.Errorf("persist activation recovery command: %w", err), recovery)
+		activationErr := fmt.Errorf("persist activation recovery command: %w", err)
+		if m.cfg.DeploymentMode == DeploymentModeHA {
+			m.failActivation(operationID, targetVersion, activationErr, logFile, true)
+		} else {
+			m.fail(operationID, activationErr, recovery)
+		}
 		return
 	}
 	if err := m.clearActivationMarker(); err != nil {
@@ -1461,7 +1466,7 @@ func (m *Manager) failActivation(
 		version, err := readInstalledVersion(filepath.Join(current, "version.txt"))
 		if err == nil {
 			restartCtx, cancel := context.WithTimeout(context.Background(), m.cfg.ActivationTimeout)
-			err = m.runHACommand(restartCtx, m.cfg.ActivationTimeout, current, logOutput, "app-start", version)
+			err = m.runHACommand(restartCtx, m.cfg.ActivationTimeout, current, logOutput, "app-start", version, "any")
 			cancel()
 		}
 		if err != nil {

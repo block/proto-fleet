@@ -173,11 +173,15 @@ func TestInstallFailureStopsServiceAfterCancellation(t *testing.T) {
 	run := deps.run
 	ctx, cancel := context.WithCancel(t.Context())
 	cleanupUsedFreshContext := false
+	updaterCleanupUsedFreshContext := false
 	deps.run = func(runCtx context.Context, name string, args ...string) ([]byte, error) {
 		output, err := run(runCtx, name, args...)
 		command := strings.Join(append([]string{name}, args...), " ")
 		if strings.Contains(command, "systemctl disable --now proto-fleet-ha.service") {
 			cleanupUsedFreshContext = runCtx.Err() == nil
+		}
+		if strings.Contains(command, "systemctl disable --now proto-fleet-updater.service") {
+			updaterCleanupUsedFreshContext = runCtx.Err() == nil
 		}
 		if strings.Contains(command, "systemctl start --no-block proto-fleet-ha.service") {
 			cancel()
@@ -192,8 +196,10 @@ func TestInstallFailureStopsServiceAfterCancellation(t *testing.T) {
 	// Assert
 	require.ErrorContains(t, err, context.Canceled.Error())
 	require.True(t, cleanupUsedFreshContext)
+	require.True(t, updaterCleanupUsedFreshContext)
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, configRoot+"/etcd-root-password")
+	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-updater.service")
 	require.Contains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
 }
 
