@@ -32,9 +32,9 @@ const (
 	// ChannelStableAndRC also offers release candidates.
 	ChannelStableAndRC Channel = "stable_and_rc"
 
-	executorStatusTimeout  = 2 * time.Second
-	executorTriggerTimeout = 6 * time.Second
-	upgradeAuditTimeout    = 5 * time.Second
+	executorStatusTimeout   = 2 * time.Second
+	executorMutationTimeout = 6 * time.Second
+	upgradeAuditTimeout     = 5 * time.Second
 )
 
 // UpdateStatus is the gated, channel-filtered update offer for one org.
@@ -234,7 +234,7 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targ
 }
 
 func (s *Service) triggerUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
-	triggerCtx, cancel := context.WithTimeout(ctx, executorTriggerTimeout)
+	triggerCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
 	defer cancel()
 	return s.executor.Trigger(triggerCtx, operationID, targetVersion)
 }
@@ -259,12 +259,39 @@ func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersi
 	return operation, true
 }
 
-func mapExecutorTriggerError(err error) error {
+// executorCallMessages carries the per-verb operator guidance for the
+// transport failures every executor call can hit. mapExecutorCallError owns
+// which failure classes are retryable Unavailable results, so a new transport
+// failure class is classified in one place.
+type executorCallMessages struct {
+	unavailable string
+	unconfirmed string
+	canceled    string
+}
+
+func mapExecutorCallError(err error, wrap string, messages executorCallMessages, mapHTTPError func(*updaterapi.HTTPError) error) error {
 	if errors.Is(err, updaterapi.ErrUnavailable) {
-		return fleeterror.NewUnavailableErrorf("host updater is unavailable; use the install command instead")
+		return fleeterror.NewUnavailableErrorf(messages.unavailable)
 	}
 	var httpErr *updaterapi.HTTPError
 	if errors.As(err, &httpErr) {
+		return mapHTTPError(httpErr)
+	}
+	if ambiguousExecutorResult(err) || errors.Is(err, context.DeadlineExceeded) {
+		return fleeterror.NewUnavailableErrorf(messages.unconfirmed)
+	}
+	if errors.Is(err, context.Canceled) {
+		return fleeterror.NewUnavailableErrorf(messages.canceled)
+	}
+	return fmt.Errorf("%s: %w", wrap, err)
+}
+
+func mapExecutorTriggerError(err error) error {
+	return mapExecutorCallError(err, "trigger host upgrade", executorCallMessages{
+		unavailable: "host updater is unavailable; use the install command instead",
+		unconfirmed: "host updater did not confirm the upgrade; check its status before retrying",
+		canceled:    "host updater canceled the upgrade request before confirming it",
+	}, func(httpErr *updaterapi.HTTPError) error {
 		switch httpErr.StatusCode {
 		case http.StatusConflict:
 			return fleeterror.NewAlreadyExistsError(httpErr.Message)
@@ -274,32 +301,77 @@ func mapExecutorTriggerError(err error) error {
 			return fleeterror.NewUnavailableErrorf("host updater is temporarily unavailable; use the install command instead")
 		}
 		return fmt.Errorf("host updater rejected trigger with HTTP status %d", httpErr.StatusCode)
-	}
-	if ambiguousExecutorResult(err) || errors.Is(err, context.DeadlineExceeded) {
-		return fleeterror.NewUnavailableErrorf("host updater did not confirm the upgrade; check its status before retrying")
-	}
-	if errors.Is(err, context.Canceled) {
-		return fleeterror.NewUnavailableErrorf("host updater canceled the upgrade request before confirming it")
-	}
-	return fmt.Errorf("trigger host upgrade: %w", err)
+	})
 }
 
 func (s *Service) logUpgradeTriggered(ctx context.Context, organizationID int64, operation updaterapi.Operation) {
-	orgID := organizationID
-	event := activitymodels.Event{
-		Category:       activitymodels.CategorySystem,
-		Type:           "instance_upgrade_triggered",
-		OrganizationID: &orgID,
-		Description:    fmt.Sprintf("Triggered instance upgrade to %s", operation.TargetVersion),
-		Metadata: map[string]any{
+	s.logUpgradeEvent(ctx, organizationID, "instance_upgrade_triggered",
+		fmt.Sprintf("Triggered instance upgrade to %s", operation.TargetVersion),
+		map[string]any{
 			"operation_id":   operation.ID,
 			"target_version": operation.TargetVersion,
-		},
+		})
+}
+
+func (s *Service) logUpgradeEvent(ctx context.Context, organizationID int64, eventType, description string, metadata map[string]any) {
+	event := activitymodels.Event{
+		Category:       activitymodels.CategorySystem,
+		Type:           eventType,
+		OrganizationID: &organizationID,
+		Description:    description,
+		Metadata:       metadata,
 	}
 	activity.StampActor(ctx, &event)
 	auditCtx, cancel := context.WithTimeout(ctx, upgradeAuditTimeout)
 	defer cancel()
 	s.activitySvc.Log(auditCtx, event)
+}
+
+// AcknowledgeUpgrade durably dismisses a terminal upgrade outcome on the host
+// updater, so the operation stops resurfacing in every session. The call is
+// idempotent on the updater side; an ambiguous transport result is safe for
+// the caller to retry.
+func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, operationID string) (updaterapi.Operation, error) {
+	if operationID == "" {
+		return updaterapi.Operation{}, fleeterror.NewInvalidArgumentError("operation id is required")
+	}
+	if s.executor == nil {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("one-click updates are not installed on this host")
+	}
+	acknowledgeCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
+	defer cancel()
+	operation, err := s.executor.Acknowledge(acknowledgeCtx, operationID)
+	if err != nil {
+		return updaterapi.Operation{}, mapExecutorAcknowledgeError(err)
+	}
+	s.logUpgradeAcknowledged(ctx, organizationID, operation)
+	return operation, nil
+}
+
+func mapExecutorAcknowledgeError(err error) error {
+	return mapExecutorCallError(err, "acknowledge host upgrade", executorCallMessages{
+		unavailable: "host updater is unavailable; the dismissal was not recorded",
+		unconfirmed: "host updater did not confirm the dismissal; retry to make sure it sticks",
+		canceled:    "host updater canceled the dismissal request before confirming it",
+	}, func(httpErr *updaterapi.HTTPError) error {
+		switch httpErr.StatusCode {
+		case http.StatusNotFound:
+			return fleeterror.NewNotFoundError(httpErr.Message)
+		case http.StatusConflict, http.StatusBadRequest:
+			return fleeterror.NewFailedPreconditionError(httpErr.Message)
+		}
+		return fmt.Errorf("host updater rejected acknowledgement with HTTP status %d", httpErr.StatusCode)
+	})
+}
+
+func (s *Service) logUpgradeAcknowledged(ctx context.Context, organizationID int64, operation updaterapi.Operation) {
+	s.logUpgradeEvent(ctx, organizationID, "instance_upgrade_acknowledged",
+		fmt.Sprintf("Dismissed the %s outcome of the upgrade to %s", operation.Phase, operation.TargetVersion),
+		map[string]any{
+			"operation_id":   operation.ID,
+			"target_version": operation.TargetVersion,
+			"phase":          string(operation.Phase),
+		})
 }
 
 func (s *Service) GetUpgradeStatus(ctx context.Context) UpgradeStatus {

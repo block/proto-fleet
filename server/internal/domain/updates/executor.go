@@ -9,6 +9,7 @@ import (
 type executorClient interface {
 	Status(ctx context.Context) (updaterapi.StatusResponse, error)
 	Trigger(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+	Acknowledge(ctx context.Context, operationID string) (updaterapi.Operation, error)
 }
 
 func newExecutorClient(socketPath string) executorClient {

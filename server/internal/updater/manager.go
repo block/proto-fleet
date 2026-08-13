@@ -79,6 +79,8 @@ var (
 	errTriggerPrecondition   = errors.New("updater trigger precondition failed")
 	errTriggerBusy           = errors.New("updater is busy")
 	errTriggerClosing        = errors.New("updater is shutting down")
+	errAcknowledgeUnknown    = errors.New("no matching updater operation")
+	errAcknowledgeActive     = errors.New("updater operation is not terminal")
 )
 
 type classifiedTriggerError struct {
@@ -927,6 +929,38 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 	}
 	snapshot := *m.operation
 	return updaterapi.StatusResponse{Operation: &snapshot}
+}
+
+// Acknowledge durably records that an operator dismissed the terminal outcome
+// of the given operation. It is idempotent for the same operation and fails
+// when the operation is no longer current or is still running, so a stale
+// dismissal can never suppress a different or in-flight upgrade.
+func (m *Manager) Acknowledge(operationID string) (updaterapi.Operation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.operation == nil || m.operation.ID != operationID {
+		return updaterapi.Operation{}, newTriggerError(
+			errAcknowledgeUnknown,
+			fmt.Sprintf("operation %s is not the current updater operation", operationID),
+		)
+	}
+	if !m.operation.Phase.Terminal() {
+		return updaterapi.Operation{}, newTriggerError(
+			errAcknowledgeActive,
+			fmt.Sprintf("operation %s has not finished", operationID),
+		)
+	}
+	if m.operation.Acknowledged {
+		return *m.operation, nil
+	}
+	m.operation.Acknowledged = true
+	if err := m.persistLocked(); err != nil {
+		// An unpersisted acknowledgement would silently reappear after the next
+		// updater restart, so report the failure instead of a partial success.
+		m.operation.Acknowledged = false
+		return updaterapi.Operation{}, fmt.Errorf("persist acknowledged operation: %w", err)
+	}
+	return *m.operation, nil
 }
 
 func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
@@ -2097,6 +2131,9 @@ func (m *Manager) loadState() error {
 	} else if restoredPrevious {
 		now := m.cfg.Now().UTC()
 		op.Phase = updaterapi.PhaseFailed
+		// The rewritten outcome is new information; a dismissal of the old
+		// outcome must not carry over to it.
+		op.Acknowledged = false
 		op.Message = "Previous deployment restored during updater startup"
 		if op.Error == "" {
 			op.Error = "The active deployment was missing; the updater restored the validated previous deployment."

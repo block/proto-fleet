@@ -174,7 +174,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   upgradeHookMock.current = {
-    acknowledgeOperation: vi.fn(),
+    acknowledgeOperation: vi.fn().mockResolvedValue(undefined),
     connectionLost: false,
     manualFallbackReady: false,
     operation: undefined,
@@ -273,6 +273,27 @@ describe("Updates", () => {
     expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
     fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
     expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns when the dismissal could not be recorded on the host", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+      error: "new stack failed to start",
+    });
+    upgradeHookMock.current.acknowledgeOperation = vi
+      .fn()
+      .mockRejectedValue(new ConnectError("host updater is unavailable", Code.Unavailable));
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+
+    expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
+    fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("host updater is unavailable") }),
+      ),
+    );
   });
 
   it("offers a reload after the watched operation succeeds", async () => {

@@ -6,6 +6,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
 import {
+  AcknowledgeUpgradeResponseSchema,
   GetUpgradeStatusResponseSchema,
   TriggerUpgradeResponseSchema,
   type UpgradeOperation,
@@ -16,11 +17,13 @@ import { isUpgradeActive, useUpgradeOperation } from "@/protoFleet/features/upda
 
 vi.mock("@/protoFleet/api/clients", () => ({
   instanceUpdateClient: {
+    acknowledgeUpgrade: vi.fn(),
     getUpgradeStatus: vi.fn(),
     triggerUpgrade: vi.fn(),
   },
 }));
 
+const mockAcknowledgeUpgrade = vi.mocked(instanceUpdateClient.acknowledgeUpgrade);
 const mockGetUpgradeStatus = vi.mocked(instanceUpdateClient.getUpgradeStatus);
 const mockTriggerUpgrade = vi.mocked(instanceUpdateClient.triggerUpgrade);
 const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
@@ -638,10 +641,11 @@ describe("useUpgradeOperation", () => {
 
   it("scopes an acknowledged terminal failure to the authenticated session", async () => {
     mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    mockAcknowledgeUpgrade.mockRejectedValue(new ConnectError("host unreachable", Code.Unavailable));
     const firstSession = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
     await waitFor(() => expect(firstSession.result.current.operation?.phase).toBe(UpgradePhase.FAILED));
 
-    act(() => firstSession.result.current.acknowledgeOperation());
+    await act(async () => firstSession.result.current.acknowledgeOperation().catch(() => undefined));
 
     expect(firstSession.result.current.operation).toBeUndefined();
     const acknowledgedRecord = JSON.parse(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY) ?? "{}");
@@ -671,7 +675,12 @@ describe("useUpgradeOperation", () => {
     const firstSession = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
     await waitFor(() => expect(firstSession.result.current.operation?.phase).toBe(UpgradePhase.FAILED));
 
-    act(() => firstSession.result.current.acknowledgeOperation());
+    mockAcknowledgeUpgrade.mockResolvedValue(
+      create(AcknowledgeUpgradeResponseSchema, {
+        operation: operation(UpgradePhase.FAILED, { acknowledged: true, recoveryCommand: "old recovery" }),
+      }),
+    );
+    await act(async () => firstSession.result.current.acknowledgeOperation());
     firstSession.unmount();
 
     mockGetUpgradeStatus.mockReset();
@@ -688,6 +697,72 @@ describe("useUpgradeOperation", () => {
 
     await waitFor(() => expect(reconciledSession.result.current.operation?.recoveryCommand).toBe("new recovery"));
     expect(window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY)).toBeNull();
+  });
+
+  it("records the dismissal durably on the host", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    mockAcknowledgeUpgrade.mockResolvedValue(
+      create(AcknowledgeUpgradeResponseSchema, {
+        operation: operation(UpgradePhase.FAILED, { acknowledged: true }),
+      }),
+    );
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+
+    await act(async () => result.current.acknowledgeOperation());
+
+    expect(mockAcknowledgeUpgrade).toHaveBeenCalledWith({ operationId: "operation-1" }, { timeoutMs: 10_000 });
+    expect(result.current.operation).toBeUndefined();
+  });
+
+  it("treats a host that no longer reports the operation as already dismissed", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    mockAcknowledgeUpgrade.mockRejectedValue(new ConnectError("operation is not current", Code.NotFound));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+
+    await act(async () => result.current.acknowledgeOperation());
+
+    expect(result.current.operation).toBeUndefined();
+  });
+
+  it("surfaces an unrecorded host dismissal while keeping the local dismissal applied", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    mockAcknowledgeUpgrade.mockRejectedValue(new ConnectError("host unreachable", Code.Unavailable));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+
+    let acknowledgeError: unknown;
+    await act(async () => result.current.acknowledgeOperation().catch((error: unknown) => (acknowledgeError = error)));
+
+    expect(acknowledgeError).toBeInstanceOf(ConnectError);
+    expect(result.current.operation).toBeUndefined();
+  });
+
+  it("never surfaces an operation the host reports as acknowledged", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED, { acknowledged: true })));
+
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+    expect(result.current.operation).toBeUndefined();
+    expect(result.current.reconciling).toBe(false);
+  });
+
+  it("clears a displayed failure once another session dismisses it on the host", async () => {
+    vi.useFakeTimers();
+    mockGetUpgradeStatus
+      .mockResolvedValueOnce(status(true, operation(UpgradePhase.FAILED)))
+      .mockResolvedValue(status(true, operation(UpgradePhase.FAILED, { acknowledged: true })));
+
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await act(async () => Promise.resolve());
+    expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED);
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+    expect(result.current.operation).toBeUndefined();
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
   });
 
   it("forwards poll errors for page-level auth handling", async () => {

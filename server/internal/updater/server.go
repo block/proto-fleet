@@ -30,6 +30,7 @@ func NewServer(manager *Manager) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/status", server.handleStatus)
 	mux.HandleFunc("/v1/upgrade", server.handleUpgrade)
+	mux.HandleFunc("/v1/acknowledge", server.handleAcknowledge)
 	server.http = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 3 * time.Second,
@@ -245,8 +246,8 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	request, err := decodeTriggerRequest(http.MaxBytesReader(w, r.Body, 4096))
-	if err != nil {
+	var request updaterapi.TriggerRequest
+	if err := decodeSingleJSONValue(http.MaxBytesReader(w, r.Body, 4096), &request); err != nil {
 		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "invalid request body"})
 		return
 	}
@@ -271,20 +272,57 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, updaterapi.TriggerResponse{Operation: operation})
 }
 
-func decodeTriggerRequest(body io.Reader) (updaterapi.TriggerRequest, error) {
-	var request updaterapi.TriggerRequest
+func (s *Server) handleAcknowledge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeJSON(w, http.StatusMethodNotAllowed, updaterapi.ErrorResponse{Error: "method not allowed"})
+		return
+	}
+	defer r.Body.Close()
+	var request updaterapi.AcknowledgeRequest
+	if err := decodeSingleJSONValue(http.MaxBytesReader(w, r.Body, 4096), &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	operation, err := s.manager.Acknowledge(request.OperationID)
+	if err != nil {
+		status := acknowledgeErrorHTTPStatus(err)
+		message := err.Error()
+		if status == http.StatusInternalServerError {
+			// See handleUpgrade: keep privileged host detail in daemon logs.
+			log.Printf("acknowledge updater operation: %v", err)
+			message = "host updater failed to record the acknowledgement"
+		}
+		writeJSON(w, status, updaterapi.ErrorResponse{Error: message})
+		return
+	}
+	writeJSON(w, http.StatusOK, updaterapi.AcknowledgeResponse{Operation: operation})
+}
+
+func acknowledgeErrorHTTPStatus(err error) int {
+	switch {
+	case errors.Is(err, errAcknowledgeUnknown):
+		return http.StatusNotFound
+	case errors.Is(err, errAcknowledgeActive):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func decodeSingleJSONValue(body io.Reader, output any) error {
 	decoder := json.NewDecoder(body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
-		return updaterapi.TriggerRequest{}, fmt.Errorf("decode request body: %w", err)
+	if err := decoder.Decode(output); err != nil {
+		return fmt.Errorf("decode request body: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return updaterapi.TriggerRequest{}, fmt.Errorf("request body must contain exactly one JSON value")
+			return fmt.Errorf("request body must contain exactly one JSON value")
 		}
-		return updaterapi.TriggerRequest{}, fmt.Errorf("decode trailing request body: %w", err)
+		return fmt.Errorf("decode trailing request body: %w", err)
 	}
-	return request, nil
+	return nil
 }
 
 func triggerErrorHTTPStatus(err error) int {

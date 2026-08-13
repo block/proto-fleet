@@ -134,6 +134,29 @@ const Updates = () => {
     [setPermissions],
   );
 
+  // Shared policy for request failures: revoked permissions demote the page,
+  // auth errors are swallowed (the auth layer redirects), and anything else is
+  // surfaced through the caller's sink. shouldUpdatePage stays caller-derived
+  // because staleness semantics differ per request.
+  const handleRequestError = useCallback(
+    (err: unknown, shouldUpdatePage: boolean, surfaceError: () => void) => {
+      handleAuthErrors({
+        error: err,
+        onError: () => {
+          if (isPermissionDeniedError(err)) {
+            handlePermissionRevoked(shouldUpdatePage);
+            return;
+          }
+          if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
+            return;
+          }
+          surfaceError();
+        },
+      });
+    },
+    [handleAuthErrors, handlePermissionRevoked],
+  );
+
   const handleUpgradePollError = useCallback(
     (error: unknown) => {
       handleAuthErrors({
@@ -169,25 +192,15 @@ const Updates = () => {
         return;
       }
       const shouldUpdatePage = requestId === latestStatusRequest.current && isMounted.current;
-      handleAuthErrors({
-        error: err,
-        onError: () => {
-          if (isPermissionDeniedError(err)) {
-            handlePermissionRevoked(shouldUpdatePage);
-            return;
-          }
-          if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
-            return;
-          }
-          setLoadError(getErrorMessage(err, "Failed to load update status"));
-        },
+      handleRequestError(err, shouldUpdatePage, () => {
+        setLoadError(getErrorMessage(err, "Failed to load update status"));
       });
     } finally {
       if (requestId === latestStatusRequest.current && isSameAuthSession(authSession) && isMounted.current) {
         setIsStatusRefreshPending(false);
       }
     }
-  }, [authSessionIdentity, handleAuthErrors, handlePermissionRevoked]);
+  }, [authSessionIdentity, handleRequestError]);
 
   const upgrade = useUpgradeOperation({
     authSessionIdentity,
@@ -301,21 +314,11 @@ const Updates = () => {
           return;
         }
         const shouldUpdatePage = isMounted.current;
-        handleAuthErrors({
-          error: err,
-          onError: () => {
-            if (isPermissionDeniedError(err)) {
-              handlePermissionRevoked(shouldUpdatePage);
-              return;
-            }
-            if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
-              return;
-            }
-            pushToast({
-              message: getErrorMessage(err, "Failed to update release channel"),
-              status: STATUSES.error,
-            });
-          },
+        handleRequestError(err, shouldUpdatePage, () => {
+          pushToast({
+            message: getErrorMessage(err, "Failed to update release channel"),
+            status: STATUSES.error,
+          });
         });
         if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
           return;
@@ -375,8 +378,15 @@ const Updates = () => {
         connectionLost={upgrade.connectionLost}
         manualFallbackReady={upgrade.manualFallbackReady}
         onAcknowledge={() => {
-          upgrade.acknowledgeOperation();
           setUpgradeModalOpen(false);
+          void upgrade.acknowledgeOperation().catch((err: unknown) => {
+            handleRequestError(err, isMounted.current, () => {
+              pushToast({
+                message: getErrorMessage(err, "Fleet could not record the dismissal on the host; it may reappear"),
+                status: STATUSES.error,
+              });
+            });
+          });
         }}
         onDismiss={() => setUpgradeModalOpen(false)}
         onReload={upgrade.reloadFleet}

@@ -34,6 +34,9 @@ type Operation struct {
 	RecoveryCommand string     `json:"recovery_command,omitempty"`
 	RecoveryPending bool       `json:"recovery_pending,omitempty"`
 	LogPath         string     `json:"log_path,omitempty"`
+	// Acknowledged records that an operator dismissed this terminal outcome.
+	// Clients keep the operation out of their upgrade UI once set.
+	Acknowledged bool `json:"acknowledged,omitempty"`
 }
 
 type StatusResponse struct {
@@ -47,6 +50,14 @@ type TriggerRequest struct {
 }
 
 type TriggerResponse struct {
+	Operation Operation `json:"operation"`
+}
+
+type AcknowledgeRequest struct {
+	OperationID string `json:"operation_id"`
+}
+
+type AcknowledgeResponse struct {
 	Operation Operation `json:"operation"`
 }
 

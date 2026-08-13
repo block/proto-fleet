@@ -24,6 +24,13 @@ service InstanceUpdateService {
     rpc GetUpgradeStatus(GetUpgradeStatusRequest) returns (GetUpgradeStatusResponse) {
         option idempotency_level = NO_SIDE_EFFECTS;
     }
+
+    // AcknowledgeUpgrade durably dismisses a terminal upgrade outcome on the
+    // host, so it stops resurfacing for every session. Gated by
+    // instance:update.
+    rpc AcknowledgeUpgrade(AcknowledgeUpgradeRequest) returns (AcknowledgeUpgradeResponse) {
+        option idempotency_level = IDEMPOTENT;
+    }
 }
 
 enum ReleaseChannel {
@@ -88,6 +95,9 @@ message UpgradeOperation {
     string error = 8;
     string recovery_command = 9;
     string host_log_path = 10;
+    // True once an operator dismissed this terminal outcome; clients keep the
+    // operation out of their upgrade UI.
+    bool acknowledged = 11;
 }
 
 message TriggerUpgradeRequest {
@@ -95,6 +105,14 @@ message TriggerUpgradeRequest {
 }
 
 message TriggerUpgradeResponse {
+    UpgradeOperation operation = 1;
+}
+
+message AcknowledgeUpgradeRequest {
+    string operation_id = 1;
+}
+
+message AcknowledgeUpgradeResponse {
     UpgradeOperation operation = 1;
 }
 

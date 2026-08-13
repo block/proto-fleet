@@ -79,6 +79,20 @@ func (c *Client) TriggerComplete(ctx context.Context, operationID, targetVersion
 	return c.trigger(ctx, operationID, targetVersion, true)
 }
 
+func (c *Client) Acknowledge(ctx context.Context, operationID string) (Operation, error) {
+	request := AcknowledgeRequest{OperationID: operationID}
+	var response AcknowledgeResponse
+	if err := c.do(ctx, http.MethodPost, "/v1/acknowledge", request, &response); err != nil {
+		return Operation{}, err
+	}
+	if response.Operation.ID != operationID {
+		return Operation{}, &ProtocolError{Cause: fmt.Errorf(
+			"operation identity mismatch: got id %q", response.Operation.ID,
+		)}
+	}
+	return response.Operation, nil
+}
+
 func (c *Client) trigger(ctx context.Context, operationID, targetVersion string, complete bool) (Operation, error) {
 	request := TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, Complete: complete}
 	var response TriggerResponse

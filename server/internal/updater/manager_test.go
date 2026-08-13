@@ -3555,3 +3555,99 @@ func mustReadFile(t *testing.T, path string) string {
 	require.NoError(t, err)
 	return string(data)
 }
+
+func writeFailedOperationState(t *testing.T, stateDir string) updaterapi.Operation {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	started := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	completed := started.Add(time.Minute)
+	persisted := updaterapi.Operation{
+		ID:              "failed-operation",
+		TargetVersion:   "v1.1.0",
+		Phase:           updaterapi.PhaseFailed,
+		Message:         "Upgrade failed",
+		Error:           "new stack failed to start",
+		RecoveryCommand: "cd /deployment && ./run-fleet.sh --non-interactive --skip-build",
+		StartedAt:       started,
+		UpdatedAt:       completed,
+		CompletedAt:     &completed,
+	}
+	data, err := json.Marshal(persisted)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+	return persisted
+}
+
+func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	persisted := writeFailedOperationState(t, stateDir)
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+
+	operation, err := manager.Acknowledge(persisted.ID)
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.Equal(t, persisted.UpdatedAt, operation.UpdatedAt,
+		"acknowledging must not rewrite the operation's outcome revision")
+
+	status := manager.Status().Operation
+	require.NotNil(t, status)
+	assert.True(t, status.Acknowledged)
+
+	// Idempotent for the same operation.
+	operation, err = manager.Acknowledge(persisted.ID)
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+
+	// The dismissal survives an updater restart.
+	require.NoError(t, manager.Close())
+	restarted, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, restarted.Close()) })
+	status = restarted.Status().Operation
+	require.NotNil(t, status)
+	assert.True(t, status.Acknowledged)
+}
+
+func TestManagerAcknowledgeRejectsUnknownAndActiveOperations(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	persisted := writeFailedOperationState(t, stateDir)
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	_, err = manager.Acknowledge("some-other-operation")
+	require.ErrorIs(t, err, errAcknowledgeUnknown)
+
+	manager.mu.Lock()
+	manager.operation = &updaterapi.Operation{ID: persisted.ID, TargetVersion: "v1.1.0", Phase: updaterapi.PhasePreflight}
+	manager.mu.Unlock()
+	_, err = manager.Acknowledge(persisted.ID)
+	require.ErrorIs(t, err, errAcknowledgeActive)
+
+	status := manager.Status().Operation
+	require.NotNil(t, status)
+	assert.False(t, status.Acknowledged)
+}
