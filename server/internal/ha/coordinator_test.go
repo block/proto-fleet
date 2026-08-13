@@ -140,6 +140,31 @@ func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 	require.Equal(t, holder, coordinator.HolderID())
 }
 
+func TestCoordinatorRejectsTimelineMismatchFromNewWriter(t *testing.T) {
+	store := &fakeLeaseStore{}
+	coordinator := newCoordinatorWithHolder(
+		&sequenceObserver{results: []observerResult{
+			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+			{
+				observation: coordinatorObservation("cluster-a", 42, time.Second),
+				err:         fmt.Errorf("promotion observation: %w", ErrTimelineMismatch),
+			},
+		}},
+		store,
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+	require.NoError(t, coordinator.step(t.Context()))
+	activeCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+
+	require.ErrorIs(t, coordinator.step(t.Context()), ErrWriterChanged)
+	require.ErrorIs(t, context.Cause(activeCtx), ErrWriterChanged)
+	_, _, active = coordinator.ActiveLifetime()
+	require.False(t, active)
+	require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
+}
+
 func TestCoordinatorGivesPeersAnAcquisitionWindowAfterPassiveProofFailure(t *testing.T) {
 	// Arrange
 	holder := uuid.New()
@@ -487,6 +512,7 @@ type observerResult struct {
 type sequenceObserver struct {
 	mu      sync.Mutex
 	results []observerResult
+	calls   chan struct{}
 }
 
 func (s *sequenceObserver) ObserveAndRun(
@@ -497,8 +523,11 @@ func (s *sequenceObserver) ObserveAndRun(
 	result := s.results[0]
 	s.results = s.results[1:]
 	s.mu.Unlock()
+	if s.calls != nil {
+		s.calls <- struct{}{}
+	}
 	if result.err != nil {
-		return WriterObservation{}, result.err
+		return result.observation, result.err
 	}
 	if err := action(ctx, result.observation); err != nil {
 		return WriterObservation{}, err
