@@ -2288,19 +2288,28 @@ func extractArchiveWithUpdaterCopy(
 		switch header.Typeflag {
 		case tar.TypeDir:
 			mode := os.FileMode(uint32(header.Mode & 0o755)) // #nosec G115 -- masked to nine permission bits
-			if err := os.MkdirAll(target, mode); err != nil {
+			if err := mkdirAllUnmasked(target, mode); err != nil {
 				return fmt.Errorf("create archive directory %s: %w", header.Name, err)
+			}
+			// A file entry may already have created this directory as a
+			// parent; the archive's own directory entry is authoritative.
+			if err := os.Chmod(target, mode); err != nil {
+				return fmt.Errorf("apply archive directory mode %s: %w", header.Name, err)
 			}
 		case tar.TypeReg, tar.TypeRegA:
 			// #nosec G301 -- extracted deployment parents must be traversable
 			// by the account that owns and manually maintains the install.
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := mkdirAllUnmasked(filepath.Dir(target), 0o755); err != nil {
 				return fmt.Errorf("create archive parent for %s: %w", header.Name, err)
 			}
 			mode := os.FileMode(uint32(header.Mode & 0o755)) // #nosec G115 -- masked to nine permission bits
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 			if err != nil {
 				return fmt.Errorf("create archive file %s: %w", header.Name, err)
+			}
+			if err := out.Chmod(mode); err != nil {
+				out.Close()
+				return fmt.Errorf("apply archive file mode %s: %w", header.Name, err)
 			}
 			writer := io.Writer(out)
 			copyUpdater := updaterCopy != nil && filepath.ToSlash(name) == "deployment/updater/proto-fleet-updater"
@@ -2426,6 +2435,53 @@ func setDeploymentTreeOwnership(ctx context.Context, staged string, uid, gid int
 	return nil
 }
 
+// mkdirAllUnmasked creates any missing directories on path, re-applying mode
+// to each directory it creates. os.MkdirAll alone is narrowed by the process
+// umask — 0o077 in this daemon, to protect its own state — which would leave
+// staged deployment directories untraversable for the deployment owner and
+// for the container users that bind-mount configuration out of the tree.
+func mkdirAllUnmasked(path string, mode os.FileMode) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		return requireRealDirectory(path, info)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect directory %s: %w", path, err)
+	}
+	if parent := filepath.Dir(path); parent != path {
+		if err := mkdirAllUnmasked(parent, mode); err != nil {
+			return err
+		}
+	}
+	if err := os.Mkdir(path, mode); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("create directory %s: %w", path, err)
+		}
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return fmt.Errorf("inspect directory %s: %w", path, statErr)
+		}
+		return requireRealDirectory(path, info)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("apply directory mode %s: %w", path, err)
+	}
+	return nil
+}
+
+// requireRealDirectory rejects anything other than an actual directory —
+// notably symlinks, which os.Stat would silently follow and which would let a
+// crafted path redirect staged writes outside the staging root.
+func requireRealDirectory(path string, info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("create directory %s: refusing to follow symlink", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("create directory %s: path exists and is not a directory", path)
+	}
+	return nil
+}
+
 func copyFile(ctx context.Context, source, destination string) error {
 	info, err := os.Lstat(source)
 	if err != nil {
@@ -2434,7 +2490,7 @@ func copyFile(ctx context.Context, source, destination string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("refusing to copy non-regular file %s", source)
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
+	if err := mkdirAllUnmasked(filepath.Dir(destination), 0o750); err != nil {
 		return fmt.Errorf("create destination parent: %w", err)
 	}
 	in, err := os.Open(source)
@@ -2445,6 +2501,10 @@ func copyFile(ctx context.Context, source, destination string) error {
 	out, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
 	if err != nil {
 		return fmt.Errorf("open destination file: %w", err)
+	}
+	if err := out.Chmod(info.Mode().Perm()); err != nil {
+		out.Close()
+		return fmt.Errorf("apply destination file mode: %w", err)
 	}
 	if _, err := io.Copy(out, readerWithContext(ctx, in)); err != nil {
 		out.Close()
@@ -2741,7 +2801,7 @@ func copyTree(ctx context.Context, source, destination string) error {
 			return fmt.Errorf("inspect preserved tree entry: %w", err)
 		}
 		if entry.IsDir() {
-			if err := os.MkdirAll(target, info.Mode().Perm()); err != nil {
+			if err := mkdirAllUnmasked(target, info.Mode().Perm()); err != nil {
 				return fmt.Errorf("create preserved directory: %w", err)
 			}
 			return nil
