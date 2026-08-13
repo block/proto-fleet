@@ -110,7 +110,7 @@ When an owned miner leaves scope or becomes unpaired:
   `useCurtailmentResponseProfiles.ts`, `CurtailmentSettingsPage.tsx`,
   `CurtailmentManagementPanel.tsx`, and `curtailmentMappers.ts`.
 - Treat scalar `scopeType`, `scopeId`, `siteId`, `siteSelection`, and
-  `minerSelectionMode` as derived UI/legacy fields, not independent targeting
+  `minerSelectionMode` as derived UI fields, not independent targeting
   inputs.
 - Ensure the typed IDs round-trip through Preview, Start, profile create/list/
   reload/edit, profile selection, Test curtailment, automation, event history,
@@ -159,12 +159,10 @@ When an owned miner leaves scope or becomes unpaired:
   every new Preview, Start, profile Create/Update, test, and automation path.
   Missing, unknown, unsupported, or infrastructure-only scope never widens to
   whole organization or reaches fan dispatch.
-- Backfill persisted empty-scope/absent-site whole-org profiles to explicit
-  `{"whole_org":true}` before omitted scopes are rejected.
 - Add a required scope-schema version to new submissions. Deploy server support
-  and the updated frontend, complete the backfill, then raise the minimum
-  accepted version before topology scopes are emitted. This rejects stale
-  browser tabs without retaining an old-client compatibility path.
+  before the updated frontend, then raise the minimum accepted version before
+  topology scopes are emitted. This rejects stale browser tabs rather than
+  supporting two request shapes.
 - Maintain an opaque profile revision that changes on every execution-affecting
   update: miner/fan scope, mode, power target, maintenance inclusion, all-paired
   or other admin controls, batching, and sequencing. Require it on profile
@@ -277,9 +275,8 @@ Create/Update/enable/execution. Use persisted envelopes for recovery operations:
 | Record state/operation | Behavior |
 | --- | --- |
 | Valid profile Get/List/Delete | Authorize against persisted miner/fan envelope; hydrate stale typed IDs without live topology. |
-| Profile with missing/unproven envelope | Org-wide `curtailment:manage`, plus org-wide `site:read` when fans exist; no current-location fallback. |
 | Stale profile resave/execution | Reject until stale IDs are explicitly removed/replaced. |
-| Automation Get/List/Delete/disable | Authorize against the bound envelope; if missing/unproven, require the same org-wide fallback as profiles. Remain available when profile topology or revision is stale. |
+| Automation Get/List/Delete/disable | Authorize against the bound envelope; remain available when profile topology or revision is stale. |
 | Automation Create/Update/enable/OFF start | Require strict topology, exact executable-profile revision/envelope, current principal permissions, and current Admin/SuperAdmin role for admin-only controls. |
 | Automation ON/stop with an active event | Restore from the event's durable targets and fan settings without requiring the current profile revision/topology/admin grant; never admit or recurtail targets. |
 
@@ -304,28 +301,16 @@ admin requirement, topology, and quotas before claiming targets.
 
 ### 7. Roll out fail-closed behavior safely
 
-1. Ship a compatibility-floor server that rejects unknown nonempty scope keys,
-   plus proto parsing, schema versions, profile revisions, automation bindings,
-   and a durable topology-scope feature gate, without emitting topology scopes.
-   Require every replica at this floor before opening the gate; rollback below
-   it requires disabling affected automation and draining topology events first.
-2. Deploy the frontend that always sends the new version and explicit
-   whole-org scope.
-3. Inventory and remediate persisted data:
-   - Backfill provable whole-org/site profile envelopes.
-   - Mark ambiguous profiles `reauthorization_required`.
-   - Inventory rules missing a proven revision, envelope, principal, or admin
-     marker; rebind/backfill or disable them while retaining org-wide-authorized
-     CRUD through the announced cutoff.
-   - Mark oversized profiles `scope_limit_remediation_required`; keep Get/List/
-     Delete and shrink-to-valid Update available.
-   - Backfill active event envelopes only when scope and principal prove the
-     boundary.
-4. Put ambiguous or oversized active events into no-admission drain mode:
-   continue confirmation, fan sequencing, restoration, release, and
-   terminalization from durable target rows without re-resolving logical scope.
-5. Gate enforcement on remediation/cutoff completion, raise the minimum schema
-   version, then enable topology-scope creation and emission.
+1. Ship server parsing, schema versions, profile revisions, automation bindings,
+   rejection of unknown nonempty scope keys, and a durable topology-scope
+   feature gate without emitting topology scopes.
+2. Require every replica at that minimum version. Do not backfill or support
+   unversioned profiles, rules, or events; new records missing a required scope,
+   envelope, revision, or binding fail closed.
+3. Deploy the frontend that always sends the new version and explicit whole-org
+   scope, raise the minimum accepted schema version, then open the feature gate.
+   Rollback below the minimum server version requires disabling automation and
+   draining topology-scoped events first.
 
 ## Verification
 
@@ -346,17 +331,17 @@ Backend coverage:
   wrong-type/deleted/cross-org IDs, direct-site racks, rack/building mismatch,
   empty/cross-site groups, and unassigned resources.
 - Frozen versus topology-following FULL_FLEET behavior, empty watchers,
-  explicit-miner snapshot compatibility, flagged explicit-miner policy,
+  explicit-miner snapshot behavior, flagged explicit-miner policy,
   reservation conflicts, pairing transitions, fan-on admission (including
   crash/concurrency recovery), and restore obligations.
 - Authorization races for empty watchers and moved fans, separate fan coverage,
-  stale CRUD recovery, missing envelopes, current permission revocation,
+  stale CRUD recovery, current permission revocation,
   Admin/SuperAdmin demotion, and current topology exceeding an envelope.
 - Full executable-profile revision coverage, automation binding races,
   `rebind_required`, stale rule management, ON/stop recovery after profile or
-  permission changes, and rollout remediation.
+  permission changes, and fail-closed rollout sequencing.
 - Raw/normalized and active-watcher quotas, paginated/time-budgeted overload
-  behavior with restore priority, oversized remediation, and safe event draining.
+  behavior with restore priority and admission backpressure.
 
 Run:
 
@@ -394,9 +379,8 @@ snapshots without explicit approval.
   but resave, enable, and execution fail closed until corrected or rebound.
 - Schema versions and opaque revisions prevent stale clients or profile races
   from broadening or silently retargeting a scope.
-- Rollout remediates ambiguous/oversized records and drains unsafe active events
-  without new admissions or stranded miners; the durable compatibility floor
-  prevents mixed-version execution or unsafe rollback of topology scopes.
+- The deployment gate prevents mixed-version execution; missing versioned scope,
+  envelope, revision, or binding data is rejected rather than preserved.
 - Response profiles reuse existing scope JSON; automation bindings use a new
   immutable up/down migration. Proto and generated output are committed
   together.
