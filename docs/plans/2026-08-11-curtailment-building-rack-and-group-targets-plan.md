@@ -45,8 +45,10 @@ authorization, and closed-loop lifecycle.
 The published generic `ScopeDeviceSets` case is not a compatibility route:
 curtailment has always returned Unimplemented for it, response-profile creation
 rejects it, and there are no old clients or manually inserted records requiring
-runtime/storage support. Keep its protobuf numbers reserved and deprecated for
-Buf compatibility, but remove generic device-set handling from this feature.
+support. Remove the message and its oneof fields rather than deprecating them.
+Reserve each removed field's name and tag in its enclosing message: tag 2 for
+`CurtailmentScope`, Preview, and Start; tag 8 for events; and tag 11 for the
+signal-ingestion override.
 
 ## Approach
 
@@ -149,9 +151,11 @@ When an owned miner leaves scope or becomes unpaired:
 
 - Add validated building/rack/group messages and oneof cases to
   `proto/curtailment/v1/curtailment.proto`; use new field numbers.
-- Deprecate and reserve the unused generic `device_set_ids` and
-  `device_set_ids_override` fields. Reject them at transport boundaries and
-  remove frontend/domain/JSON runtime paths.
+- Remove the unused generic `device_set_ids` and `device_set_ids_override`
+  fields and `ScopeDeviceSets`; reserve the field names/tags listed above and
+  remove frontend/domain/JSON runtime paths. Do not retain deprecated typed
+  accessors: after decode, a payload containing only removed tags fails the
+  required recognized-scope validation.
 - Extend the Go `Scope`, proto translators, `MarshalScopeJSON`, and
   `ScopeFromJSON` with typed ID arrays. Continue using the existing `mixed`
   scope type and scope JSON columns.
@@ -327,7 +331,8 @@ Frontend coverage:
 
 Backend coverage:
 
-- Proto/domain/JSON round trips and rejection of generic device-set input.
+- Proto/domain/JSON round trips and required-scope rejection for payloads that
+  contain only removed generic device-set wire tags.
 - Candidate membership, deduplication, cooldowns, zero-member resources,
   wrong-type/deleted/cross-org IDs, direct-site racks, rack/building mismatch,
   empty/cross-site groups, and unassigned resources.
