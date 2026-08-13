@@ -136,8 +136,10 @@ When an owned miner leaves scope or becomes unpaired:
 - Preserve existing off-site selections when editing under a narrower topbar
   filter or when the operator cannot open a picker.
 - Add resource-aware picker permissions instead of plain `useHasPermission`:
-  evaluate the selected site grants and use site-filtered building/rack/group
-  catalog handlers that authenticate/derive the org before scoped authorization.
+  authenticate/derive the org, evaluate selected-site grants, and filter each
+  catalog by full authorization coverage. For groups, evaluate every current
+  member site—not an any-member site match—and hide or disable groups with
+  unauthorized or unbounded coverage.
   Hide a control only when no authorized resource remains; hide rack/group miner
   facets when the scoped role lacks `rack:read`, matching Schedules.
 - Allow **Target all paired miners** for FULL_FLEET with any site/building/rack/
