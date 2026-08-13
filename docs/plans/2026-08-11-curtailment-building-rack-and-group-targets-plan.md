@@ -180,17 +180,20 @@ Bound inputs before expensive resolution:
 | IDs per topology type | 256 |
 | Total topology IDs | 1,024 |
 | Explicit device identifiers | 10,000 |
+| Deduplicated resolved miners per execution/event | 10,000 |
 | Repeated `CurtailmentScope` entries | 1,024 |
 | Curtailment RPC body | 2 MiB |
 | Active closed-loop watchers per org | 64 |
 | Active-watcher topology IDs per org | 1,024 |
 | Active-watcher explicit IDs per org | 10,000 |
 
-Enforce cardinality on raw repeated input before deduplication and again after
-domain normalization. Apply the same limits to direct requests, persisted
-profiles, automation, and reconciliation; use protobuf `max_items` where the
-wire shape permits. Enforce the active aggregate quotas transactionally before
-persisting a watcher/reservation.
+Enforce cardinality on raw repeated input before deduplication and after domain
+normalization. Page/stream topology expansion, track the deduplicated count, and
+return ResourceExhausted before fully materializing, persisting, or dispatching
+when it exceeds 10,000. Apply the limits to Preview, Start, profiles, automation,
+and reconciliation; closed-loop admission is paged and stops at the per-event
+cap. Use protobuf `max_items` where possible and enforce active aggregate quotas
+transactionally before persisting a watcher/reservation.
 
 ### 4. Resolve targets and authorization once
 
@@ -339,7 +342,8 @@ Backend coverage:
   contain only removed generic device-set wire tags.
 - Candidate membership, deduplication, cooldowns, zero-member resources,
   wrong-type/deleted/cross-org IDs, direct-site racks, rack/building mismatch,
-  empty/cross-site groups, and unassigned resources.
+  empty/cross-site groups, unassigned resources, oversized single selectors,
+  and overlapping unions whose deduplicated expansion exceeds 10,000.
 - Frozen versus topology-following FULL_FLEET behavior, empty watchers,
   explicit-miner snapshot behavior, flagged explicit-miner policy,
   reservation conflicts, pairing transitions, fan-on admission (including
