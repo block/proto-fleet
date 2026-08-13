@@ -46,9 +46,10 @@ type ActiveAlertGroup struct {
 	AlertCount     int64
 	DeviceCount    int64
 	FirstStartedAt time.Time
-	// The newest instance's summary, empty unless DeviceCount is 0; it is read off a device-less instance, so it
-	// names a non-device dimension (an MQTT source, say) rather than a miner.
-	Summary string
+	// The newest instance's summary and the template it came from, both empty unless DeviceCount is 0. A
+	// device-less instance is not on its own proof the text names no miner, so the template gates it.
+	Summary  string
+	Template string
 }
 
 type ActiveAlertFilter struct {

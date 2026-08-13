@@ -162,10 +162,15 @@ SELECT
     g.first_started_at,
     -- A group with miners is described by its drill-in, so it reports no free text here and the CASE drops what
     -- the lateral found. device_id = '' is an index prefix, so a group with no device-less rows costs one descent.
-    (CASE WHEN g.device_count = 0 THEN COALESCE(s.summary, '') ELSE '' END)::text AS summary
+    -- The summary is a header-polled one-liner, so it is bounded here rather than shipping a whole TEXT column;
+    -- the template rides along because the caller decides from it whether the summary may name a miner. Neither
+    -- is length-checked on insert (000136 bounds only the indexed columns), and a truncated template fails that
+    -- decision closed: it matches no known template, so the summary is withheld.
+    (CASE WHEN g.device_count = 0 THEN LEFT(COALESCE(s.summary, ''), 500) ELSE '' END)::text AS summary,
+    (CASE WHEN g.device_count = 0 THEN LEFT(COALESCE(s.template, ''), 64) ELSE '' END)::text AS template
 FROM groups g
 LEFT JOIN LATERAL (
-    SELECT na.summary
+    SELECT na.summary, na.template
     FROM notification_active na
     WHERE na.organization_id = $1
       AND na.status = 'firing'
@@ -192,6 +197,7 @@ type ListActiveNotificationGroupsRow struct {
 	DeviceCount    int64
 	FirstStartedAt time.Time
 	Summary        string
+	Template       string
 }
 
 // Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
@@ -214,6 +220,7 @@ func (q *Queries) ListActiveNotificationGroups(ctx context.Context, arg ListActi
 			&i.DeviceCount,
 			&i.FirstStartedAt,
 			&i.Summary,
+			&i.Template,
 		); err != nil {
 			return nil, err
 		}

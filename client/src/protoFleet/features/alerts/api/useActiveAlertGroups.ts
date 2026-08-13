@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
@@ -20,6 +20,11 @@ export interface UseActiveAlertGroupsOptions {
   enabled?: boolean;
 }
 
+// A grant can be restored while the shell stays mounted, and no route change remounts this hook to notice. So a
+// denial slows the poll rather than ending it: a grant that can't reach the RPC costs a request every few
+// minutes instead of one every interval, and a restored one is picked up without a reload.
+const DENIED_RETRY_MS = 5 * 60 * 1000;
+
 // Owns the active-alert poll behind the header pill. The server rolls the firing set up per rule, so the
 // response stays a handful of rows however many miners an outage covers.
 export function useActiveAlertGroups({ enabled = true }: UseActiveAlertGroupsOptions = {}): UseActiveAlertGroupsResult {
@@ -28,13 +33,24 @@ export function useActiveAlertGroups({ enabled = true }: UseActiveAlertGroupsOpt
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
 
+  // Disabling the poll stops it scheduling but can't recall the request already in flight, so leaving a
+  // headerless route and coming straight back can overlap two. Whichever was issued last is the one that
+  // describes the fleet now, so an earlier reply that lands after it is dropped rather than committed.
+  const latestRequest = useRef(0);
+
   const fetchData = useCallback(async () => {
+    const request = ++latestRequest.current;
+    const superseded = () => request !== latestRequest.current;
     try {
       const page = await api.listActiveAlertGroups();
+      if (superseded()) return;
       setGroups(page.groups);
       setHasMore(page.has_more);
       setError(null);
+      setDenied(false);
     } catch (err) {
+      // Before the denial check too: a stale denial would stop the poll for good on a grant already replaced.
+      if (superseded()) return;
       if (isPermissionDeniedError(err)) {
         setDenied(true);
         return;
@@ -43,9 +59,9 @@ export function useActiveAlertGroups({ enabled = true }: UseActiveAlertGroupsOpt
     }
   }, []);
 
-  // Stop polling once denied: the pill hides itself but this hook stays mounted, so the poll
-  // would otherwise keep hitting the org-scoped RPC the grant can't reach.
-  usePoll({ fetchData, poll: true, pollIntervalMs: POLL_INTERVAL_MS, enabled: enabled && !denied });
+  // Back off once denied: the pill hides itself but this hook stays mounted, so the poll
+  // would otherwise keep hitting the org-scoped RPC the grant can't reach at header speed.
+  usePoll({ fetchData, poll: true, pollIntervalMs: denied ? DENIED_RETRY_MS : POLL_INTERVAL_MS, enabled });
 
   return { groups, error, denied, hasMore };
 }

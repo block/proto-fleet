@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 
+import { activeGroupTitle } from "@/protoFleet/features/alerts/lib/activeGroupTitle";
 import { countLabel } from "@/protoFleet/features/alerts/lib/alertCountLabels";
 import type { ActiveAlertGroup } from "@/protoFleet/features/alerts/types";
 import { ChevronDown } from "@/shared/assets/icons";
@@ -15,19 +16,20 @@ interface ActiveAlertsPopoverProps {
   onNavigateToAlerts: () => void;
 }
 
-// The rollup names the rule rather than any one dimension a device-less rule fired on, so the count reports the rest.
-const groupTitle = (group: ActiveAlertGroup) =>
-  group.device_count === 0 && group.alert_count > 1
-    ? `${group.alert_name} — ${countLabel(group.alert_count, "instance")}`
-    : group.alert_name;
+// The blast radius, in whichever unit the rule fires on. A single device-less instance is the one row with
+// nothing to count, so it reports the summary the server sent for it instead.
+const groupDetail = (group: ActiveAlertGroup) => {
+  if (group.device_count > 0) {
+    return `${countLabel(group.device_count, "miner")} affected`;
+  }
+  return group.alert_count > 1 ? countLabel(group.alert_count, "instance") : group.summary;
+};
 
-// Affected miners are the blast radius worth leading with; a rule firing on none has no drill-in to open, so the
-// server sends its summary instead and the row says what fired inline.
-const groupDetail = (group: ActiveAlertGroup) =>
-  group.device_count > 0 ? `${countLabel(group.device_count, "miner")} affected` : group.summary;
-
-// Only the affected miners are worth a drill-in: it lists one row per miner, and a device-less rule has none.
-const isDrillable = (group: ActiveAlertGroup) => group.device_count > 0;
+// A drill-in earns its place when the row can't say the whole thing: several miners, several device-less
+// instances, or a lone instance whose summary the server withheld — the rule's own templates decide that, so a
+// row cannot assume it has one. Only a single instance that did arrive with its summary is complete as it is.
+const isDrillable = (group: ActiveAlertGroup) =>
+  group.device_count > 0 || group.alert_count > 1 || group.summary === "";
 
 const ActiveAlertsPopover = ({
   groups,
@@ -55,7 +57,7 @@ const ActiveAlertsPopover = ({
                   <span className="flex h-6 shrink-0 items-center">
                     <span className="h-2 w-2 rounded-full bg-intent-warning-fill" />
                   </span>
-                  <span className="min-w-0 text-heading-100 text-text-primary">{groupTitle(group)}</span>
+                  <span className="min-w-0 text-heading-100 text-text-primary">{activeGroupTitle(group)}</span>
                 </div>
                 <div className="pl-4">
                   {detail ? <div className="text-200 leading-snug text-text-primary-70">{detail}</div> : null}

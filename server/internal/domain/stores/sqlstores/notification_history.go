@@ -272,6 +272,7 @@ func (s *SQLNotificationHistoryStore) ListActiveGroups(ctx context.Context, orga
 			DeviceCount:    row.DeviceCount,
 			FirstStartedAt: row.FirstStartedAt,
 			Summary:        row.Summary,
+			Template:       row.Template,
 		})
 	}
 	return out, nil

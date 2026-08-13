@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	alertsv1 "github.com/block/proto-fleet/server/generated/grpc/alerts/v1"
+	"github.com/block/proto-fleet/server/internal/domain/alerts"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
@@ -179,7 +180,10 @@ func TestListActiveAlertGroups_ReturnsRollup(t *testing.T) {
 func TestListActiveAlertGroups_NeedsNoMinerRead(t *testing.T) {
 	groups := []notificationhistory.ActiveAlertGroup{
 		{AlertName: "MinerOffline", DeviceCount: 5_000, AlertCount: 5_000},
-		{AlertName: "CurtailmentSourceUnreachable", AlertCount: 2, Summary: "maestro-b is unreachable"},
+		{
+			AlertName: "CurtailmentSourceUnreachable", AlertCount: 2,
+			Summary: "maestro-b is unreachable", Template: string(alerts.RuleTemplateMQTTDisconnected),
+		},
 	}
 
 	withoutMiner, err := NewHandler(nil, &stubLister{groups: groups}).ListActiveAlertGroups(
@@ -200,6 +204,27 @@ func TestListActiveAlertGroups_NeedsNoMinerRead(t *testing.T) {
 	// It names a non-device dimension rather than a miner, so it is not redacted from a non-miner reader either.
 	require.Equal(t, "maestro-b is unreachable", withoutMiner.Msg.Groups[1].Summary)
 	require.Equal(t, withMiner.Msg.Groups[1].Summary, withoutMiner.Msg.Groups[1].Summary)
+}
+
+// A device rule whose instance carried no device_id still describes a miner in its free text, and this endpoint
+// has no miner:read to check, so the template decides — the same call the history API makes.
+func TestListActiveAlertGroups_RedactsDeviceTemplateSummaries(t *testing.T) {
+	groups := []notificationhistory.ActiveAlertGroup{
+		{
+			AlertName: "MinerOffline", AlertCount: 1,
+			Summary: "rig-14 has been offline for 15 minutes", Template: string(alerts.RuleTemplateOffline),
+		},
+	}
+
+	resp, err := NewHandler(nil, &stubLister{groups: groups}).ListActiveAlertGroups(
+		ctxWithPerms(authz.PermAlertRead),
+		connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Groups, 1)
+	require.Equal(t, "MinerOffline", resp.Msg.Groups[0].AlertName)
+	require.Empty(t, resp.Msg.Groups[0].Summary)
 }
 
 func TestListActiveAlertGroups_FlagsMoreBeyondCap(t *testing.T) {

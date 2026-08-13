@@ -464,8 +464,9 @@ func parseBeforeID(s string) (*int64, error) {
 	return &v, nil
 }
 
-// ListActiveAlertGroups answers "what is firing right now" per rule. No row carries device identity — the one
-// summary it does carry is read off a device-less instance — so this needs no miner:read gate; the drill-in does.
+// ListActiveAlertGroups answers "what is firing right now" per rule. No row carries device identity, and the one
+// summary it does carry clears the same template gate the history API applies, so this needs no miner:read gate;
+// the drill-in does.
 func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[alertsv1.ListActiveAlertGroupsRequest]) (*connect.Response[alertsv1.ListActiveAlertGroupsResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermAlertRead)
 	if err != nil {
@@ -488,7 +489,9 @@ func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[
 			AlertCount:     g.AlertCount,
 			DeviceCount:    g.DeviceCount,
 			FirstStartedAt: timestamppb.New(g.FirstStartedAt),
-			Summary:        g.Summary,
+			// Same policy as the history API: a device template's summary names the miner, so it needs
+			// miner:read, which this endpoint never has. Device-less alone would let a stray offline row through.
+			Summary: visibleSummary(g.Summary, g.Template, false),
 		})
 	}
 	return connect.NewResponse(&alertsv1.ListActiveAlertGroupsResponse{

@@ -194,7 +194,26 @@ describe("ActiveAlertsPill", () => {
     expect(screen.queryByTestId("alert-drill-in-chevron")).not.toBeInTheDocument();
   });
 
-  it("counts the instances of a device-less alert firing on more than one dimension", async () => {
+  it("drills into a lone device-less alert whose summary the server withheld", async () => {
+    renderPill({
+      groups: [
+        buildGroup({
+          alert_name: "Curtailment Fan Restore Failed",
+          rule_group: "proto-fleet-curtailment",
+          device_count: 0,
+          // Only the MQTT source templates clear the server's redaction, so this row arrives with nothing to say.
+          summary: "",
+        }),
+      ],
+    });
+    await openPopover();
+
+    // Title and firing-since alone don't diagnose it, so the instance behind the row stays reachable.
+    expect(screen.getByTestId("alert-drill-in-chevron")).toBeInTheDocument();
+    expect(screen.getByText("Curtailment Fan Restore Failed").closest("button")).not.toBeNull();
+  });
+
+  it("drills into a device-less alert firing on more than one dimension, under a plural title", async () => {
     renderPill({
       groups: [
         buildGroup({
@@ -208,9 +227,50 @@ describe("ActiveAlertsPill", () => {
     });
     await openPopover();
 
-    // The summary names only the newest source, so the count is what tells the operator another is down.
-    expect(screen.getByText("Curtailment Source Unreachable — 2 instances")).toBeInTheDocument();
-    expect(screen.getByText("maestro-b is unreachable")).toBeInTheDocument();
+    // One title names one source, and two are down: the row counts them and the drill-in names the rest.
+    expect(screen.getByText("Curtailment Sources Unreachable")).toBeInTheDocument();
+    expect(screen.getByText("2 instances")).toBeInTheDocument();
+    expect(screen.getByTestId("alert-drill-in-chevron")).toBeInTheDocument();
+  });
+
+  it("lists the firing instances of a device-less alert without miner columns", async () => {
+    const group = buildGroup({
+      alert_name: "Curtailment Source Unreachable",
+      rule_group: "proto-fleet-curtailment",
+      device_count: 0,
+      alert_count: 2,
+      summary: "maestro-b is unreachable",
+    });
+    pagedAlertsMock.mockReturnValue(
+      buildInstancesResult({
+        items: [
+          buildInstance({
+            id: "src-a",
+            device_id: "",
+            device_name: "",
+            device_mac: "",
+            summary: "maestro-a is unreachable",
+          }),
+          buildInstance({
+            id: "src-b",
+            device_id: "",
+            device_name: "",
+            device_mac: "",
+            summary: "maestro-b is unreachable",
+          }),
+        ],
+      }),
+    );
+
+    renderPill({ groups: [group] });
+    await openPopover();
+    await userEvent.click(screen.getByText("Curtailment Sources Unreachable"));
+
+    // The drill-in is the only place the sources other than the newest are named.
+    expect(screen.getByText("maestro-a is unreachable")).toBeInTheDocument();
+    // No device identity to show, so those columns stay out rather than rendering a column of blanks.
+    expect(screen.queryByText("Device Name")).not.toBeInTheDocument();
+    expect(screen.queryByText("MAC Address")).not.toBeInTheDocument();
   });
 
   it("surfaces a failed refresh alongside the alerts it could not update", async () => {

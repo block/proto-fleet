@@ -184,10 +184,13 @@ func TestNotificationHistoryStore_ListActiveGroups_SummarizesOnlyDeviceLessGroup
 	insertAlert(t, db, orgID, "Curtailment Source Unreachable", "curtailment", "", "source-b",
 		"maestro-b is unreachable", now.Add(-2*time.Minute))
 	insertDeviceAlert(t, db, orgID, "Device Offline", "defaults", "device-1", "device-1 is offline", now.Add(-5*time.Minute))
+	// The header polls this rollup, so a runaway interpolation must not ship a whole TEXT column per group.
+	insertAlert(t, db, orgID, "Runaway Summary", "curtailment", "", "source-c",
+		strings.Repeat("x", 900), now.Add(-time.Minute))
 
 	groups, err := store.ListActiveGroups(t.Context(), orgID, 50)
 	require.NoError(t, err)
-	require.Len(t, groups, 2)
+	require.Len(t, groups, 3)
 
 	byName := make(map[string]notificationhistory.ActiveAlertGroup, len(groups))
 	for _, g := range groups {
@@ -199,8 +202,11 @@ func TestNotificationHistoryStore_ListActiveGroups_SummarizesOnlyDeviceLessGroup
 	assert.Equal(t, int64(2), sourceGroup.AlertCount)
 	// The newest instance, so the summary names the source that most recently went unreachable.
 	assert.Equal(t, "maestro-b is unreachable", sourceGroup.Summary)
+	// Carried unredacted: the handler, not the store, decides whether the template lets that text out.
+	assert.Equal(t, "offline", sourceGroup.Template)
 
 	assert.Empty(t, byName["Device Offline"].Summary, "a group with miners reports no free text here")
+	assert.Len(t, byName["Runaway Summary"].Summary, 500)
 }
 
 // The trigger leaves an oversized label out of the active view (see 000136), and a real alert inserted alongside
