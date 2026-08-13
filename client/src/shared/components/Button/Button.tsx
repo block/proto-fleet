@@ -11,6 +11,7 @@ export interface ButtonProps {
   ariaLabel?: string;
   ariaHasPopup?: boolean | "menu" | "dialog" | "listbox" | "tree" | "grid";
   ariaExpanded?: boolean;
+  ariaPressed?: boolean;
   borderColor?: string;
   className?: string;
   children?: ReactNode;
@@ -35,6 +36,7 @@ const Button = ({
   ariaLabel,
   ariaHasPopup,
   ariaExpanded,
+  ariaPressed,
   borderColor = "border-core-accent-fill",
   className,
   children,
@@ -164,6 +166,7 @@ const Button = ({
       aria-label={ariaLabel}
       aria-haspopup={ariaHasPopup}
       aria-expanded={ariaExpanded}
+      aria-pressed={ariaPressed}
       className={containerClassName}
       disabled={disabledState}
       onClick={onClick}

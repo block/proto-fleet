@@ -51,6 +51,12 @@ describe("Button", () => {
     expect(onClickMock).toHaveBeenCalled();
   });
 
+  test("forwards pressed state for toggle buttons", () => {
+    render(<Button text="24h" ariaPressed variant={variants.primary} />);
+
+    expect(screen.getByRole("button", { name: "24h" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("renders icon-only buttons with an accessible name and focus-visible styles", () => {
     render(
       <Button
