@@ -742,9 +742,7 @@ func (m *Manager) RecoverApplication() error {
 	if err != nil {
 		return fmt.Errorf("read interrupted HA deployment version: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), m.cfg.ActivationTimeout)
-	defer cancel()
-	if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, io.Discard, "app-start", version, "any"); err != nil {
+	if err := m.runHACommand(context.Background(), m.cfg.ActivationTimeout, deployment, io.Discard, "app-start", version, "any"); err != nil {
 		return fmt.Errorf("restart interrupted HA application: %w", err)
 	}
 	m.operation.RecoveryCommand = ""
@@ -992,7 +990,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 			fmt.Sprintf("installed version %q is not upgradeable", currentVersion),
 		)
 	}
-	if semver.Compare(targetVersion, currentVersion) <= 0 {
+	if m.cfg.DeploymentMode == DeploymentModeStandalone && semver.Compare(targetVersion, currentVersion) <= 0 {
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerPrecondition,
 			fmt.Sprintf("target version %s must be newer than installed version %s", targetVersion, currentVersion),
@@ -1285,7 +1283,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 	successMessage := fmt.Sprintf("Fleet %s is running", targetVersion)
 	selfUpdateSucceeded := false
 	if preparedUpdater != nil {
-		if err := m.refreshSelfUpdater(activationCtx, preparedUpdater, m.cfg.SelfUpdatePath, targetVersion); err != nil {
+		if err := m.refreshSelfUpdater(ctx, preparedUpdater, m.cfg.SelfUpdatePath, targetVersion); err != nil {
 			_, _ = fmt.Fprintf(logFile, "[%s] warning: Fleet is healthy, but the host updater binary was not refreshed: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
 			successMessage += "; host updater refresh needs attention (see upgrade log)"
 		} else {
@@ -1465,9 +1463,7 @@ func (m *Manager) failActivation(
 		current := filepath.Join(m.cfg.InstallRoot, "deployment")
 		version, err := readInstalledVersion(filepath.Join(current, "version.txt"))
 		if err == nil {
-			restartCtx, cancel := context.WithTimeout(context.Background(), m.cfg.ActivationTimeout)
-			err = m.runHACommand(restartCtx, m.cfg.ActivationTimeout, current, logOutput, "app-start", version, "any")
-			cancel()
+			err = m.runHACommand(context.Background(), m.cfg.ActivationTimeout, current, logOutput, "app-start", version, "any")
 		}
 		if err != nil {
 			activationErr = errors.Join(activationErr, fmt.Errorf("restart HA application after failed activation: %w", err))
@@ -1927,7 +1923,6 @@ func (m *Manager) loadState() error {
 		} else {
 			op.Error += " The active deployment was missing during startup; the updater restored the validated previous deployment."
 		}
-		op.RecoveryCommand = ""
 		op.UpdatedAt = now
 		if op.CompletedAt == nil {
 			op.CompletedAt = &now
@@ -2336,7 +2331,7 @@ func (m *Manager) persistLocked() error {
 func readInstalledVersion(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read installed version: read version file: %w", err)
+		return "", fmt.Errorf("read installed version: %w", err)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "version:"); ok {
@@ -2346,7 +2341,7 @@ func readInstalledVersion(path string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("read installed version: version file has no version")
+	return "", errors.New("installed version file has no version")
 }
 
 func verifyChecksum(ctx context.Context, archivePath, checksumPath, archiveName string) error {

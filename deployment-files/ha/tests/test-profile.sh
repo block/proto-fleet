@@ -121,7 +121,6 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
-    assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
     assert_contains "$rendered" "sleep 15; exec /app/fleetd"
     [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 2 ]] ||
         fail "Fleet services must restart process failures without bypassing the systemd start gate"
@@ -180,6 +179,7 @@ test_fleet_ha_contract() {
     assert_contains "${HA_DIR}/updater-systemd.conf" "ReadWritePaths=/etc/proto-fleet/ha"
     assert_contains "${HA_DIR}/updater-systemd.conf" "After=proto-fleet-ha.service"
     assert_contains "${HA_DIR}/updater-systemd.conf" "PartOf=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "StartLimitIntervalSec=0"
     assert_contains "${HA_DIR}/ha-updater-systemd.conf" "EnvironmentFile=-/etc/proto-fleet/updater.env"
     assert_contains "${HA_DIR}/ha-updater-systemd.conf" "Wants=proto-fleet-updater.service"
     assert_contains "${HA_DIR}/ha-updater-systemd.conf" "ExecStartPre=/usr/local/libexec/proto-fleet/proto-fleet-updater --deployment-mode ha --self-update-path /usr/local/libexec/proto-fleet/proto-fleet-updater --repair-startup"

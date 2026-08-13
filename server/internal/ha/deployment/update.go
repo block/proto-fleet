@@ -113,6 +113,7 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 			return readinessErr
 		}
 		if ready {
+			_, _ = defaultInstallDependencies().run(ctx, "docker", "image", "prune", "--force")
 			return nil
 		}
 		if !applicationMayConverge(localReport.Runtime, targetVersion, requirePassive) {
@@ -135,6 +136,7 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 				return readinessErr
 			}
 			if ready {
+				_, _ = defaultInstallDependencies().run(ctx, "docker", "image", "prune", "--force")
 				return nil
 			}
 		}

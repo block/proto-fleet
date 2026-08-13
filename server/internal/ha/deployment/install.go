@@ -850,22 +850,18 @@ func installRootPassword(ctx context.Context, options InstallOptions, deps insta
 }
 
 func initialStart(ctx context.Context, config NodeConfig, deps installDependencies) error {
-	updaterEnabled := false
+	cleanupUpdater := false
 	if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "proto-fleet-ha.service"); err != nil {
-		return stopIncompleteHA(ctx, deps, fmt.Errorf("enable HA services: %s", commandError(output, err)), updaterEnabled)
+		return stopIncompleteHA(ctx, deps, fmt.Errorf("enable HA services: %s", commandError(output, err)), cleanupUpdater)
 	}
 	if config.isDatabaseNode() {
 		if output, err := deps.run(ctx, "sudo", "systemctl", "enable", "--now", "proto-fleet-updater.service"); err != nil {
-			cause := fmt.Errorf("enable host updater: %s", commandError(output, err))
-			if cleanupOutput, cleanupErr := deps.run(ctx, "sudo", "systemctl", "disable", "--now", "proto-fleet-updater.service"); cleanupErr != nil {
-				cause = errors.Join(cause, fmt.Errorf("disable incomplete host updater: %s", commandError(cleanupOutput, cleanupErr)))
-			}
-			return stopIncompleteHA(ctx, deps, cause, updaterEnabled)
+			return stopIncompleteHA(ctx, deps, fmt.Errorf("enable host updater: %s", commandError(output, err)), true)
 		}
-		updaterEnabled = true
+		cleanupUpdater = true
 	}
 	if output, err := deps.run(ctx, "sudo", "systemctl", "start", "--no-block", "proto-fleet-ha.service"); err != nil {
-		return stopIncompleteHA(ctx, deps, fmt.Errorf("start HA services: %s", commandError(output, err)), updaterEnabled)
+		return stopIncompleteHA(ctx, deps, fmt.Errorf("start HA services: %s", commandError(output, err)), cleanupUpdater)
 	}
 	fmt.Println("[peer waiting] HA service is enabled and will keep converging while peers join")
 	for {
@@ -882,17 +878,17 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
 		}
 		if state, _ := systemdUnitState(ctx, deps, "is-failed", "proto-fleet-ha.service"); state == "failed" {
-			return stopIncompleteHA(ctx, deps, errors.New("HA service failed during local startup; inspect journalctl -u proto-fleet-ha.service"), updaterEnabled)
+			return stopIncompleteHA(ctx, deps, errors.New("HA service failed during local startup; inspect journalctl -u proto-fleet-ha.service"), cleanupUpdater)
 		}
 		deps.sleep(2 * time.Second)
 	}
 }
 
-func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error, updaterEnabled bool) error {
+func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error, cleanupUpdater bool) error {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
 	var cleanupErrs []error
-	if updaterEnabled {
+	if cleanupUpdater {
 		if output, err := deps.run(cleanupCtx, "sudo", "systemctl", "disable", "--now", "proto-fleet-updater.service"); err != nil {
 			cleanupErrs = append(cleanupErrs, fmt.Errorf("disable incomplete host updater: %s", commandError(output, err)))
 		}
@@ -946,7 +942,8 @@ func writeInstallTemp(name, contents string, mode os.FileMode) (string, error) {
 	return path, nil
 }
 
-func releaseRoot() (string, error) {
+// ReleaseRoot returns the packaged deployment containing this fleet-ha binary.
+func ReleaseRoot() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("locate fleet-ha executable: %w", err)
@@ -956,9 +953,4 @@ func releaseRoot() (string, error) {
 		return "", errors.New("fleet-ha install must run from a packaged release")
 	}
 	return root, nil
-}
-
-// ReleaseRoot returns the packaged deployment containing this fleet-ha binary.
-func ReleaseRoot() (string, error) {
-	return releaseRoot()
 }

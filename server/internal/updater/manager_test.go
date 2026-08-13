@@ -345,7 +345,7 @@ func TestManagerHAPostSwapRecoveryPersistenceFailureRestartsSelectedDeployment(t
 func TestManagerHAAllowsOperatorSelectedRelease(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
-	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	writeCurrentDeployment(t, installRoot, "v1.4.0")
 	bundle := releaseBundle(t, "v1.3.0-rc.1")
 	server := releaseServer(t, "v1.3.0-rc.1", "amd64", bundle, "")
 	runner := &haRecordingRunner{}
@@ -1746,9 +1746,10 @@ func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *tes
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, activationMarkerFilename), marker, 0o600))
 
 	manager, err := NewManager(Config{
-		InstallRoot: installRoot,
-		StateDir:    stateDir,
-		GOARCH:      "amd64",
+		InstallRoot:    installRoot,
+		StateDir:       stateDir,
+		GOARCH:         "amd64",
+		DeploymentMode: DeploymentModeHA,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
@@ -1760,7 +1761,7 @@ func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *tes
 	assert.Contains(t, operation.Error, "restored the validated previous deployment")
 	assert.Contains(t, operation.Message, "Previous deployment restored")
 	assert.Equal(t, completed, *operation.CompletedAt)
-	assert.Empty(t, operation.RecoveryCommand)
+	assert.Contains(t, operation.RecoveryCommand, "app-start")
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
 	assert.NoDirExists(t, stageRoot)

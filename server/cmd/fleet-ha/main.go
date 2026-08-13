@@ -221,8 +221,6 @@ const (
 	updateCommunicationTimeout = 30 * time.Second
 )
 
-type updateTrigger func(context.Context, string, string) (updaterapi.Operation, error)
-
 type updatePreflight func(context.Context, string, string) error
 
 func runPassiveUpdate(
@@ -308,7 +306,7 @@ func runUpdate(
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for HA application update: %w", ctx.Err())
+			return fmt.Errorf("stopped waiting for HA application update; the accepted host update may continue: %w", ctx.Err())
 		case <-time.After(updatePollInterval):
 		}
 		status, err := client.Status(ctx)
@@ -329,7 +327,7 @@ func runUpdate(
 	}
 }
 
-func triggerUpdate(ctx context.Context, operationID, targetVersion string, trigger updateTrigger) (updaterapi.Operation, error) {
+func triggerUpdate(ctx context.Context, operationID, targetVersion string, trigger func(context.Context, string, string) (updaterapi.Operation, error)) (updaterapi.Operation, error) {
 	reconcileCtx, cancel := context.WithTimeout(ctx, updateCommunicationTimeout)
 	defer cancel()
 	for {
