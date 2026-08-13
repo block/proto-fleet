@@ -2484,6 +2484,89 @@ func TestExtractArchiveRejectsExcessiveEntryCount(t *testing.T) {
 	require.ErrorContains(t, err, fmt.Sprintf("archive contains more than %d entries", maxArchiveEntries))
 }
 
+// Not parallel: the test manipulates the process-global umask, mirroring the
+// restrictive 0o077 umask the daemon establishes at startup.
+func TestExtractArchiveAppliesArchiveModesDespiteRestrictiveUmask(t *testing.T) {
+	previousUmask := syscall.Umask(0o077)
+	defer syscall.Umask(previousUmask)
+
+	archive := filepath.Join(t.TempDir(), "release.tar.gz")
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Name:     "deployment/server/monitoring/grafana",
+		Mode:     0o755,
+		Typeflag: tar.TypeDir,
+	}))
+	content := []byte("[server]\n")
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Name:     "deployment/server/monitoring/grafana/grafana.ini",
+		Mode:     0o644,
+		Size:     int64(len(content)),
+		Typeflag: tar.TypeReg,
+	}))
+	_, err := tarWriter.Write(content)
+	require.NoError(t, err)
+	// A file whose parent directories carry no archive entries of their own
+	// must still end up under traversable parents.
+	require.NoError(t, tarWriter.WriteHeader(&tar.Header{
+		Name:     "deployment/orphan/config.yaml",
+		Mode:     0o644,
+		Size:     int64(len(content)),
+		Typeflag: tar.TypeReg,
+	}))
+	_, err = tarWriter.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, tarWriter.Close())
+	require.NoError(t, gzipWriter.Close())
+	require.NoError(t, os.WriteFile(archive, buffer.Bytes(), 0o600))
+
+	destination := t.TempDir()
+	require.NoError(t, extractArchive(archive, destination))
+
+	assertMode := func(path string, want os.FileMode) {
+		t.Helper()
+		info, err := os.Stat(filepath.Join(destination, path))
+		require.NoError(t, err)
+		assert.Equal(t, want, info.Mode().Perm(), path)
+	}
+	assertMode("deployment", 0o755)
+	assertMode("deployment/server/monitoring/grafana", 0o755)
+	assertMode("deployment/server/monitoring/grafana/grafana.ini", 0o644)
+	assertMode("deployment/orphan", 0o755)
+	assertMode("deployment/orphan/config.yaml", 0o644)
+}
+
+// Not parallel: the test manipulates the process-global umask.
+func TestCopyTreePreservesModesDespiteRestrictiveUmask(t *testing.T) {
+	previousUmask := syscall.Umask(0o077)
+	defer syscall.Umask(previousUmask)
+
+	// World-readable modes are the fixture under test: chmod is umask-exempt,
+	// so it pins the source modes the copy must reproduce.
+	source := t.TempDir()
+	require.NoError(t, os.Chmod(source, 0o755))                         //nolint:gosec // fixture mode under test
+	require.NoError(t, os.Mkdir(filepath.Join(source, "certs"), 0o755)) //nolint:gosec // fixture mode under test
+	require.NoError(t, os.Chmod(filepath.Join(source, "certs"), 0o755)) //nolint:gosec // fixture mode under test
+	require.NoError(t, os.WriteFile(filepath.Join(source, "certs", "fullchain.pem"), []byte("cert"), 0o644))
+	require.NoError(t, os.Chmod(filepath.Join(source, "certs", "fullchain.pem"), 0o644)) //nolint:gosec // fixture mode under test
+	require.NoError(t, os.WriteFile(filepath.Join(source, "privkey.pem"), []byte("key"), 0o600))
+
+	destination := filepath.Join(t.TempDir(), "ssl")
+	require.NoError(t, copyTree(context.Background(), source, destination))
+
+	assertMode := func(path string, want os.FileMode) {
+		t.Helper()
+		info, err := os.Stat(filepath.Join(destination, path))
+		require.NoError(t, err)
+		assert.Equal(t, want, info.Mode().Perm(), path)
+	}
+	assertMode("certs", 0o755)
+	assertMode("certs/fullchain.pem", 0o644)
+	assertMode("privkey.pem", 0o600)
+}
+
 func TestInstallExecutableCandidateRetainsAndRestoresThePreviousUpdater(t *testing.T) {
 	t.Parallel()
 

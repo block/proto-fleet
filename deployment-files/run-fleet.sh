@@ -4,6 +4,14 @@
 # Proto Fleet Installation and Setup Script
 # ============================================================================
 
+# Deployment files this script generates are read inside containers by
+# non-root users (Grafana, Prometheus, ...), so they must stay world-readable
+# regardless of the invoker's umask — the privileged host updater invokes this
+# script with a restrictive 0077 umask that would otherwise strip that access.
+# Secrets (.env, markers, nginx temp files) set their own stricter umask or
+# chmod where they are created.
+umask 022
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_FLEET_ORIGINAL_ARGS=("$@")
 FLEET_COMPOSE_PROJECT_NAME=""
