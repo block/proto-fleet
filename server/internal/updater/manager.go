@@ -2441,12 +2441,9 @@ func setDeploymentTreeOwnership(ctx context.Context, staged string, uid, gid int
 // staged deployment directories untraversable for the deployment owner and
 // for the container users that bind-mount configuration out of the tree.
 func mkdirAllUnmasked(path string, mode os.FileMode) error {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err == nil {
-		if info.IsDir() {
-			return nil
-		}
-		return fmt.Errorf("create directory %s: path exists and is not a directory", path)
+		return requireRealDirectory(path, info)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect directory %s: %w", path, err)
@@ -2457,13 +2454,30 @@ func mkdirAllUnmasked(path string, mode os.FileMode) error {
 		}
 	}
 	if err := os.Mkdir(path, mode); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return nil
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("create directory %s: %w", path, err)
 		}
-		return fmt.Errorf("create directory %s: %w", path, err)
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return fmt.Errorf("inspect directory %s: %w", path, statErr)
+		}
+		return requireRealDirectory(path, info)
 	}
 	if err := os.Chmod(path, mode); err != nil {
 		return fmt.Errorf("apply directory mode %s: %w", path, err)
+	}
+	return nil
+}
+
+// requireRealDirectory rejects anything other than an actual directory —
+// notably symlinks, which os.Stat would silently follow and which would let a
+// crafted path redirect staged writes outside the staging root.
+func requireRealDirectory(path string, info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("create directory %s: refusing to follow symlink", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("create directory %s: path exists and is not a directory", path)
 	}
 	return nil
 }

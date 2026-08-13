@@ -2567,6 +2567,24 @@ func TestCopyTreePreservesModesDespiteRestrictiveUmask(t *testing.T) {
 	assertMode("privkey.pem", 0o600)
 }
 
+func TestMkdirAllUnmaskedRefusesSymlinks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(root, "real"), 0o750))
+	require.NoError(t, os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "link")))
+
+	err := mkdirAllUnmasked(filepath.Join(root, "link"), 0o750)
+	require.ErrorContains(t, err, "refusing to follow symlink")
+
+	err = mkdirAllUnmasked(filepath.Join(root, "link", "child"), 0o750)
+	require.ErrorContains(t, err, "refusing to follow symlink")
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "file"), []byte("x"), 0o600))
+	err = mkdirAllUnmasked(filepath.Join(root, "file"), 0o750)
+	require.ErrorContains(t, err, "path exists and is not a directory")
+}
+
 func TestInstallExecutableCandidateRetainsAndRestoresThePreviousUpdater(t *testing.T) {
 	t.Parallel()
 
