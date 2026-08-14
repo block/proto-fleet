@@ -296,6 +296,35 @@ describe("Updates", () => {
     );
   });
 
+  it.each([Code.Unauthenticated, Code.PermissionDenied])(
+    "does not apply a delayed acknowledgement error %s to a replacement session",
+    async (code) => {
+      const request = createDeferred<void>();
+      upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+        error: "new stack failed to start",
+      });
+      upgradeHookMock.current.acknowledgeOperation = vi.fn().mockReturnValue(request.promise);
+      mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+      const page = render(<Updates />);
+
+      expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
+      fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
+      expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
+
+      permissionsMock.sessionExpiry = new Date(2_000);
+      permissionsMock.sessionGeneration = 2;
+      await act(async () => {
+        request.reject(new ConnectError("previous session is no longer authorized", code));
+        await request.promise.catch(() => undefined);
+      });
+
+      expect(authErrorsMock.handleAuthErrors).not.toHaveBeenCalled();
+      expect(permissionsMock.setPermissions).not.toHaveBeenCalled();
+      expect(mockPushToast).not.toHaveBeenCalled();
+    },
+  );
+
   it("closes the outcome dialog when another session dismissed the failure", async () => {
     upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
       error: "new stack failed to start",

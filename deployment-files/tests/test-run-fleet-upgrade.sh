@@ -119,6 +119,8 @@ write_release_manifest() {
             ! -path './.env' \
             ! -path './.update-preflight-complete' \
             ! -path './.update-preflight-complete.tmp.*' \
+            ! -path './.fleet-startup-complete' \
+            ! -path './.fleet-startup-complete.tmp.*' \
             ! -path './client/nginx.conf' \
             ! -path './ssl/*' \
             ! -path './server/influx_config/.env' \
@@ -174,6 +176,12 @@ make_stage() {
 printf 'docker' >> "$CALL_LOG"
 printf ' %s' "$@" >> "$CALL_LOG"
 printf '\n' >> "$CALL_LOG"
+
+if [ "${FAKE_NONEMPTY_STARTUP_MARKER_SLOT:-false}" = "true" ] && \
+    [ "${1:-}" = "builder" ] && [ "${2:-}" = "prune" ]; then
+    mkdir -p "$STAGE_ROOT/.fleet-startup-complete"
+    printf 'operator-data\n' > "$STAGE_ROOT/.fleet-startup-complete/keep.txt"
+fi
 
 if [ "${1:-}" = "image" ] && [ "${2:-}" = "ls" ]; then
     repository=''
@@ -2139,6 +2147,28 @@ if [ -f "$STAGE/.update-preflight-complete" ]; then
 else
     pass "successful offline WSL activation consumes its marker"
 fi
+
+# A reserved startup-proof slot occupied by a nonempty directory must fail
+# closed without deleting operator data. Fleet is already running at this
+# point, so proof-recording failure remains a warning and the run succeeds.
+make_stage protected-startup-marker-directory
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "protected startup marker fixture preflights"
+else
+    fail "protected startup marker fixture should preflight"
+fi
+if FAKE_NONEMPTY_STARTUP_MARKER_SLOT=true run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "nonempty startup marker directory does not fail a successful deployment"
+else
+    fail "nonempty startup marker directory should only prevent proof recording"
+fi
+if grep -qFx 'operator-data' "$STAGE/.fleet-startup-complete/keep.txt"; then
+    pass "nonempty startup marker directory contents are preserved"
+else
+    fail "nonempty startup marker directory contents must not be deleted"
+fi
+assert_contains "nonempty startup marker directory reports proof failure" "$HARNESS_OUTPUT_LOG" \
+    "could not record the successful startup"
 
 if [ "$FAILURES" -ne 0 ]; then
     while IFS= read -r -d '' output; do

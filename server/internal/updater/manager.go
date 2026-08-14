@@ -923,17 +923,23 @@ func writeProcessLockPID(lockFile *os.File) error {
 }
 
 func (m *Manager) Status() updaterapi.StatusResponse {
-	m.acknowledgeRemediatedFailure()
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	if m.operation == nil {
+		m.mu.RUnlock()
 		return updaterapi.StatusResponse{}
 	}
 	snapshot := *m.operation
+	m.mu.RUnlock()
+	if m.failureWasRemediated(snapshot) {
+		// The deployment proof is already durable, so derive the effective
+		// acknowledgement on the snapshot rather than turning a status read into
+		// a state mutation. The proof is re-evaluated after daemon restarts.
+		snapshot.Acknowledged = true
+	}
 	return updaterapi.StatusResponse{Operation: &snapshot}
 }
 
-// acknowledgeRemediatedFailure auto-dismisses a failed operation once the
+// failureWasRemediated auto-dismisses a failed operation once the
 // deployment has reached the failed target version (or newer) by other means:
 // a manual install, a successful run of the recovery command, or a later
 // upgrade. Without this, a failure the operator already fixed keeps
@@ -943,45 +949,21 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 // proof only at the end of a run that brought Fleet up, so a proof newer
 // than the failure means the deployment at the target version actually
 // started. Mere absence of failure artifacts is not enough — a failed
-// recovery rerun can consume the preflight marker while the deployment
-// still names the failed target, and the failure is then still live.
-func (m *Manager) acknowledgeRemediatedFailure() {
-	m.mu.RLock()
-	pending := m.operation != nil && m.operation.Phase == updaterapi.PhaseFailed &&
-		!m.operation.Acknowledged && m.operation.CompletedAt != nil
-	var operationID, targetVersion string
-	var failedAt time.Time
-	if pending {
-		operationID = m.operation.ID
-		targetVersion = m.operation.TargetVersion
-		failedAt = *m.operation.CompletedAt
-	}
-	m.mu.RUnlock()
-	if !pending {
-		return
+// recovery rerun can consume the preflight marker while the deployment still
+// names the failed target, and the failure is then still live. This check is
+// deliberately read-only because both HTTP and Connect expose status as a
+// no-side-effect operation.
+func (m *Manager) failureWasRemediated(operation updaterapi.Operation) bool {
+	if operation.Phase != updaterapi.PhaseFailed || operation.Acknowledged || operation.CompletedAt == nil {
+		return false
 	}
 	deployment := filepath.Join(m.cfg.InstallRoot, "deployment")
 	installed, err := readInstalledVersion(filepath.Join(deployment, "version.txt"))
-	if err != nil || !semver.IsValid(installed) || semver.Compare(installed, targetVersion) < 0 {
-		return
+	if err != nil || !semver.IsValid(installed) || semver.Compare(installed, operation.TargetVersion) < 0 {
+		return false
 	}
 	proof, err := os.Lstat(filepath.Join(deployment, startupProofFilename))
-	if err != nil || !proof.Mode().IsRegular() || !proof.ModTime().After(failedAt) {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.operation == nil || m.operation.ID != operationID ||
-		m.operation.Phase != updaterapi.PhaseFailed || m.operation.Acknowledged {
-		return
-	}
-	m.operation.Acknowledged = true
-	if err := m.persistLocked(); err != nil {
-		// Leave the failure visible and retry on the next status poll rather
-		// than surfacing a dismissal that would resurrect after a restart.
-		m.operation.Acknowledged = false
-		log.Printf("persist auto-acknowledged remediated failure: %v", err)
-	}
+	return err == nil && proof.Mode().IsRegular() && proof.ModTime().After(*operation.CompletedAt)
 }
 
 // Acknowledge durably records that an operator dismissed the terminal outcome
@@ -2150,19 +2132,7 @@ func (m *Manager) loadState() error {
 	if err != nil {
 		if marker != nil && op.RecoveryCommand != "" {
 			now := m.cfg.Now().UTC()
-			op.Phase = updaterapi.PhaseFailed
-			op.Message = "Activation layout requires manual recovery"
-			recoveryError := "Activation layout recovery did not complete: " + err.Error()
-			if !strings.Contains(op.Error, recoveryError) {
-				if op.Error != "" {
-					op.Error += " "
-				}
-				op.Error += recoveryError
-			}
-			op.UpdatedAt = now
-			if op.CompletedAt == nil {
-				op.CompletedAt = &now
-			}
+			rewriteActivationRecoveryFailure(&op, now, err)
 			m.operation = &op
 			if persistErr := m.persistLocked(); persistErr != nil {
 				return errors.Join(err, fmt.Errorf("persist activation recovery instructions: %w", persistErr))
@@ -2214,6 +2184,25 @@ func (m *Manager) loadState() error {
 		return m.clearActivationMarker()
 	}
 	return nil
+}
+
+func rewriteActivationRecoveryFailure(operation *updaterapi.Operation, now time.Time, recoveryErr error) {
+	operation.Phase = updaterapi.PhaseFailed
+	// Reconciliation discovered materially new recovery guidance. A dismissal
+	// of the prior outcome must not suppress the rewritten failure.
+	operation.Acknowledged = false
+	operation.Message = "Activation layout requires manual recovery"
+	errorMessage := "Activation layout recovery did not complete: " + recoveryErr.Error()
+	if !strings.Contains(operation.Error, errorMessage) {
+		if operation.Error != "" {
+			operation.Error += " "
+		}
+		operation.Error += errorMessage
+	}
+	operation.UpdatedAt = now
+	if operation.CompletedAt == nil {
+		operation.CompletedAt = &now
+	}
 }
 
 // persistReconciledState normally preserves the ordering of reconciliation,

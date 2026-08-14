@@ -328,10 +328,8 @@ export function useUpgradeOperation({
       if (next.acknowledged && isUpgradeTerminal(next.phase)) {
         // The host durably recorded a dismissal (possibly from another
         // session), so the outcome must not resurface anywhere.
-        if (operationRef.current?.id === next.id) {
+        if (operationRef.current?.id === next.id || trackedOperationRef.current?.id === next.id) {
           clearSurfacedOperation();
-        } else if (trackedOperationRef.current?.id === next.id) {
-          updateTrackedOperation(undefined);
         }
         return false;
       }
@@ -601,9 +599,9 @@ export function useUpgradeOperation({
         { timeoutMs: ACKNOWLEDGE_REQUEST_TIMEOUT_MS },
       );
     } catch (error) {
-      if (error instanceof ConnectError && (error.code === Code.NotFound || error.code === Code.FailedPrecondition)) {
-        // The host no longer reports this operation (or cannot persist
-        // acknowledgements); there is nothing left to dismiss durably.
+      if (error instanceof ConnectError && error.code === Code.NotFound) {
+        // The host no longer reports this operation, so there is nothing left
+        // to dismiss durably.
         return;
       }
       throw error;

@@ -392,8 +392,12 @@ const Updates = () => {
         connectionLost={upgrade.connectionLost}
         manualFallbackReady={upgrade.manualFallbackReady}
         onAcknowledge={() => {
+          const authSession = captureAuthSession(authSessionIdentity);
           setUpgradeModalOpen(false);
           void upgrade.acknowledgeOperation().catch((err: unknown) => {
+            if (!isSameAuthSession(authSession)) {
+              return;
+            }
             handleRequestError(err, isMounted.current, () => {
               pushToast({
                 message: getErrorMessage(err, "Fleet could not record the dismissal on the host; it may reappear"),

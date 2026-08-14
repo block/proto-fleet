@@ -69,6 +69,7 @@ var RedactedResponseProcedures = []string{
 	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
 	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
 	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+	instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
@@ -173,6 +174,7 @@ var SessionOnlyProcedures = []string{
 	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure,
 	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
 	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+	instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

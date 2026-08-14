@@ -739,6 +739,22 @@ describe("useUpgradeOperation", () => {
     expect(result.current.operation).toBeUndefined();
   });
 
+  it("surfaces a failed-precondition dismissal while keeping the local dismissal applied", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    mockAcknowledgeUpgrade.mockRejectedValue(
+      new ConnectError("one-click updates are not installed on this host", Code.FailedPrecondition),
+    );
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+
+    let acknowledgeError: unknown;
+    await act(async () => result.current.acknowledgeOperation().catch((error: unknown) => (acknowledgeError = error)));
+
+    expect(acknowledgeError).toBeInstanceOf(ConnectError);
+    expect((acknowledgeError as ConnectError).code).toBe(Code.FailedPrecondition);
+    expect(result.current.operation).toBeUndefined();
+  });
+
   it("never surfaces an operation the host reports as acknowledged", async () => {
     mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED, { acknowledged: true })));
 
@@ -747,6 +763,24 @@ describe("useUpgradeOperation", () => {
     await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
     expect(result.current.operation).toBeUndefined();
     expect(result.current.reconciling).toBe(false);
+  });
+
+  it("ends recovered reconciliation when the host reports the tracked operation as acknowledged", async () => {
+    const acknowledgedOperation = operation(UpgradePhase.FAILED, { acknowledged: true });
+    window.sessionStorage.setItem(
+      TRACKED_OPERATION_KEY,
+      JSON.stringify({ id: acknowledgedOperation.id, targetVersion: acknowledgedOperation.targetVersion }),
+    );
+    mockGetUpgradeStatus.mockResolvedValue(status(true, acknowledgedOperation));
+
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, currentVersion: "v1.2.0" }));
+
+    expect(result.current.reconciling).toBe(true);
+    await waitFor(() => expect(result.current.reconciling).toBe(false));
+    expect(result.current.operation).toBeUndefined();
+    expect(result.current.connectionLost).toBe(false);
+    expect(result.current.manualFallbackReady).toBe(false);
+    expect(window.sessionStorage.getItem(TRACKED_OPERATION_KEY)).toBeNull();
   });
 
   it("clears a displayed failure once another session dismisses it on the host", async () => {

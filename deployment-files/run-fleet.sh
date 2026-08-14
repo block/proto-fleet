@@ -1393,11 +1393,12 @@ record_preflight_marker() {
 # Markers can be written privileged (the host updater invokes this script as
 # root) inside a tree owned by the deployment user, so the marker slot is
 # untrusted and must be replaced without ever being followed. mktemp creates a
-# fresh private file; a planted directory — or symlink to one — is cleared
-# first, because a two-operand mv would move the file *into* it instead of
-# replacing the slot; the rename then swaps the slot atomically without
-# dereferencing a symlink. The final check turns a marker silently absorbed by
-# a slot re-planted mid-swap into a reported failure.
+# fresh private file; a planted symlink is unlinked, while a directory is
+# removed only when empty so marker replacement can never destroy unrelated
+# contents. This prevents a two-operand mv from moving the file *into* either
+# kind of slot; the rename then swaps the slot atomically without dereferencing
+# a symlink. The final check turns a marker silently absorbed by a slot
+# re-planted mid-swap into a reported failure.
 replace_marker_file() {
     local marker_path="$1" marker_content="$2" temporary_marker
     temporary_marker=$(umask 077; mktemp "$marker_path.tmp.XXXXXX") || return 1
@@ -1409,8 +1410,13 @@ replace_marker_file() {
         rm -f "$temporary_marker"
         return 1
     fi
-    if [ -L "$marker_path" ] || [ -d "$marker_path" ]; then
-        if ! rm -rf -- "$marker_path"; then
+    if [ -L "$marker_path" ]; then
+        if ! rm -f -- "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    elif [ -d "$marker_path" ]; then
+        if ! rmdir "$marker_path"; then
             rm -f "$temporary_marker"
             return 1
         fi

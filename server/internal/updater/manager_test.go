@@ -3624,7 +3624,7 @@ func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
 	assert.True(t, status.Acknowledged)
 }
 
-func TestStatusAutoAcknowledgesRemediatedFailure(t *testing.T) {
+func TestStatusDerivesAcknowledgementForRemediatedFailure(t *testing.T) {
 	t.Parallel()
 
 	for _, installedVersion := range []string{"v1.1.0", "v1.2.0"} {
@@ -3648,7 +3648,15 @@ func TestStatusAutoAcknowledgesRemediatedFailure(t *testing.T) {
 		assert.Equal(t, updaterapi.PhaseFailed, status.Phase)
 		assert.True(t, status.Acknowledged, "installed %s should moot the v1.1.0 failure", installedVersion)
 
-		// The auto-dismissal is persisted, not recomputed.
+		// Status remains a read: durable operation state is unchanged.
+		var durable updaterapi.Operation
+		require.NoError(t, json.Unmarshal(
+			[]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))),
+			&durable,
+		))
+		assert.False(t, durable.Acknowledged)
+
+		// The durable deployment proof derives the same result after restart.
 		require.NoError(t, manager.Close())
 		restarted, err := NewManager(Config{
 			InstallRoot: installRoot,
@@ -3656,12 +3664,34 @@ func TestStatusAutoAcknowledgesRemediatedFailure(t *testing.T) {
 			GOARCH:      "amd64",
 		})
 		require.NoError(t, err)
-		require.NoError(t, os.Remove(filepath.Join(installRoot, "deployment", "version.txt")))
 		status = restarted.Status().Operation
 		require.NotNil(t, status)
 		assert.True(t, status.Acknowledged)
 		require.NoError(t, restarted.Close())
 	}
+}
+
+func TestRewriteActivationRecoveryFailureClearsAcknowledgement(t *testing.T) {
+	t.Parallel()
+
+	completed := time.Date(2026, 8, 5, 8, 1, 0, 0, time.UTC)
+	rewrittenAt := completed.Add(time.Minute)
+	operation := updaterapi.Operation{
+		Phase:        updaterapi.PhaseFailed,
+		Message:      "Previously dismissed failure",
+		Error:        "original failure",
+		UpdatedAt:    completed,
+		CompletedAt:  &completed,
+		Acknowledged: true,
+	}
+
+	rewriteActivationRecoveryFailure(&operation, rewrittenAt, assert.AnError)
+
+	assert.False(t, operation.Acknowledged)
+	assert.Equal(t, "Activation layout requires manual recovery", operation.Message)
+	assert.Contains(t, operation.Error, assert.AnError.Error())
+	assert.Equal(t, rewrittenAt, operation.UpdatedAt)
+	assert.Equal(t, completed, *operation.CompletedAt)
 }
 
 func TestStatusKeepsUnremediatedFailureVisible(t *testing.T) {
