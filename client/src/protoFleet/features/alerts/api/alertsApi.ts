@@ -25,6 +25,7 @@ import {
   RuleTemplate as ProtoRuleTemplate,
   ValidationState as ProtoValidationState,
 } from "@/protoFleet/api/generated/alerts/v1/alerts_pb";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import type {
   ActiveAlertGroup,
   AlertHistoryEntry,
@@ -586,9 +587,12 @@ const activeGroupFromProto = (g: ProtoActiveAlertGroup): ActiveAlertGroup => ({
   device_count: Number(g.deviceCount),
   alert_count: Number(g.alertCount),
   first_started_at: isoFromTs(g.firstStartedAt),
+  summary: g.summary,
 });
 
+// The poll behind the header pill is an alarm, and a request that never settles stalls it with no error to show:
+// the pill would then read as a quiet fleet. Deadline it at the interval, past which a reply is superseded anyway.
 export async function listActiveAlertGroups(): Promise<ActiveAlertGroupsPage> {
-  const res = await alertHistoryClient.listActiveAlertGroups({});
+  const res = await alertHistoryClient.listActiveAlertGroups({}, { timeoutMs: POLL_INTERVAL_MS });
   return { groups: res.groups.map(activeGroupFromProto), has_more: res.hasMore };
 }

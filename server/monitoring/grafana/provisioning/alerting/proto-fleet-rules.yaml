@@ -462,6 +462,9 @@ groups:
           severity: critical
           rule_group: proto-fleet-self
           component: metric-ingest
+          # Fleet-scoped, so the summary names no miner: the label is what lets an alert:read
+          # viewer without miner:read read it (see deviceLessTemplates).
+          template: metric-ingest
         annotations:
           summary: "Proto Fleet metric ingest has stalled."
           description: |

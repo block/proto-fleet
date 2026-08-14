@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	alertsv1 "github.com/block/proto-fleet/server/generated/grpc/alerts/v1"
+	"github.com/block/proto-fleet/server/internal/domain/alerts"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
@@ -174,11 +175,15 @@ func TestListActiveAlertGroups_ReturnsRollup(t *testing.T) {
 	require.Equal(t, int32(activeGroupsMaxPageSize+1), lister.lastLimit)
 }
 
-// The rollup reports rule identity and counts only, so a viewer without miner:read reads the same rows a
-// miner reader does — there is no device identity or rule-annotation free text in it to redact.
+// The rollup reports rule identity, counts, and — only where there are no miners — a summary read off a
+// device-less instance, so a viewer without miner:read reads the same rows a miner reader does.
 func TestListActiveAlertGroups_NeedsNoMinerRead(t *testing.T) {
 	groups := []notificationhistory.ActiveAlertGroup{
 		{AlertName: "MinerOffline", DeviceCount: 5_000, AlertCount: 5_000},
+		{
+			AlertName: "CurtailmentSourceUnreachable", AlertCount: 2,
+			Summary: "maestro-b is unreachable", Template: string(alerts.RuleTemplateMQTTDisconnected),
+		},
 	}
 
 	withoutMiner, err := NewHandler(nil, &stubLister{groups: groups}).ListActiveAlertGroups(
@@ -192,10 +197,97 @@ func TestListActiveAlertGroups_NeedsNoMinerRead(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.Len(t, withoutMiner.Msg.Groups, 1)
+	require.Len(t, withoutMiner.Msg.Groups, 2)
 	require.Equal(t, withMiner.Msg.Groups[0].AlertName, withoutMiner.Msg.Groups[0].AlertName)
 	require.Equal(t, withMiner.Msg.Groups[0].DeviceCount, withoutMiner.Msg.Groups[0].DeviceCount)
 	require.Equal(t, int64(5_000), withoutMiner.Msg.Groups[0].DeviceCount)
+	// It names a non-device dimension rather than a miner, so it is not redacted from a non-miner reader either.
+	require.Equal(t, "maestro-b is unreachable", withoutMiner.Msg.Groups[1].Summary)
+	require.Equal(t, withMiner.Msg.Groups[1].Summary, withoutMiner.Msg.Groups[1].Summary)
+}
+
+// A device rule whose instance carried no device_id still describes a miner in its free text, and this endpoint
+// has no miner:read to check, so the template decides — the same call the history API makes.
+func TestListActiveAlertGroups_RedactsDeviceTemplateSummaries(t *testing.T) {
+	groups := []notificationhistory.ActiveAlertGroup{
+		{
+			AlertName: "MinerOffline", AlertCount: 1,
+			Summary: "rig-14 has been offline for 15 minutes", Template: string(alerts.RuleTemplateOffline),
+		},
+	}
+
+	resp, err := NewHandler(nil, &stubLister{groups: groups}).ListActiveAlertGroups(
+		ctxWithPerms(authz.PermAlertRead),
+		connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.Groups, 1)
+	require.Equal(t, "MinerOffline", resp.Msg.Groups[0].AlertName)
+	require.Empty(t, resp.Msg.Groups[0].Summary)
+}
+
+// The device-less provisioned rules beyond the MQTT pair: a facility fan failure and a fleet-wide poll failure.
+// Both carry a static annotation summary that names no miner, and a lone instance of either is a rollup row with
+// no count to show, so the summary is all the header has — it must clear the gate in the rollup and the drill-in
+// alike, or an alert:read viewer sees a row that cannot say what fired.
+func TestDeviceLessTemplateSummariesVisibleWithoutMinerRead(t *testing.T) {
+	cases := []struct {
+		template  string
+		alertName string
+		summary   string
+	}{
+		{
+			template:  string(alerts.RuleTemplateCurtailmentFanRestore),
+			alertName: "Curtailment Fan Restore Failed",
+			summary:   "Facility fan restore failed before miners resumed.",
+		},
+		{
+			template:  string(alerts.RuleTemplateTelemetryPoll),
+			alertName: "Telemetry Poll Failure Rate High",
+			summary:   "Telemetry polling is failing for the last ten minutes.",
+		},
+		{
+			template:  string(alerts.RuleTemplateMetricIngest),
+			alertName: "Metric Ingest Stalled",
+			summary:   "Proto Fleet metric ingest has stalled.",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.template, func(t *testing.T) {
+			h := NewHandler(nil, &stubLister{
+				rows: []notificationhistory.StoredNotification{{
+					ID:         1,
+					ReceivedAt: time.Unix(1_700_000_000, 0),
+					Notification: notificationhistory.Notification{
+						AlertName: tc.alertName,
+						Status:    "firing",
+						Severity:  "critical",
+						Template:  tc.template,
+						Summary:   tc.summary,
+					},
+				}},
+				groups: []notificationhistory.ActiveAlertGroup{{
+					AlertName: tc.alertName, AlertCount: 1, Summary: tc.summary, Template: tc.template,
+				}},
+			})
+			ctx := ctxWithPerms(authz.PermAlertRead)
+
+			rollup, err := h.ListActiveAlertGroups(ctx, connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}))
+			require.NoError(t, err)
+			require.Len(t, rollup.Msg.Groups, 1)
+			require.Equal(t, tc.summary, rollup.Msg.Groups[0].Summary)
+
+			drillIn, err := h.ListAlerts(ctx, connect.NewRequest(&alertsv1.ListAlertsRequest{
+				ActiveOnly: true,
+				AlertName:  tc.alertName,
+			}))
+			require.NoError(t, err)
+			require.Len(t, drillIn.Msg.Alerts, 1)
+			require.Equal(t, tc.summary, drillIn.Msg.Alerts[0].Summary)
+			require.Empty(t, drillIn.Msg.Alerts[0].DeviceId)
+		})
+	}
 }
 
 func TestListActiveAlertGroups_FlagsMoreBeyondCap(t *testing.T) {

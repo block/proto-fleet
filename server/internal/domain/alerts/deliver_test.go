@@ -78,7 +78,7 @@ func TestDeliverSlackChannel(t *testing.T) {
 	require.Len(t, *got, 1)
 	body := string((*got)[0].body)
 	assert.Contains(t, body, "blocks")
-	assert.Contains(t, body, "miner-01 (aa:bb)")
+	assert.Contains(t, body, "miner-01 (`aa:bb`)")
 	assert.NotContains(t, body, "grafana")
 	assert.Empty(t, (*got)[0].auth, "slack webhook posts carry no bearer")
 }

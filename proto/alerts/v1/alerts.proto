@@ -420,6 +420,9 @@ message ActiveAlertGroup {
     int64 alert_count = 4;
     // Earliest start across the group's instances: how long this alert has been firing somewhere in the fleet.
     google.protobuf.Timestamp first_started_at = 5;
+    // The newest instance's summary, and only for a group whose device_count is 0: those have no drill-in to
+    // describe them, and taking it from a device-less instance keeps device identity out of this response.
+    string summary = 6;
 }
 
 message ListActiveAlertGroupsRequest {}

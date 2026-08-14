@@ -1,7 +1,8 @@
-import { type ReactElement } from "react";
+import { type ReactElement, useState } from "react";
 import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
+import ActiveAlertsPill from "./ActiveAlertsPill";
 import CurtailmentPill from "./CurtailmentPill";
 import type { CurtailmentPillEvent } from "./curtailmentPillTypes";
 import {
@@ -13,8 +14,11 @@ import {
 } from "./headerWidgetLayout";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
+import type { UseActiveAlertsPillDataResult } from "./useActiveAlertsPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
+import AlertInstancesModal from "@/protoFleet/features/alerts/components/AlertInstancesModal";
+import type { ActiveAlertGroup } from "@/protoFleet/features/alerts/types";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
@@ -25,6 +29,7 @@ import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage"
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface PageHeaderProps {
+  activeAlertsPillData?: UseActiveAlertsPillDataResult;
   activeCurtailmentEvent?: CurtailmentPillEvent | null;
   isMenuOpen?: boolean;
   openMenu?: () => void;
@@ -38,12 +43,14 @@ export interface UpdatePillData {
 }
 
 interface HeaderWidgetsProps {
+  activeAlertsPillData: UseActiveAlertsPillDataResult;
   activeCurtailmentEvent: CurtailmentPillEvent | null;
   align?: "start" | "end";
   canReadCurtailment: boolean;
   className?: string;
   dismissedSetup: boolean;
   onContinueSetup: () => void;
+  onSelectAlertGroup: (group: ActiveAlertGroup) => void;
   schedulePillData: UseSchedulePillDataResult;
   stacked?: boolean;
   testId?: string;
@@ -52,15 +59,23 @@ interface HeaderWidgetsProps {
 }
 
 const headerWidgetEnabled = true;
-type HeaderWidgetKind = "curtailment" | "schedule" | "update" | "setup";
+const noActiveAlerts: UseActiveAlertsPillDataResult = {
+  groups: [],
+  error: null,
+  hasMore: false,
+  hasVisiblePill: false,
+};
+type HeaderWidgetKind = "alerts" | "curtailment" | "schedule" | "update" | "setup";
 
 function HeaderWidgets({
+  activeAlertsPillData,
   activeCurtailmentEvent,
   align = "start",
   canReadCurtailment,
   className,
   dismissedSetup,
   onContinueSetup,
+  onSelectAlertGroup,
   schedulePillData,
   stacked = false,
   testId,
@@ -86,6 +101,16 @@ function HeaderWidgets({
     >
       {widgets.map((widget) => {
         switch (widget) {
+          case "alerts":
+            return (
+              <ActiveAlertsPill
+                key={widget}
+                groups={activeAlertsPillData.groups}
+                error={activeAlertsPillData.error}
+                hasMore={activeAlertsPillData.hasMore}
+                onSelectGroup={onSelectAlertGroup}
+              />
+            );
           case "curtailment":
             return activeCurtailmentEvent && canReadCurtailment ? (
               <CurtailmentPill key={widget} event={activeCurtailmentEvent} detailsPath={energyPath} />
@@ -134,6 +159,7 @@ function HeaderWidgets({
 }
 
 function PageHeader({
+  activeAlertsPillData = noActiveAlerts,
   activeCurtailmentEvent = null,
   isMenuOpen,
   openMenu,
@@ -147,6 +173,8 @@ function PageHeader({
   const { pathname } = useLocation();
   const isDashboard = unscopedScopablePath(pathname) === "/dashboard";
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
+  // Owned here, not in the pill the header drops once the last alert resolves, so a drill-in survives that.
+  const [drilledInAlertGroup, setDrilledInAlertGroup] = useState<ActiveAlertGroup | null>(null);
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
   // ListSites is server-gated on org-scoped site:read; without it we skip the
@@ -165,16 +193,20 @@ function PageHeader({
   };
 
   const headerWidgetsProps = {
+    activeAlertsPillData,
     activeCurtailmentEvent,
     canReadCurtailment,
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
+    onSelectAlertGroup: setDrilledInAlertGroup,
     schedulePillData,
     updatePill,
   };
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
   const hasVisibleUpdatePill = updatePill !== null;
+  // Alerts lead: only the first widget stays inline in the phone top bar, and a firing alert outranks the rest.
   const headerWidgetKinds: HeaderWidgetKind[] = [
+    ...(activeAlertsPillData.hasVisiblePill ? (["alerts"] as const) : []),
     ...(hasVisibleCurtailmentPill ? (["curtailment"] as const) : []),
     ...(schedulePillData.hasVisibleSchedules ? (["schedule"] as const) : []),
     ...(hasVisibleUpdatePill ? (["update"] as const) : []),
@@ -182,6 +214,7 @@ function PageHeader({
   ];
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
+    hasVisibleAlertsPill: activeAlertsPillData.hasVisiblePill,
     hasVisibleUpdatePill,
     hasVisibleCurtailmentPill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
@@ -254,6 +287,10 @@ function PageHeader({
             {...headerWidgetsProps}
           />
         </div>
+      ) : null}
+
+      {drilledInAlertGroup ? (
+        <AlertInstancesModal group={drilledInAlertGroup} onClose={() => setDrilledInAlertGroup(null)} />
       ) : null}
     </>
   );

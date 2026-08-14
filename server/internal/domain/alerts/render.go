@@ -3,18 +3,28 @@ package alerts
 import (
 	"cmp"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"unicode/utf8"
 )
 
-// Slack limits: header plain_text ≤150 chars, section text ≤3000, ≤50 blocks per message.
+// Slack limits: section text ≤3000, ≤50 blocks per message.
 const (
-	slackHeaderMaxRunes  = 150
 	slackSectionMaxRunes = 2900
-	// Cap alert sections so header + link + 2 headings + overflow line stay under Slack's 50-block limit.
+	// Cap alert sections so title + heading + overflow line stay under Slack's 50-block limit.
 	slackMaxAlertSections = 40
+	// Keep the instance name from crowding the alert counts out of the truncated title.
+	slackInstanceMaxRunes = 50
 )
+
+// The title's dot carries the batch's worst severity, worst first. An unrecognized or missing severity ranks
+// with the worst: rules can carry any severity label, and a colour is a weak reason to under-signal one.
+var slackSeverityDots = []struct{ severity, dot string }{
+	{"critical", "🔴"},
+	{"warning", "🟡"},
+	{"info", "🔵"},
+}
 
 // renderSlack builds a Block Kit message that carries no alerting-engine internals. Alerts are rolled up per
 // rule, so a fleet-wide outage is a handful of sections with miner counts rather than thousands of miner lines.
@@ -22,28 +32,30 @@ func renderSlack(publicURL string, alerts []Alert, identities map[string]DeviceI
 	firing, resolved := partitionAlerts(alerts)
 	firingGroups := groupAlerts(firing)
 	resolvedGroups := groupAlerts(resolved)
-	title := slackTitle(firingGroups, distinctDevices(firing))
+	firingDevices := distinctDevices(firing)
+	plain, linked := instanceLabels(publicURL)
+	// The fallback carries the same title without the link markup, which clients that don't render blocks
+	// would show verbatim.
+	title := slackTitle(plain, firingGroups, firingDevices)
 
-	blocks := []map[string]any{headerBlock(title)}
-	if publicURL != "" {
-		blocks = append(blocks, mrkdwnSection(fmt.Sprintf("<%s|Open Proto Fleet>", publicURL)))
-	}
+	blocks := []map[string]any{mrkdwnSection("*" + slackTitle(linked, firingGroups, firingDevices) + "*")}
 	remaining := slackMaxAlertSections
-	appendSection := func(heading string, groups []alertGroup) {
-		if len(groups) == 0 {
-			return
-		}
-		blocks = append(blocks, mrkdwnSection("*"+heading+"*"))
+	appendGroups := func(groups []alertGroup) {
 		for _, g := range groups {
 			if remaining <= 0 {
-				break
+				return
 			}
-			blocks = append(blocks, mrkdwnSection(truncate(groupLine(g, identities), slackSectionMaxRunes)))
+			blocks = append(blocks, mrkdwnSection(groupLine(g, identities)))
 			remaining--
 		}
 	}
-	appendSection("Firing", firingGroups)
-	appendSection("Resolved", resolvedGroups)
+	// Firing groups need no heading — the title already says how many are firing — but resolved ones do,
+	// since nothing else separates them from the alerts still up.
+	appendGroups(firingGroups)
+	if len(resolvedGroups) > 0 && remaining > 0 {
+		blocks = append(blocks, mrkdwnSection("*Resolved*"))
+		appendGroups(resolvedGroups)
+	}
 	if overflow := len(firingGroups) + len(resolvedGroups) - slackMaxAlertSections; overflow > 0 {
 		blocks = append(blocks, mrkdwnSection(fmt.Sprintf("_…and %d more — open Proto Fleet for the full list._", overflow)))
 	}
@@ -52,11 +64,46 @@ func renderSlack(publicURL string, alerts []Alert, identities map[string]DeviceI
 	return map[string]any{"text": title, "blocks": blocks}
 }
 
-func slackTitle(firing []alertGroup, firingDevices int) string {
-	if len(firing) == 0 {
-		return "✅ Proto Fleet — alerts resolved"
+// instanceLabels names the sending fleet: several instances can post to one channel, and nothing else in the
+// message says which one fired, so the public URL's host names the sender and doubles as the link to it. It
+// returns the plain label for the notification fallback and the linked one for the block. A value with no
+// host is a misconfigured link, not an instance name.
+func instanceLabels(publicURL string) (plain, linked string) {
+	const product = "Proto Fleet"
+	u, err := url.Parse(publicURL)
+	if err != nil || u.Host == "" {
+		return product, product
 	}
-	base := fmt.Sprintf("🔴 Proto Fleet — %d alert%s firing", len(firing), plural(len(firing)))
+	host := truncate(u.Host, slackInstanceMaxRunes)
+	// Only the block form is mrkdwn; escaping the fallback would show the entities themselves.
+	return fmt.Sprintf("%s (%s)", product, host),
+		fmt.Sprintf("%s (<%s|%s>)", product, publicURL, escapeMrkdwn(host))
+}
+
+// severityDot picks the dot for the worst severity firing, so a batch of warnings doesn't read as an outage.
+func severityDot(firing []alertGroup) string {
+	worst := len(slackSeverityDots) - 1
+	for _, g := range firing {
+		worst = min(worst, severityRank(g.Severity))
+	}
+	return slackSeverityDots[worst].dot
+}
+
+func severityRank(severity string) int {
+	severity = strings.TrimSpace(severity)
+	for i, s := range slackSeverityDots {
+		if strings.EqualFold(severity, s.severity) {
+			return i
+		}
+	}
+	return 0
+}
+
+func slackTitle(instance string, firing []alertGroup, firingDevices int) string {
+	if len(firing) == 0 {
+		return "✅ " + instance + " — alerts resolved"
+	}
+	base := fmt.Sprintf("%s %s — %d alert%s firing", severityDot(firing), instance, len(firing), plural(len(firing)))
 	// Fleet- and source-scoped alerts have no miners to count; don't claim "on 0 miners".
 	if firingDevices == 0 {
 		return base
@@ -102,25 +149,22 @@ func groupLine(g alertGroup, identities map[string]DeviceIdentity) string {
 	return b.String()
 }
 
-// escapeMrkdwn escapes Slack's reserved mrkdwn chars so user-controlled text can't break rendering or inject a `<url|text>` link.
+// escapeMrkdwn neutralizes the mrkdwn chars that let user-controlled text escape its own field: the link syntax,
+// and the backtick, since a code span opened in one field closes at the next backtick anywhere in the section.
+// It does not touch `*`, `_`, `~`, or `:shortcode:`, so user text can still format itself and interpolate emoji.
 func escapeMrkdwn(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "`", "")
 	return s
 }
 
-func headerBlock(text string) map[string]any {
-	return map[string]any{
-		"type": "header",
-		"text": map[string]any{"type": "plain_text", "text": truncate(text, slackHeaderMaxRunes), "emoji": true},
-	}
-}
-
+// The cap lives here rather than at each call site, so no section can exceed it however it was built.
 func mrkdwnSection(text string) map[string]any {
 	return map[string]any{
 		"type": "section",
-		"text": map[string]any{"type": "mrkdwn", "text": text},
+		"text": map[string]any{"type": "mrkdwn", "text": truncate(text, slackSectionMaxRunes)},
 	}
 }
 
@@ -217,10 +261,19 @@ func distinctDevices(alerts []Alert) int {
 	return len(seen)
 }
 
+// macCode renders a MAC as inline code, which is both how an identifier reads best and the only mrkdwn context
+// where Slack leaves `:shortcode:` alone — a colon-separated MAC otherwise interpolates `:ab:` as 🆎.
+func macCode(mac string) string {
+	if mac == "" {
+		return ""
+	}
+	return "`" + escapeMrkdwn(mac) + "`"
+}
+
 func deviceLabel(id string, identities map[string]DeviceIdentity) string {
 	ident := identities[id]
 	name := escapeMrkdwn(strings.TrimSpace(ident.Name))
-	mac := escapeMrkdwn(ident.MAC)
+	mac := macCode(ident.MAC)
 	switch {
 	case name != "" && mac != "":
 		return fmt.Sprintf("%s (%s)", name, mac)

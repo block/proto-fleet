@@ -136,21 +136,52 @@ func (q *Queries) InsertNotificationHistory(ctx context.Context, arg InsertNotif
 }
 
 const listActiveNotificationGroups = `-- name: ListActiveNotificationGroups :many
+WITH groups AS (
+    SELECT
+        na.alert_name,
+        na.rule_group,
+        COUNT(*)::bigint AS alert_count,
+        -- FILTER, not COUNT(DISTINCT NULLIF(...)): equivalent, but only the bare column matches
+        -- idx_notification_active_org_rollup's ordering, so this streams out of the GroupAggregate unsorted.
+        (COUNT(DISTINCT na.device_id) FILTER (WHERE na.device_id <> ''))::bigint AS device_count,
+        MIN(COALESCE(na.starts_at, na.received_at))::timestamptz AS first_started_at,
+        MAX(na.received_at) AS last_received_at
+    FROM notification_active na
+    WHERE na.organization_id = $1
+      AND na.status = 'firing'
+      AND na.received_at >= $2 -- drop alerts not re-asserted within the freshness window
+    GROUP BY na.alert_name, na.rule_group
+    ORDER BY device_count DESC, alert_count DESC, MAX(na.received_at) DESC, na.alert_name
+    LIMIT $3
+)
 SELECT
-    na.alert_name,
-    na.rule_group,
-    COUNT(*)::bigint AS alert_count,
-    -- FILTER, not COUNT(DISTINCT NULLIF(...)): equivalent, but only the bare column matches
-    -- idx_notification_active_org_rollup's ordering, so this streams out of the GroupAggregate unsorted.
-    (COUNT(DISTINCT na.device_id) FILTER (WHERE na.device_id <> ''))::bigint AS device_count,
-    MIN(COALESCE(na.starts_at, na.received_at))::timestamptz AS first_started_at
-FROM notification_active na
-WHERE na.organization_id = $1
-  AND na.status = 'firing'
-  AND na.received_at >= $2 -- drop alerts not re-asserted within the freshness window
-GROUP BY na.alert_name, na.rule_group
-ORDER BY device_count DESC, alert_count DESC, MAX(na.received_at) DESC, na.alert_name
-LIMIT $3
+    g.alert_name,
+    g.rule_group,
+    g.alert_count,
+    g.device_count,
+    g.first_started_at,
+    -- A group with miners is described by its drill-in, so it reports no free text here and the CASE drops what
+    -- the lateral found. device_id = '' is an index prefix, so a group with no device-less rows costs one descent.
+    -- The summary is a header-polled one-liner, so it is bounded here rather than shipping a whole TEXT column;
+    -- the template rides along because the caller decides from it whether the summary may name a miner. Neither
+    -- is length-checked on insert (000136 bounds only the indexed columns), and a truncated template fails that
+    -- decision closed: it matches no known template, so the summary is withheld.
+    (CASE WHEN g.device_count = 0 THEN LEFT(COALESCE(s.summary, ''), 500) ELSE '' END)::text AS summary,
+    (CASE WHEN g.device_count = 0 THEN LEFT(COALESCE(s.template, ''), 64) ELSE '' END)::text AS template
+FROM groups g
+LEFT JOIN LATERAL (
+    SELECT na.summary, na.template
+    FROM notification_active na
+    WHERE na.organization_id = $1
+      AND na.status = 'firing'
+      AND na.received_at >= $2
+      AND na.alert_name = g.alert_name
+      AND na.rule_group = g.rule_group
+      AND na.device_id = ''
+    ORDER BY na.received_at DESC, na.history_id DESC
+    LIMIT 1
+) s ON TRUE
+ORDER BY g.device_count DESC, g.alert_count DESC, g.last_received_at DESC, g.alert_name
 `
 
 type ListActiveNotificationGroupsParams struct {
@@ -165,12 +196,14 @@ type ListActiveNotificationGroupsRow struct {
 	AlertCount     int64
 	DeviceCount    int64
 	FirstStartedAt time.Time
+	Summary        string
+	Template       string
 }
 
 // Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
 // keeps titles unique per folder and a rule_group label maps to one folder, so a title repeats only across labels.
-// Identity and counts only: per-instance detail would have to be picked off one instance, and the drill-in already
-// reports it per row.
+// Counts and identity aggregate here; the one piece of per-instance detail is picked off in the lateral below.
+// Repeated: the CTE's ordering is not guaranteed to survive the join.
 func (q *Queries) ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error) {
 	rows, err := q.query(ctx, q.listActiveNotificationGroupsStmt, listActiveNotificationGroups, arg.OrganizationID, arg.ActiveSince, arg.PageLimit)
 	if err != nil {
@@ -186,6 +219,8 @@ func (q *Queries) ListActiveNotificationGroups(ctx context.Context, arg ListActi
 			&i.AlertCount,
 			&i.DeviceCount,
 			&i.FirstStartedAt,
+			&i.Summary,
+			&i.Template,
 		); err != nil {
 			return nil, err
 		}
