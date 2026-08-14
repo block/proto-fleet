@@ -58,7 +58,13 @@ export function useAlertsEnabled(): boolean {
   // reads a cached "disabled" rather than re-probing.
   const [enabled, setEnabled] = useState<boolean>((cache ?? false) || ALERTS_ENABLED);
   useEffect(() => {
-    if (cache !== null) return undefined;
+    // Effects run after the render that seeded state, so another consumer's probe can answer in between. Adopt
+    // that answer instead of just returning on it: the initializer's "disabled" would otherwise outlive it and
+    // hide the alerts surface for this mount's whole life. Re-setting an unchanged value is a no-op in React.
+    if (cache !== null) {
+      setEnabled(cache || ALERTS_ENABLED);
+      return undefined;
+    }
     let active = true;
     let retryId: ReturnType<typeof setTimeout> | null = null;
 
