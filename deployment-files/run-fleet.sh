@@ -1375,7 +1375,7 @@ preflight_fingerprint() {
 }
 
 record_preflight_marker() {
-    local prepared_fingerprint="$1" current_fingerprint image_fingerprint temporary_marker
+    local prepared_fingerprint="$1" current_fingerprint image_fingerprint
     if ! verify_release_manifest; then
         echo "Error: release or configuration changed during preflight; immutable release files no longer match." >&2
         return 1
@@ -1386,8 +1386,22 @@ record_preflight_marker() {
         return 1
     fi
     image_fingerprint=$(prepared_images_fingerprint) || return 1
-    temporary_marker=$(umask 077; mktemp "$PREFLIGHT_MARKER.tmp.XXXXXX") || return 1
-    if ! printf 'proto-fleet-preflight-v2:%s:%s\n' "$prepared_fingerprint" "$image_fingerprint" > "$temporary_marker"; then
+    replace_marker_file "$PREFLIGHT_MARKER" \
+        "proto-fleet-preflight-v2:$prepared_fingerprint:$image_fingerprint"
+}
+
+# Markers can be written privileged (the host updater invokes this script as
+# root) inside a tree owned by the deployment user, so the marker slot is
+# untrusted and must be replaced without ever being followed. mktemp creates a
+# fresh private file; a planted directory — or symlink to one — is cleared
+# first, because a two-operand mv would move the file *into* it instead of
+# replacing the slot; the rename then swaps the slot atomically without
+# dereferencing a symlink. The final check turns a marker silently absorbed by
+# a slot re-planted mid-swap into a reported failure.
+replace_marker_file() {
+    local marker_path="$1" marker_content="$2" temporary_marker
+    temporary_marker=$(umask 077; mktemp "$marker_path.tmp.XXXXXX") || return 1
+    if ! printf '%s\n' "$marker_content" > "$temporary_marker"; then
         rm -f "$temporary_marker"
         return 1
     fi
@@ -1395,32 +1409,25 @@ record_preflight_marker() {
         rm -f "$temporary_marker"
         return 1
     fi
-    if ! mv -f "$temporary_marker" "$PREFLIGHT_MARKER"; then
+    if [ -L "$marker_path" ] || [ -d "$marker_path" ]; then
+        if ! rm -rf -- "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    fi
+    if ! mv -f "$temporary_marker" "$marker_path"; then
         rm -f "$temporary_marker"
+        return 1
+    fi
+    if [ -L "$marker_path" ] || [ ! -f "$marker_path" ]; then
         return 1
     fi
 }
 
-# This can run privileged (the host updater invokes activation as root) inside
-# a tree owned by the deployment user, so the marker slot is untrusted: a
-# planted symlink must be replaced, never followed. mktemp creates a fresh
-# private file and the rename swaps out whatever occupies the slot atomically
-# without dereferencing it — the same discipline record_preflight_marker uses.
 record_startup_marker() {
-    local temporary_marker
-    temporary_marker=$(umask 077; mktemp "$STARTUP_MARKER.tmp.XXXXXX") || return 1
-    if ! date -u '+%Y-%m-%dT%H:%M:%SZ' > "$temporary_marker"; then
-        rm -f "$temporary_marker"
-        return 1
-    fi
-    if ! chmod 600 "$temporary_marker"; then
-        rm -f "$temporary_marker"
-        return 1
-    fi
-    if ! mv -f "$temporary_marker" "$STARTUP_MARKER"; then
-        rm -f "$temporary_marker"
-        return 1
-    fi
+    local startup_time
+    startup_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ') || return 1
+    replace_marker_file "$STARTUP_MARKER" "$startup_time"
 }
 
 verify_preflight_marker() {
