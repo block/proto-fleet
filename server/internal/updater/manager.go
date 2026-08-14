@@ -922,6 +922,7 @@ func writeProcessLockPID(lockFile *os.File) error {
 }
 
 func (m *Manager) Status() updaterapi.StatusResponse {
+	m.acknowledgeRemediatedFailure()
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.operation == nil {
@@ -929,6 +930,52 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 	}
 	snapshot := *m.operation
 	return updaterapi.StatusResponse{Operation: &snapshot}
+}
+
+// acknowledgeRemediatedFailure auto-dismisses a failed operation once the
+// deployment has reached the failed target version (or newer) by other means:
+// a manual install, a successful run of the recovery command, or a later
+// upgrade. Without this, a failure the operator already fixed keeps
+// resurfacing until someone dismisses it by hand.
+//
+// The preflight marker distinguishes remediation from the failed activation's
+// own post-swap leftovers, which also sit at the target version:
+// run-fleet.sh only consumes the marker at the end of a run that brought
+// Fleet up, so a marker still present means the deployment never started
+// successfully and the failure is still live.
+func (m *Manager) acknowledgeRemediatedFailure() {
+	m.mu.RLock()
+	pending := m.operation != nil && m.operation.Phase == updaterapi.PhaseFailed && !m.operation.Acknowledged
+	var operationID, targetVersion string
+	if pending {
+		operationID = m.operation.ID
+		targetVersion = m.operation.TargetVersion
+	}
+	m.mu.RUnlock()
+	if !pending {
+		return
+	}
+	deployment := filepath.Join(m.cfg.InstallRoot, "deployment")
+	installed, err := readInstalledVersion(filepath.Join(deployment, "version.txt"))
+	if err != nil || !semver.IsValid(installed) || semver.Compare(installed, targetVersion) < 0 {
+		return
+	}
+	if _, err := os.Lstat(filepath.Join(deployment, preflightProofFilename)); !errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.operation == nil || m.operation.ID != operationID ||
+		m.operation.Phase != updaterapi.PhaseFailed || m.operation.Acknowledged {
+		return
+	}
+	m.operation.Acknowledged = true
+	if err := m.persistLocked(); err != nil {
+		// Leave the failure visible and retry on the next status poll rather
+		// than surfacing a dismissal that would resurrect after a restart.
+		m.operation.Acknowledged = false
+		log.Printf("persist auto-acknowledged remediated failure: %v", err)
+	}
 }
 
 // Acknowledge durably records that an operator dismissed the terminal outcome

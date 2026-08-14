@@ -3622,6 +3622,83 @@ func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
 	assert.True(t, status.Acknowledged)
 }
 
+func TestStatusAutoAcknowledgesRemediatedFailure(t *testing.T) {
+	t.Parallel()
+
+	for _, installedVersion := range []string{"v1.1.0", "v1.2.0"} {
+		installRoot := t.TempDir()
+		writeCurrentDeployment(t, installRoot, installedVersion)
+		stateDir := filepath.Join(t.TempDir(), "state")
+		writeFailedOperationState(t, stateDir) // target v1.1.0
+
+		manager, err := NewManager(Config{
+			InstallRoot: installRoot,
+			StateDir:    stateDir,
+			GOARCH:      "amd64",
+		})
+		require.NoError(t, err)
+
+		status := manager.Status().Operation
+		require.NotNil(t, status)
+		assert.Equal(t, updaterapi.PhaseFailed, status.Phase)
+		assert.True(t, status.Acknowledged, "installed %s should moot the v1.1.0 failure", installedVersion)
+
+		// The auto-dismissal is persisted, not recomputed.
+		require.NoError(t, manager.Close())
+		restarted, err := NewManager(Config{
+			InstallRoot: installRoot,
+			StateDir:    stateDir,
+			GOARCH:      "amd64",
+		})
+		require.NoError(t, err)
+		require.NoError(t, os.Remove(filepath.Join(installRoot, "deployment", "version.txt")))
+		status = restarted.Status().Operation
+		require.NotNil(t, status)
+		assert.True(t, status.Acknowledged)
+		require.NoError(t, restarted.Close())
+	}
+}
+
+func TestStatusKeepsUnremediatedFailureVisible(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name             string
+		installedVersion string
+		preflightMarker  bool
+	}{
+		{name: "installed version behind the failed target", installedVersion: "v1.0.0"},
+		{name: "failed post-swap deployment still holds its preflight marker", installedVersion: "v1.1.0", preflightMarker: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, tc.installedVersion)
+			if tc.preflightMarker {
+				markerPath := filepath.Join(installRoot, "deployment", preflightProofFilename)
+				require.NoError(t, os.WriteFile(markerPath, []byte("proof\n"), 0o600))
+			}
+			stateDir := filepath.Join(t.TempDir(), "state")
+			writeFailedOperationState(t, stateDir) // target v1.1.0
+
+			manager, err := NewManager(Config{
+				InstallRoot: installRoot,
+				StateDir:    stateDir,
+				GOARCH:      "amd64",
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+			status := manager.Status().Operation
+			require.NotNil(t, status)
+			assert.Equal(t, updaterapi.PhaseFailed, status.Phase)
+			assert.False(t, status.Acknowledged)
+		})
+	}
+}
+
 func TestManagerAcknowledgeRejectsUnknownAndActiveOperations(t *testing.T) {
 	t.Parallel()
 
