@@ -8,10 +8,10 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 const ACTIVE_POLL_INTERVAL_MS = 2_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
 const STATUS_REQUEST_TIMEOUT_MS = 10_000;
-// Must exceed the server's full acknowledgement path — up to 6s for the host
-// updater call plus 5s for the synchronous audit insert — or a slow host makes
-// the client report a durably persisted dismissal as possibly lost.
-const ACKNOWLEDGE_REQUEST_TIMEOUT_MS = 15_000;
+// Must exceed the server's full ambiguous-response recovery path — two 6s
+// updater calls, a 2s status reconciliation, and a 5s synchronous audit — or
+// the client can time out while the server is repairing a persisted dismissal.
+const ACKNOWLEDGE_REQUEST_TIMEOUT_MS = 25_000;
 const TRIGGER_REQUEST_TIMEOUT_MS = 30_000;
 const TRIGGER_RECONCILIATION_TIMEOUT_MS = 15_000;
 const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";

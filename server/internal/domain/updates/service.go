@@ -35,6 +35,8 @@ const (
 	executorStatusTimeout   = 2 * time.Second
 	executorMutationTimeout = 6 * time.Second
 	upgradeAuditTimeout     = 5 * time.Second
+
+	upgradeAcknowledgedEventType = "instance_upgrade_acknowledged"
 )
 
 // UpdateStatus is the gated, channel-filtered update offer for one org.
@@ -310,16 +312,23 @@ func (s *Service) logUpgradeTriggered(ctx context.Context, organizationID int64,
 		map[string]any{
 			"operation_id":   operation.ID,
 			"target_version": operation.TargetVersion,
-		})
+		}, "")
 }
 
-func (s *Service) logUpgradeEvent(ctx context.Context, organizationID int64, eventType, description string, metadata map[string]any) {
+func (s *Service) logUpgradeEvent(
+	ctx context.Context,
+	organizationID int64,
+	eventType, description string,
+	metadata map[string]any,
+	idempotencyKey string,
+) {
 	event := activitymodels.Event{
 		Category:       activitymodels.CategorySystem,
 		Type:           eventType,
 		OrganizationID: &organizationID,
 		Description:    description,
 		Metadata:       metadata,
+		IdempotencyKey: idempotencyKey,
 	}
 	activity.StampActor(ctx, &event)
 	auditCtx, cancel := context.WithTimeout(ctx, upgradeAuditTimeout)
@@ -328,9 +337,9 @@ func (s *Service) logUpgradeEvent(ctx context.Context, organizationID int64, eve
 }
 
 // AcknowledgeUpgrade durably dismisses a terminal upgrade outcome on the host
-// updater, so the operation stops resurfacing in every session. The call is
-// idempotent on the updater side; an ambiguous transport result is safe for
-// the caller to retry.
+// updater, so the operation stops resurfacing in every session. The mutation
+// and audit are independently idempotent; ambiguous updater responses are
+// retried and reconciled before the caller is asked to retry.
 func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, operationID string) (updaterapi.Operation, error) {
 	if operationID == "" {
 		return updaterapi.Operation{}, fleeterror.NewInvalidArgumentError("operation id is required")
@@ -355,18 +364,65 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled before host mutation: %w", err)
 	}
 
-	acknowledgeCtx, cancel := context.WithTimeout(operationCtx, executorMutationTimeout)
-	defer cancel()
-	operation, alreadyAcknowledged, err := s.executor.Acknowledge(acknowledgeCtx, operationID)
-	if err != nil {
-		return updaterapi.Operation{}, mapExecutorAcknowledgeError(err)
-	}
-	// Retries after ambiguous transport results are part of the contract; only
-	// the call that actually recorded the dismissal is an auditable action.
-	if !alreadyAcknowledged {
+	operation, err := s.acknowledgeUpgrade(operationCtx, operationID)
+	if err == nil {
 		s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
+		return operation, nil
+	}
+	if cancelErr := operationCtx.Err(); cancelErr != nil {
+		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled during host mutation: %w", cancelErr)
+	}
+
+	// A lost or malformed success response does not prove that the dismissal
+	// failed. Retry the idempotent host mutation once, then reconcile against
+	// exact durable status. Any confirmed acknowledgement attempts the same
+	// database-idempotent audit, so both an ambiguous first response and an
+	// unrelated repeat converge on one activity row.
+	if ambiguousExecutorResult(err) {
+		operation, retryErr := s.acknowledgeUpgrade(operationCtx, operationID)
+		if retryErr == nil {
+			s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
+			return operation, nil
+		}
+		if cancelErr := operationCtx.Err(); cancelErr != nil {
+			return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled during host mutation retry: %w", cancelErr)
+		}
+		if reconciled, ok := s.reconcileAcknowledgement(operationCtx, operationID); ok {
+			s.logUpgradeAcknowledged(operationCtx, organizationID, reconciled)
+			return reconciled, nil
+		}
+		if cancelErr := operationCtx.Err(); cancelErr != nil {
+			return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled during host mutation reconciliation: %w", cancelErr)
+		}
+	}
+	return updaterapi.Operation{}, mapExecutorAcknowledgeError(err)
+}
+
+func (s *Service) acknowledgeUpgrade(ctx context.Context, operationID string) (updaterapi.Operation, error) {
+	acknowledgeCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
+	defer cancel()
+	operation, _, err := s.executor.Acknowledge(acknowledgeCtx, operationID)
+	if err != nil {
+		return updaterapi.Operation{}, err
+	}
+	if !operation.Acknowledged {
+		return updaterapi.Operation{}, &updaterapi.ProtocolError{Cause: errors.New("host updater response did not confirm acknowledgement")}
 	}
 	return operation, nil
+}
+
+func (s *Service) reconcileAcknowledgement(ctx context.Context, operationID string) (updaterapi.Operation, bool) {
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
+	defer cancel()
+	status, err := s.executor.Status(statusCtx)
+	if err != nil || status.Operation == nil {
+		return updaterapi.Operation{}, false
+	}
+	operation := *status.Operation
+	if operation.ID != operationID || !operation.Acknowledged {
+		return updaterapi.Operation{}, false
+	}
+	return operation, true
 }
 
 func mapExecutorAcknowledgeError(err error) error {
@@ -393,13 +449,13 @@ func mapExecutorAcknowledgeError(err error) error {
 }
 
 func (s *Service) logUpgradeAcknowledged(ctx context.Context, organizationID int64, operation updaterapi.Operation) {
-	s.logUpgradeEvent(ctx, organizationID, "instance_upgrade_acknowledged",
+	s.logUpgradeEvent(ctx, organizationID, upgradeAcknowledgedEventType,
 		fmt.Sprintf("Dismissed the %s outcome of the upgrade to %s", operation.Phase, operation.TargetVersion),
 		map[string]any{
 			"operation_id":   operation.ID,
 			"target_version": operation.TargetVersion,
 			"phase":          string(operation.Phase),
-		})
+		}, upgradeAcknowledgedEventType+":"+operation.ID)
 }
 
 func (s *Service) GetUpgradeStatus(ctx context.Context) UpgradeStatus {

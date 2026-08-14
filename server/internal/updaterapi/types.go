@@ -60,8 +60,9 @@ type AcknowledgeRequest struct {
 type AcknowledgeResponse struct {
 	Operation Operation `json:"operation"`
 	// AlreadyAcknowledged reports that this call found the dismissal in place
-	// rather than recording it. Retries after ambiguous transport results are
-	// expected; the distinction lets callers avoid duplicate audit entries.
+	// rather than recording it. Side effects coupled to acknowledgement must be
+	// independently idempotent because this may be a retry after an ambiguous
+	// transport result rather than an unrelated duplicate action.
 	AlreadyAcknowledged bool `json:"already_acknowledged,omitempty"`
 }
 

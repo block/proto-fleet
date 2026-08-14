@@ -711,7 +711,7 @@ describe("useUpgradeOperation", () => {
 
     await act(async () => result.current.acknowledgeOperation());
 
-    expect(mockAcknowledgeUpgrade).toHaveBeenCalledWith({ operationId: "operation-1" }, { timeoutMs: 15_000 });
+    expect(mockAcknowledgeUpgrade).toHaveBeenCalledWith({ operationId: "operation-1" }, { timeoutMs: 25_000 });
     expect(result.current.operation).toBeUndefined();
   });
 

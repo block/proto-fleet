@@ -1042,6 +1042,7 @@ func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
 	assert.Equal(t, "op-1", recorded.Metadata["operation_id"])
 	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
 	assert.Equal(t, "failed", recorded.Metadata["phase"])
+	assert.Equal(t, "instance_upgrade_acknowledged:op-1", recorded.IdempotencyKey)
 }
 
 func TestAcknowledgeUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
@@ -1058,12 +1059,18 @@ func TestAcknowledgeUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
 	assert.Empty(t, executor.acknowledged)
 }
 
-func TestAcknowledgeUpgradeSkipsAuditWhenAlreadyAcknowledged(t *testing.T) {
+func TestAcknowledgeUpgradeAuditsIdempotentlyWhenAlreadyAcknowledged(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
 	activityStore := storemocks.NewMockActivityStore(ctrl)
-	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).Times(0)
+	var idempotencyKeys []string
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			idempotencyKeys = append(idempotencyKeys, event.IdempotencyKey)
+			return nil
+		},
+	).Times(2)
 
 	snaps := &fakeSnapshots{snap: Snapshot{}}
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
@@ -1078,10 +1085,97 @@ func TestAcknowledgeUpgradeSkipsAuditWhenAlreadyAcknowledged(t *testing.T) {
 	}
 	svc.executor = executor
 
+	for range 2 {
+		operation, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, "op-1")
+		require.NoError(t, err)
+		assert.True(t, operation.Acknowledged)
+	}
+	assert.Equal(t, []string{"op-1", "op-1"}, executor.acknowledged)
+	assert.Equal(t, []string{
+		"instance_upgrade_acknowledged:op-1",
+		"instance_upgrade_acknowledged:op-1",
+	}, idempotencyKeys)
+}
+
+func TestAcknowledgeUpgradeRetriesAmbiguousResponseAndAudits(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded activitymodels.Event
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			recorded = *event
+			return nil
+		},
+	)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+	executor := &fakeExecutor{}
+	acknowledgeCalls := 0
+	executor.acknowledgeFunc = func(context.Context, string) (updaterapi.Operation, bool, error) {
+		acknowledgeCalls++
+		if acknowledgeCalls == 1 {
+			return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response lost after persist")}
+		}
+		return updaterapi.Operation{
+			ID:            "op-1",
+			TargetVersion: "v1.1.0",
+			Phase:         updaterapi.PhaseFailed,
+			Acknowledged:  true,
+		}, true, nil
+	}
+	executor.statusFunc = func(context.Context) (updaterapi.StatusResponse, error) {
+		t.Fatal("status reconciliation should not run after the retry confirms acknowledgement")
+		return updaterapi.StatusResponse{}, nil
+	}
+	svc.executor = executor
+
 	operation, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, "op-1")
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
-	assert.Equal(t, []string{"op-1"}, executor.acknowledged)
+	assert.Equal(t, 2, acknowledgeCalls)
+	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
+	assert.Equal(t, "instance_upgrade_acknowledged:op-1", recorded.IdempotencyKey)
+}
+
+func TestAcknowledgeUpgradeReconcilesPersistedAcknowledgementAndAudits(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded activitymodels.Event
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			recorded = *event
+			return nil
+		},
+	)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+	executor := &fakeExecutor{
+		status: updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+			ID:            "op-1",
+			TargetVersion: "v1.1.0",
+			Phase:         updaterapi.PhaseFailed,
+			Acknowledged:  true,
+		}},
+	}
+	executor.acknowledgeFunc = func(context.Context, string) (updaterapi.Operation, bool, error) {
+		return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response remained ambiguous")}
+	}
+	svc.executor = executor
+
+	operation, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, "op-1")
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.Equal(t, []string{"op-1", "op-1"}, executor.acknowledged)
+	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
+	assert.Equal(t, "instance_upgrade_acknowledged:op-1", recorded.IdempotencyKey)
 }
 
 func TestAcknowledgeUpgradeCompletesAndAuditsAfterCallerCancellation(t *testing.T) {
