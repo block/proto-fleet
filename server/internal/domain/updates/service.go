@@ -377,7 +377,14 @@ func mapExecutorAcknowledgeError(err error) error {
 	}, func(httpErr *updaterapi.HTTPError) error {
 		switch httpErr.StatusCode {
 		case http.StatusNotFound:
-			return fleeterror.NewNotFoundError(httpErr.Message)
+			if httpErr.Code == updaterapi.ErrorCodeOperationNotFound {
+				return fleeterror.NewNotFoundError(httpErr.Message)
+			}
+			// A daemon from before the acknowledgement API returns the default
+			// route-level 404. That says nothing about whether the operation is
+			// still current, so keep the dismissal retryable and visible to the
+			// operator instead of treating it as durably settled.
+			return fleeterror.NewUnavailableErrorf("host updater does not support durable dismissals; the dismissal was not recorded")
 		case http.StatusConflict, http.StatusBadRequest:
 			return fleeterror.NewFailedPreconditionError(httpErr.Message)
 		}

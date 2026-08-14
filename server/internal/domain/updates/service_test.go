@@ -1142,9 +1142,18 @@ func TestAcknowledgeUpgradeMapsExecutorFailures(t *testing.T) {
 			check: fleeterror.IsUnavailableError,
 		},
 		{
-			name:  "operation no longer current",
-			err:   &updaterapi.HTTPError{StatusCode: http.StatusNotFound, Message: "operation is not current"},
+			name: "operation no longer current",
+			err: &updaterapi.HTTPError{
+				StatusCode: http.StatusNotFound,
+				Message:    "operation is not current",
+				Code:       updaterapi.ErrorCodeOperationNotFound,
+			},
 			check: fleeterror.IsNotFoundError,
+		},
+		{
+			name:  "acknowledge route unsupported by old updater",
+			err:   &updaterapi.HTTPError{StatusCode: http.StatusNotFound, Message: "404 Not Found"},
+			check: fleeterror.IsUnavailableError,
 		},
 		{
 			name:  "operation still running",

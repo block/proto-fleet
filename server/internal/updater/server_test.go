@@ -534,6 +534,9 @@ func TestHandleAcknowledge(t *testing.T) {
 		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
 
 		assert.Equal(t, http.StatusNotFound, recorder.Code)
+		var response updaterapi.ErrorResponse
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+		assert.Equal(t, updaterapi.ErrorCodeOperationNotFound, response.Code)
 	})
 
 	t.Run("active operation maps to 409", func(t *testing.T) {

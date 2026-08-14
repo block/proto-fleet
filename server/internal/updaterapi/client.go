@@ -24,6 +24,7 @@ var ErrUnavailable = errors.New("host updater unavailable")
 type HTTPError struct {
 	StatusCode int
 	Message    string
+	Code       ErrorCode
 }
 
 func (e *HTTPError) Error() string { return e.Message }
@@ -141,12 +142,14 @@ func (c *Client) do(ctx context.Context, method, path string, body, output any) 
 		var failure ErrorResponse
 		data, readErr := readBody(response.Body, maxErrorResponseBytes)
 		if readErr == nil {
-			_ = decodeJSON(data, &failure)
+			if decodeErr := decodeJSON(data, &failure); decodeErr != nil {
+				failure = ErrorResponse{}
+			}
 		}
 		if failure.Error == "" {
 			failure.Error = response.Status
 		}
-		return &HTTPError{StatusCode: response.StatusCode, Message: failure.Error}
+		return &HTTPError{StatusCode: response.StatusCode, Message: failure.Error, Code: failure.Code}
 	}
 	data, err := readBody(response.Body, maxSuccessResponseBytes)
 	if err != nil {

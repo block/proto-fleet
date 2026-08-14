@@ -2169,9 +2169,10 @@ func (m *Manager) loadState() error {
 			op.RecoveryCommand = ""
 		}
 		op.UpdatedAt = now
-		if op.CompletedAt == nil {
-			op.CompletedAt = &now
-		}
+		// This is a new terminal outcome revision. Advance the remediation
+		// cutoff with it so startup proof from before the rewrite cannot hide
+		// the newly surfaced recovery information.
+		op.CompletedAt = &now
 	}
 	if marker != nil && m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != "" {
 		op.RecoveryPending = true
@@ -2200,9 +2201,10 @@ func rewriteActivationRecoveryFailure(operation *updaterapi.Operation, now time.
 		operation.Error += errorMessage
 	}
 	operation.UpdatedAt = now
-	if operation.CompletedAt == nil {
-		operation.CompletedAt = &now
-	}
+	// This is a new terminal outcome revision. Advance the remediation cutoff
+	// with it so startup proof from before the rewrite cannot immediately
+	// auto-acknowledge the new recovery guidance.
+	operation.CompletedAt = &now
 }
 
 // persistReconciledState normally preserves the ordering of reconciliation,

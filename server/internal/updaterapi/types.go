@@ -66,5 +66,15 @@ type AcknowledgeResponse struct {
 }
 
 type ErrorResponse struct {
-	Error string `json:"error"`
+	Error string    `json:"error"`
+	Code  ErrorCode `json:"code,omitempty"`
 }
+
+type ErrorCode string
+
+const (
+	// ErrorCodeOperationNotFound distinguishes an acknowledge request for an
+	// operation that is no longer current from a route-level 404 returned by an
+	// older updater daemon that does not implement acknowledgements yet.
+	ErrorCodeOperationNotFound ErrorCode = "operation_not_found"
+)

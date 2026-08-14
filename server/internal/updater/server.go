@@ -294,13 +294,16 @@ func (s *Server) handleAcknowledge(w http.ResponseWriter, r *http.Request) {
 	operation, alreadyAcknowledged, err := s.manager.Acknowledge(request.OperationID)
 	if err != nil {
 		status := acknowledgeErrorHTTPStatus(err)
-		message := err.Error()
+		failure := updaterapi.ErrorResponse{Error: err.Error()}
+		if errors.Is(err, errAcknowledgeUnknown) {
+			failure.Code = updaterapi.ErrorCodeOperationNotFound
+		}
 		if status == http.StatusInternalServerError {
 			// See handleUpgrade: keep privileged host detail in daemon logs.
 			log.Printf("acknowledge updater operation: %v", err)
-			message = "host updater failed to record the acknowledgement"
+			failure.Error = "host updater failed to record the acknowledgement"
 		}
-		writeJSON(w, status, updaterapi.ErrorResponse{Error: message})
+		writeJSON(w, status, failure)
 		return
 	}
 	writeJSON(w, http.StatusOK, updaterapi.AcknowledgeResponse{
