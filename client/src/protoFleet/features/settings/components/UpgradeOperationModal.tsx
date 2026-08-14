@@ -1,12 +1,13 @@
-import type { ComponentProps, ReactNode } from "react";
 import {
   type ReleaseInfo,
   type UpgradeOperation,
   UpgradePhase,
 } from "@/protoFleet/api/generated/instance/v1/updates_pb";
-import { Copy } from "@/shared/assets/icons";
-import Button, { variants } from "@/shared/components/Button";
-import Modal from "@/shared/components/Modal";
+import { Alert, LogoAlt, Stop, Success } from "@/shared/assets/icons";
+import { variants } from "@/shared/components/Button";
+import type { ButtonProps } from "@/shared/components/ButtonGroup";
+import Callout from "@/shared/components/Callout";
+import Dialog from "@/shared/components/Dialog";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -29,96 +30,27 @@ export interface UpgradeOperationModalProps {
   triggering: boolean;
 }
 
-const ACTIVE_PHASE_LABELS: Partial<Record<UpgradePhase, string>> = {
-  [UpgradePhase.QUEUED]: "Queued",
-  [UpgradePhase.DOWNLOADING]: "Downloading",
-  [UpgradePhase.VERIFYING]: "Verifying",
-  [UpgradePhase.STAGING]: "Staging",
-  [UpgradePhase.PREFLIGHT]: "Preflight",
-  [UpgradePhase.ACTIVATING]: "Activating",
-};
-
-type ModalButtons = NonNullable<ComponentProps<typeof Modal>["buttons"]>;
-
-interface ProgressPanelProps {
-  children: ReactNode;
-  heading: string;
-}
-
-const ProgressPanel = ({ children, heading }: ProgressPanelProps) => (
-  <div
-    role="status"
-    aria-live="polite"
-    aria-atomic="true"
-    className="flex flex-col gap-3 rounded-xl bg-core-primary-5 p-5"
-  >
-    <div className="flex items-center gap-3">
-      <span aria-hidden="true">
-        <ProgressCircular indeterminate size={20} />
-      </span>
-      <div className="text-heading-100 text-text-primary">{heading}</div>
-    </div>
-    {children}
+const ReconciliationPanel = () => (
+  <div role="alert" aria-live="polite" aria-atomic="true" className="space-y-3">
+    <p className="text-300 text-text-primary">
+      We couldn't confirm whether the update started. Check the host and make sure no update is running before you use
+      manual install.
+    </p>
   </div>
-);
-
-interface ReconciliationPanelProps {
-  manualFallbackReady: boolean;
-  unknownPhase: boolean;
-}
-
-const ReconciliationPanel = ({ manualFallbackReady, unknownPhase }: ReconciliationPanelProps) => (
-  <ProgressPanel
-    heading={
-      manualFallbackReady
-        ? "Fleet could not confirm the upgrade outcome"
-        : unknownPhase
-          ? "Host updater reported an unknown upgrade state"
-          : "Checking upgrade status"
-    }
-  >
-    {manualFallbackReady ? (
-      <p className="text-300 font-medium text-text-critical">
-        {unknownPhase
-          ? "Fleet cannot interpret the host updater's current state. "
-          : "The host updater is not reporting this upgrade. "}
-        Only unlock the manual command after checking the host and confirming no upgrade is running. Overlapping
-        installs can leave the deployment unusable.
-      </p>
-    ) : unknownPhase ? (
-      <p className="text-300 text-text-primary-70">
-        This version of Fleet does not recognize the state returned by the host updater. Manual installation remains
-        locked while Fleet continues checking.
-      </p>
-    ) : (
-      <p className="text-300 text-text-primary-70">
-        Fleet is reconciling the tracked upgrade with the host updater. Do not run the manual install command yet; wait
-        until this check finishes.
-      </p>
-    )}
-  </ProgressPanel>
 );
 
 interface ActiveUpgradePanelProps {
   connectionLost: boolean;
-  operation: UpgradeOperation;
 }
 
-const ActiveUpgradePanel = ({ connectionLost, operation }: ActiveUpgradePanelProps) => (
-  <ProgressPanel heading={operation.message || "Upgrade in progress"}>
-    <div className="text-200 text-text-primary-70">Phase: {ACTIVE_PHASE_LABELS[operation.phase] ?? "Starting"}</div>
+const ActiveUpgradePanel = ({ connectionLost }: ActiveUpgradePanelProps) => (
+  <div role="status" aria-live="polite" aria-atomic="true" className="space-y-3">
     {connectionLost ? (
-      <p className="text-300 text-text-primary-70">
-        Fleet is temporarily unreachable. A disconnect is expected while services restart; this page will keep checking
-        for progress.
-      </p>
+      <p className="text-300 text-text-primary-70">Fleet will reconnect after services restart.</p>
     ) : (
-      <p className="text-300 text-text-primary-70">
-        You can close this dialog while Fleet downloads, validates, and activates the release. Return to this Updates
-        page to check progress.
-      </p>
+      <p className="text-300 text-text-primary-70">You can close this dialog while the update runs.</p>
     )}
-  </ProgressPanel>
+  </div>
 );
 
 const copyRecoveryCommand = (recoveryCommand: string) => {
@@ -131,7 +63,7 @@ const copyRecoveryCommand = (recoveryCommand: string) => {
     })
     .catch(() => {
       pushToast({
-        message: "Failed to copy recovery command",
+        message: "Couldn't copy recovery command",
         status: STATUSES.error,
       });
     });
@@ -143,59 +75,44 @@ const FailedUpgradePanel = ({ operation }: { operation: UpgradeOperation }) => {
   const recoveryCommand = operation.recoveryCommand.trim();
 
   return (
-    <div role="alert" className="flex flex-col gap-3 rounded-xl bg-intent-critical-10 p-5">
-      <div className="text-heading-100 text-text-primary">{operation.message || "Upgrade failed"}</div>
-      {error ? <p className="text-300 text-text-critical">{error}</p> : null}
-      {hostLogPath ? (
+    <div role="alert" className="flex flex-col gap-3">
+      {recoveryCommand ? (
+        <>
+          <p className="text-300 text-text-primary-70">Run this command on the Fleet host to continue the update.</p>
+          <code className="rounded-xl bg-surface-default px-4 py-3 font-mono text-200 break-all text-text-primary">
+            {recoveryCommand}
+          </code>
+        </>
+      ) : error ? (
+        <p className="text-300 text-text-primary">{error}</p>
+      ) : null}
+      {!recoveryCommand && hostLogPath ? (
         <p className="text-200 text-text-primary-70">
           Host log: <code className="font-mono break-all">{hostLogPath}</code>
         </p>
-      ) : null}
-      {recoveryCommand ? (
-        <div className="flex flex-col gap-2">
-          <div className="text-200 text-text-primary-70">Recovery command</div>
-          <div className="flex items-center justify-between gap-2 rounded-xl bg-surface-default px-4 py-3">
-            <code className="min-w-0 flex-1 font-mono text-200 break-all text-text-primary">{recoveryCommand}</code>
-            <Button
-              ariaLabel="Copy recovery command"
-              variant={variants.ghost}
-              prefixIcon={<Copy width="w-4" />}
-              onClick={() => copyRecoveryCommand(recoveryCommand)}
-              className="shrink-0"
-            />
-          </div>
-        </div>
       ) : null}
     </div>
   );
 };
 
 const SucceededUpgradePanel = ({ operation }: { operation: UpgradeOperation }) => (
-  <div
-    role="status"
-    aria-live="polite"
-    aria-atomic="true"
-    className="flex flex-col gap-3 rounded-xl bg-core-primary-5 p-5"
-  >
-    <div className="text-heading-100 text-text-primary">{operation.message || "Upgrade complete"}</div>
-    <p className="text-300 text-text-primary-70">
-      Reload Fleet to use the client bundled with {operation.targetVersion}.
-    </p>
+  <div role="status" aria-live="polite" aria-atomic="true">
+    <p className="text-300 text-text-primary-70">Relaunch Fleet to finish updating to {operation.targetVersion}.</p>
   </div>
 );
 
 const UpgradeConfirmationPanel = ({ release }: { release: ReleaseInfo }) => (
-  <div className="flex flex-col gap-3 rounded-xl bg-intent-warning-10 p-5">
-    <div className="text-heading-100 text-text-primary">Confirm upgrade to {release.version}</div>
+  <div className="space-y-3">
     <p className="text-300 text-text-primary-70">
-      Fleet will validate and build this exact release first, then take the instance offline for several minutes while
-      containers restart and database migrations run.
+      Fleet validates this release before restarting. The instance will be offline for a few minutes while services
+      restart and database migrations run.
     </p>
     {release.prerelease ? (
-      <p className="text-300 font-medium text-text-critical">
-        This is a release candidate. The upgrade can run forward-only database migrations, and you cannot downgrade this
-        instance afterward. Continue only if you accept that recovery may require a newer compatible release.
-      </p>
+      <Callout
+        intent="danger"
+        prefixIcon={<Alert />}
+        title="You can't return to an earlier release after this update."
+      />
     ) : null}
   </div>
 );
@@ -216,12 +133,7 @@ const UpgradeOperationContent = ({
   release,
 }: UpgradeOperationContentProps) => {
   if (reconciling) {
-    return (
-      <ReconciliationPanel
-        manualFallbackReady={manualFallbackReady}
-        unknownPhase={operation?.phase === UpgradePhase.UNSPECIFIED}
-      />
-    );
+    return manualFallbackReady ? <ReconciliationPanel /> : null;
   }
   if (!operation) {
     return release ? <UpgradeConfirmationPanel release={release} /> : null;
@@ -232,7 +144,7 @@ const UpgradeOperationContent = ({
   if (operation.phase === UpgradePhase.SUCCEEDED) {
     return <SucceededUpgradePanel operation={operation} />;
   }
-  return <ActiveUpgradePanel connectionLost={connectionLost} operation={operation} />;
+  return <ActiveUpgradePanel connectionLost={connectionLost} />;
 };
 
 interface GetModalButtonsOptions {
@@ -261,21 +173,25 @@ const getModalButtons = ({
   reloadPending,
   release,
   triggering,
-}: GetModalButtonsOptions): ModalButtons | undefined => {
+}: GetModalButtonsOptions): ButtonProps[] | undefined => {
   if (manualFallbackReady) {
     return [
       {
-        text: "I confirmed — unlock manual install",
+        text: "Use manual install",
         variant: variants.secondaryDanger,
         onClick: onUseManualFallback,
-        dismissModalOnClick: false,
+      },
+      {
+        text: "Close",
+        variant: variants.secondary,
+        onClick: onDismiss,
       },
     ];
   }
   if (operation?.phase === UpgradePhase.SUCCEEDED) {
     return [
       {
-        text: "Reload Fleet",
+        text: "Relaunch",
         variant: variants.primary,
         onClick: onReload,
         loading: reloadPending,
@@ -284,16 +200,34 @@ const getModalButtons = ({
     ];
   }
   if (operation?.phase === UpgradePhase.FAILED) {
+    const recoveryCommand = operation.recoveryCommand.trim();
     return [
+      ...(recoveryCommand
+        ? [
+            {
+              text: "Copy recovery command",
+              variant: variants.primary,
+              onClick: () => copyRecoveryCommand(recoveryCommand),
+            },
+          ]
+        : []),
       {
-        text: "Dismiss failure",
+        text: "Close",
         variant: variants.secondary,
         onClick: onAcknowledge,
-        dismissModalOnClick: false,
       },
     ];
   }
-  if (operation || reconciling || !release) {
+  if (operation || reconciling) {
+    return [
+      {
+        text: "Dismiss",
+        variant: variants.secondary,
+        onClick: onDismiss,
+      },
+    ];
+  }
+  if (!release) {
     return undefined;
   }
   return [
@@ -301,16 +235,63 @@ const getModalButtons = ({
       text: "Cancel",
       variant: variants.secondary,
       onClick: onDismiss,
-      dismissModalOnClick: false,
     },
     {
-      text: `Confirm upgrade to ${release.version}`,
+      text: "Update now",
       variant: variants.primary,
       onClick: handleUpgrade,
       loading: triggering,
-      dismissModalOnClick: false,
     },
   ];
+};
+
+const getDialogVisual = ({
+  manualFallbackReady,
+  operation,
+  reconciling,
+  release,
+  targetVersion,
+}: Pick<
+  UpgradeOperationModalProps,
+  "manualFallbackReady" | "operation" | "reconciling" | "release" | "targetVersion"
+>) => {
+  if (reconciling) {
+    const trackedVersion = operation?.targetVersion || targetVersion;
+    if (manualFallbackReady) {
+      return {
+        icon: <Stop className="text-text-critical" />,
+        title: "Manual install available",
+      };
+    }
+    return {
+      icon: <ProgressCircular indeterminate />,
+      title: trackedVersion ? `Checking update to ${trackedVersion}` : "Checking update status",
+    };
+  }
+
+  if (!operation) {
+    return {
+      icon: <LogoAlt width="w-5" testId="upgrade-dialog-icon" />,
+      title: release ? `Update Fleet to ${release.version}` : "Update Fleet",
+    };
+  }
+
+  if (operation.phase === UpgradePhase.FAILED) {
+    return {
+      icon: <Stop className="text-text-critical" />,
+      title: operation.recoveryCommand.trim() ? "Update needs recovery" : "Update couldn't complete",
+    };
+  }
+  if (operation.phase === UpgradePhase.SUCCEEDED) {
+    return {
+      icon: <Success className="text-intent-success-fill" />,
+      title: "Update complete",
+    };
+  }
+  return {
+    icon: <ProgressCircular indeterminate />,
+    title: operation.message || `Updating Fleet to ${operation.targetVersion || targetVersion}`,
+  };
 };
 
 const UpgradeOperationModal = ({
@@ -330,11 +311,12 @@ const UpgradeOperationModal = ({
   triggerError,
   triggering,
 }: UpgradeOperationModalProps) => {
+  if (reconciling && !manualFallbackReady) {
+    return null;
+  }
   if (!release && !operation && !reconciling && !triggerError) {
     return null;
   }
-
-  const displayedTargetVersion = operation?.targetVersion || targetVersion || release?.version;
 
   const handleUpgrade = () => {
     if (!release || reconciling) return;
@@ -356,14 +338,22 @@ const UpgradeOperationModal = ({
     release,
     triggering,
   });
+  const dialogVisual = getDialogVisual({
+    manualFallbackReady,
+    operation,
+    reconciling,
+    release,
+    targetVersion,
+  });
+  const showTriggerError = triggerError && !manualFallbackReady && operation?.phase !== UpgradePhase.FAILED;
 
   return (
-    <Modal
+    <Dialog
       open={open}
       onDismiss={onDismiss}
-      title={displayedTargetVersion ? `Upgrade Fleet to ${displayedTargetVersion}` : "Upgrade Fleet"}
-      divider={false}
       testId="upgrade-operation-modal"
+      icon={dialogVisual.icon}
+      title={dialogVisual.title}
       buttons={buttons}
     >
       <div className="flex flex-col gap-5">
@@ -375,13 +365,13 @@ const UpgradeOperationModal = ({
           release={release}
         />
 
-        {triggerError ? (
-          <p role="alert" className="text-300 text-text-critical">
-            {triggerError}
-          </p>
+        {showTriggerError ? (
+          <div role="alert">
+            <Callout intent="danger" prefixIcon={<Alert />} title={triggerError} />
+          </div>
         ) : null}
       </div>
-    </Modal>
+    </Dialog>
   );
 };
 

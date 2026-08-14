@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -201,8 +201,12 @@ beforeEach(() => {
   mockUseHasPermission.mockImplementation((permission) => permissionsMock.current.includes(permission));
 });
 
+afterEach(() => {
+  cleanup();
+});
+
 describe("Updates", () => {
-  it("renders the current version, latest release, notes link, and copy control regardless of callout dismissal", async () => {
+  it("renders the current version, update card, notes link, and manual-install CTA regardless of callout dismissal", async () => {
     // The nav callout's dismissal must not hide the release on this page.
     localStorage.setItem(DISMISSED_UPDATE_TAG_KEY, "v1.3.0");
     mockGetUpdateStatus.mockResolvedValue(buildStatus());
@@ -210,15 +214,23 @@ describe("Updates", () => {
     const { findByText, getByText, getByRole } = render(<Updates />);
 
     expect(await findByText("v1.2.0")).toBeInTheDocument();
-    expect(getByText("v1.3.0")).toBeInTheDocument();
     const link = getByRole("link", { name: "Release notes" });
     expect(link).toHaveAttribute("href", RELEASE_NOTES_URL);
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    expect(getByText(INSTALL_COMMAND)).toBeInTheDocument();
-    expect(getByRole("button", { name: "Copy install command" })).toBeInTheDocument();
-    expect(getByRole("button", { name: "Copy install command" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Upgrade to v1.3.0" })).not.toBeInTheDocument();
+    expect(getByText("Fleet v1.3.0 available")).toBeInTheDocument();
+    expect(screen.getByTestId("available-update-lockup")).toBeInTheDocument();
+    expect(screen.getByTestId("available-update-animation")).toHaveAttribute(
+      "src",
+      "/fog-proto-logo-volume-white.html",
+    );
+    expect(getByText("Use manual install to update this Fleet.")).toBeInTheDocument();
+    expect(screen.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("available-update-lockup")).getByRole("button", { name: "Install manually" }),
+    ).toBeEnabled();
+    expect(screen.queryByText("Manual update")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update now" })).not.toBeInTheDocument();
     expect(mockGetUpdateStatus).toHaveBeenCalledWith({}, { timeoutMs: UPDATE_STATUS_REQUEST_TIMEOUT_MS });
   });
 
@@ -226,14 +238,14 @@ describe("Updates", () => {
     mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
 
     const page = render(<Updates />);
-    fireEvent.click(await page.findByRole("button", { name: "Upgrade to v1.3.0" }));
+    fireEvent.click(await page.findByRole("button", { name: "Update now" }));
 
     expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent(
-      "Fleet will validate and build this exact release",
+      "Fleet validates this release before restarting.",
     );
     expect(upgradeHookMock.current.triggerUpgrade).not.toHaveBeenCalled();
 
-    fireEvent.click(page.getByRole("button", { name: "Confirm upgrade to v1.3.0" }));
+    fireEvent.click(within(page.getByTestId("upgrade-operation-modal")).getByRole("button", { name: "Update now" }));
     await waitFor(() => expect(upgradeHookMock.current.triggerUpgrade).toHaveBeenCalledWith("v1.3.0"));
   });
 
@@ -252,14 +264,18 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
 
-    expect((await page.findAllByText("Validating v1.3.0")).length).toBeGreaterThan(0);
-    expect(page.queryByRole("button", { name: "Upgrade to v1.4.0" })).not.toBeInTheDocument();
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(await page.findByTestId("active-update-lockup")).toBeInTheDocument();
+    expect(page.getByText("Updating Fleet to v1.3.0")).toBeInTheDocument();
+    expect(page.getByText("Validating v1.3.0")).toBeInTheDocument();
+    expect(page.getByTestId("update-status-spinner")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Updating" })).toBeEnabled();
+    expect(page.queryByRole("button", { name: "Update now" })).not.toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "Install manually" })).not.toBeInTheDocument();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
 
-    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
-    fireEvent.click(page.getByRole("button", { name: "View upgrade details" }));
-    expect(page.getAllByText("Validating v1.3.0").length).toBeGreaterThan(0);
+    expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument();
+    fireEvent.click(page.getByRole("button", { name: "Updating" }));
+    expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent("Validating v1.3.0");
   });
 
   it.each([
@@ -347,9 +363,9 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
 
-    expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
-    fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
+    expect(await page.findByText("Run this command on the Fleet host to continue the update.")).toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "Install manually" })).not.toBeInTheDocument();
+    fireEvent.click(page.getByRole("button", { name: "Close" }));
     expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
   });
 
@@ -365,7 +381,7 @@ describe("Updates", () => {
     const page = render(<Updates />);
 
     expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
-    fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
+    fireEvent.click(page.getByRole("button", { name: "Close" }));
 
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith(
@@ -387,7 +403,7 @@ describe("Updates", () => {
       const page = render(<Updates />);
 
       expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
-      fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
+      fireEvent.click(page.getByRole("button", { name: "Close" }));
       expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
 
       permissionsMock.sessionExpiry = new Date(2_000);
@@ -426,7 +442,7 @@ describe("Updates", () => {
   it("acknowledges the exact successful outcome before reloading Fleet", async () => {
     const acknowledgement = createDeferred<void>();
     upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
-      message: "Upgrade complete",
+      message: "Update complete",
     });
     upgradeHookMock.current.acknowledgeOperation = vi.fn().mockReturnValue(acknowledgement.promise);
     mockGetUpdateStatus.mockResolvedValue(
@@ -440,7 +456,7 @@ describe("Updates", () => {
     );
 
     const page = render(<Updates />);
-    fireEvent.click(await page.findByRole("button", { name: "Reload Fleet" }));
+    fireEvent.click(await page.findByRole("button", { name: "Relaunch" }));
 
     expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
     expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
@@ -515,15 +531,12 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
 
-    expect(await page.findByText(/checking upgrade status/i)).toBeInTheDocument();
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(await page.findByText("v1.2.0")).toBeInTheDocument();
+    expect(page.getByText("No action needed. We're confirming that the host started the update.")).toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "Install manually" })).not.toBeInTheDocument();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
-
-    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
-    const detailsButton = page.getByRole("button", { name: "View upgrade details" });
-    expect(detailsButton).toBeEnabled();
-    fireEvent.click(detailsButton);
-    expect(page.getByTestId("upgrade-operation-modal")).toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "View update details" })).not.toBeInTheDocument();
+    expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument();
   });
 
   it("keeps install controls locked while fallback refreshes the authoritative offer", async () => {
@@ -535,8 +548,8 @@ describe("Updates", () => {
     mockGetUpdateStatus.mockReturnValueOnce(refreshedStatus.promise);
 
     const page = render(<Updates />);
-    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
-    fireEvent.click(page.getByRole("button", { name: "I confirmed — unlock manual install" }));
+    expect(await page.findByText("Update needs host confirmation")).toBeInTheDocument();
+    fireEvent.click(page.getByRole("button", { name: "Use manual install" }));
     expect(upgradeHookMock.current.useManualFallback).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
 
@@ -548,7 +561,7 @@ describe("Updates", () => {
     };
     page.rerender(<Updates />);
 
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("button", { name: "Install manually" })).toBeDisabled();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
 
     await act(async () => {
@@ -562,8 +575,8 @@ describe("Updates", () => {
       await refreshedStatus.promise;
     });
 
-    expect(await page.findByText("v1.4.0")).toBeInTheDocument();
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
+    expect(await page.findByText("Fleet v1.4.0 available")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Install manually" })).toBeEnabled();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeEnabled();
   });
 
@@ -573,7 +586,7 @@ describe("Updates", () => {
     mockGetUpdateStatus.mockReturnValueOnce(refreshedStatus.promise);
 
     const page = render(<Updates />);
-    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    expect(await page.findByText("Fleet v1.3.0 available")).toBeInTheDocument();
     const hookCalls = mockUseUpgradeOperation.mock.calls;
     const hookOptions = hookCalls[hookCalls.length - 1]?.[0];
     expect(hookOptions?.onUntrackedSuccess).toEqual(expect.any(Function));
@@ -581,7 +594,7 @@ describe("Updates", () => {
     act(() => hookOptions?.onUntrackedSuccess?.(buildOperation(UpgradePhase.SUCCEEDED)));
     await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
 
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(page.getByRole("button", { name: "Install manually" })).toBeDisabled();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
 
     await act(async () => {
@@ -597,8 +610,8 @@ describe("Updates", () => {
       await refreshedStatus.promise;
     });
 
-    expect(await page.findByText("You're on the latest version")).toBeInTheDocument();
-    expect(page.queryByRole("button", { name: "Copy install command" })).not.toBeInTheDocument();
+    expect(await page.findByText("Fleet is up to date")).toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "Install manually" })).not.toBeInTheDocument();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeEnabled();
   });
 
@@ -608,8 +621,8 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
 
-    expect(await page.findByRole("button", { name: "Upgrade to v1.3.0" })).toBeDisabled();
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(await page.findByRole("button", { name: "Update now" })).toBeDisabled();
+    expect(page.getByRole("button", { name: "Install manually" })).toBeDisabled();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
   });
 
@@ -619,8 +632,8 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
 
-    expect(await page.findByRole("button", { name: "Upgrade to v1.3.0" })).toBeDisabled();
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+    expect(await page.findByRole("button", { name: "Update now" })).toBeDisabled();
+    expect(page.getByRole("button", { name: "Install manually" })).toBeDisabled();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
   });
 
@@ -638,8 +651,9 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
 
-    expect(await page.findByText("v1.4.0")).toBeInTheDocument();
-    expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent("Upgrade Fleet to v1.3.0");
+    expect(await page.findByText("Confirming update with host")).toBeInTheDocument();
+    expect(page.getByText("No action needed. We're confirming that the host started the update.")).toBeInTheDocument();
+    expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument();
   });
 
   it("refreshes the eligible release after reconciliation finds no operation", async () => {
@@ -651,13 +665,13 @@ describe("Updates", () => {
       .mockReturnValueOnce(refreshedStatus.promise);
 
     const page = render(<Updates />);
-    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    expect(await page.findByText("Confirming update with host")).toBeInTheDocument();
 
     upgradeHookMock.current = { ...upgradeHookMock.current, reconciling: false };
     page.rerender(<Updates />);
 
     await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
-    expect(page.queryByRole("button", { name: "Confirm upgrade to v1.3.0" })).not.toBeInTheDocument();
+    expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument();
 
     await act(async () => {
       refreshedStatus.resolve(
@@ -670,8 +684,11 @@ describe("Updates", () => {
       await refreshedStatus.promise;
     });
 
-    expect(await page.findByText("v1.4.0")).toBeInTheDocument();
-    expect(page.getByRole("button", { name: "Confirm upgrade to v1.4.0" })).toBeEnabled();
+    fireEvent.click(page.getByRole("button", { name: "View update details" }));
+    expect(within(page.getByTestId("upgrade-operation-modal")).getByText("Update Fleet to v1.4.0")).toBeInTheDocument();
+    expect(
+      within(page.getByTestId("upgrade-operation-modal")).getByRole("button", { name: "Update now" }),
+    ).toBeEnabled();
   });
 
   it("keeps a stale modal target disabled after its authoritative refresh fails", async () => {
@@ -683,7 +700,7 @@ describe("Updates", () => {
       .mockReturnValueOnce(failedRefresh.promise);
 
     const page = render(<Updates />);
-    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
+    expect(await page.findByText("Confirming update with host")).toBeInTheDocument();
 
     upgradeHookMock.current = { ...upgradeHookMock.current, reconciling: false };
     page.rerender(<Updates />);
@@ -694,8 +711,11 @@ describe("Updates", () => {
       await failedRefresh.promise.catch(() => undefined);
     });
 
+    fireEvent.click(page.getByRole("button", { name: "View update details" }));
     expect(page.getByRole("alert")).toHaveTextContent("Fleet did not confirm the request");
-    expect(page.queryByRole("button", { name: /Confirm upgrade/ })).not.toBeInTheDocument();
+    expect(
+      within(page.getByTestId("upgrade-operation-modal")).queryByRole("button", { name: "Update now" }),
+    ).not.toBeInTheDocument();
   });
 
   it("omits the release notes link when the server provides no URL", async () => {
@@ -712,7 +732,7 @@ describe("Updates", () => {
 
     const { findByText, queryByRole } = render(<Updates />);
 
-    expect(await findByText("v1.3.0")).toBeInTheDocument();
+    expect(await findByText("Fleet v1.3.0 available")).toBeInTheDocument();
     expect(queryByRole("link", { name: "Release notes" })).not.toBeInTheDocument();
   });
 
@@ -721,7 +741,12 @@ describe("Updates", () => {
     mockCopyToClipboard.mockResolvedValue(undefined);
 
     const { findByRole } = render(<Updates />);
-    fireEvent.click(await findByRole("button", { name: "Copy install command" }));
+    fireEvent.click(await findByRole("button", { name: "Install manually" }));
+    const modal = await screen.findByTestId("manual-install-modal");
+    expect(modal).toHaveTextContent("Install Fleet manually");
+    expect(modal).toHaveTextContent("Run this command on the Fleet host to install v1.3.0.");
+    expect(within(modal).getByText(INSTALL_COMMAND)).toBeInTheDocument();
+    fireEvent.click(within(modal).getByRole("button", { name: "Copy install command" }));
 
     expect(mockCopyToClipboard).toHaveBeenCalledWith(INSTALL_COMMAND);
     await waitFor(() =>
@@ -737,11 +762,12 @@ describe("Updates", () => {
     mockCopyToClipboard.mockRejectedValue(new Error("copy failed"));
 
     const { findByRole } = render(<Updates />);
+    fireEvent.click(await findByRole("button", { name: "Install manually" }));
     fireEvent.click(await findByRole("button", { name: "Copy install command" }));
 
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith({
-        message: "Failed to copy install command",
+        message: "Couldn't copy install command",
         status: "error",
       }),
     );
@@ -754,8 +780,9 @@ describe("Updates", () => {
 
     const { findByText, queryByRole } = render(<Updates />);
 
-    expect(await findByText("You're on the latest version")).toBeInTheDocument();
-    expect(queryByRole("button", { name: "Copy install command" })).not.toBeInTheDocument();
+    expect(await findByText("Fleet is up to date")).toBeInTheDocument();
+    expect(screen.getByTestId("current-version-success-icon")).toBeInTheDocument();
+    expect(queryByRole("button", { name: "Install manually" })).not.toBeInTheDocument();
   });
 
   it("renders an unavailable state when release discovery has not succeeded", async () => {
@@ -771,7 +798,7 @@ describe("Updates", () => {
     const { findByText, queryByText } = render(<Updates />);
 
     expect(await findByText("Update status unavailable")).toBeInTheDocument();
-    expect(queryByText("You're on the latest version")).not.toBeInTheDocument();
+    expect(queryByText("Fleet is up to date")).not.toBeInTheDocument();
   });
 
   it("renders the error state when the status RPC fails on load", async () => {
@@ -779,7 +806,7 @@ describe("Updates", () => {
 
     const { findByText, getByText } = render(<Updates />);
 
-    expect(await findByText("Unable to load update status")).toBeInTheDocument();
+    expect(await findByText("We couldn't load update status")).toBeInTheDocument();
     expect(getByText("release registry unreachable")).toBeInTheDocument();
   });
 
@@ -800,7 +827,7 @@ describe("Updates", () => {
     );
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith({
-        message: "Release channel updated",
+        message: "Release channel saved",
         status: "success",
       }),
     );
@@ -843,11 +870,11 @@ describe("Updates", () => {
     mockSetReleaseChannel.mockResolvedValue(SET_CHANNEL_RESPONSE);
 
     const { findByText, findByRole } = render(<Updates />);
-    expect(await findByText("v1.3.0")).toBeInTheDocument();
+    expect(await findByText("Fleet v1.3.0 available")).toBeInTheDocument();
 
     fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
 
-    expect(await findByText("v1.4.0-rc.1")).toBeInTheDocument();
+    expect(await findByText("Fleet v1.4.0-rc.1 available")).toBeInTheDocument();
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
   });
 
@@ -871,7 +898,7 @@ describe("Updates", () => {
       latestRequest.resolve(buildStatus({ channel: ReleaseChannel.STABLE }));
       await latestRequest.promise;
     });
-    expect(await findByText("v1.3.0")).toBeInTheDocument();
+    expect(await findByText("Fleet v1.3.0 available")).toBeInTheDocument();
     expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
 
     await act(async () => {
@@ -887,7 +914,7 @@ describe("Updates", () => {
       );
       await staleRequest.promise;
     });
-    expect(queryByText("v1.4.0-rc.1")).not.toBeInTheDocument();
+    expect(queryByText("Fleet v1.4.0-rc.1 available")).not.toBeInTheDocument();
     expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
   });
 
@@ -909,13 +936,13 @@ describe("Updates", () => {
       latestRequest.resolve(buildStatus({ channel: ReleaseChannel.STABLE }));
       await latestRequest.promise;
     });
-    expect(await findByText("v1.3.0")).toBeInTheDocument();
+    expect(await findByText("Fleet v1.3.0 available")).toBeInTheDocument();
 
     await act(async () => {
       staleRequest.reject(new Error("stale registry failure"));
       await staleRequest.promise.catch(() => undefined);
     });
-    expect(queryByText("Unable to load update status")).not.toBeInTheDocument();
+    expect(queryByText("We couldn't load update status")).not.toBeInTheDocument();
     expect(queryByText("stale registry failure")).not.toBeInTheDocument();
     expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
   });
@@ -1005,8 +1032,8 @@ describe("Updates", () => {
       await replacementRequest.promise;
     });
 
-    expect(await page.findByText("v1.3.0")).toBeInTheDocument();
-    expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
+    expect(await page.findByText("Fleet v1.3.0 available")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Install manually" })).toBeEnabled();
 
     await act(async () => {
       previousRequest.reject(new ConnectError("old session expired", Code.Unauthenticated));
@@ -1025,12 +1052,12 @@ describe("Updates", () => {
 
     const { findByRole, getByRole } = render(<Updates />);
     const checkbox = await findByRole("checkbox", { name: RC_CHECKBOX_NAME });
-    const copyButton = getByRole("button", { name: "Copy install command" });
+    const manualInstallButton = getByRole("button", { name: "Install manually" });
     fireEvent.click(checkbox);
 
     await waitFor(() => expect(mockSetReleaseChannel).toHaveBeenCalledTimes(1));
     expect(checkbox).toBeDisabled();
-    expect(copyButton).toBeDisabled();
+    expect(manualInstallButton).toBeDisabled();
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -1039,14 +1066,14 @@ describe("Updates", () => {
     });
     await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
     expect(checkbox).toBeDisabled();
-    expect(copyButton).toBeDisabled();
+    expect(manualInstallButton).toBeDisabled();
 
     await act(async () => {
       refetch.resolve(buildStatus({ channel: ReleaseChannel.STABLE_AND_RC }));
       await refetch.promise;
     });
     await waitFor(() => expect(checkbox).not.toBeDisabled());
-    expect(copyButton).not.toBeDisabled();
+    expect(manualInstallButton).not.toBeDisabled();
     expect(checkbox).toBeChecked();
   });
 
@@ -1079,10 +1106,10 @@ describe("Updates", () => {
       save.resolve(SET_CHANNEL_RESPONSE);
       await save.promise;
     });
-    expect(await remountedPage.findByText("v1.4.0-rc.1")).toBeInTheDocument();
+    expect(await remountedPage.findByText("Fleet v1.4.0-rc.1 available")).toBeInTheDocument();
     expect(remountedPage.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked();
     expect(mockPushToast).not.toHaveBeenCalledWith({
-      message: "Release channel updated",
+      message: "Release channel saved",
       status: "success",
     });
   });
@@ -1114,7 +1141,7 @@ describe("Updates", () => {
       await save.promise.catch(() => undefined);
     });
 
-    expect(await remountedPage.findByText("v1.3.0")).toBeInTheDocument();
+    expect(await remountedPage.findByText("Fleet v1.3.0 available")).toBeInTheDocument();
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
     expect(remountedPage.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked();
   });
@@ -1141,7 +1168,7 @@ describe("Updates", () => {
         status: "error",
       }),
     );
-    expect(await findByText("v1.4.0-rc.1")).toBeInTheDocument();
+    expect(await findByText("Fleet v1.4.0-rc.1 available")).toBeInTheDocument();
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
     expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked();
   });
@@ -1155,14 +1182,14 @@ describe("Updates", () => {
     const { findByRole, findByText } = render(<Updates />);
     fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
 
-    expect(await findByText("Unable to load update status")).toBeInTheDocument();
+    expect(await findByText("We couldn't load update status")).toBeInTheDocument();
     expect(await findByText("refresh failed after save")).toBeInTheDocument();
     expect(mockPushToast).toHaveBeenCalledWith({
-      message: "Release channel updated",
+      message: "Release channel saved",
       status: "success",
     });
     expect(mockPushToast).not.toHaveBeenCalledWith({
-      message: "Failed to update release channel",
+      message: "We couldn't update the release channel",
       status: "error",
     });
   });
@@ -1262,7 +1289,7 @@ describe("Updates", () => {
       }),
     );
     expect(permissionsMock.setPermissions).toHaveBeenCalledWith(["fleet:read"]);
-    expect(page.queryByText("Unable to load update status")).not.toBeInTheDocument();
+    expect(page.queryByText("We couldn't load update status")).not.toBeInTheDocument();
 
     page.rerender(<Updates />);
     expect(page.getByTestId("navigate")).toHaveAttribute("data-to", "/settings/network");

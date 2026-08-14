@@ -78,7 +78,8 @@ describe("UpgradeOperationModal", () => {
     const onUpgrade = vi.fn().mockResolvedValue(undefined);
     renderModal({ onUpgrade });
 
-    const confirmButton = screen.getByRole("button", { name: "Confirm upgrade to v1.3.0" });
+    const confirmButton = screen.getByRole("button", { name: "Update now" });
+    expect(screen.getByTestId("upgrade-dialog-icon")).toBeInTheDocument();
     expect(confirmButton).toBeInTheDocument();
     fireEvent.click(confirmButton);
 
@@ -88,9 +89,7 @@ describe("UpgradeOperationModal", () => {
   it("gives release candidates a strong forward-only migration warning", () => {
     renderModal({ release: release("v1.3.0-rc.2", true) });
 
-    expect(screen.getByText(/This is a release candidate/)).toBeInTheDocument();
-    expect(screen.getByText(/forward-only database migrations/)).toBeInTheDocument();
-    expect(screen.getByText(/cannot downgrade this instance afterward/)).toBeInTheDocument();
+    expect(screen.getByTestId("callout")).toHaveTextContent(/return to an earlier release/);
   });
 
   it("keeps a long-running upgrade dismissible", () => {
@@ -100,8 +99,8 @@ describe("UpgradeOperationModal", () => {
       operation: operation(UpgradePhase.PREFLIGHT, { message: "Validating the new stack" }),
     });
 
-    expect(screen.getByRole("status")).toHaveTextContent("Phase: Preflight");
-    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(screen.getByRole("status")).toHaveTextContent("You can close this dialog while the update runs.");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
@@ -113,26 +112,7 @@ describe("UpgradeOperationModal", () => {
 
     const status = screen.getByRole("status");
     expect(status).toHaveAttribute("aria-live", "polite");
-    expect(status).toHaveTextContent(/disconnect is expected while services restart/);
-  });
-
-  it("warns against manual installation while reconciling an ambiguous trigger", () => {
-    renderModal({ reconciling: true, triggerError: "The request timed out" });
-
-    expect(screen.getByRole("status")).toHaveTextContent(/Checking upgrade status/);
-    expect(screen.getByRole("status")).toHaveTextContent(/Do not run the manual install command yet/);
-    expect(screen.queryByRole("button", { name: /Confirm upgrade/ })).not.toBeInTheDocument();
-  });
-
-  it("keeps an unknown host-updater phase visibly locked", () => {
-    renderModal({
-      operation: operation(UpgradePhase.UNSPECIFIED),
-      reconciling: true,
-    });
-
-    expect(screen.getByRole("status")).toHaveTextContent(/reported an unknown upgrade state/i);
-    expect(screen.getByRole("status")).toHaveTextContent(/Manual installation remains locked/i);
-    expect(screen.queryByRole("button", { name: /unlock manual install/i })).not.toBeInTheDocument();
+    expect(status).toHaveTextContent(/will reconnect after services restart/);
   });
 
   it("requires explicit host confirmation before unlocking a manual fallback", () => {
@@ -142,31 +122,20 @@ describe("UpgradeOperationModal", () => {
       manualFallbackReady: true,
       onUseManualFallback,
       reconciling: true,
-      triggerError: "Host updater did not confirm the upgrade",
+      triggerError: "Host updater did not confirm the update",
     });
 
-    expect(screen.getByRole("status")).toHaveTextContent(/checking the host and confirming no upgrade is running/i);
-    fireEvent.click(screen.getByRole("button", { name: "I confirmed — unlock manual install" }));
+    expect(screen.getByText(/We couldn't confirm whether the update started/i)).toBeInTheDocument();
+    expect(screen.queryByText("Host updater did not confirm the update")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use manual install" }));
     expect(onUseManualFallback).toHaveBeenCalledOnce();
-  });
-
-  it("labels reconciliation with its tracked target rather than a newer offer", () => {
-    renderModal({
-      reconciling: true,
-      release: release("v1.4.0"),
-      targetVersion: "v1.3.0",
-      triggerError: "The v1.3.0 request has an unknown outcome",
-    });
-
-    expect(screen.getByTestId("upgrade-operation-modal")).toHaveTextContent("Upgrade Fleet to v1.3.0");
-    expect(screen.getByTestId("upgrade-operation-modal")).not.toHaveTextContent("Upgrade Fleet to v1.4.0");
   });
 
   it("shows failed-operation details and copies the recovery command", async () => {
     const recoveryCommand = "cd /opt/proto-fleet/deployment && ./run-fleet.sh --non-interactive --skip-build";
     renderModal({
       operation: operation(UpgradePhase.FAILED, {
-        message: "Upgrade failed",
+        message: "Update couldn't complete",
         error: "new stack failed to start",
         hostLogPath: "/var/lib/proto-fleet-updater/logs/operation-1.log",
         recoveryCommand,
@@ -174,8 +143,10 @@ describe("UpgradeOperationModal", () => {
     });
 
     const alert = screen.getByRole("alert");
-    expect(alert).toHaveTextContent("new stack failed to start");
-    expect(alert).toHaveTextContent("operation-1.log");
+    expect(screen.getByText("Update needs recovery")).toBeInTheDocument();
+    expect(alert).toHaveTextContent("Run this command on the Fleet host to continue the update.");
+    expect(alert).not.toHaveTextContent("new stack failed to start");
+    expect(alert).not.toHaveTextContent("operation-1.log");
     fireEvent.click(screen.getByRole("button", { name: "Copy recovery command" }));
 
     await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalledWith(recoveryCommand));
@@ -197,7 +168,7 @@ describe("UpgradeOperationModal", () => {
 
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith({
-        message: "Failed to copy recovery command",
+        message: "Couldn't copy recovery command",
         status: STATUSES.error,
       }),
     );
@@ -224,7 +195,7 @@ describe("UpgradeOperationModal", () => {
       operation: operation(UpgradePhase.FAILED),
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss failure" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onAcknowledge).toHaveBeenCalledOnce();
     expect(onDismiss).not.toHaveBeenCalled();
   });
@@ -236,7 +207,8 @@ describe("UpgradeOperationModal", () => {
       operation: operation(UpgradePhase.SUCCEEDED, { message: "Fleet v1.3.0 is running" }),
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Reload Fleet" }));
+    expect(screen.getByText("Relaunch Fleet to finish updating to v1.3.0.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Relaunch" }));
     expect(onReload).toHaveBeenCalledOnce();
   });
 
@@ -248,7 +220,7 @@ describe("UpgradeOperationModal", () => {
     });
 
     expect(screen.getByRole("alert")).toHaveTextContent("Host updater did not answer");
-    fireEvent.click(screen.getByRole("button", { name: "Confirm upgrade to v1.3.0" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update now" }));
     await waitFor(() => expect(onUpgrade).toHaveBeenCalledWith("v1.3.0"));
   });
 
@@ -259,6 +231,6 @@ describe("UpgradeOperationModal", () => {
     });
 
     expect(screen.getByRole("alert")).toHaveTextContent("The eligible release changed before the request completed");
-    expect(screen.queryByRole("button", { name: /Confirm upgrade/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update now" })).not.toBeInTheDocument();
   });
 });
