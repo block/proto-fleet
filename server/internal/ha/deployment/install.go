@@ -920,6 +920,7 @@ func fleetComposeArgs(operation string, services ...string) []string {
 
 func fleetComposeArgsAt(root, operation string, services ...string) []string {
 	args := []string{
+		"--project-name", "deployment",
 		"--env-file", filepath.Join(configRoot, "base.env"),
 		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
 		"--env-file", filepath.Join(configRoot, "node.env"),

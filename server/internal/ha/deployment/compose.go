@@ -23,7 +23,7 @@ func RunCompose(ctx context.Context, args []string) error {
 		}
 	}
 
-	commandArgs := append([]string{"--host", localDockerHost, "compose", "--project-name", "proto-fleet-ha"}, args...)
+	commandArgs := append([]string{"--host", localDockerHost, "compose"}, args...)
 	command := exec.CommandContext(ctx, "docker", commandArgs...)
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
