@@ -1180,6 +1180,7 @@ find_release_entries() {
         ! -path './.update-preflight-complete' \
         ! -path './.update-preflight-complete.tmp.*' \
         ! -path './.fleet-startup-complete' \
+        ! -path './.fleet-startup-complete.tmp.*' \
         ! -path './client/nginx.conf' \
         ! -path './ssl/*' \
         ! -path './server/influx_config/.env' \
@@ -1395,6 +1396,28 @@ record_preflight_marker() {
         return 1
     fi
     if ! mv -f "$temporary_marker" "$PREFLIGHT_MARKER"; then
+        rm -f "$temporary_marker"
+        return 1
+    fi
+}
+
+# This can run privileged (the host updater invokes activation as root) inside
+# a tree owned by the deployment user, so the marker slot is untrusted: a
+# planted symlink must be replaced, never followed. mktemp creates a fresh
+# private file and the rename swaps out whatever occupies the slot atomically
+# without dereferencing it — the same discipline record_preflight_marker uses.
+record_startup_marker() {
+    local temporary_marker
+    temporary_marker=$(umask 077; mktemp "$STARTUP_MARKER.tmp.XXXXXX") || return 1
+    if ! date -u '+%Y-%m-%dT%H:%M:%SZ' > "$temporary_marker"; then
+        rm -f "$temporary_marker"
+        return 1
+    fi
+    if ! chmod 600 "$temporary_marker"; then
+        rm -f "$temporary_marker"
+        return 1
+    fi
+    if ! mv -f "$temporary_marker" "$STARTUP_MARKER"; then
         rm -f "$temporary_marker"
         return 1
     fi
@@ -2973,7 +2996,7 @@ if ! rm -f "$PREFLIGHT_MARKER"; then
     exit 1
 fi
 
-if ! date -u '+%Y-%m-%dT%H:%M:%SZ' > "$STARTUP_MARKER"; then
+if ! record_startup_marker; then
     echo "Warning: could not record the successful startup at $STARTUP_MARKER;" >&2
     echo "         a previously dismissed upgrade failure may stay visible until dismissed by hand." >&2
 fi
