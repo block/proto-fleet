@@ -296,6 +296,25 @@ describe("Updates", () => {
     );
   });
 
+  it("closes the outcome dialog when another session dismissed the failure", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+      error: "new stack failed to start",
+    });
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+    expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
+
+    // Polling observed a durably acknowledged operation and removed it.
+    upgradeHookMock.current = { ...upgradeHookMock.current, operation: undefined };
+    page.rerender(<Updates />);
+
+    // The dialog must disappear, not morph into a confirmation for starting
+    // the same upgrade again.
+    await waitFor(() => expect(page.queryByText("new stack failed to start")).not.toBeInTheDocument());
+    expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument();
+  });
+
   it("offers a reload after the watched operation succeeds", async () => {
     upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
       message: "Upgrade complete",

@@ -64,6 +64,7 @@ const (
 	qualificationAfterStopBarrierName      = "qualification-pause-after-ha-stop"
 	qualificationBetweenRenamesBarrierName = "qualification-pause-between-deployment-renames"
 	preflightProofFilename                 = ".update-preflight-complete"
+	startupProofFilename                   = ".fleet-startup-complete"
 	operationArtifactPrefix                = ".proto-fleet-upgrade-"
 	selfUpdateBackupSuffix                 = ".previous"
 	stateTempPrefix                        = ".state-"
@@ -938,18 +939,22 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 // upgrade. Without this, a failure the operator already fixed keeps
 // resurfacing until someone dismisses it by hand.
 //
-// The preflight marker distinguishes remediation from the failed activation's
-// own post-swap leftovers, which also sit at the target version:
-// run-fleet.sh only consumes the marker at the end of a run that brought
-// Fleet up, so a marker still present means the deployment never started
-// successfully and the failure is still live.
+// Remediation must be proven positively: run-fleet.sh writes the startup
+// proof only at the end of a run that brought Fleet up, so a proof newer
+// than the failure means the deployment at the target version actually
+// started. Mere absence of failure artifacts is not enough — a failed
+// recovery rerun can consume the preflight marker while the deployment
+// still names the failed target, and the failure is then still live.
 func (m *Manager) acknowledgeRemediatedFailure() {
 	m.mu.RLock()
-	pending := m.operation != nil && m.operation.Phase == updaterapi.PhaseFailed && !m.operation.Acknowledged
+	pending := m.operation != nil && m.operation.Phase == updaterapi.PhaseFailed &&
+		!m.operation.Acknowledged && m.operation.CompletedAt != nil
 	var operationID, targetVersion string
+	var failedAt time.Time
 	if pending {
 		operationID = m.operation.ID
 		targetVersion = m.operation.TargetVersion
+		failedAt = *m.operation.CompletedAt
 	}
 	m.mu.RUnlock()
 	if !pending {
@@ -960,7 +965,8 @@ func (m *Manager) acknowledgeRemediatedFailure() {
 	if err != nil || !semver.IsValid(installed) || semver.Compare(installed, targetVersion) < 0 {
 		return
 	}
-	if _, err := os.Lstat(filepath.Join(deployment, preflightProofFilename)); !errors.Is(err, os.ErrNotExist) {
+	proof, err := os.Lstat(filepath.Join(deployment, startupProofFilename))
+	if err != nil || !proof.Mode().IsRegular() || !proof.ModTime().After(failedAt) {
 		return
 	}
 	m.mu.Lock()

@@ -3629,7 +3629,10 @@ func TestStatusAutoAcknowledgesRemediatedFailure(t *testing.T) {
 		installRoot := t.TempDir()
 		writeCurrentDeployment(t, installRoot, installedVersion)
 		stateDir := filepath.Join(t.TempDir(), "state")
-		writeFailedOperationState(t, stateDir) // target v1.1.0
+		writeFailedOperationState(t, stateDir) // target v1.1.0, failed 2026-08-05
+		// A successful run after the failure recorded its startup proof.
+		proofPath := filepath.Join(installRoot, "deployment", startupProofFilename)
+		require.NoError(t, os.WriteFile(proofPath, []byte("2026-08-06T09:00:00Z\n"), 0o600))
 
 		manager, err := NewManager(Config{
 			InstallRoot: installRoot,
@@ -3665,10 +3668,13 @@ func TestStatusKeepsUnremediatedFailureVisible(t *testing.T) {
 	cases := []struct {
 		name             string
 		installedVersion string
-		preflightMarker  bool
+		staleProof       bool
 	}{
 		{name: "installed version behind the failed target", installedVersion: "v1.0.0"},
-		{name: "failed post-swap deployment still holds its preflight marker", installedVersion: "v1.1.0", preflightMarker: true},
+		// Covers both post-swap failure leftovers and a failed recovery rerun
+		// that consumed the preflight marker: no successful startup, no proof.
+		{name: "target version present without startup proof", installedVersion: "v1.1.0"},
+		{name: "startup proof predates the failure", installedVersion: "v1.1.0", staleProof: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -3676,12 +3682,14 @@ func TestStatusKeepsUnremediatedFailureVisible(t *testing.T) {
 
 			installRoot := t.TempDir()
 			writeCurrentDeployment(t, installRoot, tc.installedVersion)
-			if tc.preflightMarker {
-				markerPath := filepath.Join(installRoot, "deployment", preflightProofFilename)
-				require.NoError(t, os.WriteFile(markerPath, []byte("proof\n"), 0o600))
+			if tc.staleProof {
+				proofPath := filepath.Join(installRoot, "deployment", startupProofFilename)
+				require.NoError(t, os.WriteFile(proofPath, []byte("2026-08-01T00:00:00Z\n"), 0o600))
+				staleTime := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+				require.NoError(t, os.Chtimes(proofPath, staleTime, staleTime))
 			}
 			stateDir := filepath.Join(t.TempDir(), "state")
-			writeFailedOperationState(t, stateDir) // target v1.1.0
+			writeFailedOperationState(t, stateDir) // target v1.1.0, failed 2026-08-05
 
 			manager, err := NewManager(Config{
 				InstallRoot: installRoot,

@@ -25,6 +25,10 @@ VERSION_FILE="$PROJECT_ROOT/version.txt"
 RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
+# Written only when a full run brings Fleet up (API and client ready). The
+# host updater treats its timestamp as proof that a pending upgrade failure
+# was remediated, so it must never be written on a partial or failed run.
+STARTUP_MARKER="$PROJECT_ROOT/.fleet-startup-complete"
 NGINX_CONFIG_TEMP=""
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
 HOST_UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
@@ -1175,6 +1179,7 @@ find_release_entries() {
         ! -path './.env' \
         ! -path './.update-preflight-complete' \
         ! -path './.update-preflight-complete.tmp.*' \
+        ! -path './.fleet-startup-complete' \
         ! -path './client/nginx.conf' \
         ! -path './ssl/*' \
         ! -path './server/influx_config/.env' \
@@ -2966,6 +2971,11 @@ echo "--------------------------------------------------------------"
 if ! rm -f "$PREFLIGHT_MARKER"; then
     echo "Error: Fleet is running, but the consumed preflight marker could not be removed: $PREFLIGHT_MARKER" >&2
     exit 1
+fi
+
+if ! date -u '+%Y-%m-%dT%H:%M:%SZ' > "$STARTUP_MARKER"; then
+    echo "Warning: could not record the successful startup at $STARTUP_MARKER;" >&2
+    echo "         a previously dismissed upgrade failure may stay visible until dismissed by hand." >&2
 fi
 
 exit 0

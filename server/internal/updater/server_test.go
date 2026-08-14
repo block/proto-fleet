@@ -545,6 +545,15 @@ func TestHandleAcknowledge(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	})
 
+	t.Run("empty operation id maps to 400, not 404", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{}`))
+		NewServer(&Manager{}).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	})
+
 	t.Run("non-POST maps to 405", func(t *testing.T) {
 		t.Parallel()
 		recorder := httptest.NewRecorder()

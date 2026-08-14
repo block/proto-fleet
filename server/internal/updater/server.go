@@ -252,6 +252,7 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var operation updaterapi.Operation
+	var err error
 	if request.Complete {
 		operation, err = s.manager.TriggerCompleteWithID(request.TargetVersion, request.OperationID)
 	} else {
@@ -282,6 +283,12 @@ func (s *Server) handleAcknowledge(w http.ResponseWriter, r *http.Request) {
 	var request updaterapi.AcknowledgeRequest
 	if err := decodeSingleJSONValue(http.MaxBytesReader(w, r.Body, 4096), &request); err != nil {
 		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	if request.OperationID == "" {
+		// An empty ID would fall through to a 404 "no matching operation",
+		// misreporting a malformed request as a missing resource.
+		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "operation_id is required"})
 		return
 	}
 	operation, err := s.manager.Acknowledge(request.OperationID)

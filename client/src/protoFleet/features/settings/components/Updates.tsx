@@ -114,6 +114,7 @@ const Updates = () => {
   const lastAutoOpenedOperation = useRef<string | null>(null);
   const previousReconciling = useRef(false);
   const previousTriggerError = useRef<string | null>(null);
+  const hadSurfacedOperation = useRef(false);
   // The channel the server has persisted; the checkbox is controlled by it,
   // so a failed save never moves the control.
   const [channel, setChannel] = useState<ReleaseChannel>(ReleaseChannel.UNSPECIFIED);
@@ -260,6 +261,19 @@ const Updates = () => {
     lastAutoOpenedOperation.current = autoOpenKey;
     setUpgradeModalOpen(true);
   }, [upgrade.operation]);
+
+  useEffect(() => {
+    const hadOperation = hadSurfacedOperation.current;
+    hadSurfacedOperation.current = Boolean(upgrade.operation);
+    // Polling can remove the surfaced operation when another session durably
+    // dismissed it. Leaving the modal open would morph the outcome dialog
+    // into a confirmation for starting the same upgrade again. Local dismiss
+    // paths close the modal themselves before clearing, so this is a no-op
+    // for them; a pending reconciliation or trigger error keeps its dialog.
+    if (hadOperation && !upgrade.operation && !upgrade.reconciling && !upgrade.triggerError) {
+      setUpgradeModalOpen(false);
+    }
+  }, [upgrade.operation, upgrade.reconciling, upgrade.triggerError]);
 
   useEffect(() => {
     const wasReconciling = previousReconciling.current;
