@@ -9,15 +9,20 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/alecthomas/kong"
+	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 const (
 	defaultNodeEnv          = "node.env"
 	defaultFirewallTemplate = "firewall.nft.tmpl"
+	installedNodeEnv        = "/etc/proto-fleet/ha/node.env"
+	defaultUpdaterSocket    = "/run/proto-fleet-updater/updater.sock"
 )
 
 type cli struct {
@@ -27,8 +32,13 @@ type cli struct {
 	Compose           composeCmd           `cmd:"" help:"run Docker Compose with the installed HA environment" passthrough:""`
 	Status            statusCmd            `cmd:"" help:"print local HA status as JSON"`
 	Install           installCmd           `cmd:"" help:"prepare a new cluster or install a prepared host bundle"`
+	Update            updateCmd            `cmd:"" help:"update the application services on a passive HA host"`
 	Start             startCmd             `cmd:"" help:"start installed HA services"`
 	Stop              stopCmd              `cmd:"" help:"stop installed HA services"`
+	RequirePassive    requirePassiveCmd    `cmd:"" help:"verify that the local Fleet instance is passive"`
+	UpdatePreflight   updatePreflightCmd   `cmd:"" help:"prepare the current release for an application update"`
+	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
+	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
 }
 
 type preflightCmd struct {
@@ -99,6 +109,14 @@ func (c *installCmd) Run(ctx context.Context) error {
 	return nil
 }
 
+type updateCmd struct {
+	Version string `arg:"" help:"target application version"`
+}
+
+func (c *updateCmd) Run(ctx context.Context) error {
+	return runPassiveUpdate(ctx, c.Version, os.Stdout, deployment.ValidatePassiveUpdate, updaterapi.NewClient(defaultUpdaterSocket), deployment.Status)
+}
+
 type startCmd struct {
 	NodeEnv              string `arg:"" type:"path" help:"node environment file"`
 	EtcdRootPasswordFile string `name:"etcd-root-password-file" type:"path" help:"file containing the etcd root password"`
@@ -114,6 +132,48 @@ type stopCmd struct {
 
 func (c *stopCmd) Run(ctx context.Context) error {
 	return deployment.StopInstalledServices(ctx, c.NodeEnv)
+}
+
+type requirePassiveCmd struct {
+	NodeEnv string `arg:"" type:"path" help:"node environment file"`
+	Version string `arg:"" help:"target application version"`
+}
+
+func (c *requirePassiveCmd) Run(ctx context.Context) error {
+	return deployment.ValidatePassiveUpdate(ctx, c.NodeEnv, c.Version)
+}
+
+type updatePreflightCmd struct{}
+
+func (*updatePreflightCmd) Run(ctx context.Context) error {
+	root, err := deployment.ReleaseRoot()
+	if err != nil {
+		return err
+	}
+	return deployment.PrepareApplicationUpdate(ctx, root)
+}
+
+type appStopCmd struct{}
+
+func (*appStopCmd) Run(ctx context.Context) error {
+	root, err := deployment.ReleaseRoot()
+	if err != nil {
+		return err
+	}
+	return deployment.StopApplication(ctx, root)
+}
+
+type appStartCmd struct {
+	Version string `arg:"" help:"application version to start"`
+	Mode    string `arg:"" optional:"" default:"passive" enum:"passive,any" help:"required HA role after startup"`
+}
+
+func (c *appStartCmd) Run(ctx context.Context) error {
+	root, err := deployment.ReleaseRoot()
+	if err != nil {
+		return err
+	}
+	return deployment.StartApplication(ctx, root, c.Version, c.Mode == "passive")
 }
 
 func main() {
@@ -149,4 +209,158 @@ func runStatus(ctx context.Context, envPath string, output io.Writer, read statu
 		return errors.New("HA failover readiness check failed")
 	}
 	return nil
+}
+
+type updaterClient interface {
+	Status(ctx context.Context) (updaterapi.StatusResponse, error)
+	Trigger(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+}
+
+const (
+	updatePollInterval         = 2 * time.Second
+	updateCommunicationTimeout = 30 * time.Second
+)
+
+type updatePreflight func(context.Context, string, string) error
+
+func runPassiveUpdate(
+	ctx context.Context,
+	targetVersion string,
+	output io.Writer,
+	preflight updatePreflight,
+	client updaterClient,
+	read statusReader,
+) error {
+	if err := runUpdate(ctx, targetVersion, output, preflight, client); err != nil {
+		return err
+	}
+	report, err := read(ctx, installedNodeEnv)
+	if err != nil {
+		return fmt.Errorf("update succeeded but local HA outcome could not be verified: %w", err)
+	}
+	if report.Control != nil && report.Control.FailoverReady {
+		return nil
+	}
+	if deployment.ExpectedRollingVersionMismatch(report.Control) {
+		_, err = fmt.Fprintln(output, "Update succeeded; failover readiness will recover after the peer is updated.")
+		if err != nil {
+			return fmt.Errorf("write update outcome: %w", err)
+		}
+		return nil
+	}
+	if _, err = fmt.Fprintln(output, "Update succeeded, but failover redundancy is degraded. Run fleet-ha status."); err != nil {
+		return fmt.Errorf("write update outcome: %w", err)
+	}
+	return errors.New("update succeeded but failover readiness is degraded")
+}
+
+func runUpdate(
+	ctx context.Context,
+	targetVersion string,
+	output io.Writer,
+	preflight updatePreflight,
+	client updaterClient,
+) error {
+	if err := preflight(ctx, installedNodeEnv, targetVersion); err != nil {
+		return err
+	}
+	operationID := uuid.NewString()
+	operation, err := triggerUpdate(ctx, operationID, targetVersion, client.Trigger)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(output, "Update operation %s accepted\n", operation.ID); err != nil {
+		return fmt.Errorf("write update operation: %w", err)
+	}
+	lastPhase := updaterapi.Phase("")
+	var statusFailureSince time.Time
+	for {
+		if operation.Phase != lastPhase {
+			if _, err := fmt.Fprintf(output, "Update %s: %s\n", operation.TargetVersion, operation.Phase); err != nil {
+				return fmt.Errorf("write update status: %w", err)
+			}
+			lastPhase = operation.Phase
+		}
+		if operation.Phase.Terminal() {
+			if operation.Phase == updaterapi.PhaseFailed {
+				message := "HA application update failed: " + operation.Error
+				if operation.RecoveryCommand != "" {
+					message += "\nRecovery: " + operation.RecoveryCommand
+				}
+				if operation.LogPath != "" {
+					message += "\nLog: " + operation.LogPath
+				}
+				return errors.New(message)
+			}
+			if operation.Message != "" {
+				if _, err := fmt.Fprintln(output, operation.Message); err != nil {
+					return fmt.Errorf("write update result: %w", err)
+				}
+			}
+			if operation.LogPath != "" {
+				if _, err := fmt.Fprintln(output, "Log:", operation.LogPath); err != nil {
+					return fmt.Errorf("write update log path: %w", err)
+				}
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("stopped waiting for HA application update; the accepted host update may continue: %w", ctx.Err())
+		case <-time.After(updatePollInterval):
+		}
+		status, err := client.Status(ctx)
+		if err != nil {
+			if statusFailureSince.IsZero() {
+				statusFailureSince = time.Now()
+			}
+			if time.Since(statusFailureSince) >= updateCommunicationTimeout {
+				return fmt.Errorf("host updater status remained unavailable for %s: %w", updateCommunicationTimeout, err)
+			}
+			continue
+		}
+		statusFailureSince = time.Time{}
+		if status.Operation == nil || status.Operation.ID != operationID || status.Operation.TargetVersion != targetVersion {
+			return errors.New("host updater lost the accepted operation")
+		}
+		operation = *status.Operation
+	}
+}
+
+func triggerUpdate(ctx context.Context, operationID, targetVersion string, trigger func(context.Context, string, string) (updaterapi.Operation, error)) (updaterapi.Operation, error) {
+	reconcileCtx, cancel := context.WithTimeout(ctx, updateCommunicationTimeout)
+	defer cancel()
+	ambiguous := false
+	for {
+		operation, err := trigger(reconcileCtx, operationID, targetVersion)
+		if err == nil {
+			return operation, nil
+		}
+		var transportError *updaterapi.TransportError
+		var protocolError *updaterapi.ProtocolError
+		if errors.As(err, &transportError) || errors.As(err, &protocolError) {
+			ambiguous = true
+		}
+		if !ambiguous {
+			if errors.Is(err, updaterapi.ErrUnavailable) {
+				return updaterapi.Operation{}, err
+			}
+			var rejection *updaterapi.HTTPError
+			if errors.As(err, &rejection) {
+				return updaterapi.Operation{}, err
+			}
+		}
+		select {
+		case <-reconcileCtx.Done():
+			if ambiguous {
+				return updaterapi.Operation{}, fmt.Errorf(
+					"reconcile HA application update %s; the operation may have been accepted and may continue: %w",
+					operationID,
+					errors.Join(reconcileCtx.Err(), err),
+				)
+			}
+			return updaterapi.Operation{}, fmt.Errorf("reconcile HA application update: %w", errors.Join(reconcileCtx.Err(), err))
+		case <-time.After(updatePollInterval):
+		}
+	}
 }

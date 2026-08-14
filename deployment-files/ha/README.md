@@ -197,3 +197,15 @@ Repeat on `ha-b` without `HA_PROFILE_MIGRATE`. The emitted
 `HA_PROFILE_EVIDENCE` line proves that the deployment artifacts, etcd leader,
 Patroni primary, and connected PostgreSQL writer agree.
 The qualification workflow owns the complete failure matrix and evidence.
+
+The updater accepts newer stable releases and release candidates. It verifies
+the release archive and runtime safety, but it does not decide whether a
+skipped-version application-only update is compatible with the installed
+database and DCS substrate. Check the target release notes and migration
+requirements before updating. Database, DCS, and VIP services remain pinned
+and are never restarted by this command.
+
+A passive update rechecks the local role, active peer, and control path just
+before stopping Fleet. This crash-only profile accepts the small role-change
+window before process exit; if the peer fails in that interval, durable update
+recovery restarts the local application.

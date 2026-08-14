@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/updater"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 var version = "dev"
@@ -49,12 +50,18 @@ func run() error {
 		defaultSocketPath = "/run/proto-fleet-updater/updater.sock"
 	}
 	defaultSelfUpdatePath := os.Getenv("PROTO_FLEET_UPDATER_BINARY_PATH")
+	defaultDeploymentMode := os.Getenv("PROTO_FLEET_UPDATER_DEPLOYMENT_MODE")
+	if defaultDeploymentMode == "" {
+		defaultDeploymentMode = string(updater.DeploymentModeStandalone)
+	}
 
 	installRoot := flag.String("install-root", defaultInstallRoot, "Proto Fleet installation root")
 	stateDir := flag.String("state-dir", defaultStateDir, "Durable updater state directory")
 	socketPath := flag.String("socket-path", defaultSocketPath, "Unix socket path")
 	selfUpdatePath := flag.String("self-update-path", defaultSelfUpdatePath, "Installed updater binary path to atomically refresh")
 	selfUpdateHandoff := flag.String(selfUpdateHandoffFlag, "", "Internal one-shot rollback path for a refreshed updater")
+	deploymentMode := flag.String("deployment-mode", defaultDeploymentMode, "Deployment mode: standalone or ha")
+	repairStartup := flag.Bool("repair-startup", false, "Repair an interrupted deployment layout and exit")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 
@@ -62,19 +69,35 @@ func run() error {
 		fmt.Println(version)
 		return nil
 	}
-	selfUpdateStartup, err := updater.PrepareSelfUpdateStartup(*selfUpdatePath, *selfUpdateHandoff)
-	if err != nil {
-		return fmt.Errorf("prepare updater startup: %w", err)
+	var selfUpdateStartup *updater.SelfUpdateStartup
+	if !*repairStartup {
+		var err error
+		selfUpdateStartup, err = updater.PrepareSelfUpdateStartup(*selfUpdatePath, *selfUpdateHandoff)
+		if err != nil {
+			return fmt.Errorf("prepare updater startup: %w", err)
+		}
 	}
 	absoluteInstallRoot, err := filepath.Abs(*installRoot)
 	if err != nil {
 		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("resolve install root: %w", err))
 	}
-	manager, err := updater.NewManager(updater.Config{
+	config := updater.Config{
 		InstallRoot:    absoluteInstallRoot,
 		StateDir:       *stateDir,
 		SelfUpdatePath: *selfUpdatePath,
-	})
+		DeploymentMode: updater.DeploymentMode(*deploymentMode),
+	}
+	if *repairStartup {
+		probeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		// A listening daemon already acquired the process lock and completed
+		// startup repair before opening its socket.
+		if _, err := updaterapi.NewClient(*socketPath).Status(probeCtx); err == nil {
+			return nil
+		}
+		return updater.RepairStartup(config)
+	}
+	manager, err := updater.NewManager(config)
 	if err != nil {
 		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("initialize updater: %w", err))
 	}
@@ -83,6 +106,9 @@ func run() error {
 			log.Printf("close updater manager: %v", err)
 		}
 	}()
+	if err := manager.RecoverApplication(); err != nil {
+		return handleSelfUpdateStartupFailure(selfUpdateStartup, fmt.Errorf("recover interrupted HA application: %w", err))
+	}
 	server := updater.NewServer(manager)
 	errs := make(chan error, 1)
 	go func() {
