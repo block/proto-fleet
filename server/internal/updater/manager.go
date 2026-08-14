@@ -690,18 +690,36 @@ func NewManager(cfg Config) (*Manager, error) {
 // RepairStartup restores crash-interrupted updater and deployment state before HA starts.
 func RepairStartup(cfg Config) error {
 	prepareErr := prepareSelfUpdateRepair(cfg.SelfUpdatePath)
-	restoreUpdater := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
-	if prepareErr != nil && !restoreUpdater && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
+	interruptedSelfUpdate := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
+	if prepareErr != nil && !interruptedSelfUpdate && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
 		return prepareErr
 	}
 	manager, err := NewManager(cfg)
 	if err != nil {
 		return err
 	}
-	if restoreUpdater {
-		err = manager.restoreUpdaterFromInstalledDeployment()
+	convergeUpdater := interruptedSelfUpdate || (prepareErr == nil && manager.cfg.DeploymentMode == DeploymentModeHA)
+	if manager.cfg.SelfUpdatePath != "" && convergeUpdater {
+		matches, matchErr := manager.updaterMatchesInstalledDeployment()
+		if matchErr != nil {
+			err = matchErr
+		} else if !matches {
+			err = manager.restoreUpdaterFromInstalledDeployment()
+		}
 	}
 	return errors.Join(err, manager.Close())
+}
+
+func (m *Manager) updaterMatchesInstalledDeployment() (bool, error) {
+	running, err := os.ReadFile(m.cfg.SelfUpdatePath)
+	if err != nil {
+		return false, fmt.Errorf("read supervised updater for recovery: %w", err)
+	}
+	installed, err := os.ReadFile(filepath.Join(m.cfg.InstallRoot, "deployment", "updater", "proto-fleet-updater"))
+	if err != nil {
+		return false, fmt.Errorf("read installed updater for recovery: %w", err)
+	}
+	return bytes.Equal(running, installed), nil
 }
 
 func (m *Manager) restoreUpdaterFromInstalledDeployment() error {

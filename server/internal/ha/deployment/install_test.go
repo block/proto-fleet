@@ -44,7 +44,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	docker := callIndex(calls, "sudo systemctl start docker.service")
 	start := callIndex(calls, "sudo systemctl start --no-block proto-fleet-ha.service")
 	enable := callIndex(calls, "sudo systemctl enable proto-fleet-ha.service")
-	updater := callIndex(calls, "sudo systemctl enable --now proto-fleet-updater.service")
+	updater := callIndex(calls, "sudo systemctl enable proto-fleet-updater.service")
 	updaterPermissions := callIndex(calls, updaterDropIn)
 	keepalived := callIndex(calls, "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf")
 	vipCheck := callIndex(calls, "verify-vip")
@@ -280,7 +280,7 @@ func TestInstallUpdaterFailureDisablesHA(t *testing.T) {
 	deps := testInstallerDependencies(source, config, &calls)
 	run := deps.run
 	deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		if strings.Contains(strings.Join(args, " "), "enable --now proto-fleet-updater.service") {
+		if strings.Contains(strings.Join(args, " "), "enable proto-fleet-updater.service") {
 			return nil, errors.New("enable failed")
 		}
 		return run(ctx, name, args...)

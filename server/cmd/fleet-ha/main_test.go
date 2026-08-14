@@ -155,6 +155,28 @@ func TestUpdateReturnsWhenUpdaterIsUnavailable(t *testing.T) {
 	require.ErrorIs(t, err, updaterapi.ErrUnavailable)
 }
 
+func TestTriggerUpdateReconcilesAfterAmbiguousSubmission(t *testing.T) {
+	// Arrange
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+	trigger := func(context.Context, string, string) (updaterapi.Operation, error) {
+		calls++
+		if calls == 1 {
+			return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("response lost")}
+		}
+		cancel()
+		return updaterapi.Operation{}, updaterapi.ErrUnavailable
+	}
+
+	// Act
+	_, err := triggerUpdate(ctx, "operation-123", "v1.2.3", trigger)
+
+	// Assert
+	require.Equal(t, 2, calls)
+	require.ErrorContains(t, err, "operation-123")
+	require.ErrorContains(t, err, "may have been accepted and may continue")
+}
+
 func TestUpdateFailureIncludesRecoveryDetails(t *testing.T) {
 	// Arrange
 	client := &fakeUpdaterClient{operation: updaterapi.Operation{

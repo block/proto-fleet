@@ -330,20 +330,35 @@ func runUpdate(
 func triggerUpdate(ctx context.Context, operationID, targetVersion string, trigger func(context.Context, string, string) (updaterapi.Operation, error)) (updaterapi.Operation, error) {
 	reconcileCtx, cancel := context.WithTimeout(ctx, updateCommunicationTimeout)
 	defer cancel()
+	ambiguous := false
 	for {
 		operation, err := trigger(reconcileCtx, operationID, targetVersion)
 		if err == nil {
 			return operation, nil
 		}
-		if errors.Is(err, updaterapi.ErrUnavailable) {
-			return updaterapi.Operation{}, err
+		var transportError *updaterapi.TransportError
+		var protocolError *updaterapi.ProtocolError
+		if errors.As(err, &transportError) || errors.As(err, &protocolError) {
+			ambiguous = true
 		}
-		var rejection *updaterapi.HTTPError
-		if errors.As(err, &rejection) {
-			return updaterapi.Operation{}, err
+		if !ambiguous {
+			if errors.Is(err, updaterapi.ErrUnavailable) {
+				return updaterapi.Operation{}, err
+			}
+			var rejection *updaterapi.HTTPError
+			if errors.As(err, &rejection) {
+				return updaterapi.Operation{}, err
+			}
 		}
 		select {
 		case <-reconcileCtx.Done():
+			if ambiguous {
+				return updaterapi.Operation{}, fmt.Errorf(
+					"reconcile HA application update %s; the operation may have been accepted and may continue: %w",
+					operationID,
+					errors.Join(reconcileCtx.Err(), err),
+				)
+			}
 			return updaterapi.Operation{}, fmt.Errorf("reconcile HA application update: %w", errors.Join(reconcileCtx.Err(), err))
 		case <-time.After(updatePollInterval):
 		}

@@ -1679,31 +1679,67 @@ func TestRepairStartupRestoresUpdaterFromInstalledDeployment(t *testing.T) {
 	candidate := installedUpdater + ".candidate"
 	require.NoError(t, os.WriteFile(candidate, []byte("new updater"), 0o755))
 	require.NoError(t, installExecutableCandidate(candidate, installedUpdater))
-
-	// Act
-	err := RepairStartup(Config{
+	config := Config{
 		InstallRoot:    installRoot,
 		StateDir:       filepath.Join(t.TempDir(), "state"),
 		SelfUpdatePath: installedUpdater,
 		GOARCH:         "amd64",
+		DeploymentMode: DeploymentModeHA,
 		Runner:         &recordingRunner{candidateVersion: "v1.1.0"},
-	})
+	}
+	// Simulate the repair process stopping after it restored the previous
+	// updater and cleared the handoff marker, but before it reinstalled the
+	// updater from the current deployment.
+	require.ErrorIs(t, prepareSelfUpdateRepair(installedUpdater), ErrInterruptedSelfUpdateRestored)
+	assert.Equal(t, "old updater", mustReadFile(t, installedUpdater))
+	assert.NoFileExists(t, installedUpdater+selfUpdateHandoffSuffix)
+
+	// Act
+	err := RepairStartup(config)
 
 	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, "new updater", mustReadFile(t, installedUpdater))
 	assert.FileExists(t, installedUpdater+selfUpdateHandoffSuffix)
-	require.NoError(t, RepairStartup(Config{
-		InstallRoot:    installRoot,
-		StateDir:       filepath.Join(t.TempDir(), "state"),
-		SelfUpdatePath: installedUpdater,
-		GOARCH:         "amd64",
-		Runner:         &recordingRunner{candidateVersion: "v1.1.0"},
-	}))
+	require.NoError(t, RepairStartup(config))
 	assert.Equal(t, "new updater", mustReadFile(t, installedUpdater))
 	startup, err := PrepareSelfUpdateStartup(installedUpdater, "")
 	require.NoError(t, err)
 	require.NoError(t, startup.Commit())
+	assert.NoFileExists(t, installedUpdater+selfUpdateHandoffSuffix)
+}
+
+func TestRepairStartupKeepsPreviousUpdaterAfterReplacementRetryFails(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.1.0")
+	deployedUpdater := filepath.Join(installRoot, "deployment", "updater", "proto-fleet-updater")
+	require.NoError(t, os.MkdirAll(filepath.Dir(deployedUpdater), 0o750))
+	require.NoError(t, os.WriteFile(deployedUpdater, []byte("new updater"), 0o755))
+	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
+	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0o755))
+	candidate := installedUpdater + ".candidate"
+	require.NoError(t, os.WriteFile(candidate, []byte("new updater"), 0o755))
+	require.NoError(t, installExecutableCandidate(candidate, installedUpdater))
+	require.NoError(t, authorizeSelfUpdateRestart(installedUpdater))
+	startup, err := PrepareSelfUpdateStartup(installedUpdater, "")
+	require.NoError(t, err)
+	require.NotNil(t, startup)
+	config := Config{
+		InstallRoot:    installRoot,
+		StateDir:       filepath.Join(t.TempDir(), "state"),
+		SelfUpdatePath: installedUpdater,
+		GOARCH:         "amd64",
+		DeploymentMode: DeploymentModeHA,
+		Runner:         &recordingRunner{candidateVersion: "v1.1.0"},
+	}
+
+	// Act
+	err = RepairStartup(config)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, "old updater", mustReadFile(t, installedUpdater))
 	assert.NoFileExists(t, installedUpdater+selfUpdateHandoffSuffix)
 }
 
