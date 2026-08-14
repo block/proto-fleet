@@ -1021,10 +1021,12 @@ func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
 	snaps := &fakeSnapshots{snap: Snapshot{}}
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 	svc.activitySvc = activity.NewService(activityStore)
+	completed := time.Date(2026, 8, 14, 18, 0, 0, 123_000_000, time.UTC)
 	executor := &fakeExecutor{acknowledge: updaterapi.Operation{
 		ID:            "op-1",
 		TargetVersion: "v1.1.0",
 		Phase:         updaterapi.PhaseFailed,
+		CompletedAt:   &completed,
 		Acknowledged:  true,
 	}}
 	svc.executor = executor
@@ -1042,7 +1044,23 @@ func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
 	assert.Equal(t, "op-1", recorded.Metadata["operation_id"])
 	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
 	assert.Equal(t, "failed", recorded.Metadata["phase"])
-	assert.Equal(t, "instance_upgrade_acknowledged:op-1", recorded.IdempotencyKey)
+	assert.Equal(t, "instance_upgrade_acknowledged:op-1:2026-08-14T18:00:00.123Z", recorded.IdempotencyKey)
+}
+
+func TestUpgradeAcknowledgementIdempotencyKeyScopesRetriesToOutcomeRevision(t *testing.T) {
+	t.Parallel()
+
+	completed := time.Date(2026, 8, 14, 18, 0, 0, 123_000_000, time.UTC)
+	sameInstant := completed.In(time.FixedZone("test-offset", 3*60*60))
+	rewritten := completed.Add(time.Minute)
+
+	firstKey := upgradeAcknowledgementIdempotencyKey(updaterapi.Operation{ID: "op-1", CompletedAt: &completed})
+	retryKey := upgradeAcknowledgementIdempotencyKey(updaterapi.Operation{ID: "op-1", CompletedAt: &sameInstant})
+	rewrittenKey := upgradeAcknowledgementIdempotencyKey(updaterapi.Operation{ID: "op-1", CompletedAt: &rewritten})
+
+	assert.Equal(t, "instance_upgrade_acknowledged:op-1:2026-08-14T18:00:00.123Z", firstKey)
+	assert.Equal(t, firstKey, retryKey, "the same outcome revision must deduplicate across transports")
+	assert.NotEqual(t, firstKey, rewrittenKey, "a materially rewritten outcome needs its own audit row")
 }
 
 func TestAcknowledgeUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
@@ -1075,10 +1093,12 @@ func TestAcknowledgeUpgradeAuditsIdempotentlyWhenAlreadyAcknowledged(t *testing.
 	snaps := &fakeSnapshots{snap: Snapshot{}}
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 	svc.activitySvc = activity.NewService(activityStore)
+	completed := time.Date(2026, 8, 14, 18, 0, 0, 123_000_000, time.UTC)
 	executor := &fakeExecutor{
 		acknowledge: updaterapi.Operation{
 			ID:           "op-1",
 			Phase:        updaterapi.PhaseFailed,
+			CompletedAt:  &completed,
 			Acknowledged: true,
 		},
 		acknowledgeAlready: true,
@@ -1092,8 +1112,8 @@ func TestAcknowledgeUpgradeAuditsIdempotentlyWhenAlreadyAcknowledged(t *testing.
 	}
 	assert.Equal(t, []string{"op-1", "op-1"}, executor.acknowledged)
 	assert.Equal(t, []string{
-		"instance_upgrade_acknowledged:op-1",
-		"instance_upgrade_acknowledged:op-1",
+		"instance_upgrade_acknowledged:op-1:2026-08-14T18:00:00.123Z",
+		"instance_upgrade_acknowledged:op-1:2026-08-14T18:00:00.123Z",
 	}, idempotencyKeys)
 }
 

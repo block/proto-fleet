@@ -455,7 +455,20 @@ func (s *Service) logUpgradeAcknowledged(ctx context.Context, organizationID int
 			"operation_id":   operation.ID,
 			"target_version": operation.TargetVersion,
 			"phase":          string(operation.Phase),
-		}, upgradeAcknowledgedEventType+":"+operation.ID)
+		}, upgradeAcknowledgementIdempotencyKey(operation))
+}
+
+func upgradeAcknowledgementIdempotencyKey(operation updaterapi.Operation) string {
+	key := upgradeAcknowledgedEventType + ":" + operation.ID
+	if operation.CompletedAt == nil {
+		// Older updater responses may omit the outcome timestamp. Preserve the
+		// operation-scoped retry behavior rather than making those audits random.
+		return key
+	}
+	// CompletedAt is stable across retries, but startup reconciliation advances
+	// it when materially rewriting a terminal outcome and requiring a new
+	// dismissal. Canonical UTC keeps the same instant stable across transports.
+	return key + ":" + operation.CompletedAt.UTC().Format(time.RFC3339Nano)
 }
 
 func (s *Service) GetUpgradeStatus(ctx context.Context) UpgradeStatus {
