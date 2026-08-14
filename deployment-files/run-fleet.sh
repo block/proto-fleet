@@ -1395,10 +1395,10 @@ record_preflight_marker() {
 # untrusted and must be replaced without ever being followed. mktemp creates a
 # fresh private file; a planted symlink is unlinked, while a directory is
 # removed only when empty so marker replacement can never destroy unrelated
-# contents. This prevents a two-operand mv from moving the file *into* either
-# kind of slot; the rename then swaps the slot atomically without dereferencing
-# a symlink. The final check turns a marker silently absorbed by a slot
-# re-planted mid-swap into a reported failure.
+# contents. Linux's no-target-directory rename prevents a slot re-planted
+# mid-swap from absorbing the marker; Linux is the only platform where this
+# script runs privileged through the host updater. macOS mv lacks that option,
+# so manual macOS deployments retain the portable rename plus the final check.
 replace_marker_file() {
     local marker_path="$1" marker_content="$2" temporary_marker
     temporary_marker=$(umask 077; mktemp "$marker_path.tmp.XXXXXX") || return 1
@@ -1421,7 +1421,12 @@ replace_marker_file() {
             return 1
         fi
     fi
-    if ! mv -f "$temporary_marker" "$marker_path"; then
+    if [ "$(uname -s)" = "Linux" ]; then
+        if ! mv -fT -- "$temporary_marker" "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    elif ! mv -f "$temporary_marker" "$marker_path"; then
         rm -f "$temporary_marker"
         return 1
     fi

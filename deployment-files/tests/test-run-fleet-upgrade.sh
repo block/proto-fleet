@@ -475,6 +475,23 @@ if [ "${FAKE_ENV_REWRITE_FAILURE:-}" = "mv" ] && \
     [ "$destination_path" = "$STAGE_ROOT/.env" ]; then
     exit 1
 fi
+if [ "${FAKE_STARTUP_MARKER_SLOT_RACE:-false}" = "true" ] && \
+    [[ "$source_path" == "$STAGE_ROOT/.fleet-startup-complete.tmp."* ]] && \
+    [ "$destination_path" = "$STAGE_ROOT/.fleet-startup-complete" ]; then
+    mkdir -p "$destination_path"
+    printf 'operator-data\n' > "$destination_path/keep.txt"
+    case " $* " in
+        *' -fT -- '*) exit 1 ;;
+    esac
+fi
+# The harness reports Linux to exercise the privileged updater path, but the
+# test suite also runs on macOS where the real mv has no -T. Once the shim has
+# enforced -T's no-target-directory behavior above, translate a normal marker
+# install to the host's portable mv syntax.
+if [ "${1:-}" = "-fT" ] && [ "${2:-}" = "--" ]; then
+    shift 2
+    exec "$REAL_MV" -f "$@"
+fi
 exec "$REAL_MV" "$@"
 EOF
 
@@ -2168,6 +2185,35 @@ else
     fail "nonempty startup marker directory contents must not be deleted"
 fi
 assert_contains "nonempty startup marker directory reports proof failure" "$HARNESS_OUTPUT_LOG" \
+    "could not record the successful startup"
+
+# Replanting a directory after the slot checks but immediately before marker
+# installation must not make privileged mv drop its temporary file inside the
+# attacker-controlled directory. Fleet is already healthy, so proof failure
+# remains a warning while the directory and its existing contents survive.
+make_stage raced-startup-marker-directory
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "raced startup marker fixture preflights"
+else
+    fail "raced startup marker fixture should preflight"
+fi
+if FAKE_STARTUP_MARKER_SLOT_RACE=true run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "startup marker directory race does not fail a successful deployment"
+else
+    fail "startup marker directory race should only prevent proof recording"
+fi
+if grep -qFx 'operator-data' "$STAGE/.fleet-startup-complete/keep.txt"; then
+    pass "raced startup marker directory contents are preserved"
+else
+    fail "raced startup marker directory contents must not be deleted"
+fi
+if find "$STAGE/.fleet-startup-complete" -mindepth 1 -maxdepth 1 \
+    ! -name keep.txt -print -quit | grep -q .; then
+    fail "raced startup marker directory absorbed a privileged temporary marker"
+else
+    pass "no-target-directory rename prevents marker absorption during the race"
+fi
+assert_contains "startup marker directory race reports proof failure" "$HARNESS_OUTPUT_LOG" \
     "could not record the successful startup"
 
 if [ "$FAILURES" -ne 0 ]; then
