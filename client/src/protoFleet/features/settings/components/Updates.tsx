@@ -206,8 +206,6 @@ const Updates = () => {
   const upgrade = useUpgradeOperation({
     authSessionIdentity,
     enabled: canUpdateInstance,
-    currentVersion: status?.currentVersion,
-    currentVersionUnavailable: Boolean(loadError && !status),
     onUntrackedSuccess: () => {
       void fetchStatus();
     },

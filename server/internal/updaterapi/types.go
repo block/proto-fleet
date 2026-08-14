@@ -34,6 +34,10 @@ type Operation struct {
 	RecoveryCommand string     `json:"recovery_command,omitempty"`
 	RecoveryPending bool       `json:"recovery_pending,omitempty"`
 	LogPath         string     `json:"log_path,omitempty"`
+	// OutcomeRevision identifies the current terminal outcome for this
+	// operation. It starts at one when the operation first becomes terminal and
+	// advances whenever startup recovery materially rewrites that outcome.
+	OutcomeRevision uint64 `json:"outcome_revision,omitempty"`
 	// Acknowledged records that an operator dismissed this terminal outcome.
 	// Clients keep the operation out of their upgrade UI once set.
 	Acknowledged bool `json:"acknowledged,omitempty"`
@@ -54,7 +58,8 @@ type TriggerResponse struct {
 }
 
 type AcknowledgeRequest struct {
-	OperationID string `json:"operation_id"`
+	OperationID             string `json:"operation_id"`
+	ExpectedOutcomeRevision uint64 `json:"expected_outcome_revision"`
 }
 
 type AcknowledgeResponse struct {

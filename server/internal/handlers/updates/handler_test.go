@@ -154,3 +154,14 @@ func TestUpgradePhaseMapping(t *testing.T) {
 		assert.Equal(t, expected, phaseToProto(phase), "phase %s", phase)
 	}
 }
+
+func TestUpgradeOperationMapsOutcomeRevision(t *testing.T) {
+	t.Parallel()
+
+	operation := operationToProto(updaterapi.Operation{
+		ID:              "11111111-1111-4111-8111-111111111111",
+		OutcomeRevision: 7,
+	})
+
+	assert.Equal(t, uint64(7), operation.GetOutcomeRevision())
+}

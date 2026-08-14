@@ -638,11 +638,6 @@ describe("Updates", () => {
 
     expect(await findByText("Unable to load update status")).toBeInTheDocument();
     expect(getByText("release registry unreachable")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(mockUseUpgradeOperation).toHaveBeenLastCalledWith(
-        expect.objectContaining({ currentVersionUnavailable: true }),
-      ),
-    );
   });
 
   it("saves a channel change and toasts success", async () => {

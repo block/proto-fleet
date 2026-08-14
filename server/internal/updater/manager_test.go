@@ -194,6 +194,7 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 
 	completed := waitForTerminal(t, manager)
 	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	assert.Equal(t, uint64(1), completed.OutcomeRevision)
 	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment.previous", "version.txt")))
 	assert.Equal(t, operatorEnv, mustReadFile(t, filepath.Join(installRoot, "deployment", ".env")))
@@ -277,6 +278,7 @@ func TestManagerHAUpdateKeepsForwardRecoveryWhenStartupFails(t *testing.T) {
 
 	// Assert
 	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Equal(t, uint64(1), completed.OutcomeRevision)
 	assert.Contains(t, completed.RecoveryCommand, "sudo --")
 	assert.Contains(t, completed.RecoveryCommand, "app-start")
 	assert.Contains(t, completed.RecoveryCommand, "v1.1.0")
@@ -1763,6 +1765,7 @@ func TestManagerMarksAnInterruptedPersistedOperationFailed(t *testing.T) {
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+	assert.Equal(t, uint64(1), operation.OutcomeRevision)
 	assert.Contains(t, operation.Error, "updater restarted")
 	require.NotNil(t, operation.CompletedAt)
 }
@@ -1870,6 +1873,7 @@ func TestManagerRestoresPreviousDeploymentAfterInterruptedSwap(t *testing.T) {
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+	assert.Equal(t, uint64(1), operation.OutcomeRevision)
 	assert.Contains(t, operation.Message, "previous deployment restored")
 	assert.Empty(t, operation.RecoveryCommand)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
@@ -1910,6 +1914,9 @@ func TestRepairStartupDefersApplicationRecoveryUntilHAIsRunning(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.Equal(t, uint64(2), operation.OutcomeRevision)
 	commands := runner.Commands()
 	require.Len(t, commands, 1)
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
@@ -2038,6 +2045,7 @@ func TestRecoverApplicationKeepsPendingRecoveryAfterFailure(t *testing.T) {
 	var operation updaterapi.Operation
 	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &operation))
 	assert.True(t, operation.RecoveryPending)
+	assert.Equal(t, uint64(2), operation.OutcomeRevision)
 	assert.NotEmpty(t, operation.RecoveryCommand)
 	assert.Contains(t, operation.Error, "restart failed")
 }
@@ -2074,6 +2082,46 @@ func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
 	assert.Empty(t, runner.Commands())
 }
 
+func TestManagerAdvancesOutcomeWhenStartupDerivesTerminalRecovery(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.1.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	persisted := writeFailedOperationState(t, stateDir)
+	persisted.Acknowledged = true
+	data, err := json.Marshal(persisted)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+	marker, err := json.Marshal(activationMarker{
+		OperationID:   persisted.ID,
+		TargetVersion: persisted.TargetVersion,
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, activationMarkerFilename), marker, 0o600))
+	rewrittenAt := *persisted.CompletedAt
+	rewrittenAt = rewrittenAt.Add(time.Minute)
+
+	manager, err := NewManager(Config{
+		InstallRoot:    installRoot,
+		StateDir:       stateDir,
+		GOARCH:         "amd64",
+		DeploymentMode: DeploymentModeHA,
+		Now:            func() time.Time { return rewrittenAt },
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.Equal(t, persisted.OutcomeRevision+1, operation.OutcomeRevision)
+	assert.False(t, operation.Acknowledged)
+	assert.True(t, operation.RecoveryPending)
+	assert.Contains(t, operation.RecoveryCommand, "app-start")
+	assert.Equal(t, rewrittenAt, *operation.CompletedAt)
+	assert.NoFileExists(t, filepath.Join(stateDir, activationMarkerFilename))
+}
+
 func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *testing.T) {
 	t.Parallel()
 
@@ -2091,6 +2139,7 @@ func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *test
 	require.NoError(t, os.MkdirAll(stateDir, 0o700))
 	started := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
 	completed := started.Add(time.Minute)
+	rewrittenAt := completed.Add(time.Minute)
 	persisted := updaterapi.Operation{
 		ID:              "failed-operation",
 		TargetVersion:   "v1.1.0",
@@ -2101,6 +2150,7 @@ func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *test
 		StartedAt:       started,
 		UpdatedAt:       completed,
 		CompletedAt:     &completed,
+		OutcomeRevision: 1,
 	}
 	data, err := json.Marshal(persisted)
 	require.NoError(t, err)
@@ -2120,6 +2170,7 @@ func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *test
 		GOARCH:         "amd64",
 		Runner:         runner,
 		DeploymentMode: DeploymentModeHA,
+		Now:            func() time.Time { return rewrittenAt },
 		beforePersistState: func(operation updaterapi.Operation) error {
 			if operation.RecoveryPending && failPersist {
 				failPersist = false
@@ -2142,7 +2193,8 @@ func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *test
 	require.NotNil(t, operation)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Contains(t, operation.Error, "input/output error")
-	assert.Equal(t, completed, *operation.CompletedAt)
+	assert.Equal(t, uint64(2), operation.OutcomeRevision)
+	assert.Equal(t, rewrittenAt, *operation.CompletedAt)
 	assert.Contains(t, operation.RecoveryCommand, "app-start")
 	assert.True(t, operation.RecoveryPending)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
@@ -2152,6 +2204,7 @@ func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *test
 	require.NoError(t, manager.RecoverApplication())
 	recovered := manager.Status().Operation
 	require.NotNil(t, recovered)
+	assert.Equal(t, uint64(3), recovered.OutcomeRevision)
 	assert.Empty(t, recovered.RecoveryCommand)
 	assert.False(t, recovered.RecoveryPending)
 	commands := runner.Commands()
@@ -2187,6 +2240,7 @@ func TestManagerAdvancesCompletionWhenStartupRestoresPreviousDeployment(t *testi
 		StartedAt:       started,
 		UpdatedAt:       completed,
 		CompletedAt:     &completed,
+		OutcomeRevision: 1,
 	}
 	data, err := json.Marshal(persisted)
 	require.NoError(t, err)
@@ -2210,6 +2264,7 @@ func TestManagerAdvancesCompletionWhenStartupRestoresPreviousDeployment(t *testi
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+	assert.Equal(t, uint64(2), operation.OutcomeRevision)
 	assert.Contains(t, operation.Error, "input/output error")
 	assert.Contains(t, operation.Error, "restored the validated previous deployment")
 	assert.Contains(t, operation.Message, "Previous deployment restored")
@@ -3633,6 +3688,7 @@ func writeFailedOperationState(t *testing.T, stateDir string) updaterapi.Operati
 		StartedAt:       started,
 		UpdatedAt:       completed,
 		CompletedAt:     &completed,
+		OutcomeRevision: 1,
 	}
 	data, err := json.Marshal(persisted)
 	require.NoError(t, err)
@@ -3655,19 +3711,20 @@ func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	operation, alreadyAcknowledged, err := manager.Acknowledge(persisted.ID)
+	operation, alreadyAcknowledged, err := manager.Acknowledge(persisted.ID, persisted.OutcomeRevision)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
 	assert.False(t, alreadyAcknowledged, "first call records the dismissal")
 	assert.Equal(t, persisted.UpdatedAt, operation.UpdatedAt,
 		"acknowledging must not rewrite the operation's outcome revision")
+	assert.Equal(t, persisted.OutcomeRevision, operation.OutcomeRevision)
 
 	status := manager.Status().Operation
 	require.NotNil(t, status)
 	assert.True(t, status.Acknowledged)
 
 	// Idempotent for the same operation.
-	operation, alreadyAcknowledged, err = manager.Acknowledge(persisted.ID)
+	operation, alreadyAcknowledged, err = manager.Acknowledge(persisted.ID, persisted.OutcomeRevision)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
 	assert.True(t, alreadyAcknowledged, "retry finds the dismissal in place")
@@ -3750,6 +3807,7 @@ func TestRewriteActivationRecoveryFailureClearsAcknowledgement(t *testing.T) {
 	rewriteActivationRecoveryFailure(&operation, rewrittenAt, assert.AnError)
 
 	assert.False(t, operation.Acknowledged)
+	assert.Equal(t, uint64(1), operation.OutcomeRevision)
 	assert.Equal(t, "Activation layout requires manual recovery", operation.Message)
 	assert.Contains(t, operation.Error, assert.AnError.Error())
 	assert.Equal(t, rewrittenAt, operation.UpdatedAt)
@@ -3834,7 +3892,7 @@ func TestStatusKeepsUnremediatedFailureVisible(t *testing.T) {
 	}
 }
 
-func TestManagerAcknowledgeRejectsUnknownAndActiveOperations(t *testing.T) {
+func TestManagerAcknowledgeRejectsUnknownActiveAndStaleOutcomes(t *testing.T) {
 	t.Parallel()
 
 	installRoot := t.TempDir()
@@ -3850,13 +3908,22 @@ func TestManagerAcknowledgeRejectsUnknownAndActiveOperations(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
-	_, _, err = manager.Acknowledge("some-other-operation")
+	_, _, err = manager.Acknowledge("some-other-operation", persisted.OutcomeRevision)
 	require.ErrorIs(t, err, errAcknowledgeUnknown)
+
+	_, _, err = manager.Acknowledge(persisted.ID, 0)
+	require.ErrorIs(t, err, errAcknowledgeRevisionRequired)
+
+	manager.mu.Lock()
+	manager.operation.OutcomeRevision++
+	manager.mu.Unlock()
+	_, _, err = manager.Acknowledge(persisted.ID, persisted.OutcomeRevision)
+	require.ErrorIs(t, err, errAcknowledgeRevisionMismatch)
 
 	manager.mu.Lock()
 	manager.operation = &updaterapi.Operation{ID: persisted.ID, TargetVersion: "v1.1.0", Phase: updaterapi.PhasePreflight}
 	manager.mu.Unlock()
-	_, _, err = manager.Acknowledge(persisted.ID)
+	_, _, err = manager.Acknowledge(persisted.ID, persisted.OutcomeRevision)
 	require.ErrorIs(t, err, errAcknowledgeActive)
 
 	status := manager.Status().Operation

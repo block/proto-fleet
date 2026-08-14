@@ -87,7 +87,7 @@ func (h *Handler) TriggerUpgrade(ctx context.Context, req *connect.Request[insta
 	if err != nil {
 		return nil, err
 	}
-	operation, err := h.svc.TriggerUpgrade(ctx, orgID, req.Msg.GetTargetVersion())
+	operation, err := h.svc.TriggerUpgrade(ctx, orgID, req.Msg.GetOperationId(), req.Msg.GetTargetVersion())
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -101,7 +101,7 @@ func (h *Handler) AcknowledgeUpgrade(ctx context.Context, req *connect.Request[i
 	if err != nil {
 		return nil, err
 	}
-	operation, err := h.svc.AcknowledgeUpgrade(ctx, orgID, req.Msg.GetOperationId())
+	operation, err := h.svc.AcknowledgeUpgrade(ctx, orgID, req.Msg.GetOperationId(), req.Msg.GetExpectedOutcomeRevision())
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -149,6 +149,7 @@ func operationToProto(operation updaterapi.Operation) *instancev1.UpgradeOperati
 		RecoveryCommand: operation.RecoveryCommand,
 		HostLogPath:     operation.LogPath,
 		Acknowledged:    operation.Acknowledged,
+		OutcomeRevision: operation.OutcomeRevision,
 	}
 	if operation.CompletedAt != nil {
 		out.CompletedAt = timestamppb.New(*operation.CompletedAt)

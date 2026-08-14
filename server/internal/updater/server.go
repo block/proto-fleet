@@ -291,7 +291,14 @@ func (s *Server) handleAcknowledge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "operation_id is required"})
 		return
 	}
-	operation, alreadyAcknowledged, err := s.manager.Acknowledge(request.OperationID)
+	if request.ExpectedOutcomeRevision == 0 {
+		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "expected_outcome_revision must be greater than zero"})
+		return
+	}
+	operation, alreadyAcknowledged, err := s.manager.Acknowledge(
+		request.OperationID,
+		request.ExpectedOutcomeRevision,
+	)
 	if err != nil {
 		status := acknowledgeErrorHTTPStatus(err)
 		failure := updaterapi.ErrorResponse{Error: err.Error()}
@@ -317,6 +324,10 @@ func acknowledgeErrorHTTPStatus(err error) int {
 	case errors.Is(err, errAcknowledgeUnknown):
 		return http.StatusNotFound
 	case errors.Is(err, errAcknowledgeActive):
+		return http.StatusConflict
+	case errors.Is(err, errAcknowledgeRevisionRequired):
+		return http.StatusBadRequest
+	case errors.Is(err, errAcknowledgeRevisionMismatch):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
