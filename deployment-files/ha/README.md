@@ -203,8 +203,11 @@ swapping. Qualification still requires a healthy takeover in less than 15
 seconds. This is a bounded interruption, not a zero-downtime update.
 
 If an update reports pending HA application recovery, retry recovery with
-`sudo systemctl restart proto-fleet-updater.service`. After the local Fleet
-application is healthy again, rerun the same `fleet-ha update` command.
+`sudo systemctl restart proto-fleet-updater.service`, then run
+`sudo /opt/proto-fleet/deployment/ha/fleet-ha status /etc/proto-fleet/ha/node.env`.
+If the target version is already installed and healthy, do not rerun the
+update. Retry only if the old version remains: use the ordinary update while
+passive, or `--complete` while active after the peer reaches the target.
 
 ## Qualification
 

@@ -294,7 +294,7 @@ func WaitForVIPVersion(ctx context.Context, envPath, targetVersion string) error
 	defer transport.CloseIdleConnections()
 	deadline, cancel := context.WithTimeout(ctx, ha.UpdateTakeoverTimeout)
 	defer cancel()
-	endpoint := "https://" + config.VirtualIP + "/api-proxy/health"
+	endpoint := "https://" + config.VirtualIP + "/api-proxy/health/active"
 	for {
 		request, requestErr := http.NewRequestWithContext(deadline, http.MethodGet, endpoint, nil)
 		if requestErr != nil {

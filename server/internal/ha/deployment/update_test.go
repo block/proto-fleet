@@ -189,6 +189,15 @@ func TestAcceptVIPVersionRejectsWrongPeerRelease(t *testing.T) {
 	require.ErrorContains(t, err, "v1.0.0")
 }
 
+func TestAcceptVIPVersionWaitsForActivePeer(t *testing.T) {
+	// Act
+	ready, err := acceptVIPVersion(http.StatusServiceUnavailable, "v1.1.0", "v1.1.0")
+
+	// Assert
+	require.NoError(t, err)
+	require.False(t, ready)
+}
+
 func TestUpdatedPassivePeerReady(t *testing.T) {
 	// Act and assert
 	require.True(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, passive: true, version: "v1.1.0"}, "v1.1.0"))
