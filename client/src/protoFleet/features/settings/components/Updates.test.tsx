@@ -310,9 +310,10 @@ describe("Updates", () => {
     page.rerender(<Updates />);
 
     // The dialog must disappear, not morph into a confirmation for starting
-    // the same upgrade again.
+    // the same upgrade again. Waited separately because the dialog's exit
+    // transition keeps its frame in the DOM briefly after the content clears.
     await waitFor(() => expect(page.queryByText("new stack failed to start")).not.toBeInTheDocument());
-    expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument();
+    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
   });
 
   it("offers a reload after the watched operation succeeds", async () => {
