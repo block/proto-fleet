@@ -128,12 +128,13 @@ type ActiveState interface {
 
 // NewActiveHandler reports whether this process currently owns a healthy
 // active runtime. It does not grant ownership.
-func NewActiveHandler(state ActiveState) func(w http.ResponseWriter, r *http.Request) {
+func NewActiveHandler(version string, state ActiveState) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
+		w.Header().Set("X-Proto-Fleet-Version", version)
 		if !state.Active() {
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusServiceUnavailable)

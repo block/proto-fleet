@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -51,27 +52,34 @@ type recordingRunner struct {
 }
 
 type haRecordingRunner struct {
-	mu       sync.Mutex
-	commands []recordedCommand
-	fail     map[string]error
+	mu        sync.Mutex
+	commands  []recordedCommand
+	fail      map[string]error
+	blockStop bool
 }
 
-func (r *haRecordingRunner) Run(_ context.Context, dir string, output io.Writer, name string, args ...string) error {
+func (r *haRecordingRunner) Run(ctx context.Context, dir string, output io.Writer, name string, args ...string) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.commands = append(r.commands, recordedCommand{Dir: dir, Name: name, Args: append([]string(nil), args...)})
+	blockStop := r.blockStop && len(args) > 0 && args[0] == "app-stop"
 	if len(args) == 1 && args[0] == "--version" {
+		r.mu.Unlock()
 		if _, err := fmt.Fprintln(output, "v1.1.0"); err != nil {
 			return fmt.Errorf("write candidate version: %w", err)
 		}
 		return nil
 	}
+	var err error
 	if len(args) > 0 {
-		err := r.fail[args[0]]
+		err = r.fail[args[0]]
 		delete(r.fail, args[0])
-		return err
 	}
-	return nil
+	r.mu.Unlock()
+	if blockStop {
+		<-ctx.Done()
+		return fmt.Errorf("blocked application stop: %w", ctx.Err())
+	}
+	return err
 }
 
 func (r *haRecordingRunner) Commands() []recordedCommand {
@@ -242,8 +250,8 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 	require.Len(t, commands, 5)
 	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
 	assert.Equal(t, []string{"require-passive", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[1].Args)
-	assert.Equal(t, []string{"app-stop"}, commands[2].Args)
-	assert.Equal(t, []string{"app-start", "v1.1.0"}, commands[3].Args)
+	assert.Equal(t, []string{"app-stop", "passive"}, commands[2].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "passive"}, commands[3].Args)
 	for _, command := range commands[:4] {
 		assert.Contains(t, command.Name, filepath.Join("ha", "fleet-ha"))
 		assert.NotContains(t, strings.Join(command.Args, " "), "etcd")
@@ -273,10 +281,11 @@ func TestManagerHAUpdateKeepsForwardRecoveryWhenStartupFails(t *testing.T) {
 	assert.Contains(t, completed.RecoveryCommand, "app-start")
 	assert.Contains(t, completed.RecoveryCommand, "v1.1.0")
 	assert.True(t, strings.HasSuffix(completed.RecoveryCommand, " any"))
+	assert.False(t, completed.RecoveryPending)
 	assert.Contains(t, completed.Error, "new stack failed to start")
 	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	commands := runner.Commands()
-	assert.Equal(t, []string{"app-start", "v1.1.0"}, commands[len(commands)-1].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "passive"}, commands[len(commands)-1].Args)
 }
 
 func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T) {
@@ -363,28 +372,258 @@ func TestManagerHARejectsDowngrade(t *testing.T) {
 	assert.Equal(t, "v1.4.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 }
 
-func TestManagerHAInterruptedAfterStopRetainsRestartCommand(t *testing.T) {
+func TestManagerHAInterruptedAfterStopRestartsCurrentApplication(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	stateDir := filepath.Join(t.TempDir(), "state")
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	require.NoError(t, os.Rename(filepath.Join(installRoot, "deployment"), filepath.Join(installRoot, "deployment.previous")))
 	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+	runner := &haRecordingRunner{fail: make(map[string]error)}
+	cfg := Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
+	}
 
 	// Act
-	manager, err := NewManager(Config{
-		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA,
-	})
+	err := RepairStartup(cfg)
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	err = manager.RecoverApplication()
+	require.NoError(t, err)
 
 	// Assert
-	operation := manager.Status().Operation
-	require.NotNil(t, operation)
+	var operation updaterapi.Operation
+	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &operation))
 	require.Equal(t, updaterapi.PhaseFailed, operation.Phase)
-	assert.Contains(t, operation.RecoveryCommand, "app-start")
-	assert.Contains(t, operation.RecoveryCommand, "v1.0.0")
-	assert.True(t, strings.HasSuffix(operation.RecoveryCommand, " any"))
+	assert.Empty(t, operation.RecoveryCommand)
+	assert.Contains(t, operation.Message, "HA application restarted")
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
+}
+
+func TestManagerHACompletionWaitsForUpdatedPeerBeforeSwap(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: make(map[string]error)}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
+	require.True(t, completed.Complete)
+	commands := runner.Commands()
+	require.Len(t, commands, 5)
+	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
+	assert.Equal(t, []string{"require-active", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[1].Args)
+	assert.Equal(t, []string{"app-stop", "active"}, commands[2].Args)
+	assert.Equal(t, []string{"wait-takeover", "v1.1.0"}, commands[3].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "complete"}, commands[4].Args)
+
+	_, err = manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.ErrorContains(t, err, "operation id is already associated with another update")
+}
+
+func TestManagerHACompletionRestartsOldReleaseWhenTakeoverFails(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: map[string]error{"wait-takeover": assert.AnError}}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "previous release restarted")
+	assert.Empty(t, completed.RecoveryCommand)
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	commands := runner.Commands()
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
+}
+
+func TestManagerHACompletionRestartsOldReleaseWhenStopFails(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: map[string]error{"app-stop": assert.AnError}}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+	})
+
+	// Act
+	_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "previous release restarted")
+	assert.Empty(t, completed.RecoveryCommand)
+	commands := runner.Commands()
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
+}
+
+func TestManagerHACompletionRetriesFailedRollbackAfterRestart(t *testing.T) {
+	for _, failedCommand := range []string{"app-stop", "wait-takeover"} {
+		t.Run(failedCommand, func(t *testing.T) {
+			// Arrange
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			bundle := releaseBundle(t, "v1.1.0")
+			server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+			runner := &haRecordingRunner{fail: map[string]error{
+				failedCommand: assert.AnError,
+				"app-start":   errors.New("restart failed"),
+			}}
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+				cfg.DeploymentMode = DeploymentModeHA
+			})
+
+			// Act
+			_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+			require.NoError(t, err)
+			failed := waitForTerminal(t, manager)
+			require.NoError(t, manager.Close())
+			restarted, err := NewManager(manager.cfg)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, restarted.Close()) })
+			err = restarted.RecoverApplication()
+
+			// Assert
+			require.NoError(t, err)
+			assert.True(t, failed.RecoveryPending)
+			assert.NotEmpty(t, failed.RecoveryCommand)
+			recovered := restarted.Status().Operation
+			require.NotNil(t, recovered)
+			assert.False(t, recovered.RecoveryPending)
+			assert.Empty(t, recovered.RecoveryCommand)
+		})
+	}
+}
+
+func TestManagerHACompletionRestartsOldReleaseWhenStopBlocks(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+	runner := &haRecordingRunner{fail: make(map[string]error), blockStop: true}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+		cfg.DeploymentMode = DeploymentModeHA
+		cfg.ActivationTimeout = 250 * time.Millisecond
+	})
+
+	// Act
+	_, err := manager.TriggerCompleteWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	completed := waitForTerminal(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+	assert.Contains(t, completed.Error, "previous release restarted")
+	commands := runner.Commands()
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[len(commands)-1].Args)
+}
+
+func TestHAQualificationBarrierPausesUntilRemoved(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	barrier := filepath.Join(stateDir, qualificationAfterStopBarrierName)
+	require.NoError(t, os.WriteFile(barrier, nil, 0o600))
+	manager := &Manager{cfg: Config{StateDir: stateDir}}
+	done := make(chan error, 1)
+	go func() { done <- manager.waitForQualificationBarrier(t.Context(), qualificationAfterStopBarrierName) }()
+
+	// Act
+	select {
+	case err := <-done:
+		t.Fatalf("barrier returned before release: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	require.NoError(t, os.Remove(barrier))
+
+	// Assert
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("barrier did not release")
+	}
+}
+
+func TestActivateDeploymentRestoresCurrentWhenQualificationPauseFails(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	current := filepath.Join(installRoot, "deployment")
+	staged := filepath.Join(installRoot, "staging", "deployment")
+	previous := filepath.Join(installRoot, "deployment.previous")
+	require.NoError(t, os.MkdirAll(current, 0o750))
+	require.NoError(t, os.MkdirAll(staged, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(current, "version.txt"), []byte("v1"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, "version.txt"), []byte("v2"), 0o600))
+
+	// Act
+	err := activateDeployment(staged, current, previous, func() error { return assert.AnError })
+
+	// Assert
+	require.ErrorIs(t, err, assert.AnError)
+	version, readErr := os.ReadFile(filepath.Join(current, "version.txt"))
+	require.NoError(t, readErr)
+	assert.Equal(t, "v1", string(version))
+}
+
+func TestManagerHACompletionInterruptedAfterSwapStartsTargetRelease(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeCurrentDeployment(t, installRoot, "v1.1.0")
+	previousVersionPath := filepath.Join(installRoot, "deployment.previous", "version.txt")
+	require.NoError(t, os.MkdirAll(filepath.Dir(previousVersionPath), 0o750))
+	require.NoError(t, os.WriteFile(previousVersionPath, []byte("version: v1.0.0\n"), 0o600))
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+	runner := &haRecordingRunner{fail: make(map[string]error)}
+	cfg := Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64", DeploymentMode: DeploymentModeHA, Runner: runner,
+	}
+
+	// Act
+	err := RepairStartup(cfg)
+	require.NoError(t, err)
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	err = manager.RecoverApplication()
+	require.NoError(t, err)
+
+	// Assert
+	var operation updaterapi.Operation
+	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &operation))
+	require.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+	require.Empty(t, operation.RecoveryCommand)
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "any"}, commands[0].Args)
 }
 
 func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
@@ -1042,13 +1281,13 @@ func TestManagerActivationFailurePersistsProofAwareForwardRecovery(t *testing.T)
 	}
 }
 
-func TestManagerHAFailedActivationRestartsRestoredDeployment(t *testing.T) {
+func TestManagerHAFailedActivationRetriesRestartAfterDaemonRecovery(t *testing.T) {
 	t.Parallel()
 
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	stateDir := filepath.Join(t.TempDir(), "state")
-	runner := &haRecordingRunner{fail: make(map[string]error)}
+	runner := &haRecordingRunner{fail: map[string]error{"app-start": errors.New("restart failed")}}
 	manager, err := NewManager(Config{
 		InstallRoot:    installRoot,
 		StateDir:       stateDir,
@@ -1085,16 +1324,28 @@ func TestManagerHAFailedActivationRestartsRestoredDeployment(t *testing.T) {
 	require.NotNil(t, operation)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Contains(t, operation.Error, assert.AnError.Error())
-	assert.Empty(t, operation.RecoveryCommand)
+	assert.Contains(t, operation.Error, "restart failed")
+	assert.True(t, operation.RecoveryPending)
+	assert.NotEmpty(t, operation.RecoveryCommand)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
 	var persisted updaterapi.Operation
 	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &persisted))
 	assert.Equal(t, updaterapi.PhaseFailed, persisted.Phase)
-	assert.Empty(t, persisted.RecoveryCommand)
+	assert.True(t, persisted.RecoveryPending)
+	require.NoError(t, manager.Close())
+	restarted, err := NewManager(manager.cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, restarted.Close()) })
+	require.NoError(t, restarted.RecoverApplication())
+	recovered := restarted.Status().Operation
+	require.NotNil(t, recovered)
+	assert.False(t, recovered.RecoveryPending)
+	assert.Empty(t, recovered.RecoveryCommand)
 	commands := runner.Commands()
-	require.Len(t, commands, 1)
+	require.Len(t, commands, 2)
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[1].Args)
 }
 
 func TestActivationMarkerWriteIsAtomicAndExclusive(t *testing.T) {
@@ -1168,31 +1419,28 @@ func TestManagerRejectsAnotherUpgradeWhileActivationRecoveryIsPending(t *testing
 	now := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
 	manager.mu.Lock()
 	manager.operation = &updaterapi.Operation{
-		ID:            "pending-recovery",
-		TargetVersion: "v1.1.0",
-		Phase:         updaterapi.PhaseFailed,
-		Message:       "Activation layout requires manual recovery",
-		StartedAt:     now,
-		UpdatedAt:     now,
-		CompletedAt:   &now,
+		ID:              "pending-recovery",
+		TargetVersion:   "v1.1.0",
+		Phase:           updaterapi.PhaseFailed,
+		Message:         "Activation layout requires manual recovery",
+		RecoveryCommand: "app-start",
+		RecoveryPending: true,
+		StartedAt:       now,
+		UpdatedAt:       now,
+		CompletedAt:     &now,
 	}
 	require.NoError(t, manager.persistLocked())
 	manager.mu.Unlock()
-	require.NoError(t, manager.writeActivationMarker(activationMarker{
-		OperationID:   "pending-recovery",
-		TargetVersion: "v1.1.0",
-	}))
 	stateBefore := mustReadFile(t, filepath.Join(stateDir, stateFilename))
 
 	_, err = manager.Trigger("v1.2.0")
-	require.ErrorContains(t, err, "activation recovery for operation pending-recovery is pending")
+	require.ErrorContains(t, err, "HA application recovery for operation pending-recovery is pending")
 	require.ErrorIs(t, err, errTriggerBusy)
 	operation := manager.Status().Operation
 	require.NotNil(t, operation)
 	assert.Equal(t, "pending-recovery", operation.ID)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Equal(t, stateBefore, mustReadFile(t, filepath.Join(stateDir, stateFilename)))
-	assert.FileExists(t, filepath.Join(stateDir, activationMarkerFilename))
 }
 
 func TestManagerProcessLockPreventsASecondDaemonFromMutatingState(t *testing.T) {
@@ -1743,7 +1991,90 @@ func TestRepairStartupKeepsPreviousUpdaterAfterReplacementRetryFails(t *testing.
 	assert.NoFileExists(t, installedUpdater+selfUpdateHandoffSuffix)
 }
 
-func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *testing.T) {
+func TestRepairStartupDoesNotTouchSelfUpdateWhileManagerRuns(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	destination := installSelfUpdateForHandoffTest(t)
+	stateDir := filepath.Join(t.TempDir(), "state")
+	manager, err := NewManager(Config{InstallRoot: installRoot, StateDir: stateDir})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+
+	// Act
+	err = RepairStartup(Config{InstallRoot: installRoot, StateDir: stateDir, SelfUpdatePath: destination})
+
+	// Assert
+	require.ErrorContains(t, err, "another updater process is already running")
+	assert.Equal(t, "new updater", mustReadFile(t, destination))
+}
+
+func TestRecoverApplicationKeepsPendingRecoveryAfterFailure(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	require.NoError(t, os.Rename(
+		filepath.Join(installRoot, "deployment"),
+		filepath.Join(installRoot, "deployment.previous"),
+	))
+	stateDir := filepath.Join(t.TempDir(), "state")
+	writeInterruptedOperationState(t, stateDir, "v1.1.0")
+	cfg := Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
+		DeploymentMode: DeploymentModeHA,
+		Runner:         &haRecordingRunner{fail: map[string]error{"app-start": errors.New("restart failed")}},
+	}
+
+	// Act
+	err := RepairStartup(cfg)
+	require.NoError(t, err)
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+	err = manager.RecoverApplication()
+	require.ErrorContains(t, err, "restart interrupted HA application")
+
+	// Assert
+	var operation updaterapi.Operation
+	require.NoError(t, json.Unmarshal([]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))), &operation))
+	assert.True(t, operation.RecoveryPending)
+	assert.NotEmpty(t, operation.RecoveryCommand)
+	assert.Contains(t, operation.Error, "restart failed")
+}
+
+func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	now := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	operation := updaterapi.Operation{
+		ID: "failed", TargetVersion: "v1.1.0", Phase: updaterapi.PhaseFailed,
+		RecoveryCommand: "stale", StartedAt: now, UpdatedAt: now, CompletedAt: &now,
+	}
+	data, err := json.Marshal(operation)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+	runner := &haRecordingRunner{}
+	cfg := Config{
+		InstallRoot: installRoot, StateDir: stateDir, GOARCH: "amd64",
+		DeploymentMode: DeploymentModeHA, Runner: runner,
+	}
+
+	// Act
+	err = RepairStartup(cfg)
+	require.NoError(t, err)
+	manager, err := NewManager(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.NoError(t, manager.RecoverApplication())
+
+	// Assert
+	assert.Empty(t, runner.Commands())
+}
+
+func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *testing.T) {
 	t.Parallel()
 
 	installRoot := t.TempDir()
@@ -1781,12 +2112,29 @@ func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *tes
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, activationMarkerFilename), marker, 0o600))
 
-	manager, err := NewManager(Config{
+	runner := &haRecordingRunner{}
+	failPersist := true
+	config := Config{
 		InstallRoot:    installRoot,
 		StateDir:       stateDir,
 		GOARCH:         "amd64",
+		Runner:         runner,
 		DeploymentMode: DeploymentModeHA,
-	})
+		beforePersistState: func(operation updaterapi.Operation) error {
+			if operation.RecoveryPending && failPersist {
+				failPersist = false
+				return assert.AnError
+			}
+			return nil
+		},
+	}
+	manager, err := NewManager(config)
+	require.ErrorContains(t, err, assert.AnError.Error())
+	require.Nil(t, manager)
+	assert.FileExists(t, filepath.Join(stateDir, activationMarkerFilename))
+
+	config.beforePersistState = nil
+	manager, err = NewManager(config)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
@@ -1794,13 +2142,21 @@ func TestManagerReconcilesTerminalFailedActivationBeforeCleaningArtifacts(t *tes
 	require.NotNil(t, operation)
 	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
 	assert.Contains(t, operation.Error, "input/output error")
-	assert.Contains(t, operation.Error, "restored the validated previous deployment")
-	assert.Contains(t, operation.Message, "Previous deployment restored")
 	assert.Equal(t, completed, *operation.CompletedAt)
 	assert.Contains(t, operation.RecoveryCommand, "app-start")
+	assert.True(t, operation.RecoveryPending)
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+	assert.NoFileExists(t, filepath.Join(stateDir, activationMarkerFilename))
 	assert.NoDirExists(t, stageRoot)
+	require.NoError(t, manager.RecoverApplication())
+	recovered := manager.Status().Operation
+	require.NotNil(t, recovered)
+	assert.Empty(t, recovered.RecoveryCommand)
+	assert.False(t, recovered.RecoveryPending)
+	commands := runner.Commands()
+	require.Len(t, commands, 1)
+	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
 }
 
 func TestManagerDoesNotRestorePreviousWithoutAPendingSwapMarker(t *testing.T) {

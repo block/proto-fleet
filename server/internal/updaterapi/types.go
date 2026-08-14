@@ -24,6 +24,7 @@ func (p Phase) Terminal() bool {
 type Operation struct {
 	ID              string     `json:"id"`
 	TargetVersion   string     `json:"target_version"`
+	Complete        bool       `json:"complete,omitempty"`
 	Phase           Phase      `json:"phase"`
 	Message         string     `json:"message,omitempty"`
 	StartedAt       time.Time  `json:"started_at"`
@@ -31,6 +32,7 @@ type Operation struct {
 	CompletedAt     *time.Time `json:"completed_at,omitempty"`
 	Error           string     `json:"error,omitempty"`
 	RecoveryCommand string     `json:"recovery_command,omitempty"`
+	RecoveryPending bool       `json:"recovery_pending,omitempty"`
 	LogPath         string     `json:"log_path,omitempty"`
 }
 
@@ -41,6 +43,7 @@ type StatusResponse struct {
 type TriggerRequest struct {
 	OperationID   string `json:"operation_id"`
 	TargetVersion string `json:"target_version"`
+	Complete      bool   `json:"complete,omitempty"`
 }
 
 type TriggerResponse struct {

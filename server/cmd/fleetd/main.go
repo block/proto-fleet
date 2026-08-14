@@ -721,7 +721,7 @@ func start(config *Config) (result error) {
 
 	mux.HandleFunc("/health", health.NewHandler(version))
 	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn, fleetRuntime))
-	mux.HandleFunc("/health/active", health.NewActiveHandler(fleetRuntime))
+	mux.HandleFunc("/health/active", health.NewActiveHandler(version, fleetRuntime))
 	if config.HA.Enabled {
 		mux.HandleFunc("/health/ha", health.NewHAHandler(version, fleetRuntime))
 		mux.HandleFunc("/health/passive", health.NewPassiveHandler(fleetRuntime))

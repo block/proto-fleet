@@ -3,6 +3,7 @@ package deployment
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -43,7 +44,7 @@ func TestRollingUpdateApplicationRejectsActiveTakeover(t *testing.T) {
 	public := fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}
 
 	// Act
-	ready, err := rollingUpdateApplicationReady(report, public, "v1.1.0")
+	ready, err := rollingUpdateApplicationReady(report, public, "v1.1.0", false)
 
 	// Assert
 	require.False(t, ready)
@@ -106,6 +107,59 @@ func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(
 	require.Empty(t, commands)
 }
 
+func TestRecoveryAcceptsHealthyActiveApplication(t *testing.T) {
+	// Arrange
+	report := StatusReport{
+		Runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent},
+		Control: &ControlStatus{ControlReady: true},
+	}
+	public := fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}
+
+	// Act
+	ready, err := updatedApplicationReady(report, public, "v1.1.0", false, false)
+
+	// Assert
+	require.NoError(t, err)
+	require.True(t, ready)
+}
+
+func TestApplicationConvergenceRequiresExpectedVersionAndRole(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		runtime        ha.Status
+		requirePassive bool
+		want           bool
+	}{
+		{name: "active recovery", runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent}, want: true},
+		{name: "active passive-update", runtime: ha.Status{Version: "v1.1.0", Role: ha.RoleActive, Observation: ha.ObservationCurrent}, requirePassive: true},
+		{name: "wrong version", runtime: ha.Status{Version: "v1.0.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			got := applicationMayConverge(test.runtime, "v1.1.0", test.requirePassive)
+
+			// Assert
+			require.Equal(t, test.want, got)
+		})
+	}
+}
+
+func TestCompletedUpdateRequiresFullFailoverReadiness(t *testing.T) {
+	// Arrange
+	report := StatusReport{
+		Runtime: ha.Status{Version: "v1.1.0", Role: ha.RolePassive, Observation: ha.ObservationCurrent},
+		Control: &ControlStatus{ControlReady: true, ReasonCodes: []ControlReasonCode{ReasonFleetVersionMismatch}},
+	}
+	public := fleetHostStatus{reachable: true, passive: true, version: "v1.1.0"}
+
+	// Act
+	ready, err := rollingUpdateApplicationReady(report, public, "v1.1.0", true)
+
+	// Assert
+	require.NoError(t, err)
+	require.False(t, ready)
+}
+
 func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -124,4 +178,30 @@ func TestRollingUpdateControlAllowsOnlyExpectedVersionMismatch(t *testing.T) {
 			require.Equal(t, test.want, ready)
 		})
 	}
+}
+
+func TestAcceptVIPVersionRejectsWrongPeerRelease(t *testing.T) {
+	// Act
+	ready, err := acceptVIPVersion(http.StatusOK, "v1.0.0", "v1.1.0")
+
+	// Assert
+	require.False(t, ready)
+	require.ErrorContains(t, err, "v1.0.0")
+}
+
+func TestAcceptVIPVersionWaitsForActivePeer(t *testing.T) {
+	// Act
+	ready, err := acceptVIPVersion(http.StatusServiceUnavailable, "v1.1.0", "v1.1.0")
+
+	// Assert
+	require.NoError(t, err)
+	require.False(t, ready)
+}
+
+func TestUpdatedPassivePeerReady(t *testing.T) {
+	// Act and assert
+	require.True(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, passive: true, version: "v1.1.0"}, "v1.1.0"))
+	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, version: "v1.1.0"}, "v1.1.0"))
+	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, active: true, version: "v1.1.0"}, "v1.1.0"))
+	require.False(t, updatedPassivePeerReady(fleetHostStatus{reachable: true, passive: true, version: "v1.0.0"}, "v1.1.0"))
 }
