@@ -7,7 +7,7 @@ import (
 )
 
 func TestRunComposeRejectsParentOverrides(t *testing.T) {
-	for _, key := range []string{"AUTH_CLIENT_SECRET_KEY", "DB_DSN", "HA_NODE_IP"} {
+	for _, key := range []string{"AUTH_CLIENT_SECRET_KEY", "COMPOSE_PROJECT_NAME", "DB_DSN", "HA_NODE_IP"} {
 		t.Run(key, func(t *testing.T) {
 			// Arrange
 			const value = "must-not-appear-in-errors"

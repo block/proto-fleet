@@ -29,6 +29,7 @@ func TestUninstallDatabaseNodePreservesPersistentState(t *testing.T) {
 	require.Contains(t, output.String(), dataRoot)
 	requireCallOrder(t, calls,
 		"systemctl disable --now proto-fleet-updater.service",
+		"flock -n "+updaterLock+" true",
 		"systemctl disable --now keepalived.service",
 		"ip address flush to "+testVirtualIP+"/32 dev eth0",
 		"systemctl disable --now proto-fleet-ha.service",
@@ -110,6 +111,16 @@ func TestUninstallFailureDoesNotDeletePersistentState(t *testing.T) {
 				return output, err
 			}
 		}, message: "remove HA firewall table"},
+		{name: "updater still running", fail: func(deps *uninstallDependencies, _ *[]string) {
+			run := deps.run
+			deps.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+				output, err := run(ctx, name, args...)
+				if name == "flock" {
+					return nil, errors.New("exit status 1")
+				}
+				return output, err
+			}
+		}, message: "verify host updater stopped"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -155,7 +166,7 @@ func TestUninstallRejectsUnsafeInvocationBeforeMutation(t *testing.T) {
 				return lstat(path)
 			}
 		}, message: "installation is incomplete"},
-		{name: "confirmation refused", mutate: func(deps *uninstallDependencies) { deps.input = strings.NewReader("no\n") }, message: "uninstall canceled", calls: []string{"docker info"}},
+		{name: "confirmation refused", mutate: func(deps *uninstallDependencies) { deps.input = strings.NewReader("no\n") }, message: "uninstall canceled", calls: []string{"docker --host " + localDockerHost + " info"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -187,9 +198,11 @@ func testUninstallDependencies(t *testing.T, config NodeConfig, calls *[]string)
 	installed := map[string]bool{
 		serviceUnit: true, firewallUnit: true, nftablesDropIn: true, dockerDropIn: true,
 		infrastructureCompose: true, installRoot + "/ha/fleet-ha": true,
-		keepalivedConfig: config.isDatabaseNode(), updaterDropIn: config.isDatabaseNode(),
+		keepalivedConfig: config.isDatabaseNode(), keepalivedOverride: config.isDatabaseNode(),
+		keepalivedHealthCheck: config.isDatabaseNode(), updaterDropIn: config.isDatabaseNode(),
 		haUpdaterDropIn: config.isDatabaseNode(), updaterBinary: config.isDatabaseNode(),
 		updaterUnit: config.isDatabaseNode(), updaterEnvironment: config.isDatabaseNode(),
+		updaterLock: config.isDatabaseNode(),
 	}
 	return uninstallDependencies{
 		input: strings.NewReader("UNINSTALL\n"), output: io.Discard,

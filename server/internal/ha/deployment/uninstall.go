@@ -58,6 +58,9 @@ func uninstall(ctx context.Context, purgeData bool, deps uninstallDependencies) 
 		if err := uninstallStep(ctx, deps, "stop host updater", "systemctl", "disable", "--now", "proto-fleet-updater.service"); err != nil {
 			return err
 		}
+		if err := uninstallStep(ctx, deps, "verify host updater stopped", "flock", "-n", updaterLock, "true"); err != nil {
+			return err
+		}
 		if err := uninstallStep(ctx, deps, "stop VIP routing", "systemctl", "disable", "--now", "keepalived.service"); err != nil {
 			return err
 		}
@@ -150,9 +153,9 @@ func validateUninstall(ctx context.Context, deps uninstallDependencies) (NodeCon
 	required := []string{serviceUnit, firewallUnit, nftablesDropIn, dockerDropIn, infrastructureCompose, installRoot + "/ha/fleet-ha"}
 	if config.isDatabaseNode() {
 		required = append(required,
-			keepalivedConfig,
+			keepalivedConfig, keepalivedOverride, keepalivedHealthCheck,
 			updaterDropIn, haUpdaterDropIn,
-			updaterBinary, updaterUnit, updaterEnvironment,
+			updaterBinary, updaterUnit, updaterEnvironment, updaterLock,
 		)
 	}
 	for _, path := range required {
@@ -164,7 +167,7 @@ func validateUninstall(ctx context.Context, deps uninstallDependencies) (NodeCon
 			return NodeConfig{}, fmt.Errorf("HA installation is incomplete: expected a regular file at %s", path)
 		}
 	}
-	if output, err := deps.run(ctx, "docker", "info"); err != nil {
+	if output, err := deps.run(ctx, "docker", "--host", localDockerHost, "info"); err != nil {
 		return NodeConfig{}, fmt.Errorf("Docker must be running before uninstall: %s", commandError(output, err))
 	}
 	return config, nil
@@ -243,7 +246,7 @@ func removeHAArtifacts(ctx context.Context, deps uninstallDependencies, database
 	}
 	paths := []string{"/run/proto-fleet-ha", installBase}
 	if databaseNode {
-		paths = append([]string{"/var/lib/proto-fleet-updater", "/run/proto-fleet-updater"}, paths...)
+		paths = append([]string{updaterStateRoot, updaterRuntimeRoot}, paths...)
 	}
 	for _, path := range paths {
 		if err := uninstallStep(ctx, deps, "remove HA runtime path "+path, "rm", "-rf", "--", path); err != nil {

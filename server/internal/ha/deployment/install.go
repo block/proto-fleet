@@ -36,6 +36,9 @@ const (
 	updaterBinary         = "/usr/local/libexec/proto-fleet/proto-fleet-updater"
 	updaterUnit           = "/etc/systemd/system/proto-fleet-updater.service"
 	updaterEnvironment    = "/etc/proto-fleet/updater.env"
+	updaterStateRoot      = "/var/lib/proto-fleet-updater"
+	updaterRuntimeRoot    = "/run/proto-fleet-updater"
+	updaterLock           = updaterStateRoot + "/updater.lock"
 	keepalivedConfig      = "/etc/keepalived/keepalived.conf"
 	keepalivedOverride    = "/etc/systemd/system/keepalived.service.d/override.conf"
 	keepalivedHealthCheck = "/usr/local/libexec/proto-fleet/check-fleet-active"
@@ -689,8 +692,8 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 			}
 		}
 		updaterEnv := fmt.Sprintf(
-			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=/usr/local/libexec/proto-fleet/proto-fleet-updater\n",
-			installBase,
+			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=%s\n",
+			installBase, updaterBinary,
 		)
 		temp, err := writeInstallTemp("updater.env", updaterEnv, 0o600)
 		if err != nil {
