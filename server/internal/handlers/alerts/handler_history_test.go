@@ -227,6 +227,64 @@ func TestListActiveAlertGroups_RedactsDeviceTemplateSummaries(t *testing.T) {
 	require.Empty(t, resp.Msg.Groups[0].Summary)
 }
 
+// The device-less provisioned rules beyond the MQTT pair: a facility fan failure and a fleet-wide poll failure.
+// Both carry a static annotation summary that names no miner, and a lone instance of either is a rollup row with
+// no count to show, so the summary is all the header has — it must clear the gate in the rollup and the drill-in
+// alike, or an alert:read viewer sees a row that cannot say what fired.
+func TestDeviceLessTemplateSummariesVisibleWithoutMinerRead(t *testing.T) {
+	cases := []struct {
+		template  string
+		alertName string
+		summary   string
+	}{
+		{
+			template:  string(alerts.RuleTemplateCurtailmentFanRestore),
+			alertName: "Curtailment Fan Restore Failed",
+			summary:   "Facility fan restore failed before miners resumed.",
+		},
+		{
+			template:  string(alerts.RuleTemplateTelemetryPoll),
+			alertName: "Telemetry Poll Failure Rate High",
+			summary:   "Telemetry polling is failing for the last ten minutes.",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.template, func(t *testing.T) {
+			h := NewHandler(nil, &stubLister{
+				rows: []notificationhistory.StoredNotification{{
+					ID:         1,
+					ReceivedAt: time.Unix(1_700_000_000, 0),
+					Notification: notificationhistory.Notification{
+						AlertName: tc.alertName,
+						Status:    "firing",
+						Severity:  "critical",
+						Template:  tc.template,
+						Summary:   tc.summary,
+					},
+				}},
+				groups: []notificationhistory.ActiveAlertGroup{{
+					AlertName: tc.alertName, AlertCount: 1, Summary: tc.summary, Template: tc.template,
+				}},
+			})
+			ctx := ctxWithPerms(authz.PermAlertRead)
+
+			rollup, err := h.ListActiveAlertGroups(ctx, connect.NewRequest(&alertsv1.ListActiveAlertGroupsRequest{}))
+			require.NoError(t, err)
+			require.Len(t, rollup.Msg.Groups, 1)
+			require.Equal(t, tc.summary, rollup.Msg.Groups[0].Summary)
+
+			drillIn, err := h.ListAlerts(ctx, connect.NewRequest(&alertsv1.ListAlertsRequest{
+				ActiveOnly: true,
+				AlertName:  tc.alertName,
+			}))
+			require.NoError(t, err)
+			require.Len(t, drillIn.Msg.Alerts, 1)
+			require.Equal(t, tc.summary, drillIn.Msg.Alerts[0].Summary)
+			require.Empty(t, drillIn.Msg.Alerts[0].DeviceId)
+		})
+	}
+}
+
 func TestListActiveAlertGroups_FlagsMoreBeyondCap(t *testing.T) {
 	groups := make([]notificationhistory.ActiveAlertGroup, activeGroupsMaxPageSize+1)
 	h := NewHandler(nil, &stubLister{groups: groups})

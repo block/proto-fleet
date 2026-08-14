@@ -61,6 +61,11 @@ const (
 	// proto-fleet-rules.yaml.
 	RuleTemplateMQTTCurtailment  RuleTemplate = "mqtt-curtailment"
 	RuleTemplateMQTTDisconnected RuleTemplate = "mqtt-disconnected"
+
+	// Facility fan restore failed while curtailment was releasing miners.
+	// Provisioned-only, like the MQTT pair above, and named here so the
+	// summary-visibility gate can recognize it as device-less.
+	RuleTemplateCurtailmentFanRestore RuleTemplate = "curtailment-fan-restore"
 )
 
 // Origin decides mutability: only user rules accept UpdateRule/DeleteRule.
