@@ -987,33 +987,35 @@ func (m *Manager) acknowledgeRemediatedFailure() {
 // Acknowledge durably records that an operator dismissed the terminal outcome
 // of the given operation. It is idempotent for the same operation and fails
 // when the operation is no longer current or is still running, so a stale
-// dismissal can never suppress a different or in-flight upgrade.
-func (m *Manager) Acknowledge(operationID string) (updaterapi.Operation, error) {
+// dismissal can never suppress a different or in-flight upgrade. The boolean
+// reports whether the dismissal was already in place, letting callers retry
+// after ambiguous transport results without double-recording the action.
+func (m *Manager) Acknowledge(operationID string) (updaterapi.Operation, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.operation == nil || m.operation.ID != operationID {
-		return updaterapi.Operation{}, newTriggerError(
+		return updaterapi.Operation{}, false, newTriggerError(
 			errAcknowledgeUnknown,
 			fmt.Sprintf("operation %s is not the current updater operation", operationID),
 		)
 	}
 	if !m.operation.Phase.Terminal() {
-		return updaterapi.Operation{}, newTriggerError(
+		return updaterapi.Operation{}, false, newTriggerError(
 			errAcknowledgeActive,
 			fmt.Sprintf("operation %s has not finished", operationID),
 		)
 	}
 	if m.operation.Acknowledged {
-		return *m.operation, nil
+		return *m.operation, true, nil
 	}
 	m.operation.Acknowledged = true
 	if err := m.persistLocked(); err != nil {
 		// An unpersisted acknowledgement would silently reappear after the next
 		// updater restart, so report the failure instead of a partial success.
 		m.operation.Acknowledged = false
-		return updaterapi.Operation{}, fmt.Errorf("persist acknowledged operation: %w", err)
+		return updaterapi.Operation{}, false, fmt.Errorf("persist acknowledged operation: %w", err)
 	}
-	return *m.operation, nil
+	return *m.operation, false, nil
 }
 
 func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {

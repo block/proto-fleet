@@ -338,13 +338,34 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 	if s.executor == nil {
 		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("one-click updates are not installed on this host")
 	}
-	acknowledgeCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
+	if err := ctx.Err(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled before host mutation: %w", err)
+	}
+
+	// The client clears its local state before this call resolves, so a
+	// browser reload or closed tab must not abort the host mutation mid-way.
+	// Detach caller cancellation while preserving the active-runtime lifetime
+	// that admitted the request, exactly as TriggerUpgrade does.
+	operationCtx, cancelOperation, ok := admissionctx.DetachRequestCancellation(ctx)
+	if !ok {
+		return updaterapi.Operation{}, fleeterror.NewInternalError("acknowledge request is missing active-runtime admission")
+	}
+	defer cancelOperation()
+	if err := operationCtx.Err(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled before host mutation: %w", err)
+	}
+
+	acknowledgeCtx, cancel := context.WithTimeout(operationCtx, executorMutationTimeout)
 	defer cancel()
-	operation, err := s.executor.Acknowledge(acknowledgeCtx, operationID)
+	operation, alreadyAcknowledged, err := s.executor.Acknowledge(acknowledgeCtx, operationID)
 	if err != nil {
 		return updaterapi.Operation{}, mapExecutorAcknowledgeError(err)
 	}
-	s.logUpgradeAcknowledged(ctx, organizationID, operation)
+	// Retries after ambiguous transport results are part of the contract; only
+	// the call that actually recorded the dismissal is an auditable action.
+	if !alreadyAcknowledged {
+		s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
+	}
 	return operation, nil
 }
 

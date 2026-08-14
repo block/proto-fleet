@@ -291,7 +291,7 @@ func (s *Server) handleAcknowledge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, updaterapi.ErrorResponse{Error: "operation_id is required"})
 		return
 	}
-	operation, err := s.manager.Acknowledge(request.OperationID)
+	operation, alreadyAcknowledged, err := s.manager.Acknowledge(request.OperationID)
 	if err != nil {
 		status := acknowledgeErrorHTTPStatus(err)
 		message := err.Error()
@@ -303,7 +303,10 @@ func (s *Server) handleAcknowledge(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, updaterapi.ErrorResponse{Error: message})
 		return
 	}
-	writeJSON(w, http.StatusOK, updaterapi.AcknowledgeResponse{Operation: operation})
+	writeJSON(w, http.StatusOK, updaterapi.AcknowledgeResponse{
+		Operation:           operation,
+		AlreadyAcknowledged: alreadyAcknowledged,
+	})
 }
 
 func acknowledgeErrorHTTPStatus(err error) int {

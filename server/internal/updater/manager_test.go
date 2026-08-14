@@ -3593,9 +3593,10 @@ func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	operation, err := manager.Acknowledge(persisted.ID)
+	operation, alreadyAcknowledged, err := manager.Acknowledge(persisted.ID)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
+	assert.False(t, alreadyAcknowledged, "first call records the dismissal")
 	assert.Equal(t, persisted.UpdatedAt, operation.UpdatedAt,
 		"acknowledging must not rewrite the operation's outcome revision")
 
@@ -3604,9 +3605,10 @@ func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
 	assert.True(t, status.Acknowledged)
 
 	// Idempotent for the same operation.
-	operation, err = manager.Acknowledge(persisted.ID)
+	operation, alreadyAcknowledged, err = manager.Acknowledge(persisted.ID)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
+	assert.True(t, alreadyAcknowledged, "retry finds the dismissal in place")
 
 	// The dismissal survives an updater restart.
 	require.NoError(t, manager.Close())
@@ -3723,13 +3725,13 @@ func TestManagerAcknowledgeRejectsUnknownAndActiveOperations(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
-	_, err = manager.Acknowledge("some-other-operation")
+	_, _, err = manager.Acknowledge("some-other-operation")
 	require.ErrorIs(t, err, errAcknowledgeUnknown)
 
 	manager.mu.Lock()
 	manager.operation = &updaterapi.Operation{ID: persisted.ID, TargetVersion: "v1.1.0", Phase: updaterapi.PhasePreflight}
 	manager.mu.Unlock()
-	_, err = manager.Acknowledge(persisted.ID)
+	_, _, err = manager.Acknowledge(persisted.ID)
 	require.ErrorIs(t, err, errAcknowledgeActive)
 
 	status := manager.Status().Operation

@@ -503,15 +503,28 @@ func TestHandleAcknowledge(t *testing.T) {
 
 	t.Run("acknowledges the current terminal operation", func(t *testing.T) {
 		t.Parallel()
+		server := NewServer(newFailedOperationManager(t))
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation"}`))
-		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+		server.handleAcknowledge(recorder, request)
 
 		require.Equal(t, http.StatusOK, recorder.Code)
 		var response updaterapi.AcknowledgeResponse
 		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 		assert.Equal(t, "failed-operation", response.Operation.ID)
 		assert.True(t, response.Operation.Acknowledged)
+		assert.False(t, response.AlreadyAcknowledged)
+
+		// A retry reports the dismissal as already in place.
+		recorder = httptest.NewRecorder()
+		request = httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation"}`))
+		server.handleAcknowledge(recorder, request)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		response = updaterapi.AcknowledgeResponse{}
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+		assert.True(t, response.Operation.Acknowledged)
+		assert.True(t, response.AlreadyAcknowledged)
 	})
 
 	t.Run("unknown operation maps to 404", func(t *testing.T) {

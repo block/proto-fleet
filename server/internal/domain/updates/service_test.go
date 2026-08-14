@@ -34,18 +34,19 @@ type fakeSnapshots struct{ snap Snapshot }
 func (f *fakeSnapshots) Snapshot() Snapshot { return f.snap }
 
 type fakeExecutor struct {
-	status          updaterapi.StatusResponse
-	statusErr       error
-	statusFunc      func(context.Context) (updaterapi.StatusResponse, error)
-	operationIDs    []string
-	triggered       []string
-	trigger         updaterapi.Operation
-	triggerErr      error
-	triggerFunc     func(context.Context, string, string) (updaterapi.Operation, error)
-	acknowledged    []string
-	acknowledge     updaterapi.Operation
-	acknowledgeErr  error
-	acknowledgeFunc func(context.Context, string) (updaterapi.Operation, error)
+	status             updaterapi.StatusResponse
+	statusErr          error
+	statusFunc         func(context.Context) (updaterapi.StatusResponse, error)
+	operationIDs       []string
+	triggered          []string
+	trigger            updaterapi.Operation
+	triggerErr         error
+	triggerFunc        func(context.Context, string, string) (updaterapi.Operation, error)
+	acknowledged       []string
+	acknowledge        updaterapi.Operation
+	acknowledgeAlready bool
+	acknowledgeErr     error
+	acknowledgeFunc    func(context.Context, string) (updaterapi.Operation, bool, error)
 }
 
 func (f *fakeExecutor) Status(ctx context.Context) (updaterapi.StatusResponse, error) {
@@ -64,12 +65,12 @@ func (f *fakeExecutor) Trigger(ctx context.Context, operationID, targetVersion s
 	return f.trigger, f.triggerErr
 }
 
-func (f *fakeExecutor) Acknowledge(ctx context.Context, operationID string) (updaterapi.Operation, error) {
+func (f *fakeExecutor) Acknowledge(ctx context.Context, operationID string) (updaterapi.Operation, bool, error) {
 	f.acknowledged = append(f.acknowledged, operationID)
 	if f.acknowledgeFunc != nil {
 		return f.acknowledgeFunc(ctx, operationID)
 	}
-	return f.acknowledge, f.acknowledgeErr
+	return f.acknowledge, f.acknowledgeAlready, f.acknowledgeErr
 }
 
 // fakeChannelStore is an in-memory channelSettingQuerier: absent org rows
@@ -1028,11 +1029,11 @@ func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
 	}}
 	svc.executor = executor
 
-	ctx := authn.SetInfo(context.Background(), &session.Info{
+	ctx := admittedUpgradeContext(authn.SetInfo(context.Background(), &session.Info{
 		OrganizationID: 1,
 		ExternalUserID: "user-1",
 		Username:       "test-operator",
-	})
+	}))
 	operation, err := svc.AcknowledgeUpgrade(ctx, 1, "op-1")
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
@@ -1041,6 +1042,90 @@ func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
 	assert.Equal(t, "op-1", recorded.Metadata["operation_id"])
 	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
 	assert.Equal(t, "failed", recorded.Metadata["phase"])
+}
+
+func TestAcknowledgeUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeExecutor{}
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.executor = executor
+
+	_, err := svc.AcknowledgeUpgrade(context.Background(), 1, "op-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing active-runtime admission")
+	assert.Empty(t, executor.acknowledged)
+}
+
+func TestAcknowledgeUpgradeSkipsAuditWhenAlreadyAcknowledged(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).Times(0)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+	executor := &fakeExecutor{
+		acknowledge: updaterapi.Operation{
+			ID:           "op-1",
+			Phase:        updaterapi.PhaseFailed,
+			Acknowledged: true,
+		},
+		acknowledgeAlready: true,
+	}
+	svc.executor = executor
+
+	operation, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, "op-1")
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.Equal(t, []string{"op-1"}, executor.acknowledged)
+}
+
+func TestAcknowledgeUpgradeCompletesAndAuditsAfterCallerCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded activitymodels.Event
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, event *activitymodels.Event) error {
+			assert.NoError(t, ctx.Err(), "acknowledgement audit must be detached from caller cancellation")
+			recorded = *event
+			return nil
+		},
+	)
+
+	snaps := &fakeSnapshots{snap: Snapshot{}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.activitySvc = activity.NewService(activityStore)
+
+	requestCtx, cancelRequest := context.WithCancel(authn.SetInfo(context.Background(), &session.Info{
+		OrganizationID: 1,
+		ExternalUserID: "user-1",
+		Username:       "test-operator",
+	}))
+	requestCtx = admittedUpgradeContext(requestCtx)
+	executor := &fakeExecutor{}
+	executor.acknowledgeFunc = func(ackCtx context.Context, operationID string) (updaterapi.Operation, bool, error) {
+		cancelRequest()
+		assert.NoError(t, ackCtx.Err(), "host mutation must outlive browser cancellation")
+		return updaterapi.Operation{
+			ID:           operationID,
+			Phase:        updaterapi.PhaseFailed,
+			Acknowledged: true,
+		}, false, nil
+	}
+	svc.executor = executor
+
+	operation, err := svc.AcknowledgeUpgrade(requestCtx, 1, "op-1")
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
+	require.NotNil(t, recorded.UserID)
+	assert.Equal(t, "user-1", *recorded.UserID)
 }
 
 func TestAcknowledgeUpgradeMapsExecutorFailures(t *testing.T) {
@@ -1087,7 +1172,7 @@ func TestAcknowledgeUpgradeMapsExecutorFailures(t *testing.T) {
 			svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 			svc.executor = &fakeExecutor{acknowledgeErr: test.err}
 
-			_, err := svc.AcknowledgeUpgrade(context.Background(), 1, "op-1")
+			_, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, "op-1")
 			require.Error(t, err)
 			assert.True(t, test.check(err), "unexpected mapped error: %v", err)
 		})
