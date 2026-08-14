@@ -46,6 +46,9 @@ const (
 	// InstanceUpdateServiceGetUpgradeStatusProcedure is the fully-qualified name of the
 	// InstanceUpdateService's GetUpgradeStatus RPC.
 	InstanceUpdateServiceGetUpgradeStatusProcedure = "/instance.v1.InstanceUpdateService/GetUpgradeStatus"
+	// InstanceUpdateServiceAcknowledgeUpgradeProcedure is the fully-qualified name of the
+	// InstanceUpdateService's AcknowledgeUpgrade RPC.
+	InstanceUpdateServiceAcknowledgeUpgradeProcedure = "/instance.v1.InstanceUpdateService/AcknowledgeUpgrade"
 )
 
 // InstanceUpdateServiceClient is a client for the instance.v1.InstanceUpdateService service.
@@ -62,6 +65,10 @@ type InstanceUpdateServiceClient interface {
 	// GetUpgradeStatus reports durable host-side progress across fleetd
 	// restarts. Gated by instance:update.
 	GetUpgradeStatus(context.Context, *connect.Request[v1.GetUpgradeStatusRequest]) (*connect.Response[v1.GetUpgradeStatusResponse], error)
+	// AcknowledgeUpgrade durably dismisses a terminal upgrade outcome on the
+	// host, so it stops resurfacing for every session. Gated by
+	// instance:update.
+	AcknowledgeUpgrade(context.Context, *connect.Request[v1.AcknowledgeUpgradeRequest]) (*connect.Response[v1.AcknowledgeUpgradeResponse], error)
 }
 
 // NewInstanceUpdateServiceClient constructs a client for the instance.v1.InstanceUpdateService
@@ -96,15 +103,22 @@ func NewInstanceUpdateServiceClient(httpClient connect.HTTPClient, baseURL strin
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		acknowledgeUpgrade: connect.NewClient[v1.AcknowledgeUpgradeRequest, v1.AcknowledgeUpgradeResponse](
+			httpClient,
+			baseURL+InstanceUpdateServiceAcknowledgeUpgradeProcedure,
+			connect.WithIdempotency(connect.IdempotencyIdempotent),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // instanceUpdateServiceClient implements InstanceUpdateServiceClient.
 type instanceUpdateServiceClient struct {
-	getUpdateStatus   *connect.Client[v1.GetUpdateStatusRequest, v1.GetUpdateStatusResponse]
-	setReleaseChannel *connect.Client[v1.SetReleaseChannelRequest, v1.SetReleaseChannelResponse]
-	triggerUpgrade    *connect.Client[v1.TriggerUpgradeRequest, v1.TriggerUpgradeResponse]
-	getUpgradeStatus  *connect.Client[v1.GetUpgradeStatusRequest, v1.GetUpgradeStatusResponse]
+	getUpdateStatus    *connect.Client[v1.GetUpdateStatusRequest, v1.GetUpdateStatusResponse]
+	setReleaseChannel  *connect.Client[v1.SetReleaseChannelRequest, v1.SetReleaseChannelResponse]
+	triggerUpgrade     *connect.Client[v1.TriggerUpgradeRequest, v1.TriggerUpgradeResponse]
+	getUpgradeStatus   *connect.Client[v1.GetUpgradeStatusRequest, v1.GetUpgradeStatusResponse]
+	acknowledgeUpgrade *connect.Client[v1.AcknowledgeUpgradeRequest, v1.AcknowledgeUpgradeResponse]
 }
 
 // GetUpdateStatus calls instance.v1.InstanceUpdateService.GetUpdateStatus.
@@ -127,6 +141,11 @@ func (c *instanceUpdateServiceClient) GetUpgradeStatus(ctx context.Context, req 
 	return c.getUpgradeStatus.CallUnary(ctx, req)
 }
 
+// AcknowledgeUpgrade calls instance.v1.InstanceUpdateService.AcknowledgeUpgrade.
+func (c *instanceUpdateServiceClient) AcknowledgeUpgrade(ctx context.Context, req *connect.Request[v1.AcknowledgeUpgradeRequest]) (*connect.Response[v1.AcknowledgeUpgradeResponse], error) {
+	return c.acknowledgeUpgrade.CallUnary(ctx, req)
+}
+
 // InstanceUpdateServiceHandler is an implementation of the instance.v1.InstanceUpdateService
 // service.
 type InstanceUpdateServiceHandler interface {
@@ -142,6 +161,10 @@ type InstanceUpdateServiceHandler interface {
 	// GetUpgradeStatus reports durable host-side progress across fleetd
 	// restarts. Gated by instance:update.
 	GetUpgradeStatus(context.Context, *connect.Request[v1.GetUpgradeStatusRequest]) (*connect.Response[v1.GetUpgradeStatusResponse], error)
+	// AcknowledgeUpgrade durably dismisses a terminal upgrade outcome on the
+	// host, so it stops resurfacing for every session. Gated by
+	// instance:update.
+	AcknowledgeUpgrade(context.Context, *connect.Request[v1.AcknowledgeUpgradeRequest]) (*connect.Response[v1.AcknowledgeUpgradeResponse], error)
 }
 
 // NewInstanceUpdateServiceHandler builds an HTTP handler from the service implementation. It
@@ -172,6 +195,12 @@ func NewInstanceUpdateServiceHandler(svc InstanceUpdateServiceHandler, opts ...c
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	instanceUpdateServiceAcknowledgeUpgradeHandler := connect.NewUnaryHandler(
+		InstanceUpdateServiceAcknowledgeUpgradeProcedure,
+		svc.AcknowledgeUpgrade,
+		connect.WithIdempotency(connect.IdempotencyIdempotent),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/instance.v1.InstanceUpdateService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case InstanceUpdateServiceGetUpdateStatusProcedure:
@@ -182,6 +211,8 @@ func NewInstanceUpdateServiceHandler(svc InstanceUpdateServiceHandler, opts ...c
 			instanceUpdateServiceTriggerUpgradeHandler.ServeHTTP(w, r)
 		case InstanceUpdateServiceGetUpgradeStatusProcedure:
 			instanceUpdateServiceGetUpgradeStatusHandler.ServeHTTP(w, r)
+		case InstanceUpdateServiceAcknowledgeUpgradeProcedure:
+			instanceUpdateServiceAcknowledgeUpgradeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -205,4 +236,8 @@ func (UnimplementedInstanceUpdateServiceHandler) TriggerUpgrade(context.Context,
 
 func (UnimplementedInstanceUpdateServiceHandler) GetUpgradeStatus(context.Context, *connect.Request[v1.GetUpgradeStatusRequest]) (*connect.Response[v1.GetUpgradeStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("instance.v1.InstanceUpdateService.GetUpgradeStatus is not implemented"))
+}
+
+func (UnimplementedInstanceUpdateServiceHandler) AcknowledgeUpgrade(context.Context, *connect.Request[v1.AcknowledgeUpgradeRequest]) (*connect.Response[v1.AcknowledgeUpgradeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("instance.v1.InstanceUpdateService.AcknowledgeUpgrade is not implemented"))
 }

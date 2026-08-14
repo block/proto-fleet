@@ -8,6 +8,10 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 const ACTIVE_POLL_INTERVAL_MS = 2_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
 const STATUS_REQUEST_TIMEOUT_MS = 10_000;
+// Must exceed the server's full ambiguous-response recovery path — two 6s
+// updater calls, a 2s status reconciliation, and a 5s synchronous audit — or
+// the client can time out while the server is repairing a persisted dismissal.
+const ACKNOWLEDGE_REQUEST_TIMEOUT_MS = 25_000;
 const TRIGGER_REQUEST_TIMEOUT_MS = 30_000;
 const TRIGGER_RECONCILIATION_TIMEOUT_MS = 15_000;
 const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
@@ -84,7 +88,7 @@ interface UseUpgradeOperationOptions {
 }
 
 interface UseUpgradeOperationResult {
-  acknowledgeOperation: () => void;
+  acknowledgeOperation: () => Promise<void>;
   connectionLost: boolean;
   manualFallbackReady: boolean;
   operation: UpgradeOperation | undefined;
@@ -306,9 +310,27 @@ export function useUpgradeOperation({
     return true;
   }, [updateReconciling, updateTrackedOperation]);
 
+  const clearSurfacedOperation = useCallback(() => {
+    updateTrackedOperation(undefined);
+    updateOperation(undefined);
+    reconciliationDeadlineRef.current = null;
+    setManualFallbackReady(false);
+    updateReconciling(false);
+    setConnectionLost(false);
+    setTriggerError(null);
+  }, [updateOperation, updateReconciling, updateTrackedOperation]);
+
   const acceptServerOperation = useCallback(
     (next: UpgradeOperation, fromTriggerResponse = false) => {
       if (!next.id) {
+        return false;
+      }
+      if (next.acknowledged && isUpgradeTerminal(next.phase)) {
+        // The host durably recorded a dismissal (possibly from another
+        // session), so the outcome must not resurface anywhere.
+        if (operationRef.current?.id === next.id || trackedOperationRef.current?.id === next.id) {
+          clearSurfacedOperation();
+        }
         return false;
       }
       const acknowledged = acknowledgedOperationRef.current;
@@ -409,6 +431,7 @@ export function useUpgradeOperation({
     },
     [
       allowManualFallbackAfterTimeout,
+      clearSurfacedOperation,
       updateAcknowledgedOperation,
       updateOperation,
       updateReconciling,
@@ -553,23 +576,37 @@ export function useUpgradeOperation({
     [acceptServerOperation, updateReconciling, updateTrackedOperation],
   );
 
-  const acknowledgeOperation = useCallback(() => {
+  const acknowledgeOperation = useCallback(async () => {
     const currentOperation = operationRef.current;
-    if (currentOperation && isUpgradeTerminal(currentOperation.phase)) {
+    const terminalOperation =
+      currentOperation && isUpgradeTerminal(currentOperation.phase) ? currentOperation : undefined;
+    if (terminalOperation) {
+      // Local suppression applies immediately and keeps this tab clean even
+      // when the durable host acknowledgement below cannot be recorded.
       updateAcknowledgedOperation({
-        id: currentOperation.id,
-        phase: currentOperation.phase,
-        revision: operationRevision(currentOperation),
+        id: terminalOperation.id,
+        phase: terminalOperation.phase,
+        revision: operationRevision(terminalOperation),
       });
     }
-    updateTrackedOperation(undefined);
-    updateOperation(undefined);
-    reconciliationDeadlineRef.current = null;
-    setManualFallbackReady(false);
-    updateReconciling(false);
-    setConnectionLost(false);
-    setTriggerError(null);
-  }, [updateAcknowledgedOperation, updateOperation, updateReconciling, updateTrackedOperation]);
+    clearSurfacedOperation();
+    if (!terminalOperation?.id) {
+      return;
+    }
+    try {
+      await instanceUpdateClient.acknowledgeUpgrade(
+        { operationId: terminalOperation.id },
+        { timeoutMs: ACKNOWLEDGE_REQUEST_TIMEOUT_MS },
+      );
+    } catch (error) {
+      if (error instanceof ConnectError && error.code === Code.NotFound) {
+        // The host no longer reports this operation, so there is nothing left
+        // to dismiss durably.
+        return;
+      }
+      throw error;
+    }
+  }, [clearSurfacedOperation, updateAcknowledgedOperation]);
 
   const useManualFallback = useCallback(() => {
     if (!manualFallbackReady) return;
@@ -580,14 +617,8 @@ export function useUpgradeOperation({
         revision: operationRevision(operationRef.current),
       });
     }
-    updateTrackedOperation(undefined);
-    updateOperation(undefined);
-    reconciliationDeadlineRef.current = null;
-    setManualFallbackReady(false);
-    updateReconciling(false);
-    setConnectionLost(false);
-    setTriggerError(null);
-  }, [manualFallbackReady, updateAcknowledgedOperation, updateOperation, updateReconciling, updateTrackedOperation]);
+    clearSurfacedOperation();
+  }, [clearSurfacedOperation, manualFallbackReady, updateAcknowledgedOperation]);
 
   const reloadFleet = useCallback(() => {
     updateTrackedOperation(undefined);

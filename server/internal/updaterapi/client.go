@@ -24,6 +24,7 @@ var ErrUnavailable = errors.New("host updater unavailable")
 type HTTPError struct {
 	StatusCode int
 	Message    string
+	Code       ErrorCode
 }
 
 func (e *HTTPError) Error() string { return e.Message }
@@ -79,6 +80,20 @@ func (c *Client) TriggerComplete(ctx context.Context, operationID, targetVersion
 	return c.trigger(ctx, operationID, targetVersion, true)
 }
 
+func (c *Client) Acknowledge(ctx context.Context, operationID string) (Operation, bool, error) {
+	request := AcknowledgeRequest{OperationID: operationID}
+	var response AcknowledgeResponse
+	if err := c.do(ctx, http.MethodPost, "/v1/acknowledge", request, &response); err != nil {
+		return Operation{}, false, err
+	}
+	if response.Operation.ID != operationID {
+		return Operation{}, false, &ProtocolError{Cause: fmt.Errorf(
+			"operation identity mismatch: got id %q", response.Operation.ID,
+		)}
+	}
+	return response.Operation, response.AlreadyAcknowledged, nil
+}
+
 func (c *Client) trigger(ctx context.Context, operationID, targetVersion string, complete bool) (Operation, error) {
 	request := TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, Complete: complete}
 	var response TriggerResponse
@@ -127,12 +142,14 @@ func (c *Client) do(ctx context.Context, method, path string, body, output any) 
 		var failure ErrorResponse
 		data, readErr := readBody(response.Body, maxErrorResponseBytes)
 		if readErr == nil {
-			_ = decodeJSON(data, &failure)
+			if decodeErr := decodeJSON(data, &failure); decodeErr != nil {
+				failure = ErrorResponse{}
+			}
 		}
 		if failure.Error == "" {
 			failure.Error = response.Status
 		}
-		return &HTTPError{StatusCode: response.StatusCode, Message: failure.Error}
+		return &HTTPError{StatusCode: response.StatusCode, Message: failure.Error, Code: failure.Code}
 	}
 	data, err := readBody(response.Body, maxSuccessResponseBytes)
 	if err != nil {

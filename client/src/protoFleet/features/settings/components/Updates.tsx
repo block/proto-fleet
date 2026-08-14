@@ -114,6 +114,7 @@ const Updates = () => {
   const lastAutoOpenedOperation = useRef<string | null>(null);
   const previousReconciling = useRef(false);
   const previousTriggerError = useRef<string | null>(null);
+  const hadSurfacedOperation = useRef(false);
   // The channel the server has persisted; the checkbox is controlled by it,
   // so a failed save never moves the control.
   const [channel, setChannel] = useState<ReleaseChannel>(ReleaseChannel.UNSPECIFIED);
@@ -132,6 +133,29 @@ const Updates = () => {
       setPermissions(currentPermissions.filter((permission) => permission !== INSTANCE_UPDATE_PERMISSION));
     },
     [setPermissions],
+  );
+
+  // Shared policy for request failures: revoked permissions demote the page,
+  // auth errors are swallowed (the auth layer redirects), and anything else is
+  // surfaced through the caller's sink. shouldUpdatePage stays caller-derived
+  // because staleness semantics differ per request.
+  const handleRequestError = useCallback(
+    (err: unknown, shouldUpdatePage: boolean, surfaceError: () => void) => {
+      handleAuthErrors({
+        error: err,
+        onError: () => {
+          if (isPermissionDeniedError(err)) {
+            handlePermissionRevoked(shouldUpdatePage);
+            return;
+          }
+          if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
+            return;
+          }
+          surfaceError();
+        },
+      });
+    },
+    [handleAuthErrors, handlePermissionRevoked],
   );
 
   const handleUpgradePollError = useCallback(
@@ -169,25 +193,15 @@ const Updates = () => {
         return;
       }
       const shouldUpdatePage = requestId === latestStatusRequest.current && isMounted.current;
-      handleAuthErrors({
-        error: err,
-        onError: () => {
-          if (isPermissionDeniedError(err)) {
-            handlePermissionRevoked(shouldUpdatePage);
-            return;
-          }
-          if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
-            return;
-          }
-          setLoadError(getErrorMessage(err, "Failed to load update status"));
-        },
+      handleRequestError(err, shouldUpdatePage, () => {
+        setLoadError(getErrorMessage(err, "Failed to load update status"));
       });
     } finally {
       if (requestId === latestStatusRequest.current && isSameAuthSession(authSession) && isMounted.current) {
         setIsStatusRefreshPending(false);
       }
     }
-  }, [authSessionIdentity, handleAuthErrors, handlePermissionRevoked]);
+  }, [authSessionIdentity, handleRequestError]);
 
   const upgrade = useUpgradeOperation({
     authSessionIdentity,
@@ -249,6 +263,19 @@ const Updates = () => {
   }, [upgrade.operation]);
 
   useEffect(() => {
+    const hadOperation = hadSurfacedOperation.current;
+    hadSurfacedOperation.current = Boolean(upgrade.operation);
+    // Polling can remove the surfaced operation when another session durably
+    // dismissed it. Leaving the modal open would morph the outcome dialog
+    // into a confirmation for starting the same upgrade again. Local dismiss
+    // paths close the modal themselves before clearing, so this is a no-op
+    // for them; a pending reconciliation or trigger error keeps its dialog.
+    if (hadOperation && !upgrade.operation && !upgrade.reconciling && !upgrade.triggerError) {
+      setUpgradeModalOpen(false);
+    }
+  }, [upgrade.operation, upgrade.reconciling, upgrade.triggerError]);
+
+  useEffect(() => {
     const wasReconciling = previousReconciling.current;
     if (upgrade.reconciling && !previousReconciling.current) {
       setUpgradeModalOpen(true);
@@ -301,21 +328,11 @@ const Updates = () => {
           return;
         }
         const shouldUpdatePage = isMounted.current;
-        handleAuthErrors({
-          error: err,
-          onError: () => {
-            if (isPermissionDeniedError(err)) {
-              handlePermissionRevoked(shouldUpdatePage);
-              return;
-            }
-            if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
-              return;
-            }
-            pushToast({
-              message: getErrorMessage(err, "Failed to update release channel"),
-              status: STATUSES.error,
-            });
-          },
+        handleRequestError(err, shouldUpdatePage, () => {
+          pushToast({
+            message: getErrorMessage(err, "Failed to update release channel"),
+            status: STATUSES.error,
+          });
         });
         if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
           return;
@@ -375,8 +392,19 @@ const Updates = () => {
         connectionLost={upgrade.connectionLost}
         manualFallbackReady={upgrade.manualFallbackReady}
         onAcknowledge={() => {
-          upgrade.acknowledgeOperation();
+          const authSession = captureAuthSession(authSessionIdentity);
           setUpgradeModalOpen(false);
+          void upgrade.acknowledgeOperation().catch((err: unknown) => {
+            if (!isSameAuthSession(authSession)) {
+              return;
+            }
+            handleRequestError(err, isMounted.current, () => {
+              pushToast({
+                message: getErrorMessage(err, "Fleet could not record the dismissal on the host; it may reappear"),
+                status: STATUSES.error,
+              });
+            });
+          });
         }}
         onDismiss={() => setUpgradeModalOpen(false)}
         onReload={upgrade.reloadFleet}

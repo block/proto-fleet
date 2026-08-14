@@ -25,6 +25,10 @@ VERSION_FILE="$PROJECT_ROOT/version.txt"
 RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
+# Written only when a full run brings Fleet up (API and client ready). The
+# host updater treats its timestamp as proof that a pending upgrade failure
+# was remediated, so it must never be written on a partial or failed run.
+STARTUP_MARKER="$PROJECT_ROOT/.fleet-startup-complete"
 NGINX_CONFIG_TEMP=""
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
 HOST_UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
@@ -1175,6 +1179,8 @@ find_release_entries() {
         ! -path './.env' \
         ! -path './.update-preflight-complete' \
         ! -path './.update-preflight-complete.tmp.*' \
+        ! -path './.fleet-startup-complete' \
+        ! -path './.fleet-startup-complete.tmp.*' \
         ! -path './client/nginx.conf' \
         ! -path './ssl/*' \
         ! -path './server/influx_config/.env' \
@@ -1369,7 +1375,7 @@ preflight_fingerprint() {
 }
 
 record_preflight_marker() {
-    local prepared_fingerprint="$1" current_fingerprint image_fingerprint temporary_marker
+    local prepared_fingerprint="$1" current_fingerprint image_fingerprint
     if ! verify_release_manifest; then
         echo "Error: release or configuration changed during preflight; immutable release files no longer match." >&2
         return 1
@@ -1380,8 +1386,23 @@ record_preflight_marker() {
         return 1
     fi
     image_fingerprint=$(prepared_images_fingerprint) || return 1
-    temporary_marker=$(umask 077; mktemp "$PREFLIGHT_MARKER.tmp.XXXXXX") || return 1
-    if ! printf 'proto-fleet-preflight-v2:%s:%s\n' "$prepared_fingerprint" "$image_fingerprint" > "$temporary_marker"; then
+    replace_marker_file "$PREFLIGHT_MARKER" \
+        "proto-fleet-preflight-v2:$prepared_fingerprint:$image_fingerprint"
+}
+
+# Markers can be written privileged (the host updater invokes this script as
+# root) inside a tree owned by the deployment user, so the marker slot is
+# untrusted and must be replaced without ever being followed. mktemp creates a
+# fresh private file; a planted symlink is unlinked, while a directory is
+# removed only when empty so marker replacement can never destroy unrelated
+# contents. Linux's no-target-directory rename prevents a slot re-planted
+# mid-swap from absorbing the marker; Linux is the only platform where this
+# script runs privileged through the host updater. macOS mv lacks that option,
+# so manual macOS deployments retain the portable rename plus the final check.
+replace_marker_file() {
+    local marker_path="$1" marker_content="$2" temporary_marker
+    temporary_marker=$(umask 077; mktemp "$marker_path.tmp.XXXXXX") || return 1
+    if ! printf '%s\n' "$marker_content" > "$temporary_marker"; then
         rm -f "$temporary_marker"
         return 1
     fi
@@ -1389,10 +1410,35 @@ record_preflight_marker() {
         rm -f "$temporary_marker"
         return 1
     fi
-    if ! mv -f "$temporary_marker" "$PREFLIGHT_MARKER"; then
+    if [ -L "$marker_path" ]; then
+        if ! rm -f -- "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    elif [ -d "$marker_path" ]; then
+        if ! rmdir "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    fi
+    if [ "$(uname -s)" = "Linux" ]; then
+        if ! mv -fT -- "$temporary_marker" "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    elif ! mv -f "$temporary_marker" "$marker_path"; then
         rm -f "$temporary_marker"
         return 1
     fi
+    if [ -L "$marker_path" ] || [ ! -f "$marker_path" ]; then
+        return 1
+    fi
+}
+
+record_startup_marker() {
+    local startup_time
+    startup_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ') || return 1
+    replace_marker_file "$STARTUP_MARKER" "$startup_time"
 }
 
 verify_preflight_marker() {
@@ -2966,6 +3012,11 @@ echo "--------------------------------------------------------------"
 if ! rm -f "$PREFLIGHT_MARKER"; then
     echo "Error: Fleet is running, but the consumed preflight marker could not be removed: $PREFLIGHT_MARKER" >&2
     exit 1
+fi
+
+if ! record_startup_marker; then
+    echo "Warning: could not record the successful startup at $STARTUP_MARKER;" >&2
+    echo "         a previously dismissed upgrade failure may stay visible until dismissed by hand." >&2
 fi
 
 exit 0

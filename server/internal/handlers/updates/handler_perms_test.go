@@ -113,3 +113,15 @@ func TestSetReleaseChannelRejectsUnspecified(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
+
+func TestAcknowledgeUpgradeRequiresInstanceUpdate(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermMinerRead)
+
+	_, err := h.AcknowledgeUpgrade(ctx, connect.NewRequest(&instancev1.AcknowledgeUpgradeRequest{
+		OperationId: "op-1",
+	}))
+	requirePermissionDenied(t, err)
+}

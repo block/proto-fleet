@@ -32,9 +32,11 @@ const (
 	// ChannelStableAndRC also offers release candidates.
 	ChannelStableAndRC Channel = "stable_and_rc"
 
-	executorStatusTimeout  = 2 * time.Second
-	executorTriggerTimeout = 6 * time.Second
-	upgradeAuditTimeout    = 5 * time.Second
+	executorStatusTimeout   = 2 * time.Second
+	executorMutationTimeout = 6 * time.Second
+	upgradeAuditTimeout     = 5 * time.Second
+
+	upgradeAcknowledgedEventType = "instance_upgrade_acknowledged"
 )
 
 // UpdateStatus is the gated, channel-filtered update offer for one org.
@@ -234,7 +236,7 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targ
 }
 
 func (s *Service) triggerUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
-	triggerCtx, cancel := context.WithTimeout(ctx, executorTriggerTimeout)
+	triggerCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
 	defer cancel()
 	return s.executor.Trigger(triggerCtx, operationID, targetVersion)
 }
@@ -259,12 +261,39 @@ func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersi
 	return operation, true
 }
 
-func mapExecutorTriggerError(err error) error {
+// executorCallMessages carries the per-verb operator guidance for the
+// transport failures every executor call can hit. mapExecutorCallError owns
+// which failure classes are retryable Unavailable results, so a new transport
+// failure class is classified in one place.
+type executorCallMessages struct {
+	unavailable string
+	unconfirmed string
+	canceled    string
+}
+
+func mapExecutorCallError(err error, wrap string, messages executorCallMessages, mapHTTPError func(*updaterapi.HTTPError) error) error {
 	if errors.Is(err, updaterapi.ErrUnavailable) {
-		return fleeterror.NewUnavailableErrorf("host updater is unavailable; use the install command instead")
+		return fleeterror.NewUnavailableErrorf(messages.unavailable)
 	}
 	var httpErr *updaterapi.HTTPError
 	if errors.As(err, &httpErr) {
+		return mapHTTPError(httpErr)
+	}
+	if ambiguousExecutorResult(err) || errors.Is(err, context.DeadlineExceeded) {
+		return fleeterror.NewUnavailableErrorf(messages.unconfirmed)
+	}
+	if errors.Is(err, context.Canceled) {
+		return fleeterror.NewUnavailableErrorf(messages.canceled)
+	}
+	return fmt.Errorf("%s: %w", wrap, err)
+}
+
+func mapExecutorTriggerError(err error) error {
+	return mapExecutorCallError(err, "trigger host upgrade", executorCallMessages{
+		unavailable: "host updater is unavailable; use the install command instead",
+		unconfirmed: "host updater did not confirm the upgrade; check its status before retrying",
+		canceled:    "host updater canceled the upgrade request before confirming it",
+	}, func(httpErr *updaterapi.HTTPError) error {
 		switch httpErr.StatusCode {
 		case http.StatusConflict:
 			return fleeterror.NewAlreadyExistsError(httpErr.Message)
@@ -274,32 +303,172 @@ func mapExecutorTriggerError(err error) error {
 			return fleeterror.NewUnavailableErrorf("host updater is temporarily unavailable; use the install command instead")
 		}
 		return fmt.Errorf("host updater rejected trigger with HTTP status %d", httpErr.StatusCode)
-	}
-	if ambiguousExecutorResult(err) || errors.Is(err, context.DeadlineExceeded) {
-		return fleeterror.NewUnavailableErrorf("host updater did not confirm the upgrade; check its status before retrying")
-	}
-	if errors.Is(err, context.Canceled) {
-		return fleeterror.NewUnavailableErrorf("host updater canceled the upgrade request before confirming it")
-	}
-	return fmt.Errorf("trigger host upgrade: %w", err)
+	})
 }
 
 func (s *Service) logUpgradeTriggered(ctx context.Context, organizationID int64, operation updaterapi.Operation) {
-	orgID := organizationID
-	event := activitymodels.Event{
-		Category:       activitymodels.CategorySystem,
-		Type:           "instance_upgrade_triggered",
-		OrganizationID: &orgID,
-		Description:    fmt.Sprintf("Triggered instance upgrade to %s", operation.TargetVersion),
-		Metadata: map[string]any{
+	s.logUpgradeEvent(ctx, organizationID, "instance_upgrade_triggered",
+		fmt.Sprintf("Triggered instance upgrade to %s", operation.TargetVersion),
+		map[string]any{
 			"operation_id":   operation.ID,
 			"target_version": operation.TargetVersion,
-		},
+		}, "")
+}
+
+func (s *Service) logUpgradeEvent(
+	ctx context.Context,
+	organizationID int64,
+	eventType, description string,
+	metadata map[string]any,
+	idempotencyKey string,
+) {
+	event := activitymodels.Event{
+		Category:       activitymodels.CategorySystem,
+		Type:           eventType,
+		OrganizationID: &organizationID,
+		Description:    description,
+		Metadata:       metadata,
+		IdempotencyKey: idempotencyKey,
 	}
 	activity.StampActor(ctx, &event)
 	auditCtx, cancel := context.WithTimeout(ctx, upgradeAuditTimeout)
 	defer cancel()
 	s.activitySvc.Log(auditCtx, event)
+}
+
+// AcknowledgeUpgrade durably dismisses a terminal upgrade outcome on the host
+// updater, so the operation stops resurfacing in every session. The mutation
+// and audit are independently idempotent; ambiguous updater responses are
+// retried and reconciled before the caller is asked to retry.
+func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, operationID string) (updaterapi.Operation, error) {
+	if operationID == "" {
+		return updaterapi.Operation{}, fleeterror.NewInvalidArgumentError("operation id is required")
+	}
+	if s.executor == nil {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("one-click updates are not installed on this host")
+	}
+	if err := ctx.Err(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled before host mutation: %w", err)
+	}
+
+	// The client clears its local state before this call resolves, so a
+	// browser reload or closed tab must not abort the host mutation mid-way.
+	// Detach caller cancellation while preserving the active-runtime lifetime
+	// that admitted the request, exactly as TriggerUpgrade does.
+	operationCtx, cancelOperation, ok := admissionctx.DetachRequestCancellation(ctx)
+	if !ok {
+		return updaterapi.Operation{}, fleeterror.NewInternalError("acknowledge request is missing active-runtime admission")
+	}
+	defer cancelOperation()
+	if err := operationCtx.Err(); err != nil {
+		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled before host mutation: %w", err)
+	}
+
+	operation, err := s.acknowledgeUpgrade(operationCtx, operationID)
+	if err == nil {
+		s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
+		return operation, nil
+	}
+	if cancelErr := operationCtx.Err(); cancelErr != nil {
+		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled during host mutation: %w", cancelErr)
+	}
+
+	// A lost or malformed success response does not prove that the dismissal
+	// failed. Retry the idempotent host mutation once, then reconcile against
+	// exact durable status. Any confirmed acknowledgement attempts the same
+	// database-idempotent audit, so both an ambiguous first response and an
+	// unrelated repeat converge on one activity row.
+	if ambiguousExecutorResult(err) {
+		operation, retryErr := s.acknowledgeUpgrade(operationCtx, operationID)
+		if retryErr == nil {
+			s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
+			return operation, nil
+		}
+		if cancelErr := operationCtx.Err(); cancelErr != nil {
+			return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled during host mutation retry: %w", cancelErr)
+		}
+		if reconciled, ok := s.reconcileAcknowledgement(operationCtx, operationID); ok {
+			s.logUpgradeAcknowledged(operationCtx, organizationID, reconciled)
+			return reconciled, nil
+		}
+		if cancelErr := operationCtx.Err(); cancelErr != nil {
+			return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled during host mutation reconciliation: %w", cancelErr)
+		}
+	}
+	return updaterapi.Operation{}, mapExecutorAcknowledgeError(err)
+}
+
+func (s *Service) acknowledgeUpgrade(ctx context.Context, operationID string) (updaterapi.Operation, error) {
+	acknowledgeCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
+	defer cancel()
+	operation, _, err := s.executor.Acknowledge(acknowledgeCtx, operationID)
+	if err != nil {
+		return updaterapi.Operation{}, err
+	}
+	if !operation.Acknowledged {
+		return updaterapi.Operation{}, &updaterapi.ProtocolError{Cause: errors.New("host updater response did not confirm acknowledgement")}
+	}
+	return operation, nil
+}
+
+func (s *Service) reconcileAcknowledgement(ctx context.Context, operationID string) (updaterapi.Operation, bool) {
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
+	defer cancel()
+	status, err := s.executor.Status(statusCtx)
+	if err != nil || status.Operation == nil {
+		return updaterapi.Operation{}, false
+	}
+	operation := *status.Operation
+	if operation.ID != operationID || !operation.Acknowledged {
+		return updaterapi.Operation{}, false
+	}
+	return operation, true
+}
+
+func mapExecutorAcknowledgeError(err error) error {
+	return mapExecutorCallError(err, "acknowledge host upgrade", executorCallMessages{
+		unavailable: "host updater is unavailable; the dismissal was not recorded",
+		unconfirmed: "host updater did not confirm the dismissal; retry to make sure it sticks",
+		canceled:    "host updater canceled the dismissal request before confirming it",
+	}, func(httpErr *updaterapi.HTTPError) error {
+		switch httpErr.StatusCode {
+		case http.StatusNotFound:
+			if httpErr.Code == updaterapi.ErrorCodeOperationNotFound {
+				return fleeterror.NewNotFoundError(httpErr.Message)
+			}
+			// A daemon from before the acknowledgement API returns the default
+			// route-level 404. That says nothing about whether the operation is
+			// still current, so keep the dismissal retryable and visible to the
+			// operator instead of treating it as durably settled.
+			return fleeterror.NewUnavailableErrorf("host updater does not support durable dismissals; the dismissal was not recorded")
+		case http.StatusConflict, http.StatusBadRequest:
+			return fleeterror.NewFailedPreconditionError(httpErr.Message)
+		}
+		return fmt.Errorf("host updater rejected acknowledgement with HTTP status %d", httpErr.StatusCode)
+	})
+}
+
+func (s *Service) logUpgradeAcknowledged(ctx context.Context, organizationID int64, operation updaterapi.Operation) {
+	s.logUpgradeEvent(ctx, organizationID, upgradeAcknowledgedEventType,
+		fmt.Sprintf("Dismissed the %s outcome of the upgrade to %s", operation.Phase, operation.TargetVersion),
+		map[string]any{
+			"operation_id":   operation.ID,
+			"target_version": operation.TargetVersion,
+			"phase":          string(operation.Phase),
+		}, upgradeAcknowledgementIdempotencyKey(operation))
+}
+
+func upgradeAcknowledgementIdempotencyKey(operation updaterapi.Operation) string {
+	key := upgradeAcknowledgedEventType + ":" + operation.ID
+	if operation.CompletedAt == nil {
+		// Older updater responses may omit the outcome timestamp. Preserve the
+		// operation-scoped retry behavior rather than making those audits random.
+		return key
+	}
+	// CompletedAt is stable across retries, but startup reconciliation advances
+	// it when materially rewriting a terminal outcome and requiring a new
+	// dismissal. Canonical UTC keeps the same instant stable across transports.
+	return key + ":" + operation.CompletedAt.UTC().Format(time.RFC3339Nano)
 }
 
 func (s *Service) GetUpgradeStatus(ctx context.Context) UpgradeStatus {

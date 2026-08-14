@@ -174,7 +174,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   upgradeHookMock.current = {
-    acknowledgeOperation: vi.fn(),
+    acknowledgeOperation: vi.fn().mockResolvedValue(undefined),
     connectionLost: false,
     manualFallbackReady: false,
     operation: undefined,
@@ -273,6 +273,76 @@ describe("Updates", () => {
     expect(page.getByRole("button", { name: "Copy install command" })).toBeEnabled();
     fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
     expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns when the dismissal could not be recorded on the host", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+      error: "new stack failed to start",
+    });
+    upgradeHookMock.current.acknowledgeOperation = vi
+      .fn()
+      .mockRejectedValue(new ConnectError("host updater is unavailable", Code.Unavailable));
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+
+    expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
+    fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("host updater is unavailable") }),
+      ),
+    );
+  });
+
+  it.each([Code.Unauthenticated, Code.PermissionDenied])(
+    "does not apply a delayed acknowledgement error %s to a replacement session",
+    async (code) => {
+      const request = createDeferred<void>();
+      upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+        error: "new stack failed to start",
+      });
+      upgradeHookMock.current.acknowledgeOperation = vi.fn().mockReturnValue(request.promise);
+      mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+      const page = render(<Updates />);
+
+      expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
+      fireEvent.click(page.getByRole("button", { name: "Dismiss failure" }));
+      expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
+
+      permissionsMock.sessionExpiry = new Date(2_000);
+      permissionsMock.sessionGeneration = 2;
+      await act(async () => {
+        request.reject(new ConnectError("previous session is no longer authorized", code));
+        await request.promise.catch(() => undefined);
+      });
+
+      expect(authErrorsMock.handleAuthErrors).not.toHaveBeenCalled();
+      expect(permissionsMock.setPermissions).not.toHaveBeenCalled();
+      expect(mockPushToast).not.toHaveBeenCalled();
+    },
+  );
+
+  it("closes the outcome dialog when another session dismissed the failure", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+      error: "new stack failed to start",
+    });
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+    expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
+
+    // Polling observed a durably acknowledged operation and removed it.
+    upgradeHookMock.current = { ...upgradeHookMock.current, operation: undefined };
+    page.rerender(<Updates />);
+
+    // The dialog must disappear, not morph into a confirmation for starting
+    // the same upgrade again. Waited separately because the dialog's exit
+    // transition keeps its frame in the DOM briefly after the content clears.
+    await waitFor(() => expect(page.queryByText("new stack failed to start")).not.toBeInTheDocument());
+    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
   });
 
   it("offers a reload after the watched operation succeeds", async () => {

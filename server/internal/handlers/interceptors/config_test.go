@@ -194,6 +194,7 @@ func TestInstanceUpdateProceduresAreSessionOnly(t *testing.T) {
 		instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure,
 		instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
 		instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+		instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure,
 	}
 	for _, procedure := range procedures {
 		assert.Contains(t, SessionOnlyProcedures, procedure,
@@ -216,6 +217,7 @@ func TestInstanceUpdateResponsesAreRedacted(t *testing.T) {
 		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
 		instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
 		instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
+		instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure,
 	}
 	for _, procedure := range procedures {
 		assert.Contains(t, RedactedResponseProcedures, procedure,

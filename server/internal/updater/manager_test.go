@@ -2159,6 +2159,68 @@ func TestManagerPersistsTerminalHARecoveryBeforeClearingActivationMarker(t *test
 	assert.Equal(t, []string{"app-start", "v1.0.0", "any"}, commands[0].Args)
 }
 
+func TestManagerAdvancesCompletionWhenStartupRestoresPreviousDeployment(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	require.NoError(t, os.Rename(
+		filepath.Join(installRoot, "deployment"),
+		filepath.Join(installRoot, "deployment.previous"),
+	))
+	stageRoot := filepath.Join(installRoot, operationArtifactBase("failed-operation"))
+	require.NoError(t, os.MkdirAll(filepath.Join(stageRoot, "deployment"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(stageRoot, "deployment", "partial"), []byte("stale"), 0o600))
+
+	stateDir := filepath.Join(t.TempDir(), "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	started := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	completed := started.Add(time.Minute)
+	rewrittenAt := completed.Add(time.Minute)
+	persisted := updaterapi.Operation{
+		ID:              "failed-operation",
+		TargetVersion:   "v1.1.0",
+		Phase:           updaterapi.PhaseFailed,
+		Message:         "Upgrade failed",
+		Error:           "activate staged deployment: input/output error",
+		RecoveryCommand: "stale",
+		StartedAt:       started,
+		UpdatedAt:       completed,
+		CompletedAt:     &completed,
+	}
+	data, err := json.Marshal(persisted)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+	marker, err := json.Marshal(activationMarker{
+		OperationID:   persisted.ID,
+		TargetVersion: persisted.TargetVersion,
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, activationMarkerFilename), marker, 0o600))
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+		Now:         func() time.Time { return rewrittenAt },
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	operation := manager.Status().Operation
+	require.NotNil(t, operation)
+	assert.Equal(t, updaterapi.PhaseFailed, operation.Phase)
+	assert.Contains(t, operation.Error, "input/output error")
+	assert.Contains(t, operation.Error, "restored the validated previous deployment")
+	assert.Contains(t, operation.Message, "Previous deployment restored")
+	assert.Equal(t, rewrittenAt, *operation.CompletedAt)
+	assert.Empty(t, operation.RecoveryCommand)
+	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+	assert.NoDirExists(t, filepath.Join(installRoot, "deployment.previous"))
+	assert.NoFileExists(t, filepath.Join(stateDir, activationMarkerFilename))
+	assert.NoDirExists(t, stageRoot)
+}
+
 func TestManagerDoesNotRestorePreviousWithoutAPendingSwapMarker(t *testing.T) {
 	t.Parallel()
 
@@ -3554,4 +3616,250 @@ func mustReadFile(t *testing.T, path string) string {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(data)
+}
+
+func writeFailedOperationState(t *testing.T, stateDir string) updaterapi.Operation {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	started := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	completed := started.Add(time.Minute)
+	persisted := updaterapi.Operation{
+		ID:              "failed-operation",
+		TargetVersion:   "v1.1.0",
+		Phase:           updaterapi.PhaseFailed,
+		Message:         "Upgrade failed",
+		Error:           "new stack failed to start",
+		RecoveryCommand: "cd /deployment && ./run-fleet.sh --non-interactive --skip-build",
+		StartedAt:       started,
+		UpdatedAt:       completed,
+		CompletedAt:     &completed,
+	}
+	data, err := json.Marshal(persisted)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+	return persisted
+}
+
+func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	persisted := writeFailedOperationState(t, stateDir)
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+
+	operation, alreadyAcknowledged, err := manager.Acknowledge(persisted.ID)
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.False(t, alreadyAcknowledged, "first call records the dismissal")
+	assert.Equal(t, persisted.UpdatedAt, operation.UpdatedAt,
+		"acknowledging must not rewrite the operation's outcome revision")
+
+	status := manager.Status().Operation
+	require.NotNil(t, status)
+	assert.True(t, status.Acknowledged)
+
+	// Idempotent for the same operation.
+	operation, alreadyAcknowledged, err = manager.Acknowledge(persisted.ID)
+	require.NoError(t, err)
+	assert.True(t, operation.Acknowledged)
+	assert.True(t, alreadyAcknowledged, "retry finds the dismissal in place")
+
+	// The dismissal survives an updater restart.
+	require.NoError(t, manager.Close())
+	restarted, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, restarted.Close()) })
+	status = restarted.Status().Operation
+	require.NotNil(t, status)
+	assert.True(t, status.Acknowledged)
+}
+
+func TestStatusDerivesAcknowledgementForRemediatedFailure(t *testing.T) {
+	t.Parallel()
+
+	for _, installedVersion := range []string{"v1.1.0", "v1.2.0"} {
+		installRoot := t.TempDir()
+		writeCurrentDeployment(t, installRoot, installedVersion)
+		stateDir := filepath.Join(t.TempDir(), "state")
+		writeFailedOperationState(t, stateDir) // target v1.1.0, failed 2026-08-05
+		// A successful run after the failure recorded its startup proof.
+		proofPath := filepath.Join(installRoot, "deployment", startupProofFilename)
+		require.NoError(t, os.WriteFile(proofPath, []byte("2026-08-06T09:00:00Z\n"), 0o600))
+
+		manager, err := NewManager(Config{
+			InstallRoot: installRoot,
+			StateDir:    stateDir,
+			GOARCH:      "amd64",
+		})
+		require.NoError(t, err)
+
+		status := manager.Status().Operation
+		require.NotNil(t, status)
+		assert.Equal(t, updaterapi.PhaseFailed, status.Phase)
+		assert.True(t, status.Acknowledged, "installed %s should moot the v1.1.0 failure", installedVersion)
+
+		// Status remains a read: durable operation state is unchanged.
+		var durable updaterapi.Operation
+		require.NoError(t, json.Unmarshal(
+			[]byte(mustReadFile(t, filepath.Join(stateDir, stateFilename))),
+			&durable,
+		))
+		assert.False(t, durable.Acknowledged)
+
+		// The durable deployment proof derives the same result after restart.
+		require.NoError(t, manager.Close())
+		restarted, err := NewManager(Config{
+			InstallRoot: installRoot,
+			StateDir:    stateDir,
+			GOARCH:      "amd64",
+		})
+		require.NoError(t, err)
+		status = restarted.Status().Operation
+		require.NotNil(t, status)
+		assert.True(t, status.Acknowledged)
+		require.NoError(t, restarted.Close())
+	}
+}
+
+func TestRewriteActivationRecoveryFailureClearsAcknowledgement(t *testing.T) {
+	t.Parallel()
+
+	completed := time.Date(2026, 8, 5, 8, 1, 0, 0, time.UTC)
+	rewrittenAt := completed.Add(time.Minute)
+	operation := updaterapi.Operation{
+		Phase:        updaterapi.PhaseFailed,
+		Message:      "Previously dismissed failure",
+		Error:        "original failure",
+		UpdatedAt:    completed,
+		CompletedAt:  &completed,
+		Acknowledged: true,
+	}
+
+	rewriteActivationRecoveryFailure(&operation, rewrittenAt, assert.AnError)
+
+	assert.False(t, operation.Acknowledged)
+	assert.Equal(t, "Activation layout requires manual recovery", operation.Message)
+	assert.Contains(t, operation.Error, assert.AnError.Error())
+	assert.Equal(t, rewrittenAt, operation.UpdatedAt)
+	assert.Equal(t, rewrittenAt, *operation.CompletedAt)
+}
+
+func TestStatusKeepsRewrittenFailureVisibleWhenStartupProofPredatesRewrite(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.1.0")
+	completed := time.Date(2026, 8, 5, 8, 1, 0, 0, time.UTC)
+	proofAt := completed.Add(time.Minute)
+	rewrittenAt := proofAt.Add(time.Minute)
+	proofPath := filepath.Join(installRoot, "deployment", startupProofFilename)
+	require.NoError(t, os.WriteFile(proofPath, []byte(proofAt.Format(time.RFC3339)+"\n"), 0o600))
+	require.NoError(t, os.Chtimes(proofPath, proofAt, proofAt))
+
+	operation := updaterapi.Operation{
+		ID:            "failed-operation",
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseFailed,
+		UpdatedAt:     completed,
+		CompletedAt:   &completed,
+		Acknowledged:  true,
+	}
+	rewriteActivationRecoveryFailure(&operation, rewrittenAt, assert.AnError)
+	manager := &Manager{
+		cfg:       Config{InstallRoot: installRoot},
+		operation: &operation,
+	}
+
+	status := manager.Status().Operation
+
+	require.NotNil(t, status)
+	assert.False(t, status.Acknowledged)
+	assert.Equal(t, rewrittenAt, *status.CompletedAt)
+}
+
+func TestStatusKeepsUnremediatedFailureVisible(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name             string
+		installedVersion string
+		staleProof       bool
+	}{
+		{name: "installed version behind the failed target", installedVersion: "v1.0.0"},
+		// Covers both post-swap failure leftovers and a failed recovery rerun
+		// that consumed the preflight marker: no successful startup, no proof.
+		{name: "target version present without startup proof", installedVersion: "v1.1.0"},
+		{name: "startup proof predates the failure", installedVersion: "v1.1.0", staleProof: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, tc.installedVersion)
+			if tc.staleProof {
+				proofPath := filepath.Join(installRoot, "deployment", startupProofFilename)
+				require.NoError(t, os.WriteFile(proofPath, []byte("2026-08-01T00:00:00Z\n"), 0o600))
+				staleTime := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+				require.NoError(t, os.Chtimes(proofPath, staleTime, staleTime))
+			}
+			stateDir := filepath.Join(t.TempDir(), "state")
+			writeFailedOperationState(t, stateDir) // target v1.1.0, failed 2026-08-05
+
+			manager, err := NewManager(Config{
+				InstallRoot: installRoot,
+				StateDir:    stateDir,
+				GOARCH:      "amd64",
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+			status := manager.Status().Operation
+			require.NotNil(t, status)
+			assert.Equal(t, updaterapi.PhaseFailed, status.Phase)
+			assert.False(t, status.Acknowledged)
+		})
+	}
+}
+
+func TestManagerAcknowledgeRejectsUnknownAndActiveOperations(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	persisted := writeFailedOperationState(t, stateDir)
+
+	manager, err := NewManager(Config{
+		InstallRoot: installRoot,
+		StateDir:    stateDir,
+		GOARCH:      "amd64",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+	_, _, err = manager.Acknowledge("some-other-operation")
+	require.ErrorIs(t, err, errAcknowledgeUnknown)
+
+	manager.mu.Lock()
+	manager.operation = &updaterapi.Operation{ID: persisted.ID, TargetVersion: "v1.1.0", Phase: updaterapi.PhasePreflight}
+	manager.mu.Unlock()
+	_, _, err = manager.Acknowledge(persisted.ID)
+	require.ErrorIs(t, err, errAcknowledgeActive)
+
+	status := manager.Status().Operation
+	require.NotNil(t, status)
+	assert.False(t, status.Acknowledged)
 }

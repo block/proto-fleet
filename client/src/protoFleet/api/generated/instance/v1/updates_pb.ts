@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_instance_v1_updates: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChlpbnN0YW5jZS92MS91cGRhdGVzLnByb3RvEgtpbnN0YW5jZS52MSJ/CgtSZWxlYXNlSW5mbxIPCgd2ZXJzaW9uGAEgASgJEhkKEXJlbGVhc2Vfbm90ZXNfdXJsGAIgASgJEjAKDHB1Ymxpc2hlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKcHJlcmVsZWFzZRgEIAEoCCIYChZHZXRVcGRhdGVTdGF0dXNSZXF1ZXN0Iv0BChdHZXRVcGRhdGVTdGF0dXNSZXNwb25zZRIXCg9jdXJyZW50X3ZlcnNpb24YASABKAkSLAoHY2hhbm5lbBgCIAEoDjIbLmluc3RhbmNlLnYxLlJlbGVhc2VDaGFubmVsEjEKD2xhdGVzdF9lbGlnaWJsZRgDIAEoCzIYLmluc3RhbmNlLnYxLlJlbGVhc2VJbmZvEhgKEHVwZGF0ZV9hdmFpbGFibGUYBCABKAgSFwoPaW5zdGFsbF9jb21tYW5kGAUgASgJEhsKE29uZV9jbGlja19hdmFpbGFibGUYBiABKAgSGAoQc3RhdHVzX2F2YWlsYWJsZRgHIAEoCCJIChhTZXRSZWxlYXNlQ2hhbm5lbFJlcXVlc3QSLAoHY2hhbm5lbBgBIAEoDjIbLmluc3RhbmNlLnYxLlJlbGVhc2VDaGFubmVsIhsKGVNldFJlbGVhc2VDaGFubmVsUmVzcG9uc2UiwwIKEFVwZ3JhZGVPcGVyYXRpb24SCgoCaWQYASABKAkSFgoOdGFyZ2V0X3ZlcnNpb24YAiABKAkSKAoFcGhhc2UYAyABKA4yGS5pbnN0YW5jZS52MS5VcGdyYWRlUGhhc2USDwoHbWVzc2FnZRgEIAEoCRIuCgpzdGFydGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxjb21wbGV0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWVycm9yGAggASgJEhgKEHJlY292ZXJ5X2NvbW1hbmQYCSABKAkSFQoNaG9zdF9sb2dfcGF0aBgKIAEoCSIvChVUcmlnZ2VyVXBncmFkZVJlcXVlc3QSFgoOdGFyZ2V0X3ZlcnNpb24YASABKAkiSgoWVHJpZ2dlclVwZ3JhZGVSZXNwb25zZRIwCglvcGVyYXRpb24YASABKAsyHS5pbnN0YW5jZS52MS5VcGdyYWRlT3BlcmF0aW9uIhkKF0dldFVwZ3JhZGVTdGF0dXNSZXF1ZXN0ImgKGEdldFVwZ3JhZGVTdGF0dXNSZXNwb25zZRIaChJleGVjdXRvcl9hdmFpbGFibGUYASABKAgSMAoJb3BlcmF0aW9uGAIgASgLMh0uaW5zdGFuY2UudjEuVXBncmFkZU9wZXJhdGlvbipwCg5SZWxlYXNlQ2hhbm5lbBIfChtSRUxFQVNFX0NIQU5ORUxfVU5TUEVDSUZJRUQQABIaChZSRUxFQVNFX0NIQU5ORUxfU1RBQkxFEAESIQodUkVMRUFTRV9DSEFOTkVMX1NUQUJMRV9BTkRfUkMQAiqQAgoMVXBncmFkZVBoYXNlEh0KGVVQR1JBREVfUEhBU0VfVU5TUEVDSUZJRUQQABIYChRVUEdSQURFX1BIQVNFX1FVRVVFRBABEh0KGVVQR1JBREVfUEhBU0VfRE9XTkxPQURJTkcQAhIbChdVUEdSQURFX1BIQVNFX1ZFUklGWUlORxADEhkKFVVQR1JBREVfUEhBU0VfU1RBR0lORxAEEhsKF1VQR1JBREVfUEhBU0VfUFJFRkxJR0hUEAUSHAoYVVBHUkFERV9QSEFTRV9BQ1RJVkFUSU5HEAYSGwoXVVBHUkFERV9QSEFTRV9TVUNDRUVERUQQBxIYChRVUEdSQURFX1BIQVNFX0ZBSUxFRBAIMp8DChVJbnN0YW5jZVVwZGF0ZVNlcnZpY2USYQoPR2V0VXBkYXRlU3RhdHVzEiMuaW5zdGFuY2UudjEuR2V0VXBkYXRlU3RhdHVzUmVxdWVzdBokLmluc3RhbmNlLnYxLkdldFVwZGF0ZVN0YXR1c1Jlc3BvbnNlIgOQAgESYgoRU2V0UmVsZWFzZUNoYW5uZWwSJS5pbnN0YW5jZS52MS5TZXRSZWxlYXNlQ2hhbm5lbFJlcXVlc3QaJi5pbnN0YW5jZS52MS5TZXRSZWxlYXNlQ2hhbm5lbFJlc3BvbnNlElkKDlRyaWdnZXJVcGdyYWRlEiIuaW5zdGFuY2UudjEuVHJpZ2dlclVwZ3JhZGVSZXF1ZXN0GiMuaW5zdGFuY2UudjEuVHJpZ2dlclVwZ3JhZGVSZXNwb25zZRJkChBHZXRVcGdyYWRlU3RhdHVzEiQuaW5zdGFuY2UudjEuR2V0VXBncmFkZVN0YXR1c1JlcXVlc3QaJS5pbnN0YW5jZS52MS5HZXRVcGdyYWRlU3RhdHVzUmVzcG9uc2UiA5ACAUK3AQoPY29tLmluc3RhbmNlLnYxQgxVcGRhdGVzUHJvdG9QAVpJZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvaW5zdGFuY2UvdjE7aW5zdGFuY2V2MaICA0lYWKoCC0luc3RhbmNlLlYxygILSW5zdGFuY2VcVjHiAhdJbnN0YW5jZVxWMVxHUEJNZXRhZGF0YeoCDEluc3RhbmNlOjpWMWIGcHJvdG8z",
+    "ChlpbnN0YW5jZS92MS91cGRhdGVzLnByb3RvEgtpbnN0YW5jZS52MSJ/CgtSZWxlYXNlSW5mbxIPCgd2ZXJzaW9uGAEgASgJEhkKEXJlbGVhc2Vfbm90ZXNfdXJsGAIgASgJEjAKDHB1Ymxpc2hlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKcHJlcmVsZWFzZRgEIAEoCCIYChZHZXRVcGRhdGVTdGF0dXNSZXF1ZXN0Iv0BChdHZXRVcGRhdGVTdGF0dXNSZXNwb25zZRIXCg9jdXJyZW50X3ZlcnNpb24YASABKAkSLAoHY2hhbm5lbBgCIAEoDjIbLmluc3RhbmNlLnYxLlJlbGVhc2VDaGFubmVsEjEKD2xhdGVzdF9lbGlnaWJsZRgDIAEoCzIYLmluc3RhbmNlLnYxLlJlbGVhc2VJbmZvEhgKEHVwZGF0ZV9hdmFpbGFibGUYBCABKAgSFwoPaW5zdGFsbF9jb21tYW5kGAUgASgJEhsKE29uZV9jbGlja19hdmFpbGFibGUYBiABKAgSGAoQc3RhdHVzX2F2YWlsYWJsZRgHIAEoCCJIChhTZXRSZWxlYXNlQ2hhbm5lbFJlcXVlc3QSLAoHY2hhbm5lbBgBIAEoDjIbLmluc3RhbmNlLnYxLlJlbGVhc2VDaGFubmVsIhsKGVNldFJlbGVhc2VDaGFubmVsUmVzcG9uc2Ui2QIKEFVwZ3JhZGVPcGVyYXRpb24SCgoCaWQYASABKAkSFgoOdGFyZ2V0X3ZlcnNpb24YAiABKAkSKAoFcGhhc2UYAyABKA4yGS5pbnN0YW5jZS52MS5VcGdyYWRlUGhhc2USDwoHbWVzc2FnZRgEIAEoCRIuCgpzdGFydGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxjb21wbGV0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWVycm9yGAggASgJEhgKEHJlY292ZXJ5X2NvbW1hbmQYCSABKAkSFQoNaG9zdF9sb2dfcGF0aBgKIAEoCRIUCgxhY2tub3dsZWRnZWQYCyABKAgiLwoVVHJpZ2dlclVwZ3JhZGVSZXF1ZXN0EhYKDnRhcmdldF92ZXJzaW9uGAEgASgJIkoKFlRyaWdnZXJVcGdyYWRlUmVzcG9uc2USMAoJb3BlcmF0aW9uGAEgASgLMh0uaW5zdGFuY2UudjEuVXBncmFkZU9wZXJhdGlvbiIxChlBY2tub3dsZWRnZVVwZ3JhZGVSZXF1ZXN0EhQKDG9wZXJhdGlvbl9pZBgBIAEoCSJOChpBY2tub3dsZWRnZVVwZ3JhZGVSZXNwb25zZRIwCglvcGVyYXRpb24YASABKAsyHS5pbnN0YW5jZS52MS5VcGdyYWRlT3BlcmF0aW9uIhkKF0dldFVwZ3JhZGVTdGF0dXNSZXF1ZXN0ImgKGEdldFVwZ3JhZGVTdGF0dXNSZXNwb25zZRIaChJleGVjdXRvcl9hdmFpbGFibGUYASABKAgSMAoJb3BlcmF0aW9uGAIgASgLMh0uaW5zdGFuY2UudjEuVXBncmFkZU9wZXJhdGlvbipwCg5SZWxlYXNlQ2hhbm5lbBIfChtSRUxFQVNFX0NIQU5ORUxfVU5TUEVDSUZJRUQQABIaChZSRUxFQVNFX0NIQU5ORUxfU1RBQkxFEAESIQodUkVMRUFTRV9DSEFOTkVMX1NUQUJMRV9BTkRfUkMQAiqQAgoMVXBncmFkZVBoYXNlEh0KGVVQR1JBREVfUEhBU0VfVU5TUEVDSUZJRUQQABIYChRVUEdSQURFX1BIQVNFX1FVRVVFRBABEh0KGVVQR1JBREVfUEhBU0VfRE9XTkxPQURJTkcQAhIbChdVUEdSQURFX1BIQVNFX1ZFUklGWUlORxADEhkKFVVQR1JBREVfUEhBU0VfU1RBR0lORxAEEhsKF1VQR1JBREVfUEhBU0VfUFJFRkxJR0hUEAUSHAoYVVBHUkFERV9QSEFTRV9BQ1RJVkFUSU5HEAYSGwoXVVBHUkFERV9QSEFTRV9TVUNDRUVERUQQBxIYChRVUEdSQURFX1BIQVNFX0ZBSUxFRBAIMosEChVJbnN0YW5jZVVwZGF0ZVNlcnZpY2USYQoPR2V0VXBkYXRlU3RhdHVzEiMuaW5zdGFuY2UudjEuR2V0VXBkYXRlU3RhdHVzUmVxdWVzdBokLmluc3RhbmNlLnYxLkdldFVwZGF0ZVN0YXR1c1Jlc3BvbnNlIgOQAgESYgoRU2V0UmVsZWFzZUNoYW5uZWwSJS5pbnN0YW5jZS52MS5TZXRSZWxlYXNlQ2hhbm5lbFJlcXVlc3QaJi5pbnN0YW5jZS52MS5TZXRSZWxlYXNlQ2hhbm5lbFJlc3BvbnNlElkKDlRyaWdnZXJVcGdyYWRlEiIuaW5zdGFuY2UudjEuVHJpZ2dlclVwZ3JhZGVSZXF1ZXN0GiMuaW5zdGFuY2UudjEuVHJpZ2dlclVwZ3JhZGVSZXNwb25zZRJkChBHZXRVcGdyYWRlU3RhdHVzEiQuaW5zdGFuY2UudjEuR2V0VXBncmFkZVN0YXR1c1JlcXVlc3QaJS5pbnN0YW5jZS52MS5HZXRVcGdyYWRlU3RhdHVzUmVzcG9uc2UiA5ACARJqChJBY2tub3dsZWRnZVVwZ3JhZGUSJi5pbnN0YW5jZS52MS5BY2tub3dsZWRnZVVwZ3JhZGVSZXF1ZXN0GicuaW5zdGFuY2UudjEuQWNrbm93bGVkZ2VVcGdyYWRlUmVzcG9uc2UiA5ACAkK3AQoPY29tLmluc3RhbmNlLnYxQgxVcGRhdGVzUHJvdG9QAVpJZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvaW5zdGFuY2UvdjE7aW5zdGFuY2V2MaICA0lYWKoCC0luc3RhbmNlLlYxygILSW5zdGFuY2VcVjHiAhdJbnN0YW5jZVxWMVxHUEJNZXRhZGF0YeoCDEluc3RhbmNlOjpWMWIGcHJvdG8z",
     [file_google_protobuf_timestamp],
   );
 
@@ -206,6 +206,14 @@ export type UpgradeOperation = Message<"instance.v1.UpgradeOperation"> & {
    * @generated from field: string host_log_path = 10;
    */
   hostLogPath: string;
+
+  /**
+   * True once an operator dismissed this terminal outcome; clients keep the
+   * operation out of their upgrade UI.
+   *
+   * @generated from field: bool acknowledged = 11;
+   */
+  acknowledged: boolean;
 };
 
 /**
@@ -253,6 +261,42 @@ export const TriggerUpgradeResponseSchema: GenMessage<TriggerUpgradeResponse> =
   messageDesc(file_instance_v1_updates, 7);
 
 /**
+ * @generated from message instance.v1.AcknowledgeUpgradeRequest
+ */
+export type AcknowledgeUpgradeRequest = Message<"instance.v1.AcknowledgeUpgradeRequest"> & {
+  /**
+   * @generated from field: string operation_id = 1;
+   */
+  operationId: string;
+};
+
+/**
+ * Describes the message instance.v1.AcknowledgeUpgradeRequest.
+ * Use `create(AcknowledgeUpgradeRequestSchema)` to create a new message.
+ */
+export const AcknowledgeUpgradeRequestSchema: GenMessage<AcknowledgeUpgradeRequest> =
+  /*@__PURE__*/
+  messageDesc(file_instance_v1_updates, 8);
+
+/**
+ * @generated from message instance.v1.AcknowledgeUpgradeResponse
+ */
+export type AcknowledgeUpgradeResponse = Message<"instance.v1.AcknowledgeUpgradeResponse"> & {
+  /**
+   * @generated from field: instance.v1.UpgradeOperation operation = 1;
+   */
+  operation?: UpgradeOperation | undefined;
+};
+
+/**
+ * Describes the message instance.v1.AcknowledgeUpgradeResponse.
+ * Use `create(AcknowledgeUpgradeResponseSchema)` to create a new message.
+ */
+export const AcknowledgeUpgradeResponseSchema: GenMessage<AcknowledgeUpgradeResponse> =
+  /*@__PURE__*/
+  messageDesc(file_instance_v1_updates, 9);
+
+/**
  * @generated from message instance.v1.GetUpgradeStatusRequest
  */
 export type GetUpgradeStatusRequest = Message<"instance.v1.GetUpgradeStatusRequest"> & {};
@@ -263,7 +307,7 @@ export type GetUpgradeStatusRequest = Message<"instance.v1.GetUpgradeStatusReque
  */
 export const GetUpgradeStatusRequestSchema: GenMessage<GetUpgradeStatusRequest> =
   /*@__PURE__*/
-  messageDesc(file_instance_v1_updates, 8);
+  messageDesc(file_instance_v1_updates, 10);
 
 /**
  * @generated from message instance.v1.GetUpgradeStatusResponse
@@ -286,7 +330,7 @@ export type GetUpgradeStatusResponse = Message<"instance.v1.GetUpgradeStatusResp
  */
 export const GetUpgradeStatusResponseSchema: GenMessage<GetUpgradeStatusResponse> =
   /*@__PURE__*/
-  messageDesc(file_instance_v1_updates, 9);
+  messageDesc(file_instance_v1_updates, 11);
 
 /**
  * @generated from enum instance.v1.ReleaseChannel
@@ -415,5 +459,17 @@ export const InstanceUpdateService: GenService<{
     methodKind: "unary";
     input: typeof GetUpgradeStatusRequestSchema;
     output: typeof GetUpgradeStatusResponseSchema;
+  };
+  /**
+   * AcknowledgeUpgrade durably dismisses a terminal upgrade outcome on the
+   * host, so it stops resurfacing for every session. Gated by
+   * instance:update.
+   *
+   * @generated from rpc instance.v1.InstanceUpdateService.AcknowledgeUpgrade
+   */
+  acknowledgeUpgrade: {
+    methodKind: "unary";
+    input: typeof AcknowledgeUpgradeRequestSchema;
+    output: typeof AcknowledgeUpgradeResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_instance_v1_updates, 0);

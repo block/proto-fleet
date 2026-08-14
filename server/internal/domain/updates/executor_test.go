@@ -166,10 +166,13 @@ func TestUnixExecutorClientHTTPFailures(t *testing.T) {
 		statusCode int
 		body       string
 		message    string
+		code       updaterapi.ErrorCode
 	}{
 		{name: "bad request", statusCode: http.StatusBadRequest, body: `{"error":"invalid target"}`, message: "invalid target"},
 		{name: "precondition", statusCode: http.StatusPreconditionFailed, body: `{"error":"target is not newer"}`, message: "target is not newer"},
 		{name: "conflict", statusCode: http.StatusConflict, body: `{"error":"upgrade already running"}`, message: "upgrade already running"},
+		{name: "structured not found", statusCode: http.StatusNotFound, body: `{"error":"operation is not current","code":"operation_not_found"}`, message: "operation is not current", code: updaterapi.ErrorCodeOperationNotFound},
+		{name: "route not found", statusCode: http.StatusNotFound, body: "404 page not found\n", message: "404 Not Found"},
 		{name: "unavailable", statusCode: http.StatusServiceUnavailable, body: `{"error":"updater is shutting down"}`, message: "updater is shutting down"},
 		{name: "internal", statusCode: http.StatusInternalServerError, body: `{"error":"host updater failed"}`, message: "host updater failed"},
 		{name: "malformed body", statusCode: http.StatusBadGateway, body: `{`, message: "502 Bad Gateway"},
@@ -187,6 +190,7 @@ func TestUnixExecutorClientHTTPFailures(t *testing.T) {
 			require.ErrorAs(t, err, &httpErr)
 			assert.Equal(t, test.statusCode, httpErr.StatusCode)
 			assert.Equal(t, test.message, httpErr.Message)
+			assert.Equal(t, test.code, httpErr.Code)
 		})
 	}
 }
