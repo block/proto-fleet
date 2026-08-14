@@ -55,6 +55,21 @@ describe("useActiveAlertGroups", () => {
     expect(result.current.groups.map((group) => group.alert_name)).toEqual(["Hashrate dropped"]);
   });
 
+  // A denial hides the pill entirely, so leaving it set on an error that isn't a denial would swallow the error
+  // too: the header would report neither the alerts nor the failure until some later poll happened to succeed.
+  it("reports a non-permission failure that follows a denial", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    listMock.mockRejectedValue(new ConnectError("forbidden", Code.PermissionDenied));
+
+    const { result } = renderHook(() => useActiveAlertGroups());
+    await waitFor(() => expect(result.current.denied).toBe(true));
+
+    listMock.mockRejectedValue(new ConnectError("boom", Code.Internal));
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    await waitFor(() => expect(result.current.error).toBe("boom"));
+    expect(result.current.denied).toBe(false);
+  });
+
   it("ignores a reply that a newer poll already superseded", async () => {
     const stale = deferredPage();
     const fresh = deferredPage();

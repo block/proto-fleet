@@ -843,12 +843,15 @@ func visibleSummary(summary, template string, includeDevice bool) string {
 
 // The provisioned templates that fire on a source, a curtailment event, or the fleet rather than on a miner, so
 // their annotation summaries name no device. Anything absent fails closed, which costs a non-miner reader only
-// the free text — counts, rule identity, and timing still come through.
+// the free text — counts, rule identity, and timing still come through. A device-less rule added to
+// proto-fleet-rules.yaml without a template label lands here too, unnamed and therefore redacted, so a new one
+// carries a label (see the metric-ingest rule) rather than relying on this list recognizing its absence.
 var deviceLessTemplates = map[alerts.RuleTemplate]struct{}{
 	alerts.RuleTemplateMQTTCurtailment:       {},
 	alerts.RuleTemplateMQTTDisconnected:      {},
 	alerts.RuleTemplateCurtailmentFanRestore: {},
 	alerts.RuleTemplateTelemetryPoll:         {},
+	alerts.RuleTemplateMetricIngest:          {},
 }
 
 // isDeviceLessTemplate reports whether the template's summary is safe to show without miner:read. The label
@@ -921,9 +924,9 @@ func ruleTemplateToProto(t alerts.RuleTemplate) alertsv1.RuleTemplate {
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_CURTAILMENT
 	case alerts.RuleTemplateMQTTDisconnected:
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_DISCONNECTED
-	// Provisioned-only and carried as a raw label on alert rows, not as a rule shape any client creates or
-	// renders, so it has no proto counterpart and reports unspecified like any label this build doesn't know.
-	case alerts.RuleTemplateCurtailmentFanRestore:
+	// Provisioned-only and carried as raw labels on alert rows, not as rule shapes any client creates or
+	// renders, so they have no proto counterpart and report unspecified like any label this build doesn't know.
+	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest:
 	}
 	return alertsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
 }

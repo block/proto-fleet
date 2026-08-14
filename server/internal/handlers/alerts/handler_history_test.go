@@ -247,6 +247,11 @@ func TestDeviceLessTemplateSummariesVisibleWithoutMinerRead(t *testing.T) {
 			alertName: "Telemetry Poll Failure Rate High",
 			summary:   "Telemetry polling is failing for the last ten minutes.",
 		},
+		{
+			template:  string(alerts.RuleTemplateMetricIngest),
+			alertName: "Metric Ingest Stalled",
+			summary:   "Proto Fleet metric ingest has stalled.",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.template, func(t *testing.T) {

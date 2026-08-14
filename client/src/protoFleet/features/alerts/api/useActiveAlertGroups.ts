@@ -55,6 +55,10 @@ export function useActiveAlertGroups({ enabled = true }: UseActiveAlertGroupsOpt
         setDenied(true);
         return;
       }
+      // Any other failure says nothing about the grant, so an earlier denial must not outlive it: the pill hides
+      // itself while denied, which would swallow this error and hold the slow retry interval until a response
+      // succeeds. A grant that really is denied re-asserts that on the next tick.
+      setDenied(false);
       setError(getErrorMessage(err, "Failed to load active alerts"));
     }
   }, []);
