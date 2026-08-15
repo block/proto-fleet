@@ -742,6 +742,136 @@ func TestTriggerUpgradeReturnsExactCurrentOperationBeforeFreshEligibility(t *tes
 	}
 }
 
+func TestTriggerUpgradeDoesNotAdmitFreshOperationWhenReplayStatusFails(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name           string
+		currentVersion string
+		latestStable   string
+		statusErr      error
+	}{
+		{
+			name:           "updater unavailable while fresh offer remains eligible",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.1.0",
+			statusErr:      updaterapi.ErrUnavailable,
+		},
+		{
+			name:           "updater unavailable after running version advanced",
+			currentVersion: "v1.1.0",
+			latestStable:   "v1.1.0",
+			statusErr:      updaterapi.ErrUnavailable,
+		},
+		{
+			name:           "transport failure after eligible offer changed",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.2.0",
+			statusErr:      &updaterapi.TransportError{Cause: errors.New("privileged transport detail")},
+		},
+		{
+			name:           "probe-local deadline after eligible offer changed",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.2.0",
+			statusErr:      &updaterapi.TransportError{Cause: context.DeadlineExceeded},
+		},
+		{
+			name:           "malformed response after eligible offer changed",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.2.0",
+			statusErr:      &updaterapi.ProtocolError{Cause: errors.New("privileged protocol detail")},
+		},
+		{
+			name:           "host error after eligible offer changed",
+			currentVersion: "v1.0.0",
+			latestStable:   "v1.2.0",
+			statusErr: &updaterapi.HTTPError{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "privileged host detail",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc, _ := newTestService(t, test.currentVersion, &fakeSnapshots{snap: Snapshot{
+				LatestStable:    rel(test.latestStable),
+				StableAvailable: true,
+				RCAvailable:     true,
+			}}, newFakeChannelStore())
+			executor := &fakeExecutor{statusErr: test.statusErr}
+			svc.executor = executor
+
+			_, err := svc.TriggerUpgrade(
+				admittedUpgradeContext(context.Background()),
+				1,
+				testOperationID,
+				"v1.1.0",
+			)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsUnavailableError(err), "unexpected mapped error: %v", err)
+			assert.False(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "status could not be confirmed")
+			assert.NotContains(t, err.Error(), "privileged")
+			assert.Empty(t, executor.triggered, "an unconfirmed replay probe must never admit a fresh host mutation")
+		})
+	}
+}
+
+func TestTriggerUpgradePreservesCallerCancellationFromReplayStatusProbe(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		ctx  func() context.Context
+		want error
+	}{
+		{
+			name: "canceled",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			want: context.Canceled,
+		},
+		{
+			name: "deadline exceeded",
+			ctx: func() context.Context {
+				ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			want: context.DeadlineExceeded,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			executor := &fakeExecutor{}
+			statusCalled := false
+			executor.statusFunc = func(ctx context.Context) (updaterapi.StatusResponse, error) {
+				statusCalled = true
+				<-ctx.Done()
+				return updaterapi.StatusResponse{}, &updaterapi.TransportError{Cause: ctx.Err()}
+			}
+			svc := newEligibleUpgradeService(t)
+			svc.executor = executor
+
+			_, err := svc.TriggerUpgrade(
+				admittedUpgradeContext(test.ctx()),
+				1,
+				testOperationID,
+				"v1.1.0",
+			)
+			assert.ErrorIs(t, err, test.want)
+			assert.False(t, fleeterror.IsUnavailableError(err))
+			assert.True(t, statusCalled)
+			assert.Empty(t, executor.triggered)
+		})
+	}
+}
+
 func TestTriggerUpgradeRejectsCurrentOperationIdentityMismatch(t *testing.T) {
 	t.Parallel()
 

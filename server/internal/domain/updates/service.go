@@ -277,7 +277,17 @@ func (s *Service) currentUpgradeReplay(ctx context.Context, operationID, targetV
 	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
 	defer cancel()
 	status, err := s.executor.Status(statusCtx)
-	if err != nil || status.Operation == nil || status.Operation.ID != operationID {
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return updaterapi.Operation{}, false, fmt.Errorf("check current host upgrade status: %w", ctxErr)
+		}
+		// Without status evidence, this ID may already name a durable host
+		// operation. Keep the request retryable instead of re-admitting it as new.
+		return updaterapi.Operation{}, false, fleeterror.NewUnavailableErrorf(
+			"host updater status could not be confirmed; retry the request",
+		)
+	}
+	if status.Operation == nil || status.Operation.ID != operationID {
 		return updaterapi.Operation{}, false, nil
 	}
 	operation := *status.Operation
