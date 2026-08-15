@@ -501,6 +501,54 @@ describe("useUpgradeOperation", () => {
     expect(result.current.trackedTargetVersion).toBeUndefined();
   });
 
+  it("keeps an AlreadyExists response pending while upgrade status is unavailable", async () => {
+    vi.useFakeTimers();
+    mockGetUpgradeStatus
+      .mockResolvedValueOnce(status())
+      .mockRejectedValue(new ConnectError("updater unavailable", Code.Unavailable));
+    mockTriggerUpgrade.mockRejectedValue(new ConnectError("an upgrade is already active", Code.AlreadyExists));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true }));
+    await act(async () => Promise.resolve());
+
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+    await act(async () => vi.advanceTimersByTimeAsync(17_000));
+
+    expect(result.current.reconciling).toBe(true);
+    expect(result.current.connectionLost).toBe(true);
+    expect(result.current.manualFallbackReady).toBe(true);
+    expect(result.current.trackedTargetVersion).toBe("v1.3.0");
+    expect(result.current.triggerError).toContain("already active");
+    expect(window.sessionStorage.length).toBe(1);
+  });
+
+  it("clears an AlreadyExists correlation after status confirms a different operation", async () => {
+    vi.useFakeTimers();
+    const otherOperation = operation(UpgradePhase.PREFLIGHT, {
+      id: "00000000-0000-4000-8000-000000000002",
+      targetVersion: "v1.4.0",
+    });
+    mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, otherOperation));
+    mockTriggerUpgrade.mockRejectedValue(new ConnectError("an upgrade is already active", Code.AlreadyExists));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true }));
+    await act(async () => Promise.resolve());
+
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+
+    expect(result.current.operation?.id).toBe(otherOperation.id);
+    expect(result.current.reconciling).toBe(true);
+    expect(result.current.trackedTargetVersion).toBe("v1.3.0");
+    expect(window.sessionStorage.length).toBe(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(17_000));
+
+    expect(result.current.operation?.id).toBe(otherOperation.id);
+    expect(result.current.reconciling).toBe(false);
+    expect(result.current.manualFallbackReady).toBe(false);
+    expect(result.current.trackedTargetVersion).toBeUndefined();
+    expect(result.current.triggerError).toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("does not let a different same-target operation resolve an ambiguous response", async () => {
     const previousOperation = operation(UpgradePhase.FAILED, { id: "operation-old" });
     mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, previousOperation));

@@ -74,6 +74,9 @@ Fleet retries only the local Fleet-to-updater boundary. If the browser loses
 the Fleet response, it polls for the exact id it generated. A reachable status
 response containing another id proves that the pending command was not the
 current host operation; target-only and timestamp inference are forbidden.
+An `AlreadyExists` trigger response is evidence of a conflicting host mutation
+or recovery lock, so the browser keeps reconciliation locked until status is
+authoritative or the operator explicitly confirms manual fallback.
 The browser persists the pending id and target before submitting the mutation,
 scoped to the current authentication session, so a reload cannot discard the
 conflicting-operation lock while Fleet is still admitting or running the

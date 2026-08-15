@@ -29,13 +29,15 @@ const createOperationID = () => {
 };
 
 const DEFINITIVE_TRIGGER_REJECTION_CODES = new Set<Code>([
-  Code.AlreadyExists,
   Code.InvalidArgument,
   Code.FailedPrecondition,
   Code.PermissionDenied,
   Code.Unauthenticated,
   Code.Unimplemented,
 ]);
+// AlreadyExists confirms a conflicting host mutation or recovery lock, not an
+// idle updater. Keep the caller correlation until status authoritatively
+// identifies the host operation or the operator confirms manual fallback.
 
 const isDefinitiveTriggerRejection = (error: unknown) =>
   error instanceof ConnectError && DEFINITIVE_TRIGGER_REJECTION_CODES.has(error.code);
