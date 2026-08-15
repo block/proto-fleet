@@ -345,10 +345,12 @@ describe("Updates", () => {
     await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
   });
 
-  it("offers a reload after the watched operation succeeds", async () => {
+  it("acknowledges the exact successful outcome before reloading Fleet", async () => {
+    const acknowledgement = createDeferred<void>();
     upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
       message: "Upgrade complete",
     });
+    upgradeHookMock.current.acknowledgeOperation = vi.fn().mockReturnValue(acknowledgement.promise);
     mockGetUpdateStatus.mockResolvedValue(
       buildStatus({
         currentVersion: "v1.3.0",
@@ -362,7 +364,70 @@ describe("Updates", () => {
     const page = render(<Updates />);
     fireEvent.click(await page.findByRole("button", { name: "Reload Fleet" }));
 
+    expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
+    expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
+    expect(page.getByText("Upgrade complete")).toBeInTheDocument();
+
+    await act(async () => {
+      acknowledgement.resolve();
+      await acknowledgement.promise;
+    });
     expect(upgradeHookMock.current.reloadFleet).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a successful outcome visible and does not reload when acknowledgement fails", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
+      message: "Upgrade complete",
+    });
+    upgradeHookMock.current.acknowledgeOperation = vi
+      .fn()
+      .mockRejectedValue(new ConnectError("host updater is unavailable", Code.Unavailable));
+    mockGetUpdateStatus.mockResolvedValue(
+      buildStatus({
+        currentVersion: "v1.3.0",
+        updateAvailable: false,
+        installCommand: "",
+        latestEligible: undefined,
+        oneClickAvailable: true,
+      }),
+    );
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("button", { name: "Reload Fleet" }));
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("Fleet wasn't reloaded") }),
+      ),
+    );
+    expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
+    expect(page.getByText("Upgrade complete")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Reload Fleet" })).toBeEnabled();
+  });
+
+  it("does not carry a pending success acknowledgement into a replacement auth session", async () => {
+    const acknowledgement = createDeferred<void>();
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
+      message: "Upgrade complete",
+    });
+    upgradeHookMock.current.acknowledgeOperation = vi.fn().mockReturnValue(acknowledgement.promise);
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+    const reloadButton = await page.findByRole("button", { name: "Reload Fleet" });
+    fireEvent.click(reloadButton);
+    expect(reloadButton).toBeDisabled();
+
+    permissionsMock.sessionExpiry = new Date(2_000);
+    permissionsMock.sessionGeneration = 2;
+    page.rerender(<Updates />);
+
+    expect(page.getByRole("button", { name: "Reload Fleet" })).toBeEnabled();
+    await act(async () => {
+      acknowledgement.resolve();
+      await acknowledgement.promise;
+    });
+    expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
   });
 
   it("locks competing controls while reconciling an ambiguous trigger", async () => {

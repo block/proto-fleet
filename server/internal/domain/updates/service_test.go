@@ -25,7 +25,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
-var testPublishedAt = time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+var (
+	testPublishedAt        = time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	testOperationStartedAt = time.Date(2026, 8, 14, 17, 30, 0, 456_000_000, time.UTC)
+)
 
 const (
 	testOperationID      = "11111111-1111-4111-8111-111111111111"
@@ -624,6 +627,22 @@ func TestStatusAdvertisesReachableOneClickExecutor(t *testing.T) {
 	assert.True(t, status.OneClickAvailable)
 }
 
+func TestStatusDoesNotAdvertiseUnreachableOneClickExecutor(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v1.1.0"),
+		StableAvailable: true,
+		RCAvailable:     true,
+	}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.executor = &fakeExecutor{statusErr: updaterapi.ErrUnavailable}
+
+	status, err := svc.GetUpdateStatus(context.Background(), 1)
+	require.NoError(t, err)
+	assert.False(t, status.OneClickAvailable)
+}
+
 func TestTriggerUpgradeRevalidatesTheEligibleTarget(t *testing.T) {
 	t.Parallel()
 
@@ -652,6 +671,121 @@ func TestTriggerUpgradeRevalidatesTheEligibleTarget(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Equal(t, []string{"v1.1.0"}, executor.triggered, "a stale or invented target must never reach the host executor")
+}
+
+func TestTriggerUpgradeReturnsExactCurrentOperationBeforeFreshEligibility(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name           string
+		currentVersion string
+		targetVersion  string
+		snapshot       Snapshot
+	}{
+		{
+			name:           "running version already advanced",
+			currentVersion: "v1.1.0",
+			targetVersion:  "v1.1.0",
+			snapshot: Snapshot{
+				LatestStable:    rel("v1.1.0"),
+				StableAvailable: true,
+				RCAvailable:     true,
+			},
+		},
+		{
+			name:           "channel and offer no longer admit the target",
+			currentVersion: "v1.0.0",
+			targetVersion:  "v1.1.0-rc.1",
+			snapshot: Snapshot{
+				LatestStable:    rel("v1.2.0"),
+				LatestRC:        rc("v1.3.0-rc.1"),
+				StableAvailable: true,
+				RCAvailable:     true,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc, _ := newTestService(
+				t,
+				test.currentVersion,
+				&fakeSnapshots{snap: test.snapshot},
+				newFakeChannelStore(),
+			)
+			existing := updaterapi.Operation{
+				ID:            testOperationID,
+				TargetVersion: test.targetVersion,
+				Phase:         updaterapi.PhaseSucceeded,
+				StartedAt:     testOperationStartedAt,
+			}
+			executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+			svc.executor = executor
+
+			operation, err := svc.TriggerUpgrade(
+				admittedUpgradeContext(context.Background()),
+				1,
+				testOperationID,
+				test.targetVersion,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, existing, operation)
+			assert.Empty(t, executor.triggered, "an exact replay must not submit another host mutation")
+		})
+	}
+}
+
+func TestTriggerUpgradeRejectsCurrentOperationIdentityMismatch(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name             string
+		existingTarget   string
+		requestedTarget  string
+		existingComplete bool
+	}{
+		{
+			name:            "same ID with another target",
+			existingTarget:  "v1.1.0",
+			requestedTarget: "v1.2.0",
+		},
+		{
+			name:             "same ID and target belongs to a completion operation",
+			existingTarget:   "v1.2.0",
+			requestedTarget:  "v1.2.0",
+			existingComplete: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			svc, _ := newTestService(t, "v1.0.0", &fakeSnapshots{snap: Snapshot{
+				LatestStable:    rel("v1.2.0"),
+				StableAvailable: true,
+				RCAvailable:     true,
+			}}, newFakeChannelStore())
+			existing := updaterapi.Operation{
+				ID:            testOperationID,
+				TargetVersion: test.existingTarget,
+				Complete:      test.existingComplete,
+				Phase:         updaterapi.PhaseSucceeded,
+				StartedAt:     testOperationStartedAt,
+			}
+			executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+			svc.executor = executor
+
+			_, err := svc.TriggerUpgrade(
+				admittedUpgradeContext(context.Background()),
+				1,
+				testOperationID,
+				test.requestedTarget,
+			)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "operation id is already associated with another update")
+			assert.Empty(t, executor.triggered)
+		})
+	}
 }
 
 func TestTriggerUpgradeRequiresCanonicalOperationID(t *testing.T) {
@@ -728,6 +862,96 @@ func TestTriggerUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
 	assert.Empty(t, executor.triggered)
 }
 
+func TestTriggerUpgradeExactReplayFailsClosedWithoutActiveAdmission(t *testing.T) {
+	t.Parallel()
+
+	existing := updaterapi.Operation{
+		ID:            testOperationID,
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseSucceeded,
+		StartedAt:     testOperationStartedAt,
+	}
+	executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+	svc := newEligibleUpgradeService(t)
+	svc.executor = executor
+
+	_, err := svc.TriggerUpgrade(context.Background(), 1, testOperationID, "v1.1.0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing active-runtime admission")
+	assert.Empty(t, executor.triggered)
+}
+
+func TestTriggerUpgradeExactReplayRejectsEndedActiveAdmission(t *testing.T) {
+	t.Parallel()
+
+	existing := updaterapi.Operation{
+		ID:            testOperationID,
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseSucceeded,
+		StartedAt:     testOperationStartedAt,
+	}
+	executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+	svc := newEligibleUpgradeService(t)
+	svc.executor = executor
+	activeCtx, cancelActive := context.WithCancel(context.Background())
+	cancelActive()
+	requestCtx := admissionctx.WithActiveLifetime(context.Background(), activeCtx)
+
+	_, err := svc.TriggerUpgrade(requestCtx, 1, testOperationID, "v1.1.0")
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, executor.triggered)
+}
+
+func TestTriggerUpgradeExactReplayRetriesAuditWithTheSameKey(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	activityStore := storemocks.NewMockActivityStore(ctrl)
+	var recorded []activitymodels.Event
+	insertCalls := 0
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			recorded = append(recorded, *event)
+			insertCalls++
+			if insertCalls == 1 {
+				return errors.New("temporary audit failure")
+			}
+			return nil
+		},
+	).Times(2)
+
+	existing := updaterapi.Operation{
+		ID:            testOperationID,
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseSucceeded,
+		StartedAt:     testOperationStartedAt,
+	}
+	executor := &fakeExecutor{status: updaterapi.StatusResponse{Operation: &existing}}
+	svc, _ := newTestService(t, "v1.1.0", &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v1.1.0"),
+		StableAvailable: true,
+		RCAvailable:     true,
+	}}, newFakeChannelStore())
+	svc.executor = executor
+	svc.activitySvc = activity.NewService(activityStore)
+
+	for range 2 {
+		operation, err := svc.TriggerUpgrade(
+			admittedUpgradeContext(context.Background()),
+			1,
+			testOperationID,
+			"v1.1.0",
+		)
+		require.NoError(t, err)
+		assert.Equal(t, existing, operation)
+	}
+	require.Len(t, recorded, 2)
+	expectedKey := upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, existing)
+	assert.Equal(t, expectedKey, recorded[0].IdempotencyKey)
+	assert.Equal(t, expectedKey, recorded[1].IdempotencyKey)
+	assert.Empty(t, executor.triggered)
+}
+
 func TestTriggerUpgradeRejectsEndedActiveAdmissionBeforeMutation(t *testing.T) {
 	t.Parallel()
 
@@ -776,6 +1000,7 @@ func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellati
 			ID:            operationID,
 			TargetVersion: targetVersion,
 			Phase:         updaterapi.PhaseQueued,
+			StartedAt:     testOperationStartedAt,
 		}
 		cancelRequest()
 		assert.NoError(t, triggerCtx.Err(), "host mutation must outlive browser cancellation")
@@ -794,7 +1019,7 @@ func TestTriggerUpgradeReconcilesAcceptedOperationAndAuditsAfterCallerCancellati
 	assert.Equal(t, "test-operator", *recorded.Username)
 	assert.Equal(t, operation.ID, recorded.Metadata["operation_id"])
 	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
-	assert.Equal(t, upgradeTriggeredEventType+":"+testOperationID, recorded.IdempotencyKey)
+	assert.Equal(t, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, operation), recorded.IdempotencyKey)
 }
 
 func TestTriggerUpgradeCancelsHostMutationWhenActiveRuntimeEnds(t *testing.T) {
@@ -867,6 +1092,38 @@ func TestTriggerUpgradeDoesNotClaimAnotherOperationAfterAmbiguousFailure(t *test
 	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
+}
+
+func TestTriggerUpgradeDoesNotClaimCompletionOperationAfterAmbiguousFailure(t *testing.T) {
+	t.Parallel()
+
+	svc := newEligibleUpgradeService(t)
+	executor := &fakeExecutor{}
+	triggered := false
+	executor.statusFunc = func(context.Context) (updaterapi.StatusResponse, error) {
+		if !triggered {
+			return updaterapi.StatusResponse{}, nil
+		}
+		return updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+			ID:            testOperationID,
+			TargetVersion: "v1.1.0",
+			Complete:      true,
+			Phase:         updaterapi.PhaseQueued,
+			StartedAt:     testOperationStartedAt,
+		}}, nil
+	}
+	triggerCalls := 0
+	executor.triggerFunc = func(context.Context, string, string) (updaterapi.Operation, error) {
+		triggered = true
+		triggerCalls++
+		return updaterapi.Operation{}, &updaterapi.TransportError{Cause: errors.New("connection reset")}
+	}
+	svc.executor = executor
+
+	_, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Equal(t, 2, triggerCalls)
 }
 
 func TestTriggerUpgradePreservesUnknownOutcomeAfterDefinitiveRetryFailure(t *testing.T) {
@@ -1065,6 +1322,7 @@ func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
 		ID:              testOperationID,
 		TargetVersion:   "v1.1.0",
 		Phase:           updaterapi.PhaseFailed,
+		StartedAt:       testOperationStartedAt,
 		CompletedAt:     &completed,
 		OutcomeRevision: testOutcomeRevision,
 		Acknowledged:    true,
@@ -1086,19 +1344,40 @@ func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
 	assert.Equal(t, testOutcomeRevision, recorded.Metadata["outcome_revision"])
 	assert.Equal(t, "v1.1.0", recorded.Metadata["target_version"])
 	assert.Equal(t, "failed", recorded.Metadata["phase"])
-	assert.Equal(t, "instance_upgrade_acknowledged:"+testOperationID+":1", recorded.IdempotencyKey)
+	assert.Equal(t, upgradeAcknowledgementIdempotencyKey(1, operation), recorded.IdempotencyKey)
 }
 
-func TestUpgradeAcknowledgementIdempotencyKeyScopesRetriesToOutcomeRevision(t *testing.T) {
+func TestUpgradeActivityIdempotencyKeysScopeOperationIncarnationsAndOrganizations(t *testing.T) {
 	t.Parallel()
 
-	firstKey := upgradeAcknowledgementIdempotencyKey(updaterapi.Operation{ID: testOperationID, OutcomeRevision: 1})
-	retryKey := upgradeAcknowledgementIdempotencyKey(updaterapi.Operation{ID: testOperationID, OutcomeRevision: 1})
-	rewrittenKey := upgradeAcknowledgementIdempotencyKey(updaterapi.Operation{ID: testOperationID, OutcomeRevision: 2})
+	first := updaterapi.Operation{
+		ID:              testOperationID,
+		StartedAt:       testOperationStartedAt,
+		OutcomeRevision: 1,
+	}
+	retry := first
+	laterIncarnation := first
+	laterIncarnation.StartedAt = first.StartedAt.Add(time.Second)
+	rewrittenOutcome := first
+	rewrittenOutcome.OutcomeRevision = 2
 
-	assert.Equal(t, "instance_upgrade_acknowledged:"+testOperationID+":1", firstKey)
-	assert.Equal(t, firstKey, retryKey, "the same outcome revision must deduplicate across transports")
-	assert.NotEqual(t, firstKey, rewrittenKey, "a materially rewritten outcome needs its own audit row")
+	firstTriggerKey := upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, first)
+	assert.Equal(t, firstTriggerKey, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, retry),
+		"the same host operation must deduplicate across transports")
+	assert.NotEqual(t, firstTriggerKey, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 1, laterIncarnation),
+		"historical reuse of the client ID must produce a new trigger audit")
+	assert.NotEqual(t, firstTriggerKey, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, 2, first),
+		"different organizations must not share activity identities")
+
+	firstAcknowledgementKey := upgradeAcknowledgementIdempotencyKey(1, first)
+	assert.Equal(t, firstAcknowledgementKey, upgradeAcknowledgementIdempotencyKey(1, retry),
+		"the same outcome revision must deduplicate across transports")
+	assert.NotEqual(t, firstAcknowledgementKey, upgradeAcknowledgementIdempotencyKey(1, laterIncarnation),
+		"historical reuse of the client ID must produce a new acknowledgement audit")
+	assert.NotEqual(t, firstAcknowledgementKey, upgradeAcknowledgementIdempotencyKey(2, first),
+		"different organizations must not share activity identities")
+	assert.NotEqual(t, firstAcknowledgementKey, upgradeAcknowledgementIdempotencyKey(1, rewrittenOutcome),
+		"a materially rewritten outcome needs its own audit row")
 }
 
 func TestAcknowledgeUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
@@ -1136,6 +1415,7 @@ func TestAcknowledgeUpgradeAuditsIdempotentlyWhenAlreadyAcknowledged(t *testing.
 		acknowledge: updaterapi.Operation{
 			ID:              testOperationID,
 			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       testOperationStartedAt,
 			CompletedAt:     &completed,
 			OutcomeRevision: testOutcomeRevision,
 			Acknowledged:    true,
@@ -1151,9 +1431,10 @@ func TestAcknowledgeUpgradeAuditsIdempotentlyWhenAlreadyAcknowledged(t *testing.
 	}
 	assert.Equal(t, []string{testOperationID, testOperationID}, executor.acknowledged)
 	assert.Equal(t, []uint64{testOutcomeRevision, testOutcomeRevision}, executor.acknowledgedRevisions)
+	expectedKey := upgradeAcknowledgementIdempotencyKey(1, executor.acknowledge)
 	assert.Equal(t, []string{
-		"instance_upgrade_acknowledged:" + testOperationID + ":1",
-		"instance_upgrade_acknowledged:" + testOperationID + ":1",
+		expectedKey,
+		expectedKey,
 	}, idempotencyKeys)
 }
 
@@ -1184,6 +1465,7 @@ func TestAcknowledgeUpgradeRetriesAmbiguousResponseAndAudits(t *testing.T) {
 			ID:              operationID,
 			TargetVersion:   "v1.1.0",
 			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       testOperationStartedAt,
 			OutcomeRevision: expectedOutcomeRevision,
 			Acknowledged:    true,
 		}, true, nil
@@ -1199,7 +1481,7 @@ func TestAcknowledgeUpgradeRetriesAmbiguousResponseAndAudits(t *testing.T) {
 	assert.True(t, operation.Acknowledged)
 	assert.Equal(t, 2, acknowledgeCalls)
 	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
-	assert.Equal(t, "instance_upgrade_acknowledged:"+testOperationID+":1", recorded.IdempotencyKey)
+	assert.Equal(t, upgradeAcknowledgementIdempotencyKey(1, operation), recorded.IdempotencyKey)
 }
 
 func TestAcknowledgeUpgradeReconcilesPersistedAcknowledgementAndAudits(t *testing.T) {
@@ -1223,6 +1505,7 @@ func TestAcknowledgeUpgradeReconcilesPersistedAcknowledgementAndAudits(t *testin
 			ID:              testOperationID,
 			TargetVersion:   "v1.1.0",
 			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       testOperationStartedAt,
 			OutcomeRevision: testOutcomeRevision,
 			Acknowledged:    true,
 		}},
@@ -1238,7 +1521,7 @@ func TestAcknowledgeUpgradeReconcilesPersistedAcknowledgementAndAudits(t *testin
 	assert.Equal(t, []string{testOperationID, testOperationID}, executor.acknowledged)
 	assert.Equal(t, []uint64{testOutcomeRevision, testOutcomeRevision}, executor.acknowledgedRevisions)
 	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
-	assert.Equal(t, "instance_upgrade_acknowledged:"+testOperationID+":1", recorded.IdempotencyKey)
+	assert.Equal(t, upgradeAcknowledgementIdempotencyKey(1, operation), recorded.IdempotencyKey)
 }
 
 func TestAcknowledgeUpgradeDoesNotReconcileAStaleOutcomeRevision(t *testing.T) {
@@ -1301,6 +1584,7 @@ func TestAcknowledgeUpgradeCompletesAndAuditsAfterCallerCancellation(t *testing.
 		return updaterapi.Operation{
 			ID:              operationID,
 			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       testOperationStartedAt,
 			OutcomeRevision: expectedOutcomeRevision,
 			Acknowledged:    true,
 		}, false, nil

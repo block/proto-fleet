@@ -122,37 +122,41 @@ func (s *Service) GetUpdateStatus(ctx context.Context, organizationID int64) (Up
 	if err != nil {
 		return UpdateStatus{}, err
 	}
+	return s.updateStatusForChannel(channel, s.executorAvailable(ctx)), nil
+}
+
+func (s *Service) updateStatusForChannel(channel Channel, oneClickAvailable bool) UpdateStatus {
 	snapshot := s.snapshots.Snapshot()
 	status := UpdateStatus{
 		CurrentVersion:    s.currentVersion,
 		Channel:           channel,
-		OneClickAvailable: s.executorAvailable(ctx),
+		OneClickAvailable: oneClickAvailable,
 	}
 	if !semver.IsValid(s.currentVersion) {
 		s.logger.Debug("update check skipped: running version is not semver", "version", s.currentVersion)
-		return status, nil
+		return status
 	}
 	status.StatusAvailable = channelStatusAvailable(channel, snapshot, s.currentVersion)
 	if !status.StatusAvailable {
-		return status, nil
+		return status
 	}
 
 	candidate := eligibleCandidate(channel, snapshot)
 	if candidate == nil || semver.Compare(candidate.Version, s.currentVersion) <= 0 {
-		return status, nil
+		return status
 	}
 	command, ok := installCommand(s.cfg.DownloadBaseURL, candidate.Version)
 	if !ok {
 		// Defensive: a candidate the command guard rejects is never offered
 		// at all — an offer without a runnable command would be a dead end.
-		return status, nil
+		return status
 	}
 
 	eligible := *candidate
 	status.LatestEligible = &eligible
 	status.UpdateAvailable = true
 	status.InstallCommand = command
-	return status, nil
+	return status
 }
 
 func (s *Service) executorAvailable(ctx context.Context) bool {
@@ -172,10 +176,41 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, oper
 	if err := validateOperationID(operationID); err != nil {
 		return updaterapi.Operation{}, err
 	}
-	status, err := s.GetUpdateStatus(ctx, organizationID)
+
+	// Consult the updater's durable operation before re-deriving a fresh offer.
+	// An exact retry must remain recoverable after the upgrade changes the
+	// running version or the selected release channel changes. The operation's
+	// complete-mode bit is part of its identity so the Fleet UI cannot claim an
+	// HA completion operation that happens to reuse its ID and target.
+	if s.executor != nil {
+		operation, replay, err := s.currentUpgradeReplay(ctx, operationID, targetVersion)
+		if err != nil {
+			return updaterapi.Operation{}, err
+		}
+		if replay {
+			if err := ctx.Err(); err != nil {
+				return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
+			}
+			operationCtx, cancelOperation, ok := admissionctx.DetachRequestCancellation(ctx)
+			if !ok {
+				return updaterapi.Operation{}, fleeterror.NewInternalError("upgrade request is missing active-runtime admission")
+			}
+			defer cancelOperation()
+			if err := operationCtx.Err(); err != nil {
+				return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
+			}
+			s.logUpgradeTriggered(operationCtx, organizationID, operation)
+			return operation, nil
+		}
+	}
+
+	channel, err := s.releaseChannel(ctx, organizationID)
 	if err != nil {
 		return updaterapi.Operation{}, err
 	}
+	// Executor reachability was already probed above for replay. Only the
+	// channel-filtered offer matters for admission of a genuinely new ID.
+	status := s.updateStatusForChannel(channel, false)
 	if !status.UpdateAvailable || status.LatestEligible == nil {
 		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("no eligible update is available")
 	}
@@ -238,6 +273,22 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, oper
 	return updaterapi.Operation{}, mapExecutorTriggerError(err)
 }
 
+func (s *Service) currentUpgradeReplay(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, bool, error) {
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
+	defer cancel()
+	status, err := s.executor.Status(statusCtx)
+	if err != nil || status.Operation == nil || status.Operation.ID != operationID {
+		return updaterapi.Operation{}, false, nil
+	}
+	operation := *status.Operation
+	if operation.TargetVersion != targetVersion || operation.Complete {
+		return updaterapi.Operation{}, false, fleeterror.NewFailedPreconditionError(
+			"operation id is already associated with another update",
+		)
+	}
+	return operation, true, nil
+}
+
 func (s *Service) triggerUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
 	triggerCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
 	defer cancel()
@@ -258,7 +309,7 @@ func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersi
 		return updaterapi.Operation{}, false
 	}
 	operation := *status.Operation
-	if operation.ID != operationID || operation.TargetVersion != targetVersion {
+	if operation.ID != operationID || operation.TargetVersion != targetVersion || operation.Complete {
 		return updaterapi.Operation{}, false
 	}
 	return operation, true
@@ -315,7 +366,7 @@ func (s *Service) logUpgradeTriggered(ctx context.Context, organizationID int64,
 		map[string]any{
 			"operation_id":   operation.ID,
 			"target_version": operation.TargetVersion,
-		}, upgradeTriggeredEventType+":"+operation.ID)
+		}, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, organizationID, operation))
 }
 
 func (s *Service) logUpgradeEvent(
@@ -456,11 +507,25 @@ func (s *Service) logUpgradeAcknowledged(ctx context.Context, organizationID int
 			"outcome_revision": operation.OutcomeRevision,
 			"target_version":   operation.TargetVersion,
 			"phase":            string(operation.Phase),
-		}, upgradeAcknowledgementIdempotencyKey(operation))
+		}, upgradeAcknowledgementIdempotencyKey(organizationID, operation))
 }
 
-func upgradeAcknowledgementIdempotencyKey(operation updaterapi.Operation) string {
-	return fmt.Sprintf("%s:%s:%d", upgradeAcknowledgedEventType, operation.ID, operation.OutcomeRevision)
+func upgradeOperationIdempotencyKey(eventType string, organizationID int64, operation updaterapi.Operation) string {
+	return fmt.Sprintf(
+		"%s:org:%d:operation:%s:started:%s",
+		eventType,
+		organizationID,
+		operation.ID,
+		operation.StartedAt.UTC().Format(time.RFC3339Nano),
+	)
+}
+
+func upgradeAcknowledgementIdempotencyKey(organizationID int64, operation updaterapi.Operation) string {
+	return fmt.Sprintf(
+		"%s:outcome:%d",
+		upgradeOperationIdempotencyKey(upgradeAcknowledgedEventType, organizationID, operation),
+		operation.OutcomeRevision,
+	)
 }
 
 func validateOperationID(operationID string) error {

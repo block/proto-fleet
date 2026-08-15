@@ -42,8 +42,12 @@ state formats are disposable and do not receive compatibility shims.
   remediated, or acknowledged.
 - Fleet retains authorization, release-eligibility validation, HA lifetime
   admission, transport reconciliation, and idempotent audit ownership.
-- Browser state is limited to an in-memory pending command id, poll status,
-  and rendering state; reload recovery comes from the host.
+- Browser state is limited to poll/rendering state plus one authentication-
+  scoped command correlation record. That record survives reload through the
+  exact operation's active lifetime and clears when the host reports it
+  terminal, conclusively rejects it, or an operator explicitly unlocks the
+  manual fallback; operation state and terminal visibility still come
+  exclusively from the host.
 - The filesystem activation, forward-only recovery, privilege, and trust
   boundaries remain unchanged.
 
@@ -70,6 +74,11 @@ Fleet retries only the local Fleet-to-updater boundary. If the browser loses
 the Fleet response, it polls for the exact id it generated. A reachable status
 response containing another id proves that the pending command was not the
 current host operation; target-only and timestamp inference are forbidden.
+The browser persists the pending id and target before submitting the mutation,
+scoped to the current authentication session, so a reload cannot discard the
+conflicting-operation lock while Fleet is still admitting or running the
+command. Observing the exact active operation does not clear that correlation;
+an exact terminal result does.
 
 ### Terminal outcome identity
 
@@ -83,8 +92,11 @@ revision. The host accepts only an exact current terminal revision. Retrying an
 already-recorded acknowledgement for that revision is idempotent; a stale
 revision fails without changing state.
 
-Trigger audit idempotency is keyed by operation id. Acknowledgement audit
-idempotency is keyed by operation id and outcome revision.
+Audit idempotency is keyed by organization and the host-generated operation
+incarnation (operation id plus immutable start time). Acknowledgement audit
+idempotency also includes the outcome revision. This keeps exact retries
+idempotent without letting a deliberately reused historical client UUID hide a
+later operation.
 
 ### Presentation authority
 
@@ -122,11 +134,20 @@ The refactor must preserve these existing guarantees:
 ## Validation
 
 - Exact-id retry admits one host operation and produces one trigger audit.
+- Exact-id replay returns the retained host operation even after the offer or
+  installed version changes; fresh ids still require current eligibility.
 - Reusing an id with another target is rejected.
 - A lost browser response recovers only the exact operation id.
+- Reloading during admission or the exact operation's active lifetime
+  preserves the conflicting-operation lock for the same authentication
+  session.
 - A rewritten terminal outcome advances its revision and rejects an old tab's
   acknowledgement.
 - Acknowledgement retries produce one audit for the exact revision.
+- Historical UUID reuse produces a new trigger and acknowledgement audit for
+  the new host-generated operation incarnation.
+- Reload acknowledges a successful outcome before replacing the browser
+  document and leaves it visible when acknowledgement fails.
 - Host-unavailable acknowledgement leaves the outcome visible.
 - Caller cancellation and HA demotion retain their existing opposing
   semantics.

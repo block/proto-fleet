@@ -109,6 +109,12 @@ const Updates = () => {
   const [isChannelChangePending, setIsChannelChangePending] = useState(false);
   const [isStatusRefreshPending, setIsStatusRefreshPending] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [upgradeReloadState, setUpgradeReloadState] = useState({
+    authSessionIdentity,
+    pending: false,
+  });
+  const isUpgradeReloadPending =
+    upgradeReloadState.authSessionIdentity === authSessionIdentity && upgradeReloadState.pending;
   const latestStatusRequest = useRef(0);
   const isMounted = useRef(false);
   const lastAutoOpenedOperation = useRef<string | null>(null);
@@ -358,6 +364,38 @@ const Updates = () => {
     }
   };
 
+  const handleSuccessfulUpgradeReload = async () => {
+    if (isUpgradeReloadPending) {
+      return;
+    }
+    const authSession = captureAuthSession(authSessionIdentity);
+    setUpgradeReloadState({ authSessionIdentity, pending: true });
+    try {
+      // The success record is durable host state. Clear the exact outcome
+      // before reloading so the next page does not surface and lock on it
+      // again. A failed acknowledgement deliberately leaves it visible.
+      await upgrade.acknowledgeOperation();
+      if (!isMounted.current || !isSameAuthSession(authSession)) {
+        return;
+      }
+      upgrade.reloadFleet();
+    } catch (err) {
+      if (!isSameAuthSession(authSession)) {
+        return;
+      }
+      handleRequestError(err, isMounted.current, () => {
+        pushToast({
+          message: `Fleet wasn't reloaded: ${getErrorMessage(err, "the completed upgrade couldn't be recorded")}`,
+          status: STATUSES.error,
+        });
+      });
+    } finally {
+      if (isMounted.current && isSameAuthSession(authSession)) {
+        setUpgradeReloadState({ authSessionIdentity, pending: false });
+      }
+    }
+  };
+
   // Redirect callers without instance:update away — placed after all
   // hooks to satisfy rules-of-hooks.
   if (!canUpdateInstance) {
@@ -405,7 +443,7 @@ const Updates = () => {
           });
         }}
         onDismiss={() => setUpgradeModalOpen(false)}
-        onReload={upgrade.reloadFleet}
+        onReload={() => void handleSuccessfulUpgradeReload()}
         onUpgrade={upgrade.triggerUpgrade}
         onUseManualFallback={() => {
           upgrade.useManualFallback();
@@ -415,6 +453,7 @@ const Updates = () => {
         open={upgradeModalOpen}
         operation={upgrade.operation}
         reconciling={upgrade.reconciling}
+        reloadPending={isUpgradeReloadPending}
         release={modalRelease}
         targetVersion={
           upgrade.operation?.targetVersion ?? (upgrade.reconciling ? upgrade.trackedTargetVersion : release?.version)
