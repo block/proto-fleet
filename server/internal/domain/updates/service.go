@@ -394,9 +394,18 @@ func (s *Service) logUpgradeEvent(
 // updater, so the operation stops resurfacing in every session. The mutation
 // and audit are independently idempotent; ambiguous updater responses are
 // retried and reconciled before the caller is asked to retry.
-func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, operationID string, expectedOutcomeRevision uint64) (updaterapi.Operation, error) {
+func (s *Service) AcknowledgeUpgrade(
+	ctx context.Context,
+	organizationID int64,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, error) {
 	if err := validateOperationID(operationID); err != nil {
 		return updaterapi.Operation{}, err
+	}
+	if expectedStartedAt.IsZero() {
+		return updaterapi.Operation{}, fleeterror.NewInvalidArgumentError("expected started at is required")
 	}
 	if expectedOutcomeRevision == 0 {
 		return updaterapi.Operation{}, fleeterror.NewInvalidArgumentError("expected outcome revision is required")
@@ -420,7 +429,8 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled before host mutation: %w", err)
 	}
 
-	operation, err := s.acknowledgeUpgrade(operationCtx, operationID, expectedOutcomeRevision)
+	expectedStartedAt = expectedStartedAt.UTC()
+	operation, err := s.acknowledgeUpgrade(operationCtx, operationID, expectedStartedAt, expectedOutcomeRevision)
 	if err == nil {
 		s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
 		return operation, nil
@@ -435,7 +445,7 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 	// database-idempotent audit, so both an ambiguous first response and an
 	// unrelated repeat converge on one activity row.
 	if ambiguousExecutorResult(err) {
-		operation, retryErr := s.acknowledgeUpgrade(operationCtx, operationID, expectedOutcomeRevision)
+		operation, retryErr := s.acknowledgeUpgrade(operationCtx, operationID, expectedStartedAt, expectedOutcomeRevision)
 		if retryErr == nil {
 			s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
 			return operation, nil
@@ -443,7 +453,7 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 		if cancelErr := operationCtx.Err(); cancelErr != nil {
 			return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled during host mutation retry: %w", cancelErr)
 		}
-		if reconciled, ok := s.reconcileAcknowledgement(operationCtx, operationID, expectedOutcomeRevision); ok {
+		if reconciled, ok := s.reconcileAcknowledgement(operationCtx, operationID, expectedStartedAt, expectedOutcomeRevision); ok {
 			s.logUpgradeAcknowledged(operationCtx, organizationID, reconciled)
 			return reconciled, nil
 		}
@@ -454,20 +464,33 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 	return updaterapi.Operation{}, mapExecutorAcknowledgeError(err)
 }
 
-func (s *Service) acknowledgeUpgrade(ctx context.Context, operationID string, expectedOutcomeRevision uint64) (updaterapi.Operation, error) {
+func (s *Service) acknowledgeUpgrade(
+	ctx context.Context,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, error) {
 	acknowledgeCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
 	defer cancel()
-	operation, _, err := s.executor.Acknowledge(acknowledgeCtx, operationID, expectedOutcomeRevision)
+	operation, _, err := s.executor.Acknowledge(acknowledgeCtx, operationID, expectedStartedAt, expectedOutcomeRevision)
 	if err != nil {
 		return updaterapi.Operation{}, err
 	}
-	if operation.ID != operationID || operation.OutcomeRevision != expectedOutcomeRevision || !operation.Acknowledged {
+	if operation.ID != operationID ||
+		!operation.StartedAt.Equal(expectedStartedAt) ||
+		operation.OutcomeRevision != expectedOutcomeRevision ||
+		!operation.Acknowledged {
 		return updaterapi.Operation{}, &updaterapi.ProtocolError{Cause: errors.New("host updater response did not confirm acknowledgement")}
 	}
 	return operation, nil
 }
 
-func (s *Service) reconcileAcknowledgement(ctx context.Context, operationID string, expectedOutcomeRevision uint64) (updaterapi.Operation, bool) {
+func (s *Service) reconcileAcknowledgement(
+	ctx context.Context,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, bool) {
 	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
 	defer cancel()
 	status, err := s.executor.Status(statusCtx)
@@ -475,7 +498,10 @@ func (s *Service) reconcileAcknowledgement(ctx context.Context, operationID stri
 		return updaterapi.Operation{}, false
 	}
 	operation := *status.Operation
-	if operation.ID != operationID || operation.OutcomeRevision != expectedOutcomeRevision || !operation.Acknowledged {
+	if operation.ID != operationID ||
+		!operation.StartedAt.Equal(expectedStartedAt) ||
+		operation.OutcomeRevision != expectedOutcomeRevision ||
+		!operation.Acknowledged {
 		return updaterapi.Operation{}, false
 	}
 	return operation, true

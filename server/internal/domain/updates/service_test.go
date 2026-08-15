@@ -52,11 +52,12 @@ type fakeExecutor struct {
 	triggerErr            error
 	triggerFunc           func(context.Context, string, string) (updaterapi.Operation, error)
 	acknowledged          []string
+	acknowledgedStartedAt []time.Time
 	acknowledgedRevisions []uint64
 	acknowledge           updaterapi.Operation
 	acknowledgeAlready    bool
 	acknowledgeErr        error
-	acknowledgeFunc       func(context.Context, string, uint64) (updaterapi.Operation, bool, error)
+	acknowledgeFunc       func(context.Context, string, time.Time, uint64) (updaterapi.Operation, bool, error)
 }
 
 func (f *fakeExecutor) Status(ctx context.Context) (updaterapi.StatusResponse, error) {
@@ -75,11 +76,17 @@ func (f *fakeExecutor) Trigger(ctx context.Context, operationID, targetVersion s
 	return f.trigger, f.triggerErr
 }
 
-func (f *fakeExecutor) Acknowledge(ctx context.Context, operationID string, expectedOutcomeRevision uint64) (updaterapi.Operation, bool, error) {
+func (f *fakeExecutor) Acknowledge(
+	ctx context.Context,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, bool, error) {
 	f.acknowledged = append(f.acknowledged, operationID)
+	f.acknowledgedStartedAt = append(f.acknowledgedStartedAt, expectedStartedAt)
 	f.acknowledgedRevisions = append(f.acknowledgedRevisions, expectedOutcomeRevision)
 	if f.acknowledgeFunc != nil {
-		return f.acknowledgeFunc(ctx, operationID, expectedOutcomeRevision)
+		return f.acknowledgeFunc(ctx, operationID, expectedStartedAt, expectedOutcomeRevision)
 	}
 	return f.acknowledge, f.acknowledgeAlready, f.acknowledgeErr
 }
@@ -1287,16 +1294,21 @@ func TestAcknowledgeUpgradeValidatesInputAndExecutorPresence(t *testing.T) {
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 	svc.executor = &fakeExecutor{}
 
-	_, err := svc.AcknowledgeUpgrade(context.Background(), 1, "", testOutcomeRevision)
+	_, err := svc.AcknowledgeUpgrade(context.Background(), 1, "", testOperationStartedAt, testOutcomeRevision)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 
-	_, err = svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, 0)
+	_, err = svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, time.Time{}, testOutcomeRevision)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "expected started at is required")
+
+	_, err = svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, testOperationStartedAt, 0)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 
 	svc.executor = nil
-	_, err = svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, testOutcomeRevision)
+	_, err = svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, testOperationStartedAt, testOutcomeRevision)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 }
@@ -1334,10 +1346,11 @@ func TestAcknowledgeUpgradeReturnsTheHostOperationAndAudits(t *testing.T) {
 		ExternalUserID: "user-1",
 		Username:       "test-operator",
 	}))
-	operation, err := svc.AcknowledgeUpgrade(ctx, 1, testOperationID, testOutcomeRevision)
+	operation, err := svc.AcknowledgeUpgrade(ctx, 1, testOperationID, testOperationStartedAt, testOutcomeRevision)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
 	assert.Equal(t, []string{testOperationID}, executor.acknowledged)
+	assert.Equal(t, []time.Time{testOperationStartedAt}, executor.acknowledgedStartedAt)
 	assert.Equal(t, []uint64{testOutcomeRevision}, executor.acknowledgedRevisions)
 	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
 	assert.Equal(t, testOperationID, recorded.Metadata["operation_id"])
@@ -1388,7 +1401,7 @@ func TestAcknowledgeUpgradeFailsClosedWithoutActiveAdmission(t *testing.T) {
 	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 	svc.executor = executor
 
-	_, err := svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, testOutcomeRevision)
+	_, err := svc.AcknowledgeUpgrade(context.Background(), 1, testOperationID, testOperationStartedAt, testOutcomeRevision)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing active-runtime admission")
 	assert.Empty(t, executor.acknowledged)
@@ -1425,11 +1438,18 @@ func TestAcknowledgeUpgradeAuditsIdempotentlyWhenAlreadyAcknowledged(t *testing.
 	svc.executor = executor
 
 	for range 2 {
-		operation, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, testOutcomeRevision)
+		operation, err := svc.AcknowledgeUpgrade(
+			admittedUpgradeContext(context.Background()),
+			1,
+			testOperationID,
+			testOperationStartedAt,
+			testOutcomeRevision,
+		)
 		require.NoError(t, err)
 		assert.True(t, operation.Acknowledged)
 	}
 	assert.Equal(t, []string{testOperationID, testOperationID}, executor.acknowledged)
+	assert.Equal(t, []time.Time{testOperationStartedAt, testOperationStartedAt}, executor.acknowledgedStartedAt)
 	assert.Equal(t, []uint64{testOutcomeRevision, testOutcomeRevision}, executor.acknowledgedRevisions)
 	expectedKey := upgradeAcknowledgementIdempotencyKey(1, executor.acknowledge)
 	assert.Equal(t, []string{
@@ -1456,7 +1476,12 @@ func TestAcknowledgeUpgradeRetriesAmbiguousResponseAndAudits(t *testing.T) {
 	svc.activitySvc = activity.NewService(activityStore)
 	executor := &fakeExecutor{}
 	acknowledgeCalls := 0
-	executor.acknowledgeFunc = func(_ context.Context, operationID string, expectedOutcomeRevision uint64) (updaterapi.Operation, bool, error) {
+	executor.acknowledgeFunc = func(
+		_ context.Context,
+		operationID string,
+		expectedStartedAt time.Time,
+		expectedOutcomeRevision uint64,
+	) (updaterapi.Operation, bool, error) {
 		acknowledgeCalls++
 		if acknowledgeCalls == 1 {
 			return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response lost after persist")}
@@ -1465,7 +1490,7 @@ func TestAcknowledgeUpgradeRetriesAmbiguousResponseAndAudits(t *testing.T) {
 			ID:              operationID,
 			TargetVersion:   "v1.1.0",
 			Phase:           updaterapi.PhaseFailed,
-			StartedAt:       testOperationStartedAt,
+			StartedAt:       expectedStartedAt,
 			OutcomeRevision: expectedOutcomeRevision,
 			Acknowledged:    true,
 		}, true, nil
@@ -1476,7 +1501,13 @@ func TestAcknowledgeUpgradeRetriesAmbiguousResponseAndAudits(t *testing.T) {
 	}
 	svc.executor = executor
 
-	operation, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, testOutcomeRevision)
+	operation, err := svc.AcknowledgeUpgrade(
+		admittedUpgradeContext(context.Background()),
+		1,
+		testOperationID,
+		testOperationStartedAt,
+		testOutcomeRevision,
+	)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
 	assert.Equal(t, 2, acknowledgeCalls)
@@ -1510,15 +1541,22 @@ func TestAcknowledgeUpgradeReconcilesPersistedAcknowledgementAndAudits(t *testin
 			Acknowledged:    true,
 		}},
 	}
-	executor.acknowledgeFunc = func(context.Context, string, uint64) (updaterapi.Operation, bool, error) {
+	executor.acknowledgeFunc = func(context.Context, string, time.Time, uint64) (updaterapi.Operation, bool, error) {
 		return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response remained ambiguous")}
 	}
 	svc.executor = executor
 
-	operation, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, testOutcomeRevision)
+	operation, err := svc.AcknowledgeUpgrade(
+		admittedUpgradeContext(context.Background()),
+		1,
+		testOperationID,
+		testOperationStartedAt,
+		testOutcomeRevision,
+	)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
 	assert.Equal(t, []string{testOperationID, testOperationID}, executor.acknowledged)
+	assert.Equal(t, []time.Time{testOperationStartedAt, testOperationStartedAt}, executor.acknowledgedStartedAt)
 	assert.Equal(t, []uint64{testOutcomeRevision, testOutcomeRevision}, executor.acknowledgedRevisions)
 	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
 	assert.Equal(t, upgradeAcknowledgementIdempotencyKey(1, operation), recorded.IdempotencyKey)
@@ -1533,11 +1571,12 @@ func TestAcknowledgeUpgradeDoesNotReconcileAStaleOutcomeRevision(t *testing.T) {
 			ID:              testOperationID,
 			TargetVersion:   "v1.1.0",
 			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       testOperationStartedAt,
 			OutcomeRevision: testOutcomeRevision + 1,
 			Acknowledged:    true,
 		}},
 	}
-	executor.acknowledgeFunc = func(context.Context, string, uint64) (updaterapi.Operation, bool, error) {
+	executor.acknowledgeFunc = func(context.Context, string, time.Time, uint64) (updaterapi.Operation, bool, error) {
 		return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response remained ambiguous")}
 	}
 	svc.executor = executor
@@ -1546,11 +1585,44 @@ func TestAcknowledgeUpgradeDoesNotReconcileAStaleOutcomeRevision(t *testing.T) {
 		admittedUpgradeContext(context.Background()),
 		1,
 		testOperationID,
+		testOperationStartedAt,
 		testOutcomeRevision,
 	)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
 	assert.Equal(t, []string{testOperationID, testOperationID}, executor.acknowledged)
+}
+
+func TestAcknowledgeUpgradeDoesNotReconcileHistoricallyReusedOperationID(t *testing.T) {
+	t.Parallel()
+
+	newerStartedAt := testOperationStartedAt.Add(time.Hour)
+	svc, _ := newTestService(t, "v1.0.0", &fakeSnapshots{}, newFakeChannelStore())
+	executor := &fakeExecutor{
+		status: updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+			ID:              testOperationID,
+			TargetVersion:   "v1.2.0",
+			Phase:           updaterapi.PhaseFailed,
+			StartedAt:       newerStartedAt,
+			OutcomeRevision: testOutcomeRevision,
+			Acknowledged:    true,
+		}},
+	}
+	executor.acknowledgeFunc = func(context.Context, string, time.Time, uint64) (updaterapi.Operation, bool, error) {
+		return updaterapi.Operation{}, false, &updaterapi.TransportError{Cause: errors.New("response remained ambiguous")}
+	}
+	svc.executor = executor
+
+	_, err := svc.AcknowledgeUpgrade(
+		admittedUpgradeContext(context.Background()),
+		1,
+		testOperationID,
+		testOperationStartedAt,
+		testOutcomeRevision,
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Equal(t, []time.Time{testOperationStartedAt, testOperationStartedAt}, executor.acknowledgedStartedAt)
 }
 
 func TestAcknowledgeUpgradeCompletesAndAuditsAfterCallerCancellation(t *testing.T) {
@@ -1578,20 +1650,25 @@ func TestAcknowledgeUpgradeCompletesAndAuditsAfterCallerCancellation(t *testing.
 	}))
 	requestCtx = admittedUpgradeContext(requestCtx)
 	executor := &fakeExecutor{}
-	executor.acknowledgeFunc = func(ackCtx context.Context, operationID string, expectedOutcomeRevision uint64) (updaterapi.Operation, bool, error) {
+	executor.acknowledgeFunc = func(
+		ackCtx context.Context,
+		operationID string,
+		expectedStartedAt time.Time,
+		expectedOutcomeRevision uint64,
+	) (updaterapi.Operation, bool, error) {
 		cancelRequest()
 		assert.NoError(t, ackCtx.Err(), "host mutation must outlive browser cancellation")
 		return updaterapi.Operation{
 			ID:              operationID,
 			Phase:           updaterapi.PhaseFailed,
-			StartedAt:       testOperationStartedAt,
+			StartedAt:       expectedStartedAt,
 			OutcomeRevision: expectedOutcomeRevision,
 			Acknowledged:    true,
 		}, false, nil
 	}
 	svc.executor = executor
 
-	operation, err := svc.AcknowledgeUpgrade(requestCtx, 1, testOperationID, testOutcomeRevision)
+	operation, err := svc.AcknowledgeUpgrade(requestCtx, 1, testOperationID, testOperationStartedAt, testOutcomeRevision)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
 	assert.Equal(t, "instance_upgrade_acknowledged", recorded.Type)
@@ -1660,7 +1737,13 @@ func TestAcknowledgeUpgradeMapsExecutorFailures(t *testing.T) {
 			svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
 			svc.executor = &fakeExecutor{acknowledgeErr: test.err}
 
-			_, err := svc.AcknowledgeUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, testOutcomeRevision)
+			_, err := svc.AcknowledgeUpgrade(
+				admittedUpgradeContext(context.Background()),
+				1,
+				testOperationID,
+				testOperationStartedAt,
+				testOutcomeRevision,
+			)
 			require.Error(t, err)
 			assert.True(t, test.check(err), "unexpected mapped error: %v", err)
 		})

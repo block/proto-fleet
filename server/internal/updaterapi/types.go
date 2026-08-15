@@ -58,8 +58,9 @@ type TriggerResponse struct {
 }
 
 type AcknowledgeRequest struct {
-	OperationID             string `json:"operation_id"`
-	ExpectedOutcomeRevision uint64 `json:"expected_outcome_revision"`
+	OperationID             string    `json:"operation_id"`
+	ExpectedStartedAt       time.Time `json:"expected_started_at"`
+	ExpectedOutcomeRevision uint64    `json:"expected_outcome_revision"`
 }
 
 type AcknowledgeResponse struct {

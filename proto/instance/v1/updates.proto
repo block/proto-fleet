@@ -99,8 +99,9 @@ message UpgradeOperation {
     // operation out of their upgrade UI.
     bool acknowledged = 11;
     // Monotonically increases whenever the updater creates or materially
-    // rewrites a terminal outcome. Acknowledgement uses this revision as a
-    // compare-and-set guard so a stale browser cannot dismiss a newer result.
+    // rewrites a terminal outcome. Acknowledgement combines this revision with
+    // id and started_at as a compare-and-set guard so a stale browser cannot
+    // dismiss a newer result.
     uint64 outcome_revision = 12;
 }
 
@@ -120,6 +121,10 @@ message AcknowledgeUpgradeRequest {
     // Exact terminal outcome revision the caller observed. The updater rejects
     // the mutation when the durable outcome has since changed.
     uint64 expected_outcome_revision = 2;
+    // Host-owned immutable start time of the operation the caller observed.
+    // Together with operation_id, this distinguishes a historical UUID reuse
+    // from an idempotent acknowledgement retry.
+    google.protobuf.Timestamp expected_started_at = 3;
 }
 
 message AcknowledgeUpgradeResponse {

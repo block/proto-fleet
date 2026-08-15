@@ -510,7 +510,7 @@ func TestHandleAcknowledge(t *testing.T) {
 		t.Parallel()
 		server := NewServer(newFailedOperationManager(t))
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_outcome_revision":1}`))
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":1}`))
 		server.handleAcknowledge(recorder, request)
 
 		require.Equal(t, http.StatusOK, recorder.Code)
@@ -523,7 +523,7 @@ func TestHandleAcknowledge(t *testing.T) {
 
 		// A retry reports the dismissal as already in place.
 		recorder = httptest.NewRecorder()
-		request = httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_outcome_revision":1}`))
+		request = httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":1}`))
 		server.handleAcknowledge(recorder, request)
 
 		require.Equal(t, http.StatusOK, recorder.Code)
@@ -536,7 +536,7 @@ func TestHandleAcknowledge(t *testing.T) {
 	t.Run("unknown operation maps to 404", func(t *testing.T) {
 		t.Parallel()
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"other","expected_outcome_revision":1}`))
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"other","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":1}`))
 		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
 
 		assert.Equal(t, http.StatusNotFound, recorder.Code)
@@ -552,7 +552,7 @@ func TestHandleAcknowledge(t *testing.T) {
 		manager.operation.Phase = updaterapi.PhaseActivating
 		manager.mu.Unlock()
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_outcome_revision":1}`))
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":1}`))
 		NewServer(manager).handleAcknowledge(recorder, request)
 
 		assert.Equal(t, http.StatusConflict, recorder.Code)
@@ -561,7 +561,7 @@ func TestHandleAcknowledge(t *testing.T) {
 	t.Run("stale outcome revision maps to 409", func(t *testing.T) {
 		t.Parallel()
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_outcome_revision":2}`))
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z","expected_outcome_revision":2}`))
 		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
 
 		assert.Equal(t, http.StatusConflict, recorder.Code)
@@ -571,11 +571,40 @@ func TestHandleAcknowledge(t *testing.T) {
 	t.Run("missing outcome revision maps to 400", func(t *testing.T) {
 		t.Parallel()
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation"}`))
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:00Z"}`))
 		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
 
 		assert.Equal(t, http.StatusBadRequest, recorder.Code)
 		assert.Contains(t, recorder.Body.String(), "expected_outcome_revision")
+	})
+
+	t.Run("missing operation start time maps to 400", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_outcome_revision":1}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "expected_started_at")
+	})
+
+	t.Run("invalid operation start time maps to 400", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"not-a-time","expected_outcome_revision":1}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	})
+
+	t.Run("stale operation incarnation maps to 409", func(t *testing.T) {
+		t.Parallel()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/acknowledge", strings.NewReader(`{"operation_id":"failed-operation","expected_started_at":"2026-08-05T08:00:01Z","expected_outcome_revision":1}`))
+		NewServer(newFailedOperationManager(t)).handleAcknowledge(recorder, request)
+
+		assert.Equal(t, http.StatusConflict, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "start time changed")
 	})
 
 	t.Run("malformed body maps to 400", func(t *testing.T) {

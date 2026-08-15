@@ -72,18 +72,20 @@ const (
 )
 
 var (
-	canonicalRelease               = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
-	staleStateArtifactName         = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
-	staleStagingArtifactName       = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
-	operationLogNamePattern        = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
-	errTriggerInvalid              = errors.New("invalid updater trigger")
-	errTriggerPrecondition         = errors.New("updater trigger precondition failed")
-	errTriggerBusy                 = errors.New("updater is busy")
-	errTriggerClosing              = errors.New("updater is shutting down")
-	errAcknowledgeUnknown          = errors.New("no matching updater operation")
-	errAcknowledgeActive           = errors.New("updater operation is not terminal")
-	errAcknowledgeRevisionRequired = errors.New("expected updater outcome revision is required")
-	errAcknowledgeRevisionMismatch = errors.New("updater outcome revision does not match")
+	canonicalRelease                = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
+	staleStateArtifactName          = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
+	staleStagingArtifactName        = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
+	operationLogNamePattern         = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
+	errTriggerInvalid               = errors.New("invalid updater trigger")
+	errTriggerPrecondition          = errors.New("updater trigger precondition failed")
+	errTriggerBusy                  = errors.New("updater is busy")
+	errTriggerClosing               = errors.New("updater is shutting down")
+	errAcknowledgeUnknown           = errors.New("no matching updater operation")
+	errAcknowledgeActive            = errors.New("updater operation is not terminal")
+	errAcknowledgeStartedAtRequired = errors.New("expected updater operation start time is required")
+	errAcknowledgeStartedAtMismatch = errors.New("updater operation start time does not match")
+	errAcknowledgeRevisionRequired  = errors.New("expected updater outcome revision is required")
+	errAcknowledgeRevisionMismatch  = errors.New("updater outcome revision does not match")
 )
 
 type classifiedTriggerError struct {
@@ -974,16 +976,27 @@ func (m *Manager) failureWasRemediated(operation updaterapi.Operation) bool {
 	return err == nil && proof.Mode().IsRegular() && proof.ModTime().After(*operation.CompletedAt)
 }
 
-// Acknowledge durably records that an operator dismissed the terminal outcome
-// of the given operation outcome. It is idempotent for the same operation and
-// outcome revision and fails when either identity is stale or the operation is
-// still running, so a stale dismissal can never suppress rewritten recovery
-// guidance. The boolean reports whether the dismissal was already in place,
-// letting callers retry after ambiguous transport results without
-// double-recording the action.
-func (m *Manager) Acknowledge(operationID string, expectedOutcomeRevision uint64) (updaterapi.Operation, bool, error) {
+// Acknowledge durably records that an operator dismissed a terminal operation
+// outcome. It is idempotent for the same operation incarnation and outcome
+// revision and fails when any identity is stale or the operation is still
+// running, so a stale dismissal can never suppress a later operation that
+// deliberately reuses the caller-supplied ID or rewritten recovery guidance.
+// The boolean reports whether the dismissal was already in place, letting
+// callers retry after ambiguous transport results without double-recording the
+// action.
+func (m *Manager) Acknowledge(
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if expectedStartedAt.IsZero() {
+		return updaterapi.Operation{}, false, newTriggerError(
+			errAcknowledgeStartedAtRequired,
+			"expected operation start time is required",
+		)
+	}
 	if expectedOutcomeRevision == 0 {
 		return updaterapi.Operation{}, false, newTriggerError(
 			errAcknowledgeRevisionRequired,
@@ -994,6 +1007,17 @@ func (m *Manager) Acknowledge(operationID string, expectedOutcomeRevision uint64
 		return updaterapi.Operation{}, false, newTriggerError(
 			errAcknowledgeUnknown,
 			fmt.Sprintf("operation %s is not the current updater operation", operationID),
+		)
+	}
+	if !m.operation.StartedAt.Equal(expectedStartedAt) {
+		return updaterapi.Operation{}, false, newTriggerError(
+			errAcknowledgeStartedAtMismatch,
+			fmt.Sprintf(
+				"operation %s start time changed from %s to %s",
+				operationID,
+				expectedStartedAt.UTC().Format(time.RFC3339Nano),
+				m.operation.StartedAt.UTC().Format(time.RFC3339Nano),
+			),
 		)
 	}
 	if !m.operation.Phase.Terminal() {
@@ -1176,6 +1200,12 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 		return updaterapi.Operation{}, fmt.Errorf("reserve updater operation log capacity: %w", err)
 	}
 	now := m.cfg.Now().UTC()
+	// StartedAt is part of the acknowledgement compare-and-set identity. Keep
+	// each freshly admitted incarnation strictly newer than the one retained in
+	// state even when the host clock is coarse, frozen, or moves backward.
+	if m.operation != nil && !now.After(m.operation.StartedAt) {
+		now = m.operation.StartedAt.Add(time.Nanosecond).UTC()
+	}
 	op := &updaterapi.Operation{
 		ID:            operationID,
 		TargetVersion: targetVersion,

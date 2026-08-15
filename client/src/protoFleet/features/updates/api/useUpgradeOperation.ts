@@ -14,6 +14,9 @@ const TRIGGER_RECONCILIATION_TIMEOUT_MS = 15_000;
 const PENDING_SUBMISSION_STORAGE_KEY = "proto-fleet-upgrade-pending-submission-v1";
 const OPERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MAX_TARGET_VERSION_LENGTH = 256;
+const MIN_PROTOBUF_TIMESTAMP_SECONDS = -62_135_596_800n;
+const MAX_PROTOBUF_TIMESTAMP_SECONDS = 253_402_300_799n;
+const MAX_PROTOBUF_TIMESTAMP_NANOS = 999_999_999;
 
 const createOperationID = () => {
   // getRandomValues is available in the plain-HTTP deployments Fleet supports,
@@ -161,6 +164,25 @@ export const isUpgradeTerminal = (phase: UpgradePhase) =>
 
 export const isUpgradeActive = (operation?: UpgradeOperation) =>
   Boolean(operation && !isUpgradeTerminal(operation.phase));
+
+const isValidOperationStartedAt = (
+  startedAt: UpgradeOperation["startedAt"],
+): startedAt is NonNullable<UpgradeOperation["startedAt"]> =>
+  Boolean(
+    startedAt &&
+    typeof startedAt.seconds === "bigint" &&
+    startedAt.seconds >= MIN_PROTOBUF_TIMESTAMP_SECONDS &&
+    startedAt.seconds <= MAX_PROTOBUF_TIMESTAMP_SECONDS &&
+    Number.isInteger(startedAt.nanos) &&
+    startedAt.nanos >= 0 &&
+    startedAt.nanos <= MAX_PROTOBUF_TIMESTAMP_NANOS &&
+    (startedAt.seconds !== MIN_PROTOBUF_TIMESTAMP_SECONDS || startedAt.nanos !== 0),
+  );
+
+const operationStartedAtMatches = (
+  actual: UpgradeOperation["startedAt"],
+  expected: NonNullable<UpgradeOperation["startedAt"]>,
+) => Boolean(actual && actual.seconds === expected.seconds && actual.nanos === expected.nanos);
 
 export function useUpgradeOperation({
   authSessionIdentity,
@@ -553,6 +575,10 @@ export function useUpgradeOperation({
     if (!terminalOperation?.id || !isUpgradeTerminal(terminalOperation.phase)) {
       return;
     }
+    const expectedStartedAt = terminalOperation.startedAt;
+    if (!isValidOperationStartedAt(expectedStartedAt)) {
+      throw new Error("Host did not provide a valid start time for this upgrade outcome");
+    }
 
     const initiatingAuthSessionIdentity = authSessionIdentityRef.current;
     const mutationGeneration = ++mutationGenerationRef.current;
@@ -563,7 +589,7 @@ export function useUpgradeOperation({
     const expectedOutcomeRevision = terminalOperation.outcomeRevision;
     try {
       const response = await instanceUpdateClient.acknowledgeUpgrade(
-        { operationId: terminalOperation.id, expectedOutcomeRevision },
+        { operationId: terminalOperation.id, expectedOutcomeRevision, expectedStartedAt },
         { timeoutMs: ACKNOWLEDGE_REQUEST_TIMEOUT_MS },
       );
       if (!isCurrentMutation()) {
@@ -573,6 +599,7 @@ export function useUpgradeOperation({
       if (
         !acknowledged ||
         acknowledged.id !== terminalOperation.id ||
+        !operationStartedAtMatches(acknowledged.startedAt, expectedStartedAt) ||
         acknowledged.outcomeRevision !== expectedOutcomeRevision ||
         !acknowledged.acknowledged ||
         !isUpgradeTerminal(acknowledged.phase)
@@ -581,7 +608,11 @@ export function useUpgradeOperation({
       }
 
       const current = operationRef.current;
-      if (current?.id === terminalOperation.id && current.outcomeRevision === expectedOutcomeRevision) {
+      if (
+        current?.id === terminalOperation.id &&
+        operationStartedAtMatches(current.startedAt, expectedStartedAt) &&
+        current.outcomeRevision === expectedOutcomeRevision
+      ) {
         updateOperation(undefined);
       }
     } finally {

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
@@ -27,6 +28,8 @@ const mockGetUpgradeStatus = vi.mocked(instanceUpdateClient.getUpgradeStatus);
 const mockTriggerUpgrade = vi.mocked(instanceUpdateClient.triggerUpgrade);
 const AUTH_SESSION_IDENTITY = "operator-a:1";
 const OPERATION_ID = "00000000-0000-4000-8000-000000000001";
+const OPERATION_STARTED_AT = create(TimestampSchema, { nanos: 123_456_789, seconds: 1_700_000_000n });
+const DIFFERENT_OPERATION_STARTED_AT = create(TimestampSchema, { nanos: 123_456_790, seconds: 1_700_000_000n });
 
 type TestUpgradeOperationOptions = Omit<Parameters<typeof useUpgradeOperation>[0], "authSessionIdentity">;
 
@@ -42,6 +45,7 @@ const operation = (phase: UpgradePhase, overrides?: MessageOverrides<UpgradeOper
     phase,
     message: "Preparing upgrade",
     outcomeRevision: 1n,
+    startedAt: OPERATION_STARTED_AT,
     ...overrides,
   });
 
@@ -670,7 +674,11 @@ describe("useUpgradeOperation", () => {
     await act(async () => result.current.acknowledgeOperation());
 
     expect(mockAcknowledgeUpgrade).toHaveBeenCalledWith(
-      { operationId: OPERATION_ID, expectedOutcomeRevision: 7n },
+      {
+        operationId: OPERATION_ID,
+        expectedOutcomeRevision: 7n,
+        expectedStartedAt: OPERATION_STARTED_AT,
+      },
       { timeoutMs: 25_000 },
     );
     expect(result.current.operation).toBeUndefined();
@@ -689,6 +697,45 @@ describe("useUpgradeOperation", () => {
     expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED);
   });
 
+  it.each([
+    ["missing", undefined],
+    ["zero", create(TimestampSchema, { seconds: -62_135_596_800n })],
+    ["invalid", create(TimestampSchema, { nanos: 1_000_000_000, seconds: 1_700_000_000n })],
+  ])("keeps the outcome visible and does not acknowledge when startedAt is %s", async (_label, startedAt) => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED, { startedAt })));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true }));
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+
+    let acknowledgeError: unknown;
+    await act(async () => result.current.acknowledgeOperation().catch((error: unknown) => (acknowledgeError = error)));
+
+    expect(acknowledgeError).toEqual(
+      expect.objectContaining({ message: "Host did not provide a valid start time for this upgrade outcome" }),
+    );
+    expect(mockAcknowledgeUpgrade).not.toHaveBeenCalled();
+    expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED);
+  });
+
+  it("keeps the outcome visible when acknowledgement returns a different operation incarnation", async () => {
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
+    mockAcknowledgeUpgrade.mockResolvedValue(
+      create(AcknowledgeUpgradeResponseSchema, {
+        operation: operation(UpgradePhase.FAILED, {
+          acknowledged: true,
+          startedAt: DIFFERENT_OPERATION_STARTED_AT,
+        }),
+      }),
+    );
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true }));
+    await waitFor(() => expect(result.current.operation?.phase).toBe(UpgradePhase.FAILED));
+
+    let acknowledgeError: unknown;
+    await act(async () => result.current.acknowledgeOperation().catch((error: unknown) => (acknowledgeError = error)));
+
+    expect(acknowledgeError).toBeInstanceOf(Error);
+    expect(result.current.operation?.startedAt).toEqual(OPERATION_STARTED_AT);
+  });
+
   it("keeps the newer outcome visible if the acknowledgement response does not match its revision", async () => {
     mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.FAILED)));
     mockAcknowledgeUpgrade.mockResolvedValue(
@@ -704,6 +751,41 @@ describe("useUpgradeOperation", () => {
 
     expect(acknowledgeError).toBeInstanceOf(Error);
     expect(result.current.operation?.outcomeRevision).toBe(1n);
+  });
+
+  it("keeps a reused-ID incarnation visible when an older acknowledgement completes", async () => {
+    vi.useFakeTimers();
+    const firstIncarnation = operation(UpgradePhase.FAILED, { message: "First incarnation" });
+    const reusedIncarnation = operation(UpgradePhase.FAILED, {
+      message: "Reused ID incarnation",
+      startedAt: DIFFERENT_OPERATION_STARTED_AT,
+    });
+    const firstAcknowledgementResponse = create(AcknowledgeUpgradeResponseSchema, {
+      operation: operation(UpgradePhase.FAILED, { acknowledged: true, message: "First incarnation" }),
+    });
+    const acknowledgement = deferred<typeof firstAcknowledgementResponse>();
+    mockGetUpgradeStatus
+      .mockResolvedValueOnce(status(true, firstIncarnation))
+      .mockResolvedValue(status(true, reusedIncarnation));
+    mockAcknowledgeUpgrade.mockReturnValue(acknowledgement.promise);
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true }));
+    await act(async () => Promise.resolve());
+    expect(result.current.operation?.message).toBe("First incarnation");
+
+    let oldAcknowledgement!: Promise<void>;
+    act(() => {
+      oldAcknowledgement = result.current.acknowledgeOperation();
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(result.current.operation?.message).toBe("Reused ID incarnation");
+
+    await act(async () => {
+      acknowledgement.resolve(firstAcknowledgementResponse);
+      await oldAcknowledgement;
+    });
+
+    expect(result.current.operation?.message).toBe("Reused ID incarnation");
+    expect(result.current.operation?.startedAt).toEqual(DIFFERENT_OPERATION_STARTED_AT);
   });
 
   it("ignores an acknowledgement completion from a replaced auth session", async () => {

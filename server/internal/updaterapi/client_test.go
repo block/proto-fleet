@@ -7,10 +7,13 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var acknowledgeStartedAt = time.Date(2026, 8, 15, 8, 30, 0, 123_000_000, time.UTC)
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -26,6 +29,7 @@ func acknowledgeTestClient(t *testing.T, response Operation) *Client {
 		var body AcknowledgeRequest
 		require.NoError(t, json.NewDecoder(request.Body).Decode(&body))
 		assert.Equal(t, "11111111-1111-4111-8111-111111111111", body.OperationID)
+		assert.True(t, body.ExpectedStartedAt.Equal(acknowledgeStartedAt))
 		assert.Equal(t, uint64(7), body.ExpectedOutcomeRevision)
 
 		encoded, err := json.Marshal(AcknowledgeResponse{
@@ -43,7 +47,7 @@ func acknowledgeTestClient(t *testing.T, response Operation) *Client {
 	return NewClientWithHTTP(&http.Client{Transport: transport})
 }
 
-func TestClientAcknowledgeCarriesAndValidatesOutcomeRevision(t *testing.T) {
+func TestClientAcknowledgeCarriesAndValidatesOutcomeIdentity(t *testing.T) {
 	t.Parallel()
 
 	const operationID = "11111111-1111-4111-8111-111111111111"
@@ -52,11 +56,17 @@ func TestClientAcknowledgeCarriesAndValidatesOutcomeRevision(t *testing.T) {
 		client := acknowledgeTestClient(t, Operation{
 			ID:              operationID,
 			Phase:           PhaseFailed,
+			StartedAt:       acknowledgeStartedAt,
 			OutcomeRevision: 7,
 			Acknowledged:    true,
 		})
 
-		operation, alreadyAcknowledged, err := client.Acknowledge(context.Background(), operationID, 7)
+		operation, alreadyAcknowledged, err := client.Acknowledge(
+			context.Background(),
+			operationID,
+			acknowledgeStartedAt,
+			7,
+		)
 		require.NoError(t, err)
 		assert.True(t, alreadyAcknowledged)
 		assert.Equal(t, uint64(7), operation.OutcomeRevision)
@@ -67,11 +77,27 @@ func TestClientAcknowledgeCarriesAndValidatesOutcomeRevision(t *testing.T) {
 		client := acknowledgeTestClient(t, Operation{
 			ID:              operationID,
 			Phase:           PhaseFailed,
+			StartedAt:       acknowledgeStartedAt,
 			OutcomeRevision: 8,
 			Acknowledged:    true,
 		})
 
-		_, _, err := client.Acknowledge(context.Background(), operationID, 7)
+		_, _, err := client.Acknowledge(context.Background(), operationID, acknowledgeStartedAt, 7)
+		var protocolErr *ProtocolError
+		require.ErrorAs(t, err, &protocolErr)
+	})
+
+	t.Run("mismatched operation incarnation", func(t *testing.T) {
+		t.Parallel()
+		client := acknowledgeTestClient(t, Operation{
+			ID:              operationID,
+			Phase:           PhaseFailed,
+			StartedAt:       acknowledgeStartedAt.Add(time.Second),
+			OutcomeRevision: 7,
+			Acknowledged:    true,
+		})
+
+		_, _, err := client.Acknowledge(context.Background(), operationID, acknowledgeStartedAt, 7)
 		var protocolErr *ProtocolError
 		require.ErrorAs(t, err, &protocolErr)
 	})

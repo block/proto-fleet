@@ -678,6 +678,54 @@ func TestManagerTriggerWithIDDeduplicatesConcurrentAdmission(t *testing.T) {
 	assert.Len(t, runner.Commands(), 2, "concurrent same-ID admission must launch exactly one upgrade worker")
 }
 
+func TestManagerTriggerWithIDAssignsUniqueIncarnationWhenHistoricalIDIsReused(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	bundle := releaseBundle(t, "v1.1.0")
+	server := releaseServer(t, "v1.1.0", "amd64", bundle, strings.Repeat("0", sha256.Size*2))
+	frozenNow := time.Date(2026, 8, 15, 9, 30, 0, 0, time.UTC)
+	manager := newTestManagerWithConfig(t, installRoot, server, &recordingRunner{}, func(cfg *Config) {
+		cfg.Now = func() time.Time { return frozenNow }
+	})
+
+	const (
+		operationA = "11111111-1111-4111-8111-111111111111"
+		operationB = "22222222-2222-4222-8222-222222222222"
+	)
+	triggerAndWait := func(operationID string) updaterapi.Operation {
+		t.Helper()
+		_, err := manager.TriggerWithID("v1.1.0", operationID)
+		require.NoError(t, err)
+		completed := waitForTerminal(t, manager)
+		manager.operationWG.Wait()
+		require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+		return completed
+	}
+
+	firstA := triggerAndWait(operationA)
+	replayedA, err := manager.TriggerWithID("v1.1.0", operationA)
+	require.NoError(t, err)
+	assert.Equal(t, firstA.StartedAt, replayedA.StartedAt, "exact same-ID replay keeps its incarnation")
+	assert.Equal(t, firstA.OutcomeRevision, replayedA.OutcomeRevision)
+
+	operationBetween := triggerAndWait(operationB)
+	reusedA := triggerAndWait(operationA)
+
+	assert.Equal(t, frozenNow, firstA.StartedAt)
+	assert.Equal(t, frozenNow.Add(time.Nanosecond), operationBetween.StartedAt)
+	assert.Equal(t, frozenNow.Add(2*time.Nanosecond), reusedA.StartedAt)
+	assert.Equal(t, firstA.OutcomeRevision, reusedA.OutcomeRevision, "the regression requires equal outcome revisions")
+	assert.NotZero(t, reusedA.OutcomeRevision)
+
+	_, _, err = manager.Acknowledge(operationA, firstA.StartedAt, firstA.OutcomeRevision)
+	require.ErrorIs(t, err, errAcknowledgeStartedAtMismatch)
+	status := manager.Status().Operation
+	require.NotNil(t, status)
+	assert.False(t, status.Acknowledged)
+}
+
 func TestManagerTriggerRevalidatesInstalledVersionDuringSerializedAdmission(t *testing.T) {
 	t.Parallel()
 
@@ -3711,7 +3759,11 @@ func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	operation, alreadyAcknowledged, err := manager.Acknowledge(persisted.ID, persisted.OutcomeRevision)
+	operation, alreadyAcknowledged, err := manager.Acknowledge(
+		persisted.ID,
+		persisted.StartedAt,
+		persisted.OutcomeRevision,
+	)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
 	assert.False(t, alreadyAcknowledged, "first call records the dismissal")
@@ -3724,7 +3776,11 @@ func TestManagerAcknowledgeRecordsAndPersistsTerminalDismissal(t *testing.T) {
 	assert.True(t, status.Acknowledged)
 
 	// Idempotent for the same operation.
-	operation, alreadyAcknowledged, err = manager.Acknowledge(persisted.ID, persisted.OutcomeRevision)
+	operation, alreadyAcknowledged, err = manager.Acknowledge(
+		persisted.ID,
+		persisted.StartedAt,
+		persisted.OutcomeRevision,
+	)
 	require.NoError(t, err)
 	assert.True(t, operation.Acknowledged)
 	assert.True(t, alreadyAcknowledged, "retry finds the dismissal in place")
@@ -3908,22 +3964,33 @@ func TestManagerAcknowledgeRejectsUnknownActiveAndStaleOutcomes(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
 
-	_, _, err = manager.Acknowledge("some-other-operation", persisted.OutcomeRevision)
+	_, _, err = manager.Acknowledge("some-other-operation", persisted.StartedAt, persisted.OutcomeRevision)
 	require.ErrorIs(t, err, errAcknowledgeUnknown)
 
-	_, _, err = manager.Acknowledge(persisted.ID, 0)
+	_, _, err = manager.Acknowledge(persisted.ID, time.Time{}, persisted.OutcomeRevision)
+	require.ErrorIs(t, err, errAcknowledgeStartedAtRequired)
+
+	_, _, err = manager.Acknowledge(persisted.ID, persisted.StartedAt, 0)
 	require.ErrorIs(t, err, errAcknowledgeRevisionRequired)
+
+	_, _, err = manager.Acknowledge(persisted.ID, persisted.StartedAt.Add(time.Second), persisted.OutcomeRevision)
+	require.ErrorIs(t, err, errAcknowledgeStartedAtMismatch)
 
 	manager.mu.Lock()
 	manager.operation.OutcomeRevision++
 	manager.mu.Unlock()
-	_, _, err = manager.Acknowledge(persisted.ID, persisted.OutcomeRevision)
+	_, _, err = manager.Acknowledge(persisted.ID, persisted.StartedAt, persisted.OutcomeRevision)
 	require.ErrorIs(t, err, errAcknowledgeRevisionMismatch)
 
 	manager.mu.Lock()
-	manager.operation = &updaterapi.Operation{ID: persisted.ID, TargetVersion: "v1.1.0", Phase: updaterapi.PhasePreflight}
+	manager.operation = &updaterapi.Operation{
+		ID:            persisted.ID,
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhasePreflight,
+		StartedAt:     persisted.StartedAt,
+	}
 	manager.mu.Unlock()
-	_, _, err = manager.Acknowledge(persisted.ID, persisted.OutcomeRevision)
+	_, _, err = manager.Acknowledge(persisted.ID, persisted.StartedAt, persisted.OutcomeRevision)
 	require.ErrorIs(t, err, errAcknowledgeActive)
 
 	status := manager.Status().Operation

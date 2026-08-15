@@ -5,6 +5,7 @@ package updates
 import (
 	"context"
 	"errors"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -101,13 +102,37 @@ func (h *Handler) AcknowledgeUpgrade(ctx context.Context, req *connect.Request[i
 	if err != nil {
 		return nil, err
 	}
-	operation, err := h.svc.AcknowledgeUpgrade(ctx, orgID, req.Msg.GetOperationId(), req.Msg.GetExpectedOutcomeRevision())
+	expectedStartedAt, err := protoToExpectedStartedAt(req.Msg.GetExpectedStartedAt())
+	if err != nil {
+		return nil, err
+	}
+	operation, err := h.svc.AcknowledgeUpgrade(
+		ctx,
+		orgID,
+		req.Msg.GetOperationId(),
+		expectedStartedAt,
+		req.Msg.GetExpectedOutcomeRevision(),
+	)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	return connect.NewResponse(&instancev1.AcknowledgeUpgradeResponse{
 		Operation: operationToProto(operation),
 	}), nil
+}
+
+func protoToExpectedStartedAt(value *timestamppb.Timestamp) (time.Time, error) {
+	if value == nil {
+		return time.Time{}, fleeterror.NewInvalidArgumentError("expected started at is required")
+	}
+	if err := value.CheckValid(); err != nil {
+		return time.Time{}, fleeterror.NewInvalidArgumentError("expected started at must be a valid timestamp")
+	}
+	startedAt := value.AsTime()
+	if startedAt.IsZero() {
+		return time.Time{}, fleeterror.NewInvalidArgumentError("expected started at is required")
+	}
+	return startedAt, nil
 }
 
 func (h *Handler) GetUpgradeStatus(ctx context.Context, _ *connect.Request[instancev1.GetUpgradeStatusRequest]) (*connect.Response[instancev1.GetUpgradeStatusResponse], error) {

@@ -36,8 +36,8 @@ state formats are disposable and do not receive compatibility shims.
 
 - One immutable operation id identifies a trigger from the browser through
   Fleet to the host updater.
-- One explicit outcome revision identifies the exact terminal result an
-  operator observed and acknowledged.
+- One host-owned operation incarnation plus explicit outcome revision
+  identifies the exact terminal result an operator observed and acknowledged.
 - The host is the only authority for whether an operation is active, visible,
   remediated, or acknowledged.
 - Fleet retains authorization, release-eligibility validation, HA lifetime
@@ -87,10 +87,14 @@ host increments it when it first creates a terminal outcome and whenever
 startup or recovery materially rewrites that outcome. Acknowledgement does not
 increment it.
 
-`AcknowledgeUpgradeRequest` carries both the operation id and expected outcome
-revision. The host accepts only an exact current terminal revision. Retrying an
-already-recorded acknowledgement for that revision is idempotent; a stale
-revision fails without changing state.
+`AcknowledgeUpgradeRequest` carries the operation id, the host-owned immutable
+start time observed for that operation, and the expected outcome revision. The
+host accepts only an exact current operation incarnation and terminal revision.
+Retrying an already-recorded acknowledgement for that incarnation and revision
+is idempotent; a stale incarnation or revision fails without changing state.
+Fresh admissions assign a start time strictly later than the retained prior
+operation, so a coarse, frozen, or backward host clock cannot collapse two
+incarnations onto the same compare-and-set identity.
 
 Audit idempotency is keyed by organization and the host-generated operation
 incarnation (operation id plus immutable start time). Acknowledgement audit
@@ -143,6 +147,11 @@ The refactor must preserve these existing guarantees:
   session.
 - A rewritten terminal outcome advances its revision and rejects an old tab's
   acknowledgement.
+- Historical reuse of an operation id rejects an acknowledgement carrying the
+  earlier operation's immutable start time, even when both outcomes have the
+  same revision.
+- A constant or backward host clock still produces distinct operation
+  incarnations and audit identities.
 - Acknowledgement retries produce one audit for the exact revision.
 - Historical UUID reuse produces a new trigger and acknowledgement audit for
   the new host-generated operation incarnation.
