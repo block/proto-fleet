@@ -375,18 +375,35 @@ export type FirmwareUpdateStatus =
   | "downloaded"
   | "installing"
   | "confirming"
+  | "rebootRequired"
   | "complete"
   | "failed";
+
+export interface FirmwareUpdateInfo {
+  status: FirmwareUpdateStatus;
+  currentVersion?: string;
+  newVersion?: string;
+  progressPercent?: number;
+  message?: string;
+  releaseNotes?: string;
+}
 
 export interface SystemInfoData {
   identity: DeviceIdentity;
   moduleProfile: ModuleProfile;
   operatingSystem?: FirmwareInfo;
+  operatingSystemStatus?: {
+    cpuLoadPercent?: number;
+    memoryFreeKb?: number;
+    memoryTotalKb?: number;
+    rootFilesystemFreeMb?: number;
+    rootFilesystemTotalMb?: number;
+  };
   controlBoardSoftware?: FirmwareInfo;
   webServer?: { health: ServiceHealth; software?: FirmwareInfo };
   miningDriver?: { health: ServiceHealth; software?: FirmwareInfo };
   poolInterface?: { health: ServiceHealth; software?: FirmwareInfo };
-  firmwareUpdate?: { status: FirmwareUpdateStatus; version?: string; progressPercent?: number; message?: string };
+  firmwareUpdate?: FirmwareUpdateInfo;
   uptimeSeconds?: number;
 }
 

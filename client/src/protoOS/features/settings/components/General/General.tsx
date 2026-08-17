@@ -96,8 +96,10 @@ const General = () => {
       <div className="mb-10 flex h-68 w-full items-center justify-center rounded-2xl bg-core-primary-5">
         {isProtoRig ? (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-            <Picture image={ProtoRigImage} alt={systemInfo?.product_name} />
-            <div className="mt-2 text-center text-heading-100 text-text-primary-50">{systemInfo?.product_name}</div>
+            <Picture image={ProtoRigImage} alt={systemInfo?.identity.productName} />
+            <div className="mt-2 text-center text-heading-100 text-text-primary-50">
+              {systemInfo?.identity.productName}
+            </div>
           </motion.div>
         ) : null}
       </div>
@@ -116,7 +118,7 @@ const General = () => {
         </div>
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Model</h4>
-          <div className="text-300">{systemInfo?.product_name || <SkeletonBar className="w-20" />}</div>
+          <div className="text-300">{systemInfo?.identity.productName || <SkeletonBar className="w-20" />}</div>
         </Row>
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Miner ID</h4>
@@ -141,7 +143,7 @@ const General = () => {
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Version</h4>
           <div className="text-300" data-testid="firmware-version-value">
-            {systemInfo?.os?.version || <SkeletonBar className="w-20" />}
+            {systemInfo?.operatingSystem?.version || <SkeletonBar className="w-20" />}
           </div>
         </Row>
         <div className="mt-6 flex justify-center">

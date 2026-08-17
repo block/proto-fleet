@@ -20,6 +20,7 @@ import HashboardStatusCard from "../HashboardStatusCard/HashboardStatusCard";
 import HashboardTemperature from "./HashboardTemperature";
 import { CONTAINER_HASHBOARD_COLUMNS, CONTAINER_HASHBOARD_ROWS } from "@/protoOS/store";
 import useMinerStore from "@/protoOS/store/useMinerStore";
+import { asDeviceId } from "@/protoOS/store/contract";
 
 const N = CONTAINER_HASHBOARD_COLUMNS; // 26
 const ROWS = CONTAINER_HASHBOARD_ROWS; // 12
@@ -51,10 +52,17 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
     // Module identity. `model` drives the layout descriptor, so seeding it is
     // what puts these stories on the container path.
     store.systemInfo.setSystemInfo({
-      manufacturer: "Proto",
-      model: "CU1",
-      product_name: "Proto CU1",
-      cb_sn: "CU1-CB-0001",
+      identity: {
+        deviceId: asDeviceId("device:CU1-CB-0001"),
+        deviceType: "container",
+        mdkDialect: "v1",
+        manufacturer: "Proto",
+        model: "CU1",
+        productName: "Proto CU1",
+        serialNumber: "CU1-CB-0001",
+        macAddresses: [],
+      },
+      moduleProfile: "ct1",
     });
 
     BOARDS.forEach(({ serial, slot, profile }) => {

@@ -27,7 +27,7 @@ function ControlBoardStatusCard({ title, latency, cpuCapacity, hasWarning }: Con
 
   // Compute display values
   const name = title ?? "Control Board";
-  const cpuLoad = cpuCapacity ?? systemInfo?.os?.status?.cpu_load_percent ?? 0;
+  const cpuLoad = cpuCapacity ?? systemInfo?.operatingSystemStatus?.cpuLoadPercent ?? 0;
   const showLatency = latency !== undefined;
 
   // Check for errors

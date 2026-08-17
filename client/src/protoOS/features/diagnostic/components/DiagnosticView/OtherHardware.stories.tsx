@@ -17,6 +17,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { type ControllerConfig, OtherHardwareSection } from "./DiagnosticView";
 import useMinerStore from "@/protoOS/store/useMinerStore";
+import { asDeviceId } from "@/protoOS/store/contract";
 
 // One PSU per container module (design shows a single "Other hardware" PSU).
 const PSU_SLOT = 1;
@@ -27,10 +28,17 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
 
     // Mark this device as a container module (model "CU1" -> useDeviceType).
     store.systemInfo.setSystemInfo({
-      manufacturer: "Proto",
-      model: "CU1",
-      product_name: "Proto CU1",
-      cb_sn: "CU1-CB-0001",
+      identity: {
+        deviceId: asDeviceId("device:CU1-CB-0001"),
+        deviceType: "container",
+        mdkDialect: "v1",
+        manufacturer: "Proto",
+        model: "CU1",
+        productName: "Proto CU1",
+        serialNumber: "CU1-CB-0001",
+        macAddresses: [],
+      },
+      moduleProfile: "ct1",
     });
 
     // PSU hardware + telemetry (mirrors PsuStatusCard.stories seeding).

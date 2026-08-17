@@ -1,13 +1,13 @@
 import React from "react";
 
-import { UpdateStatus } from "@/protoOS/api/generatedApi";
+import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 import { SettingsSolid, Stop, Success } from "@/shared/assets/icons";
 import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 interface FirmwareUpdateStatusModalProps {
-  updateStatus?: UpdateStatus;
+  updateStatus?: FirmwareUpdateInfo;
   onReboot?: () => void;
   onUpdate?: () => void;
   onDismiss?: () => void;
@@ -112,7 +112,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       },
     ],
   },
-  installed: {
+  rebootRequired: {
     title: "Update installed",
     icon: <Success className="text-intent-success-fill" />,
     statusIndicator: "installed",
@@ -148,7 +148,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       },
     ],
   },
-  success: {
+  complete: {
     title: "Update completed successfully",
     icon: <Success className="text-intent-success-fill" />,
     statusIndicator: "success",
@@ -160,7 +160,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       },
     ],
   },
-  error: {
+  failed: {
     title: "Update error",
     icon: <Stop className="text-text-critical" />,
     statusIndicator: "error",
@@ -198,7 +198,7 @@ const FirmwareUpdateStatusModal = ({
   const getStatusConfig = (): StatusConfig => {
     let status: string = updateStatus?.status || "unknown";
 
-    if (rebootPending && status === "installed") {
+    if (rebootPending && status === "rebootRequired") {
       status = "rebooting";
     }
 
@@ -224,19 +224,19 @@ const FirmwareUpdateStatusModal = ({
       {updateStatus ? (
         <div className="space-y-2 text-sm">
           <div>{statusConfig.message ?? updateStatus.message}</div>
-          {updateStatus.current_version ? (
+          {updateStatus.currentVersion ? (
             <div>
-              <span className="font-medium">Current Version:</span> {updateStatus.current_version}
+              <span className="font-medium">Current Version:</span> {updateStatus.currentVersion}
             </div>
           ) : null}
-          {updateStatus.new_version ? (
+          {updateStatus.newVersion ? (
             <div>
-              <span className="font-medium">New Version:</span> {updateStatus.new_version}
+              <span className="font-medium">New Version:</span> {updateStatus.newVersion}
             </div>
           ) : null}
-          {updateStatus.progress !== undefined ? (
+          {updateStatus.progressPercent !== undefined ? (
             <div>
-              <span className="font-medium">Progress:</span> {updateStatus.progress}%
+              <span className="font-medium">Progress:</span> {updateStatus.progressPercent}%
             </div>
           ) : null}
         </div>

@@ -1,6 +1,11 @@
 import type {
+  ErrorListResponse,
   HardwareInfoHardwareinfo,
   MetricUnit as V1MetricUnit,
+  MiningStatusMiningstatus,
+  MiningTargetResponse,
+  NetworkInfoNetworkinfo,
+  Pool,
   SystemInfoSysteminfo,
   TelemetryData,
   TimeSeriesMetricData,
@@ -14,6 +19,7 @@ import {
   asDeviceId,
   asEntityKey,
   asHashboardId,
+  asPoolId,
   asResourceKey,
   type AsicTelemetry,
   type AsicHardware,
@@ -34,6 +40,11 @@ import {
   type MetricUnit,
   type ModuleNode,
   type ModuleProfile,
+  type MinerError,
+  type MiningTargetInfo,
+  type NetworkInfoState,
+  type OperationalStatus,
+  type PoolInfo,
   type PsuTelemetry,
   type PsuHardware,
   type SystemInfoData,
@@ -147,6 +158,15 @@ export const normalizeV1SystemInfo = (wire: SystemInfoSysteminfo): SystemInfoDat
     },
     moduleProfile,
     operatingSystem: firmware(wire.os),
+    operatingSystemStatus: wire.os?.status
+      ? {
+          cpuLoadPercent: wire.os.status.cpu_load_percent,
+          memoryFreeKb: wire.os.status.mem_free_kb,
+          memoryTotalKb: wire.os.status.mem_total_kb,
+          rootFilesystemFreeMb: wire.os.status.rootfs_free_mb,
+          rootFilesystemTotalMb: wire.os.status.rootfs_total_mb,
+        }
+      : undefined,
     webServer: { health: serviceHealth(wire.web_server?.name), software: firmware(wire.web_server) },
     miningDriver: { health: serviceHealth(wire.mining_driver_sw?.name), software: firmware(wire.mining_driver_sw) },
     poolInterface: { health: serviceHealth(wire.pool_interface_sw?.name), software: firmware(wire.pool_interface_sw) },
@@ -155,17 +175,108 @@ export const normalizeV1SystemInfo = (wire: SystemInfoSysteminfo): SystemInfoDat
           status:
             update.status === "error"
               ? "failed"
-              : update.status === "installed" || update.status === "success"
-                ? "complete"
-                : (update.status ?? "unknown"),
-          version: update.new_version,
+              : update.status === "installed"
+                ? "rebootRequired"
+                : update.status === "success"
+                  ? "complete"
+                  : (update.status ?? "unknown"),
+          currentVersion: update.current_version,
+          newVersion: update.new_version,
           progressPercent: update.progress,
           message: update.message ?? update.error,
+          releaseNotes: update.release_notes,
         }
       : undefined,
     uptimeSeconds: wire.uptime_seconds,
   };
 };
+
+export const normalizeV1NetworkInfo = (wire: NetworkInfoNetworkinfo): Pick<NetworkInfoState, "interfaces"> => ({
+  interfaces: new Map([
+    [
+      "primary",
+      {
+        id: "primary",
+        hostname: wire.hostname,
+        ipAddress: wire.ip,
+        macAddress: wire.mac,
+        gateway: wire.gateway,
+        netmask: wire.netmask,
+        dhcp: wire.dhcp,
+        isPrimary: true,
+      },
+    ],
+  ]),
+});
+
+export const normalizeV1MiningStatus = (wire: MiningStatusMiningstatus): OperationalStatus => ({
+  status: wire.status,
+  miningUptime: wire.mining_uptime_s === undefined ? undefined : { value: wire.mining_uptime_s, units: "s" },
+  rebootUptime: wire.reboot_uptime_s === undefined ? undefined : { value: wire.reboot_uptime_s, units: "s" },
+  hardwareErrorCount: wire.hw_errors,
+});
+
+export const normalizeV1Pools = (wire: Pool[]): PoolInfo[] =>
+  wire
+    .map((pool, index) => ({
+      id: asPoolId(`pool:${pool.id ?? index}`),
+      name: pool.name,
+      url: pool.url,
+      username: pool.user,
+      priority: pool.priority ?? index,
+      status: pool.status,
+      acceptedShares: pool.accepted,
+      rejectedShares: pool.rejected,
+      invalidShares: pool.invalid,
+      difficulty: pool.current_difficulty,
+      lastShareAtMs: pool.last_share_time === undefined ? undefined : pool.last_share_time * 1_000,
+      bestShare: pool.best_difficulty_share,
+      blocks: pool.blocks_seen,
+    }))
+    .sort((left, right) => left.priority - right.priority);
+
+export const normalizeV1MiningTarget = (wire: MiningTargetResponse): MiningTargetInfo => ({
+  valueWatts: wire.power_target_watts,
+  defaultWatts: wire.default_power_target_watts,
+  performanceMode:
+    wire.performance_mode === "MaximumHashrate"
+      ? "performance"
+      : wire.performance_mode === "Efficiency"
+        ? "efficiency"
+        : "unknown",
+  bounds:
+    wire.power_target_min_watts === undefined && wire.power_target_max_watts === undefined
+      ? undefined
+      : { minWatts: wire.power_target_min_watts ?? 0, maxWatts: wire.power_target_max_watts ?? 0 },
+});
+
+export const normalizeV1Errors = (wire: ErrorListResponse): MinerError[] =>
+  wire.map((error, index) => {
+    const source = error.source ?? "rig";
+    const slot = error.slot;
+    const component =
+      source === "rig" || slot === undefined
+        ? undefined
+        : source === "hashboard"
+          ? {
+              id: asHashboardId(`slot:${slot}`),
+              kind: "hashboard" as const,
+              owner: moduleOwner,
+            }
+          : {
+              id: asComponentId(`${ROOT_MODULE_ID}:${source}:${slot}`),
+              kind: source as "fan" | "psu",
+              owner: moduleOwner,
+            };
+    return {
+      id: `${error.error_code ?? "unknown"}:${error.timestamp ?? "none"}:${source}:${slot ?? "none"}:${index}`,
+      code: error.error_code ?? "UNKNOWN",
+      message: error.message ?? "Unknown miner error",
+      owner: moduleOwner,
+      component,
+      timestampMs: error.timestamp === undefined ? undefined : error.timestamp * 1_000,
+    };
+  });
 
 type NormalizeHardwareOptions = { deviceId: string; profile: ModuleProfile };
 

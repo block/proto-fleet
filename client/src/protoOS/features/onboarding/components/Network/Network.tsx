@@ -15,7 +15,7 @@ const NetworkPage = () => {
           // TODO: Send network info to the API
           navigate("/onboarding/authentication");
         }}
-        subnet={networkInfo?.ip || "Pending"}
+        subnet={networkInfo?.ipAddress || "Pending"}
         gateway={networkInfo?.gateway || "Pending"}
       />
     </OnboardingLayout>

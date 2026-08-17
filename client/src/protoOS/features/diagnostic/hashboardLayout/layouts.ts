@@ -1,5 +1,6 @@
 import type { HashboardLayout } from "./types";
-import { type AsicData, type DeviceType, getAsicName, getContainerAsicLabel } from "@/protoOS/store";
+import { type AsicData, getAsicName, getContainerAsicLabel } from "@/protoOS/store";
+import type { ModuleProfile } from "@/protoOS/store/contract";
 import { getRowLabel } from "@/shared/utils/utility";
 
 /** Position-based serpentine label, or "" when the ASIC has no grid position. */
@@ -73,7 +74,8 @@ export const CONTAINER_MODULE_LAYOUT: HashboardLayout = {
   headerTitleSize: "text-heading-200",
 };
 
-export const LAYOUT_BY_DEVICE_TYPE: Record<DeviceType, HashboardLayout> = {
-  rig: RIG_LAYOUT,
-  containerModule: CONTAINER_MODULE_LAYOUT,
+export const LAYOUT_BY_MODULE_PROFILE: Record<ModuleProfile, HashboardLayout> = {
+  r2: RIG_LAYOUT,
+  ct1: CONTAINER_MODULE_LAYOUT,
+  unknown: RIG_LAYOUT,
 };

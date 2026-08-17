@@ -1,6 +1,19 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
 import useMinerStore from "./useMinerStore";
+import { asDeviceId } from "./contract";
+
+const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
+  identity: {
+    deviceId: asDeviceId(`device:${model || "unknown"}`),
+    deviceType,
+    mdkDialect: "v1" as const,
+    model,
+    productName: deviceType === "container" ? "Proto CU1" : "Proto Rig",
+    macAddresses: [],
+  },
+  moduleProfile: deviceType === "container" ? ("ct1" as const) : ("r2" as const),
+});
 
 describe("useMinerStore.resetDeviceData", () => {
   beforeEach(() => {
@@ -13,12 +26,12 @@ describe("useMinerStore.resetDeviceData", () => {
     s.hardware.setHashboards([{ serial: "HB-A-1" }] as never);
     s.telemetry.updateFanTelemetry(0, { rpm: 4200 } as never);
     s.telemetry.updateCoolingMode("Auto" as never);
-    s.systemInfo.setSystemInfo({ product_name: "Rig" } as never);
-    s.networkInfo.setNetworkInfo({ mac: "AA:BB" } as never);
+    s.systemInfo.setSystemInfo(systemInfo("Rig"));
+    s.networkInfo.setNetworkInfo(new Map([["primary", { id: "primary", macAddress: "AA:BB", isPrimary: true }]]));
 
     // Sanity: the flattened info slices actually hold the seeded data first.
-    expect((useMinerStore.getState().systemInfo as unknown as Record<string, unknown>).product_name).toBe("Rig");
-    expect((useMinerStore.getState().networkInfo as unknown as Record<string, unknown>).mac).toBe("AA:BB");
+    expect(useMinerStore.getState().systemInfo.data?.identity.model).toBe("Rig");
+    expect(useMinerStore.getState().networkInfo.interfaces.get("primary")?.macAddress).toBe("AA:BB");
 
     useMinerStore.getState().resetDeviceData();
 
@@ -29,17 +42,17 @@ describe("useMinerStore.resetDeviceData", () => {
     expect(after.telemetry.coolingMode).toBeNull();
     // setSystemInfo(undefined)/setNetworkInfo(undefined) are no-ops, so these
     // assert the real reset clears the flattened fields.
-    expect((after.systemInfo as unknown as Record<string, unknown>).product_name).toBeUndefined();
-    expect((after.networkInfo as unknown as Record<string, unknown>).mac).toBeUndefined();
+    expect(after.systemInfo.data).toBeUndefined();
+    expect(after.networkInfo.interfaces.size).toBe(0);
   });
 
   test("clears the derived device type so a rig doesn't inherit a module's layout", () => {
-    useMinerStore.getState().systemInfo.setSystemInfo({ model: "CU1" } as never);
-    expect(useMinerStore.getState().systemInfo.deviceType).toBe("containerModule");
+    useMinerStore.getState().systemInfo.setSystemInfo(systemInfo("CU1", "container"));
+    expect(useMinerStore.getState().systemInfo.data?.moduleProfile).toBe("ct1");
 
     useMinerStore.getState().resetDeviceData();
 
-    expect(useMinerStore.getState().systemInfo.deviceType).toBeUndefined();
+    expect(useMinerStore.getState().systemInfo.data).toBeUndefined();
   });
 
   test("preserves UI preferences and onboarding/identity flags", () => {
@@ -54,37 +67,5 @@ describe("useMinerStore.resetDeviceData", () => {
     expect(after.minerStatus.onboarded).toBe(true);
     expect(after.minerStatus.defaultPasswordActive).toBe(false);
     expect(after.ui.theme).toBe(theme);
-  });
-});
-
-// deviceType is the single point where a device is classified, and every
-// device-specific rendering decision reads it, so pin it directly.
-describe("systemInfo.deviceType", () => {
-  const setSystemInfo = (info: Record<string, unknown>) =>
-    useMinerStore.getState().systemInfo.setSystemInfo(info as never);
-
-  beforeEach(() => {
-    useMinerStore.getState().resetDeviceData();
-  });
-
-  test("is undefined before any system info arrives", () => {
-    expect(useMinerStore.getState().systemInfo.deviceType).toBeUndefined();
-  });
-
-  test.each([
-    ["CU1", "containerModule"],
-    ["cu1", "containerModule"],
-    ["Rig", "rig"],
-    ["", "rig"],
-  ])("derives %s as %s", (model, expected) => {
-    setSystemInfo({ model });
-    expect(useMinerStore.getState().systemInfo.deviceType).toBe(expected);
-  });
-
-  test("survives a partial update that omits model", () => {
-    setSystemInfo({ model: "CU1" });
-    setSystemInfo({ product_name: "Proto CU1" });
-
-    expect(useMinerStore.getState().systemInfo.deviceType).toBe("containerModule");
   });
 });

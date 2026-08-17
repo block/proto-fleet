@@ -27,7 +27,7 @@ interface UseNetworkInfoProps {
  */
 
 const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
   const setNetworkInfo = useSetNetworkInfo();
   const setNetworkInfoError = useSetNetworkInfoError();
@@ -38,23 +38,22 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
   const isFetchingRef = useRef<boolean>(false);
 
   const fetchData = useCallback(() => {
-    if (!api || isFetchingRef.current) return;
+    if (!adapter || isFetchingRef.current) return;
 
     isFetchingRef.current = true;
     setNetworkInfoPending(true);
 
     authRetry({
-      request: (params) => api.getNetwork(params),
-      onSuccess: (res) => {
-        const responseData = res?.data["network-info"];
-        setNetworkInfo(responseData);
+      request: (params) => adapter.getNetworkInfo(params),
+      onSuccess: (networkInfo) => {
+        setNetworkInfo(networkInfo.interfaces);
       },
       onError: (err) => setNetworkInfoError(err?.error?.message ?? "An error occurred"),
     }).finally(() => {
       isFetchingRef.current = false;
       setNetworkInfoPending(false);
     });
-  }, [api, authRetry, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
+  }, [adapter, authRetry, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
 
   const reload = useCallback(() => {
     if (isFetchingRef.current) return;
