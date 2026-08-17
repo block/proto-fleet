@@ -195,7 +195,6 @@ const getModalButtons = ({
         variant: variants.primary,
         onClick: onReload,
         loading: reloadPending,
-        dismissModalOnClick: false,
       },
     ];
   }
@@ -357,6 +356,7 @@ const UpgradeOperationModal = ({
     <Dialog
       open={open}
       onDismiss={onDismiss}
+      dismissButton
       testId="upgrade-operation-modal"
       icon={dialogVisual.icon}
       title={dialogVisual.title}

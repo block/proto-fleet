@@ -11,7 +11,6 @@ import SettingsEmptyState from "@/protoFleet/features/settings/components/Settin
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import UpgradeOperationModal from "@/protoFleet/features/settings/components/UpgradeOperationModal";
 import {
-  getUpgradeOperationIncarnationKey,
   getUpgradeOperationOutcomeKey,
   isUpgradeActive,
   useUpgradeOperation,
@@ -356,16 +355,12 @@ const Updates = () => {
 
   useEffect(() => {
     const operation = upgrade.operation;
-    if (!operation || upgrade.operationStatusPending) {
+    const terminal = operation?.phase === UpgradePhase.SUCCEEDED || operation?.phase === UpgradePhase.FAILED;
+    if (!operation || upgrade.operationStatusPending || !terminal) {
       return;
     }
-    const terminal = operation.phase === UpgradePhase.SUCCEEDED || operation.phase === UpgradePhase.FAILED;
-    const operationIdentity = terminal
-      ? getUpgradeOperationOutcomeKey(operation)
-      : getUpgradeOperationIncarnationKey(operation);
-    const autoOpenKey = operationIdentity
-      ? `${authSessionIdentity}:${terminal ? "terminal" : "active"}:${operationIdentity}`
-      : undefined;
+    const operationIdentity = getUpgradeOperationOutcomeKey(operation);
+    const autoOpenKey = operationIdentity ? `${authSessionIdentity}:terminal:${operationIdentity}` : undefined;
     if (autoOpenKey && lastAutoOpenedOperation.current === autoOpenKey) {
       return;
     }

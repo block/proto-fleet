@@ -460,7 +460,7 @@ describe("Updates", () => {
 
     expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
     expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
-    expect(page.getByText("Upgrade complete")).toBeInTheDocument();
+    expect(page.getByText("Update complete")).toBeInTheDocument();
 
     await act(async () => {
       acknowledgement.resolve();
@@ -487,7 +487,7 @@ describe("Updates", () => {
     );
 
     const page = render(<Updates />);
-    fireEvent.click(await page.findByRole("button", { name: "Reload Fleet" }));
+    fireEvent.click(await page.findByRole("button", { name: "Relaunch" }));
 
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith(
@@ -495,8 +495,8 @@ describe("Updates", () => {
       ),
     );
     expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
-    expect(page.getByText("Upgrade complete")).toBeInTheDocument();
-    expect(page.getByRole("button", { name: "Reload Fleet" })).toBeEnabled();
+    expect(page.getByText("Update complete")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Relaunch" })).toBeEnabled();
   });
 
   it("does not carry a pending success acknowledgement into a replacement auth session", async () => {
@@ -508,7 +508,7 @@ describe("Updates", () => {
     mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
 
     const page = render(<Updates />);
-    const reloadButton = await page.findByRole("button", { name: "Reload Fleet" });
+    const reloadButton = await page.findByRole("button", { name: "Relaunch" });
     fireEvent.click(reloadButton);
     expect(reloadButton).toBeDisabled();
 
@@ -516,7 +516,7 @@ describe("Updates", () => {
     permissionsMock.sessionGeneration = 2;
     page.rerender(<Updates />);
 
-    expect(page.getByRole("button", { name: "Reload Fleet" })).toBeEnabled();
+    expect(page.getByRole("button", { name: "Relaunch" })).toBeEnabled();
     await act(async () => {
       acknowledgement.resolve();
       await acknowledgement.promise;
