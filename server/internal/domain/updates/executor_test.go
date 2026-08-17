@@ -462,9 +462,9 @@ func TestTriggerUpgradeRetriesLostUnixResponseWithSameOperationID(t *testing.T) 
 
 	svc := newEligibleUpgradeService(t)
 	svc.executor = client
-	result, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, "v1.1.0")
+	result, err := svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.1.0")
 	require.NoError(t, err)
-	assert.NotEmpty(t, result.ID)
+	assert.Equal(t, testOperationID, result.ID)
 	assert.Equal(t, "v1.1.0", result.TargetVersion)
 	assert.Equal(t, updaterapi.PhaseQueued, result.Phase)
 	mu.Lock()

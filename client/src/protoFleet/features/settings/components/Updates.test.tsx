@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import Updates from "./Updates";
@@ -116,6 +117,8 @@ const INSTALL_COMMAND = "curl -fsSL https://fleet.example.com/install.sh | sh -s
 const RELEASE_NOTES_URL = "https://github.com/block/proto-fleet/releases/tag/v1.3.0";
 const DISMISSED_UPDATE_TAG_KEY = "dismissedUpdateTag";
 const SET_CHANNEL_RESPONSE = create(SetReleaseChannelResponseSchema);
+const OPERATION_STARTED_AT = create(TimestampSchema, { nanos: 123_456_789, seconds: 1_700_000_000n });
+const DIFFERENT_OPERATION_STARTED_AT = create(TimestampSchema, { nanos: 123_456_790, seconds: 1_700_000_000n });
 
 type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
 
@@ -259,6 +262,81 @@ describe("Updates", () => {
     expect(page.getAllByText("Validating v1.3.0").length).toBeGreaterThan(0);
   });
 
+  it.each([
+    {
+      caseName: "reused-ID terminal incarnation",
+      outcomeRevision: 1n,
+      startedAt: DIFFERENT_OPERATION_STARTED_AT,
+    },
+    {
+      caseName: "rewritten terminal outcome revision",
+      outcomeRevision: 2n,
+      startedAt: OPERATION_STARTED_AT,
+    },
+  ])("auto-opens a $caseName", async ({ outcomeRevision, startedAt }) => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+      error: "First failure",
+      outcomeRevision: 1n,
+      startedAt: OPERATION_STARTED_AT,
+    });
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+    const page = render(<Updates />);
+    expect(await page.findByText("First failure")).toBeInTheDocument();
+
+    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    await waitFor(() => expect(page.queryByText("First failure")).not.toBeInTheDocument());
+    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
+
+    upgradeHookMock.current = {
+      ...upgradeHookMock.current,
+      operation: buildOperation(UpgradePhase.FAILED, {
+        error: "Later failure",
+        outcomeRevision,
+        startedAt,
+      }),
+    };
+    page.rerender(<Updates />);
+
+    expect(await page.findByText("Later failure")).toBeInTheDocument();
+  });
+
+  it("reopens the same outcome for a new auth session without reopening the stale session operation", async () => {
+    const outcome = buildOperation(UpgradePhase.FAILED, {
+      error: "Session-scoped failure",
+      outcomeRevision: 1n,
+      startedAt: OPERATION_STARTED_AT,
+    });
+    upgradeHookMock.current.operation = outcome;
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+    const page = render(<Updates />);
+    expect(await page.findByText("Session-scoped failure")).toBeInTheDocument();
+
+    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    await waitFor(() => expect(page.queryByText("Session-scoped failure")).not.toBeInTheDocument());
+    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
+
+    permissionsMock.sessionGeneration = 2;
+    upgradeHookMock.current = { ...upgradeHookMock.current, operationStatusPending: true };
+    page.rerender(<Updates />);
+    await act(async () => Promise.resolve());
+    expect(page.queryByText("Session-scoped failure")).not.toBeInTheDocument();
+
+    upgradeHookMock.current = { ...upgradeHookMock.current, operation: undefined };
+    page.rerender(<Updates />);
+    upgradeHookMock.current = {
+      ...upgradeHookMock.current,
+      operation: buildOperation(UpgradePhase.FAILED, {
+        error: "Session-scoped failure",
+        outcomeRevision: 1n,
+        startedAt: OPERATION_STARTED_AT,
+      }),
+      operationStatusPending: false,
+    };
+    page.rerender(<Updates />);
+
+    expect(await page.findByText("Session-scoped failure")).toBeInTheDocument();
+  });
+
   it("keeps manual recovery usable after a failed operation and can acknowledge its durable record", async () => {
     upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
       error: "new stack failed to start",
@@ -345,10 +423,12 @@ describe("Updates", () => {
     await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
   });
 
-  it("offers a reload after the watched operation succeeds", async () => {
+  it("acknowledges the exact successful outcome before reloading Fleet", async () => {
+    const acknowledgement = createDeferred<void>();
     upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
       message: "Upgrade complete",
     });
+    upgradeHookMock.current.acknowledgeOperation = vi.fn().mockReturnValue(acknowledgement.promise);
     mockGetUpdateStatus.mockResolvedValue(
       buildStatus({
         currentVersion: "v1.3.0",
@@ -362,7 +442,70 @@ describe("Updates", () => {
     const page = render(<Updates />);
     fireEvent.click(await page.findByRole("button", { name: "Reload Fleet" }));
 
+    expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
+    expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
+    expect(page.getByText("Upgrade complete")).toBeInTheDocument();
+
+    await act(async () => {
+      acknowledgement.resolve();
+      await acknowledgement.promise;
+    });
     expect(upgradeHookMock.current.reloadFleet).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a successful outcome visible and does not reload when acknowledgement fails", async () => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
+      message: "Upgrade complete",
+    });
+    upgradeHookMock.current.acknowledgeOperation = vi
+      .fn()
+      .mockRejectedValue(new ConnectError("host updater is unavailable", Code.Unavailable));
+    mockGetUpdateStatus.mockResolvedValue(
+      buildStatus({
+        currentVersion: "v1.3.0",
+        updateAvailable: false,
+        installCommand: "",
+        latestEligible: undefined,
+        oneClickAvailable: true,
+      }),
+    );
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("button", { name: "Reload Fleet" }));
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("Fleet wasn't reloaded") }),
+      ),
+    );
+    expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
+    expect(page.getByText("Upgrade complete")).toBeInTheDocument();
+    expect(page.getByRole("button", { name: "Reload Fleet" })).toBeEnabled();
+  });
+
+  it("does not carry a pending success acknowledgement into a replacement auth session", async () => {
+    const acknowledgement = createDeferred<void>();
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.SUCCEEDED, {
+      message: "Upgrade complete",
+    });
+    upgradeHookMock.current.acknowledgeOperation = vi.fn().mockReturnValue(acknowledgement.promise);
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+
+    const page = render(<Updates />);
+    const reloadButton = await page.findByRole("button", { name: "Reload Fleet" });
+    fireEvent.click(reloadButton);
+    expect(reloadButton).toBeDisabled();
+
+    permissionsMock.sessionExpiry = new Date(2_000);
+    permissionsMock.sessionGeneration = 2;
+    page.rerender(<Updates />);
+
+    expect(page.getByRole("button", { name: "Reload Fleet" })).toBeEnabled();
+    await act(async () => {
+      acknowledgement.resolve();
+      await acknowledgement.promise;
+    });
+    expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
   });
 
   it("locks competing controls while reconciling an ambiguous trigger", async () => {
@@ -638,11 +781,6 @@ describe("Updates", () => {
 
     expect(await findByText("Unable to load update status")).toBeInTheDocument();
     expect(getByText("release registry unreachable")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(mockUseUpgradeOperation).toHaveBeenLastCalledWith(
-        expect.objectContaining({ currentVersionUnavailable: true }),
-      ),
-    );
   });
 
   it("saves a channel change and toasts success", async () => {

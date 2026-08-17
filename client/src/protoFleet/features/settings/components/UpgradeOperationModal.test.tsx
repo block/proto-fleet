@@ -59,6 +59,7 @@ const renderModal = (overrides: Partial<UpgradeOperationModalProps> = {}) => {
     onUseManualFallback: vi.fn(),
     open: true,
     reconciling: false,
+    reloadPending: false,
     release: release(),
     triggerError: null,
     triggering: false,

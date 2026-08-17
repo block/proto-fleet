@@ -8,15 +8,26 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 const ACTIVE_POLL_INTERVAL_MS = 2_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
 const STATUS_REQUEST_TIMEOUT_MS = 10_000;
-// Must exceed the server's full ambiguous-response recovery path — two 6s
-// updater calls, a 2s status reconciliation, and a 5s synchronous audit — or
-// the client can time out while the server is repairing a persisted dismissal.
 const ACKNOWLEDGE_REQUEST_TIMEOUT_MS = 25_000;
 const TRIGGER_REQUEST_TIMEOUT_MS = 30_000;
 const TRIGGER_RECONCILIATION_TIMEOUT_MS = 15_000;
-const TRACKED_OPERATION_KEY = "protoFleet:tracked-upgrade-operation";
-const ACKNOWLEDGED_OPERATION_KEY = "protoFleet:acknowledged-upgrade-operation";
-const CANONICAL_RELEASE_PATTERN = /^v(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/;
+const PENDING_SUBMISSION_STORAGE_KEY = "proto-fleet-upgrade-pending-submission-v1";
+const OPERATION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const MAX_TARGET_VERSION_LENGTH = 256;
+const MIN_PROTOBUF_TIMESTAMP_SECONDS = -62_135_596_800n;
+const MAX_PROTOBUF_TIMESTAMP_SECONDS = 253_402_300_799n;
+const MAX_PROTOBUF_TIMESTAMP_NANOS = 999_999_999;
+
+const createOperationID = () => {
+  // getRandomValues is available in the plain-HTTP deployments Fleet supports,
+  // while crypto.randomUUID() is restricted to secure contexts.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 const DEFINITIVE_TRIGGER_REJECTION_CODES = new Set<Code>([
   Code.InvalidArgument,
   Code.FailedPrecondition,
@@ -24,64 +35,112 @@ const DEFINITIVE_TRIGGER_REJECTION_CODES = new Set<Code>([
   Code.Unauthenticated,
   Code.Unimplemented,
 ]);
+// AlreadyExists confirms a conflicting host mutation or recovery lock, not an
+// idle updater. Keep the caller correlation until status authoritatively
+// identifies the host operation or the operator confirms manual fallback.
 
 const isDefinitiveTriggerRejection = (error: unknown) =>
   error instanceof ConnectError && DEFINITIVE_TRIGGER_REJECTION_CODES.has(error.code);
 
-interface CanonicalRelease {
-  core: [number, number, number];
-  rc?: number;
-}
-
-const parseCanonicalRelease = (version?: string): CanonicalRelease | undefined => {
-  const match = version?.match(CANONICAL_RELEASE_PATTERN);
-  if (!match) return undefined;
-  const parts = match.slice(1).map((part) => (part === undefined ? undefined : Number(part)));
-  if (parts.some((part) => part !== undefined && !Number.isSafeInteger(part))) return undefined;
-  return {
-    core: [parts[0]!, parts[1]!, parts[2]!],
-    ...(parts[3] === undefined ? {} : { rc: parts[3] }),
-  };
-};
-
-const isReleaseNewer = (currentVersion: string | undefined, targetVersion: string) => {
-  const current = parseCanonicalRelease(currentVersion);
-  const target = parseCanonicalRelease(targetVersion);
-  if (!current || !target) return false;
-  for (let index = 0; index < current.core.length; index += 1) {
-    if (current.core[index] !== target.core[index]) {
-      return current.core[index] > target.core[index];
-    }
-  }
-  if (current.rc === undefined) return target.rc !== undefined;
-  if (target.rc === undefined) return false;
-  return current.rc > target.rc;
-};
-
-interface TrackedOperation {
-  id?: string;
+interface PendingSubmission {
+  id: string;
   targetVersion: string;
 }
 
-interface AcknowledgedOperation {
+interface StoredPendingSubmission extends PendingSubmission {
   authSessionIdentity: string;
-  id: string;
-  phase: UpgradePhase;
-  revision: string;
+  version: 1;
 }
 
-type AcknowledgedOperationInput = Pick<AcknowledgedOperation, "id" | "phase" | "revision">;
+const isValidPendingSubmission = (value: unknown): value is StoredPendingSubmission => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<StoredPendingSubmission>;
+  return (
+    candidate.version === 1 &&
+    typeof candidate.authSessionIdentity === "string" &&
+    candidate.authSessionIdentity.length > 0 &&
+    typeof candidate.id === "string" &&
+    OPERATION_ID_PATTERN.test(candidate.id) &&
+    candidate.id !== "00000000-0000-0000-0000-000000000000" &&
+    typeof candidate.targetVersion === "string" &&
+    candidate.targetVersion.length > 0 &&
+    candidate.targetVersion.length <= MAX_TARGET_VERSION_LENGTH &&
+    candidate.targetVersion.trim() === candidate.targetVersion
+  );
+};
 
-const ACKNOWLEDGEABLE_PHASES = new Set<UpgradePhase>([
-  UpgradePhase.UNSPECIFIED,
-  UpgradePhase.SUCCEEDED,
-  UpgradePhase.FAILED,
-]);
+const removeStoredPendingSubmission = () => {
+  try {
+    window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
+  } catch {
+    // Cleanup is best effort. A stale record remains scoped to its exact auth
+    // session and will be ignored if that session no longer owns the page.
+  }
+};
+
+const loadPendingSubmission = (authSessionIdentity: string): PendingSubmission | undefined => {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_SUBMISSION_STORAGE_KEY);
+    if (!raw) {
+      return undefined;
+    }
+    const stored: unknown = JSON.parse(raw);
+    if (!isValidPendingSubmission(stored) || stored.authSessionIdentity !== authSessionIdentity) {
+      removeStoredPendingSubmission();
+      return undefined;
+    }
+    return { id: stored.id, targetVersion: stored.targetVersion };
+  } catch {
+    // A malformed or inaccessible record is never trusted for correlation.
+    removeStoredPendingSubmission();
+    return undefined;
+  }
+};
+
+const persistPendingSubmission = (authSessionIdentity: string, pending: PendingSubmission) => {
+  const stored: StoredPendingSubmission = {
+    authSessionIdentity,
+    id: pending.id,
+    targetVersion: pending.targetVersion,
+    version: 1,
+  };
+  const serialized = JSON.stringify(stored);
+  try {
+    window.sessionStorage.setItem(PENDING_SUBMISSION_STORAGE_KEY, serialized);
+    if (window.sessionStorage.getItem(PENDING_SUBMISSION_STORAGE_KEY) !== serialized) {
+      throw new Error("browser storage did not retain the pending upgrade");
+    }
+  } catch (error) {
+    removeStoredPendingSubmission();
+    throw error;
+  }
+};
+
+const clearPendingSubmission = (authSessionIdentity: string, pending: PendingSubmission) => {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_SUBMISSION_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const stored: unknown = JSON.parse(raw);
+    if (
+      isValidPendingSubmission(stored) &&
+      stored.authSessionIdentity === authSessionIdentity &&
+      stored.id === pending.id &&
+      stored.targetVersion === pending.targetVersion
+    ) {
+      window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
+    }
+  } catch {
+    // Keep the UI fail-closed for this page instance. A later load will ignore
+    // a malformed record or retry cleanup after authoritative reconciliation.
+  }
+};
 
 interface UseUpgradeOperationOptions {
   authSessionIdentity: string;
-  currentVersion?: string;
-  currentVersionUnavailable: boolean;
   enabled: boolean;
   onUntrackedSuccess?: (operation: UpgradeOperation) => void;
   onPollError?: (error: unknown) => void;
@@ -108,122 +167,97 @@ export const isUpgradeTerminal = (phase: UpgradePhase) =>
 export const isUpgradeActive = (operation?: UpgradeOperation) =>
   Boolean(operation && !isUpgradeTerminal(operation.phase));
 
-const operationRevision = (operation: UpgradeOperation) => {
-  const updatedAt = operation.updatedAt;
-  if (updatedAt) {
-    return `${updatedAt.seconds}:${updatedAt.nanos}`;
-  }
-  return JSON.stringify([operation.message, operation.error, operation.recoveryCommand, operation.hostLogPath]);
-};
+const isValidOperationStartedAt = (
+  startedAt: UpgradeOperation["startedAt"],
+): startedAt is NonNullable<UpgradeOperation["startedAt"]> =>
+  Boolean(
+    startedAt &&
+    typeof startedAt.seconds === "bigint" &&
+    startedAt.seconds >= MIN_PROTOBUF_TIMESTAMP_SECONDS &&
+    startedAt.seconds <= MAX_PROTOBUF_TIMESTAMP_SECONDS &&
+    Number.isInteger(startedAt.nanos) &&
+    startedAt.nanos >= 0 &&
+    startedAt.nanos <= MAX_PROTOBUF_TIMESTAMP_NANOS &&
+    (startedAt.seconds !== MIN_PROTOBUF_TIMESTAMP_SECONDS || startedAt.nanos !== 0),
+  );
 
-const readTrackedOperation = (): TrackedOperation | undefined => {
-  try {
-    const raw = window.sessionStorage.getItem(TRACKED_OPERATION_KEY);
-    if (!raw) return undefined;
-    const value = JSON.parse(raw) as Partial<TrackedOperation>;
-    if (typeof value.targetVersion !== "string" || !value.targetVersion) {
-      window.sessionStorage.removeItem(TRACKED_OPERATION_KEY);
-      return undefined;
-    }
-    return {
-      targetVersion: value.targetVersion,
-      ...(typeof value.id === "string" && value.id ? { id: value.id } : {}),
-    };
-  } catch {
-    try {
-      window.sessionStorage.removeItem(TRACKED_OPERATION_KEY);
-    } catch {
-      // Storage is best-effort; the host remains authoritative.
-    }
+const operationStartedAtMatches = (
+  actual: UpgradeOperation["startedAt"],
+  expected: NonNullable<UpgradeOperation["startedAt"]>,
+) => Boolean(actual && actual.seconds === expected.seconds && actual.nanos === expected.nanos);
+
+export const getUpgradeOperationIncarnationKey = (operation: UpgradeOperation) => {
+  if (!operation.id || !isValidOperationStartedAt(operation.startedAt)) {
     return undefined;
   }
+  return `${operation.id}:${operation.startedAt.seconds}:${operation.startedAt.nanos}`;
 };
 
-const readAcknowledgedOperation = (authSessionIdentity: string): AcknowledgedOperationInput | null => {
-  try {
-    const raw = window.sessionStorage.getItem(ACKNOWLEDGED_OPERATION_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<AcknowledgedOperation>;
-    if (
-      typeof value.id === "string" &&
-      value.id &&
-      value.authSessionIdentity === authSessionIdentity &&
-      typeof value.phase === "number" &&
-      ACKNOWLEDGEABLE_PHASES.has(value.phase) &&
-      typeof value.revision === "string"
-    ) {
-      return { id: value.id, phase: value.phase, revision: value.revision };
-    }
-    return null;
-  } catch {
-    try {
-      window.sessionStorage.removeItem(ACKNOWLEDGED_OPERATION_KEY);
-    } catch {
-      // Storage is best-effort; the host remains authoritative.
-    }
-    return null;
+export const getUpgradeOperationOutcomeKey = (operation: UpgradeOperation) => {
+  const incarnationKey = getUpgradeOperationIncarnationKey(operation);
+  if (!incarnationKey || !isUpgradeTerminal(operation.phase) || operation.outcomeRevision <= 0n) {
+    return undefined;
   }
+  return `${incarnationKey}:${operation.outcomeRevision}`;
 };
 
 export function useUpgradeOperation({
   authSessionIdentity,
-  currentVersion,
-  currentVersionUnavailable,
   enabled,
   onUntrackedSuccess,
   onPollError,
 }: UseUpgradeOperationOptions): UseUpgradeOperationResult {
+  const initialPendingSubmissionRef = useRef<PendingSubmission | undefined>(undefined);
+  const initialPendingSessionIdentityRef = useRef<string | null>(null);
+  if (initialPendingSessionIdentityRef.current === null) {
+    initialPendingSessionIdentityRef.current = authSessionIdentity;
+    initialPendingSubmissionRef.current = loadPendingSubmission(authSessionIdentity);
+  }
   const [operation, setOperation] = useState<UpgradeOperation>();
+  const [pendingSubmission, setPendingSubmission] = useState<PendingSubmission | undefined>(
+    initialPendingSubmissionRef.current,
+  );
   const [triggering, setTriggering] = useState(false);
-  const [trackedOperation, setTrackedOperation] = useState<TrackedOperation | undefined>(readTrackedOperation);
-  const recoveredTrackedOperation = Boolean(trackedOperation);
-  const recoveredUnknownOutcome = Boolean(trackedOperation && !trackedOperation.id);
-  const [reconciling, setReconciling] = useState(recoveredTrackedOperation);
+  const [reconciling, setReconciling] = useState(false);
   const [connectionLost, setConnectionLost] = useState(false);
   const [manualFallbackReady, setManualFallbackReady] = useState(false);
-  const [triggerError, setTriggerError] = useState<string | null>(
-    recoveredUnknownOutcome ? "Fleet did not confirm whether the previous upgrade request started" : null,
-  );
+  const [triggerError, setTriggerError] = useState<string | null>(null);
   const [pollRevision, setPollRevision] = useState(0);
   const [resolvedStatusSessionIdentity, setResolvedStatusSessionIdentity] = useState<string | null>(null);
 
   const operationRef = useRef(operation);
-  const trackedOperationRef = useRef(trackedOperation);
-  const acknowledgedOperationRef = useRef<AcknowledgedOperationInput | null>(null);
-  const acknowledgedOperationSessionRef = useRef<string | null>(null);
+  const pendingSubmissionRef = useRef(initialPendingSubmissionRef.current);
+  const pendingSubmissionSessionIdentityRef = useRef(authSessionIdentity);
   const reconcilingRef = useRef(reconciling);
-  const currentVersionRef = useRef(currentVersion);
-  const currentVersionUnavailableRef = useRef(currentVersionUnavailable);
-  const onPollErrorRef = useRef(onPollError);
-  const onUntrackedSuccessRef = useRef(onUntrackedSuccess);
   const reconciliationDeadlineRef = useRef<number | null>(null);
-  const lastObservedOperationIDRef = useRef<string | null | undefined>(undefined);
-  const triggerBaselineOperationIDRef = useRef<string | null | undefined>(undefined);
-  const refreshedUntrackedSuccessRef = useRef<string | null>(null);
+  const statusRequestEpochRef = useRef(0);
+  const mutationGenerationRef = useRef(0);
   const authSessionIdentityRef = useRef(authSessionIdentity);
   const resolvedStatusSessionIdentityRef = useRef<string | null>(null);
+  const onPollErrorRef = useRef(onPollError);
+  const onUntrackedSuccessRef = useRef(onUntrackedSuccess);
+  const submittedOperationIncarnationsRef = useRef(new Set<string>());
+  const refreshedUntrackedSuccessesRef = useRef(new Set<string>());
 
-  currentVersionRef.current = currentVersion;
-  currentVersionUnavailableRef.current = currentVersionUnavailable;
+  authSessionIdentityRef.current = authSessionIdentity;
   onPollErrorRef.current = onPollError;
   onUntrackedSuccessRef.current = onUntrackedSuccess;
-  authSessionIdentityRef.current = authSessionIdentity;
-  if (acknowledgedOperationSessionRef.current !== authSessionIdentity) {
-    acknowledgedOperationSessionRef.current = authSessionIdentity;
-    acknowledgedOperationRef.current = readAcknowledgedOperation(authSessionIdentity);
-  }
 
   const operationStatusPending = enabled && resolvedStatusSessionIdentity !== authSessionIdentity;
-
-  useEffect(() => {
-    if (trackedOperationRef.current) {
-      reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
-    }
-  }, []);
 
   const updateOperation = useCallback((next: UpgradeOperation | undefined) => {
     operationRef.current = next;
     setOperation(next);
+  }, []);
+
+  const updatePendingSubmission = useCallback((next: PendingSubmission | undefined) => {
+    const previous = pendingSubmissionRef.current;
+    if (!next && previous) {
+      clearPendingSubmission(pendingSubmissionSessionIdentityRef.current, previous);
+    }
+    pendingSubmissionSessionIdentityRef.current = authSessionIdentityRef.current;
+    pendingSubmissionRef.current = next;
+    setPendingSubmission(next);
   }, []);
 
   const updateReconciling = useCallback((next: boolean) => {
@@ -231,230 +265,183 @@ export function useUpgradeOperation({
     setReconciling(next);
   }, []);
 
-  const updateTrackedOperation = useCallback((next: TrackedOperation | undefined) => {
-    trackedOperationRef.current = next;
-    setTrackedOperation(next);
-    try {
-      if (next) {
-        window.sessionStorage.setItem(TRACKED_OPERATION_KEY, JSON.stringify(next));
-      } else {
-        window.sessionStorage.removeItem(TRACKED_OPERATION_KEY);
-      }
-    } catch {
-      // Browser storage is an optimization for route/reload recovery. The
-      // host operation remains durable when storage is unavailable.
-    }
-  }, []);
-
-  const updateAcknowledgedOperation = useCallback((next: AcknowledgedOperationInput | null) => {
-    acknowledgedOperationRef.current = next;
-    try {
-      if (next) {
-        window.sessionStorage.setItem(
-          ACKNOWLEDGED_OPERATION_KEY,
-          JSON.stringify({ authSessionIdentity: authSessionIdentityRef.current, ...next }),
-        );
-      } else {
-        window.sessionStorage.removeItem(ACKNOWLEDGED_OPERATION_KEY);
-      }
-    } catch {
-      // See updateTrackedOperation: storage failure cannot affect host state.
-    }
-  }, []);
-
-  const finishExpiredReconciliation = useCallback(() => {
-    const deadline = reconciliationDeadlineRef.current;
-    if (!reconcilingRef.current || deadline === null || Date.now() < deadline) {
-      return false;
-    }
+  const resetReconciliation = useCallback(() => {
     reconciliationDeadlineRef.current = null;
     setManualFallbackReady(false);
     updateReconciling(false);
-    if (!trackedOperationRef.current?.id) {
-      updateTrackedOperation(undefined);
-    }
-    return true;
-  }, [updateReconciling, updateTrackedOperation]);
+    setConnectionLost(false);
+  }, [updateReconciling]);
 
-  const allowManualFallbackAfterTimeout = useCallback(() => {
-    const deadline = reconciliationDeadlineRef.current;
-    if (reconcilingRef.current && deadline !== null && Date.now() >= deadline) {
-      setManualFallbackReady(true);
+  useEffect(() => {
+    if (pendingSubmissionSessionIdentityRef.current === authSessionIdentity) {
+      return;
     }
+
+    // A pending command belongs to exactly one authenticated session. Purge a
+    // previous session's record before this hook can poll or mutate as the new
+    // session, then restore only a record whose full identity matches.
+    const restored = loadPendingSubmission(authSessionIdentity);
+    pendingSubmissionSessionIdentityRef.current = authSessionIdentity;
+    pendingSubmissionRef.current = restored;
+    setPendingSubmission(restored);
+    submittedOperationIncarnationsRef.current.clear();
+    refreshedUntrackedSuccessesRef.current.clear();
+    mutationGenerationRef.current += 1;
+    statusRequestEpochRef.current += 1;
+    resolvedStatusSessionIdentityRef.current = null;
+    setResolvedStatusSessionIdentity(null);
+    updateOperation(undefined);
+    setTriggering(false);
+    setTriggerError(null);
+    resetReconciliation();
+  }, [authSessionIdentity, resetReconciliation, updateOperation]);
+
+  const beginReconciliation = useCallback(
+    (lostConnection: boolean) => {
+      if (!reconcilingRef.current) {
+        reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
+        setManualFallbackReady(false);
+        updateReconciling(true);
+      }
+      setConnectionLost(lostConnection);
+    },
+    [updateReconciling],
+  );
+
+  const reconciliationExpired = useCallback(() => {
+    const deadline = reconciliationDeadlineRef.current;
+    return deadline !== null && Date.now() >= deadline;
   }, []);
+
+  const notifyUntrackedSuccess = useCallback((next: UpgradeOperation) => {
+    if (next.phase !== UpgradePhase.SUCCEEDED) {
+      return;
+    }
+    const incarnationKey = getUpgradeOperationIncarnationKey(next);
+    if (incarnationKey && submittedOperationIncarnationsRef.current.has(incarnationKey)) {
+      return;
+    }
+    const outcomeKey = getUpgradeOperationOutcomeKey(next);
+    if (outcomeKey && refreshedUntrackedSuccessesRef.current.has(outcomeKey)) {
+      return;
+    }
+    // Missing or invalid host identity fails open: refresh again instead of
+    // allowing a malformed key to suppress a distinct successful outcome.
+    if (outcomeKey) {
+      refreshedUntrackedSuccessesRef.current.add(outcomeKey);
+    }
+    onUntrackedSuccessRef.current?.(next);
+  }, []);
+
+  const acceptServerOperation = useCallback(
+    (next: UpgradeOperation) => {
+      if (!next.id) {
+        return;
+      }
+
+      const pendingMatches =
+        pendingSubmissionRef.current?.id === next.id &&
+        pendingSubmissionRef.current.targetVersion === next.targetVersion;
+      if (next.acknowledged && isUpgradeTerminal(next.phase)) {
+        // The host is the sole dismissal authority. Acknowledged outcomes are
+        // the only terminal operations hidden by the browser.
+        updateOperation(undefined);
+        if (pendingMatches) {
+          updatePendingSubmission(undefined);
+          setTriggerError(null);
+          resetReconciliation();
+        } else if (!pendingSubmissionRef.current) {
+          setTriggerError(null);
+          resetReconciliation();
+        } else {
+          setConnectionLost(false);
+        }
+        return;
+      }
+
+      notifyUntrackedSuccess(next);
+      updateOperation(next);
+      setConnectionLost(false);
+
+      if (pendingMatches) {
+        // Retain caller correlation while the matching host ID and target are
+        // active. This record is a lock/reconciliation hint, not proof that
+        // this browser submitted the reported incarnation; only a correlated
+        // trigger response establishes that ownership.
+        if (isUpgradeTerminal(next.phase)) {
+          updatePendingSubmission(undefined);
+        }
+        setTriggerError(null);
+        resetReconciliation();
+      } else if (!pendingSubmissionRef.current) {
+        setTriggerError(null);
+        resetReconciliation();
+      }
+    },
+    [notifyUntrackedSuccess, resetReconciliation, updateOperation, updatePendingSubmission],
+  );
+
+  const reconcilePendingSubmission = useCallback(
+    (executorAvailable: boolean) => {
+      if (!pendingSubmissionRef.current) {
+        return;
+      }
+      if (!executorAvailable) {
+        beginReconciliation(true);
+        if (reconciliationExpired() && !isUpgradeActive(operationRef.current)) {
+          setManualFallbackReady(true);
+        }
+        return;
+      }
+      beginReconciliation(false);
+      if (reconciliationExpired()) {
+        updatePendingSubmission(undefined);
+        if (operationRef.current) {
+          setTriggerError(null);
+        }
+        resetReconciliation();
+      }
+    },
+    [beginReconciliation, reconciliationExpired, resetReconciliation, updatePendingSubmission],
+  );
 
   const reconcileMissingActiveOperation = useCallback(() => {
     if (!isUpgradeActive(operationRef.current)) {
       return false;
     }
-    if (!reconcilingRef.current) {
-      reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
-      setManualFallbackReady(false);
-      updateReconciling(true);
-    }
-    setConnectionLost(true);
-    allowManualFallbackAfterTimeout();
+    // Never infer that an active operation ended from a missing/unreachable
+    // status response. Keep the exact last host operation locked until the
+    // host reports a terminal state.
+    beginReconciliation(true);
     return true;
-  }, [allowManualFallbackAfterTimeout, updateReconciling]);
-
-  const resolveRecoveredOperationMiss = useCallback(() => {
-    if (!reconcilingRef.current || !trackedOperationRef.current?.id) {
-      return false;
-    }
-    reconciliationDeadlineRef.current = null;
-    setManualFallbackReady(false);
-    updateTrackedOperation(undefined);
-    updateReconciling(false);
-    setConnectionLost(false);
-    setTriggerError(null);
-    return true;
-  }, [updateReconciling, updateTrackedOperation]);
-
-  const clearSurfacedOperation = useCallback(() => {
-    updateTrackedOperation(undefined);
-    updateOperation(undefined);
-    reconciliationDeadlineRef.current = null;
-    setManualFallbackReady(false);
-    updateReconciling(false);
-    setConnectionLost(false);
-    setTriggerError(null);
-  }, [updateOperation, updateReconciling, updateTrackedOperation]);
-
-  const acceptServerOperation = useCallback(
-    (next: UpgradeOperation, fromTriggerResponse = false) => {
-      if (!next.id) {
-        return false;
-      }
-      if (next.acknowledged && isUpgradeTerminal(next.phase)) {
-        // The host durably recorded a dismissal (possibly from another
-        // session), so the outcome must not resurface anywhere.
-        if (operationRef.current?.id === next.id || trackedOperationRef.current?.id === next.id) {
-          clearSurfacedOperation();
-        }
-        return false;
-      }
-      const acknowledged = acknowledgedOperationRef.current;
-      const revision = operationRevision(next);
-      const acknowledgedExactRevision =
-        acknowledged?.id === next.id && acknowledged.phase === next.phase && acknowledged.revision === revision;
-      const acknowledgedTransition = acknowledged?.id === next.id && !acknowledgedExactRevision;
-      if (acknowledgedExactRevision) {
-        return false;
-      }
-      const active = isUpgradeActive(next);
-      const tracked = trackedOperationRef.current;
-      const reconciledTerminal =
-        reconcilingRef.current &&
-        !tracked?.id &&
-        tracked?.targetVersion === next.targetVersion &&
-        isUpgradeTerminal(next.phase) &&
-        triggerBaselineOperationIDRef.current !== undefined &&
-        triggerBaselineOperationIDRef.current !== next.id;
-      const trackedMatches = tracked?.id
-        ? tracked.id === next.id
-        : (fromTriggerResponse && tracked?.targetVersion === next.targetVersion) ||
-          reconciledTerminal ||
-          acknowledgedTransition;
-
-      if (active) {
-        // A durable active operation is authoritative, including one started
-        // by another operator. It takes precedence over a newer release offer.
-        updateAcknowledgedOperation(null);
-        updateTrackedOperation({ id: next.id, targetVersion: next.targetVersion });
-        updateOperation(next);
-        if (next.phase === UpgradePhase.UNSPECIFIED) {
-          if (!reconcilingRef.current) {
-            reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
-            setManualFallbackReady(false);
-            updateReconciling(true);
-          }
-          setConnectionLost(false);
-          setTriggerError(null);
-          allowManualFallbackAfterTimeout();
-          return true;
-        }
-        reconciliationDeadlineRef.current = null;
-        setManualFallbackReady(false);
-        updateReconciling(false);
-        setConnectionLost(false);
-        setTriggerError(null);
-        return true;
-      }
-
-      if (!isUpgradeTerminal(next.phase)) {
-        return false;
-      }
-
-      if (tracked && !trackedMatches) {
-        return false;
-      }
-
-      if (next.phase === UpgradePhase.SUCCEEDED && !trackedMatches) {
-        const successRevision = `${next.id}:${revision}`;
-        if (refreshedUntrackedSuccessRef.current !== successRevision) {
-          refreshedUntrackedSuccessRef.current = successRevision;
-          onUntrackedSuccessRef.current?.(next);
-        }
-        return false;
-      }
-
-      // A strictly newer release proves a later recovery. An exact target
-      // match does not: activation can expose the target version before a
-      // later service failure records the operation as failed.
-      if (next.phase === UpgradePhase.FAILED && isReleaseNewer(currentVersionRef.current, next.targetVersion)) {
-        if (acknowledgedTransition) updateAcknowledgedOperation(null);
-        if (trackedMatches) updateTrackedOperation(undefined);
-        if (operationRef.current?.id === next.id) updateOperation(undefined);
-        reconciliationDeadlineRef.current = null;
-        setManualFallbackReady(false);
-        updateReconciling(false);
-        setConnectionLost(false);
-        return false;
-      }
-
-      const unresolvedFailure =
-        next.phase === UpgradePhase.FAILED &&
-        (currentVersionUnavailableRef.current || Boolean(currentVersionRef.current));
-      if (!trackedMatches && !unresolvedFailure) {
-        return false;
-      }
-
-      if (acknowledgedTransition) updateAcknowledgedOperation(null);
-      updateTrackedOperation({ id: next.id, targetVersion: next.targetVersion });
-      updateOperation(next);
-      reconciliationDeadlineRef.current = null;
-      setManualFallbackReady(false);
-      updateReconciling(false);
-      setConnectionLost(false);
-      setTriggerError(null);
-      return true;
-    },
-    [
-      allowManualFallbackAfterTimeout,
-      clearSurfacedOperation,
-      updateAcknowledgedOperation,
-      updateOperation,
-      updateReconciling,
-      updateTrackedOperation,
-    ],
-  );
+  }, [beginReconciliation]);
 
   const pollStatus = useCallback(
-    async (signal: AbortSignal, pollingAuthSessionIdentity: string) => {
+    async (signal: AbortSignal, pollingAuthSessionIdentity: string, requestEpoch: number) => {
       try {
         const response = await instanceUpdateClient.getUpgradeStatus(
           {},
           { signal, timeoutMs: STATUS_REQUEST_TIMEOUT_MS },
         );
-        if (signal.aborted || authSessionIdentityRef.current !== pollingAuthSessionIdentity) {
+        if (
+          signal.aborted ||
+          authSessionIdentityRef.current !== pollingAuthSessionIdentity ||
+          statusRequestEpochRef.current !== requestEpoch
+        ) {
           return;
         }
 
         resolvedStatusSessionIdentityRef.current = pollingAuthSessionIdentity;
         setResolvedStatusSessionIdentity(pollingAuthSessionIdentity);
-        lastObservedOperationIDRef.current = response.operation?.id || null;
 
-        if (response.operation && acceptServerOperation(response.operation)) {
+        if (response.operation) {
+          const pendingMatches =
+            pendingSubmissionRef.current?.id === response.operation.id &&
+            pendingSubmissionRef.current.targetVersion === response.operation.targetVersion;
+          acceptServerOperation(response.operation);
+          if (pendingSubmissionRef.current && !pendingMatches) {
+            reconcilePendingSubmission(response.executorAvailable);
+          }
           return;
         }
 
@@ -462,39 +449,49 @@ export function useUpgradeOperation({
           if (reconcileMissingActiveOperation()) {
             return;
           }
-          if (isUpgradeActive(operationRef.current) || reconcilingRef.current || trackedOperationRef.current) {
-            setConnectionLost(true);
+          reconcilePendingSubmission(false);
+          if (!pendingSubmissionRef.current) {
+            setConnectionLost(false);
           }
-          allowManualFallbackAfterTimeout();
           return;
         }
 
         if (reconcileMissingActiveOperation()) {
           return;
         }
+
+        // A reachable host with no operation is authoritative for terminal
+        // visibility, but an ambiguous trigger still gets a bounded window in
+        // which its exact caller-generated ID can appear.
+        if (operationRef.current && isUpgradeTerminal(operationRef.current.phase)) {
+          updateOperation(undefined);
+        }
         setConnectionLost(false);
-        if (resolveRecoveredOperationMiss()) {
+        reconcilePendingSubmission(true);
+        if (!pendingSubmissionRef.current) {
+          resetReconciliation();
+        }
+      } catch (error) {
+        if (
+          signal.aborted ||
+          authSessionIdentityRef.current !== pollingAuthSessionIdentity ||
+          statusRequestEpochRef.current !== requestEpoch
+        ) {
           return;
         }
-        finishExpiredReconciliation();
-      } catch (error) {
-        if (signal.aborted || authSessionIdentityRef.current !== pollingAuthSessionIdentity) return;
         onPollErrorRef.current?.(error);
         if (reconcileMissingActiveOperation()) {
           return;
         }
-        if (isUpgradeActive(operationRef.current) || reconcilingRef.current || trackedOperationRef.current) {
-          setConnectionLost(true);
-        }
-        allowManualFallbackAfterTimeout();
+        reconcilePendingSubmission(false);
       }
     },
     [
       acceptServerOperation,
-      allowManualFallbackAfterTimeout,
-      finishExpiredReconciliation,
       reconcileMissingActiveOperation,
-      resolveRecoveredOperationMiss,
+      reconcilePendingSubmission,
+      resetReconciliation,
+      updateOperation,
     ],
   );
 
@@ -507,14 +504,13 @@ export function useUpgradeOperation({
 
     const run = async () => {
       controller = new AbortController();
-      await pollStatus(controller.signal, authSessionIdentity);
+      await pollStatus(controller.signal, authSessionIdentity, statusRequestEpochRef.current);
       if (alive) {
-        const awaitingTrackedOperation = Boolean(trackedOperationRef.current && !operationRef.current);
         const awaitingInitialStatus = resolvedStatusSessionIdentityRef.current !== authSessionIdentity;
         const pollIntervalMs =
           isUpgradeActive(operationRef.current) ||
           reconcilingRef.current ||
-          awaitingTrackedOperation ||
+          pendingSubmissionRef.current ||
           awaitingInitialStatus
             ? ACTIVE_POLL_INTERVAL_MS
             : IDLE_POLL_INTERVAL_MS;
@@ -528,102 +524,157 @@ export function useUpgradeOperation({
       controller?.abort();
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [authSessionIdentity, currentVersion, currentVersionUnavailable, enabled, pollRevision, pollStatus]);
+  }, [authSessionIdentity, enabled, pollRevision, pollStatus]);
 
   const triggerUpgrade = useCallback(
     async (targetVersion: string) => {
-      triggerBaselineOperationIDRef.current = lastObservedOperationIDRef.current;
-      updateTrackedOperation({ targetVersion });
+      // Ignore every status request that began before this mutation. Its
+      // snapshot can only describe the pre-trigger host state.
+      statusRequestEpochRef.current += 1;
+      const operationId = createOperationID();
+      const nextPendingSubmission = { id: operationId, targetVersion };
+      setTriggerError(null);
+      try {
+        // Persist and verify the exact command identity before the mutation can
+        // leave the browser. Reloads can then retain the correlation lock while
+        // the detached server request finishes.
+        persistPendingSubmission(authSessionIdentityRef.current, nextPendingSubmission);
+      } catch {
+        setTriggerError("Fleet couldn't safely track this upgrade request in this browser. No upgrade was started.");
+        return;
+      }
+      const initiatingAuthSessionIdentity = authSessionIdentityRef.current;
+      const mutationGeneration = ++mutationGenerationRef.current;
+      const isCurrentMutation = () =>
+        authSessionIdentityRef.current === initiatingAuthSessionIdentity &&
+        mutationGenerationRef.current === mutationGeneration;
+      updatePendingSubmission(nextPendingSubmission);
       reconciliationDeadlineRef.current = null;
       setManualFallbackReady(false);
       updateReconciling(false);
       setConnectionLost(false);
-      setTriggerError(null);
       setTriggering(true);
       try {
         const response = await instanceUpdateClient.triggerUpgrade(
-          { targetVersion },
+          { operationId, targetVersion },
           { timeoutMs: TRIGGER_REQUEST_TIMEOUT_MS },
         );
-        if (!response.operation) {
-          throw new Error("Host updater did not return an operation");
+        if (!isCurrentMutation()) {
+          return;
         }
-        if (!acceptServerOperation(response.operation, true)) {
-          throw new Error(
-            "Fleet couldn't confirm the upgrade state. Fleet will check the host before unlocking other install options.",
-          );
+        if (
+          !response.operation ||
+          response.operation.id !== operationId ||
+          response.operation.targetVersion !== targetVersion
+        ) {
+          throw new Error("Host updater did not return the requested operation");
         }
+        const submittedIncarnationKey = getUpgradeOperationIncarnationKey(response.operation);
+        if (submittedIncarnationKey) {
+          submittedOperationIncarnationsRef.current.add(submittedIncarnationKey);
+        }
+        acceptServerOperation(response.operation);
       } catch (error) {
-        setTriggerError(getErrorMessage(error, "Failed to start upgrade"));
+        if (!isCurrentMutation()) {
+          return;
+        }
+        setTriggerError(getErrorMessage(error, "Couldn't start upgrade"));
         if (isDefinitiveTriggerRejection(error)) {
-          updateTrackedOperation(undefined);
-          reconciliationDeadlineRef.current = null;
-          setManualFallbackReady(false);
-          updateReconciling(false);
-          setConnectionLost(false);
+          updatePendingSubmission(undefined);
+          resetReconciliation();
         } else {
-          reconciliationDeadlineRef.current = Date.now() + TRIGGER_RECONCILIATION_TIMEOUT_MS;
-          updateReconciling(true);
+          beginReconciliation(false);
         }
       } finally {
-        setTriggering(false);
-        // An idle status poll may already be scheduled far in the future.
-        // Wake it after trigger admission settles so success and ambiguous
-        // responses both transition immediately to the active cadence.
-        setPollRevision((revision) => revision + 1);
+        if (isCurrentMutation()) {
+          // Also invalidate a poll that may have started while the mutation was
+          // in flight, then wake a fresh authoritative poll.
+          statusRequestEpochRef.current += 1;
+          setTriggering(false);
+          // Wake an idle poll so an ambiguous response is reconciled by the
+          // exact operation ID without relying on target/version heuristics.
+          setPollRevision((revision) => revision + 1);
+        }
       }
     },
-    [acceptServerOperation, updateReconciling, updateTrackedOperation],
+    [acceptServerOperation, beginReconciliation, resetReconciliation, updatePendingSubmission, updateReconciling],
   );
 
   const acknowledgeOperation = useCallback(async () => {
-    const currentOperation = operationRef.current;
-    const terminalOperation =
-      currentOperation && isUpgradeTerminal(currentOperation.phase) ? currentOperation : undefined;
-    if (terminalOperation) {
-      // Local suppression applies immediately and keeps this tab clean even
-      // when the durable host acknowledgement below cannot be recorded.
-      updateAcknowledgedOperation({
-        id: terminalOperation.id,
-        phase: terminalOperation.phase,
-        revision: operationRevision(terminalOperation),
-      });
-    }
-    clearSurfacedOperation();
-    if (!terminalOperation?.id) {
+    const terminalOperation = operationRef.current;
+    if (!terminalOperation?.id || !isUpgradeTerminal(terminalOperation.phase)) {
       return;
     }
+    const expectedStartedAt = terminalOperation.startedAt;
+    if (!isValidOperationStartedAt(expectedStartedAt)) {
+      throw new Error("Host did not provide a valid start time for this upgrade outcome");
+    }
+
+    const initiatingAuthSessionIdentity = authSessionIdentityRef.current;
+    const mutationGeneration = ++mutationGenerationRef.current;
+    const isCurrentMutation = () =>
+      authSessionIdentityRef.current === initiatingAuthSessionIdentity &&
+      mutationGenerationRef.current === mutationGeneration;
+    statusRequestEpochRef.current += 1;
+    const expectedOutcomeRevision = terminalOperation.outcomeRevision;
     try {
-      await instanceUpdateClient.acknowledgeUpgrade(
-        { operationId: terminalOperation.id },
+      const response = await instanceUpdateClient.acknowledgeUpgrade(
+        { operationId: terminalOperation.id, expectedOutcomeRevision, expectedStartedAt },
         { timeoutMs: ACKNOWLEDGE_REQUEST_TIMEOUT_MS },
       );
-    } catch (error) {
-      if (error instanceof ConnectError && error.code === Code.NotFound) {
-        // The host no longer reports this operation, so there is nothing left
-        // to dismiss durably.
+      if (!isCurrentMutation()) {
         return;
       }
-      throw error;
+      const acknowledged = response.operation;
+      if (
+        !acknowledged ||
+        acknowledged.id !== terminalOperation.id ||
+        !operationStartedAtMatches(acknowledged.startedAt, expectedStartedAt) ||
+        acknowledged.outcomeRevision !== expectedOutcomeRevision ||
+        !acknowledged.acknowledged ||
+        !isUpgradeTerminal(acknowledged.phase)
+      ) {
+        throw new Error("Host did not acknowledge the current upgrade outcome");
+      }
+
+      const current = operationRef.current;
+      if (
+        current?.id === terminalOperation.id &&
+        operationStartedAtMatches(current.startedAt, expectedStartedAt) &&
+        current.outcomeRevision === expectedOutcomeRevision
+      ) {
+        updateOperation(undefined);
+      }
+    } finally {
+      if (isCurrentMutation()) {
+        statusRequestEpochRef.current += 1;
+        setPollRevision((revision) => revision + 1);
+      }
     }
-  }, [clearSurfacedOperation, updateAcknowledgedOperation]);
+  }, [updateOperation]);
 
   const useManualFallback = useCallback(() => {
-    if (!manualFallbackReady) return;
-    if (operationRef.current?.phase === UpgradePhase.UNSPECIFIED) {
-      updateAcknowledgedOperation({
-        id: operationRef.current.id,
-        phase: operationRef.current.phase,
-        revision: operationRevision(operationRef.current),
-      });
+    // Manual fallback is available only when submission itself is ambiguous
+    // and no active host operation is known. Known active operations remain
+    // locked until the host reports their outcome.
+    if (!manualFallbackReady || isUpgradeActive(operationRef.current)) {
+      return;
     }
-    clearSurfacedOperation();
-  }, [clearSurfacedOperation, manualFallbackReady, updateAcknowledgedOperation]);
+    updatePendingSubmission(undefined);
+    setTriggerError(null);
+    resetReconciliation();
+  }, [manualFallbackReady, resetReconciliation, updatePendingSubmission]);
 
   const reloadFleet = useCallback(() => {
-    updateTrackedOperation(undefined);
     window.location.reload();
-  }, [updateTrackedOperation]);
+  }, []);
+
+  const trackedTargetVersion =
+    pendingSubmission &&
+    pendingSubmissionSessionIdentityRef.current === authSessionIdentity &&
+    (operation?.id !== pendingSubmission.id || operation.targetVersion !== pendingSubmission.targetVersion)
+      ? pendingSubmission.targetVersion
+      : undefined;
 
   return {
     acknowledgeOperation,
@@ -635,7 +686,7 @@ export function useUpgradeOperation({
     reloadFleet,
     triggerError,
     triggering,
-    trackedTargetVersion: trackedOperation?.targetVersion,
+    trackedTargetVersion,
     triggerUpgrade,
     useManualFallback,
   };

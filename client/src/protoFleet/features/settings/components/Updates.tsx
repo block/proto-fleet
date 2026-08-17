@@ -9,7 +9,12 @@ import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import UpgradeOperationModal from "@/protoFleet/features/settings/components/UpgradeOperationModal";
-import { isUpgradeActive, useUpgradeOperation } from "@/protoFleet/features/updates/api/useUpgradeOperation";
+import {
+  getUpgradeOperationIncarnationKey,
+  getUpgradeOperationOutcomeKey,
+  isUpgradeActive,
+  useUpgradeOperation,
+} from "@/protoFleet/features/updates/api/useUpgradeOperation";
 import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
 import {
   useAuthErrors,
@@ -109,6 +114,12 @@ const Updates = () => {
   const [isChannelChangePending, setIsChannelChangePending] = useState(false);
   const [isStatusRefreshPending, setIsStatusRefreshPending] = useState(false);
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [upgradeReloadState, setUpgradeReloadState] = useState({
+    authSessionIdentity,
+    pending: false,
+  });
+  const isUpgradeReloadPending =
+    upgradeReloadState.authSessionIdentity === authSessionIdentity && upgradeReloadState.pending;
   const latestStatusRequest = useRef(0);
   const isMounted = useRef(false);
   const lastAutoOpenedOperation = useRef<string | null>(null);
@@ -206,8 +217,6 @@ const Updates = () => {
   const upgrade = useUpgradeOperation({
     authSessionIdentity,
     enabled: canUpdateInstance,
-    currentVersion: status?.currentVersion,
-    currentVersionUnavailable: Boolean(loadError && !status),
     onUntrackedSuccess: () => {
       void fetchStatus();
     },
@@ -247,20 +256,27 @@ const Updates = () => {
 
   useEffect(() => {
     const operation = upgrade.operation;
-    if (!operation) {
+    if (!operation || upgrade.operationStatusPending) {
       return;
     }
     const terminal = operation.phase === UpgradePhase.SUCCEEDED || operation.phase === UpgradePhase.FAILED;
-    const autoOpenKey = `${operation.id}:${terminal ? "terminal" : "active"}`;
-    if (lastAutoOpenedOperation.current === autoOpenKey) {
+    const operationIdentity = terminal
+      ? getUpgradeOperationOutcomeKey(operation)
+      : getUpgradeOperationIncarnationKey(operation);
+    const autoOpenKey = operationIdentity
+      ? `${authSessionIdentity}:${terminal ? "terminal" : "active"}:${operationIdentity}`
+      : undefined;
+    if (autoOpenKey && lastAutoOpenedOperation.current === autoOpenKey) {
       return;
     }
     // Open once when an operation is first recovered, and once more when it
     // becomes terminal. Intermediate phase updates must not keep stealing
     // focus after an operator dismisses the progress modal.
-    lastAutoOpenedOperation.current = autoOpenKey;
+    // Missing or invalid host identity fails open so it cannot suppress a
+    // distinct operation or rewritten terminal outcome.
+    lastAutoOpenedOperation.current = autoOpenKey ?? null;
     setUpgradeModalOpen(true);
-  }, [upgrade.operation]);
+  }, [authSessionIdentity, upgrade.operation, upgrade.operationStatusPending]);
 
   useEffect(() => {
     const hadOperation = hadSurfacedOperation.current;
@@ -360,6 +376,38 @@ const Updates = () => {
     }
   };
 
+  const handleSuccessfulUpgradeReload = async () => {
+    if (isUpgradeReloadPending) {
+      return;
+    }
+    const authSession = captureAuthSession(authSessionIdentity);
+    setUpgradeReloadState({ authSessionIdentity, pending: true });
+    try {
+      // The success record is durable host state. Clear the exact outcome
+      // before reloading so the next page does not surface and lock on it
+      // again. A failed acknowledgement deliberately leaves it visible.
+      await upgrade.acknowledgeOperation();
+      if (!isMounted.current || !isSameAuthSession(authSession)) {
+        return;
+      }
+      upgrade.reloadFleet();
+    } catch (err) {
+      if (!isSameAuthSession(authSession)) {
+        return;
+      }
+      handleRequestError(err, isMounted.current, () => {
+        pushToast({
+          message: `Fleet wasn't reloaded: ${getErrorMessage(err, "the completed upgrade couldn't be recorded")}`,
+          status: STATUSES.error,
+        });
+      });
+    } finally {
+      if (isMounted.current && isSameAuthSession(authSession)) {
+        setUpgradeReloadState({ authSessionIdentity, pending: false });
+      }
+    }
+  };
+
   // Redirect callers without instance:update away — placed after all
   // hooks to satisfy rules-of-hooks.
   if (!canUpdateInstance) {
@@ -407,7 +455,7 @@ const Updates = () => {
           });
         }}
         onDismiss={() => setUpgradeModalOpen(false)}
-        onReload={upgrade.reloadFleet}
+        onReload={() => void handleSuccessfulUpgradeReload()}
         onUpgrade={upgrade.triggerUpgrade}
         onUseManualFallback={() => {
           upgrade.useManualFallback();
@@ -417,6 +465,7 @@ const Updates = () => {
         open={upgradeModalOpen}
         operation={upgrade.operation}
         reconciling={upgrade.reconciling}
+        reloadPending={isUpgradeReloadPending}
         release={modalRelease}
         targetVersion={
           upgrade.operation?.targetVersion ?? (upgrade.reconciling ? upgrade.trackedTargetVersion : release?.version)

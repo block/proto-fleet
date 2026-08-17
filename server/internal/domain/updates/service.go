@@ -36,6 +36,7 @@ const (
 	executorMutationTimeout = 6 * time.Second
 	upgradeAuditTimeout     = 5 * time.Second
 
+	upgradeTriggeredEventType    = "instance_upgrade_triggered"
 	upgradeAcknowledgedEventType = "instance_upgrade_acknowledged"
 )
 
@@ -121,37 +122,41 @@ func (s *Service) GetUpdateStatus(ctx context.Context, organizationID int64) (Up
 	if err != nil {
 		return UpdateStatus{}, err
 	}
+	return s.updateStatusForChannel(channel, s.executorAvailable(ctx)), nil
+}
+
+func (s *Service) updateStatusForChannel(channel Channel, oneClickAvailable bool) UpdateStatus {
 	snapshot := s.snapshots.Snapshot()
 	status := UpdateStatus{
 		CurrentVersion:    s.currentVersion,
 		Channel:           channel,
-		OneClickAvailable: s.executorAvailable(ctx),
+		OneClickAvailable: oneClickAvailable,
 	}
 	if !semver.IsValid(s.currentVersion) {
 		s.logger.Debug("update check skipped: running version is not semver", "version", s.currentVersion)
-		return status, nil
+		return status
 	}
 	status.StatusAvailable = channelStatusAvailable(channel, snapshot, s.currentVersion)
 	if !status.StatusAvailable {
-		return status, nil
+		return status
 	}
 
 	candidate := eligibleCandidate(channel, snapshot)
 	if candidate == nil || semver.Compare(candidate.Version, s.currentVersion) <= 0 {
-		return status, nil
+		return status
 	}
 	command, ok := installCommand(s.cfg.DownloadBaseURL, candidate.Version)
 	if !ok {
 		// Defensive: a candidate the command guard rejects is never offered
 		// at all — an offer without a runnable command would be a dead end.
-		return status, nil
+		return status
 	}
 
 	eligible := *candidate
 	status.LatestEligible = &eligible
 	status.UpdateAvailable = true
 	status.InstallCommand = command
-	return status, nil
+	return status
 }
 
 func (s *Service) executorAvailable(ctx context.Context) bool {
@@ -167,11 +172,45 @@ func (s *Service) executorAvailable(ctx context.Context) bool {
 // TriggerUpgrade re-derives the eligible offer at mutation time. The browser
 // cannot ask the privileged host executor to run a URL, command, downgrade,
 // or stale release that is no longer offered by the selected channel.
-func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targetVersion string) (updaterapi.Operation, error) {
-	status, err := s.GetUpdateStatus(ctx, organizationID)
+func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, operationID, targetVersion string) (updaterapi.Operation, error) {
+	if err := validateOperationID(operationID); err != nil {
+		return updaterapi.Operation{}, err
+	}
+
+	// Consult the updater's durable operation before re-deriving a fresh offer.
+	// An exact retry must remain recoverable after the upgrade changes the
+	// running version or the selected release channel changes. The operation's
+	// complete-mode bit is part of its identity so the Fleet UI cannot claim an
+	// HA completion operation that happens to reuse its ID and target.
+	if s.executor != nil {
+		operation, replay, err := s.currentUpgradeReplay(ctx, operationID, targetVersion)
+		if err != nil {
+			return updaterapi.Operation{}, err
+		}
+		if replay {
+			if err := ctx.Err(); err != nil {
+				return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
+			}
+			operationCtx, cancelOperation, ok := admissionctx.DetachRequestCancellation(ctx)
+			if !ok {
+				return updaterapi.Operation{}, fleeterror.NewInternalError("upgrade request is missing active-runtime admission")
+			}
+			defer cancelOperation()
+			if err := operationCtx.Err(); err != nil {
+				return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
+			}
+			s.logUpgradeTriggered(operationCtx, organizationID, operation)
+			return operation, nil
+		}
+	}
+
+	channel, err := s.releaseChannel(ctx, organizationID)
 	if err != nil {
 		return updaterapi.Operation{}, err
 	}
+	// Executor reachability was already probed above for replay. Only the
+	// channel-filtered offer matters for admission of a genuinely new ID.
+	status := s.updateStatusForChannel(channel, false)
 	if !status.UpdateAvailable || status.LatestEligible == nil {
 		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("no eligible update is available")
 	}
@@ -199,7 +238,6 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targ
 		return updaterapi.Operation{}, fmt.Errorf("trigger canceled before host mutation: %w", err)
 	}
 
-	operationID := uuid.NewString()
 	operation, err := s.triggerUpgrade(operationCtx, operationID, targetVersion)
 	if err == nil {
 		s.logUpgradeTriggered(operationCtx, organizationID, operation)
@@ -235,6 +273,32 @@ func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targ
 	return updaterapi.Operation{}, mapExecutorTriggerError(err)
 }
 
+func (s *Service) currentUpgradeReplay(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, bool, error) {
+	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
+	defer cancel()
+	status, err := s.executor.Status(statusCtx)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return updaterapi.Operation{}, false, fmt.Errorf("check current host upgrade status: %w", ctxErr)
+		}
+		// Without status evidence, this ID may already name a durable host
+		// operation. Keep the request retryable instead of re-admitting it as new.
+		return updaterapi.Operation{}, false, fleeterror.NewUnavailableErrorf(
+			"host updater status could not be confirmed; retry the request",
+		)
+	}
+	if status.Operation == nil || status.Operation.ID != operationID {
+		return updaterapi.Operation{}, false, nil
+	}
+	operation := *status.Operation
+	if operation.TargetVersion != targetVersion || operation.Complete {
+		return updaterapi.Operation{}, false, fleeterror.NewFailedPreconditionError(
+			"operation id is already associated with another update",
+		)
+	}
+	return operation, true, nil
+}
+
 func (s *Service) triggerUpgrade(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
 	triggerCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
 	defer cancel()
@@ -255,7 +319,7 @@ func (s *Service) reconcileUpgrade(ctx context.Context, operationID, targetVersi
 		return updaterapi.Operation{}, false
 	}
 	operation := *status.Operation
-	if operation.ID != operationID || operation.TargetVersion != targetVersion {
+	if operation.ID != operationID || operation.TargetVersion != targetVersion || operation.Complete {
 		return updaterapi.Operation{}, false
 	}
 	return operation, true
@@ -307,12 +371,12 @@ func mapExecutorTriggerError(err error) error {
 }
 
 func (s *Service) logUpgradeTriggered(ctx context.Context, organizationID int64, operation updaterapi.Operation) {
-	s.logUpgradeEvent(ctx, organizationID, "instance_upgrade_triggered",
+	s.logUpgradeEvent(ctx, organizationID, upgradeTriggeredEventType,
 		fmt.Sprintf("Triggered instance upgrade to %s", operation.TargetVersion),
 		map[string]any{
 			"operation_id":   operation.ID,
 			"target_version": operation.TargetVersion,
-		}, "")
+		}, upgradeOperationIdempotencyKey(upgradeTriggeredEventType, organizationID, operation))
 }
 
 func (s *Service) logUpgradeEvent(
@@ -340,9 +404,21 @@ func (s *Service) logUpgradeEvent(
 // updater, so the operation stops resurfacing in every session. The mutation
 // and audit are independently idempotent; ambiguous updater responses are
 // retried and reconciled before the caller is asked to retry.
-func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, operationID string) (updaterapi.Operation, error) {
-	if operationID == "" {
-		return updaterapi.Operation{}, fleeterror.NewInvalidArgumentError("operation id is required")
+func (s *Service) AcknowledgeUpgrade(
+	ctx context.Context,
+	organizationID int64,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, error) {
+	if err := validateOperationID(operationID); err != nil {
+		return updaterapi.Operation{}, err
+	}
+	if expectedStartedAt.IsZero() {
+		return updaterapi.Operation{}, fleeterror.NewInvalidArgumentError("expected started at is required")
+	}
+	if expectedOutcomeRevision == 0 {
+		return updaterapi.Operation{}, fleeterror.NewInvalidArgumentError("expected outcome revision is required")
 	}
 	if s.executor == nil {
 		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("one-click updates are not installed on this host")
@@ -351,10 +427,9 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled before host mutation: %w", err)
 	}
 
-	// The client clears its local state before this call resolves, so a
-	// browser reload or closed tab must not abort the host mutation mid-way.
-	// Detach caller cancellation while preserving the active-runtime lifetime
-	// that admitted the request, exactly as TriggerUpgrade does.
+	// A browser reload or closed tab must not abort an admitted host mutation
+	// mid-way. Detach caller cancellation while preserving the active-runtime
+	// lifetime that admitted the request, exactly as TriggerUpgrade does.
 	operationCtx, cancelOperation, ok := admissionctx.DetachRequestCancellation(ctx)
 	if !ok {
 		return updaterapi.Operation{}, fleeterror.NewInternalError("acknowledge request is missing active-runtime admission")
@@ -364,7 +439,8 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 		return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled before host mutation: %w", err)
 	}
 
-	operation, err := s.acknowledgeUpgrade(operationCtx, operationID)
+	expectedStartedAt = expectedStartedAt.UTC()
+	operation, err := s.acknowledgeUpgrade(operationCtx, operationID, expectedStartedAt, expectedOutcomeRevision)
 	if err == nil {
 		s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
 		return operation, nil
@@ -379,7 +455,7 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 	// database-idempotent audit, so both an ambiguous first response and an
 	// unrelated repeat converge on one activity row.
 	if ambiguousExecutorResult(err) {
-		operation, retryErr := s.acknowledgeUpgrade(operationCtx, operationID)
+		operation, retryErr := s.acknowledgeUpgrade(operationCtx, operationID, expectedStartedAt, expectedOutcomeRevision)
 		if retryErr == nil {
 			s.logUpgradeAcknowledged(operationCtx, organizationID, operation)
 			return operation, nil
@@ -387,7 +463,7 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 		if cancelErr := operationCtx.Err(); cancelErr != nil {
 			return updaterapi.Operation{}, fmt.Errorf("acknowledge canceled during host mutation retry: %w", cancelErr)
 		}
-		if reconciled, ok := s.reconcileAcknowledgement(operationCtx, operationID); ok {
+		if reconciled, ok := s.reconcileAcknowledgement(operationCtx, operationID, expectedStartedAt, expectedOutcomeRevision); ok {
 			s.logUpgradeAcknowledged(operationCtx, organizationID, reconciled)
 			return reconciled, nil
 		}
@@ -398,20 +474,33 @@ func (s *Service) AcknowledgeUpgrade(ctx context.Context, organizationID int64, 
 	return updaterapi.Operation{}, mapExecutorAcknowledgeError(err)
 }
 
-func (s *Service) acknowledgeUpgrade(ctx context.Context, operationID string) (updaterapi.Operation, error) {
+func (s *Service) acknowledgeUpgrade(
+	ctx context.Context,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, error) {
 	acknowledgeCtx, cancel := context.WithTimeout(ctx, executorMutationTimeout)
 	defer cancel()
-	operation, _, err := s.executor.Acknowledge(acknowledgeCtx, operationID)
+	operation, _, err := s.executor.Acknowledge(acknowledgeCtx, operationID, expectedStartedAt, expectedOutcomeRevision)
 	if err != nil {
 		return updaterapi.Operation{}, err
 	}
-	if !operation.Acknowledged {
+	if operation.ID != operationID ||
+		!operation.StartedAt.Equal(expectedStartedAt) ||
+		operation.OutcomeRevision != expectedOutcomeRevision ||
+		!operation.Acknowledged {
 		return updaterapi.Operation{}, &updaterapi.ProtocolError{Cause: errors.New("host updater response did not confirm acknowledgement")}
 	}
 	return operation, nil
 }
 
-func (s *Service) reconcileAcknowledgement(ctx context.Context, operationID string) (updaterapi.Operation, bool) {
+func (s *Service) reconcileAcknowledgement(
+	ctx context.Context,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, bool) {
 	statusCtx, cancel := context.WithTimeout(ctx, executorStatusTimeout)
 	defer cancel()
 	status, err := s.executor.Status(statusCtx)
@@ -419,7 +508,10 @@ func (s *Service) reconcileAcknowledgement(ctx context.Context, operationID stri
 		return updaterapi.Operation{}, false
 	}
 	operation := *status.Operation
-	if operation.ID != operationID || !operation.Acknowledged {
+	if operation.ID != operationID ||
+		!operation.StartedAt.Equal(expectedStartedAt) ||
+		operation.OutcomeRevision != expectedOutcomeRevision ||
+		!operation.Acknowledged {
 		return updaterapi.Operation{}, false
 	}
 	return operation, true
@@ -436,11 +528,6 @@ func mapExecutorAcknowledgeError(err error) error {
 			if httpErr.Code == updaterapi.ErrorCodeOperationNotFound {
 				return fleeterror.NewNotFoundError(httpErr.Message)
 			}
-			// A daemon from before the acknowledgement API returns the default
-			// route-level 404. That says nothing about whether the operation is
-			// still current, so keep the dismissal retryable and visible to the
-			// operator instead of treating it as durably settled.
-			return fleeterror.NewUnavailableErrorf("host updater does not support durable dismissals; the dismissal was not recorded")
 		case http.StatusConflict, http.StatusBadRequest:
 			return fleeterror.NewFailedPreconditionError(httpErr.Message)
 		}
@@ -452,23 +539,37 @@ func (s *Service) logUpgradeAcknowledged(ctx context.Context, organizationID int
 	s.logUpgradeEvent(ctx, organizationID, upgradeAcknowledgedEventType,
 		fmt.Sprintf("Dismissed the %s outcome of the upgrade to %s", operation.Phase, operation.TargetVersion),
 		map[string]any{
-			"operation_id":   operation.ID,
-			"target_version": operation.TargetVersion,
-			"phase":          string(operation.Phase),
-		}, upgradeAcknowledgementIdempotencyKey(operation))
+			"operation_id":     operation.ID,
+			"outcome_revision": operation.OutcomeRevision,
+			"target_version":   operation.TargetVersion,
+			"phase":            string(operation.Phase),
+		}, upgradeAcknowledgementIdempotencyKey(organizationID, operation))
 }
 
-func upgradeAcknowledgementIdempotencyKey(operation updaterapi.Operation) string {
-	key := upgradeAcknowledgedEventType + ":" + operation.ID
-	if operation.CompletedAt == nil {
-		// Older updater responses may omit the outcome timestamp. Preserve the
-		// operation-scoped retry behavior rather than making those audits random.
-		return key
+func upgradeOperationIdempotencyKey(eventType string, organizationID int64, operation updaterapi.Operation) string {
+	return fmt.Sprintf(
+		"%s:org:%d:operation:%s:started:%s",
+		eventType,
+		organizationID,
+		operation.ID,
+		operation.StartedAt.UTC().Format(time.RFC3339Nano),
+	)
+}
+
+func upgradeAcknowledgementIdempotencyKey(organizationID int64, operation updaterapi.Operation) string {
+	return fmt.Sprintf(
+		"%s:outcome:%d",
+		upgradeOperationIdempotencyKey(upgradeAcknowledgedEventType, organizationID, operation),
+		operation.OutcomeRevision,
+	)
+}
+
+func validateOperationID(operationID string) error {
+	parsed, err := uuid.Parse(operationID)
+	if err != nil || parsed == uuid.Nil || parsed.String() != operationID {
+		return fleeterror.NewInvalidArgumentError("operation id must be a canonical UUID")
 	}
-	// CompletedAt is stable across retries, but startup reconciliation advances
-	// it when materially rewriting a terminal outcome and requiring a new
-	// dismissal. Canonical UTC keeps the same instant stable across transports.
-	return key + ":" + operation.CompletedAt.UTC().Format(time.RFC3339Nano)
+	return nil
 }
 
 func (s *Service) GetUpgradeStatus(ctx context.Context) UpgradeStatus {
