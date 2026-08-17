@@ -245,25 +245,21 @@ function getResponseProfileScopeSummary(values: ResponseProfileFormValues): stri
   }
 
   const siteIds = getSelectedResponseProfileSiteIds(values);
-  if (values.siteSelection === "allSites") {
-    return "All sites";
-  }
-
   const minerCount = values.deviceIdentifiers.length;
   const siteSummary =
     siteIds.length === 1
       ? getResponseProfileSiteNameForId(values, siteIds[0]) || `Site ${siteIds[0]}`
       : `${siteIds.length} sites`;
-  if (values.siteSelection === "site" && siteIds.length > 0 && minerCount > 0) {
-    return `${siteSummary} + ${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
+  if (minerCount > 0) {
+    return `${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
+  }
+
+  if (values.siteSelection === "allSites") {
+    return "All sites";
   }
 
   if (values.siteSelection === "site" && siteIds.length > 0) {
     return siteSummary;
-  }
-
-  if (minerCount > 0) {
-    return `${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
   }
 
   return getResponseProfileScopeLabelForActionType(values.actionType);

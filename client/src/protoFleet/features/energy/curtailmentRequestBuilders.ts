@@ -1,17 +1,19 @@
 import { create } from "@bufbuild/protobuf";
 
 import {
+  createDeviceCurtailmentScope,
+  createSiteCurtailmentScope,
+  createWholeOrgCurtailmentScope,
+  normalizeCurtailmentSelectionValues,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   type CurtailmentScope,
-  CurtailmentScopeSchema,
   type FixedKwParams,
   FixedKwParamsSchema,
   CurtailmentLevel as ProtoCurtailmentLevel,
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
-  ScopeDeviceListSchema,
-  ScopeSiteSchema,
-  ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
   type UpdateCurtailmentEventRequest,
@@ -176,10 +178,6 @@ type CurtailmentScopeValues = Pick<
   "scopeType" | "siteSelection" | "siteId" | "siteIds" | "deviceSetIds" | "deviceIdentifiers" | "minerSelectionMode"
 >;
 
-function uniqueNonEmptyStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
 function getSelectedSiteIds(
   values: CurtailmentScopeValues,
   siteSelection: CurtailmentScopeValues["siteSelection"],
@@ -190,17 +188,24 @@ function getSelectedSiteIds(
 
   const siteIds =
     values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [];
-  return uniqueNonEmptyStrings(siteIds);
+  return normalizeCurtailmentSelectionValues(siteIds);
 }
 
 export function buildCurtailmentScopes(values: CurtailmentScopeValues): CurtailmentScope[] | undefined {
   const siteSelection = values.siteSelection ?? (values.scopeType === "site" ? "site" : "none");
   if (values.minerSelectionMode === "all") {
-    return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
+    return [createWholeOrgCurtailmentScope()];
   }
 
-  const scopes: CurtailmentScope[] = [];
-  if (siteSelection === "site" || siteSelection === "allSites") {
+  if (values.scopeType === "explicitMiners") {
+    const deviceIdentifiers = normalizeCurtailmentSelectionValues(values.deviceIdentifiers);
+    if (deviceIdentifiers.length === 0) {
+      return undefined;
+    }
+    return [createDeviceCurtailmentScope(deviceIdentifiers)];
+  }
+
+  if (values.scopeType === "site" && (siteSelection === "site" || siteSelection === "allSites")) {
     const siteIds: bigint[] = [];
     for (const siteIdValue of getSelectedSiteIds(values, siteSelection)) {
       const siteId = parseCurtailmentSiteId(siteIdValue);
@@ -212,33 +217,14 @@ export function buildCurtailmentScopes(values: CurtailmentScopeValues): Curtailm
     if (siteIds.length === 0) {
       return undefined;
     }
-    for (const siteId of siteIds) {
-      scopes.push(
-        create(CurtailmentScopeSchema, {
-          scope: { case: "site", value: create(ScopeSiteSchema, { siteId }) },
-        }),
-      );
-    }
+    return siteIds.map(createSiteCurtailmentScope);
   }
 
-  const deviceIdentifiers = uniqueNonEmptyStrings(values.deviceIdentifiers);
-  if (deviceIdentifiers.length > 0) {
-    scopes.push(
-      create(CurtailmentScopeSchema, {
-        scope: { case: "deviceIdentifiers", value: create(ScopeDeviceListSchema, { deviceIdentifiers }) },
-      }),
-    );
-  }
-
-  if (scopes.length > 0) {
-    return scopes;
-  }
-
-  if (values.scopeType === "deviceSet" || values.scopeType === "explicitMiners") {
+  if (values.scopeType === "deviceSet") {
     return undefined;
   }
 
-  return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
+  return [createWholeOrgCurtailmentScope()];
 }
 
 // All-paired targeting requires a closed-loop scope (whole org or sites).
@@ -320,7 +306,7 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
 
   const facilityFanDeviceIds = [
     ...new Set(
-      uniqueNonEmptyStrings(values.facilityFanDeviceIds ?? []).map((value) => {
+      normalizeCurtailmentSelectionValues(values.facilityFanDeviceIds ?? []).map((value) => {
         const id = parseCurtailmentSiteId(value);
         if (id === undefined) {
           throw new Error("Facility fan IDs must be positive integers.");

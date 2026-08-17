@@ -38,6 +38,27 @@ func testOrgAssignment(perms ...string) authz.Assignment {
 	}
 }
 
+func TestScopeResourceContextRequirementsTopologyRequiresOrgWide(t *testing.T) {
+	t.Parallel()
+
+	h := &Handler{}
+	for name, scope := range map[string]domainCurtailment.Scope{
+		"building": {BuildingIDs: []int64{10}},
+		"rack":     {RackIDs: []int64{20}},
+		"group":    {GroupIDs: []int64{30}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			requirements, err := h.scopeResourceContextRequirements(t.Context(), 42, scope, nil, false)
+
+			require.NoError(t, err)
+			assert.True(t, requirements.requireOrgWide)
+			assert.Empty(t, requirements.siteContexts)
+		})
+	}
+}
+
 func testSiteAssignment(siteID int64, perms ...string) authz.Assignment {
 	return authz.Assignment{
 		AssignmentID: 2,
@@ -790,23 +811,21 @@ func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) 
 	t.Parallel()
 
 	const (
-		orgID       = int64(42)
-		allowedSite = int64(7)
-		deniedSite  = int64(8)
+		orgID      = int64(42)
+		deniedSite = int64(8)
 	)
 	store := newHandlerResponseProfileStore()
 	store.deviceSites = map[string]*int64{"hidden-miner": ptrHandlerInt64(deniedSite)}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
-	mixedScope := []*pb.CurtailmentScope{
-		{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: allowedSite}}},
+	deviceScope := []*pb.CurtailmentScope{
 		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
 			DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"hidden-miner"}},
 		}},
 	}
 
-	previewForMixedScope := func(ctx context.Context) error {
+	previewForDeviceScope := func(ctx context.Context) error {
 		_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
-			Scopes: mixedScope,
+			Scopes: deviceScope,
 			Mode:   pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 50},
@@ -814,9 +833,9 @@ func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) 
 		}))
 		return err
 	}
-	startForMixedScope := func(ctx context.Context) error {
+	startForDeviceScope := func(ctx context.Context) error {
 		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
-		req.Scopes = mixedScope
+		req.Scopes = deviceScope
 		_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
 		return err
 	}
@@ -825,8 +844,8 @@ func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) 
 		name string
 		call func(context.Context) error
 	}{
-		{"preview", previewForMixedScope},
-		{"start", startForMixedScope},
+		{"preview", previewForDeviceScope},
+		{"start", startForDeviceScope},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -837,7 +856,6 @@ func TestHandler_PreviewAndStartRequireExplicitDeviceSiteContexts(t *testing.T) 
 				Role:           "OPERATOR",
 			},
 				testOrgAssignment(authz.PermCurtailmentManage),
-				testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
 				testSiteAssignment(deniedSite),
 			)
 

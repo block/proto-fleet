@@ -200,8 +200,8 @@ function getSiteCountLabel(siteCount: number): string {
   return siteCount === 1 ? "site" : "sites";
 }
 
-function getDeviceSetCountLabel(deviceSetCount: number): string {
-  return deviceSetCount === 1 ? "device set" : "device sets";
+function getScopeCountLabel(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
 }
 
 function formatCurtailmentScopeParts(parts: string[]): string {
@@ -363,7 +363,9 @@ export function getCurtailmentEventObservedReductionKw(
 export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, siteNameById?: SiteNameById): string {
   if (event.scopes.length > 0) {
     const siteLabelsById = new Map<string, string>();
-    const deviceSetIds = new Set<string>();
+    const buildingIds = new Set<bigint>();
+    const rackIds = new Set<bigint>();
+    const groupIds = new Set<bigint>();
     const deviceIdentifiers = new Set<string>();
 
     for (const scope of event.scopes) {
@@ -375,8 +377,14 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
           siteLabelsById.set(siteId, getSiteDisplayName(siteId, siteNameById));
           break;
         }
-        case "deviceSetIds":
-          scope.scope.value.deviceSetIds.forEach((deviceSetId) => deviceSetIds.add(deviceSetId));
+        case "building":
+          buildingIds.add(scope.scope.value.buildingId);
+          break;
+        case "rack":
+          rackIds.add(scope.scope.value.rackId);
+          break;
+        case "group":
+          groupIds.add(scope.scope.value.groupId);
           break;
         case "deviceIdentifiers":
           scope.scope.value.deviceIdentifiers.forEach((deviceIdentifier) => deviceIdentifiers.add(deviceIdentifier));
@@ -393,8 +401,14 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
       parts.push(`${siteLabelsById.size.toLocaleString()} ${getSiteCountLabel(siteLabelsById.size)}`);
     }
 
-    if (deviceSetIds.size > 0) {
-      parts.push(`${deviceSetIds.size.toLocaleString()} ${getDeviceSetCountLabel(deviceSetIds.size)}`);
+    if (buildingIds.size > 0) {
+      parts.push(`${buildingIds.size.toLocaleString()} ${getScopeCountLabel(buildingIds.size, "building")}`);
+    }
+    if (rackIds.size > 0) {
+      parts.push(`${rackIds.size.toLocaleString()} ${getScopeCountLabel(rackIds.size, "rack")}`);
+    }
+    if (groupIds.size > 0) {
+      parts.push(`${groupIds.size.toLocaleString()} ${getScopeCountLabel(groupIds.size, "group")}`);
     }
 
     if (deviceIdentifiers.size > 0) {
@@ -409,8 +423,6 @@ export function getCurtailmentEventScopeLabel(event: ProtoCurtailmentEvent, site
       return "Whole fleet";
     case "site":
       return getSiteDisplayName(event.scope.value.siteId, siteNameById);
-    case "deviceSetIds":
-      return `${event.scope.value.deviceSetIds.length.toLocaleString()} device sets`;
     case "deviceIdentifiers": {
       const count = event.scope.value.deviceIdentifiers.length;
       return `${count.toLocaleString()} ${getMinerCountLabel(count)}`;

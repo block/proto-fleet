@@ -6,9 +6,96 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 
+	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	domaincurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
+
+func TestToScopeTranslatesVersionedTypedTerminalScope(t *testing.T) {
+	t.Parallel()
+
+	got, err := toScope(&pb.PreviewCurtailmentPlanRequest{
+		ScopeSchemaVersion: domaincurtailment.ScopeSchemaVersionCurrent,
+		Scopes: []*pb.CurtailmentScope{
+			{Scope: &pb.CurtailmentScope_Building{Building: &pb.ScopeBuilding{BuildingId: 20}}},
+			{Scope: &pb.CurtailmentScope_Building{Building: &pb.ScopeBuilding{BuildingId: 21}}},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, domaincurtailment.Scope{
+		SchemaVersion: domaincurtailment.ScopeSchemaVersionCurrent,
+		Type:          models.ScopeTypeMixed,
+		BuildingIDs:   []int64{20, 21},
+	}, got)
+}
+
+func TestProtoScopesFromDomainScopePreservesTypedSelectors(t *testing.T) {
+	t.Parallel()
+
+	scopes := protoScopesFromDomainScope(domaincurtailment.Scope{
+		Type:        models.ScopeTypeMixed,
+		BuildingIDs: []int64{20, 21},
+	})
+
+	require.Len(t, scopes, 2)
+	assert.Equal(t, int64(20), scopes[0].GetBuilding().GetBuildingId())
+	assert.Equal(t, int64(21), scopes[1].GetBuilding().GetBuildingId())
+}
+
+func TestToScopeRejectsMixedTerminalTypes(t *testing.T) {
+	t.Parallel()
+
+	_, err := toScope(&pb.PreviewCurtailmentPlanRequest{
+		ScopeSchemaVersion: domaincurtailment.ScopeSchemaVersionCurrent,
+		Scopes: []*pb.CurtailmentScope{
+			{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: 10}}},
+			{Scope: &pb.CurtailmentScope_Building{Building: &pb.ScopeBuilding{BuildingId: 20}}},
+		},
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exactly one selector type")
+}
+
+func TestToScopeRejectsRemovedDeviceSetWireField(t *testing.T) {
+	t.Parallel()
+
+	deviceSetPayload := protowire.AppendTag(nil, 1, protowire.BytesType)
+	deviceSetPayload = protowire.AppendString(deviceSetPayload, "set-a")
+	requestPayload := protowire.AppendTag(nil, 2, protowire.BytesType)
+	requestPayload = protowire.AppendBytes(requestPayload, deviceSetPayload)
+	request := &pb.PreviewCurtailmentPlanRequest{}
+	require.NoError(t, proto.Unmarshal(requestPayload, request))
+
+	_, err := toScope(request)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "scope is required")
+}
+
+func TestToTerminalScopeValidatesRawInputBeforeMixedTypeRejection(t *testing.T) {
+	t.Parallel()
+
+	deviceIdentifiers := make([]string, domaincurtailment.ScopeDeviceIdentifiersMax+1)
+	for i := range deviceIdentifiers {
+		deviceIdentifiers[i] = "miner-a"
+	}
+
+	_, err := toTerminalScope([]*pb.CurtailmentScope{
+		{Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}},
+		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{
+			DeviceIdentifiers: deviceIdentifiers,
+		}}},
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device_identifiers must contain at most 10000 entries")
+}
 
 // TestToInsufficientLoadError_IncludesAllNonZeroCounters pins the
 // contract that every non-zero exclusion counter on InsufficientLoadDetail

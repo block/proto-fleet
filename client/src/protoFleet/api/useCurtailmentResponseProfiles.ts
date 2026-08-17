@@ -3,20 +3,23 @@ import { create } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  createDeviceCurtailmentScope,
+  createSiteCurtailmentScope,
+  createWholeOrgCurtailmentScope,
+  normalizeCurtailmentSelectionValues,
+  parseCurtailmentTerminalScopes,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   type CurtailmentResponseProfile as ApiCurtailmentResponseProfile,
   CreateCurtailmentResponseProfileRequestSchema,
   CurtailmentLevel,
   CurtailmentMode,
   CurtailmentPriority,
   type CurtailmentScope,
-  CurtailmentScopeSchema,
   CurtailmentStrategy,
   DeleteCurtailmentResponseProfileRequestSchema,
   FixedKwParamsSchema,
   ListCurtailmentResponseProfilesRequestSchema,
-  ScopeDeviceListSchema,
-  ScopeSiteSchema,
-  ScopeWholeOrgSchema,
   type UpdateCurtailmentResponseProfileRequest,
   UpdateCurtailmentResponseProfileRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -92,10 +95,6 @@ export function getResponseProfileScopeLabelForActionType(actionType: ResponsePr
   );
 }
 
-function uniqueNonEmptyStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
 function hasSameStringSet(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value) => right.includes(value));
 }
@@ -103,7 +102,7 @@ function hasSameStringSet(left: readonly string[], right: readonly string[]): bo
 function getSelectedResponseProfileSiteIds(
   values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
 ): string[] {
-  const siteIds = uniqueNonEmptyStrings(
+  const siteIds = normalizeCurtailmentSelectionValues(
     values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
   );
 
@@ -252,32 +251,26 @@ function getApiResponseProfileScopeValues(
   const siteIds: string[] = [];
   const deviceIdentifiers: string[] = [];
 
-  for (const scope of profile.scopes) {
-    switch (scope.scope.case) {
-      case "wholeOrg":
-        return {
-          siteSelection: "allSites",
-          siteId: "",
-          siteName: "",
-          siteIds: [],
-          siteNamesById: {},
-          deviceIdentifiers: [],
-          minerSelectionMode: "all",
-        };
-      case "site":
-        siteSelection = "site";
-        siteIds.push(scope.scope.value.siteId.toString());
-        break;
-      case "deviceIdentifiers":
-        deviceIdentifiers.push(...scope.scope.value.deviceIdentifiers);
-        break;
-      case "deviceSetIds":
-      case undefined:
-        break;
+  if (profile.scopes.length > 0) {
+    const scope = parseCurtailmentTerminalScopes(profile.scopes);
+    if (scope.type === "wholeOrg") {
+      return {
+        siteSelection: "allSites",
+        siteId: "",
+        siteName: "",
+        siteIds: [],
+        siteNamesById: {},
+        deviceIdentifiers: [],
+        minerSelectionMode: "all",
+      };
     }
-  }
-
-  if (profile.scopes.length === 0 && profile.site?.siteId) {
+    if (scope.type === "site") {
+      siteSelection = "site";
+      siteIds.push(...scope.siteIds);
+    } else {
+      deviceIdentifiers.push(...scope.deviceIdentifiers);
+    }
+  } else if (profile.site?.siteId) {
     siteSelection = "site";
     siteIds.push(profile.site.siteId.toString());
   }
@@ -315,24 +308,20 @@ function getResponseProfileScopeSummary(values: ResponseProfileFormValues, mode:
 
   const siteIds = getSelectedResponseProfileSiteIds(values);
   const siteSelection = values.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
-  if (siteSelection === "allSites") {
-    return "All sites";
-  }
-
   const minerCount = values.deviceIdentifiers.length;
   const minerSummary = minerCount === 1 ? "1 miner" : `${minerCount} miners`;
   const siteSummary =
     siteIds.length === 1
       ? getResponseProfileSiteNameForId(values, siteIds[0]) || `Site ${siteIds[0]}`
       : `${siteIds.length} sites`;
-  if (siteSelection === "site" && siteIds.length > 0 && minerCount > 0) {
-    return `${siteSummary} + ${minerSummary}`;
+  if (minerCount > 0) {
+    return minerSummary;
+  }
+  if (siteSelection === "allSites") {
+    return "All sites";
   }
   if (siteSelection === "site" && siteIds.length > 0) {
     return siteSummary;
-  }
-  if (minerCount > 0) {
-    return minerSummary;
   }
   return getResponseProfileScopeLabel(mode);
 }
@@ -396,43 +385,30 @@ function getOptionalNonNegativeNumber(value: string): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function createWholeOrgScope(): CurtailmentScope {
-  return create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } });
-}
-
 function getResponseProfileScopes(values: ResponseProfileFormValues): CurtailmentScope[] | undefined {
   const siteIds = getSelectedResponseProfileSiteIds(values);
   const siteSelection = values.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
   if (values.minerSelectionMode === "all") {
-    return [createWholeOrgScope()];
+    return [createWholeOrgCurtailmentScope()];
   }
 
-  const scopes: CurtailmentScope[] = [];
+  const deviceIdentifiers = normalizeCurtailmentSelectionValues(values.deviceIdentifiers);
+  if (deviceIdentifiers.length > 0) {
+    return [createDeviceCurtailmentScope(deviceIdentifiers)];
+  }
+
   if (siteSelection === "site" || siteSelection === "allSites") {
+    const scopes: CurtailmentScope[] = [];
     for (const siteId of siteIds) {
       if (!/^[1-9]\d*$/.test(siteId)) {
         return undefined;
       }
-      scopes.push(
-        create(CurtailmentScopeSchema, {
-          scope: { case: "site", value: create(ScopeSiteSchema, { siteId: BigInt(siteId) }) },
-        }),
-      );
+      scopes.push(createSiteCurtailmentScope(BigInt(siteId)));
     }
+    return scopes.length > 0 ? scopes : undefined;
   }
 
-  const deviceIdentifiers = [
-    ...new Set(values.deviceIdentifiers.map((identifier) => identifier.trim()).filter(Boolean)),
-  ];
-  if (deviceIdentifiers.length > 0) {
-    scopes.push(
-      create(CurtailmentScopeSchema, {
-        scope: { case: "deviceIdentifiers", value: create(ScopeDeviceListSchema, { deviceIdentifiers }) },
-      }),
-    );
-  }
-
-  return scopes.length > 0 ? scopes : [createWholeOrgScope()];
+  return [createWholeOrgCurtailmentScope()];
 }
 
 function buildResponseProfilePayload(values: ResponseProfileFormValues) {

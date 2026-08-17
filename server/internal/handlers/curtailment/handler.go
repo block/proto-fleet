@@ -483,7 +483,7 @@ func (h *Handler) scopeResourceContextRequirementsFromProto(
 	deviceSites map[string]*int64,
 	requireKnownDevices bool,
 ) (scopeResourceContextRequirements, error) {
-	scope, err := toCompositeScope(scopes)
+	scope, err := toTerminalScope(scopes)
 	if err != nil {
 		return scopeResourceContextRequirements{}, err
 	}
@@ -501,6 +501,13 @@ func (h *Handler) scopeResourceContextRequirements(
 		siteContexts: siteResourceContextsForScope(scope),
 	}
 	if scope.Type == models.ScopeTypeWholeOrg || scopeHasNoSelectors(scope) {
+		out.requireOrgWide = true
+		return out, nil
+	}
+	if len(scope.BuildingIDs) > 0 || len(scope.RackIDs) > 0 || len(scope.GroupIDs) > 0 {
+		// Topology resolution will eventually derive the complete site envelope.
+		// Until then, fail closed instead of authorizing an unresolved selector
+		// against an empty resource context.
 		out.requireOrgWide = true
 		return out, nil
 	}
@@ -543,7 +550,9 @@ func scopeHasNoSelectors(scope curtailment.Scope) bool {
 	return scope.Type == "" &&
 		scope.SiteID == 0 &&
 		len(scope.SiteIDs) == 0 &&
-		len(scope.DeviceSetIDs) == 0 &&
+		len(scope.BuildingIDs) == 0 &&
+		len(scope.RackIDs) == 0 &&
+		len(scope.GroupIDs) == 0 &&
 		len(scope.DeviceIdentifiers) == 0
 }
 
@@ -845,7 +854,7 @@ func shouldBatchHydrateTargetSiteCoverage(event *models.Event) bool {
 		return false
 	}
 	switch event.ScopeType {
-	case models.ScopeTypeDeviceList, models.ScopeTypeDeviceSets:
+	case models.ScopeTypeDeviceList:
 		return true
 	case models.ScopeTypeMixed:
 		_, handled, err := mixedSiteOnlyEventResourceContexts(event)
