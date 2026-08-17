@@ -72,7 +72,6 @@ const (
 )
 
 var (
-	stableOrRCRelease        = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
 	staleStateArtifactName   = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
 	staleStagingArtifactName = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
 	operationLogNamePattern  = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
@@ -1001,16 +1000,16 @@ func (m *Manager) Acknowledge(operationID string) (updaterapi.Operation, bool, e
 }
 
 func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
-	if !isAllowedRelease(targetVersion, false) {
+	if !isCanonicalRelease(targetVersion) {
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerInvalid,
-			"target version must be a stable or RC release tag",
+			"target version must be a valid semantic release tag",
 		)
 	}
 	if m.cfg.NewID == nil {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: generator is not configured")
 	}
-	return m.trigger(targetVersion, m.cfg.NewID(), false, false, false)
+	return m.trigger(targetVersion, m.cfg.NewID(), false, false)
 }
 
 // TriggerWithID accepts a caller-generated UUID so a client that loses the
@@ -1018,41 +1017,29 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 // guessing by target or time. Reusing the ID for the same target is
 // idempotent; reusing it for another target is rejected.
 func (m *Manager) TriggerWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, false, false)
+	return m.triggerWithID(targetVersion, operationID, false)
 }
 
 func (m *Manager) TriggerCompleteWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, true, false)
+	return m.triggerWithID(targetVersion, operationID, true)
 }
 
-func (m *Manager) TriggerPrereleaseWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, false, true)
-}
-
-func (m *Manager) TriggerCompletePrereleaseWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, true, true)
-}
-
-func (m *Manager) triggerWithID(targetVersion, operationID string, complete, allowPrerelease bool) (updaterapi.Operation, error) {
+func (m *Manager) triggerWithID(targetVersion, operationID string, complete bool) (updaterapi.Operation, error) {
 	parsedID, err := uuid.Parse(operationID)
 	if err != nil || parsedID.String() != operationID {
 		return updaterapi.Operation{}, newTriggerError(errTriggerInvalid, "operation id must be a canonical UUID")
 	}
-	return m.trigger(targetVersion, operationID, true, complete, allowPrerelease)
+	return m.trigger(targetVersion, operationID, true, complete)
 }
 
-func (m *Manager) trigger(targetVersion, operationID string, idempotent, complete, allowPrerelease bool) (updaterapi.Operation, error) {
+func (m *Manager) trigger(targetVersion, operationID string, idempotent, complete bool) (updaterapi.Operation, error) {
 	if operationID == "" {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: empty value")
 	}
-	if !isAllowedRelease(targetVersion, allowPrerelease) {
-		message := "target version must be a stable or RC release tag"
-		if allowPrerelease {
-			message = "target version must be a valid semantic release tag"
-		}
+	if !isCanonicalRelease(targetVersion) {
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerInvalid,
-			message,
+			"target version must be a valid semantic release tag",
 		)
 	}
 	if complete && m.cfg.DeploymentMode != DeploymentModeHA {
@@ -1192,10 +1179,6 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 
 func isCanonicalRelease(version string) bool {
 	return semver.IsValid(version) && semver.Canonical(version) == version
-}
-
-func isAllowedRelease(version string, allowPrerelease bool) bool {
-	return isCanonicalRelease(version) && (allowPrerelease || stableOrRCRelease.MatchString(version))
 }
 
 func (m *Manager) finishOperation() {

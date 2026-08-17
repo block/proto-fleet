@@ -20,7 +20,7 @@ type fakeUpdaterClient struct {
 	operation  updaterapi.Operation
 }
 
-func (f *fakeUpdaterClient) TriggerCompletePrerelease(_ context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
+func (f *fakeUpdaterClient) TriggerComplete(_ context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
 	f.triggered = true
 	f.complete = true
 	if f.triggerErr != nil {
@@ -33,7 +33,7 @@ func (f *fakeUpdaterClient) Status(context.Context) (updaterapi.StatusResponse, 
 	return updaterapi.StatusResponse{}, nil
 }
 
-func (f *fakeUpdaterClient) TriggerPrerelease(_ context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
+func (f *fakeUpdaterClient) Trigger(_ context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {
 	f.triggered = true
 	if f.triggerErr != nil {
 		return updaterapi.Operation{}, f.triggerErr

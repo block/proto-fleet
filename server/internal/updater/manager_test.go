@@ -363,7 +363,7 @@ func TestManagerHARejectsDowngrade(t *testing.T) {
 	})
 
 	// Act
-	_, err := manager.TriggerPrereleaseWithID("v1.3.0-alpha.1", "11111111-1111-4111-8111-111111111111")
+	_, err := manager.TriggerWithID("v1.3.0-alpha.1", "11111111-1111-4111-8111-111111111111")
 
 	// Assert
 	require.ErrorIs(t, err, errTriggerPrecondition)

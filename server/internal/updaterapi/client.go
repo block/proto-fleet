@@ -73,19 +73,11 @@ func (c *Client) Status(ctx context.Context) (StatusResponse, error) {
 }
 
 func (c *Client) Trigger(ctx context.Context, operationID, targetVersion string) (Operation, error) {
-	return c.trigger(ctx, operationID, targetVersion, false, false)
+	return c.trigger(ctx, operationID, targetVersion, false)
 }
 
 func (c *Client) TriggerComplete(ctx context.Context, operationID, targetVersion string) (Operation, error) {
-	return c.trigger(ctx, operationID, targetVersion, true, false)
-}
-
-func (c *Client) TriggerPrerelease(ctx context.Context, operationID, targetVersion string) (Operation, error) {
-	return c.trigger(ctx, operationID, targetVersion, false, true)
-}
-
-func (c *Client) TriggerCompletePrerelease(ctx context.Context, operationID, targetVersion string) (Operation, error) {
-	return c.trigger(ctx, operationID, targetVersion, true, true)
+	return c.trigger(ctx, operationID, targetVersion, true)
 }
 
 func (c *Client) Acknowledge(ctx context.Context, operationID string) (Operation, bool, error) {
@@ -102,11 +94,8 @@ func (c *Client) Acknowledge(ctx context.Context, operationID string) (Operation
 	return response.Operation, response.AlreadyAcknowledged, nil
 }
 
-func (c *Client) trigger(ctx context.Context, operationID, targetVersion string, complete, allowPrerelease bool) (Operation, error) {
-	request := TriggerRequest{
-		OperationID: operationID, TargetVersion: targetVersion,
-		Complete: complete, AllowPrerelease: allowPrerelease,
-	}
+func (c *Client) trigger(ctx context.Context, operationID, targetVersion string, complete bool) (Operation, error) {
+	request := TriggerRequest{OperationID: operationID, TargetVersion: targetVersion, Complete: complete}
 	var response TriggerResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/upgrade", request, &response); err != nil {
 		return Operation{}, err

@@ -44,10 +44,9 @@ type StatusResponse struct {
 }
 
 type TriggerRequest struct {
-	OperationID     string `json:"operation_id"`
-	TargetVersion   string `json:"target_version"`
-	Complete        bool   `json:"complete,omitempty"`
-	AllowPrerelease bool   `json:"allow_prerelease,omitempty"`
+	OperationID   string `json:"operation_id"`
+	TargetVersion string `json:"target_version"`
+	Complete      bool   `json:"complete,omitempty"`
 }
 
 type TriggerResponse struct {

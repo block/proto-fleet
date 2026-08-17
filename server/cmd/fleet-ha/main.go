@@ -245,8 +245,8 @@ func runStatus(ctx context.Context, envPath string, output io.Writer, read statu
 
 type updaterClient interface {
 	Status(ctx context.Context) (updaterapi.StatusResponse, error)
-	TriggerPrerelease(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
-	TriggerCompletePrerelease(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+	Trigger(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
+	TriggerComplete(ctx context.Context, operationID, targetVersion string) (updaterapi.Operation, error)
 }
 
 const (
@@ -307,9 +307,9 @@ func runUpdate(
 		return err
 	}
 	operationID := uuid.NewString()
-	trigger := client.TriggerPrerelease
+	trigger := client.Trigger
 	if complete {
-		trigger = client.TriggerCompletePrerelease
+		trigger = client.TriggerComplete
 	}
 	operation, err := triggerUpdate(ctx, operationID, targetVersion, trigger)
 	if err != nil {

@@ -41,12 +41,7 @@ func TestHandleUpgradeRejectsTrailingContentAndAllowsWhitespace(t *testing.T) {
 		{
 			name:      "trailing whitespace",
 			body:      "{\"operation_id\":\"11111111-1111-4111-8111-111111111111\",\"target_version\":\"invalid\"}\n\t ",
-			wantError: "target version must be a stable or RC release tag",
-		},
-		{
-			name:      "prerelease without CLI opt-in",
-			body:      `{"operation_id":"11111111-1111-4111-8111-111111111111","target_version":"v1.2.3-alpha.1"}`,
-			wantError: "target version must be a stable or RC release tag",
+			wantError: "target version must be a valid semantic release tag",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -144,14 +139,14 @@ func TestHandleUpgradeUsesCallerOperationID(t *testing.T) {
 	operationID := "11111111-1111-4111-8111-111111111111"
 	manager := &Manager{operation: &updaterapi.Operation{
 		ID:            operationID,
-		TargetVersion: "v1.1.0-alpha.1",
+		TargetVersion: "v1.1.0",
 		Phase:         updaterapi.PhaseQueued,
 	}}
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/upgrade",
-		strings.NewReader(fmt.Sprintf(`{"operation_id":%q,"target_version":"v1.1.0-alpha.1","allow_prerelease":true}`, operationID)),
+		strings.NewReader(fmt.Sprintf(`{"operation_id":%q,"target_version":"v1.1.0"}`, operationID)),
 	)
 	NewServer(manager).handleUpgrade(recorder, request)
 
