@@ -1,22 +1,10 @@
 import type { StateCreator } from "zustand";
+import { ROOT_MODULE_KEY, type PoolInfo, type PoolsState, type ResourceState } from "../contract";
 import type { MinerStore } from "../useMinerStore";
-import type { Pool } from "@/protoOS/api/generatedApi";
 
-// =============================================================================
-// Slice Interface
-// =============================================================================
-
-export interface PoolsSlice {
-  // State
-  poolsInfo: Pool[] | undefined;
-
-  // Actions
-  setPoolsInfo: (poolsInfo: Pool[] | undefined) => void;
+export interface PoolsSlice extends PoolsState {
+  setPoolsInfo: (poolsInfo: PoolInfo[] | undefined) => void;
 }
-
-// =============================================================================
-// Slice Creator
-// =============================================================================
 
 export const createPoolsSlice: StateCreator<
   MinerStore,
@@ -24,14 +12,15 @@ export const createPoolsSlice: StateCreator<
   [],
   PoolsSlice
 > = (set) => ({
-  // Initial State
-  poolsInfo: undefined,
-
-  // Actions
+  resourceByOwner: new Map(),
+  byOwner: new Map(),
   setPoolsInfo: (poolsInfo) =>
     set(
       (state) => {
-        state.pools.poolsInfo = poolsInfo;
+        const resource: ResourceState = poolsInfo ? { status: "ready", updatedAtMs: Date.now() } : { status: "idle" };
+        state.pools.resourceByOwner.set(ROOT_MODULE_KEY, resource);
+        if (poolsInfo) state.pools.byOwner.set(ROOT_MODULE_KEY, poolsInfo);
+        else state.pools.byOwner.delete(ROOT_MODULE_KEY);
       },
       false,
       "pools/setPoolsInfo",

@@ -1,5 +1,5 @@
-import { Pool } from "@/protoOS/api/generatedApi";
-
-export interface PoolInfo extends Pick<Pool, "status" | "url"> {
+export interface PoolInfo {
   index: number;
+  status?: string;
+  url?: string;
 }

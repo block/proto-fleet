@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
-import { Pool } from "@/protoOS/api/generatedApi";
+import type { PoolInfo } from "@/protoOS/store/contract";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useSetPoolsInfo } from "@/protoOS/store";
+import { usePoolsInfo as useStoredPoolsInfo, useSetPoolsInfo } from "@/protoOS/store";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 export interface FetchPoolsInfoProps {
   onError?: (response?: string) => void;
-  onSuccess?: (response?: Pool[]) => void;
+  onSuccess?: (response?: PoolInfo[]) => void;
   retryOnMinerDown?: boolean;
 }
 
@@ -18,27 +18,24 @@ type UsePoolsInfoProps = {
 };
 
 const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
-  const [data, setData] = useState<Pool[]>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
+  const data = useStoredPoolsInfo();
   const setPoolsInfo = useSetPoolsInfo();
 
   const fetchData = useCallback(
     ({ onSuccess, onError, retryOnMinerDown }: FetchPoolsInfoProps = {}) => {
-      if (!api) return;
+      if (!adapter) return;
 
       const performFetch = () => {
         setPending(true);
         setError(undefined);
         authRetry({
-          request: (params) => api.listPools(params),
-          onSuccess: (res) => {
-            // find the highest priority pool
-            // highest priority is the lowest number
-            const sortedPools = res?.data["pools"]?.sort((a, b) => (a.priority || 0) - (b.priority || 0));
-            setData(sortedPools);
+          request: (params) => adapter.getPools(params),
+          onSuccess: (sortedPools) => {
+            setPoolsInfo(sortedPools);
             onSuccess?.(sortedPools);
             if (retryOnMinerDown) {
               // TODO: remove alive when cgminer is removed
@@ -64,7 +61,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
 
       performFetch();
     },
-    [api, authRetry],
+    [adapter, authRetry, setPoolsInfo],
   );
 
   usePoll({
@@ -72,11 +69,6 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
     poll,
     pollIntervalMs,
   });
-
-  // Update store whenever pools info changes
-  useEffect(() => {
-    setPoolsInfo(data);
-  }, [data, setPoolsInfo]);
 
   return useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
 };

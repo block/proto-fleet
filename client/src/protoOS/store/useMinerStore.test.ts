@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
 import useMinerStore from "./useMinerStore";
-import { asDeviceId } from "./contract";
+import { asDeviceId, ROOT_MODULE_KEY } from "./contract";
 
 const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
   identity: {
@@ -36,7 +36,7 @@ describe("useMinerStore.resetDeviceData", () => {
     useMinerStore.getState().resetDeviceData();
 
     const after = useMinerStore.getState();
-    expect(after.pools.poolsInfo).toBeUndefined();
+    expect(after.pools.byOwner.has(ROOT_MODULE_KEY)).toBe(false);
     expect(after.hardware.hashboards.size).toBe(0);
     expect(after.telemetry.fans.size).toBe(0);
     expect(after.telemetry.coolingMode).toBeNull();
