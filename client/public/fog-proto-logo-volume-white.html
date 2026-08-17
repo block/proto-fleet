@@ -231,6 +231,12 @@
       resizeBuffer(buffers.black, reference.width, reference.height, reference.ratio);
       const pointBudget = window.devicePixelRatio > 1 ? pointBudgets.highDensity : pointBudgets.standard;
       state.pointStride = Math.max(1, Math.ceil(state.points.length / pointBudget));
+
+      // A resize clears each canvas. Redraw the single permitted frame so
+      // reduced-motion users never see a blank animation after resizing.
+      if (reducedMotion.matches) {
+        renderStaticFrame();
+      }
     }
 
     function rotatePoint(point, time) {

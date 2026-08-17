@@ -225,12 +225,16 @@ describe("UpgradeOperationModal", () => {
   });
 
   it("keeps a trigger error visible when there is no longer an eligible release", () => {
+    const onDismiss = vi.fn();
     renderModal({
       release: undefined,
       triggerError: "The eligible release changed before the request completed",
+      onDismiss,
     });
 
     expect(screen.getByRole("alert")).toHaveTextContent("The eligible release changed before the request completed");
     expect(screen.queryByRole("button", { name: "Update now" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
 });

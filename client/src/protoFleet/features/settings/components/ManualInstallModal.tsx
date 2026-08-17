@@ -5,13 +5,14 @@ import type { ButtonProps } from "@/shared/components/ButtonGroup";
 import Dialog from "@/shared/components/Dialog";
 
 interface ManualInstallModalProps {
+  copyDisabled: boolean;
   installCommand: string;
   onDismiss: () => void;
   open: boolean;
   version: string;
 }
 
-const ManualInstallModal = ({ installCommand, onDismiss, open, version }: ManualInstallModalProps) => {
+const ManualInstallModal = ({ copyDisabled, installCommand, onDismiss, open, version }: ManualInstallModalProps) => {
   const buttons: ButtonProps[] = [
     {
       text: "Close",
@@ -23,6 +24,7 @@ const ManualInstallModal = ({ installCommand, onDismiss, open, version }: Manual
       text: "Copy command",
       prefixIcon: <Copy width="w-4" />,
       variant: variants.primary,
+      disabled: copyDisabled,
       onClick: () => copyInstallCommand(installCommand),
     },
   ];

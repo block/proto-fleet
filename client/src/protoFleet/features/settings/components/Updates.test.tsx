@@ -757,6 +757,19 @@ describe("Updates", () => {
     );
   });
 
+  it("disables copying a manual install command while an update state is unresolved", async () => {
+    mockGetUpdateStatus.mockResolvedValue(buildStatus());
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("button", { name: "Install manually" }));
+    expect(await screen.findByRole("button", { name: "Copy install command" })).toBeEnabled();
+
+    upgradeHookMock.current.reconciling = true;
+    page.rerender(<Updates />);
+
+    expect(screen.getByRole("button", { name: "Copy install command" })).toBeDisabled();
+  });
+
   it("shows an error toast when copying the install command fails", async () => {
     mockGetUpdateStatus.mockResolvedValue(buildStatus());
     mockCopyToClipboard.mockRejectedValue(new Error("copy failed"));

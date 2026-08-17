@@ -228,7 +228,13 @@ const getModalButtons = ({
     ];
   }
   if (!release) {
-    return undefined;
+    return [
+      {
+        text: "Close",
+        variant: variants.secondary,
+        onClick: onDismiss,
+      },
+    ];
   }
   return [
     {

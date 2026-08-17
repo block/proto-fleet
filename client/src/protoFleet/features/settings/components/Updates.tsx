@@ -601,6 +601,7 @@ const Updates = () => {
       />
       {status?.installCommand ? (
         <ManualInstallModal
+          copyDisabled={manualCommandDisabled}
           open={manualInstallModalOpen}
           onDismiss={() => setManualInstallModalOpen(false)}
           installCommand={status.installCommand}
