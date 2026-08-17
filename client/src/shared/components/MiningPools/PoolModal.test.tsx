@@ -256,6 +256,31 @@ describe("PoolModal", () => {
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     });
 
+    it("submits nonempty invalid URLs so connection errors come from the backend", () => {
+      render(
+        <PoolModal
+          {...defaultProps}
+          pools={[
+            {
+              name: "Invalid Pool",
+              url: "not-a-valid-pool-url",
+              username: "worker",
+              password: "",
+              priority: 0,
+            },
+          ]}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+      expect(mockTestConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          poolInfo: expect.objectContaining({ url: "not-a-valid-pool-url" }),
+        }),
+      );
+    });
+
     it("collects a standalone authority key for ProtoOS SV2 pools", async () => {
       mockOnSave.mockResolvedValue(undefined);
       render(

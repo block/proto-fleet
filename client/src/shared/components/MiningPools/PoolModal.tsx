@@ -293,9 +293,8 @@ const PoolModal = ({
 
   const onTestConnection = useCallback(() => {
     const url = draftPoolInfo[poolIndex].url.trim();
-    const nextUrlError = !url ? urlValidationErrors.required : validateURLScheme(url, { standaloneV2AuthorityKey });
-    if (nextUrlError) {
-      setUrlError(nextUrlError);
+    if (!url) {
+      setUrlError(urlValidationErrors.required);
       return;
     }
 
