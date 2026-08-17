@@ -674,7 +674,7 @@ func TestTriggerUpgradeRevalidatesTheEligibleTarget(t *testing.T) {
 	assert.Equal(t, []string{testOperationID}, executor.operationIDs)
 	assert.Equal(t, []string{"v1.1.0"}, executor.triggered)
 
-	_, err = svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.2.0")
+	_, err = svc.TriggerUpgrade(admittedUpgradeContext(context.Background()), 1, testOperationID, "v1.2.0-alpha.1")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Equal(t, []string{"v1.1.0"}, executor.triggered, "a stale or invented target must never reach the host executor")
