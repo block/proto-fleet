@@ -56,7 +56,8 @@ describe("General system-tag flow", () => {
     (useMinerHosting as Mock).mockReturnValue({ mode: "direct", isFleetHosted: false });
     // Resolve an existing tag so the "Edit" affordance renders.
     (useSystemTag as Mock).mockReturnValue({
-      getSystemTag: ({ onSuccess }: { onSuccess: (tag: string) => void }) => onSuccess("rig-01"),
+      systemTag: "rig-01",
+      getSystemTag: vi.fn(),
     });
   });
 

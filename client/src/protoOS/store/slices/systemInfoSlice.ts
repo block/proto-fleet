@@ -4,6 +4,7 @@ import type { MinerStore } from "../useMinerStore";
 
 export interface SystemInfoSlice extends SystemInfoState {
   setSystemInfo: (systemInfo: SystemInfoData | undefined) => void;
+  setSystemTag: (systemTag: string) => void;
   setError: (error: string | undefined) => void;
   setPending: (pending: boolean) => void;
   reset: () => void;
@@ -21,6 +22,11 @@ export const createSystemInfoSlice: StateCreator<MinerStore, [["zustand/immer", 
     set((state) => {
       state.systemInfo.data = systemInfo;
       state.systemInfo.resource = systemInfo ? { status: "ready", updatedAtMs: Date.now() } : idleResource();
+    }),
+
+  setSystemTag: (systemTag) =>
+    set((state) => {
+      if (state.systemInfo.data) state.systemInfo.data.systemTag = systemTag;
     }),
 
   setError: (error) =>

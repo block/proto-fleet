@@ -30,7 +30,6 @@ const General = () => {
   const [showThemeSwitcher, setShowThemeSwitcher] = useState(false);
   const [showTemperatureUnitsSwitcher, setShowTemperatureUnitsSwitcher] = useState(false);
   const [showMinerSystemTagEditModal, setShowMinerSystemTagEditModal] = useState(false);
-  const [minerTag, setMinerTag] = useState<string | null>(null);
   const theme = useTheme();
   const setTheme = useSetTheme();
   const temperatureUnit = useTemperatureUnit();
@@ -38,7 +37,7 @@ const General = () => {
 
   const systemInfo = useSystemInfo();
   const isProtoRig = useIsProtoRig();
-  const { getSystemTag } = useSystemTag();
+  const { getSystemTag, systemTag: minerTag } = useSystemTag();
   const { isFleetHosted } = useMinerHosting();
 
   const pausedAuthAction = usePausedAuthAction();
@@ -50,9 +49,7 @@ const General = () => {
   );
 
   useEffect(() => {
-    getSystemTag({
-      onSuccess: (tag) => setMinerTag(tag),
-    });
+    getSystemTag({});
   }, [getSystemTag]);
 
   const handleMinerIdClick = useCallback(() => {
@@ -83,12 +80,11 @@ const General = () => {
     }
   }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction]);
 
-  const handleTagSaved = useCallback((tag: string) => {
-    setMinerTag(tag);
+  const handleTagSaved = useCallback(() => {
     setShowMinerSystemTagEditModal(false);
   }, []);
 
-  const hasTag = minerTag !== null && minerTag !== "";
+  const hasTag = Boolean(minerTag);
 
   return (
     <>

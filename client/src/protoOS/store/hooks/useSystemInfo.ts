@@ -9,6 +9,7 @@ export const useProductName = () => useMinerStore((state) => state.systemInfo.da
 export const useSerialNumber = () => useMinerStore((state) => state.systemInfo.data?.identity.serialNumber);
 export const useOSVersion = () => useMinerStore((state) => state.systemInfo.data?.operatingSystem?.version);
 export const useFwUpdateStatus = () => useMinerStore((state) => state.systemInfo.data?.firmwareUpdate);
+export const useSystemTagValue = () => useMinerStore((state) => state.systemInfo.data?.systemTag);
 export const useSystemInfoPending = () => useMinerStore((state) => state.systemInfo.resource.status === "loading");
 export const useSystemInfoError = () => useMinerStore((state) => resourceError(state.systemInfo.resource));
 export const useIsProtoRig = () =>
@@ -29,5 +30,6 @@ export const useFirmwareUpdateInstalling = () =>
   });
 
 export const useSetSystemInfo = () => useMinerStore((state) => state.systemInfo.setSystemInfo);
+export const useSetSystemTag = () => useMinerStore((state) => state.systemInfo.setSystemTag);
 export const useSetSystemInfoError = () => useMinerStore((state) => state.systemInfo.setError);
 export const useSetSystemInfoPending = () => useMinerStore((state) => state.systemInfo.setPending);

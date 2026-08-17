@@ -60,6 +60,8 @@ export interface MinerAdapter {
     onboarded?: boolean;
     passwordSet?: boolean;
   }>;
+  getSystemTag(params?: AdapterRequestOptions): Promise<string>;
+  setSystemTag(value: string, params?: AdapterRequestOptions): Promise<void>;
   getMiningStatus(params?: AdapterRequestOptions): Promise<OperationalStatus>;
   getErrors(params?: AdapterRequestOptions): Promise<MinerError[]>;
   getPools(params?: AdapterRequestOptions): Promise<PoolInfo[]>;

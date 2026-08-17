@@ -10,6 +10,7 @@ import {
   normalizeV1NetworkInfo,
   normalizeV1Pools,
   normalizeV1SystemInfo,
+  normalizeV1SystemTag,
   normalizeV1Telemetry,
   normalizeV1TimeSeries,
 } from "./normalize";
@@ -35,6 +36,15 @@ export class MdkV1Adapter implements MinerAdapter {
   async getSystemStatus(params: AdapterRequestOptions = {}) {
     const response = await this.client.getSystemStatus(params);
     return { onboarded: response.data.onboarded, passwordSet: response.data.password_set };
+  }
+
+  async getSystemTag(params: AdapterRequestOptions = {}) {
+    const response = await this.client.getSystemTag(params);
+    return normalizeV1SystemTag(response.data);
+  }
+
+  async setSystemTag(value: string, params: AdapterRequestOptions = {}) {
+    await this.client.putSystemTag(value, params);
   }
 
   async getMiningStatus(params: AdapterRequestOptions = {}) {

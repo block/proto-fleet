@@ -150,6 +150,7 @@ export {
   useSerialNumber,
   useOSVersion,
   useFwUpdateStatus,
+  useSystemTagValue,
   useSystemInfoPending,
   useSystemInfoError,
   useIsProtoRig,
@@ -160,6 +161,7 @@ export {
   useHasFirmwareUpdate,
   useFirmwareUpdateInstalling,
   useSetSystemInfo,
+  useSetSystemTag,
   useSetSystemInfoError,
   useSetSystemInfoPending,
 } from "./hooks/useSystemInfo";

@@ -9,6 +9,7 @@ import {
   normalizeV1NetworkInfo,
   normalizeV1Pools,
   normalizeV1SystemInfo,
+  normalizeV1SystemTag,
   normalizeV1Telemetry,
   normalizeV1TimeSeries,
 } from "./normalize";
@@ -164,5 +165,10 @@ describe("MDK v1 normalization", () => {
     });
     expect(denormalizeV1CoolingMode("off")).toBe("Off");
     expect(denormalizeV1CoolingMode("manual")).toBe("Manual");
+  });
+
+  it("unwraps the v1 system-tag response", () => {
+    expect(normalizeV1SystemTag({ tag: "rig-01" })).toBe("rig-01");
+    expect(normalizeV1SystemTag("rig-02")).toBe("rig-02");
   });
 });

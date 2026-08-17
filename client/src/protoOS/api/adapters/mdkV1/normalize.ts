@@ -169,6 +169,12 @@ const serviceHealth = (name: string | undefined) => {
     : ("running" as const);
 };
 
+export const normalizeV1SystemTag = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "tag" in value && typeof value.tag === "string") return value.tag;
+  return JSON.stringify(value) ?? "";
+};
+
 export const normalizeV1SystemInfo = (wire: SystemInfoSysteminfo): SystemInfoData => {
   const model = wire.model?.toUpperCase();
   const deviceType: DeviceType = model?.startsWith("CU") ? "container" : "rig";

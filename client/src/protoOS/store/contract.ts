@@ -394,6 +394,7 @@ export interface FirmwareUpdateInfo {
 export interface SystemInfoData {
   identity: DeviceIdentity;
   moduleModel: ModuleModel;
+  systemTag?: string;
   operatingSystem?: FirmwareInfo;
   operatingSystemStatus?: {
     cpuLoadPercent?: number;
