@@ -8,11 +8,11 @@ export class SettingsUpdatesPage extends BasePage {
   }
 
   async validateCurrentVersion(version: string) {
-    await expect(this.page.getByText(version, { exact: true }).first()).toBeVisible();
+    await expect(this.rowByLabel("Current version").locator("> div").last()).toHaveText(version);
   }
 
   async validateLatestAvailableVersion(version: string) {
-    await expect(this.page.getByText(version, { exact: true }).last()).toBeVisible();
+    await expect(this.rowByLabel("Latest available").locator("span").first()).toHaveText(version);
   }
 
   async validateReleaseNotesLink(url: string) {
@@ -62,5 +62,9 @@ export class SettingsUpdatesPage extends BasePage {
 
   async validateUpgradeModalText(text: string) {
     await expect(this.page.getByTestId("upgrade-operation-modal")).toContainText(text);
+  }
+
+  private rowByLabel(label: string) {
+    return this.page.getByText(label, { exact: true }).locator("xpath=..");
   }
 }

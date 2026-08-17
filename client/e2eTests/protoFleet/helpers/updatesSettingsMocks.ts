@@ -31,7 +31,7 @@ const SET_RELEASE_CHANNEL_RPC_PATTERN = /InstanceUpdateService\/SetReleaseChanne
 const GET_UPGRADE_STATUS_RPC_PATTERN = /InstanceUpdateService\/GetUpgradeStatus/;
 const TRIGGER_UPGRADE_RPC_PATTERN = /InstanceUpdateService\/TriggerUpgrade/;
 const AUTH_STORAGE_KEY = "proto-fleet-auth";
-const FORCED_SESSION_EXPIRY = "2026-12-31T00:00:00.000Z";
+const AUTH_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
 
@@ -100,9 +100,18 @@ export async function mockUpdatesSettings(
   const triggerUpgradeRequests: string[] = [];
 
   await page.addInitScript(
-    ({ authStorageKey, forcedSessionExpiry }) => {
+    ({ authStorageKey, authSessionTtlMs }) => {
       const raw = window.localStorage.getItem(authStorageKey);
-      const parsed = raw ? (JSON.parse(raw) as { state?: { auth?: Record<string, unknown> }; version?: number }) : {};
+      let parsed: { state?: { auth?: Record<string, unknown> }; version?: number } = {};
+
+      if (raw) {
+        try {
+          parsed = JSON.parse(raw) as { state?: { auth?: Record<string, unknown> }; version?: number };
+        } catch {
+          parsed = {};
+        }
+      }
+
       const auth = parsed.state?.auth ?? {};
       const permissions = Array.isArray(auth.permissions)
         ? auth.permissions.filter((value) => typeof value === "string")
@@ -110,6 +119,7 @@ export async function mockUpdatesSettings(
       const nextPermissions = permissions.includes("instance:update")
         ? permissions
         : [...permissions, "instance:update"];
+      const sessionExpiry = new Date(Date.now() + authSessionTtlMs).toISOString();
 
       window.localStorage.setItem(
         authStorageKey,
@@ -121,13 +131,13 @@ export async function mockUpdatesSettings(
               authLoading: false,
               isAuthenticated: true,
               permissions: nextPermissions,
-              sessionExpiry: forcedSessionExpiry,
+              sessionExpiry,
             },
           },
         }),
       );
     },
-    { authStorageKey: AUTH_STORAGE_KEY, forcedSessionExpiry: FORCED_SESSION_EXPIRY },
+    { authStorageKey: AUTH_STORAGE_KEY, authSessionTtlMs: AUTH_SESSION_TTL_MS },
   );
 
   await page.route(GET_FLEET_INIT_STATUS_RPC_PATTERN, async (route) => {
