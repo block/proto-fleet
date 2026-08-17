@@ -279,15 +279,16 @@ export interface LevelTelemetry {
 
 export type HealthState = "ok" | "degraded" | "fault" | "offline" | "unknown";
 export type MiningStatus =
-  | "Uninitialized"
-  | "PoweringOn"
-  | "Mining"
-  | "DegradedMining"
-  | "PoweringOff"
-  | "Stopped"
-  | "Curtailed"
-  | "NoPools"
-  | "Error";
+  | "uninitialized"
+  | "poweringOn"
+  | "mining"
+  | "degradedMining"
+  | "poweringOff"
+  | "stopped"
+  | "curtailed"
+  | "noPools"
+  | "error"
+  | "unknown";
 
 export interface PowerCoverage {
   kind: "complete" | "partial" | "hashboardOnly" | "unknown";
@@ -451,7 +452,9 @@ export interface PoolsState {
 }
 
 export interface OperationalStatus {
-  status?: MiningStatus;
+  owner: EntityRef;
+  resource: ResourceState;
+  miningStatus: MiningStatus;
   miningUptime?: Measurement;
   rebootUptime?: Measurement;
   hardwareErrorCount?: number;
@@ -464,29 +467,44 @@ export interface MinerError {
   message: string;
   owner: EntityRef;
   component?: ComponentRef;
+  severity: "info" | "warning" | "critical";
   timestampMs?: number;
 }
 
-export interface MinerStatusState {
-  resourceByOwner: Map<EntityKey, ResourceState>;
-  operationalByOwner: Map<EntityKey, OperationalStatus>;
-  errorsByOwner: Map<EntityKey, MinerError[]>;
-  lifecycle: { onboarded?: boolean; passwordSet?: boolean; defaultPasswordActive?: boolean };
+export interface DeviceLifecycle {
+  resource: ResourceState;
+  onboarded?: boolean;
+  passwordSet?: boolean;
+  defaultPasswordActive?: boolean;
 }
 
-export type PerformanceMode = "performance" | "efficiency" | "balanced" | "unknown";
+export interface MinerStatusState {
+  operationalByOwner: Map<EntityKey, OperationalStatus>;
+  errorsByOwner: Map<EntityKey, MinerError[]>;
+  lifecycle: DeviceLifecycle;
+}
 
-export interface MiningTargetInfo {
+export type PerformanceMode = "maximumHashrate" | "efficiency";
+
+export interface MiningTarget {
+  moduleId: ModuleId;
+  resource: ResourceState;
   valueWatts?: number;
   defaultWatts?: number;
   performanceMode?: PerformanceMode;
-  bounds?: { minWatts: number; maxWatts: number };
+  boundsWatts?: { min: number; max: number };
+  balanceBays?: boolean;
+  hashOnDisconnect?: boolean;
 }
 
 export interface MiningTargetState {
-  resourceByModule: Map<ModuleId, ResourceState>;
-  byModule: Map<ModuleId, MiningTargetInfo>;
+  byModule: Map<ModuleId, MiningTarget>;
 }
+
+export type MiningTargetUpdate = Pick<
+  MiningTarget,
+  "valueWatts" | "performanceMode" | "balanceBays" | "hashOnDisconnect"
+>;
 
 export interface AuthToken {
   value: string;

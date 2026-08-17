@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
-import type { MiningTarget } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
+import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 import {
   useAuthRetry,
   useMiningTargetBounds,
@@ -15,7 +15,7 @@ import {
 } from "@/protoOS/store";
 
 const useMiningTarget = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const authRetry = useAuthRetry();
 
   // State selectors
@@ -33,43 +33,41 @@ const useMiningTarget = () => {
 
   // Fetch mining target data
   const fetchData = useCallback(() => {
-    if (!api) return;
+    if (!adapter) return;
 
     setPending(true);
-    api
+    adapter
       .getMiningTarget()
-      .then((res) => {
-        setFromResponse(res);
-      })
+      .then(setFromResponse)
       .catch((err) => {
         setError(err?.error?.message ?? "An error occurred");
       });
-  }, [api, setPending, setFromResponse, setError]);
+  }, [adapter, setPending, setFromResponse, setError]);
 
   // Load initial data
   useEffect(() => {
-    if (api && miningTarget === undefined && !pending) {
+    if (adapter && miningTarget === undefined && !pending) {
       fetchData();
     }
-  }, [api, miningTarget, pending, fetchData]);
+  }, [adapter, miningTarget, pending, fetchData]);
 
   // Update mining target
   const updateMiningTarget = useCallback(
-    (newTarget: MiningTarget) => {
-      if (!api) return;
+    (newTarget: MiningTargetUpdate) => {
+      if (!adapter) return;
 
       setPending(true);
       setError(null);
       authRetry({
-        request: (header) => api.editMiningTarget(newTarget, header),
-        onSuccess: (res) => setFromResponse(res),
+        request: (header) => adapter.updateMiningTarget(newTarget, header),
+        onSuccess: setFromResponse,
         onError: (error) => {
           setPending(false);
           setError(error?.error?.message ?? "An error occurred");
         },
       });
     },
-    [api, authRetry, setPending, setError, setFromResponse],
+    [adapter, authRetry, setPending, setError, setFromResponse],
   );
 
   return useMemo(

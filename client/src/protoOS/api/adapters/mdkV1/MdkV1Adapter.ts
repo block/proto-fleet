@@ -1,4 +1,5 @@
-import type { Api, RequestParams } from "@/protoOS/api/generatedApi";
+import { PerformanceMode as V1PerformanceMode, type Api, type RequestParams } from "@/protoOS/api/generatedApi";
+import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 import type { MinerAdapter } from "../types";
 import {
   normalizeV1Errors,
@@ -51,6 +52,24 @@ export class MdkV1Adapter implements MinerAdapter {
 
   async getMiningTarget(params: RequestParams = {}) {
     const response = await this.client.getMiningTarget(params);
+    return normalizeV1MiningTarget(response.data);
+  }
+
+  async updateMiningTarget(update: MiningTargetUpdate, params: RequestParams = {}) {
+    const response = await this.client.editMiningTarget(
+      {
+        power_target_watts: update.valueWatts,
+        performance_mode:
+          update.performanceMode === "maximumHashrate"
+            ? V1PerformanceMode.MaximumHashrate
+            : update.performanceMode === "efficiency"
+              ? V1PerformanceMode.Efficiency
+              : undefined,
+        balance_bays: update.balanceBays,
+        hash_on_disconnect: update.hashOnDisconnect,
+      },
+      params,
+    );
     return normalizeV1MiningTarget(response.data);
   }
 

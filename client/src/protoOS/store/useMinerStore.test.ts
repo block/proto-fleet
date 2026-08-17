@@ -64,8 +64,8 @@ describe("useMinerStore.resetDeviceData", () => {
     useMinerStore.getState().resetDeviceData();
 
     const after = useMinerStore.getState();
-    expect(after.minerStatus.onboarded).toBe(true);
-    expect(after.minerStatus.defaultPasswordActive).toBe(false);
+    expect(after.minerStatus.lifecycle.onboarded).toBe(true);
+    expect(after.minerStatus.lifecycle.defaultPasswordActive).toBe(false);
     expect(after.ui.theme).toBe(theme);
   });
 });

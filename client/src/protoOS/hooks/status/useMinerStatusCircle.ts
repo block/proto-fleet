@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useMinerStore } from "@/protoOS/store";
+import { useErrors, useMiningStatus } from "@/protoOS/store";
 import { statuses } from "@/shared/components/StatusCircle";
 import type { StatusCircleProps } from "@/shared/components/StatusCircle";
 
@@ -7,11 +7,11 @@ import type { StatusCircleProps } from "@/shared/components/StatusCircle";
  * Returns the status circle configuration based on current state
  */
 export const useMinerStatusCircle = (): StatusCircleProps["status"] => {
-  const miningStatus = useMinerStore((state) => state.minerStatus.miningStatus);
-  const errors = useMinerStore((state) => state.minerStatus.errors.errors);
-  const isSleeping = /PoweringOff|Stopped/i.test(miningStatus || "");
-  const isCurtailed = /Curtailed/i.test(miningStatus || "");
-  const isMining = /Mining/i.test(miningStatus || "");
+  const miningStatus = useMiningStatus();
+  const errors = useErrors();
+  const isSleeping = miningStatus === "poweringOff" || miningStatus === "stopped";
+  const isCurtailed = miningStatus === "curtailed";
+  const isMining = miningStatus === "mining" || miningStatus === "degradedMining";
 
   return useMemo(() => {
     if (isSleeping) {

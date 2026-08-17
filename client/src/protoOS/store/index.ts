@@ -181,7 +181,7 @@ export {
   useSetNetworkInfoPending,
 } from "./hooks/useNetworkInfo";
 
-export type { MiningStatus } from "./slices/minerStatusSlice";
+export type { MiningStatus } from "./contract";
 export type { MinerError, ErrorSource } from "./types";
 
 export {

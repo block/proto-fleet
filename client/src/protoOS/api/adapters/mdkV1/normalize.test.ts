@@ -102,7 +102,9 @@ describe("MDK v1 normalization", () => {
     expect(
       normalizeV1MiningStatus({ status: "Mining", mining_uptime_s: 60, reboot_uptime_s: 120, hw_errors: 2 }),
     ).toMatchObject({
-      status: "Mining",
+      owner: { kind: "module", id: "module:root" },
+      resource: { status: "ready" },
+      miningStatus: "mining",
       miningUptime: { value: 60, units: "s" },
       rebootUptime: { value: 120, units: "s" },
       hardwareErrorCount: 2,
@@ -124,10 +126,12 @@ describe("MDK v1 normalization", () => {
         performance_mode: PerformanceMode.MaximumHashrate,
       }),
     ).toEqual({
+      moduleId: "module:root",
+      resource: expect.objectContaining({ status: "ready" }),
       valueWatts: 3_000,
       defaultWatts: 2_500,
-      bounds: { minWatts: 400, maxWatts: 3_500 },
-      performanceMode: "performance",
+      boundsWatts: { min: 400, max: 3_500 },
+      performanceMode: "maximumHashrate",
     });
 
     expect(
@@ -136,6 +140,7 @@ describe("MDK v1 normalization", () => {
       code: "FanSlow",
       message: "Fan stalled",
       component: { id: "module:root:fan:1", kind: "fan" },
+      severity: "critical",
     });
   });
 });

@@ -41,7 +41,7 @@ import {
   type ModuleNode,
   type ModuleProfile,
   type MinerError,
-  type MiningTargetInfo,
+  type MiningTarget,
   type NetworkInfoState,
   type OperationalStatus,
   type PoolInfo,
@@ -209,8 +209,35 @@ export const normalizeV1NetworkInfo = (wire: NetworkInfoNetworkinfo): Pick<Netwo
   ]),
 });
 
+const miningStatus = (status: MiningStatusMiningstatus["status"]): OperationalStatus["miningStatus"] => {
+  switch (status) {
+    case "Uninitialized":
+      return "uninitialized";
+    case "PoweringOn":
+      return "poweringOn";
+    case "Mining":
+      return "mining";
+    case "DegradedMining":
+      return "degradedMining";
+    case "PoweringOff":
+      return "poweringOff";
+    case "Stopped":
+      return "stopped";
+    case "Curtailed":
+      return "curtailed";
+    case "NoPools":
+      return "noPools";
+    case "Error":
+      return "error";
+    default:
+      return "unknown";
+  }
+};
+
 export const normalizeV1MiningStatus = (wire: MiningStatusMiningstatus): OperationalStatus => ({
-  status: wire.status,
+  owner: moduleOwner,
+  resource: ready(),
+  miningStatus: miningStatus(wire.status),
   miningUptime: wire.mining_uptime_s === undefined ? undefined : { value: wire.mining_uptime_s, units: "s" },
   rebootUptime: wire.reboot_uptime_s === undefined ? undefined : { value: wire.reboot_uptime_s, units: "s" },
   hardwareErrorCount: wire.hw_errors,
@@ -235,19 +262,23 @@ export const normalizeV1Pools = (wire: Pool[]): PoolInfo[] =>
     }))
     .sort((left, right) => left.priority - right.priority);
 
-export const normalizeV1MiningTarget = (wire: MiningTargetResponse): MiningTargetInfo => ({
+export const normalizeV1MiningTarget = (wire: MiningTargetResponse): MiningTarget => ({
+  moduleId: ROOT_MODULE_ID,
+  resource: ready(),
   valueWatts: wire.power_target_watts,
   defaultWatts: wire.default_power_target_watts,
   performanceMode:
     wire.performance_mode === "MaximumHashrate"
-      ? "performance"
+      ? "maximumHashrate"
       : wire.performance_mode === "Efficiency"
         ? "efficiency"
-        : "unknown",
-  bounds:
+        : undefined,
+  boundsWatts:
     wire.power_target_min_watts === undefined && wire.power_target_max_watts === undefined
       ? undefined
-      : { minWatts: wire.power_target_min_watts ?? 0, maxWatts: wire.power_target_max_watts ?? 0 },
+      : { min: wire.power_target_min_watts ?? 0, max: wire.power_target_max_watts ?? 0 },
+  balanceBays: wire.balance_bays,
+  hashOnDisconnect: wire.hash_on_disconnect,
 });
 
 export const normalizeV1Errors = (wire: ErrorListResponse): MinerError[] =>
@@ -274,6 +305,7 @@ export const normalizeV1Errors = (wire: ErrorListResponse): MinerError[] =>
       message: error.message ?? "Unknown miner error",
       owner: moduleOwner,
       component,
+      severity: "critical",
       timestampMs: error.timestamp === undefined ? undefined : error.timestamp * 1_000,
     };
   });

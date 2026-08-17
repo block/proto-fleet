@@ -21,7 +21,7 @@ import { usePoll } from "@/shared/hooks/usePoll";
  *   import { useOnboarded, usePasswordSet, useDefaultPasswordActive } from "@/protoOS/store";
  */
 const useSystemStatus = () => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const setOnboarded = useSetOnboarded();
   const setPasswordSet = useSetPasswordSet();
   const setDefaultPasswordActive = useSetDefaultPasswordActive();
@@ -37,14 +37,14 @@ const useSystemStatus = () => {
   );
 
   const fetchData = useCallback(() => {
-    if (!api || isFetchingRef.current) return;
+    if (!adapter || isFetchingRef.current) return;
 
     isFetchingRef.current = true;
-    return api
+    return adapter
       .getSystemStatus({ secure: false })
-      .then((res) => {
-        setOnboarded(res?.data.onboarded);
-        setPasswordSet(res?.data.password_set);
+      .then((status) => {
+        setOnboarded(status.onboarded);
+        setPasswordSet(status.passwordSet);
 
         // MDK-API 1.8.2 removed default_password_active from system status, so
         // polling can no longer confirm or clear the flag. It is raised by the
@@ -52,7 +52,7 @@ const useSystemStatus = () => {
         // password-change flow. Resolve only the initial undefined state so
         // App.tsx's protected-API gating can proceed. Read the store at
         // response time — the 403 path may have raised the flag mid-flight.
-        if (useMinerStore.getState().minerStatus.defaultPasswordActive === undefined) {
+        if (useMinerStore.getState().minerStatus.lifecycle.defaultPasswordActive === undefined) {
           setDefaultPasswordActive(false);
         }
       })
@@ -62,14 +62,14 @@ const useSystemStatus = () => {
       .finally(() => {
         isFetchingRef.current = false;
       });
-  }, [api, setOnboarded, setPasswordSet, setDefaultPasswordActive]);
+  }, [adapter, setOnboarded, setPasswordSet, setDefaultPasswordActive]);
 
   // Poll until initial status is loaded.
   usePoll({
     fetchData,
     poll: true,
     pollIntervalMs: 5000,
-    enabled: !!api && !hasLoadedStatus,
+    enabled: !!adapter && !hasLoadedStatus,
   });
 
   const reload = useCallback(() => {

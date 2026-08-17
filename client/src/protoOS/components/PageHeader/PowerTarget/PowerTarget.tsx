@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import PowerTargetPopover from "./PowerTargetPopover";
-import { MiningTarget } from "@/protoOS/api/generatedApi";
 import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAccessToken } from "@/protoOS/store";
+import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 import {
   AUTH_ACTIONS,
   useDismissedLoginModal,
@@ -25,7 +25,7 @@ const PowerTarget = () => {
   const setDismissedLoginModal = useSetDismissedLoginModal();
   const pausedAuthAction = usePausedAuthAction();
   const setPausedAuthAction = useSetPausedAuthAction();
-  const [lastMiningTarget, setLastMiningTarget] = useState<MiningTarget | null>(null);
+  const [lastMiningTarget, setLastMiningTarget] = useState<MiningTargetUpdate | null>(null);
   const { isFleetHosted } = useMinerHosting();
 
   const { hasAccess, checkAccess } = useAccessToken(!isFleetHosted && !!pausedAuthAction && !dismissedLoginModal);
@@ -59,7 +59,7 @@ const PowerTarget = () => {
   }, [isMax, isMin, miningTarget, pending, defaultTarget]);
 
   const handleUpdateStart = useCallback(
-    (miningTarget: MiningTarget) => {
+    (miningTarget: MiningTargetUpdate) => {
       // Fleet-hosted: the server proxy authenticates to the miner, so skip the
       // direct-token gate (no client miner JWT, login modal suppressed) and
       // send the update straight through.

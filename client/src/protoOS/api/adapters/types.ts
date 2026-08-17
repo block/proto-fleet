@@ -2,7 +2,8 @@ import type { GetCurrentTelemetryParams, RequestParams, TimeSeriesRequest } from
 import type {
   HardwareState,
   MinerError,
-  MiningTargetInfo,
+  MiningTarget,
+  MiningTargetUpdate,
   NetworkInfoState,
   OperationalStatus,
   PoolInfo,
@@ -21,7 +22,8 @@ export interface MinerAdapter {
   getMiningStatus(params?: RequestParams): Promise<OperationalStatus>;
   getErrors(params?: RequestParams): Promise<MinerError[]>;
   getPools(params?: RequestParams): Promise<PoolInfo[]>;
-  getMiningTarget(params?: RequestParams): Promise<MiningTargetInfo>;
+  getMiningTarget(params?: RequestParams): Promise<MiningTarget>;
+  updateMiningTarget(update: MiningTargetUpdate, params?: RequestParams): Promise<MiningTarget>;
   getHardware(
     context: { deviceId: string; profile: "r2" | "ct1" | "unknown" },
     params?: RequestParams,

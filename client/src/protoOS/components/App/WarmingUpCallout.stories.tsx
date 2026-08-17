@@ -3,15 +3,24 @@ import { MemoryRouter } from "react-router-dom";
 
 import App from "./App";
 import { useSetMiningStatus } from "@/protoOS/store";
+import { ROOT_MODULE_ID } from "@/protoOS/store/contract";
 
 export const WarmingUpMiner = () => {
   const setMiningStatus = useSetMiningStatus();
 
   useEffect(() => {
-    setMiningStatus({ status: "PoweringOn" });
+    setMiningStatus({
+      owner: { kind: "module", id: ROOT_MODULE_ID },
+      resource: { status: "ready", updatedAtMs: Date.now() },
+      miningStatus: "poweringOn",
+    });
 
     setTimeout(() => {
-      setMiningStatus({ status: "Mining" });
+      setMiningStatus({
+        owner: { kind: "module", id: ROOT_MODULE_ID },
+        resource: { status: "ready", updatedAtMs: Date.now() },
+        miningStatus: "mining",
+      });
     }, 5000);
   }, [setMiningStatus]);
 

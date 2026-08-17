@@ -20,8 +20,8 @@ const { mockCheckAccess, mockSetPausedAuthAction, mockState } = vi.hoisted(() =>
 // Mock the popover to a single button that fires onUpdateStart with a target —
 // the test exercises PowerTarget's auth-gating branch, not the popover UI.
 vi.mock("./PowerTargetPopover", () => ({
-  default: ({ onUpdateStart }: { onUpdateStart: (target: number) => void }) => (
-    <button data-testid="apply-target" onClick={() => onUpdateStart(5000)} />
+  default: ({ onUpdateStart }: { onUpdateStart: (target: { valueWatts: number }) => void }) => (
+    <button data-testid="apply-target" onClick={() => onUpdateStart({ valueWatts: 5000 })} />
   ),
 }));
 
@@ -87,7 +87,7 @@ describe("PowerTarget", () => {
 
     openAndApply();
 
-    expect(mockUpdateMiningTarget).toHaveBeenCalledWith(5000);
+    expect(mockUpdateMiningTarget).toHaveBeenCalledWith({ valueWatts: 5000 });
     expect(mockSetPausedAuthAction).not.toHaveBeenCalledWith(AUTH_ACTIONS.miningTarget);
     expect(mockCheckAccess).not.toHaveBeenCalled();
   });

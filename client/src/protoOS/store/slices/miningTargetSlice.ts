@@ -1,100 +1,80 @@
 import type { StateCreator } from "zustand";
+
+import { ROOT_MODULE_ID, type MiningTarget, type MiningTargetState, type PerformanceMode } from "../contract";
 import type { MinerStore } from "../useMinerStore";
-import { HttpResponse, MiningTargetResponse, PerformanceMode } from "@/protoOS/api/generatedApi";
 
-// =============================================================================
-// Mining Target Slice Interface
-// =============================================================================
-
-export interface MiningTargetSlice {
-  // State
-  value?: number;
-  default?: number;
-  performanceMode?: PerformanceMode;
-  bounds?: {
-    min: number;
-    max: number;
-  };
-  pending: boolean;
-  error: string | null;
-
-  // Actions
+export interface MiningTargetSlice extends MiningTargetState {
   setValue: (value: number) => void;
   setDefault: (defaultValue: number) => void;
   setPerformanceMode: (mode: PerformanceMode) => void;
   setBounds: (bounds: { min: number; max: number }) => void;
   setPending: (pending: boolean) => void;
   setError: (error: string | null) => void;
-  setFromResponse: (response: HttpResponse<MiningTargetResponse>) => void;
+  setFromResponse: (target: MiningTarget) => void;
   reset: () => void;
 }
 
-// =============================================================================
-// Mining Target Slice Implementation
-// =============================================================================
+const emptyTarget = (): MiningTarget => ({
+  moduleId: ROOT_MODULE_ID,
+  resource: { status: "idle" },
+});
 
 export const createMiningTargetSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], MiningTargetSlice> = (
   set,
 ) => ({
-  // Initial State
-  value: undefined,
-  default: undefined,
-  performanceMode: undefined,
-  bounds: undefined,
-  pending: false,
-  error: null,
+  byModule: new Map(),
 
-  // Actions
   setValue: (value) =>
     set((state) => {
-      state.miningTarget.value = value;
+      const target = state.miningTarget.byModule.get(ROOT_MODULE_ID) ?? emptyTarget();
+      target.valueWatts = value;
+      state.miningTarget.byModule.set(ROOT_MODULE_ID, target);
     }),
 
   setDefault: (defaultValue) =>
     set((state) => {
-      state.miningTarget.default = defaultValue;
+      const target = state.miningTarget.byModule.get(ROOT_MODULE_ID) ?? emptyTarget();
+      target.defaultWatts = defaultValue;
+      state.miningTarget.byModule.set(ROOT_MODULE_ID, target);
     }),
 
   setPerformanceMode: (mode) =>
     set((state) => {
-      state.miningTarget.performanceMode = mode;
+      const target = state.miningTarget.byModule.get(ROOT_MODULE_ID) ?? emptyTarget();
+      target.performanceMode = mode;
+      state.miningTarget.byModule.set(ROOT_MODULE_ID, target);
     }),
 
   setBounds: (bounds) =>
     set((state) => {
-      state.miningTarget.bounds = bounds;
+      const target = state.miningTarget.byModule.get(ROOT_MODULE_ID) ?? emptyTarget();
+      target.boundsWatts = bounds;
+      state.miningTarget.byModule.set(ROOT_MODULE_ID, target);
     }),
 
   setPending: (pending) =>
     set((state) => {
-      state.miningTarget.pending = pending;
+      const target = state.miningTarget.byModule.get(ROOT_MODULE_ID) ?? emptyTarget();
+      target.resource = pending ? { status: "loading" } : { status: "ready", updatedAtMs: Date.now() };
+      state.miningTarget.byModule.set(ROOT_MODULE_ID, target);
     }),
 
   setError: (error) =>
     set((state) => {
-      state.miningTarget.error = error;
+      const target = state.miningTarget.byModule.get(ROOT_MODULE_ID) ?? emptyTarget();
+      target.resource = error
+        ? { status: "error", error: { code: "MINING_TARGET", message: error, retryable: true } }
+        : { status: "ready", updatedAtMs: Date.now() };
+      state.miningTarget.byModule.set(ROOT_MODULE_ID, target);
     }),
 
-  setFromResponse: (response) =>
+  setFromResponse: (target) =>
     set((state) => {
-      state.miningTarget.value = response?.data.power_target_watts;
-      state.miningTarget.default = response?.data.default_power_target_watts;
-      state.miningTarget.performanceMode = response?.data.performance_mode;
-      state.miningTarget.bounds = {
-        min: response?.data.power_target_min_watts ?? 0,
-        max: response?.data.power_target_max_watts ?? 0,
-      };
-      state.miningTarget.pending = false;
-      state.miningTarget.error = null;
+      state.miningTarget.byModule.set(target.moduleId, target);
     }),
 
   reset: () =>
     set((state) => {
-      state.miningTarget.value = undefined;
-      state.miningTarget.default = undefined;
-      state.miningTarget.performanceMode = undefined;
-      state.miningTarget.bounds = undefined;
-      state.miningTarget.pending = false;
-      state.miningTarget.error = null;
+      state.miningTarget.byModule.clear();
     }),
 });

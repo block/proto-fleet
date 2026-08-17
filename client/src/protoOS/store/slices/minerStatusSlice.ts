@@ -1,58 +1,15 @@
 import type { StateCreator } from "zustand";
-import type { Measurement, MinerError } from "../types";
+
+import { ROOT_MODULE_KEY, type MinerError, type MinerStatusState, type OperationalStatus } from "../contract";
 import type { MinerStore } from "../useMinerStore";
-import type { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 
-// =============================================================================
-// Types
-// =============================================================================
-
-export type MiningStatus =
-  | "Uninitialized"
-  | "PoweringOn"
-  | "Mining"
-  | "DegradedMining"
-  | "PoweringOff"
-  | "Stopped"
-  | "Curtailed"
-  | "NoPools"
-  | "Error";
-
-export interface ErrorsState {
-  errors: MinerError[];
-}
-
-// =============================================================================
-// Slice Interface
-// =============================================================================
-
-export interface MinerStatusSlice {
-  // State - Flattened mining status fields
-  miningStatus: MiningStatus | undefined;
-  miningUptime: Measurement | undefined;
-  rebootUptime: Measurement | undefined;
-  hwErrors: number | undefined;
-  message: string | undefined;
-
-  // Other state
-  errors: ErrorsState;
-
-  // System status
-  onboarded: boolean | undefined;
-  passwordSet: boolean | undefined;
-  defaultPasswordActive: boolean | undefined;
-
-  // Actions
+export interface MinerStatusSlice extends MinerStatusState {
   setErrors: (errors: MinerError[]) => void;
-  setMiningStatus: (miningStatus: MiningStatusMiningstatus | undefined) => void;
+  setMiningStatus: (status: OperationalStatus | undefined) => void;
   setOnboarded: (onboarded: boolean | undefined) => void;
   setPasswordSet: (passwordSet: boolean | undefined) => void;
   setDefaultPasswordActive: (defaultPasswordActive: boolean | undefined) => void;
 }
-
-// =============================================================================
-// Slice Creator
-// =============================================================================
 
 export const createMinerStatusSlice: StateCreator<
   MinerStore,
@@ -60,54 +17,24 @@ export const createMinerStatusSlice: StateCreator<
   [],
   MinerStatusSlice
 > = (set) => ({
-  // Initial State
-  miningStatus: undefined,
-  miningUptime: undefined,
-  rebootUptime: undefined,
-  hwErrors: undefined,
-  message: undefined,
-  errors: {
-    errors: [],
-  },
-  onboarded: undefined,
-  passwordSet: undefined,
-  defaultPasswordActive: undefined,
+  operationalByOwner: new Map(),
+  errorsByOwner: new Map(),
+  lifecycle: { resource: { status: "idle" } },
 
-  // Actions
   setErrors: (errors) =>
     set(
       (state) => {
-        state.minerStatus.errors = {
-          errors: errors,
-        };
+        state.minerStatus.errorsByOwner.set(ROOT_MODULE_KEY, errors);
       },
       false,
       "minerStatus/setErrors",
     ),
 
-  setMiningStatus: (apiMiningStatus) =>
+  setMiningStatus: (status) =>
     set(
       (state) => {
-        if (!apiMiningStatus) {
-          state.minerStatus.miningStatus = undefined;
-          state.minerStatus.miningUptime = undefined;
-          state.minerStatus.rebootUptime = undefined;
-          state.minerStatus.hwErrors = undefined;
-          state.minerStatus.message = undefined;
-          return;
-        }
-
-        // Flatten and store only the fields we care about
-        state.minerStatus.miningStatus = apiMiningStatus.status as MiningStatus;
-        state.minerStatus.miningUptime = {
-          value: apiMiningStatus.mining_uptime_s ?? null,
-          units: undefined,
-        };
-        state.minerStatus.rebootUptime = {
-          value: apiMiningStatus.reboot_uptime_s ?? null,
-          units: undefined,
-        };
-        state.minerStatus.hwErrors = apiMiningStatus.hw_errors;
+        if (status) state.minerStatus.operationalByOwner.set(ROOT_MODULE_KEY, status);
+        else state.minerStatus.operationalByOwner.delete(ROOT_MODULE_KEY);
       },
       false,
       "minerStatus/setMiningStatus",
@@ -116,7 +43,8 @@ export const createMinerStatusSlice: StateCreator<
   setOnboarded: (onboarded) =>
     set(
       (state) => {
-        state.minerStatus.onboarded = onboarded;
+        state.minerStatus.lifecycle.onboarded = onboarded;
+        state.minerStatus.lifecycle.resource = { status: "ready", updatedAtMs: Date.now() };
       },
       false,
       "minerStatus/setOnboarded",
@@ -125,7 +53,8 @@ export const createMinerStatusSlice: StateCreator<
   setPasswordSet: (passwordSet) =>
     set(
       (state) => {
-        state.minerStatus.passwordSet = passwordSet;
+        state.minerStatus.lifecycle.passwordSet = passwordSet;
+        state.minerStatus.lifecycle.resource = { status: "ready", updatedAtMs: Date.now() };
       },
       false,
       "minerStatus/setPasswordSet",
@@ -134,7 +63,8 @@ export const createMinerStatusSlice: StateCreator<
   setDefaultPasswordActive: (defaultPasswordActive) =>
     set(
       (state) => {
-        state.minerStatus.defaultPasswordActive = defaultPasswordActive;
+        state.minerStatus.lifecycle.defaultPasswordActive = defaultPasswordActive;
+        state.minerStatus.lifecycle.resource = { status: "ready", updatedAtMs: Date.now() };
       },
       false,
       "minerStatus/setDefaultPasswordActive",

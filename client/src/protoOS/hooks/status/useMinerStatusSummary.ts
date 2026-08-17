@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useGroupedErrors, useMinerStore } from "@/protoOS/store";
+import { useGroupedErrors, useMiningStatus } from "@/protoOS/store";
 import {
   type GroupedStatusErrors,
   useMinerStatusSummary as useSharedMinerStatusSummary,
@@ -10,7 +10,7 @@ import {
  * @returns Status summary text like "Hashing", "Sleeping", "Fan issue", etc.
  */
 export const useMinerStatusSummary = (): string => {
-  const miningStatus = useMinerStore((state) => state.minerStatus.miningStatus);
+  const miningStatus = useMiningStatus();
   const groupedErrors = useGroupedErrors();
 
   // Transform ProtoOS errors to shared format
@@ -40,8 +40,8 @@ export const useMinerStatusSummary = (): string => {
 
   // Determine isSleeping from mining status
   // ProtoOS is always online (you can only see it if connected), so isOffline is always false
-  const isSleeping = /PoweringOff|Stopped/i.test(miningStatus || "");
-  const isCurtailed = /Curtailed/i.test(miningStatus || "");
+  const isSleeping = miningStatus === "poweringOff" || miningStatus === "stopped";
+  const isCurtailed = miningStatus === "curtailed";
 
   const summary = useSharedMinerStatusSummary(sharedErrors, isSleeping);
   // Curtailed is a ProtoOS-specific state the shared summary doesn't model:
