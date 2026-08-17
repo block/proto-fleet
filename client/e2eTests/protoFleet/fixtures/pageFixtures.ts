@@ -25,6 +25,7 @@ import { SettingsPoolsPage } from "../pages/settingsPools";
 import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 import { SettingsSecurityPage } from "../pages/settingsSecurity";
 import { SettingsTeamPage } from "../pages/settingsTeam";
+import { SettingsUpdatesPage } from "../pages/settingsUpdates";
 import { SingleMinerPage } from "../pages/singleMiner";
 
 type PageFixtures = {
@@ -45,6 +46,7 @@ type PageFixtures = {
   settingsSchedulesPage: SettingsSchedulesPage;
   settingsSecurityPage: SettingsSecurityPage;
   settingsTeamPage: SettingsTeamPage;
+  settingsUpdatesPage: SettingsUpdatesPage;
   settingsPoolsPage: SettingsPoolsPage;
   alertsPage: AlertsPage;
   editPoolPage: EditPoolPage;
@@ -106,6 +108,9 @@ export const test = base.extend<PageFixtures>({
   },
   settingsTeamPage: async ({ page, isMobile }, use) => {
     await use(new SettingsTeamPage(page, isMobile));
+  },
+  settingsUpdatesPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsUpdatesPage(page, isMobile));
   },
   settingsPoolsPage: async ({ page, isMobile }, use) => {
     await use(new SettingsPoolsPage(page, isMobile));
