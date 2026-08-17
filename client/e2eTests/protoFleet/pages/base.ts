@@ -918,6 +918,11 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/settings\/alerts/);
   }
 
+  async navigateToUpdatesSettings() {
+    await this.page.goto("/settings/updates");
+    await expect(this.page).toHaveURL(/.*\/settings\/updates/);
+  }
+
   async navigateToServerLogsSettings() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
