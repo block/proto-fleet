@@ -253,7 +253,13 @@ func (s *Server) handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	var operation updaterapi.Operation
 	var err error
-	if request.Complete {
+	if request.AllowPrerelease {
+		if request.Complete {
+			operation, err = s.manager.TriggerCompletePrereleaseWithID(request.TargetVersion, request.OperationID)
+		} else {
+			operation, err = s.manager.TriggerPrereleaseWithID(request.TargetVersion, request.OperationID)
+		}
+	} else if request.Complete {
 		operation, err = s.manager.TriggerCompleteWithID(request.TargetVersion, request.OperationID)
 	} else {
 		operation, err = s.manager.TriggerWithID(request.TargetVersion, request.OperationID)
