@@ -64,6 +64,13 @@ interface UseCurtailmentResponseProfilesOptions {
   siteNameById?: SiteNameById;
 }
 
+type ResponseProfileScopeValues = Pick<
+  ResponseProfileFormValues,
+  "siteSelection" | "siteId" | "siteName" | "siteIds" | "siteNamesById" | "deviceIdentifiers" | "minerSelectionMode"
+> & {
+  readOnlyScopeSummary?: string;
+};
+
 function numberToInputValue(value: number | undefined): string {
   return value && Number.isFinite(value) && value > 0 ? value.toString() : "";
 }
@@ -169,7 +176,7 @@ function getResponseProfileSiteName(
 function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameById?: SiteNameById): ResponseProfile {
   const cachedFormValues = sessionFormValuesByProfileId.get(profile.profileId.toString());
   const scopeValues = getApiResponseProfileScopeValues(profile, cachedFormValues, siteNameById);
-  const { siteId, siteName, siteIds, siteNamesById } = scopeValues;
+  const { readOnlyScopeSummary, siteId, siteName, siteIds, siteNamesById } = scopeValues;
   const fixedKw = profile.modeParams.case === "fixedKw" ? profile.modeParams.value.targetKw : undefined;
   const actionType: ResponseProfileFormValues["actionType"] =
     profile.mode === CurtailmentMode.FIXED_KW ? "fixedKwReduction" : "fullFleet";
@@ -208,24 +215,25 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     includeMaintenance: profile.includeMaintenance,
     forceIncludeAllPairedMiners: profile.forceIncludeAllPairedMiners,
   };
-  const mergedFormValues = cachedFormValues
-    ? {
-        ...formValues,
-        ...cachedFormValues,
-        name: profile.profileName,
-        siteSelection: scopeValues.siteSelection,
-        siteId,
-        siteName,
-        siteIds,
-        siteNamesById,
-        deviceIdentifiers: scopeValues.deviceIdentifiers,
-        minerSelectionMode: scopeValues.minerSelectionMode,
-        facilityFanDeviceIds: formValues.facilityFanDeviceIds,
-        fanOffDelaySec: formValues.fanOffDelaySec,
-        fanRestoreDelaySec: formValues.fanRestoreDelaySec,
-      }
-    : formValues;
-  const scope = getResponseProfileScopeSummary(mergedFormValues, profile.mode);
+  const mergedFormValues =
+    cachedFormValues && !readOnlyScopeSummary
+      ? {
+          ...formValues,
+          ...cachedFormValues,
+          name: profile.profileName,
+          siteSelection: scopeValues.siteSelection,
+          siteId,
+          siteName,
+          siteIds,
+          siteNamesById,
+          deviceIdentifiers: scopeValues.deviceIdentifiers,
+          minerSelectionMode: scopeValues.minerSelectionMode,
+          facilityFanDeviceIds: formValues.facilityFanDeviceIds,
+          fanOffDelaySec: formValues.fanOffDelaySec,
+          fanRestoreDelaySec: formValues.fanRestoreDelaySec,
+        }
+      : formValues;
+  const scope = readOnlyScopeSummary ?? getResponseProfileScopeSummary(mergedFormValues, profile.mode);
 
   return {
     id: profile.profileId.toString(),
@@ -235,7 +243,8 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     selectionStrategy: "Least efficient first",
     restoreBehavior: restoreBehavior === "automaticImmediateRestore" ? "Restore immediately" : "Restore in batches",
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
-    formValues: mergedFormValues,
+    formValues: readOnlyScopeSummary ? undefined : mergedFormValues,
+    isReadOnly: Boolean(readOnlyScopeSummary),
   };
 }
 
@@ -243,10 +252,7 @@ function getApiResponseProfileScopeValues(
   profile: ApiCurtailmentResponseProfile,
   cachedFormValues?: ResponseProfileFormValues,
   siteNameById?: SiteNameById,
-): Pick<
-  ResponseProfileFormValues,
-  "siteSelection" | "siteId" | "siteName" | "siteIds" | "siteNamesById" | "deviceIdentifiers" | "minerSelectionMode"
-> {
+): ResponseProfileScopeValues {
   let siteSelection: ResponseProfileFormValues["siteSelection"] = "none";
   const siteIds: string[] = [];
   const deviceIdentifiers: string[] = [];
@@ -267,8 +273,21 @@ function getApiResponseProfileScopeValues(
     if (scope.type === "site") {
       siteSelection = "site";
       siteIds.push(...scope.siteIds);
-    } else {
+    } else if (scope.type === "deviceIdentifiers") {
       deviceIdentifiers.push(...scope.deviceIdentifiers);
+    } else {
+      const ids =
+        scope.type === "building" ? scope.buildingIds : scope.type === "rack" ? scope.rackIds : scope.groupIds;
+      return {
+        siteSelection: "none",
+        siteId: "",
+        siteName: "",
+        siteIds: [],
+        siteNamesById: {},
+        deviceIdentifiers: [],
+        minerSelectionMode: "subset",
+        readOnlyScopeSummary: formatScopeCount(ids.length, scope.type),
+      };
     }
   } else if (profile.site?.siteId) {
     siteSelection = "site";
@@ -299,6 +318,10 @@ function getApiResponseProfileScopeValues(
     deviceIdentifiers: [...new Set(deviceIdentifiers)],
     minerSelectionMode: "subset",
   };
+}
+
+function formatScopeCount(count: number, singular: "building" | "rack" | "group"): string {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
 
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues, mode: CurtailmentMode): string {

@@ -11,7 +11,10 @@ import {
   CurtailmentScopeSchema,
   CurtailmentStrategy,
   FixedKwParamsSchema,
+  ScopeBuildingSchema,
   ScopeDeviceListSchema,
+  ScopeGroupSchema,
+  ScopeRackSchema,
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
@@ -576,6 +579,43 @@ describe("useCurtailmentResponseProfiles", () => {
         deviceIdentifiers: [],
       }),
     });
+  });
+
+  it("maps topology-scoped API profiles to read-only card summaries", async () => {
+    const buildingScopes = [7n, 8n].map((buildingId) =>
+      create(CurtailmentScopeSchema, {
+        scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId }) },
+      }),
+    );
+    const rackScope = create(CurtailmentScopeSchema, {
+      scope: { case: "rack", value: create(ScopeRackSchema, { rackId: 9n }) },
+    });
+    const groupScopes = [10n, 11n].map((groupId) =>
+      create(CurtailmentScopeSchema, {
+        scope: { case: "group", value: create(ScopeGroupSchema, { groupId }) },
+      }),
+    );
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [
+        apiProfile({ profileId: 7n, profileName: "Buildings", site: undefined, scopes: buildingScopes }),
+        apiProfile({ profileId: 8n, profileName: "Rack", site: undefined, scopes: [rackScope] }),
+        apiProfile({ profileId: 9n, profileName: "Groups", site: undefined, scopes: groupScopes }),
+      ],
+    });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "Buildings", scope: "2 buildings", isReadOnly: true, formValues: undefined }),
+        expect.objectContaining({ name: "Rack", scope: "1 rack", isReadOnly: true, formValues: undefined }),
+        expect.objectContaining({ name: "Groups", scope: "2 groups", isReadOnly: true, formValues: undefined }),
+      ]),
+    );
   });
 
   it("maps full-fleet API mode to the whole-fleet card scope", async () => {

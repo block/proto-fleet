@@ -77,6 +77,7 @@ export type ResponseProfile = {
   restoreBehavior: string;
   deadlineSummary: string;
   formValues?: ResponseProfileFormValues;
+  isReadOnly?: boolean;
 };
 
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";

@@ -1268,6 +1268,25 @@ describe("CurtailmentSettingsPage", () => {
     expect(document.querySelector(".curtailment-source-health")).not.toBeInTheDocument();
   });
 
+  it("renders topology-scoped response profiles without enabling the incomplete editor", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "topology-profile",
+      name: "Building response",
+      scope: "2 buildings",
+      formValues: undefined,
+      isReadOnly: true,
+    };
+
+    render(<CurtailmentSettingsContent initialResponseProfiles={[topologyProfile]} />);
+
+    const card = getResponseProfileCard("Building response");
+    expect(within(card).getByText("2 buildings")).toBeVisible();
+    expect(
+      within(card).getByRole("button", { name: "Editing topology-scoped profiles is not available yet" }),
+    ).toBeDisabled();
+  });
+
   it("renders provided automations with enabled and disabled rows", () => {
     render(
       <CurtailmentSettingsContent

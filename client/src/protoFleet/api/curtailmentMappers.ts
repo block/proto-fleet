@@ -137,6 +137,9 @@ function mapCurtailmentEventScopeToFormValues(
         deviceIdentifiers: scope.deviceIdentifiers,
       };
     }
+    if (scope.type !== "site") {
+      throw new Error("Topology curtailment events require the canonical scope UI");
+    }
 
     const siteId = scope.siteIds[0] ?? "";
     const siteNamesById = Object.fromEntries(

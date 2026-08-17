@@ -828,7 +828,9 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
+          ariaLabel={profile.isReadOnly ? "Editing topology-scoped profiles is not available yet" : "Edit"}
           className="!h-8 !px-3 !py-0"
+          disabled={profile.isReadOnly}
           onClick={() => onEdit(profile)}
           testId={`response-profile-edit-${profile.id}`}
         />
