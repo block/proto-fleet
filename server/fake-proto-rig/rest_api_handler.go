@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -23,6 +27,14 @@ const (
 )
 
 var firmwareFilenameVersionRE = regexp.MustCompile(`(?:^|[^0-9.])v?([0-9]+\.[0-9]+\.[0-9]+)(?:$|[^0-9.]|\.[A-Za-z])`)
+
+var secp256k1FieldPrime = func() *big.Int {
+	prime, ok := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
+	if !ok {
+		panic("invalid secp256k1 field prime")
+	}
+	return prime
+}()
 
 // REST API JSON types matching the OpenAPI spec (MDK-API.json)
 
@@ -68,11 +80,12 @@ type ChangePasswordRequest struct {
 
 // PoolConfigInner is a single pool configuration (matches OpenAPI PoolConfig_inner)
 type PoolConfigInner struct {
-	Name     string `json:"name,omitempty"`
-	URL      string `json:"url"`
-	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
-	Priority *int   `json:"priority,omitempty"`
+	Name              string  `json:"name,omitempty"`
+	URL               string  `json:"url"`
+	Username          string  `json:"username"`
+	Password          string  `json:"password,omitempty"`
+	V2AuthorityPubkey *string `json:"v2_authority_pubkey,omitempty"`
+	Priority          *int    `json:"priority,omitempty"`
 }
 
 // PoolResponse is a single pool response
@@ -85,19 +98,29 @@ type PoolsList struct {
 	Pools []PoolData `json:"pools"`
 }
 
+type PoolProtocol string
+
+const (
+	poolProtocolUnknown   PoolProtocol = "Unknown"
+	poolProtocolStratumV1 PoolProtocol = "Stratum V1"
+	poolProtocolStratumV2 PoolProtocol = "Stratum V2"
+)
+
 // PoolData is a single pool data
 type PoolData struct {
-	ID               int    `json:"id"`
-	Priority         int    `json:"priority"`
-	Name             string `json:"name,omitempty"`
-	URL              string `json:"url"`
-	User             string `json:"user"`
-	Status           string `json:"status"`
-	AcceptedShares   int64  `json:"accepted"`
-	RejectedShares   int64  `json:"rejected"`
-	Difficulty       string `json:"difficulty"`
-	Enabled          bool   `json:"enabled"`
-	ConnectionStatus string `json:"connection_status"`
+	ID                int          `json:"id"`
+	Priority          int          `json:"priority"`
+	Name              string       `json:"name,omitempty"`
+	URL               string       `json:"url"`
+	User              string       `json:"user"`
+	Status            string       `json:"status"`
+	Protocol          PoolProtocol `json:"protocol"`
+	V2AuthorityPubkey string       `json:"v2_authority_pubkey"`
+	AcceptedShares    int64        `json:"accepted"`
+	RejectedShares    int64        `json:"rejected"`
+	Difficulty        string       `json:"difficulty"`
+	Enabled           bool         `json:"enabled"`
+	ConnectionStatus  string       `json:"connection_status"`
 }
 
 // SystemInfo contains system information
@@ -1039,28 +1062,8 @@ func (h *RESTApiHandler) getPools(w http.ResponseWriter, r *http.Request) {
 			status = "Dead"
 		}
 
-		var acceptedShares, rejectedShares int64
-		var difficulty string = "0"
-		if p.Statistics != nil {
-			acceptedShares = int64(p.Statistics.AcceptedShares)
-			rejectedShares = int64(p.Statistics.RejectedShares)
-			difficulty = fmt.Sprintf("%.0f", p.Statistics.CurrentDifficulty)
-		}
-
-		poolName := h.state.GetPoolName(p.Idx)
-		poolList[i] = PoolData{
-			ID:               int(p.Idx),
-			Priority:         p.Priority,
-			Name:             poolName,
-			URL:              p.Url,
-			User:             p.Username,
-			Status:           status,
-			AcceptedShares:   acceptedShares,
-			RejectedShares:   rejectedShares,
-			Difficulty:       difficulty,
-			Enabled:          true, // Pool is enabled if it exists
-			ConnectionStatus: status,
-		}
+		poolList[i] = poolDataFromPool(p, h.state.GetPoolName(p.Idx), status)
+		poolList[i].ConnectionStatus = status
 	}
 
 	h.writeJSON(w, http.StatusOK, PoolsList{Pools: poolList})
@@ -1075,8 +1078,7 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, p := range pools {
-		if err := validatePoolURL(p.URL); err != nil {
-			h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
+		if !h.validatePoolConfig(w, p.URL, p.V2AuthorityPubkey) {
 			return
 		}
 	}
@@ -1092,11 +1094,12 @@ func (h *RESTApiHandler) createPools(w http.ResponseWriter, r *http.Request) {
 		}
 
 		pool := &Pool{
-			Idx:      uint32(i),
-			Priority: priority,
-			Url:      p.URL,
-			Username: p.Username,
-			Password: p.Password,
+			Idx:               uint32(i),
+			Priority:          priority,
+			Url:               p.URL,
+			Username:          p.Username,
+			Password:          p.Password,
+			V2AuthorityPubkey: stringValue(p.V2AuthorityPubkey),
 			Statistics: &PoolStatistics{
 				AcceptedShares:    defaultPoolAcceptedShares,
 				RejectedShares:    defaultPoolRejectedShares,
@@ -1145,32 +1148,38 @@ func (h *RESTApiHandler) getPool(w http.ResponseWriter, r *http.Request, id int)
 	pools := h.state.GetPools()
 	for _, p := range pools {
 		if int(p.Idx) == id {
-			var acceptedShares, rejectedShares int64
-			var difficulty string = "0"
-			if p.Statistics != nil {
-				acceptedShares = int64(p.Statistics.AcceptedShares)
-				rejectedShares = int64(p.Statistics.RejectedShares)
-				difficulty = fmt.Sprintf("%.0f", p.Statistics.CurrentDifficulty)
-			}
-
 			h.writeJSON(w, http.StatusOK, PoolResponse{
-				Pool: PoolData{
-					ID:             int(p.Idx),
-					Name:           h.state.GetPoolName(p.Idx),
-					Priority:       p.Priority,
-					URL:            p.Url,
-					User:           p.Username,
-					Status:         "Active",
-					AcceptedShares: acceptedShares,
-					RejectedShares: rejectedShares,
-					Difficulty:     difficulty,
-					Enabled:        true,
-				},
+				Pool: poolDataFromPool(p, h.state.GetPoolName(p.Idx), "Active"),
 			})
 			return
 		}
 	}
 	h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Pool not found")
+}
+
+func poolDataFromPool(pool *Pool, name, status string) PoolData {
+	var acceptedShares, rejectedShares int64
+	difficulty := "0"
+	if pool.Statistics != nil {
+		acceptedShares = int64(pool.Statistics.AcceptedShares)
+		rejectedShares = int64(pool.Statistics.RejectedShares)
+		difficulty = fmt.Sprintf("%.0f", pool.Statistics.CurrentDifficulty)
+	}
+
+	return PoolData{
+		ID:                int(pool.Idx),
+		Priority:          pool.Priority,
+		Name:              name,
+		URL:               pool.Url,
+		User:              pool.Username,
+		Status:            status,
+		Protocol:          poolProtocol(pool.Url),
+		V2AuthorityPubkey: pool.V2AuthorityPubkey,
+		AcceptedShares:    acceptedShares,
+		RejectedShares:    rejectedShares,
+		Difficulty:        difficulty,
+		Enabled:           true,
+	}
 }
 
 func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id int) {
@@ -1180,18 +1189,23 @@ func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id i
 		return
 	}
 
-	if config.URL != "" {
-		if err := validatePoolURL(config.URL); err != nil {
-			h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
-			return
-		}
-	}
-
 	h.state.mu.Lock()
 	defer h.state.mu.Unlock()
 
 	for _, p := range h.state.Pools {
 		if int(p.Idx) == id {
+			effectiveURL := p.Url
+			if config.URL != "" {
+				effectiveURL = config.URL
+			}
+			effectiveAuthorityKey := p.V2AuthorityPubkey
+			if config.V2AuthorityPubkey != nil {
+				effectiveAuthorityKey = *config.V2AuthorityPubkey
+			}
+			if !h.validatePoolConfig(w, effectiveURL, &effectiveAuthorityKey) {
+				return
+			}
+
 			if config.Name != "" {
 				if h.state.PoolNames == nil {
 					h.state.PoolNames = make(map[uint32]string)
@@ -1206,6 +1220,9 @@ func (h *RESTApiHandler) updatePool(w http.ResponseWriter, r *http.Request, id i
 			}
 			if config.Password != "" {
 				p.Password = config.Password
+			}
+			if config.V2AuthorityPubkey != nil {
+				p.V2AuthorityPubkey = *config.V2AuthorityPubkey
 			}
 			if config.Priority != nil {
 				p.Priority = *config.Priority
@@ -1229,9 +1246,10 @@ func (h *RESTApiHandler) handleTestPoolConnection(w http.ResponseWriter, r *http
 	}
 
 	type testPoolConnectionRequest struct {
-		URL      string          `json:"url"`
-		Username string          `json:"username"`
-		Password json.RawMessage `json:"password"`
+		URL               string          `json:"url"`
+		Username          string          `json:"username"`
+		Password          json.RawMessage `json:"password"`
+		V2AuthorityPubkey *string         `json:"v2_authority_pubkey,omitempty"`
 	}
 
 	var req testPoolConnectionRequest
@@ -1240,8 +1258,7 @@ func (h *RESTApiHandler) handleTestPoolConnection(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := validatePoolURL(req.URL); err != nil {
-		h.writeError(w, http.StatusBadRequest, "INVALID_POOL_URL", "Invalid pool URL")
+	if !h.validatePoolConfig(w, req.URL, req.V2AuthorityPubkey) {
 		return
 	}
 
@@ -1254,40 +1271,165 @@ func (h *RESTApiHandler) handleTestPoolConnection(w http.ResponseWriter, r *http
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Connection test passed"})
 }
 
-func validatePoolURL(raw string) error {
+func parsePoolURL(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return fmt.Errorf("empty url")
+		return nil, fmt.Errorf("empty url")
 	}
 
 	u, err := url.Parse(raw)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	scheme := strings.ToLower(u.Scheme)
 	switch scheme {
-	case "stratum+tcp", "stratum+ssl", "stratum+tls", "stratum2+tcp", "stratum2+ssl", "stratum2+tls":
+	case "stratum+tcp", "stratum2+tcp":
 		// ok
 	default:
-		return fmt.Errorf("unsupported scheme: %s", u.Scheme)
+		return nil, fmt.Errorf("unsupported scheme: %s", u.Scheme)
 	}
 
 	if u.Hostname() == "" {
-		return fmt.Errorf("missing hostname")
+		return nil, fmt.Errorf("missing hostname")
 	}
 
 	port := u.Port()
 	if port == "" {
-		return fmt.Errorf("missing port")
+		return u, nil
 	}
 
 	portNum, err := strconv.Atoi(port)
 	if err != nil || portNum < 1 || portNum > 65535 {
-		return fmt.Errorf("invalid port")
+		return nil, fmt.Errorf("invalid port")
+	}
+
+	return u, nil
+}
+
+func (h *RESTApiHandler) validatePoolConfig(w http.ResponseWriter, rawURL string, authorityKey *string) bool {
+	poolURL, err := parsePoolURL(rawURL)
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, MessageResponse{Message: "Invalid pool URL"})
+		return false
+	}
+	if err := validateSV2AuthorityKey(poolURL, stringValue(authorityKey)); err != nil {
+		h.writeJSON(w, http.StatusBadRequest, MessageResponse{Message: err.Error()})
+		return false
+	}
+	return true
+}
+
+func validateSV2AuthorityKey(poolURL *url.URL, authorityKey string) error {
+	if !strings.EqualFold(poolURL.Scheme, "stratum2+tcp") {
+		return nil
+	}
+
+	authorityKey = strings.TrimSpace(authorityKey)
+	if authorityKey == "" {
+		if isLoopbackPoolHost(poolURL.Hostname()) {
+			return nil
+		}
+		return fmt.Errorf("an authority public key is required for remote SV2 pools")
+	}
+	if len(authorityKey) != 51 {
+		return fmt.Errorf("invalid Stratum V2 authority public key")
+	}
+
+	decoded, err := decodeBase58(authorityKey)
+	if err != nil || len(decoded) != 38 {
+		return fmt.Errorf("invalid Stratum V2 authority public key")
+	}
+
+	payload, checksum := decoded[:34], decoded[34:]
+	firstHash := sha256.Sum256(payload)
+	secondHash := sha256.Sum256(firstHash[:])
+	if payload[0] != 1 ||
+		payload[1] != 0 ||
+		!bytes.Equal(checksum, secondHash[:4]) ||
+		!isValidSecp256k1XOnlyKey(payload[2:]) {
+		return fmt.Errorf("invalid Stratum V2 authority public key")
 	}
 
 	return nil
+}
+
+func decodeBase58(encoded string) ([]byte, error) {
+	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+	value := new(big.Int)
+	radix := big.NewInt(58)
+	for i := 0; i < len(encoded); i++ {
+		digit := strings.IndexByte(alphabet, encoded[i])
+		if digit < 0 {
+			return nil, fmt.Errorf("invalid base58 character")
+		}
+		value.Mul(value, radix)
+		value.Add(value, big.NewInt(int64(digit)))
+	}
+
+	decoded := value.Bytes()
+	leadingZeroes := 0
+	for leadingZeroes < len(encoded) && encoded[leadingZeroes] == alphabet[0] {
+		leadingZeroes++
+	}
+	result := make([]byte, leadingZeroes+len(decoded))
+	copy(result[leadingZeroes:], decoded)
+	return result, nil
+}
+
+func isValidSecp256k1XOnlyKey(encoded []byte) bool {
+	if len(encoded) != 32 {
+		return false
+	}
+
+	x := new(big.Int).SetBytes(encoded)
+	if x.Cmp(secp256k1FieldPrime) >= 0 {
+		return false
+	}
+
+	// A valid x-only key must have a y coordinate satisfying y² = x³ + 7.
+	rightHandSide := new(big.Int).Exp(x, big.NewInt(3), secp256k1FieldPrime)
+	rightHandSide.Add(rightHandSide, big.NewInt(7)).Mod(rightHandSide, secp256k1FieldPrime)
+
+	// secp256k1's field prime is 3 mod 4, so rhs^((p+1)/4) is a square root
+	// exactly when rhs is a quadratic residue.
+	exponent := new(big.Int).Add(secp256k1FieldPrime, big.NewInt(1))
+	exponent.Rsh(exponent, 2)
+	y := new(big.Int).Exp(rightHandSide, exponent, secp256k1FieldPrime)
+	ySquared := new(big.Int).Mul(y, y)
+	ySquared.Mod(ySquared, secp256k1FieldPrime)
+	return ySquared.Cmp(rightHandSide) == 0
+}
+
+func isLoopbackPoolHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func poolProtocol(rawURL string) PoolProtocol {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return poolProtocolUnknown
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "stratum+tcp":
+		return poolProtocolStratumV1
+	case "stratum2+tcp":
+		return poolProtocolStratumV2
+	default:
+		return poolProtocolUnknown
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // Auth handlers

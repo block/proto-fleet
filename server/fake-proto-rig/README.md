@@ -230,6 +230,8 @@ When implementing or updating endpoints, verify these common patterns from the O
 | **Telemetry-service status** | GET/PUT `/system/telemetry` return `{"enabled", "message"}` (TelemetryResponse) | bare `{"enabled"}` or a message-only body |
 | **PSU update body** | optional `psu_types` map (slot ID → PSU type enum), validated (422 on bad value/slot) | ignore body or accept unknown PSU types |
 | **Port field** | `json:"port"` (0 is valid) | `json:"port,omitempty"` (omits 0) |
+| **Pool URL ports** | explicit port or protocol default (`3333` for SV1, `3336` for SV2) | reject a valid pool URL because its port is omitted |
+| **SV2 authority key** | require a valid `v2_authority_pubkey` for remote SV2 pools; allow omission only for loopback | accept an unauthenticated remote SV2 pool |
 | **System status fields** | `{"onboarded", "password_set"}` | including `default_password_active` (removed in MDK-API 1.8.2) |
 | **SecureResponse** | `{"secure", "state": {sshd, nats-service, secureboot, certificate-validity}}` | bare `{"secure"}` (state added in MDK-API 1.8.2) |
 | **TimeSeriesRequest** | Validate `start_time` and `levels` are required (return 422) | Accept missing required fields |

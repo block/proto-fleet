@@ -18,6 +18,7 @@ enum error_cause {
     BOARD_UNDER_VOLTAGE = 3;
     BOARD_OVER_TEMPERATURE = 4;
     BOARD_POWER_SUPPLY = 5;
+    BOARD_POWER_SUPPLY_OVER_TEMPERATURE = 6;
 
     // ASIC errors
     ASIC_OVER_VOLTAGE = 10;
@@ -26,6 +27,7 @@ enum error_cause {
     ASIC_UNDER_TEMPERATURE = 13;
     ASIC_ENUMERATION = 14;
     ASIC_ECC = 15;
+    ASIC_CORNER_TEMPERATURE_DELTA = 16;
 
     // Stack errors
     STACK_ENUMERATION = 30;
@@ -93,6 +95,24 @@ message hashboard_error {
     optional uint32 stack = 4;
 }
 
+message psu_thermal_health {
+    // Temperatures are present only when the corresponding PMBus readings are valid.
+    optional float inlet_temperature = 1;
+    optional float sr_heatsink_temperature = 2;
+    optional float pfc_heatsink_temperature = 3;
+
+    // Age of the temperature snapshot in milliseconds.
+    optional uint32 temperatures_age_ms = 4;
+
+    // STATUS_TEMPERATURE validity and decoded PMBus warning/fault state.
+    bool thermal_state_valid = 5;
+    bool over_temperature_warning = 6;
+    bool over_temperature_fault = 7;
+
+    // Age of the STATUS_TEMPERATURE snapshot in milliseconds.
+    optional uint32 thermal_state_age_ms = 8;
+}
+
 message async_system_health {
     // The uptime of the system RTOS in milliseconds
     uint32 uptime = 1;
@@ -145,11 +165,18 @@ message async_system_health {
     // The detected board power supply type.
     power_supply_type power_supply_type = 17;
 
+    // Thermal telemetry from the detected power supply.
+    psu_thermal_health psu_thermal = 18;
+
     // Optional: The cause of the error if the mining state is MINING_STATE_ERROR
     repeated hashboard_error errors = 99;
 
     // Warning conditions. Entries can be transient or latched until the condition is reset.
     repeated hashboard_error warnings = 100;
+
+    // The latched reason for the most recent mining shutdown, when present.
+    // This is diagnostic history and is not an active health error.
+    hashboard_error last_shutdown_error = 101;
 }
 
 message async_mining_nonce {

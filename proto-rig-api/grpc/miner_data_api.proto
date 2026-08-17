@@ -553,6 +553,9 @@ message Pool {
     PoolStatistics statistics = 11;
     // User-defined display name for this pool
     string name = 12;
+    // Stratum V2 authority public key used for Noise connection verification.
+    // Proto3 strings are not nullable; empty string means not configured.
+    string v2_authority_pubkey = 13;
 }
 
 message HashrateWindow {
