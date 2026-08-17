@@ -1,7 +1,5 @@
-// Package updaterapi defines the narrow local protocol shared by fleetd and
-// the privileged host updater. The transport is an HTTP server on a Unix
-// socket; this package intentionally contains data types only so neither side
-// can accidentally share privileged implementation code.
+// Package updaterapi defines the narrow local Unix-socket protocol shared by
+// Fleet clients and the privileged host updater.
 package updaterapi
 
 import "time"
@@ -26,6 +24,7 @@ func (p Phase) Terminal() bool {
 type Operation struct {
 	ID              string     `json:"id"`
 	TargetVersion   string     `json:"target_version"`
+	Complete        bool       `json:"complete,omitempty"`
 	Phase           Phase      `json:"phase"`
 	Message         string     `json:"message,omitempty"`
 	StartedAt       time.Time  `json:"started_at"`
@@ -33,7 +32,11 @@ type Operation struct {
 	CompletedAt     *time.Time `json:"completed_at,omitempty"`
 	Error           string     `json:"error,omitempty"`
 	RecoveryCommand string     `json:"recovery_command,omitempty"`
+	RecoveryPending bool       `json:"recovery_pending,omitempty"`
 	LogPath         string     `json:"log_path,omitempty"`
+	// Acknowledged records that an operator dismissed this terminal outcome.
+	// Clients keep the operation out of their upgrade UI once set.
+	Acknowledged bool `json:"acknowledged,omitempty"`
 }
 
 type StatusResponse struct {
@@ -43,12 +46,36 @@ type StatusResponse struct {
 type TriggerRequest struct {
 	OperationID   string `json:"operation_id"`
 	TargetVersion string `json:"target_version"`
+	Complete      bool   `json:"complete,omitempty"`
 }
 
 type TriggerResponse struct {
 	Operation Operation `json:"operation"`
 }
 
-type ErrorResponse struct {
-	Error string `json:"error"`
+type AcknowledgeRequest struct {
+	OperationID string `json:"operation_id"`
 }
+
+type AcknowledgeResponse struct {
+	Operation Operation `json:"operation"`
+	// AlreadyAcknowledged reports that this call found the dismissal in place
+	// rather than recording it. Side effects coupled to acknowledgement must be
+	// independently idempotent because this may be a retry after an ambiguous
+	// transport result rather than an unrelated duplicate action.
+	AlreadyAcknowledged bool `json:"already_acknowledged,omitempty"`
+}
+
+type ErrorResponse struct {
+	Error string    `json:"error"`
+	Code  ErrorCode `json:"code,omitempty"`
+}
+
+type ErrorCode string
+
+const (
+	// ErrorCodeOperationNotFound distinguishes an acknowledge request for an
+	// operation that is no longer current from a route-level 404 returned by an
+	// older updater daemon that does not implement acknowledgements yet.
+	ErrorCodeOperationNotFound ErrorCode = "operation_not_found"
+)

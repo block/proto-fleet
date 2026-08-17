@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -3349,14 +3350,13 @@ func rackIdentitySet(rows []map[string]string, racks []rackSnapshot) map[string]
 }
 
 func safeInt32(value int) int32 {
-	const maxInt32 = int64(1<<31 - 1)
 	if value < 0 {
 		return 0
 	}
-	if int64(value) > maxInt32 {
-		return int32(maxInt32)
+	if value > math.MaxInt32 {
+		return math.MaxInt32
 	}
-	return int32(value) // #nosec G115 -- value is bounded above to MaxInt32.
+	return int32(value)
 }
 
 func rowMap(headers, values []string) map[string]string {

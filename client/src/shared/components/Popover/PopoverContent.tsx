@@ -83,6 +83,9 @@ const PopoverContent = ({
           "w-60": size === popoverSizes.small,
           "w-72": size === popoverSizes.medium,
           "w-80": size === popoverSizes.normal,
+          // Twice the medium panel, for content that reads as rows rather than a paragraph. Capped to the
+          // viewport: the positioner pins an over-wide panel to the left margin and lets the rest run off-screen.
+          "w-144 max-w-[calc(100vw-1rem)]": size === popoverSizes.wide,
         },
         className,
       )}

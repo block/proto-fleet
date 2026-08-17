@@ -432,6 +432,18 @@ func (q *retryingQuerier) ClaimRigConfigReconciliation(ctx context.Context) (Cur
 	return result, err
 }
 
+func (q *retryingQuerier) ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "ClassifyFleetRuntimeLeaseAcquisition", func() error {
+		callResult, callErr := q.next.ClassifyFleetRuntimeLeaseAcquisition(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearCurtailmentAutomationActiveEvent", func() error {
 		return q.next.ClearCurtailmentAutomationActiveEvent(ctx, arg)
@@ -1032,6 +1044,12 @@ func (q *retryingQuerier) DeleteAlertRoutePolicy(ctx context.Context, arg Delete
 	return result, err
 }
 
+func (q *retryingQuerier) DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error {
+	return q.retrier.RetryQuery(ctx, "DeleteAlertRuleConfig", func() error {
+		return q.next.DeleteAlertRuleConfig(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteCurtailmentAutomationRuleByOrg", func() error {
@@ -1212,6 +1230,18 @@ func (q *retryingQuerier) DeviceSetBelongsToOrg(ctx context.Context, arg DeviceS
 	return result, err
 }
 
+func (q *retryingQuerier) DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "DeviceSetsByIDs", func() error {
+		callResult, callErr := q.next.DeviceSetsByIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DisableCurtailmentAutomationRuleByActiveEvent", func() error {
@@ -1378,6 +1408,18 @@ func (q *retryingQuerier) GetAlertChannelByName(ctx context.Context, arg GetAler
 	var result AlertChannel
 	err := q.retrier.RetryQuery(ctx, "GetAlertChannelByName", func() error {
 		callResult, callErr := q.next.GetAlertChannelByName(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetAlertRuleConfig(ctx context.Context, arg GetAlertRuleConfigParams) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "GetAlertRuleConfig", func() error {
+		callResult, callErr := q.next.GetAlertRuleConfig(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3354,10 +3396,34 @@ func (q *retryingQuerier) ListActiveCurtailmentTargetDevicesByOrg(ctx context.Co
 	return result, err
 }
 
+func (q *retryingQuerier) ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error) {
+	var result []ListActiveNotificationGroupsRow
+	err := q.retrier.RetryQuery(ctx, "ListActiveNotificationGroups", func() error {
+		callResult, callErr := q.next.ListActiveNotificationGroups(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListActiveNotifications(ctx context.Context, arg ListActiveNotificationsParams) ([]ListActiveNotificationsRow, error) {
 	var result []ListActiveNotificationsRow
 	err := q.retrier.RetryQuery(ctx, "ListActiveNotifications", func() error {
 		callResult, callErr := q.next.ListActiveNotifications(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListActiveNotificationsByAlert(ctx context.Context, arg ListActiveNotificationsByAlertParams) ([]ListActiveNotificationsByAlertRow, error) {
+	var result []ListActiveNotificationsByAlertRow
+	err := q.retrier.RetryQuery(ctx, "ListActiveNotificationsByAlert", func() error {
+		callResult, callErr := q.next.ListActiveNotificationsByAlert(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3406,6 +3472,18 @@ func (q *retryingQuerier) ListAlertRoutePolicies(ctx context.Context, orgID int6
 	var result []ListAlertRoutePoliciesRow
 	err := q.retrier.RetryQuery(ctx, "ListAlertRoutePolicies", func() error {
 		callResult, callErr := q.next.ListAlertRoutePolicies(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListAlertRuleConfigs(ctx context.Context, arg ListAlertRuleConfigsParams) ([]ListAlertRuleConfigsRow, error) {
+	var result []ListAlertRuleConfigsRow
+	err := q.retrier.RetryQuery(ctx, "ListAlertRuleConfigs", func() error {
+		callResult, callErr := q.next.ListAlertRuleConfigs(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5076,6 +5154,18 @@ func (q *retryingQuerier) SoftDeleteUserFromOrganization(ctx context.Context, ar
 	})
 }
 
+func (q *retryingQuerier) SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "SweepAlertRuleConfigs", func() error {
+		callResult, callErr := q.next.SweepAlertRuleConfigs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) SweepCurtailmentTargetsToReleased(ctx context.Context, arg SweepCurtailmentTargetsToReleasedParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "SweepCurtailmentTargetsToReleased", func() error {
@@ -5626,6 +5716,12 @@ func (q *retryingQuerier) UpsertAlertRoutePolicy(ctx context.Context, arg Upsert
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) UpsertAlertRuleConfig(ctx context.Context, arg UpsertAlertRuleConfigParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertAlertRuleConfig", func() error {
+		return q.next.UpsertAlertRuleConfig(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) UpsertBuiltinRoleForOrg(ctx context.Context, arg UpsertBuiltinRoleForOrgParams) (Role, error) {

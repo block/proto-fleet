@@ -22,10 +22,14 @@ The `install.sh` script sets up the Proto Fleet server components.
 ### Proto Fleet Installation Options
 
 ```bash
-Usage: install.sh [VERSION]
+Usage: install.sh [options] [VERSION]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
+Options:
+  --install-dir PATH       Use PATH without prompting.
+  --non-interactive        Fail instead of prompting; for an existing install
+                           with a complete deployment .env.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
@@ -38,7 +42,8 @@ Examples:
 bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh)
 
 # Install a specific version
-bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh) v0.1.0-beta-5
+VERSION=v0.2.10-rc.2
+bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSION/install.sh") "$VERSION"
 
 # Install the latest nightly prerelease (installer is fetched from the resolved
 # nightly release asset, not from the mutable nightly-channel branch)
@@ -49,9 +54,66 @@ bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSI
 The script will:
 
 - Check system compatibility (page size)
-- Download and extract the specified version
-- Preserve existing configuration files if present
+- Download the specified version and verify its published SHA-256 checksum
+- Extract the release and preserve existing configuration files
+- On Linux/systemd with rootful Docker, install the host updater used for
+  in-product one-click upgrades
 - Run the deployment script automatically
+
+## One-click upgrades
+
+After one manual install of a release that includes the host updater,
+permission-holding operators can upgrade an eligible stable or release
+candidate from the ProtoFleet update prompt. The confirmation explains the
+restart window and adds a no-downgrade warning for release candidates.
+
+The updater runs as `proto-fleet-updater.service`, outside the Docker Compose
+stack it restarts. Fleet API talks to it over
+`/run/proto-fleet-updater/updater.sock`; the application container is never
+given the host Docker socket. Before stopping Fleet, the updater:
+
+1. downloads the target bundle and its checksum over HTTPS;
+2. verifies the SHA-256 digest and safely extracts the archive;
+3. preserves `.env`, `ssl/`, and `server/influx_config/.env`;
+4. builds and validates the staged deployment with Fleet still running.
+
+Only then does it swap the staged deployment into place and restart the stack.
+The previous deployment remains at `<install-root>/deployment.previous` for
+operator inspection. Automatic rollback is deliberately disabled because
+database migrations are forward-only.
+
+The checksum sidecar detects transfer corruption and binds the expected asset
+name to its digest. Because the bundle and sidecar share the same GitHub
+Release origin, GitHub remains the publisher trust anchor; independent release
+signing is intentionally outside this phase.
+
+One-click upgrades are enabled on Linux hosts with systemd and rootful Docker,
+including WSL distributions configured with systemd. macOS, rootless Docker,
+and Linux hosts without systemd continue to show the exact manual upgrade
+command.
+
+### Failure recovery
+
+The client shows the terminal error, host log path, and a recovery command
+when Fleet is reachable. The same durable details remain on the host:
+
+```text
+/var/lib/proto-fleet-updater/state.json
+/var/lib/proto-fleet-updater/logs/<operation-id>.log
+```
+
+Inspect the service and latest operation with:
+
+```bash
+sudo systemctl status proto-fleet-updater.service
+sudo journalctl -u proto-fleet-updater.service
+sudo cat /var/lib/proto-fleet-updater/state.json
+```
+
+If activation failed, run the `recovery_command` from `state.json` as root.
+Do not replace the active deployment with `deployment.previous` after
+migrations may have started; an older binary may be incompatible with the
+newer schema.
 
 ## Optional Virtual Miners
 

@@ -71,10 +71,18 @@ export function useAlerts(): UseAlertsResult {
   const upsertRule = useCallback((updated: Rule) => {
     if (deletedIdsRef.current.has(updated.id)) return;
     setRules((current) => {
+      const previous = current.find((r) => r.id === updated.id);
       // Null routing means the server couldn't read it; keep the last-known value so a route-read outage can't repaint a routed rule as default.
-      const next = updated.routing
-        ? updated
-        : { ...updated, routing: current.find((r) => r.id === updated.id)?.routing ?? null };
+      let next = updated.routing ? updated : { ...updated, routing: previous?.routing ?? null };
+      // Same for a flagged config read failure: keep the last-known config so a
+      // config-store hiccup can't repaint a scoped rule as org-wide/uneditable.
+      if (updated.config_unknown) {
+        next = {
+          ...next,
+          config: previous?.config ?? null,
+          config_out_of_sync: previous?.config_out_of_sync,
+        };
+      }
       return upsertById(current, next);
     });
   }, []);

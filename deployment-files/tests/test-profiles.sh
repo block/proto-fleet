@@ -216,6 +216,7 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STRICT_TMP" "$STAGE"' EXIT
 mkdir -p "$STAGE/server" "$STAGE/client" "$STAGE/ha"
 cp "$PROD_COMPOSE" "$STAGE/"
+cp "$REPO_ROOT/deployment-files/docker-compose.updater.yaml" "$STAGE/"
 cp "$REPO_ROOT/deployment-files/ha/compose.yaml" "$STAGE/ha/"
 cp "$BASE_COMPOSE" "$STAGE/server/"
 cp -r "$PROFILES_DIR" "$STAGE/profiles"
@@ -302,6 +303,29 @@ assert_rendered "max render" "$out" \
 out=$(render --env-file profiles/standard.env --env-file override.env)
 assert_rendered "operator .env overrides the profile" "$out" \
     "shared_buffers=999MB" "max_worker_processes=13"
+
+out=$(cd "$STAGE" && docker compose --env-file base-secrets.env \
+    -f docker-compose.yaml -f docker-compose.updater.yaml config 2>"$STAGE/render.err")
+assert_rendered "host updater overlay exposes only its Unix socket" "$out" \
+    'UPDATES_UPDATER_SOCKET_PATH: /run/proto-fleet-updater/updater.sock' \
+    'source: /run/proto-fleet-updater' \
+    'target: /run/proto-fleet-updater'
+if printf '%s\n' "$out" | awk '
+    $1 == "source:" && $2 == "/run/proto-fleet-updater" { in_socket = 1; target = 0; next }
+    in_socket && $1 == "target:" && $2 == "/run/proto-fleet-updater" { target = 1; next }
+    in_socket && target && $1 == "read_only:" && $2 == "true" { read_only = 1; exit }
+    in_socket && $1 == "source:" { in_socket = 0 }
+    END { exit !(read_only == 1) }
+'; then
+    pass "host updater socket mount is read-only"
+else
+    fail "host updater socket mount is not read-only"
+fi
+if printf '%s\n' "$out" | grep -qF '/var/run/docker.sock'; then
+    fail "host updater overlay exposes the Docker socket"
+else
+    pass "host updater overlay does not expose the Docker socket"
+fi
 
 # ----------------------------------------------------------------------------
 

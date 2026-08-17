@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/mod/semver"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
@@ -48,21 +49,26 @@ const (
 	// Activation includes migrations and multiple readiness windows after the
 	// old stack is stopped. Timing out requires forward manual recovery, making
 	// this a minimum liveness bound rather than spare retry time.
-	defaultActivationTimeout = 45 * time.Minute
-	defaultCleanupTimeout    = 2 * time.Minute
-	defaultCandidateTimeout  = 10 * time.Second
-	maxCommandLogBytes       = int64(64 << 20)
-	maxCandidateVersionBytes = int64(4096)
-	maxRetainedOperationLogs = 8
-	maxRetainedLogBytes      = int64(256 << 20)
-	canonicalDownloadBaseURL = "https://github.com/block/proto-fleet/releases/download"
-	processLockFilename      = "updater.lock"
-	activationMarkerFilename = "activation-swap.json"
-	activationMarkerTempName = ".activation-swap.json.tmp"
-	preflightProofFilename   = ".update-preflight-complete"
-	operationArtifactPrefix  = ".proto-fleet-upgrade-"
-	selfUpdateBackupSuffix   = ".previous"
-	stateTempPrefix          = ".state-"
+	defaultActivationTimeout               = 45 * time.Minute
+	defaultCleanupTimeout                  = 2 * time.Minute
+	defaultCandidateTimeout                = 10 * time.Second
+	maxCommandLogBytes                     = int64(64 << 20)
+	maxCandidateVersionBytes               = int64(4096)
+	maxRetainedOperationLogs               = 8
+	maxRetainedLogBytes                    = int64(256 << 20)
+	canonicalDownloadBaseURL               = "https://github.com/block/proto-fleet/releases/download"
+	processLockFilename                    = "updater.lock"
+	activationMarkerFilename               = "activation-swap.json"
+	activationMarkerTempName               = ".activation-swap.json.tmp"
+	qualificationBeforeStopBarrierName     = "qualification-pause-before-ha-stop"
+	qualificationAfterStopBarrierName      = "qualification-pause-after-ha-stop"
+	qualificationBetweenRenamesBarrierName = "qualification-pause-between-deployment-renames"
+	preflightProofFilename                 = ".update-preflight-complete"
+	startupProofFilename                   = ".fleet-startup-complete"
+	operationArtifactPrefix                = ".proto-fleet-upgrade-"
+	selfUpdateBackupSuffix                 = ".previous"
+	stateTempPrefix                        = ".state-"
+	haNodeEnvPath                          = "/etc/proto-fleet/ha/node.env"
 )
 
 var (
@@ -74,6 +80,8 @@ var (
 	errTriggerPrecondition   = errors.New("updater trigger precondition failed")
 	errTriggerBusy           = errors.New("updater is busy")
 	errTriggerClosing        = errors.New("updater is shutting down")
+	errAcknowledgeUnknown    = errors.New("no matching updater operation")
+	errAcknowledgeActive     = errors.New("updater operation is not terminal")
 )
 
 type classifiedTriggerError struct {
@@ -111,7 +119,13 @@ func (execRunner) Run(ctx context.Context, dir string, output io.Writer, name st
 	cmd.Dir = dir
 	cmd.Stdout = output
 	cmd.Stderr = output
-	cmd.Env = append(os.Environ(), "CI=1", "TERM=dumb")
+	cmd.Env = append(
+		os.Environ(),
+		"CI=1",
+		"TERM=dumb",
+		// Coordination marker for updater-owned run-fleet children; not auth.
+		"PROTO_FLEET_UPDATER_MANAGED_RUN=1",
+	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -146,6 +160,7 @@ type Config struct {
 	PreflightTimeout  time.Duration
 	ActivationTimeout time.Duration
 	CleanupTimeout    time.Duration
+	DeploymentMode    DeploymentMode
 
 	// Tests inject an httptest TLS endpoint without opening a production
 	// configuration path for alternate release mirrors.
@@ -163,6 +178,13 @@ type Config struct {
 	// admission so a completed concurrent upgrade can change the installed version.
 	beforeTriggerAdmission func(string)
 }
+
+type DeploymentMode string
+
+const (
+	DeploymentModeStandalone DeploymentMode = "standalone"
+	DeploymentModeHA         DeploymentMode = "ha"
+)
 
 type activationMarker struct {
 	OperationID   string `json:"operation_id"`
@@ -548,6 +570,45 @@ func wrapIfError(message string, err error) error {
 }
 
 func NewManager(cfg Config) (*Manager, error) {
+	return newManager(cfg)
+}
+
+// RepairStartup restores crash-interrupted updater and deployment state before HA starts.
+func RepairStartup(cfg Config) error {
+	canonicalStateDir, err := ensureUpdaterStateDirectory(cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	processLock, err := acquireProcessLock(canonicalStateDir)
+	if err != nil {
+		return err
+	}
+	prepareErr := prepareSelfUpdateRepair(cfg.SelfUpdatePath)
+	interruptedSelfUpdate := errors.Is(prepareErr, ErrInterruptedSelfUpdateRestored)
+	if prepareErr != nil && !interruptedSelfUpdate && !errors.Is(prepareErr, errRetriedSelfUpdateRestored) {
+		return errors.Join(prepareErr, processLock.Close())
+	}
+	if err := processLock.Close(); err != nil {
+		return fmt.Errorf("release updater repair lock: %w", err)
+	}
+	cfg.StateDir = canonicalStateDir
+	manager, err := newManager(cfg)
+	if err != nil {
+		return err
+	}
+	convergeUpdater := interruptedSelfUpdate || (prepareErr == nil && manager.cfg.DeploymentMode == DeploymentModeHA)
+	if manager.cfg.SelfUpdatePath != "" && convergeUpdater {
+		matches, matchErr := manager.updaterMatchesInstalledDeployment()
+		if matchErr != nil {
+			err = matchErr
+		} else if !matches {
+			err = manager.restoreUpdaterFromInstalledDeployment()
+		}
+	}
+	return errors.Join(err, manager.Close())
+}
+
+func newManager(cfg Config) (*Manager, error) {
 	if !filepath.IsAbs(cfg.InstallRoot) {
 		return nil, fmt.Errorf("install root must be absolute")
 	}
@@ -556,6 +617,12 @@ func NewManager(cfg Config) (*Manager, error) {
 	}
 	if cfg.SelfUpdatePath != "" && !filepath.IsAbs(cfg.SelfUpdatePath) {
 		return nil, fmt.Errorf("self-update path must be absolute")
+	}
+	if cfg.DeploymentMode == "" {
+		cfg.DeploymentMode = DeploymentModeStandalone
+	}
+	if cfg.DeploymentMode != DeploymentModeStandalone && cfg.DeploymentMode != DeploymentModeHA {
+		return nil, fmt.Errorf("deployment mode must be standalone or ha")
 	}
 	if cfg.DownloadBaseURL == "" {
 		cfg.DownloadBaseURL = canonicalDownloadBaseURL
@@ -664,6 +731,74 @@ func NewManager(cfg Config) (*Manager, error) {
 		return nil, fmt.Errorf("prune updater operation logs: %w", err)
 	}
 	return m, nil
+}
+
+func (m *Manager) updaterMatchesInstalledDeployment() (bool, error) {
+	running, err := os.ReadFile(m.cfg.SelfUpdatePath)
+	if err != nil {
+		return false, fmt.Errorf("read supervised updater for recovery: %w", err)
+	}
+	installed, err := os.ReadFile(filepath.Join(m.cfg.InstallRoot, "deployment", "updater", "proto-fleet-updater"))
+	if err != nil {
+		return false, fmt.Errorf("read installed updater for recovery: %w", err)
+	}
+	return bytes.Equal(running, installed), nil
+}
+
+func (m *Manager) restoreUpdaterFromInstalledDeployment() error {
+	targetVersion, err := readInstalledVersion(filepath.Join(m.cfg.InstallRoot, "deployment", "version.txt"))
+	if err != nil {
+		return fmt.Errorf("read installed version for updater recovery: %w", err)
+	}
+	updaterPath := filepath.Join(m.cfg.InstallRoot, "deployment", "updater", "proto-fleet-updater")
+	fd, err := syscall.Open(updaterPath, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return fmt.Errorf("open installed updater for recovery: %w", err)
+	}
+	installedUpdater := os.NewFile(uintptr(fd), updaterPath)
+	if installedUpdater == nil {
+		_ = syscall.Close(fd)
+		return fmt.Errorf("open installed updater for recovery")
+	}
+	defer installedUpdater.Close()
+
+	if err := m.refreshSelfUpdater(context.Background(), installedUpdater, m.cfg.SelfUpdatePath, targetVersion); err != nil {
+		return fmt.Errorf("restore updater from installed deployment: %w", err)
+	}
+	// The daemon gets one supervised retry and retains rollback eligibility
+	// until it binds the production socket.
+	if err := authorizeSelfUpdateRestart(m.cfg.SelfUpdatePath); err != nil {
+		return fmt.Errorf("authorize recovered updater startup: %w", err)
+	}
+	return nil
+}
+
+// RecoverApplication restarts an application left stopped by an interrupted HA update.
+func (m *Manager) RecoverApplication() error {
+	if m.operation == nil || !m.operation.RecoveryPending || m.operation.RecoveryCommand == "" {
+		return nil
+	}
+	deployment := filepath.Join(m.cfg.InstallRoot, "deployment")
+	version, err := readInstalledVersion(filepath.Join(deployment, "version.txt"))
+	if err != nil {
+		return fmt.Errorf("read interrupted HA deployment version: %w", err)
+	}
+	if err := m.runHACommand(context.Background(), m.cfg.ActivationTimeout, deployment, io.Discard, "app-start", version, "any"); err != nil {
+		recoveryErr := fmt.Errorf("restart interrupted HA application: %w", err)
+		m.operation.Phase = updaterapi.PhaseFailed
+		m.operation.Message = "HA application recovery failed"
+		m.operation.Error = recoveryErr.Error()
+		m.operation.UpdatedAt = m.cfg.Now().UTC()
+		if persistErr := m.persistLocked(); persistErr != nil {
+			return errors.Join(recoveryErr, fmt.Errorf("persist HA application recovery failure: %w", persistErr))
+		}
+		return recoveryErr
+	}
+	m.operation.RecoveryCommand = ""
+	m.operation.RecoveryPending = false
+	m.operation.Message += "; HA application restarted"
+	m.operation.UpdatedAt = m.cfg.Now().UTC()
+	return m.persistLocked()
 }
 
 func (m *Manager) Close() error {
@@ -789,12 +924,80 @@ func writeProcessLockPID(lockFile *os.File) error {
 
 func (m *Manager) Status() updaterapi.StatusResponse {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	if m.operation == nil {
+		m.mu.RUnlock()
 		return updaterapi.StatusResponse{}
 	}
 	snapshot := *m.operation
+	m.mu.RUnlock()
+	if m.failureWasRemediated(snapshot) {
+		// The deployment proof is already durable, so derive the effective
+		// acknowledgement on the snapshot rather than turning a status read into
+		// a state mutation. The proof is re-evaluated after daemon restarts.
+		snapshot.Acknowledged = true
+	}
 	return updaterapi.StatusResponse{Operation: &snapshot}
+}
+
+// failureWasRemediated auto-dismisses a failed operation once the
+// deployment has reached the failed target version (or newer) by other means:
+// a manual install, a successful run of the recovery command, or a later
+// upgrade. Without this, a failure the operator already fixed keeps
+// resurfacing until someone dismisses it by hand.
+//
+// Remediation must be proven positively: run-fleet.sh writes the startup
+// proof only at the end of a run that brought Fleet up, so a proof newer
+// than the failure means the deployment at the target version actually
+// started. Mere absence of failure artifacts is not enough — a failed
+// recovery rerun can consume the preflight marker while the deployment still
+// names the failed target, and the failure is then still live. This check is
+// deliberately read-only because both HTTP and Connect expose status as a
+// no-side-effect operation.
+func (m *Manager) failureWasRemediated(operation updaterapi.Operation) bool {
+	if operation.Phase != updaterapi.PhaseFailed || operation.Acknowledged || operation.CompletedAt == nil {
+		return false
+	}
+	deployment := filepath.Join(m.cfg.InstallRoot, "deployment")
+	installed, err := readInstalledVersion(filepath.Join(deployment, "version.txt"))
+	if err != nil || !semver.IsValid(installed) || semver.Compare(installed, operation.TargetVersion) < 0 {
+		return false
+	}
+	proof, err := os.Lstat(filepath.Join(deployment, startupProofFilename))
+	return err == nil && proof.Mode().IsRegular() && proof.ModTime().After(*operation.CompletedAt)
+}
+
+// Acknowledge durably records that an operator dismissed the terminal outcome
+// of the given operation. It is idempotent for the same operation and fails
+// when the operation is no longer current or is still running, so a stale
+// dismissal can never suppress a different or in-flight upgrade. The boolean
+// reports whether the dismissal was already in place, letting callers retry
+// after ambiguous transport results without double-recording the action.
+func (m *Manager) Acknowledge(operationID string) (updaterapi.Operation, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.operation == nil || m.operation.ID != operationID {
+		return updaterapi.Operation{}, false, newTriggerError(
+			errAcknowledgeUnknown,
+			fmt.Sprintf("operation %s is not the current updater operation", operationID),
+		)
+	}
+	if !m.operation.Phase.Terminal() {
+		return updaterapi.Operation{}, false, newTriggerError(
+			errAcknowledgeActive,
+			fmt.Sprintf("operation %s has not finished", operationID),
+		)
+	}
+	if m.operation.Acknowledged {
+		return *m.operation, true, nil
+	}
+	m.operation.Acknowledged = true
+	if err := m.persistLocked(); err != nil {
+		// An unpersisted acknowledgement would silently reappear after the next
+		// updater restart, so report the failure instead of a partial success.
+		m.operation.Acknowledged = false
+		return updaterapi.Operation{}, false, fmt.Errorf("persist acknowledged operation: %w", err)
+	}
+	return *m.operation, false, nil
 }
 
 func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
@@ -807,7 +1010,7 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	if m.cfg.NewID == nil {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: generator is not configured")
 	}
-	return m.trigger(targetVersion, m.cfg.NewID(), false)
+	return m.trigger(targetVersion, m.cfg.NewID(), false, false)
 }
 
 // TriggerWithID accepts a caller-generated UUID so a client that loses the
@@ -815,14 +1018,22 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 // guessing by target or time. Reusing the ID for the same target is
 // idempotent; reusing it for another target is rejected.
 func (m *Manager) TriggerWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
+	return m.triggerWithID(targetVersion, operationID, false)
+}
+
+func (m *Manager) TriggerCompleteWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
+	return m.triggerWithID(targetVersion, operationID, true)
+}
+
+func (m *Manager) triggerWithID(targetVersion, operationID string, complete bool) (updaterapi.Operation, error) {
 	parsedID, err := uuid.Parse(operationID)
 	if err != nil || parsedID.String() != operationID {
 		return updaterapi.Operation{}, newTriggerError(errTriggerInvalid, "operation id must be a canonical UUID")
 	}
-	return m.trigger(targetVersion, operationID, true)
+	return m.trigger(targetVersion, operationID, true, complete)
 }
 
-func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (updaterapi.Operation, error) {
+func (m *Manager) trigger(targetVersion, operationID string, idempotent, complete bool) (updaterapi.Operation, error) {
 	if operationID == "" {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: empty value")
 	}
@@ -832,6 +1043,9 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 			"target version must be a stable or RC release tag",
 		)
 	}
+	if complete && m.cfg.DeploymentMode != DeploymentModeHA {
+		return updaterapi.Operation{}, newTriggerError(errTriggerPrecondition, "completion updates require HA deployment mode")
+	}
 	// Check before host-state validation so a retry can recover the original
 	// response even after that operation has completed and changed the
 	// installed version. The write-locked check below closes the race with a
@@ -840,13 +1054,21 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 	if idempotent && m.operation != nil && m.operation.ID == operationID {
 		existing := *m.operation
 		m.mu.RUnlock()
-		if existing.TargetVersion != targetVersion {
+		if existing.TargetVersion != targetVersion || existing.Complete != complete {
 			return updaterapi.Operation{}, newTriggerError(
 				errTriggerInvalid,
-				"operation id is already associated with another target",
+				"operation id is already associated with another update",
 			)
 		}
 		return existing, nil
+	}
+	if m.operation != nil && m.operation.RecoveryPending {
+		recoveryOperationID := m.operation.ID
+		m.mu.RUnlock()
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerBusy,
+			fmt.Sprintf("HA application recovery for operation %s is pending; restart proto-fleet-updater.service to retry recovery", recoveryOperationID),
+		)
 	}
 	m.mu.RUnlock()
 	marker, err := m.readActivationMarker()
@@ -869,13 +1091,19 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if idempotent && m.operation != nil && m.operation.ID == operationID {
-		if m.operation.TargetVersion != targetVersion {
+		if m.operation.TargetVersion != targetVersion || m.operation.Complete != complete {
 			return updaterapi.Operation{}, newTriggerError(
 				errTriggerInvalid,
-				"operation id is already associated with another target",
+				"operation id is already associated with another update",
 			)
 		}
 		return *m.operation, nil
+	}
+	if m.operation != nil && m.operation.RecoveryPending {
+		return updaterapi.Operation{}, newTriggerError(
+			errTriggerBusy,
+			fmt.Sprintf("HA application recovery for operation %s is pending; restart proto-fleet-updater.service to retry recovery", m.operation.ID),
+		)
 	}
 	if m.closing {
 		return updaterapi.Operation{}, errTriggerClosing
@@ -925,6 +1153,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 	op := &updaterapi.Operation{
 		ID:            operationID,
 		TargetVersion: targetVersion,
+		Complete:      complete,
 		Phase:         updaterapi.PhaseQueued,
 		Message:       "Upgrade queued",
 		StartedAt:     now,
@@ -944,7 +1173,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent bool) (u
 	go func() {
 		defer m.operationWG.Done()
 		defer m.finishOperation()
-		m.run(operationCtx, operationCopy.ID, targetVersion)
+		m.run(operationCtx, operationCopy.ID, targetVersion, complete)
 	}()
 	return operationCopy, nil
 }
@@ -956,7 +1185,7 @@ func (m *Manager) finishOperation() {
 	m.cancelOperation = nil
 }
 
-func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
+func (m *Manager) run(ctx context.Context, operationID, targetVersion string, complete bool) {
 	logName := operationLogFilename(operationID)
 	logPath := filepath.Join(m.cfg.StateDir, "logs", logName)
 	logFile, err := m.logRoot.OpenFile(logName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -993,7 +1222,6 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] starting upgrade to %s\n", m.cfg.Now().UTC().Format(time.RFC3339), targetVersion)
-
 	archiveName := fmt.Sprintf("proto-fleet-%s-%s.tar.gz", targetVersion, m.cfg.GOARCH)
 	archiveURL := strings.TrimSuffix(m.cfg.DownloadBaseURL, "/") + "/" + targetVersion + "/" + archiveName
 	artifactBase := operationArtifactBase(operationID)
@@ -1088,16 +1316,23 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		m.fail(operationID, err, recovery)
 		return
 	}
+	previousVersion := ""
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		previousVersion, err = readInstalledVersion(filepath.Join(currentDeployment, "version.txt"))
+		if err != nil {
+			m.fail(operationID, fmt.Errorf("read current HA application version: %w", err), recovery)
+			return
+		}
+	}
 	if err := preserveDeploymentState(ctx, currentDeployment, stageDeployment); err != nil {
 		m.fail(operationID, fmt.Errorf("preserve deployment configuration: %w", err), recovery)
 		return
 	}
-
 	if err := m.advance(operationID, updaterapi.PhasePreflight, "Building and validating the new stack while Fleet stays online"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist preflight phase: %w", err), recovery)
 		return
 	}
-	if err := m.runCommand(ctx, m.cfg.PreflightTimeout, stageDeployment, commandOutput, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only"); err != nil {
+	if err := m.runPreflight(ctx, stageDeployment, commandOutput); err != nil {
 		if ctx.Err() == nil {
 			m.removeFailedPreflightImages(ctx, stageDeployment, commandOutput, logFile, targetVersion)
 		}
@@ -1127,31 +1362,111 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		return
 	}
 
-	if err := m.beginActivation(operationID, "Restarting Fleet; the client may disconnect for several minutes"); err != nil {
+	requiredRole := "passive"
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		requireArgs := []string{"require-passive", haNodeEnvPath, targetVersion}
+		if complete {
+			requiredRole = "active"
+			requireArgs = []string{"require-active", haNodeEnvPath, targetVersion}
+		}
+		if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, requireArgs...); err != nil {
+			m.fail(operationID, fmt.Errorf("local Fleet is not %s immediately before activation: %w", requiredRole, err), recovery)
+			return
+		}
+	}
+	if err := m.beginActivation(operationID, "Restarting the local Fleet application"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation phase: %w", err), recovery)
 		return
 	}
+	activationCtx, cancelActivation := context.WithTimeout(ctx, m.cfg.ActivationTimeout)
+	defer cancelActivation()
 	backupDeployment := filepath.Join(m.cfg.InstallRoot, "deployment.previous")
-	if err := activateDeployment(stageDeployment, currentDeployment, backupDeployment); err != nil {
-		m.failActivation(operationID, targetVersion, err, logFile)
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		recovery = m.activationRecoveryCommand(currentDeployment, previousVersion)
+		if err := m.setRecoveryCommand(operationID, recovery); err != nil {
+			m.failActivation(operationID, targetVersion, fmt.Errorf("persist passive application recovery: %w", err), logFile, false)
+			return
+		}
+		if complete {
+			if err := m.waitForQualificationBarrier(activationCtx, qualificationBeforeStopBarrierName); err != nil {
+				m.fail(operationID, errors.Join(err, m.clearActivationMarker()), "")
+				return
+			}
+		}
+		if err := m.runHACommand(activationCtx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "app-stop", requiredRole); err != nil {
+			if complete {
+				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
+				if restartErr == nil {
+					m.fail(operationID, fmt.Errorf("stop HA application failed; previous release restarted: %w", err), "")
+					return
+				}
+				m.failPendingRecovery(operationID, errors.Join(
+					fmt.Errorf("stop HA application: %w", err),
+					fmt.Errorf("restart previous release: %w", restartErr),
+				), recovery)
+				return
+			}
+			m.failActivation(operationID, targetVersion, fmt.Errorf("stop HA application: %w", err), logFile, true)
+			return
+		}
+		if complete {
+			if err := m.waitForQualificationBarrier(activationCtx, qualificationAfterStopBarrierName); err != nil {
+				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
+				if restartErr == nil {
+					m.fail(operationID, fmt.Errorf("post-stop qualification pause failed; previous release restarted: %w", err), "")
+					return
+				}
+				m.failPendingRecovery(operationID, errors.Join(err, restartErr), recovery)
+				return
+			}
+			takeoverCtx, cancelTakeover := context.WithTimeout(activationCtx, ha.UpdateTakeoverTimeout)
+			err := m.runHACommand(takeoverCtx, ha.UpdateTakeoverTimeout, currentDeployment, commandOutput, "wait-takeover", targetVersion)
+			cancelTakeover()
+			if err != nil {
+				restartErr := m.restartHAApplication(ctx, currentDeployment, previousVersion, commandOutput)
+				if restartErr == nil {
+					m.fail(operationID, fmt.Errorf("updated peer did not take over; previous release restarted: %w", err), "")
+					return
+				}
+				m.failPendingRecovery(operationID, errors.Join(err, restartErr), m.activationRecoveryCommand(currentDeployment, previousVersion))
+				return
+			}
+		}
+	}
+	betweenRenames := func() error { return nil }
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		betweenRenames = func() error {
+			return m.waitForQualificationBarrier(activationCtx, qualificationBetweenRenamesBarrierName)
+		}
+	}
+	if err := activateDeployment(stageDeployment, currentDeployment, backupDeployment, betweenRenames); err != nil {
+		m.failActivation(operationID, targetVersion, err, logFile, m.cfg.DeploymentMode == DeploymentModeHA)
 		return
 	}
-	recovery = activationRecoveryCommand(currentDeployment)
+	recovery = m.activationRecoveryCommand(currentDeployment, targetVersion)
 	if err := m.setRecoveryCommand(operationID, recovery); err != nil {
-		m.fail(operationID, fmt.Errorf("persist activation recovery command: %w", err), recovery)
+		activationErr := fmt.Errorf("persist activation recovery command: %w", err)
+		if m.cfg.DeploymentMode == DeploymentModeHA {
+			m.failActivation(operationID, targetVersion, activationErr, logFile, true)
+		} else {
+			m.fail(operationID, activationErr, recovery)
+		}
 		return
 	}
 	if err := m.clearActivationMarker(); err != nil {
-		m.failActivation(operationID, targetVersion, fmt.Errorf("complete activation swap: %w", err), logFile)
+		m.failActivation(operationID, targetVersion, fmt.Errorf("complete activation swap: %w", err), logFile, m.cfg.DeploymentMode == DeploymentModeHA)
 		return
 	}
 
-	if err := m.runCommand(ctx, m.cfg.ActivationTimeout, currentDeployment, commandOutput, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--skip-build"); err != nil {
-		// run-fleet may have applied forward-only migrations before returning an
-		// error. Keep the new deployment active for forward recovery; restoring
-		// the previous binaries could make the schema and application incompatible.
+	if err := m.runActivation(activationCtx, currentDeployment, targetVersion, complete, commandOutput); err != nil {
 		activationErr := fmt.Errorf("new stack failed to start: %w", err)
-		failureRecovery, recoveryErr := activationRecoveryCommandAfterFailure(currentDeployment)
+		// Migrations may already have run, so keep the new deployment active for
+		// forward recovery instead of starting an older binary against its schema.
+		failureRecovery := m.activationRecoveryCommand(currentDeployment, targetVersion)
+		var recoveryErr error
+		if m.cfg.DeploymentMode == DeploymentModeStandalone {
+			failureRecovery, recoveryErr = activationRecoveryCommandAfterFailure(currentDeployment)
+		}
 		if recoveryErr != nil {
 			activationErr = errors.Join(
 				activationErr,
@@ -1190,6 +1505,69 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string) {
 		}
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] upgrade completed\n", m.cfg.Now().UTC().Format(time.RFC3339))
+}
+
+func (m *Manager) restartHAApplication(
+	parent context.Context,
+	deployment string,
+	version string,
+	output io.Writer,
+) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), m.cfg.ActivationTimeout)
+	defer cancel()
+	if err := m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, output, "app-start", version, "any"); err != nil {
+		return err
+	}
+	return m.clearActivationMarker()
+}
+
+// Root-created barriers let exact release qualification pause at otherwise
+// unobservable crash windows. Normal hosts never create them and take the fast path.
+func (m *Manager) waitForQualificationBarrier(ctx context.Context, name string) error {
+	path := filepath.Join(m.cfg.StateDir, name)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("inspect HA update qualification barrier: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for HA update qualification barrier: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func (m *Manager) runPreflight(ctx context.Context, deployment string, output io.Writer) error {
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		return m.runHACommand(ctx, m.cfg.PreflightTimeout, deployment, output, "update-preflight")
+	}
+	return m.runCommand(ctx, m.cfg.PreflightTimeout, deployment, output, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--preflight-only")
+}
+
+func (m *Manager) runActivation(ctx context.Context, deployment, targetVersion string, complete bool, output io.Writer) error {
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		mode := "passive"
+		if complete {
+			mode = "complete"
+		}
+		return m.runHACommand(ctx, m.cfg.ActivationTimeout, deployment, output, "app-start", targetVersion, mode)
+	}
+	return m.runCommand(ctx, m.cfg.ActivationTimeout, deployment, output, "/bin/bash", "./run-fleet.sh", "--non-interactive", "--skip-build")
+}
+
+func (m *Manager) runHACommand(ctx context.Context, timeout time.Duration, deployment string, output io.Writer, args ...string) error {
+	return m.runCommand(ctx, timeout, deployment, output, filepath.Join(deployment, "ha", "fleet-ha"), args...)
+}
+
+func (m *Manager) activationRecoveryCommand(deployment, targetVersion string) string {
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		return fmt.Sprintf("sudo -- %s app-start %s any", shellQuote(filepath.Join(deployment, "ha", "fleet-ha")), shellQuote(targetVersion))
+	}
+	return activationRecoveryCommand(deployment)
 }
 
 func operationArtifactBase(operationID string) string {
@@ -1298,6 +1676,7 @@ func (m *Manager) failActivation(
 	targetVersion string,
 	activationErr error,
 	logOutput io.Writer,
+	restartHA bool,
 ) {
 	layout := &updaterapi.Operation{
 		TargetVersion: targetVersion,
@@ -1315,6 +1694,21 @@ func (m *Manager) failActivation(
 			activationErr,
 			fmt.Errorf("reconcile failed activation layout: %w", reconcileErr),
 		)
+	} else if restartHA {
+		current := filepath.Join(m.cfg.InstallRoot, "deployment")
+		version, err := readInstalledVersion(filepath.Join(current, "version.txt"))
+		if err == nil {
+			err = m.runHACommand(context.Background(), m.cfg.ActivationTimeout, current, logOutput, "app-start", version, "any")
+		}
+		if err != nil {
+			activationErr = errors.Join(activationErr, fmt.Errorf("restart HA application after failed activation: %w", err))
+		} else {
+			layout.RecoveryCommand = ""
+		}
+	}
+	if restartHA && layout.RecoveryCommand != "" {
+		m.failPendingRecovery(operationID, activationErr, layout.RecoveryCommand)
+		return
 	}
 	m.fail(operationID, activationErr, layout.RecoveryCommand)
 }
@@ -1324,7 +1718,7 @@ func (m *Manager) failActivation(
 // portable filesystem operation, so every completed metadata step is fsynced
 // and every pre-command failure attempts a checked restoration. Startup
 // reconciliation covers a process or power loss between the renames.
-func activateDeployment(staged, current, previous string) error {
+func activateDeployment(staged, current, previous string, betweenRenames func() error) error {
 	installRoot := filepath.Dir(current)
 	stageRoot := filepath.Dir(staged)
 	if err := os.RemoveAll(previous); err != nil {
@@ -1340,6 +1734,13 @@ func activateDeployment(staged, current, previous string) error {
 		restoreErr := restorePreviousDeployment(current, previous, installRoot)
 		return errors.Join(
 			fmt.Errorf("persist current deployment backup: %w", err),
+			restoreErr,
+		)
+	}
+	if err := betweenRenames(); err != nil {
+		restoreErr := restorePreviousDeployment(current, previous, installRoot)
+		return errors.Join(
+			fmt.Errorf("pause between deployment renames: %w", err),
 			restoreErr,
 		)
 	}
@@ -1632,6 +2033,14 @@ func (m *Manager) setRecoveryCommand(id, recovery string) error {
 }
 
 func (m *Manager) fail(id string, err error, recovery string) {
+	m.finishFailure(id, err, recovery, false)
+}
+
+func (m *Manager) failPendingRecovery(id string, err error, recovery string) {
+	m.finishFailure(id, err, recovery, true)
+}
+
+func (m *Manager) finishFailure(id string, err error, recovery string, recoveryPending bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.operation == nil || m.operation.ID != id {
@@ -1643,6 +2052,7 @@ func (m *Manager) fail(id string, err error, recovery string) {
 	m.operation.Message = "Upgrade failed"
 	m.operation.Error = err.Error()
 	m.operation.RecoveryCommand = recovery
+	m.operation.RecoveryPending = recoveryPending
 	m.operation.UpdatedAt = now
 	m.operation.CompletedAt = &now
 	if persistErr := m.persistLocked(); persistErr != nil {
@@ -1722,19 +2132,7 @@ func (m *Manager) loadState() error {
 	if err != nil {
 		if marker != nil && op.RecoveryCommand != "" {
 			now := m.cfg.Now().UTC()
-			op.Phase = updaterapi.PhaseFailed
-			op.Message = "Activation layout requires manual recovery"
-			recoveryError := "Activation layout recovery did not complete: " + err.Error()
-			if !strings.Contains(op.Error, recoveryError) {
-				if op.Error != "" {
-					op.Error += " "
-				}
-				op.Error += recoveryError
-			}
-			op.UpdatedAt = now
-			if op.CompletedAt == nil {
-				op.CompletedAt = &now
-			}
+			rewriteActivationRecoveryFailure(&op, now, err)
 			m.operation = &op
 			if persistErr := m.persistLocked(); persistErr != nil {
 				return errors.Join(err, fmt.Errorf("persist activation recovery instructions: %w", persistErr))
@@ -1742,17 +2140,13 @@ func (m *Manager) loadState() error {
 		}
 		return err
 	}
-	if marker != nil {
-		if err := m.clearActivationMarker(); err != nil {
-			return err
-		}
-	}
 	if !wasTerminal {
+		op.RecoveryPending = m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != ""
 		now := m.cfg.Now().UTC()
 		op.Phase = updaterapi.PhaseFailed
 		if restoredPrevious {
 			op.Message = "Upgrade interrupted; previous deployment restored"
-			op.Error = "The updater restarted during the activation swap before Fleet was stopped. The previous deployment was restored safely."
+			op.Error = "The updater restarted during the activation swap. The previous deployment was restored."
 		} else {
 			op.Message = "Upgrade interrupted"
 			op.Error = "The updater restarted before the operation completed; inspect the host log and recovery details before retrying."
@@ -1762,20 +2156,55 @@ func (m *Manager) loadState() error {
 	} else if restoredPrevious {
 		now := m.cfg.Now().UTC()
 		op.Phase = updaterapi.PhaseFailed
+		// The rewritten outcome is new information; a dismissal of the old
+		// outcome must not carry over to it.
+		op.Acknowledged = false
 		op.Message = "Previous deployment restored during updater startup"
 		if op.Error == "" {
 			op.Error = "The active deployment was missing; the updater restored the validated previous deployment."
 		} else {
 			op.Error += " The active deployment was missing during startup; the updater restored the validated previous deployment."
 		}
-		op.RecoveryCommand = ""
-		op.UpdatedAt = now
-		if op.CompletedAt == nil {
-			op.CompletedAt = &now
+		if m.cfg.DeploymentMode != DeploymentModeHA {
+			op.RecoveryCommand = ""
 		}
+		op.UpdatedAt = now
+		// This is a new terminal outcome revision. Advance the remediation
+		// cutoff with it so startup proof from before the rewrite cannot hide
+		// the newly surfaced recovery information.
+		op.CompletedAt = &now
+	}
+	if marker != nil && m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != "" {
+		op.RecoveryPending = true
 	}
 	m.operation = &op
-	return m.persistReconciledState()
+	if err := m.persistReconciledState(); err != nil {
+		return err
+	}
+	if marker != nil {
+		return m.clearActivationMarker()
+	}
+	return nil
+}
+
+func rewriteActivationRecoveryFailure(operation *updaterapi.Operation, now time.Time, recoveryErr error) {
+	operation.Phase = updaterapi.PhaseFailed
+	// Reconciliation discovered materially new recovery guidance. A dismissal
+	// of the prior outcome must not suppress the rewritten failure.
+	operation.Acknowledged = false
+	operation.Message = "Activation layout requires manual recovery"
+	errorMessage := "Activation layout recovery did not complete: " + recoveryErr.Error()
+	if !strings.Contains(operation.Error, errorMessage) {
+		if operation.Error != "" {
+			operation.Error += " "
+		}
+		operation.Error += errorMessage
+	}
+	operation.UpdatedAt = now
+	// This is a new terminal outcome revision. Advance the remediation cutoff
+	// with it so startup proof from before the rewrite cannot immediately
+	// auto-acknowledge the new recovery guidance.
+	operation.CompletedAt = &now
 }
 
 // persistReconciledState normally preserves the ordering of reconciliation,
@@ -1827,7 +2256,9 @@ func (m *Manager) reconcileDeploymentLayout(
 		}
 		if deriveForwardRecovery {
 			op.RecoveryCommand = ""
-			if version == op.TargetVersion {
+			if m.cfg.DeploymentMode == DeploymentModeHA {
+				op.RecoveryCommand = m.activationRecoveryCommand(current, version)
+			} else if version == op.TargetVersion {
 				markerInfo, markerErr := os.Lstat(filepath.Join(current, preflightProofFilename))
 				if markerErr == nil {
 					if !markerInfo.Mode().IsRegular() {
@@ -1862,7 +2293,8 @@ func (m *Manager) reconcileDeploymentLayout(
 	if !previousInfo.IsDir() {
 		return false, fmt.Errorf("reconcile deployment layout: deployment.previous is not a directory")
 	}
-	if _, err := readInstalledVersion(filepath.Join(previous, "version.txt")); err != nil {
+	previousVersion, err := readInstalledVersion(filepath.Join(previous, "version.txt"))
+	if err != nil {
 		return false, fmt.Errorf("validate previous deployment during reconciliation: %w", err)
 	}
 	op.RecoveryCommand = activationRestoreCommand(current, previous)
@@ -1873,6 +2305,9 @@ func (m *Manager) reconcileDeploymentLayout(
 		return false, fmt.Errorf("persist restored deployment during reconciliation: %w", err)
 	}
 	op.RecoveryCommand = ""
+	if m.cfg.DeploymentMode == DeploymentModeHA {
+		op.RecoveryCommand = m.activationRecoveryCommand(current, previousVersion)
+	}
 	return true, nil
 }
 
@@ -2175,13 +2610,13 @@ func readInstalledVersion(path string) (string, error) {
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "version:"); ok {
-			version := strings.TrimSpace(value)
-			if version != "" {
-				return version, nil
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value, nil
 			}
 		}
 	}
-	return "", fmt.Errorf("installed version file has no version")
+	return "", errors.New("installed version file has no version")
 }
 
 func verifyChecksum(ctx context.Context, archivePath, checksumPath, archiveName string) error {
@@ -2282,19 +2717,28 @@ func extractArchiveWithUpdaterCopy(
 		switch header.Typeflag {
 		case tar.TypeDir:
 			mode := os.FileMode(uint32(header.Mode & 0o755)) // #nosec G115 -- masked to nine permission bits
-			if err := os.MkdirAll(target, mode); err != nil {
+			if err := mkdirAllUnmasked(target, mode); err != nil {
 				return fmt.Errorf("create archive directory %s: %w", header.Name, err)
+			}
+			// A file entry may already have created this directory as a
+			// parent; the archive's own directory entry is authoritative.
+			if err := os.Chmod(target, mode); err != nil {
+				return fmt.Errorf("apply archive directory mode %s: %w", header.Name, err)
 			}
 		case tar.TypeReg, tar.TypeRegA:
 			// #nosec G301 -- extracted deployment parents must be traversable
 			// by the account that owns and manually maintains the install.
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := mkdirAllUnmasked(filepath.Dir(target), 0o755); err != nil {
 				return fmt.Errorf("create archive parent for %s: %w", header.Name, err)
 			}
 			mode := os.FileMode(uint32(header.Mode & 0o755)) // #nosec G115 -- masked to nine permission bits
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 			if err != nil {
 				return fmt.Errorf("create archive file %s: %w", header.Name, err)
+			}
+			if err := out.Chmod(mode); err != nil {
+				out.Close()
+				return fmt.Errorf("apply archive file mode %s: %w", header.Name, err)
 			}
 			writer := io.Writer(out)
 			copyUpdater := updaterCopy != nil && filepath.ToSlash(name) == "deployment/updater/proto-fleet-updater"
@@ -2420,6 +2864,53 @@ func setDeploymentTreeOwnership(ctx context.Context, staged string, uid, gid int
 	return nil
 }
 
+// mkdirAllUnmasked creates any missing directories on path, re-applying mode
+// to each directory it creates. os.MkdirAll alone is narrowed by the process
+// umask — 0o077 in this daemon, to protect its own state — which would leave
+// staged deployment directories untraversable for the deployment owner and
+// for the container users that bind-mount configuration out of the tree.
+func mkdirAllUnmasked(path string, mode os.FileMode) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		return requireRealDirectory(path, info)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect directory %s: %w", path, err)
+	}
+	if parent := filepath.Dir(path); parent != path {
+		if err := mkdirAllUnmasked(parent, mode); err != nil {
+			return err
+		}
+	}
+	if err := os.Mkdir(path, mode); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("create directory %s: %w", path, err)
+		}
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return fmt.Errorf("inspect directory %s: %w", path, statErr)
+		}
+		return requireRealDirectory(path, info)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("apply directory mode %s: %w", path, err)
+	}
+	return nil
+}
+
+// requireRealDirectory rejects anything other than an actual directory —
+// notably symlinks, which os.Stat would silently follow and which would let a
+// crafted path redirect staged writes outside the staging root.
+func requireRealDirectory(path string, info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("create directory %s: refusing to follow symlink", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("create directory %s: path exists and is not a directory", path)
+	}
+	return nil
+}
+
 func copyFile(ctx context.Context, source, destination string) error {
 	info, err := os.Lstat(source)
 	if err != nil {
@@ -2428,7 +2919,7 @@ func copyFile(ctx context.Context, source, destination string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("refusing to copy non-regular file %s", source)
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
+	if err := mkdirAllUnmasked(filepath.Dir(destination), 0o750); err != nil {
 		return fmt.Errorf("create destination parent: %w", err)
 	}
 	in, err := os.Open(source)
@@ -2439,6 +2930,10 @@ func copyFile(ctx context.Context, source, destination string) error {
 	out, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
 	if err != nil {
 		return fmt.Errorf("open destination file: %w", err)
+	}
+	if err := out.Chmod(info.Mode().Perm()); err != nil {
+		out.Close()
+		return fmt.Errorf("apply destination file mode: %w", err)
 	}
 	if _, err := io.Copy(out, readerWithContext(ctx, in)); err != nil {
 		out.Close()
@@ -2735,7 +3230,7 @@ func copyTree(ctx context.Context, source, destination string) error {
 			return fmt.Errorf("inspect preserved tree entry: %w", err)
 		}
 		if entry.IsDir() {
-			if err := os.MkdirAll(target, info.Mode().Perm()); err != nil {
+			if err := mkdirAllUnmasked(target, info.Mode().Perm()); err != nil {
 				return fmt.Errorf("create preserved directory: %w", err)
 			}
 			return nil

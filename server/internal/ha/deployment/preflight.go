@@ -2,13 +2,9 @@ package deployment
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"crypto"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -30,7 +26,18 @@ type hostEnvironment struct {
 	applyFirewall     func(context.Context, NodeConfig, string) error
 }
 
-// Preflight checks a clean host and loads the firewall required before startup.
+// ValidateHost verifies the immutable host inputs before installation changes the machine.
+func ValidateHost(ctx context.Context, envPath string) (NodeConfig, error) {
+	host := hostEnvironment{
+		goos:              runtime.GOOS,
+		localIPs:          localAddresses,
+		interfacePrefixes: interfaceIPv4Prefixes,
+		runCommand:        runCommand,
+	}
+	return validateHost(ctx, envPath, host, false)
+}
+
+// Preflight checks a dedicated host and loads the firewall required before startup.
 func Preflight(ctx context.Context, envPath, firewallTemplatePath string) (NodeConfig, error) {
 	host := hostEnvironment{
 		goos:              runtime.GOOS,
@@ -43,24 +50,52 @@ func Preflight(ctx context.Context, envPath, firewallTemplatePath string) (NodeC
 }
 
 func preflight(ctx context.Context, envPath, firewallTemplatePath string, host hostEnvironment) (NodeConfig, error) {
+	config, err := validateHost(ctx, envPath, host, true)
+	if err != nil {
+		return NodeConfig{}, err
+	}
+	if err := host.applyFirewall(ctx, config, firewallTemplatePath); err != nil {
+		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+	}
+	return config, nil
+}
+
+func validateHost(ctx context.Context, envPath string, host hostEnvironment, probeVirtualIP bool) (NodeConfig, error) {
 	config, err := loadNodeConfig(envPath)
 	if err != nil {
 		return NodeConfig{}, err
 	}
-	if err := validateNodeConfig(config); err != nil {
+	if err := validateHostConfiguration(ctx, config, host, probeVirtualIP); err != nil {
+		return NodeConfig{}, err
+	}
+	if err := validateSecrets(config); err != nil {
 		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
 	}
+	return config, nil
+}
+
+func validateHostConfiguration(ctx context.Context, config NodeConfig, host hostEnvironment, probeVirtualIP bool) error {
+	if err := validateNodeConfig(config); err != nil {
+		return fmt.Errorf("HA preflight failed: %w", err)
+	}
 	if host.goos != "linux" {
-		return NodeConfig{}, errors.New("HA preflight failed: the HA profile requires Linux host networking")
+		return errors.New("HA preflight failed: the HA profile requires Linux host networking")
 	}
 
 	addresses, err := host.localIPs()
 	if err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: list local addresses: %w", err)
+		return fmt.Errorf("HA preflight failed: list local addresses: %w", err)
 	}
 	nodeIP, _ := netip.ParseAddr(config.NodeIP)
 	if !slices.Contains(addresses, nodeIP) {
-		return NodeConfig{}, errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
+		return errors.New("HA preflight failed: HA_NODE_IP is not assigned to this host")
+	}
+	var interfacePrefixes []netip.Prefix
+	if config.isDatabaseNode() {
+		interfacePrefixes, err = host.interfacePrefixes(config.NetworkInterface)
+		if err != nil {
+			return fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
+		}
 	}
 	for _, peer := range []string{config.DatabaseAIP, config.DatabaseBIP, config.WitnessIP} {
 		if peer == config.NodeIP {
@@ -68,46 +103,52 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 		}
 		output, err := host.runCommand(ctx, "ip", "route", "get", peer)
 		if err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA peer %s: %s", peer, commandError(output, err))
+			return fmt.Errorf("HA preflight failed: no route to HA peer %s: %s", peer, commandError(output, err))
 		}
 		source, ok := routeSource(output)
 		if !ok || source != config.NodeIP {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
+			return fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
+		}
+		if config.isDatabaseNode() && (peer == config.DatabaseAIP || peer == config.DatabaseBIP) {
+			device, deviceOK := routeDevice(output)
+			_, routedViaGateway := routeField(output, "via")
+			peerIP, _ := netip.ParseAddr(peer)
+			if !deviceOK || device != config.NetworkInterface || routedViaGateway || !addressSharesNodePrefix(nodeIP, peerIP, interfacePrefixes) {
+				return fmt.Errorf("HA preflight failed: database peer %s must be directly connected on %s", peer, config.NetworkInterface)
+			}
 		}
 	}
 	if config.isDatabaseNode() {
 		virtualIP, _ := netip.ParseAddr(config.VirtualIP)
 		if slices.Contains(addresses, virtualIP) {
-			return NodeConfig{}, errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
+			return errors.New("HA preflight failed: HA_VIRTUAL_IP is already assigned")
 		}
-		prefixes, err := host.interfacePrefixes(config.NetworkInterface)
-		if err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: list addresses on %s: %w", config.NetworkInterface, err)
-		}
-		if err := validateVirtualIPPrefix(nodeIP, virtualIP, prefixes); err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+		if err := validateVirtualIPPrefix(nodeIP, virtualIP, interfacePrefixes); err != nil {
+			return fmt.Errorf("HA preflight failed: %w", err)
 		}
 		// VRRP moves the VIP with ARP, so it must be directly connected rather
 		// than routed through a gateway.
 		output, err := host.runCommand(ctx, "ip", "route", "get", config.VirtualIP)
 		if err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
+			return fmt.Errorf("HA preflight failed: no route to HA virtual IP %s: %s", config.VirtualIP, commandError(output, err))
 		}
 		source, sourceOK := routeSource(output)
 		device, deviceOK := routeDevice(output)
 		_, routedViaGateway := routeField(output, "via")
 		if !sourceOK || source != config.NodeIP || !deviceOK || device != config.NetworkInterface || routedViaGateway {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
+			return fmt.Errorf("HA preflight failed: route to HA_VIRTUAL_IP must use %s with source %s", config.NetworkInterface, config.NodeIP)
 		}
-		// The privileged duplicate-address probe rejects a VIP already claimed by another host.
-		output, err = host.runCommand(ctx, "sudo", "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
-		if err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
+		if probeVirtualIP {
+			// The privileged duplicate-address probe rejects a VIP already claimed by another host.
+			output, err = host.runCommand(ctx, "sudo", "arping", "-D", "-I", config.NetworkInterface, "-c", "2", config.VirtualIP)
+			if err != nil {
+				return fmt.Errorf("HA preflight failed: HA_VIRTUAL_IP is in use or cannot be checked: %s", commandError(output, err))
+			}
 		}
 	}
 	listeners, err := host.runCommand(ctx, "ss", "-H", "-lnt")
 	if err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: inspect listening ports: %s", commandError(listeners, err))
+		return fmt.Errorf("HA preflight failed: inspect listening ports: %s", commandError(listeners, err))
 	}
 	ports := []int{2379, 2380}
 	if config.isDatabaseNode() {
@@ -115,25 +156,28 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 	}
 	for _, port := range ports {
 		if portIsListening(string(listeners), port) {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: TCP port %d is already occupied", port)
+			return fmt.Errorf("HA preflight failed: TCP port %d is already occupied", port)
 		}
 	}
 
 	if err := requireEmptyDir(filepath.Join(config.DataDir, "etcd"), "pre-existing etcd state"); err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+		return fmt.Errorf("HA preflight failed: %w", err)
 	}
 	if config.isDatabaseNode() {
 		if err := requireEmptyDir(filepath.Join(config.DataDir, "postgres"), "pre-existing PostgreSQL state"); err != nil {
-			return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+			return fmt.Errorf("HA preflight failed: %w", err)
 		}
 	}
-	if err := validateSecrets(config); err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
+	return nil
+}
+
+func addressSharesNodePrefix(nodeIP, address netip.Addr, prefixes []netip.Prefix) bool {
+	for _, prefix := range prefixes {
+		if prefix.Addr() == nodeIP && prefix.Contains(address) {
+			return true
+		}
 	}
-	if err := host.applyFirewall(ctx, config, firewallTemplatePath); err != nil {
-		return NodeConfig{}, fmt.Errorf("HA preflight failed: %w", err)
-	}
-	return config, nil
+	return false
 }
 
 func validateNodeConfig(config NodeConfig) error {
@@ -232,6 +276,9 @@ func validateSecrets(config NodeConfig) error {
 			return fmt.Errorf("%s must have mode 0600", name)
 		}
 	}
+	if _, err := readPassword(filepath.Join(config.SecretsDir, fleetEtcdPasswordFile)); err != nil {
+		return fmt.Errorf("required password file %s: %w", fleetEtcdPasswordFile, err)
+	}
 	if config.isDatabaseNode() {
 		if err := validateFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile)); err != nil {
 			return fmt.Errorf("required Fleet environment file %s: %w", fleetEnvironmentFile, err)
@@ -243,82 +290,13 @@ func validateSecrets(config NodeConfig) error {
 		}
 	}
 
-	ca, err := readCertificate(filepath.Join(config.SecretsDir, "service-ca.crt"))
-	if err != nil {
-		return fmt.Errorf("read service CA: %w", err)
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(ca)
-	if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, "etcd-server.crt"), config.NodeIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
-		return fmt.Errorf("etcd server certificate: %w", err)
-	}
-	if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, "etcd-peer.crt"), config.NodeIP, roots, x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth); err != nil {
-		return fmt.Errorf("etcd peer certificate: %w", err)
-	}
-	if config.isDatabaseNode() {
-		for _, name := range []string{"patroni-rest.crt", "postgres.crt"} {
-			if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, name), config.NodeIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-		}
-		if err := verifyEndpointCertificate(filepath.Join(config.SecretsDir, "fleet-client.crt"), config.VirtualIP, roots, x509.ExtKeyUsageServerAuth); err != nil {
-			return fmt.Errorf("fleet-client certificate: %w", err)
-		}
-	}
-	certificateNames := []string{"etcd-server", "etcd-peer"}
-	if config.isDatabaseNode() {
-		certificateNames = append(certificateNames, "patroni-rest", "postgres", "fleet-client")
-	}
-	for _, name := range certificateNames {
-		if err := verifyCertificateKeyPair(
-			filepath.Join(config.SecretsDir, name+".crt"),
-			filepath.Join(config.SecretsDir, name+".key"),
-		); err != nil {
-			return fmt.Errorf("%s identity: %w", name, err)
-		}
-	}
-	if err := verifyPublicKeyPair(
-		filepath.Join(config.SecretsDir, "etcd-jwt.pub"),
-		filepath.Join(config.SecretsDir, "etcd-jwt.key"),
-	); err != nil {
-		return fmt.Errorf("etcd JWT identity: %w", err)
-	}
 	return nil
 }
 
 func validateFleetEnvironment(path string) error {
-	info, err := secureFileInfo(path, 0o600)
+	values, err := loadFleetEnvironment(path)
 	if err != nil {
 		return err
-	}
-	if err := requireCurrentOwner(info, fleetEnvironmentFile); err != nil {
-		return err
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open Fleet environment file: %w", err)
-	}
-	defer file.Close()
-
-	values := make(map[string]string, 3)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		match := envLine.FindStringSubmatch(scanner.Text())
-		if match == nil {
-			return errors.New("contains a malformed entry")
-		}
-		key := match[1]
-		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" && key != "DB_DSN" {
-			return fmt.Errorf("contains unknown key: %s", key)
-		}
-		if _, duplicate := values[key]; duplicate {
-			return fmt.Errorf("contains duplicate key: %s", key)
-		}
-		values[key] = match[2]
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read Fleet environment file: %w", err)
 	}
 	if values["DB_DSN"] == "" {
 		return errors.New("DB_DSN is required")
@@ -333,78 +311,41 @@ func validateFleetEnvironment(path string) error {
 	return nil
 }
 
-func verifyEndpointCertificate(path, ip string, roots *x509.CertPool, usages ...x509.ExtKeyUsage) error {
-	certificate, err := readCertificate(path)
+func loadFleetEnvironment(path string) (map[string]string, error) {
+	info, err := secureFileInfo(path, 0o600)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, usage := range usages {
-		if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: ip, KeyUsages: []x509.ExtKeyUsage{usage}}); err != nil {
-			return fmt.Errorf("verify %s: %w", filepath.Base(path), err)
+	if err := requireCurrentOwner(info, fleetEnvironmentFile); err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open Fleet environment file: %w", err)
+	}
+	defer file.Close()
+
+	values := make(map[string]string, 3)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		match := envLine.FindStringSubmatch(scanner.Text())
+		if match == nil {
+			return nil, errors.New("contains a malformed entry")
 		}
+		key := match[1]
+		if key != "AUTH_CLIENT_SECRET_KEY" && key != "ENCRYPT_SERVICE_MASTER_KEY" && key != "DB_DSN" {
+			return nil, fmt.Errorf("contains unknown key: %s", key)
+		}
+		if _, duplicate := values[key]; duplicate {
+			return nil, fmt.Errorf("contains duplicate key: %s", key)
+		}
+		values[key] = match[2]
 	}
-	return nil
-}
-
-func verifyCertificateKeyPair(certificatePath, privateKeyPath string) error {
-	certificate, err := readCertificate(certificatePath)
-	if err != nil {
-		return err
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read Fleet environment file: %w", err)
 	}
-	publicKey, err := publicKeyFromPrivateKey(privateKeyPath)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(certificate.RawSubjectPublicKeyInfo, publicKey) {
-		return errors.New("certificate does not match private key")
-	}
-	return nil
-}
-
-func verifyPublicKeyPair(publicKeyPath, privateKeyPath string) error {
-	contents, err := os.ReadFile(publicKeyPath)
-	if err != nil {
-		return fmt.Errorf("read public key: %w", err)
-	}
-	block, _ := pem.Decode(contents)
-	if block == nil || block.Type != "PUBLIC KEY" {
-		return errors.New("invalid PEM public key")
-	}
-	if _, err := x509.ParsePKIXPublicKey(block.Bytes); err != nil {
-		return fmt.Errorf("parse public key: %w", err)
-	}
-	privatePublicKey, err := publicKeyFromPrivateKey(privateKeyPath)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(block.Bytes, privatePublicKey) {
-		return errors.New("public key does not match private key")
-	}
-	return nil
-}
-
-func publicKeyFromPrivateKey(path string) ([]byte, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read private key: %w", err)
-	}
-	block, _ := pem.Decode(contents)
-	if block == nil || block.Type != "PRIVATE KEY" {
-		return nil, errors.New("invalid PEM private key")
-	}
-	privateKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse private key: %w", err)
-	}
-	signer, ok := privateKey.(crypto.Signer)
-	if !ok {
-		return nil, errors.New("private key cannot provide a public key")
-	}
-	publicKey, err := x509.MarshalPKIXPublicKey(signer.Public())
-	if err != nil {
-		return nil, fmt.Errorf("encode public key: %w", err)
-	}
-	return publicKey, nil
+	return values, nil
 }
 
 func requireEmptyDir(path, label string) error {

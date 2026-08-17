@@ -61,6 +61,15 @@ const (
 	// proto-fleet-rules.yaml.
 	RuleTemplateMQTTCurtailment  RuleTemplate = "mqtt-curtailment"
 	RuleTemplateMQTTDisconnected RuleTemplate = "mqtt-disconnected"
+
+	// Facility fan restore failed while curtailment was releasing miners.
+	// Provisioned-only, like the MQTT pair above, and named here so the
+	// summary-visibility gate can recognize it as device-less.
+	RuleTemplateCurtailmentFanRestore RuleTemplate = "curtailment-fan-restore"
+
+	// Self-monitoring: metric ingest has stalled. Operator-owned but fanned out
+	// to every org's history, so it needs the same device-less recognition.
+	RuleTemplateMetricIngest RuleTemplate = "metric-ingest"
 )
 
 // Origin decides mutability: only user rules accept UpdateRule/DeleteRule.
@@ -98,14 +107,37 @@ type TemperatureRuleConfig struct {
 	MaxCelsius float64 `json:"max_celsius"`
 }
 
-// RuleConfig is a user rule's definition; it round-trips through a rule annotation
-// so edits never need to parse the compiled SQL back apart.
+// RuleScope limits which miners a rule fires for: the union of the listed placements (current
+// membership via fleet_device_placement) and explicit DeviceIDs. Nil/empty means the whole org.
+type RuleScope struct {
+	SiteIDs     []int64  `json:"site_ids,omitempty"`
+	DeviceIDs   []string `json:"device_ids,omitempty"`
+	BuildingIDs []int64  `json:"building_ids,omitempty"`
+	RackIDs     []int64  `json:"rack_ids,omitempty"`
+	GroupIDs    []int64  `json:"group_ids,omitempty"`
+	// Live "any site": miners assigned to any current or future site (excludes unassigned miners); supersedes SiteIDs.
+	AllSites bool `json:"all_sites,omitempty"`
+}
+
+// IsZero reports whether the scope places no restriction (org-wide).
+func (s *RuleScope) IsZero() bool {
+	return s == nil || (!s.AllSites &&
+		len(s.SiteIDs) == 0 && len(s.DeviceIDs) == 0 &&
+		len(s.BuildingIDs) == 0 && len(s.RackIDs) == 0 && len(s.GroupIDs) == 0)
+}
+
+// RuleConfig is a user rule's definition; it round-trips through the
+// alert_rule_config store so edits never need to parse the compiled SQL back apart.
 type RuleConfig struct {
 	Name            string                 `json:"name"`
 	DurationSeconds int32                  `json:"duration_seconds"`
 	Offline         *OfflineRuleConfig     `json:"offline,omitempty"`
 	Hashrate        *HashrateRuleConfig    `json:"hashrate,omitempty"`
 	Temperature     *TemperatureRuleConfig `json:"temperature,omitempty"`
+	Scope           *RuleScope             `json:"scope,omitempty"`
+	// Write-request metadata, never persisted: marks a nil Scope as deliberate org-wide rather
+	// than a stale pre-scope client that cannot round-trip the field (see updateRuleSerialized).
+	ScopeOrgWideExplicit bool `json:"-"`
 }
 
 func (c RuleConfig) Template() RuleTemplate {
@@ -138,6 +170,14 @@ type Rule struct {
 	Routing *RoutePolicy
 	// Set when a best-effort routing read failed: the wire omits routing entirely so the client keeps its last-known value instead of reading nil as default.
 	RoutingUnknown bool
+	// The rawSql the live Grafana rule evaluates, for config divergence checks; never serialized.
+	CompiledSQL string
+	// Set when Config no longer compiles to CompiledSQL (a save was interrupted between the Grafana write and the config write); re-saving converges both sides.
+	ConfigOutOfSync bool
+	// Set when a best-effort config read failed on a mutation response: the wire flags it so the client keeps its last-known config instead of reading nil as "no editable config" (mirrors RoutingUnknown).
+	ConfigUnknown bool
+	// The legacy pre-config-store annotation for rules created before migration 000135; reads fall back to it when the store has no row, and the first successful update migrates it into a row.
+	legacyConfigJSON string
 }
 
 type MaintenanceWindowScopeKind string

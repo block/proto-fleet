@@ -36,7 +36,7 @@ func (f executorRoundTripFunc) RoundTrip(request *http.Request) (*http.Response,
 	return f(request)
 }
 
-func startExecutorTestServer(t *testing.T, handler http.Handler) *unixExecutorClient {
+func startExecutorTestServer(t *testing.T, handler http.Handler) *updaterapi.Client {
 	t.Helper()
 	root, err := os.MkdirTemp("/tmp", "pf-executor-test-") //nolint:usetesting // Unix socket paths must stay short on macOS.
 	require.NoError(t, err)
@@ -48,10 +48,9 @@ func startExecutorTestServer(t *testing.T, handler http.Handler) *unixExecutorCl
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 
-	client, ok := newExecutorClient(socketPath).(*unixExecutorClient)
-	require.True(t, ok)
+	client := updaterapi.NewClient(socketPath)
 	t.Cleanup(func() {
-		client.http.CloseIdleConnections()
+		client.CloseIdleConnections()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -134,6 +133,31 @@ func TestUnixExecutorClientTrigger(t *testing.T) {
 	assert.NoError(t, observation.decodeErr)
 }
 
+func TestUnixExecutorClientTriggerComplete(t *testing.T) {
+	// Arrange
+	operationID := "11111111-1111-4111-8111-111111111111"
+	observed := make(chan executorRequestObservation, 1)
+	client := startExecutorTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request updaterapi.TriggerRequest
+		decodeErr := json.NewDecoder(r.Body).Decode(&request)
+		observed <- executorRequestObservation{trigger: request, decodeErr: decodeErr}
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(updaterapi.TriggerResponse{Operation: updaterapi.Operation{
+			ID: operationID, TargetVersion: "v1.2.3", Complete: true, Phase: updaterapi.PhaseQueued,
+		}})
+	}))
+
+	// Act
+	operation, err := client.TriggerComplete(t.Context(), operationID, "v1.2.3")
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, operationID, operation.ID)
+	observation := <-observed
+	require.NoError(t, observation.decodeErr)
+	require.True(t, observation.trigger.Complete)
+}
+
 func TestUnixExecutorClientHTTPFailures(t *testing.T) {
 	t.Parallel()
 
@@ -142,10 +166,13 @@ func TestUnixExecutorClientHTTPFailures(t *testing.T) {
 		statusCode int
 		body       string
 		message    string
+		code       updaterapi.ErrorCode
 	}{
 		{name: "bad request", statusCode: http.StatusBadRequest, body: `{"error":"invalid target"}`, message: "invalid target"},
 		{name: "precondition", statusCode: http.StatusPreconditionFailed, body: `{"error":"target is not newer"}`, message: "target is not newer"},
 		{name: "conflict", statusCode: http.StatusConflict, body: `{"error":"upgrade already running"}`, message: "upgrade already running"},
+		{name: "structured not found", statusCode: http.StatusNotFound, body: `{"error":"operation is not current","code":"operation_not_found"}`, message: "operation is not current", code: updaterapi.ErrorCodeOperationNotFound},
+		{name: "route not found", statusCode: http.StatusNotFound, body: "404 page not found\n", message: "404 Not Found"},
 		{name: "unavailable", statusCode: http.StatusServiceUnavailable, body: `{"error":"updater is shutting down"}`, message: "updater is shutting down"},
 		{name: "internal", statusCode: http.StatusInternalServerError, body: `{"error":"host updater failed"}`, message: "host updater failed"},
 		{name: "malformed body", statusCode: http.StatusBadGateway, body: `{`, message: "502 Bad Gateway"},
@@ -159,10 +186,11 @@ func TestUnixExecutorClientHTTPFailures(t *testing.T) {
 
 			_, err := client.Status(t.Context())
 			require.Error(t, err)
-			var httpErr *executorHTTPError
+			var httpErr *updaterapi.HTTPError
 			require.ErrorAs(t, err, &httpErr)
 			assert.Equal(t, test.statusCode, httpErr.StatusCode)
 			assert.Equal(t, test.message, httpErr.Message)
+			assert.Equal(t, test.code, httpErr.Code)
 		})
 	}
 }
@@ -176,7 +204,7 @@ func TestUnixExecutorClientRejectsInvalidSuccessResponses(t *testing.T) {
 	}{
 		{name: "malformed", body: `{"operation":`},
 		{name: "second JSON value", body: `{} {}`},
-		{name: "oversized", body: `{}` + strings.Repeat(" ", int(maxExecutorSuccessResponseBytes))},
+		{name: "oversized", body: `{}` + strings.Repeat(" ", 1<<20)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -187,7 +215,7 @@ func TestUnixExecutorClientRejectsInvalidSuccessResponses(t *testing.T) {
 
 			_, err := client.Status(t.Context())
 			require.Error(t, err)
-			var protocolErr *executorProtocolError
+			var protocolErr *updaterapi.ProtocolError
 			assert.ErrorAs(t, err, &protocolErr)
 		})
 	}
@@ -206,7 +234,25 @@ func TestUnixExecutorClientRejectsMismatchedTriggerIdentity(t *testing.T) {
 
 	_, err := client.Trigger(t.Context(), "11111111-1111-4111-8111-111111111111", "v1.2.3")
 	require.Error(t, err)
-	var protocolErr *executorProtocolError
+	var protocolErr *updaterapi.ProtocolError
+	assert.ErrorAs(t, err, &protocolErr)
+}
+
+func TestUnixExecutorClientRejectsMismatchedCompletionMode(t *testing.T) {
+	// Arrange
+	client := startExecutorTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(updaterapi.TriggerResponse{Operation: updaterapi.Operation{
+			ID: "11111111-1111-4111-8111-111111111111", TargetVersion: "v1.2.3",
+		}})
+	}))
+
+	// Act
+	_, err := client.TriggerComplete(t.Context(), "11111111-1111-4111-8111-111111111111", "v1.2.3")
+
+	// Assert
+	require.Error(t, err)
+	var protocolErr *updaterapi.ProtocolError
 	assert.ErrorAs(t, err, &protocolErr)
 }
 
@@ -219,7 +265,7 @@ func TestUnixExecutorClientUnavailableSocket(t *testing.T) {
 
 	missingClient := newExecutorClient(filepath.Join(root, "missing.sock"))
 	_, err = missingClient.Status(t.Context())
-	assert.ErrorIs(t, err, errExecutorUnavailable)
+	assert.ErrorIs(t, err, updaterapi.ErrUnavailable)
 
 	stalePath := filepath.Join(root, "stale.sock")
 	stale, err := net.ListenUnix("unix", &net.UnixAddr{Name: stalePath, Net: "unix"})
@@ -229,7 +275,7 @@ func TestUnixExecutorClientUnavailableSocket(t *testing.T) {
 	staleClient := newExecutorClient(stalePath)
 	require.Eventually(t, func() bool {
 		_, statusErr := staleClient.Status(t.Context())
-		return errors.Is(statusErr, errExecutorUnavailable)
+		return errors.Is(statusErr, updaterapi.ErrUnavailable)
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
@@ -279,12 +325,11 @@ func TestUnixExecutorClientHonorsContext(t *testing.T) {
 			select {
 			case err := <-done:
 				assert.ErrorIs(t, err, test.want)
-				var transportErr *executorTransportError
+				var transportErr *updaterapi.TransportError
 				assert.ErrorAs(t, err, &transportErr)
 			case <-time.After(time.Second):
 				t.Fatal("executor request did not honor its context")
 			}
-			assert.Equal(t, executorHTTPTimeout, client.http.Timeout)
 		})
 	}
 }
@@ -303,13 +348,13 @@ func TestUnixExecutorClientContextWinsOverUnavailableTransportError(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			entered := make(chan struct{})
-			client := &unixExecutorClient{http: &http.Client{Transport: executorRoundTripFunc(
+			client := updaterapi.NewClientWithHTTP(&http.Client{Transport: executorRoundTripFunc(
 				func(request *http.Request) (*http.Response, error) {
 					close(entered)
 					<-request.Context().Done()
-					return nil, fmt.Errorf("%w: %v", errExecutorUnavailable, request.Context().Err())
+					return nil, fmt.Errorf("%w: %v", updaterapi.ErrUnavailable, request.Context().Err())
 				},
-			)}}
+			)})
 			var ctx context.Context
 			var cancel context.CancelFunc
 			if test.cancel {
@@ -332,8 +377,8 @@ func TestUnixExecutorClientContextWinsOverUnavailableTransportError(t *testing.T
 			select {
 			case err := <-done:
 				require.ErrorIs(t, err, test.want)
-				assert.NotErrorIs(t, err, errExecutorUnavailable)
-				var transportErr *executorTransportError
+				assert.NotErrorIs(t, err, updaterapi.ErrUnavailable)
+				var transportErr *updaterapi.TransportError
 				assert.ErrorAs(t, err, &transportErr)
 			case <-time.After(time.Second):
 				t.Fatal("executor request did not preserve its context error")

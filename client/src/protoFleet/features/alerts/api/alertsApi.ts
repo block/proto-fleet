@@ -8,6 +8,7 @@ import {
   alertRuleClient,
 } from "@/protoFleet/api/clients";
 import {
+  type ActiveAlertGroup as ProtoActiveAlertGroup,
   type Channel as ProtoChannel,
   ChannelKind as ProtoChannelKind,
   HashrateMode as ProtoHashrateMode,
@@ -24,7 +25,9 @@ import {
   RuleTemplate as ProtoRuleTemplate,
   ValidationState as ProtoValidationState,
 } from "@/protoFleet/api/generated/alerts/v1/alerts_pb";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import type {
+  ActiveAlertGroup,
   AlertHistoryEntry,
   AlertHistoryStatus,
   Channel,
@@ -179,6 +182,28 @@ const ruleConfigFromProto = (c: ProtoRuleConfig): RuleConfig => {
       out.temperature = { max_celsius: c.templateConfig.value.maxCelsius };
       break;
   }
+  const sc = c.scope;
+  if (
+    sc &&
+    (sc.siteIds.length > 0 ||
+      sc.deviceIds.length > 0 ||
+      sc.buildingIds.length > 0 ||
+      sc.rackIds.length > 0 ||
+      sc.groupIds.length > 0 ||
+      sc.allSites ||
+      sc.deviceIdsRedacted)
+  ) {
+    const toStrings = (ids: bigint[]) => ids.map((id) => id.toString());
+    out.scope = {
+      site_ids: toStrings(sc.siteIds),
+      device_ids: sc.deviceIds,
+      building_ids: toStrings(sc.buildingIds),
+      rack_ids: toStrings(sc.rackIds),
+      group_ids: toStrings(sc.groupIds),
+      all_sites: sc.allSites,
+      device_ids_redacted: sc.deviceIdsRedacted,
+    };
+  }
   return out;
 };
 
@@ -197,7 +222,27 @@ const hashrateUnitToProto = (u: HashrateUnit | undefined): ProtoHashrateUnit => 
 };
 
 const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
-  const base = { name: c.name, durationSeconds: c.duration_seconds };
+  const sc = c.scope;
+  // Org-wide is an explicit marker, never an absent message: the server rejects
+  // scope-less updates of scoped rules so a stale pre-scope client cannot silently widen them.
+  const scope =
+    sc &&
+    (sc.site_ids.length > 0 ||
+      sc.device_ids.length > 0 ||
+      sc.building_ids.length > 0 ||
+      sc.rack_ids.length > 0 ||
+      sc.group_ids.length > 0 ||
+      sc.all_sites)
+      ? {
+          siteIds: sc.site_ids.map(BigInt),
+          deviceIds: sc.device_ids,
+          buildingIds: sc.building_ids.map(BigInt),
+          rackIds: sc.rack_ids.map(BigInt),
+          groupIds: sc.group_ids.map(BigInt),
+          allSites: sc.all_sites,
+        }
+      : { orgWide: true };
+  const base = { name: c.name, durationSeconds: c.duration_seconds, scope };
   if (c.hashrate) {
     return create(ProtoRuleConfigSchema, {
       ...base,
@@ -264,6 +309,8 @@ const ruleFromProto = (r: ProtoRule): Rule => ({
   enabled: r.enabled,
   origin: r.origin === ProtoRuleOrigin.USER ? "user" : "provisioned",
   config: r.config ? ruleConfigFromProto(r.config) : null,
+  config_out_of_sync: r.configOutOfSync,
+  config_unknown: r.configUnknown,
   routing: routingFromProto(r.routing),
 });
 
@@ -392,17 +439,61 @@ export async function resumeRule(id: string): Promise<Rule> {
   return ruleFromProto(required(res.rule, "rule"));
 }
 
+// A pre-scope server silently drops the unknown scope field and saves the rule org-wide;
+// the response echoes what was parsed, so a scoped save coming back scope-less proves it.
+const scopeDropped = (rule: Rule, sent: RuleConfig): boolean => {
+  const sc = sent.scope;
+  const sentScoped =
+    sc &&
+    (sc.site_ids.length > 0 ||
+      sc.device_ids.length > 0 ||
+      sc.building_ids.length > 0 ||
+      sc.rack_ids.length > 0 ||
+      sc.group_ids.length > 0 ||
+      sc.all_sites);
+  return Boolean(sentScoped) && !rule.config?.scope;
+};
+
 export async function createRule(config: RuleConfig, routing?: RuleRouting): Promise<Rule> {
   const res = await alertRuleClient.createRule({
     config: ruleConfigToProto(config),
     routing: routing ? routingToProto(routing) : undefined,
   });
-  return ruleFromProto(required(res.rule, "rule"));
+  const rule = ruleFromProto(required(res.rule, "rule"));
+  if (scopeDropped(rule, config)) {
+    // Compensate rather than leave a rule alerting on every miner while the
+    // caller sees only an error.
+    let cleanup = "The unscoped rule was deleted; upgrade the server, then create it again.";
+    try {
+      await alertRuleClient.deleteRule({ id: rule.id });
+    } catch {
+      cleanup = "Deleting it failed, so it is live and covering all miners — remove it manually.";
+    }
+    throw new Error(
+      `The server ignored this rule's scope (it may be running an older version), so the rule was created covering all miners. ${cleanup}`,
+    );
+  }
+  return rule;
 }
 
 export async function updateRule(id: string, config: RuleConfig): Promise<Rule> {
   const res = await alertRuleClient.updateRule({ id, config: ruleConfigToProto(config) });
-  return ruleFromProto(required(res.rule, "rule"));
+  const rule = ruleFromProto(required(res.rule, "rule"));
+  if (scopeDropped(rule, config)) {
+    // The unscoped update is already committed; pause the rule (a pre-scope RPC,
+    // so it works on the old server too) so it can't flood every miner meanwhile.
+    let outcome =
+      "It was paused to prevent alerts for unintended miners; upgrade the server, then re-save the scope and resume it.";
+    try {
+      await alertRuleClient.pauseRule({ id });
+    } catch {
+      outcome = "Pausing it also failed, so it is live and covering all miners — pause or delete it manually.";
+    }
+    throw new Error(
+      `The server ignored this rule's scope (it may be running an older version), so the rule now covers all miners. ${outcome}`,
+    );
+  }
+  return rule;
 }
 
 export async function deleteRule(id: string): Promise<void> {
@@ -459,18 +550,49 @@ export async function deleteMaintenanceWindow(id: string): Promise<void> {
 
 export interface HistoryPage {
   alerts: AlertHistoryEntry[];
-  has_more: boolean;
+  // Pass as the next request's before_id; empty on the last page, so it is also the has-more signal.
+  next_cursor: string;
 }
 
 export async function listHistory(input: {
   before_id?: string;
   page_size?: number;
   active_only?: boolean;
+  // Active-only drill-in: this alert's firing instances, one per affected miner.
+  alert_name?: string;
+  // The alert's rule group, matched exactly; "" is the group of rules carrying no rule label.
+  rule_group?: string;
 }): Promise<HistoryPage> {
   const res = await alertHistoryClient.listAlerts({
     beforeId: input.before_id ?? "",
     pageSize: input.page_size ?? 0,
     activeOnly: input.active_only ?? false,
+    alertName: input.alert_name ?? "",
+    ruleGroup: input.rule_group ?? "",
   });
-  return { alerts: res.alerts.map(historyFromProto), has_more: res.hasMore };
+  return { alerts: res.alerts.map(historyFromProto), next_cursor: res.nextCursor };
+}
+
+export interface ActiveAlertGroupsPage {
+  groups: ActiveAlertGroup[];
+  has_more: boolean;
+}
+
+const activeGroupFromProto = (g: ProtoActiveAlertGroup): ActiveAlertGroup => ({
+  alert_name: RENAMED_ALERTS[g.alertName] ?? g.alertName,
+  stored_alert_name: g.alertName,
+  rule_group: g.ruleGroup,
+  // JSON-encoded so no pair of groups can concatenate to the same key.
+  key: JSON.stringify([g.ruleGroup, g.alertName]),
+  device_count: Number(g.deviceCount),
+  alert_count: Number(g.alertCount),
+  first_started_at: isoFromTs(g.firstStartedAt),
+  summary: g.summary,
+});
+
+// The poll behind the header pill is an alarm, and a request that never settles stalls it with no error to show:
+// the pill would then read as a quiet fleet. Deadline it at the interval, past which a reply is superseded anyway.
+export async function listActiveAlertGroups(): Promise<ActiveAlertGroupsPage> {
+  const res = await alertHistoryClient.listActiveAlertGroups({}, { timeoutMs: POLL_INTERVAL_MS });
+  return { groups: res.groups.map(activeGroupFromProto), has_more: res.hasMore };
 }

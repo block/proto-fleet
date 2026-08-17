@@ -180,7 +180,7 @@ Non-Fleet consumers are handled separately:
 
 - Deployment scripts that currently `docker compose exec timescaledb ...` must become Patroni-aware and run write steps only against the current primary.
 - Grafana is not on the dispatch RTO path. It can use a best-effort Postgres datasource in v1. If Grafana cannot cleanly use the same HA writer targeting, that is not a blocker for control-plane HA.
-- `ha-status.sh` and operator-protected `/health/ha` are the authoritative HA status surfaces in v1.
+- `fleet-ha status` and loopback-only `/health/ha` are the authoritative HA status surfaces in v1.
 - HA failure alerts are derived from those control-plane status surfaces, not from Grafana dashboard availability or telemetry history.
 
 PostgreSQL documents multi-host connection strings and writable-session targeting:
@@ -220,7 +220,7 @@ Both Fleet app instances run continuously.
 | Mode | Behavior |
 | ---- | -------- |
 | Active | Holds `fleet-active`; passes `/health/active`; serves product traffic; accepts Fleet Node ControlStreams; runs active-only runtime services. |
-| Passive | Does not hold `fleet-active`; fails `/health/active`; serves load-balancer-safe health and operator-protected HA status; rejects product traffic and Fleet Node ControlStreams with a machine-readable `not-active` detail. |
+| Passive | Does not hold `fleet-active`; fails `/health/active`; serves load-balancer-safe health and local HA status; rejects product traffic and Fleet Node ControlStreams with a machine-readable `not-active` detail. |
 
 Passive is deliberately dumb in v1. It does not need a carefully audited read-only API allowlist. The stable endpoint should not send normal UI/API traffic to passive.
 
@@ -239,8 +239,7 @@ Active-only work in v1 includes:
 Always-on services:
 
 - HTTP server;
-- load-balancer-safe health endpoints and operator-protected HA diagnostics;
-- auth/session plumbing needed to answer status endpoints;
+- load-balancer-safe health endpoints and loopback-only HA diagnostics;
 - components required to construct service dependencies but not start active work.
 
 Activation must trigger required control reconciliation promptly enough to meet the RTO target.
@@ -251,8 +250,7 @@ Add a single active-mode request gate for product traffic:
 
 - In active mode, requests proceed normally.
 - In passive mode, Connect/gRPC product traffic fails with `Unavailable` and a machine-readable `not-active` detail; other product transports use the equivalent retryable status.
-- Load-balancer-safe health endpoints and operator-protected HA diagnostics bypass active gating.
-- Bypassing active gating does not bypass auth; HA diagnostics still require operator access.
+- Load-balancer-safe health endpoints and loopback-only HA diagnostics bypass active gating.
 
 Fleet Node ControlStreams are explicitly gated:
 
@@ -272,25 +270,21 @@ Endpoints:
 | `/health` | Load-balancer-safe | Process liveness. Does not check DB or HA state. |
 | `/health/ready` | Load-balancer-safe | Fleet app can reach a database. Returns minimal readiness only. |
 | `/health/active` | Load-balancer-safe | Fleet app is the active controller and can safely run real-time control. Returns minimal active/passive status only. |
-| `/health/ha` | Operator-only | Admin-authenticated diagnostics: lease holder/epoch, DB primary, replication mode, quorum, degraded reasons. Redact sensitive hostnames and internal addresses where possible. |
+| `/health/ha` | Loopback-only | Redacted local runtime state: version, role, observation freshness, endpoint health, active lease expiry, and generic reason codes. |
 
 `/health/active` is intentionally narrow. It must not fail because Grafana is down, telemetry history is stale, alert history is unavailable, or dashboards cannot query.
 
-`/health/ha` is not a load-balancer health check and must not be exposed wherever unauthenticated `/health` endpoints are exposed. It bypasses active-mode gating so either Fleet app host can report diagnostics, but it still requires admin auth in every supported profile. Network allowlists can be added as defense in depth, not as the primary auth boundary.
+`/health/ha` is not a load-balancer health check. It binds to loopback and nginx explicitly returns 404 for the same path through the VIP. Local host or SSH access is the authentication boundary; v1 does not add bearer credentials for this endpoint.
 
-`ha-status.sh` provides the operator view:
+`fleet-ha status` provides the operator view as redacted JSON and exits nonzero when failover readiness is degraded:
 
-- Patroni cluster table;
-- etcd quorum;
-- sync standby and replication lag;
-- active Fleet holder and lease epoch;
-- VIP/load-balancer target;
-- `FAILOVER READY: YES/NO`;
-- degraded reason.
+- local runtime role, observation freshness, and endpoint health;
+- separate control and failover readiness;
+- generic reason codes for etcd quorum, writable Postgres, database redundancy, Fleet redundancy and version agreement, and VIP health.
 
-The v1 HA contract requires degraded readiness to be visible through `/health/ha` and `ha-status.sh`. Grafana dashboards, alert history, and notification metrics remain best-effort; they must not be the only source of HA degraded-state reporting.
+The v1 HA contract requires degraded readiness to be visible through `/health/ha` and `fleet-ha status`. Grafana dashboards, alert history, and notification metrics remain best-effort; they must not be the only source of HA degraded-state reporting.
 
-Live HA alerting is control-plane owned. The supported alert source should evaluate the same state exposed through `/health/ha` and `ha-status.sh`, including active Fleet count, lease freshness, DB primary reachability, sync standby health, etcd quorum, replication lag, and VIP/load-balancer target. Alert delivery can use the install's notification mechanism, but alert generation must not depend on Grafana, telemetry ingestion, dashboard queries, or alert-history storage being healthy. Grafana can visualize these states when available; it is not the source of truth for v1 HA failure detection.
+Future HA alerting should evaluate the same state exposed through `/health/ha` and `fleet-ha status`. Alert delivery and dashboards are outside the initial supported profile.
 
 ## Deployment model
 
@@ -371,14 +365,14 @@ Deployment and diagnostics:
 - HA management-plane ports are restricted to HA peers and approved operator diagnostics paths; cloud or untrusted network profiles add authenticated transport.
 - HA alerts fire from control-plane status for standby loss, quorum loss, active holder anomalies, replication lag, and endpoint targeting failures even when Grafana or telemetry history is unavailable.
 - Telemetry/Grafana failures do not fail `/health/active`.
-- Unauthenticated health endpoints do not expose HA topology, and `/health/ha` requires operator access.
+- Public health endpoints do not expose HA topology, and `/health/ha` is reachable only on loopback.
 
 ## Drawbacks
 
 - **More moving parts than single-host installs**. Patroni, etcd, and a witness host add operational surface area.
 - **The default durability mode is intentionally degraded after standby loss**. Auto-degrade keeps control running but exposes the site to data loss on a second failure until redundancy is restored.
 - **Passive Fleet is not a read-only replica**. This simplifies correctness but means passive hosts are not useful for normal UI/API browsing in v1.
-- **Historical views can be incomplete during incidents**. Operators may lose dashboard fidelity exactly when an incident is happening; live HA alerting, `ha-status.sh`, and operator-protected `/health/ha` become the authoritative status surfaces.
+- **Historical views can be incomplete during incidents**. Operators may lose dashboard fidelity exactly when an incident is happening; `fleet-ha status` and loopback-only `/health/ha` become the authoritative status surfaces.
 - **Local artifacts are not automatically HA**. Firmware and command artifacts need shared/replicated storage before they can be part of the v1 HA guarantee.
 - **Implementation touches startup wiring**. Moving runtime services behind an activation supervisor changes `fleetd` lifecycle code and needs careful tests.
 
@@ -409,11 +403,11 @@ Deployment and diagnostics:
 | Phase | Goal | Scope | Behavior change |
 | ----- | ---- | ----- | --------------- |
 | 1 | DB writer routing | Multi-host DSN, read-write targeting, stale pooled connection discard, failover retry classification | Fleet can reconnect to the current DB writer without HAProxy. |
-| 2 | Active lease | `fleet_runtime_lease`, sqlc queries, `ha.Coordinator`, `/health/active`, operator-protected `/health/ha` | Fleet can decide active/passive state safely. |
+| 2 | Active lease | `fleet_runtime_lease`, sqlc queries, `ha.Coordinator`, `/health/active` | Fleet can decide active/passive state safely. |
 | 3 | Runtime supervision | Move active-only services behind a supervisor; immediate reconciler tick on activation | Passive Fleet stays warm but does not dispatch or mutate control state. |
 | 4 | Passive gating and Fleet Node retry | Active-mode request gate, ControlStream `not-active`, Fleet Node fast retry and stream liveness tuning | Traffic can safely route only to active Fleet. |
-| 5 | HA substrate | Patroni image/config, etcd, keepalived/VRRP VIP templates, peer-connectivity preflight, install/join flow, `ha-status.sh` | Operators can install the on-prem HA profile. |
-| 6 | Degraded-mode observability | Alerts and status for standby loss, quorum loss, active count, replication lag, failover readiness | Operators can distinguish full HA from control-only/degraded operation. |
+| 5 | HA substrate | Patroni image/config, etcd, keepalived/VRRP VIP templates, peer-connectivity preflight, install/join flow | Operators can install the on-prem HA profile. |
+| 6 | Degraded-mode observability | Local status for standby loss, quorum loss, active count, replication lag, and failover readiness | Operators can distinguish full HA from control-only/degraded operation. |
 | 7 | Lab and cloud references | Repeated failover tests, partition tests, runbook, cloud deployment reference | The install mode can be marked supported after validation gates pass. |
 
 Each phase should preserve existing single-host installs. `FLEET_HA_ENABLED=false` remains the default outside the HA profile.

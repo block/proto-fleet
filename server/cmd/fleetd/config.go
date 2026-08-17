@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/command"
@@ -27,6 +28,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
 
+func validateHAHTTPAddress(config Config) error {
+	if !config.HA.Enabled {
+		return nil
+	}
+	if config.HTTP.Address != ha.LocalStatusAddress {
+		return fmt.Errorf("HA requires HTTP listen address %q, got %q", ha.LocalStatusAddress, config.HTTP.Address)
+	}
+	return nil
+}
+
 type HTTPConfig struct {
 	Address           string        `help:"Address to listen on" default:"127.0.0.1:8080" env:"LISTEN_ADDRESS"`
 	ReadHeaderTimeout time.Duration `help:"Read header timeout" default:"3s" env:"READ_HEADER_TIMEOUT"`
@@ -37,8 +48,9 @@ type HTTPConfig struct {
 type Config struct {
 	Mode string `help:"Execution mode" enum:"server,agent,combined" default:"combined" env:"MODE"`
 
-	// Operator-facing base URL of this instance, used in outbound alert notification links.
-	PublicURL string `help:"Base URL of the proto-fleet instance, used in alert notification links (e.g. https://fleet.example.com)" default:"" env:"FLEET_PUBLIC_URL"`
+	// Operator-facing base URL of this instance, used in outbound alert notification links and, by its host,
+	// to name the sending instance when several of them post to one Slack channel.
+	PublicURL string `help:"Base URL of the proto-fleet instance, used in alert notification links and to name this instance in them (e.g. https://fleet.example.com)" default:"" env:"FLEET_PUBLIC_URL"`
 
 	DB             db.Config                    `embed:"" prefix:"db-" envprefix:"DB_"`
 	Log            logging.Config               `embed:"" prefix:"logging-" envprefix:"LOG_"`

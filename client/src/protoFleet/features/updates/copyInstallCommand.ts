@@ -1,8 +1,8 @@
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
 
-// Shared by the update notification modal and the settings Updates page so
-// both surfaces give identical feedback for the same action.
+// Keep the manual fallback's clipboard feedback consistent wherever the
+// Settings update flow renders it.
 export const copyInstallCommand = (installCommand: string) => {
   copyToClipboard(installCommand)
     .then(() => {

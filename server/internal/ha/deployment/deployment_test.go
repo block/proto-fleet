@@ -19,6 +19,19 @@ var testHostIPs = [3]string{"10.40.0.11", "10.40.0.12", "10.40.0.13"}
 
 const testVirtualIP = "10.40.0.100"
 
+func verifyEndpointCertificate(path, ip string, roots *x509.CertPool, usages ...x509.ExtKeyUsage) error {
+	certificate, err := readCertificate(path)
+	if err != nil {
+		return err
+	}
+	for _, usage := range usages {
+		if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: ip, KeyUsages: []x509.ExtKeyUsage{usage}}); err != nil {
+			return fmt.Errorf("verify %s certificate: %w", ip, err)
+		}
+	}
+	return nil
+}
+
 func TestRenderFirewall(t *testing.T) {
 	config := NodeConfig{
 		NodeIP:           testHostIPs[0],
@@ -85,11 +98,15 @@ func TestGenerateSecrets(t *testing.T) {
 	roots.AddCert(ca)
 	for i, node := range []string{"ha-a", "ha-b", "ha-c"} {
 		dir := filepath.Join(output, node)
-		for _, name := range []string{"service-ca.crt", "etcd-server.crt", "etcd-server.key", "etcd-peer.crt", "etcd-peer.key", "etcd-jwt.pub", "etcd-jwt.key"} {
+		for _, name := range []string{"service-ca.crt", "etcd-server.crt", "etcd-server.key", "etcd-peer.crt", "etcd-peer.key", "etcd-jwt.pub", "etcd-jwt.key", fleetEtcdPasswordFile} {
 			requireFile(t, filepath.Join(dir, name))
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "etcd-server.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth); err != nil {
 			t.Errorf("verify %s etcd server certificate: %v", node, err)
+		}
+		serverCertificate, err := readCertificate(filepath.Join(dir, "etcd-server.crt"))
+		if err != nil || !serverCertificate.NotAfter.Equal(ca.NotAfter) {
+			t.Errorf("%s service certificate expiry does not match the CA: %v", node, err)
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "etcd-peer.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth); err != nil {
 			t.Errorf("verify %s etcd peer certificate: %v", node, err)
@@ -100,7 +117,7 @@ func TestGenerateSecrets(t *testing.T) {
 	}
 	for i, node := range []string{"ha-a", "ha-b"} {
 		dir := filepath.Join(output, node)
-		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-client.crt", "fleet-client.key", fleetEnvironmentFile, "fleet-db-password", "fleet-etcd-password", "patroni-etcd-password"} {
+		for _, name := range []string{"patroni-rest.crt", "patroni-rest.key", "postgres.crt", "postgres.key", "fleet-client.crt", "fleet-client.key", fleetEnvironmentFile, "fleet-db-password", "patroni-etcd-password"} {
 			requireFile(t, filepath.Join(dir, name))
 		}
 		if err := verifyEndpointCertificate(filepath.Join(dir, "postgres.crt"), testHostIPs[i], roots, x509.ExtKeyUsageServerAuth); err != nil {
@@ -139,7 +156,6 @@ func TestGenerateSecrets(t *testing.T) {
 			t.Fatalf("%s Fleet environment differs from the offline copy", node)
 		}
 	}
-	requireMode(t, filepath.Join(output, "offline", "service-ca.key"), 0o600)
 	requireMode(t, filepath.Join(output, "ha-a", "etcd-server.key"), 0o600)
 	requireMode(t, filepath.Join(output, "offline", fleetEnvironmentFile), 0o600)
 	requireMode(t, filepath.Join(output, "ha-a", fleetEnvironmentFile), 0o600)
@@ -214,6 +230,7 @@ func TestPreflight(t *testing.T) {
 	firewallApplied := false
 	routeSource := testHostIPs[0]
 	routeViaGateway := false
+	databasePeerViaGateway := false
 	arpingConflict := false
 	listeners := ""
 	var arpingArgs []string
@@ -231,6 +248,9 @@ func TestPreflight(t *testing.T) {
 				return nil, nil
 			}
 			if name == "ip" {
+				if databasePeerViaGateway && args[2] == testHostIPs[1] {
+					return []byte(fmt.Sprintf("%s via 10.40.0.1 dev eth0 src %s\n", args[2], routeSource)), nil
+				}
 				if routeViaGateway && args[2] == "10.40.0.100" {
 					return []byte(fmt.Sprintf("%s via 10.40.0.1 dev eth0 src %s\n", args[2], routeSource)), nil
 				}
@@ -281,6 +301,16 @@ func TestPreflight(t *testing.T) {
 	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/26")}
 	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "IPv4 network") {
 		t.Fatalf("preflight(VIP outside interface network) error = %v", err)
+	}
+	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
+	databasePeerViaGateway = true
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "database peer") {
+		t.Fatalf("preflight(routed database peer) error = %v", err)
+	}
+	databasePeerViaGateway = false
+	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/32")}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "database peer") {
+		t.Fatalf("preflight(database peer outside interface prefix) error = %v", err)
 	}
 	prefixes = []netip.Prefix{netip.MustParsePrefix("10.40.0.11/24")}
 
@@ -356,58 +386,6 @@ func TestPreflight(t *testing.T) {
 	if err := os.Chmod(publicIdentity, 0o644); err != nil { //nolint:gosec // Restores the generated public certificate mode.
 		t.Fatal(err)
 	}
-	serverKeyPath := filepath.Join(generated, "ha-a", "etcd-server.key")
-	serverKey, err := os.ReadFile(serverKeyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	peerKey, err := os.ReadFile(filepath.Join(generated, "ha-a", "etcd-peer.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(serverKeyPath, peerKey, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "certificate does not match private key") {
-		t.Fatalf("preflight(mismatched certificate key) error = %v", err)
-	}
-	if err := os.WriteFile(serverKeyPath, serverKey, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fleetCertificatePath := filepath.Join(generated, "ha-a", "fleet-client.crt")
-	fleetCertificate, err := os.ReadFile(fleetCertificatePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	postgresCertificate, err := os.ReadFile(filepath.Join(generated, "ha-a", "postgres.crt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(fleetCertificatePath, postgresCertificate, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "fleet-client certificate") {
-		t.Fatalf("preflight(certificate for host IP instead of VIP) error = %v", err)
-	}
-	if err := os.WriteFile(fleetCertificatePath, fleetCertificate, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	jwtKeyPath := filepath.Join(generated, "ha-a", "etcd-jwt.key")
-	jwtKey, err := os.ReadFile(jwtKeyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(jwtKeyPath, serverKey, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "public key does not match private key") {
-		t.Fatalf("preflight(mismatched JWT key) error = %v", err)
-	}
-	if err := os.WriteFile(jwtKeyPath, jwtKey, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
 	if err := os.WriteFile(filepath.Join(dataDir, "postgres", "PG_VERSION"), []byte("18"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +409,7 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"health",
+		"auth-status",
 		"role:patroni",
 		"permission:patroni:/service/proto-fleet/:readwrite",
 		"user:patroni:patroni-pass",
@@ -444,6 +422,7 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 		"user:root:root-pass",
 		"grant:root:root",
 		"auth",
+		"verify-access",
 	}
 	if !slices.Equal(client.calls, want) {
 		t.Fatalf("bootstrap calls:\n%v\nwant:\n%v", client.calls, want)
@@ -458,9 +437,31 @@ func TestBootstrapEtcdAuthEnablesAuthLast(t *testing.T) {
 	}
 }
 
+func TestBootstrapEtcdAuthVerifiesExistingAccess(t *testing.T) {
+	// Arrange
+	client := &recordingAuthClient{authEnabled: true}
+
+	// Act
+	err := bootstrapEtcdAuth(context.Background(), client, "root-pass", "patroni-pass", "fleet-pass")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"auth-status", "verify-access"}; !slices.Equal(client.calls, want) {
+		t.Fatalf("bootstrap calls = %v, want %v", client.calls, want)
+	}
+
+	invalid := &recordingAuthClient{authEnabled: true, failAt: "verify-access"}
+	if err := bootstrapEtcdAuth(context.Background(), invalid, "root-pass", "patroni-pass", "fleet-pass"); err == nil {
+		t.Fatal("bootstrap accepted an unverified existing authentication policy")
+	}
+}
+
 type recordingAuthClient struct {
-	calls  []string
-	failAt string
+	calls       []string
+	failAt      string
+	authEnabled bool
 }
 
 func (c *recordingAuthClient) record(call string) error {
@@ -471,8 +472,13 @@ func (c *recordingAuthClient) record(call string) error {
 	return nil
 }
 
-func (c *recordingAuthClient) Healthy(context.Context) error { return c.record("health") }
-func (c *recordingAuthClient) AddRole(_ context.Context, role string) error {
+func (c *recordingAuthClient) AuthEnabled(context.Context) (bool, error) {
+	if err := c.record("auth-status"); err != nil {
+		return false, err
+	}
+	return c.authEnabled, nil
+}
+func (c *recordingAuthClient) EnsureRole(_ context.Context, role string) error {
 	return c.record("role:" + role)
 }
 func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix string, permission clientv3.PermissionType) error {
@@ -482,13 +488,16 @@ func (c *recordingAuthClient) GrantPermission(_ context.Context, role, prefix st
 	}
 	return c.record(fmt.Sprintf("permission:%s:%s:%s", role, prefix, name))
 }
-func (c *recordingAuthClient) AddUser(_ context.Context, user, password string) error {
+func (c *recordingAuthClient) EnsureUser(_ context.Context, user, password string) error {
 	return c.record("user:" + user + ":" + password)
 }
 func (c *recordingAuthClient) GrantRole(_ context.Context, user, role string) error {
 	return c.record("grant:" + user + ":" + role)
 }
 func (c *recordingAuthClient) EnableAuth(context.Context) error { return c.record("auth") }
+func (c *recordingAuthClient) VerifyAccess(context.Context, string, string, string) error {
+	return c.record("verify-access")
+}
 
 func testNodeEnv(t *testing.T, dir, dataDir, secretsDir string) string {
 	t.Helper()

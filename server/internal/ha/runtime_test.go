@@ -7,9 +7,11 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,6 +52,8 @@ func (o *runtimeTestOwner) WaitForActive(ctx context.Context) (context.Context, 
 	}
 }
 
+func (o *runtimeTestOwner) Snapshot() Snapshot { return Snapshot{} }
+
 type missedActivationOwner struct{}
 
 func (missedActivationOwner) Run(context.Context) error {
@@ -60,6 +64,8 @@ func (missedActivationOwner) WaitForActive(ctx context.Context) (context.Context
 	<-ctx.Done()
 	return nil, Token{}, fmt.Errorf("wait for missed activation: %w", ctx.Err())
 }
+
+func (missedActivationOwner) Snapshot() Snapshot { return Snapshot{} }
 
 type runtimeTestGroup struct {
 	mu sync.Mutex
@@ -192,6 +198,152 @@ func TestHARuntimeAbortsOnOwnershipLoss(t *testing.T) {
 	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
 	require.False(t, runtime.Active())
 	require.Error(t, jobCtx.Err())
+}
+
+func TestHARuntimeSurvivesTransientTimelineMismatch(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		config := coordinatorTestConfig()
+		config.LeaseDuration = 10 * time.Second
+		config.RenewInterval = 3 * time.Second
+		observer := &sequenceObserver{
+			results: []observerResult{
+				{observation: coordinatorObservation("cluster-a", 41, 20*time.Second)},
+				{
+					observation: coordinatorObservation("cluster-a", 41, 20*time.Second),
+					err:         fmt.Errorf("promotion observation: %w", ErrTimelineMismatch),
+				},
+				{observation: coordinatorObservation("cluster-a", 41, 20*time.Second)},
+			},
+			calls: make(chan struct{}, 3),
+		}
+		store := &fakeLeaseStore{}
+		coordinator := newCoordinatorWithHolder(observer, store, config, uuid.New())
+		group := newRuntimeTestGroup()
+		runtimeConfig := runtimeTestConfig()
+		runtimeConfig.HealthCheckInterval = time.Second
+		runtime := newRuntime(coordinator, group, alwaysHealthy, runtimeConfig)
+		runCtx, cancelRun := context.WithCancel(context.Background())
+		runResult := make(chan error, 1)
+		go func() { runResult <- runtime.Run(runCtx) }()
+
+		requireReceive(t, observer.calls)
+		requireReceiveContext(t, group.startedCh)
+		synctest.Wait()
+		require.True(t, runtime.Active())
+		validSnapshot := coordinator.Snapshot()
+		validTimer := coordinator.leaseTimer
+
+		time.Sleep(config.RenewInterval)
+		synctest.Wait()
+		requireReceive(t, observer.calls)
+		require.True(t, runtime.Active())
+		require.False(t, coordinator.Snapshot().ObservationAvailable)
+		require.Equal(t, validSnapshot.FreshUntil, coordinator.Snapshot().FreshUntil)
+		require.Same(t, validTimer, coordinator.leaseTimer)
+		require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
+
+		time.Sleep(config.RenewInterval)
+		synctest.Wait()
+		requireReceive(t, observer.calls)
+		require.True(t, runtime.Active())
+		require.True(t, coordinator.Snapshot().ObservationAvailable)
+		require.Equal(t, []string{"acquire", "renew", "renew"}, store.callSequence())
+
+		cancelRun()
+		synctest.Wait()
+		requireReceive(t, group.stoppedCh)
+		require.NoError(t, <-runResult)
+		select {
+		case <-group.abortedCh:
+			t.Fatal("transient timeline mismatch aborted the Fleet runtime")
+		default:
+		}
+	})
+}
+
+func TestHARuntimeRetriesTimelineMismatchBeforeActivation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		config := coordinatorTestConfig()
+		observer := &sequenceObserver{
+			results: []observerResult{
+				{err: fmt.Errorf("promotion observation: %w", ErrTimelineMismatch)},
+				{observation: coordinatorObservation("cluster-a", 42, 20*time.Second)},
+			},
+			calls: make(chan struct{}, 2),
+		}
+		store := &fakeLeaseStore{}
+		coordinator := newCoordinatorWithHolder(observer, store, config, uuid.New())
+		group := newRuntimeTestGroup()
+		runtime := newRuntime(coordinator, group, alwaysHealthy, runtimeTestConfig())
+		runCtx, cancelRun := context.WithCancel(context.Background())
+		runResult := make(chan error, 1)
+		go func() { runResult <- runtime.Run(runCtx) }()
+
+		requireReceive(t, observer.calls)
+		synctest.Wait()
+		require.False(t, runtime.Active())
+		require.Empty(t, store.callSequence())
+		select {
+		case err := <-runResult:
+			t.Fatalf("Fleet runtime exited after transient timeline mismatch: %v", err)
+		default:
+		}
+
+		time.Sleep(config.RetryInterval)
+		synctest.Wait()
+		requireReceive(t, observer.calls)
+		requireReceiveContext(t, group.startedCh)
+		require.True(t, runtime.Active())
+		require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
+
+		cancelRun()
+		synctest.Wait()
+		requireReceive(t, group.stoppedCh)
+		require.NoError(t, <-runResult)
+		select {
+		case <-group.abortedCh:
+			t.Fatal("pre-activation timeline mismatch aborted the Fleet runtime")
+		default:
+		}
+	})
+}
+
+func TestHARuntimePersistentTimelineMismatchExpiresExistingProof(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		config := coordinatorTestConfig()
+		config.LeaseDuration = 10 * time.Second
+		config.RenewInterval = 3 * time.Second
+		observed := coordinatorObservation("cluster-a", 41, 20*time.Second)
+		mismatch := observerResult{
+			observation: observed,
+			err:         fmt.Errorf("promotion observation: %w", ErrTimelineMismatch),
+		}
+		observer := &sequenceObserver{results: []observerResult{
+			{observation: observed},
+			mismatch,
+			mismatch,
+			mismatch,
+		}}
+		store := &fakeLeaseStore{}
+		coordinator := newCoordinatorWithHolder(observer, store, config, uuid.New())
+		group := newRuntimeTestGroup()
+		runtimeConfig := runtimeTestConfig()
+		runtimeConfig.HealthCheckInterval = time.Second
+		runtime := newRuntime(coordinator, group, alwaysHealthy, runtimeConfig)
+		runResult := make(chan error, 1)
+		go func() { runResult <- runtime.Run(context.Background()) }()
+
+		requireReceiveContext(t, group.startedCh)
+		synctest.Wait()
+		require.True(t, runtime.Active())
+
+		runErr := <-runResult
+		require.ErrorIs(t, runErr, ErrRuntimeAborted)
+		require.ErrorIs(t, runErr, ErrOwnershipExpired)
+		requireReceiveContext(t, group.abortedCh)
+		require.False(t, runtime.Active())
+		require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
+	})
 }
 
 func TestHARuntimeExitsWhenCriticalHealthFails(t *testing.T) {

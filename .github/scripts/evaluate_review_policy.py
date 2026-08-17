@@ -146,19 +146,44 @@ def path_matches(path: str, pattern: str) -> bool:
     return False
 
 
-def denied_paths(files: list[dict[str, Any]], deny_patterns: list[str]) -> list[str]:
+def denied_paths(
+    files: list[dict[str, Any]],
+    deny_patterns: list[str],
+    exception_patterns: list[str] | None = None,
+) -> list[str]:
     denied: list[str] = []
+    exceptions = exception_patterns or []
     for item in files:
         paths = [item.get("filename"), item.get("previous_filename")]
         for path in (value for value in paths if value):
-            if any(path_matches(path, pattern) for pattern in deny_patterns):
+            if any(path_matches(path, pattern) for pattern in deny_patterns) and not any(
+                path_matches(path, pattern) for pattern in exceptions
+            ):
                 denied.append(path)
     return sorted(set(denied))
+
+
+def is_test_path(path: str) -> bool:
+    lowered = path.casefold()
+    return (
+        lowered.endswith("_test.go")
+        or ".test." in lowered
+        or ".spec." in lowered
+        or lowered.startswith("test/")
+        or lowered.startswith("tests/")
+        or lowered.startswith("__tests__/")
+        or lowered.startswith("e2etests/")
+        or "/test/" in lowered
+        or "/tests/" in lowered
+        or "/__tests__/" in lowered
+        or "/e2etests/" in lowered
+    )
 
 
 def deterministic_content_blockers(files: list[dict[str, Any]], low_config: dict[str, Any]) -> list[str]:
     blockers: list[str] = []
     max_file_changes = int(low_config.get("max_file_changes", 0) or 0)
+    max_test_file_changes = int(low_config.get("max_test_file_changes", max_file_changes) or 0)
     pattern_rules = low_config.get("content_deny_added_patterns", [])
 
     compiled_rules: list[tuple[re.Pattern[str], str]] = []
@@ -175,8 +200,9 @@ def deterministic_content_blockers(files: list[dict[str, Any]], low_config: dict
         additions = int(item.get("additions", 0))
         deletions = int(item.get("deletions", 0))
         changed_lines = additions + deletions
-        if max_file_changes and changed_lines > max_file_changes:
-            blockers.append(f"{path} has {changed_lines} changed lines, exceeds per-file limit {max_file_changes}")
+        file_limit = max_test_file_changes if is_test_path(path) else max_file_changes
+        if file_limit and changed_lines > file_limit:
+            blockers.append(f"{path} has {changed_lines} changed lines, exceeds per-file limit {file_limit}")
 
         patch = item.get("patch")
         if patch is None:
@@ -555,7 +581,7 @@ def evaluate_low_risk_preflight(
     else:
         reasons.append(f"{total_changes} changed lines within limit")
 
-    denied = denied_paths(files, low_config.get("deny_paths", []))
+    denied = denied_paths(files, low_config.get("deny_paths", []), low_config.get("deny_path_exceptions", []))
     if denied:
         blockers.append("denied paths changed: " + ", ".join(denied))
     else:
@@ -949,7 +975,7 @@ def evaluate_policy(
     else:
         low_reasons.append(f"{total_changes} changed lines within limit")
 
-    denied = denied_paths(files, low_config.get("deny_paths", []))
+    denied = denied_paths(files, low_config.get("deny_paths", []), low_config.get("deny_path_exceptions", []))
     if denied:
         low_blockers.append("denied paths changed: " + ", ".join(denied))
     else:
@@ -1094,6 +1120,14 @@ def write_preflight(preflight: dict[str, Any], path: str | None) -> None:
         handle.write("\n")
 
 
+def effective_enforcement(config_enforce: bool, override: str | None) -> bool:
+    if override == "true":
+        return True
+    if override == "false":
+        return False
+    return config_enforce
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
@@ -1137,7 +1171,7 @@ def main() -> int:
             print(f"- {blocker}")
         return 0
 
-    enforced = bool(config.get("enforce", True))
+    enforced = effective_enforcement(bool(config.get("enforce", True)), os.environ.get("REVIEW_POLICY_ENFORCED"))
     if not args.base_sha:
         raise PolicyError("--base-sha is required when evaluating review policy")
 

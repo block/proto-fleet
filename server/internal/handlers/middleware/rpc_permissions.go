@@ -302,6 +302,7 @@ var ProcedurePermissions = map[string]string{
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.HistoryServiceListAlertsProcedure:                        authz.PermAlertRead,
+	alertsv1connect.HistoryServiceListActiveAlertGroupsProcedure:             authz.PermAlertRead,
 
 	// OnboardingService — fleet-init status. Other onboarding procedures
 	// are unauthenticated (covered by UnauthenticatedProcedures).
@@ -375,10 +376,11 @@ var ProcedurePermissions = map[string]string{
 
 	// InstanceUpdateService — release visibility, channel selection, and host upgrade
 	// control share one instance-administration key.
-	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure:   authz.PermInstanceUpdate,
-	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure: authz.PermInstanceUpdate,
-	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure:    authz.PermInstanceUpdate,
-	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure:  authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure:    authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure:  authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure:     authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure:   authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure: authz.PermInstanceUpdate,
 }
 
 // ProceduresPendingMigration lists authenticated Connect procedures that
