@@ -9,7 +9,12 @@ import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import UpgradeOperationModal from "@/protoFleet/features/settings/components/UpgradeOperationModal";
-import { isUpgradeActive, useUpgradeOperation } from "@/protoFleet/features/updates/api/useUpgradeOperation";
+import {
+  getUpgradeOperationIncarnationKey,
+  getUpgradeOperationOutcomeKey,
+  isUpgradeActive,
+  useUpgradeOperation,
+} from "@/protoFleet/features/updates/api/useUpgradeOperation";
 import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
 import {
   useAuthErrors,
@@ -251,20 +256,27 @@ const Updates = () => {
 
   useEffect(() => {
     const operation = upgrade.operation;
-    if (!operation) {
+    if (!operation || upgrade.operationStatusPending) {
       return;
     }
     const terminal = operation.phase === UpgradePhase.SUCCEEDED || operation.phase === UpgradePhase.FAILED;
-    const autoOpenKey = `${operation.id}:${terminal ? "terminal" : "active"}`;
-    if (lastAutoOpenedOperation.current === autoOpenKey) {
+    const operationIdentity = terminal
+      ? getUpgradeOperationOutcomeKey(operation)
+      : getUpgradeOperationIncarnationKey(operation);
+    const autoOpenKey = operationIdentity
+      ? `${authSessionIdentity}:${terminal ? "terminal" : "active"}:${operationIdentity}`
+      : undefined;
+    if (autoOpenKey && lastAutoOpenedOperation.current === autoOpenKey) {
       return;
     }
     // Open once when an operation is first recovered, and once more when it
     // becomes terminal. Intermediate phase updates must not keep stealing
     // focus after an operator dismisses the progress modal.
-    lastAutoOpenedOperation.current = autoOpenKey;
+    // Missing or invalid host identity fails open so it cannot suppress a
+    // distinct operation or rewritten terminal outcome.
+    lastAutoOpenedOperation.current = autoOpenKey ?? null;
     setUpgradeModalOpen(true);
-  }, [upgrade.operation]);
+  }, [authSessionIdentity, upgrade.operation, upgrade.operationStatusPending]);
 
   useEffect(() => {
     const hadOperation = hadSurfacedOperation.current;

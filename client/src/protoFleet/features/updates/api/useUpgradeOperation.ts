@@ -186,6 +186,21 @@ const operationStartedAtMatches = (
   expected: NonNullable<UpgradeOperation["startedAt"]>,
 ) => Boolean(actual && actual.seconds === expected.seconds && actual.nanos === expected.nanos);
 
+export const getUpgradeOperationIncarnationKey = (operation: UpgradeOperation) => {
+  if (!operation.id || !isValidOperationStartedAt(operation.startedAt)) {
+    return undefined;
+  }
+  return `${operation.id}:${operation.startedAt.seconds}:${operation.startedAt.nanos}`;
+};
+
+export const getUpgradeOperationOutcomeKey = (operation: UpgradeOperation) => {
+  const incarnationKey = getUpgradeOperationIncarnationKey(operation);
+  if (!incarnationKey || !isUpgradeTerminal(operation.phase) || operation.outcomeRevision <= 0n) {
+    return undefined;
+  }
+  return `${incarnationKey}:${operation.outcomeRevision}`;
+};
+
 export function useUpgradeOperation({
   authSessionIdentity,
   enabled,
@@ -221,9 +236,7 @@ export function useUpgradeOperation({
   const resolvedStatusSessionIdentityRef = useRef<string | null>(null);
   const onPollErrorRef = useRef(onPollError);
   const onUntrackedSuccessRef = useRef(onUntrackedSuccess);
-  const submittedOperationIDsRef = useRef(
-    new Set(initialPendingSubmissionRef.current ? [initialPendingSubmissionRef.current.id] : []),
-  );
+  const submittedOperationIncarnationsRef = useRef(new Set<string>());
   const refreshedUntrackedSuccessesRef = useRef(new Set<string>());
 
   authSessionIdentityRef.current = authSessionIdentity;
@@ -271,7 +284,7 @@ export function useUpgradeOperation({
     pendingSubmissionSessionIdentityRef.current = authSessionIdentity;
     pendingSubmissionRef.current = restored;
     setPendingSubmission(restored);
-    submittedOperationIDsRef.current = new Set(restored ? [restored.id] : []);
+    submittedOperationIncarnationsRef.current.clear();
     refreshedUntrackedSuccessesRef.current.clear();
     mutationGenerationRef.current += 1;
     statusRequestEpochRef.current += 1;
@@ -301,14 +314,22 @@ export function useUpgradeOperation({
   }, []);
 
   const notifyUntrackedSuccess = useCallback((next: UpgradeOperation) => {
-    if (next.phase !== UpgradePhase.SUCCEEDED || submittedOperationIDsRef.current.has(next.id)) {
+    if (next.phase !== UpgradePhase.SUCCEEDED) {
       return;
     }
-    const revision = `${next.id}:${next.outcomeRevision}`;
-    if (refreshedUntrackedSuccessesRef.current.has(revision)) {
+    const incarnationKey = getUpgradeOperationIncarnationKey(next);
+    if (incarnationKey && submittedOperationIncarnationsRef.current.has(incarnationKey)) {
       return;
     }
-    refreshedUntrackedSuccessesRef.current.add(revision);
+    const outcomeKey = getUpgradeOperationOutcomeKey(next);
+    if (outcomeKey && refreshedUntrackedSuccessesRef.current.has(outcomeKey)) {
+      return;
+    }
+    // Missing or invalid host identity fails open: refresh again instead of
+    // allowing a malformed key to suppress a distinct successful outcome.
+    if (outcomeKey) {
+      refreshedUntrackedSuccessesRef.current.add(outcomeKey);
+    }
     onUntrackedSuccessRef.current?.(next);
   }, []);
 
@@ -343,10 +364,10 @@ export function useUpgradeOperation({
       setConnectionLost(false);
 
       if (pendingMatches) {
-        // Retain caller correlation across reloads for as long as the exact
-        // host operation is active. The host still owns all phase/outcome
-        // state; this record only keeps competing manual actions locked if the
-        // updater is temporarily unreachable after a later reload.
+        // Retain caller correlation while the matching host ID and target are
+        // active. This record is a lock/reconciliation hint, not proof that
+        // this browser submitted the reported incarnation; only a correlated
+        // trigger response establishes that ownership.
         if (isUpgradeTerminal(next.phase)) {
           updatePendingSubmission(undefined);
         }
@@ -527,7 +548,6 @@ export function useUpgradeOperation({
       const isCurrentMutation = () =>
         authSessionIdentityRef.current === initiatingAuthSessionIdentity &&
         mutationGenerationRef.current === mutationGeneration;
-      submittedOperationIDsRef.current.add(operationId);
       updatePendingSubmission(nextPendingSubmission);
       reconciliationDeadlineRef.current = null;
       setManualFallbackReady(false);
@@ -542,8 +562,16 @@ export function useUpgradeOperation({
         if (!isCurrentMutation()) {
           return;
         }
-        if (!response.operation || response.operation.id !== operationId) {
+        if (
+          !response.operation ||
+          response.operation.id !== operationId ||
+          response.operation.targetVersion !== targetVersion
+        ) {
           throw new Error("Host updater did not return the requested operation");
+        }
+        const submittedIncarnationKey = getUpgradeOperationIncarnationKey(response.operation);
+        if (submittedIncarnationKey) {
+          submittedOperationIncarnationsRef.current.add(submittedIncarnationKey);
         }
         acceptServerOperation(response.operation);
       } catch (error) {

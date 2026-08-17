@@ -205,11 +205,12 @@ describe("useUpgradeOperation", () => {
 
   it("clears persisted correlation when the exact active operation becomes terminal", async () => {
     const terminalPoll = deferred<ReturnType<typeof status>>();
+    const onUntrackedSuccess = vi.fn();
     const activeOperation = operation(UpgradePhase.PREFLIGHT);
     const succeededOperation = operation(UpgradePhase.SUCCEEDED, { message: "Upgrade complete" });
     mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockReturnValue(terminalPoll.promise);
     mockTriggerUpgrade.mockResolvedValue(triggerResponse(activeOperation));
-    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true }));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, onUntrackedSuccess }));
     await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
 
     await act(async () => result.current.triggerUpgrade("v1.3.0"));
@@ -223,6 +224,7 @@ describe("useUpgradeOperation", () => {
     });
 
     expect(result.current.operation?.phase).toBe(UpgradePhase.SUCCEEDED);
+    expect(onUntrackedSuccess).not.toHaveBeenCalled();
     expect(window.sessionStorage.length).toBe(0);
   });
 
@@ -688,6 +690,49 @@ describe("useUpgradeOperation", () => {
       status(true, operation(UpgradePhase.SUCCEEDED, { outcomeRevision: 2n, message: "Recovered" })),
     );
     await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(onUntrackedSuccess).toHaveBeenCalledTimes(2);
+
+    mockGetUpgradeStatus.mockResolvedValue(
+      status(
+        true,
+        operation(UpgradePhase.SUCCEEDED, {
+          outcomeRevision: 1n,
+          startedAt: DIFFERENT_OPERATION_STARTED_AT,
+        }),
+      ),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(onUntrackedSuccess).toHaveBeenCalledTimes(3);
+  });
+
+  it("refreshes a reused-ID incarnation even when a stale pending submission matches its ID and target", async () => {
+    const onUntrackedSuccess = vi.fn();
+    const submittedOperation = operation(UpgradePhase.PREFLIGHT, { message: "Submitted operation" });
+    const reusedIDSuccess = operation(UpgradePhase.SUCCEEDED, {
+      message: "Reused ID success",
+      startedAt: DIFFERENT_OPERATION_STARTED_AT,
+    });
+    mockGetUpgradeStatus.mockResolvedValueOnce(status()).mockResolvedValue(status(true, reusedIDSuccess));
+    mockTriggerUpgrade.mockResolvedValue(triggerResponse(submittedOperation));
+    const { result } = renderHook(() => useTestUpgradeOperation({ enabled: true, onUntrackedSuccess }));
+    await waitFor(() => expect(mockGetUpgradeStatus).toHaveBeenCalledTimes(1));
+
+    await act(async () => result.current.triggerUpgrade("v1.3.0"));
+
+    await waitFor(() => expect(onUntrackedSuccess).toHaveBeenCalledTimes(1));
+    expect(onUntrackedSuccess).toHaveBeenCalledWith(reusedIDSuccess);
+  });
+
+  it("fails open when a successful operation has no valid incarnation key", async () => {
+    vi.useFakeTimers();
+    const onUntrackedSuccess = vi.fn();
+    mockGetUpgradeStatus.mockResolvedValue(status(true, operation(UpgradePhase.SUCCEEDED, { startedAt: undefined })));
+    renderHook(() => useTestUpgradeOperation({ enabled: true, onUntrackedSuccess }));
+    await act(async () => Promise.resolve());
+    expect(onUntrackedSuccess).toHaveBeenCalledTimes(1);
+
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
     expect(onUntrackedSuccess).toHaveBeenCalledTimes(2);
   });
 

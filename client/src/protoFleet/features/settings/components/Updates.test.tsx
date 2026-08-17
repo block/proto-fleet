@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import Updates from "./Updates";
@@ -116,6 +117,8 @@ const INSTALL_COMMAND = "curl -fsSL https://fleet.example.com/install.sh | sh -s
 const RELEASE_NOTES_URL = "https://github.com/block/proto-fleet/releases/tag/v1.3.0";
 const DISMISSED_UPDATE_TAG_KEY = "dismissedUpdateTag";
 const SET_CHANNEL_RESPONSE = create(SetReleaseChannelResponseSchema);
+const OPERATION_STARTED_AT = create(TimestampSchema, { nanos: 123_456_789, seconds: 1_700_000_000n });
+const DIFFERENT_OPERATION_STARTED_AT = create(TimestampSchema, { nanos: 123_456_790, seconds: 1_700_000_000n });
 
 type MessageOverrides<T> = Omit<Partial<T>, "$typeName" | "$unknown">;
 
@@ -257,6 +260,81 @@ describe("Updates", () => {
     fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(page.getByRole("button", { name: "View upgrade details" }));
     expect(page.getAllByText("Validating v1.3.0").length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    {
+      caseName: "reused-ID terminal incarnation",
+      outcomeRevision: 1n,
+      startedAt: DIFFERENT_OPERATION_STARTED_AT,
+    },
+    {
+      caseName: "rewritten terminal outcome revision",
+      outcomeRevision: 2n,
+      startedAt: OPERATION_STARTED_AT,
+    },
+  ])("auto-opens a $caseName", async ({ outcomeRevision, startedAt }) => {
+    upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
+      error: "First failure",
+      outcomeRevision: 1n,
+      startedAt: OPERATION_STARTED_AT,
+    });
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+    const page = render(<Updates />);
+    expect(await page.findByText("First failure")).toBeInTheDocument();
+
+    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    await waitFor(() => expect(page.queryByText("First failure")).not.toBeInTheDocument());
+    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
+
+    upgradeHookMock.current = {
+      ...upgradeHookMock.current,
+      operation: buildOperation(UpgradePhase.FAILED, {
+        error: "Later failure",
+        outcomeRevision,
+        startedAt,
+      }),
+    };
+    page.rerender(<Updates />);
+
+    expect(await page.findByText("Later failure")).toBeInTheDocument();
+  });
+
+  it("reopens the same outcome for a new auth session without reopening the stale session operation", async () => {
+    const outcome = buildOperation(UpgradePhase.FAILED, {
+      error: "Session-scoped failure",
+      outcomeRevision: 1n,
+      startedAt: OPERATION_STARTED_AT,
+    });
+    upgradeHookMock.current.operation = outcome;
+    mockGetUpdateStatus.mockResolvedValue(buildStatus({ oneClickAvailable: true }));
+    const page = render(<Updates />);
+    expect(await page.findByText("Session-scoped failure")).toBeInTheDocument();
+
+    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    await waitFor(() => expect(page.queryByText("Session-scoped failure")).not.toBeInTheDocument());
+    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
+
+    permissionsMock.sessionGeneration = 2;
+    upgradeHookMock.current = { ...upgradeHookMock.current, operationStatusPending: true };
+    page.rerender(<Updates />);
+    await act(async () => Promise.resolve());
+    expect(page.queryByText("Session-scoped failure")).not.toBeInTheDocument();
+
+    upgradeHookMock.current = { ...upgradeHookMock.current, operation: undefined };
+    page.rerender(<Updates />);
+    upgradeHookMock.current = {
+      ...upgradeHookMock.current,
+      operation: buildOperation(UpgradePhase.FAILED, {
+        error: "Session-scoped failure",
+        outcomeRevision: 1n,
+        startedAt: OPERATION_STARTED_AT,
+      }),
+      operationStatusPending: false,
+    };
+    page.rerender(<Updates />);
+
+    expect(await page.findByText("Session-scoped failure")).toBeInTheDocument();
   });
 
   it("keeps manual recovery usable after a failed operation and can acknowledge its durable record", async () => {

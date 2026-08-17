@@ -718,6 +718,11 @@ func TestManagerTriggerWithIDAssignsUniqueIncarnationWhenHistoricalIDIsReused(t 
 	assert.Equal(t, frozenNow.Add(2*time.Nanosecond), reusedA.StartedAt)
 	assert.Equal(t, firstA.OutcomeRevision, reusedA.OutcomeRevision, "the regression requires equal outcome revisions")
 	assert.NotZero(t, reusedA.OutcomeRevision)
+	assert.NotEmpty(t, reusedA.LogPath, "the reused incarnation must progress beyond exclusive log creation")
+	assert.NotEqual(t, firstA.LogPath, reusedA.LogPath)
+	assert.Equal(t, "release checksum verification failed", reusedA.Error,
+		"the reused incarnation must reach the intended checksum failure")
+	assert.FileExists(t, reusedA.LogPath)
 
 	_, _, err = manager.Acknowledge(operationA, firstA.StartedAt, firstA.OutcomeRevision)
 	require.ErrorIs(t, err, errAcknowledgeStartedAtMismatch)
@@ -2098,6 +2103,77 @@ func TestRecoverApplicationKeepsPendingRecoveryAfterFailure(t *testing.T) {
 	assert.Contains(t, operation.Error, "restart failed")
 }
 
+func TestRecoverApplicationKeepsNewOutcomeVisibleWhenClockMovesBackward(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		recoveryError error
+		wantPending   bool
+	}{
+		{name: "successful recovery"},
+		{name: "failed recovery", recoveryError: errors.New("restart failed"), wantPending: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.1.0")
+			stateDir := filepath.Join(t.TempDir(), "state")
+			require.NoError(t, os.MkdirAll(stateDir, 0o700))
+			started := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+			completed := started.Add(time.Minute)
+			proofAt := completed.Add(time.Minute)
+			backwardNow := started.Add(-time.Minute)
+			operation := updaterapi.Operation{
+				ID:              "pending-recovery",
+				TargetVersion:   "v1.1.0",
+				Phase:           updaterapi.PhaseFailed,
+				Message:         "Upgrade requires recovery",
+				Error:           "activation interrupted",
+				RecoveryCommand: "app-start",
+				RecoveryPending: true,
+				StartedAt:       started,
+				UpdatedAt:       completed,
+				CompletedAt:     &completed,
+				OutcomeRevision: 1,
+				Acknowledged:    true,
+			}
+			data, err := json.Marshal(operation)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
+			proofPath := filepath.Join(installRoot, "deployment", startupProofFilename)
+			require.NoError(t, os.WriteFile(proofPath, []byte(proofAt.Format(time.RFC3339)+"\n"), 0o600))
+			require.NoError(t, os.Chtimes(proofPath, proofAt, proofAt))
+
+			runner := &haRecordingRunner{fail: map[string]error{"app-start": test.recoveryError}}
+			manager, err := NewManager(Config{
+				InstallRoot:    installRoot,
+				StateDir:       stateDir,
+				GOARCH:         "amd64",
+				DeploymentMode: DeploymentModeHA,
+				Runner:         runner,
+				Now:            func() time.Time { return backwardNow },
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, manager.Close()) })
+
+			err = manager.RecoverApplication()
+			if test.recoveryError == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, test.recoveryError.Error())
+			}
+
+			status := manager.Status().Operation
+			require.NotNil(t, status)
+			assert.Equal(t, uint64(2), status.OutcomeRevision)
+			assert.False(t, status.Acknowledged,
+				"the startup proof predates the new recovery outcome even when its mtime is ahead of the clock")
+			assert.Equal(t, test.wantPending, status.RecoveryPending)
+			assert.Equal(t, proofAt, status.UpdatedAt)
+			assert.Equal(t, proofAt, *status.CompletedAt)
+			require.Len(t, runner.Commands(), 1)
+		})
+	}
+}
+
 func TestManagerDoesNotReplayTerminalHARecovery(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
@@ -2147,15 +2223,18 @@ func TestManagerAdvancesOutcomeWhenStartupDerivesTerminalRecovery(t *testing.T) 
 	})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, activationMarkerFilename), marker, 0o600))
-	rewrittenAt := *persisted.CompletedAt
-	rewrittenAt = rewrittenAt.Add(time.Minute)
+	proofAt := persisted.CompletedAt.Add(time.Minute)
+	proofPath := filepath.Join(installRoot, "deployment", startupProofFilename)
+	require.NoError(t, os.WriteFile(proofPath, []byte(proofAt.Format(time.RFC3339)+"\n"), 0o600))
+	require.NoError(t, os.Chtimes(proofPath, proofAt, proofAt))
+	backwardNow := persisted.UpdatedAt.Add(-time.Minute)
 
 	manager, err := NewManager(Config{
 		InstallRoot:    installRoot,
 		StateDir:       stateDir,
 		GOARCH:         "amd64",
 		DeploymentMode: DeploymentModeHA,
-		Now:            func() time.Time { return rewrittenAt },
+		Now:            func() time.Time { return backwardNow },
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, manager.Close()) })
@@ -2166,7 +2245,8 @@ func TestManagerAdvancesOutcomeWhenStartupDerivesTerminalRecovery(t *testing.T) 
 	assert.False(t, operation.Acknowledged)
 	assert.True(t, operation.RecoveryPending)
 	assert.Contains(t, operation.RecoveryCommand, "app-start")
-	assert.Equal(t, rewrittenAt, *operation.CompletedAt)
+	assert.Equal(t, proofAt, operation.UpdatedAt)
+	assert.Equal(t, proofAt, *operation.CompletedAt)
 	assert.NoFileExists(t, filepath.Join(stateDir, activationMarkerFilename))
 }
 
@@ -2417,7 +2497,7 @@ func TestManagerRejectsSymlinkedLogDirectoryWithoutTouchingItsTarget(t *testing.
 	stateDir := filepath.Join(t.TempDir(), "state")
 	require.NoError(t, os.MkdirAll(stateDir, 0o700))
 	externalLogDir := t.TempDir()
-	externalLog := filepath.Join(externalLogDir, operationLogFilename("external"))
+	externalLog := filepath.Join(externalLogDir, operationLogFilename("external", time.Time{}))
 	require.NoError(t, os.WriteFile(externalLog, []byte("keep"), 0o600))
 	require.NoError(t, os.Symlink(externalLogDir, filepath.Join(stateDir, "logs")))
 
@@ -2475,7 +2555,7 @@ func TestPruneOperationLogsRetainsCurrentAndNewestWithinBounds(t *testing.T) {
 			logDir := t.TempDir()
 			baseTime := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
 			for index, id := range []string{"current", "oldest", "middle", "newest"} {
-				path := filepath.Join(logDir, operationLogFilename(id))
+				path := filepath.Join(logDir, operationLogFilename(id, time.Time{}))
 				require.NoError(t, os.WriteFile(path, []byte("1234"), 0o600))
 				modified := baseTime.Add(time.Duration(index) * time.Minute)
 				require.NoError(t, os.Chtimes(path, modified, modified))
@@ -2483,7 +2563,7 @@ func TestPruneOperationLogsRetainsCurrentAndNewestWithinBounds(t *testing.T) {
 
 			require.NoError(t, pruneOperationLogs(
 				logDir,
-				operationLogFilename("current"),
+				operationLogFilename("current", time.Time{}),
 				test.maxFiles,
 				test.maxBytes,
 				test.reserveFiles,
@@ -2491,10 +2571,10 @@ func TestPruneOperationLogsRetainsCurrentAndNewestWithinBounds(t *testing.T) {
 			))
 
 			for _, id := range test.wantRemoved {
-				assert.NoFileExists(t, filepath.Join(logDir, operationLogFilename(id)))
+				assert.NoFileExists(t, filepath.Join(logDir, operationLogFilename(id, time.Time{})))
 			}
 			for _, id := range test.wantRetained {
-				assert.FileExists(t, filepath.Join(logDir, operationLogFilename(id)))
+				assert.FileExists(t, filepath.Join(logDir, operationLogFilename(id, time.Time{})))
 			}
 		})
 	}
@@ -2509,10 +2589,10 @@ func TestPruneOperationLogsIgnoresUnownedAndNonRegularEntries(t *testing.T) {
 
 	external := filepath.Join(t.TempDir(), "external.log")
 	require.NoError(t, os.WriteFile(external, []byte("keep"), 0o600))
-	symlinkPath := filepath.Join(logDir, operationLogFilename("symlink"))
+	symlinkPath := filepath.Join(logDir, operationLogFilename("symlink", time.Time{}))
 	require.NoError(t, os.Symlink(external, symlinkPath))
 
-	directoryPath := filepath.Join(logDir, operationLogFilename("directory"))
+	directoryPath := filepath.Join(logDir, operationLogFilename("directory", time.Time{}))
 	require.NoError(t, os.Mkdir(directoryPath, 0o700))
 	sentinel := filepath.Join(directoryPath, "sentinel")
 	require.NoError(t, os.WriteFile(sentinel, []byte("keep"), 0o600))
@@ -2550,7 +2630,7 @@ func TestManagerRejectsTriggerWhenCurrentLogConsumesReservedCapacity(t *testing.
 		UpdatedAt:     now,
 		CompletedAt:   &now,
 	}
-	operation.LogPath = filepath.Join(logDir, operationLogFilename(operation.ID))
+	operation.LogPath = filepath.Join(logDir, operationLogFilename(operation.ID, operation.StartedAt))
 	data, err := json.Marshal(operation)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
@@ -2592,7 +2672,7 @@ func TestManagerPreservesTerminalStatusWhenQueuedStateCannotPersist(t *testing.T
 		UpdatedAt:     now,
 		CompletedAt:   &now,
 	}
-	previous.LogPath = filepath.Join(logDir, operationLogFilename(previous.ID))
+	previous.LogPath = filepath.Join(logDir, operationLogFilename(previous.ID, previous.StartedAt))
 	data, err := json.Marshal(previous)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFilename), data, 0o600))
@@ -2630,10 +2710,11 @@ func TestManagerPostCompletionLogPruneFailureDoesNotChangeTerminalState(t *testi
 	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
 	stateDir := filepath.Join(t.TempDir(), "state")
 	operationID := "oversized-current-log"
+	startedAt := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
 	runner := &recordingRunner{
 		activationHook: func(string) {
 			require.NoError(t, os.Truncate(
-				filepath.Join(stateDir, "logs", operationLogFilename(operationID)),
+				filepath.Join(stateDir, "logs", operationLogFilename(operationID, startedAt)),
 				maxRetainedLogBytes+1,
 			))
 		},
@@ -2646,6 +2727,7 @@ func TestManagerPostCompletionLogPruneFailureDoesNotChangeTerminalState(t *testi
 		Runner:                   runner,
 		GOARCH:                   "amd64",
 		NewID:                    func() string { return operationID },
+		Now:                      func() time.Time { return startedAt },
 		allowTestDownloadBaseURL: true,
 	})
 	require.NoError(t, err)
@@ -3868,6 +3950,27 @@ func TestRewriteActivationRecoveryFailureClearsAcknowledgement(t *testing.T) {
 	assert.Contains(t, operation.Error, assert.AnError.Error())
 	assert.Equal(t, rewrittenAt, operation.UpdatedAt)
 	assert.Equal(t, rewrittenAt, *operation.CompletedAt)
+}
+
+func TestTerminalOutcomeCutoffNeverPrecedesOperationStart(t *testing.T) {
+	t.Parallel()
+
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	now := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	completed := now.Add(time.Minute)
+	started := completed.Add(time.Minute)
+	manager := &Manager{cfg: Config{
+		InstallRoot: installRoot,
+		Now:         func() time.Time { return now },
+	}}
+	operation := updaterapi.Operation{
+		StartedAt:   started,
+		UpdatedAt:   now,
+		CompletedAt: &completed,
+	}
+
+	assert.Equal(t, started, manager.terminalOutcomeCutoff(operation))
 }
 
 func TestStatusKeepsRewrittenFailureVisibleWhenStartupProofPredatesRewrite(t *testing.T) {
