@@ -203,12 +203,13 @@ type PoolStatistics struct {
 
 // Pool represents a mining pool configuration.
 type Pool struct {
-	Idx        uint32          `json:"idx"`
-	Priority   int             `json:"priority"`
-	Url        string          `json:"url"`
-	Username   string          `json:"username"`
-	Password   string          `json:"password"`
-	Statistics *PoolStatistics `json:"statistics,omitempty"`
+	Idx               uint32          `json:"idx"`
+	Priority          int             `json:"priority"`
+	Url               string          `json:"url"`
+	Username          string          `json:"username"`
+	Password          string          `json:"password"`
+	V2AuthorityPubkey string          `json:"v2_authority_pubkey"`
+	Statistics        *PoolStatistics `json:"statistics,omitempty"`
 }
 
 // MinerState holds the complete state of the simulated miner.

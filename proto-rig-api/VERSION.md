@@ -2,21 +2,22 @@
 
 ## Source
 - Repository: miner-firmware (private)
-  - Commit SHA: 5fbc89f08df97ff4dab19f0ae122d1c72d6b581c
-  - Commit Date: 2026-08-07
-  - Extraction Date: 2026-08-07
+  - Commit SHA: b8c6575ea1cc32498cd18616865964b7e816dcea
+  - Commit Date: 2026-08-13
+  - Extraction Date: 2026-08-17
 
 The hashboard proto files live in the `external/hashboard` submodule, pinned by
 the superproject commit above to:
 - Submodule: external/hashboard (github.com/btc-mining/hashboard)
-  - Commit SHA: 068732a3eac94ce3cf98ea65bcf2d2dc50075837
+  - Commit SHA: 7f2b095794247fdc44d0bae0c17ad8e9fda579d9
 
-The OpenAPI spec and all previously vendored proto files were extracted from
-the same miner-firmware commit and verified byte-identical to the previous
-snapshot. This revision adds the `mdk_hashboard_identity_v1.proto` observation
-contract. `TemperatureGradient`, `AutoTune`, and F1 values remain gRPC-only; the
-ProtoOS REST API surface and fake-proto-rig simulator behavior intentionally
-remain unchanged until `MDK-API.json` exposes them.
+This snapshot tracks the `proto-apps-1.8.4` source revision. The REST and RPC
+pool contracts add native Stratum V2 configuration through
+`v2_authority_pubkey` and protocol-default ports. The hashboard contracts add
+FMargin tuning, PSU thermal health, shutdown diagnostics, temperature-delta
+warnings, and CAN recovery state. The ProtoOS REST client and fake-proto-rig
+simulator are updated with the OpenAPI changes; the gRPC files remain
+reference-only.
 
 ## Files Extracted
 

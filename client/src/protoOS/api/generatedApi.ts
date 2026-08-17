@@ -1431,6 +1431,11 @@ export enum PerformanceMode {
 /** Mining pool configuration with connection details and priorities */
 export interface Pool {
   /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; may be empty only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
+  /**
    * The number of shares that have been accepted by the mining pool as valid solutions to a mining problem.
    * @example 100
    */
@@ -1513,7 +1518,7 @@ export interface Pool {
   rejected?: number;
   /** The status field indicates the state of the mining pool. An "Idle" status indicates that the pool is available but not currently in use (due to priority). An "Active" status means that the pool is currently active. A "Dead" status indicates that the mining device is unable to establish a connection with the pool. */
   status?: "Unknown" | "Idle" | "Active" | "Dead";
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   user?: PoolUsername;
@@ -1530,6 +1535,11 @@ export type PoolConfig = PoolConfigInner[];
 /** Individual pool configuration with connection details */
 export interface PoolConfigInner {
   /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; omit or set to an empty string only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
+  /**
    * User-defined display name for this pool.
    * @example "Primary Pool"
    */
@@ -1538,7 +1548,7 @@ export interface PoolConfigInner {
   password?: PoolPassword;
   /** The priority of the pool connection. Lower numbers indicate higher priority, with 0 being the highest priority. */
   priority?: PoolPriority;
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   username?: PoolUsername;
@@ -1562,10 +1572,7 @@ export interface PoolResponse {
   pool?: Pool;
 }
 
-/**
- * The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.
- * @example "stratum+tcp://stratum.braiins.com:3333"
- */
+/** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
 export type PoolUrl = string;
 
 /**
@@ -2023,9 +2030,14 @@ export interface TemperatureResponseTemperaturedata {
 
 /** Configuration for testing connection to a mining pool */
 export interface TestConnection {
+  /**
+   * Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; omit or set to an empty string only for loopback development endpoints.
+   * @example "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+   */
+  v2_authority_pubkey?: string;
   /** A password used for authentication and accessing the mining pool, which is ignored by SV1 pools. */
   password?: PoolPassword;
-  /** The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information. */
+  /** Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default. */
   url?: PoolUrl;
   /** The user is an account that is used for authentication with the mining pool. In some cases, if the user has multiple mining devices, the pool may assign a worker name as the username for each mining device. */
   username?: PoolUsername;

@@ -244,6 +244,7 @@ message can_peer_debug_status {
     can_power_debug_status power = 18;
     can_voltage_tuning_debug_status voltage_tuning = 19;
     uint64 module_id = 20;
+    bool rx_fenced = 21;
 }
 
 message can_debug_counters {
@@ -272,6 +273,8 @@ message fdcan_debug_status {
     bool error_warning = 5;
     uint32 rx_fifo0_lost = 6;
     uint32 rx_fifo0_full = 7;
+    uint32 rx_queue_dropped = 8;
+    uint32 rx_recoveries = 9;
 }
 
 message can_debug_status_rsp {
@@ -293,4 +296,5 @@ message can_debug_status_rsp {
     can_debug_counters counters = 16;
     fdcan_debug_status fdcan = 17;
     repeated can_peer_debug_status peers = 18;
+    bool self_rx_fenced = 19;
 }

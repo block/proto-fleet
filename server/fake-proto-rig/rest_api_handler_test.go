@@ -16,6 +16,11 @@ import (
 	"time"
 )
 
+const (
+	validSV2AuthorityPublicKey      = "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+	invalidSecp256k1SV2AuthorityKey = "9caKLbMD1LpCeqMFyyWo8R62MKGZ4ya3EGCfhVnPUQifpnNF7GT"
+)
+
 func TestNewMinerState_DefaultModelIsRig(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 
@@ -938,12 +943,12 @@ func TestHandleTestPoolConnection_InvalidURL_Returns400(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
 	}
 
-	var resp ErrorResponse
+	var resp MessageResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
 	}
-	if resp.Error.Message != "Invalid pool URL" {
-		t.Fatalf("expected error message %q, got %q", "Invalid pool URL", resp.Error.Message)
+	if resp.Message != "Invalid pool URL" {
+		t.Fatalf("expected error message %q, got %q", "Invalid pool URL", resp.Message)
 	}
 }
 
@@ -957,6 +962,71 @@ func TestHandleTestPoolConnection_ValidURL_Returns200(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleTestPoolConnection_SupportsSV2DefaultPortAndAuthorityKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	for _, tc := range []struct {
+		name        string
+		body        string
+		wantStatus  int
+		wantMessage string
+	}{
+		{
+			name:       "remote pool with valid key",
+			body:       fmt.Sprintf(`{"url":"stratum2+tcp://pool.example.com","v2_authority_pubkey":%q}`, validSV2AuthorityPublicKey),
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:        "remote pool without key",
+			body:        `{"url":"stratum2+tcp://pool.example.com"}`,
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "an authority public key is required for remote SV2 pools",
+		},
+		{
+			name:        "remote pool with invalid key",
+			body:        `{"url":"stratum2+tcp://pool.example.com","v2_authority_pubkey":"not-a-valid-key"}`,
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "invalid Stratum V2 authority public key",
+		},
+		{
+			name:        "remote pool with invalid secp256k1 key",
+			body:        fmt.Sprintf(`{"url":"stratum2+tcp://pool.example.com","v2_authority_pubkey":%q}`, invalidSecp256k1SV2AuthorityKey),
+			wantStatus:  http.StatusBadRequest,
+			wantMessage: "invalid Stratum V2 authority public key",
+		},
+		{
+			name:       "loopback pool without key",
+			body:       `{"url":"stratum2+tcp://127.0.0.1"}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "SV1 pool without explicit port",
+			body:       `{"url":"stratum+tcp://pool.example.com"}`,
+			wantStatus: http.StatusOK,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection", strings.NewReader(tc.body))
+			h.handleTestPoolConnection(rr, req)
+
+			if rr.Code != tc.wantStatus {
+				t.Fatalf("expected %d, got %d; body=%s", tc.wantStatus, rr.Code, rr.Body.String())
+			}
+			if tc.wantMessage != "" {
+				var response MessageResponse
+				if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+					t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
+				}
+				if response.Message != tc.wantMessage {
+					t.Fatalf("expected message %q, got %q", tc.wantMessage, response.Message)
+				}
+			}
+		})
 	}
 }
 
@@ -1217,6 +1287,84 @@ func TestCreatePools_PersistsConfiguredPriorities(t *testing.T) {
 	if resp.Pools[0].Priority != 2 || resp.Pools[1].Priority != 0 || resp.Pools[2].Priority != 1 {
 		t.Fatalf("expected response priorities [2 0 1], got [%d %d %d]", resp.Pools[0].Priority, resp.Pools[1].Priority, resp.Pools[2].Priority)
 	}
+	if resp.Pools[0].Protocol != poolProtocolStratumV1 {
+		t.Fatalf("expected protocol %q, got %q", poolProtocolStratumV1, resp.Pools[0].Protocol)
+	}
+}
+
+func TestCreatePools_RejectsRemoteSV2WithoutAuthorityKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "existing"})
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/pools",
+		strings.NewReader(`[{"url":"stratum2+tcp://pool.example.com","username":"replacement"}]`),
+	)
+	h.createPools(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	var response MessageResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
+	}
+	if response.Message != "an authority public key is required for remote SV2 pools" {
+		t.Fatalf("unexpected response message %q", response.Message)
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 || pools[0].Username != "existing" {
+		t.Fatalf("expected existing pool to remain unchanged, got %+v", pools)
+	}
+}
+
+func TestCreatePools_PersistsSV2AuthorityKeyAndProtocol(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/pools",
+		strings.NewReader(fmt.Sprintf(
+			`[{"url":"stratum2+tcp://pool.example.com","username":"worker","v2_authority_pubkey":%q}]`,
+			validSV2AuthorityPublicKey,
+		)),
+	)
+	h.createPools(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(pools))
+	}
+	if pools[0].V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected authority key %q, got %q", validSV2AuthorityPublicKey, pools[0].V2AuthorityPubkey)
+	}
+
+	getRR := httptest.NewRecorder()
+	h.getPools(getRR, httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil))
+
+	var response PoolsList
+	if err := json.Unmarshal(getRR.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, getRR.Body.String())
+	}
+	if len(response.Pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(response.Pools))
+	}
+	if response.Pools[0].V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected response authority key %q, got %q", validSV2AuthorityPublicKey, response.Pools[0].V2AuthorityPubkey)
+	}
+	if response.Pools[0].Protocol != "Stratum V2" {
+		t.Fatalf("expected protocol %q, got %q", "Stratum V2", response.Pools[0].Protocol)
+	}
 }
 
 func TestGetPools_UsesSpecShareFieldNames(t *testing.T) {
@@ -1313,6 +1461,80 @@ func TestUpdatePool_PersistsPriorityAndSerializesIt(t *testing.T) {
 	}
 	if resp.Pool.Priority != 2 {
 		t.Fatalf("expected serialized pool priority 2, got %d", resp.Pool.Priority)
+	}
+}
+
+func TestUpdatePool_PersistsSV2AuthorityKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
+	h := NewRESTApiHandler(state)
+
+	updateRR := httptest.NewRecorder()
+	updateReq := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/pools/0",
+		strings.NewReader(fmt.Sprintf(
+			`{"url":"stratum2+tcp://pool.example.com","v2_authority_pubkey":%q}`,
+			validSV2AuthorityPublicKey,
+		)),
+	)
+	h.updatePool(updateRR, updateReq, 0)
+
+	if updateRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, updateRR.Code, updateRR.Body.String())
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 {
+		t.Fatalf("expected 1 pool, got %d", len(pools))
+	}
+	if pools[0].V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected authority key %q, got %q", validSV2AuthorityPublicKey, pools[0].V2AuthorityPubkey)
+	}
+
+	getRR := httptest.NewRecorder()
+	h.getPool(getRR, httptest.NewRequest(http.MethodGet, "/api/v1/pools/0", nil), 0)
+
+	var response PoolResponse
+	if err := json.Unmarshal(getRR.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, getRR.Body.String())
+	}
+	if response.Pool.V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected response authority key %q, got %q", validSV2AuthorityPublicKey, response.Pool.V2AuthorityPubkey)
+	}
+	if response.Pool.Protocol != "Stratum V2" {
+		t.Fatalf("expected protocol %q, got %q", "Stratum V2", response.Pool.Protocol)
+	}
+}
+
+func TestUpdatePool_RejectsClearingRemoteSV2AuthorityKey(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.AddPool(&Pool{
+		Idx:               0,
+		Url:               "stratum2+tcp://pool.example.com",
+		Username:          "worker",
+		V2AuthorityPubkey: validSV2AuthorityPublicKey,
+	})
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/pools/0", strings.NewReader(`{"v2_authority_pubkey":""}`))
+	h.updatePool(rr, req, 0)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	var response MessageResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to unmarshal response: %v; body=%s", err, rr.Body.String())
+	}
+	if response.Message != "an authority public key is required for remote SV2 pools" {
+		t.Fatalf("unexpected response message %q", response.Message)
+	}
+
+	pools := state.GetPools()
+	if len(pools) != 1 || pools[0].V2AuthorityPubkey != validSV2AuthorityPublicKey {
+		t.Fatalf("expected authority key to remain unchanged, got %+v", pools)
 	}
 }
 
