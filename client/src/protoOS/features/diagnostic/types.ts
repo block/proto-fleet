@@ -1,4 +1,3 @@
-import type { HashboardInfo } from "@/protoOS/api/generatedApi";
 import { HashboardHardwareData } from "@/protoOS/store";
 import type { ComponentType } from "@/shared/components/StatusModal";
 
@@ -68,7 +67,7 @@ export interface ControlBoardData {
   meta: ControlBoardMetadata;
 }
 
-export type HashboardData = HashboardInfo & {
+export type HashboardData = HashboardHardwareData & {
   position: number;
   hasWarning: boolean;
   loading: boolean;

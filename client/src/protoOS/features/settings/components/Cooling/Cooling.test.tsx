@@ -38,7 +38,7 @@ describe("Cooling", () => {
   });
 
   test("selects air cooled when the store already has Auto mode on mount", () => {
-    vi.mocked(useCoolingMode).mockReturnValue("Auto");
+    vi.mocked(useCoolingMode).mockReturnValue("automatic");
 
     render(<Cooling />);
 
@@ -47,7 +47,7 @@ describe("Cooling", () => {
   });
 
   test("selects immersion cooled when the store already has Off mode on mount", () => {
-    vi.mocked(useCoolingMode).mockReturnValue("Off");
+    vi.mocked(useCoolingMode).mockReturnValue("off");
 
     render(<Cooling />);
 

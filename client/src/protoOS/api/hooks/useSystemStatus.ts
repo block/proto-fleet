@@ -9,6 +9,7 @@ import {
   useSetOnboarded,
   useSetPasswordSet,
 } from "@/protoOS/store";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { usePoll } from "@/shared/hooks/usePoll";
 
@@ -40,9 +41,11 @@ const useSystemStatus = () => {
     if (!adapter || isFetchingRef.current) return;
 
     isFetchingRef.current = true;
+    const accept = beginStoreWrite("deviceLifecycle");
     return adapter
       .getSystemStatus({ secure: false })
       .then((status) => {
+        if (!accept()) return;
         setOnboarded(status.onboarded);
         setPasswordSet(status.passwordSet);
 

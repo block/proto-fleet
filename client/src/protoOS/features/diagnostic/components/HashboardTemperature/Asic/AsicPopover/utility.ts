@@ -1,7 +1,6 @@
 // TODO: [STORE_REFACTOR] we can probably remove some of these utils in favor of the store hooks (chartDataForMetric, getCurrentValue, etc.)
 // Deprioritize for now, since this feature is turned off
 
-import { HashrateResponseHashratedata, TemperatureResponseTemperaturedata } from "@/protoOS/api/generatedApi";
 import { type MetricTimeSeries } from "@/protoOS/store";
 import { type TemperatureUnit } from "@/protoOS/store";
 import { ChartData } from "@/shared/components/LineChart/types";
@@ -9,14 +8,16 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertMegahashSecToTerahashSec } from "@/shared/utils/telemetryFormat";
 import { convertCtoF } from "@/shared/utils/telemetryFormat";
 
-export const convertTemperatureValues = (data: TemperatureResponseTemperaturedata["data"]) => {
+type LegacyPoint = { datetime?: number; value?: number | null };
+
+export const convertTemperatureValues = (data?: LegacyPoint[]) => {
   return data?.map((temperature) => ({
     datetime: temperature.datetime || 0,
     value: temperature.value || 0,
   }));
 };
 
-export const convertHashrateValues = (data: HashrateResponseHashratedata["data"]) => {
+export const convertHashrateValues = (data?: LegacyPoint[]) => {
   return data?.map((hashrate) => ({
     datetime: hashrate.datetime || 0,
     value: convertMegahashSecToTerahashSec(hashrate.value) || 0,

@@ -3,6 +3,7 @@ import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerCh
 import { MdkV1Adapter } from "@/protoOS/api/adapters/mdkV1/MdkV1Adapter";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
 import { Api, RequestParams } from "@/protoOS/api/generatedApi";
+import { authTokensFromSlice } from "@/protoOS/store/slices/authSlice";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import type { MinerMetadata } from "@/shared/types/minerMetadata";
 
@@ -19,7 +20,7 @@ const EMPTY_METADATA: MinerHostingMetadata = {};
 // child useEffects (which fire first on initial mount), so the first fetch
 // would otherwise go out before the provider had a chance to inject auth.
 const securityWorker = (): RequestParams | void => {
-  const token = useMinerStore.getState().auth.authTokens.accessToken?.value;
+  const token = authTokensFromSlice(useMinerStore.getState().auth).accessToken.value;
   if (!token) return;
   return {
     headers: {

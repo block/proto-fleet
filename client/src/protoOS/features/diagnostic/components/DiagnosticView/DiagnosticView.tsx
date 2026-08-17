@@ -57,7 +57,7 @@ const FansSection = () => {
   const { data: coolingData } = useCoolingStatus();
 
   const noFansConnected = areAllFansDisconnected(coolingData?.fans);
-  const isImmersionMode = coolingMode === "Off";
+  const isImmersionMode = coolingMode === "off";
   const showNoFansState = noFansConnected && isImmersionMode;
 
   return (

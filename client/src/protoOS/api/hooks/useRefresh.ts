@@ -5,6 +5,7 @@ import { RefreshRequest } from "@/protoOS/api/generatedApi";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore, useSetAuthTokens } from "@/protoOS/store";
+import { authTokensFromSlice } from "@/protoOS/store/slices/authSlice";
 
 import { accessTokenExpiryTime } from "@/shared/utils/utility";
 
@@ -25,7 +26,7 @@ const useRefresh = () => {
         .refreshToken({ refresh_token: refreshToken }, { secure: false })
         .then((res: any) => {
           const accessTokenValue = res?.data["access_token"];
-          const authTokens = useMinerStore.getState().auth.authTokens;
+          const authTokens = authTokensFromSlice(useMinerStore.getState().auth);
           // Drop stale responses: if the store's refresh token changed while
           // this request was in flight (logout, password rotation, login as a
           // different user), writing A's access token on top of B's refresh

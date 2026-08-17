@@ -4,6 +4,7 @@ import { HashboardStatsHashboardstats } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { AsicHardwareData, getAsicId } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
+import { asAsicId } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { usePoll } from "@/shared/hooks/usePoll";
 interface UseHashboardStatusProps {
@@ -112,11 +113,12 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
 
           // Update telemetry store with voltage and frequency data using Immer-safe setState
           useMinerStore.setState((state) => {
-            let asicTelemetry = state.telemetry.asics.get(asicId);
+            const normalizedAsicId = asAsicId(asicId);
+            let asicTelemetry = state.telemetry.asics.get(normalizedAsicId);
 
             if (!asicTelemetry) {
-              asicTelemetry = { id: asicId };
-              state.telemetry.asics.set(asicId, asicTelemetry);
+              asicTelemetry = { asicId: normalizedAsicId };
+              state.telemetry.asics.set(normalizedAsicId, asicTelemetry);
             }
 
             // Update voltage (voltage_mv from API)
@@ -125,8 +127,8 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
                 asicTelemetry.voltage = {};
               }
               asicTelemetry.voltage.latest = {
-                value: asic.voltage_mv,
-                units: "mV",
+                value: asic.voltage_mv / 1000,
+                units: "V",
               };
             }
 

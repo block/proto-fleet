@@ -1,4 +1,12 @@
 import { useMemo } from "react";
+import { asAsicId, asComponentId, asHashboardId, ROOT_MODULE_KEY } from "../contract";
+import {
+  asicTelemetryView,
+  fanTelemetryView,
+  hashboardTelemetryView,
+  minerTelemetryView,
+  psuTelemetryView,
+} from "../selectors/legacyTelemetry";
 import type { AsicData, FanData, HashboardData, HashboardTelemetryData, MinerData, PsuData } from "../types";
 import useMinerStore from "../useMinerStore";
 import type { AsicData as AsicTableData } from "@/shared/components/AsicTablePreview";
@@ -13,8 +21,13 @@ import type { ChartData } from "@/shared/components/LineChart";
  * Get combined miner data combining hardware info + telemetry
  */
 export const useMiner = (): MinerData | null => {
-  const hardware = useMinerStore((state) => state.hardware.miner);
-  const telemetry = useMinerStore((state) => state.telemetry.miner);
+  const hardware = useMinerStore((state) => state.hardware.getMiner());
+  const telemetry = useMinerStore((state) =>
+    minerTelemetryView(
+      state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY),
+      [...state.hardware.hashboards.values()].map((board) => board.identity.value),
+    ),
+  );
 
   return useMemo(() => {
     if (!hardware || !telemetry) return null;
@@ -31,7 +44,10 @@ export const useMiner = (): MinerData | null => {
  */
 export const useMinerHashboard = (serial: string | null): HashboardData | null => {
   const hardware = useMinerStore((state) => (serial ? state.hardware.getHashboard(serial) : null));
-  const telemetry = useMinerStore((state) => (serial ? state.telemetry.hashboards.get(serial) : undefined));
+  const telemetry = useMinerStore((state) => {
+    const value = serial ? state.telemetry.hashboards.get(asHashboardId(`serial:${serial}`)) : undefined;
+    return value ? hashboardTelemetryView(value) : undefined;
+  });
 
   return useMemo(() => {
     if (!serial || !hardware) return null;
@@ -51,10 +67,13 @@ export const useMinerHashboards = (): HashboardData[] => {
   const telemetryHashboards = useMinerStore((state) => state.telemetry.hashboards);
 
   return useMemo(() => {
-    const hashboards = Array.from(hardwareHashboards.values());
+    const hashboards = Array.from(hardwareHashboards.values())
+      .map((board) => useMinerStore.getState().hardware.getHashboard(board.identity.value))
+      .filter((board) => board !== undefined);
 
     return hashboards.map((hardware) => {
-      const telemetry = telemetryHashboards.get(hardware.serial);
+      const normalized = telemetryHashboards.get(asHashboardId(`serial:${hardware.serial}`));
+      const telemetry = normalized ? hashboardTelemetryView(normalized) : undefined;
 
       return {
         ...hardware,
@@ -69,7 +88,10 @@ export const useMinerHashboards = (): HashboardData[] => {
  */
 export const useMinerAsic = (asicId: string): AsicData | null => {
   const hardware = useMinerStore((state) => state.hardware.getAsic(asicId));
-  const telemetry = useMinerStore((state) => state.telemetry.asics.get(asicId));
+  const telemetry = useMinerStore((state) => {
+    const value = state.telemetry.asics.get(asAsicId(asicId));
+    return value ? asicTelemetryView(value) : undefined;
+  });
 
   return useMemo(() => {
     if (!hardware) return null;
@@ -86,34 +108,38 @@ export const useMinerAsic = (asicId: string): AsicData | null => {
  */
 export const useMinerHashboardAsics = (hashboardSerial: string): AsicData[] => {
   const hashboard = useMinerStore((state) => state.hardware.getHashboard(hashboardSerial));
-  const allAsics = useMinerStore((state) => state.hardware.asics);
+  const hardware = useMinerStore((state) => state.hardware);
   const telemetryData = useMinerStore((state) => state.telemetry.asics);
 
   return useMemo(() => {
     if (!hashboard || !hashboard.asicIds) return [];
 
     return hashboard.asicIds.reduce<AsicData[]>((acc, asicId) => {
-      const hardware = allAsics.get(asicId);
-      if (!hardware) return acc;
+      const asicHardware = hardware.getAsic(asicId);
+      if (!asicHardware) return acc;
 
-      const telemetry = telemetryData.get(asicId);
+      const telemetryValue = telemetryData.get(asAsicId(asicId));
+      const telemetry = telemetryValue ? asicTelemetryView(telemetryValue) : undefined;
 
       acc.push({
-        ...hardware,
+        ...asicHardware,
         ...telemetry,
       });
 
       return acc;
     }, []);
-  }, [hashboard, allAsics, telemetryData]);
+  }, [hashboard, hardware, telemetryData]);
 };
 
 /**
  * Get combined PSU data combining hardware info + telemetry
  */
 export const useMinerPsu = (id: number): PsuData | null => {
-  const hardware = useMinerStore((state) => state.hardware.psus.get(id));
-  const telemetry = useMinerStore((state) => state.telemetry.psus.get(id));
+  const hardware = useMinerStore((state) => state.hardware.getPsu(id));
+  const telemetry = useMinerStore((state) => {
+    const value = state.telemetry.psus.get(asComponentId(`module:root:psu:${id}`));
+    return value ? psuTelemetryView(value) : undefined;
+  });
 
   return useMemo(() => {
     if (!hardware) return null;
@@ -129,29 +155,33 @@ export const useMinerPsu = (id: number): PsuData | null => {
  * Get all combined PSUs for the miner
  */
 export const useMinerPsus = (): PsuData[] => {
-  const hardwarePsus = useMinerStore((state) => state.hardware.psus);
+  const hardware = useMinerStore((state) => state.hardware);
   const telemetryPsus = useMinerStore((state) => state.telemetry.psus);
 
   return useMemo(() => {
-    const psus = Array.from(hardwarePsus.values());
+    const psus = hardware.getAllPsus();
 
     return psus.map((hardware) => {
-      const telemetry = telemetryPsus.get(hardware.id);
+      const value = telemetryPsus.get(asComponentId(`module:root:psu:${hardware.id}`));
+      const telemetry = value ? psuTelemetryView(value) : undefined;
 
       return {
         ...hardware,
         ...telemetry,
       };
     });
-  }, [hardwarePsus, telemetryPsus]);
+  }, [hardware, telemetryPsus]);
 };
 
 /**
  * Get combined Fan data combining hardware info + telemetry
  */
 export const useMinerFan = (id: number): FanData | null => {
-  const hardware = useMinerStore((state) => state.hardware.fans.get(id));
-  const telemetry = useMinerStore((state) => state.telemetry.fans.get(id));
+  const hardware = useMinerStore((state) => state.hardware.getFan(id));
+  const telemetry = useMinerStore((state) => {
+    const value = state.telemetry.fans.get(asComponentId(`module:root:fan:${id}`));
+    return value ? fanTelemetryView(value) : undefined;
+  });
 
   return useMemo(() => {
     if (!hardware) return null;
@@ -167,21 +197,22 @@ export const useMinerFan = (id: number): FanData | null => {
  * Get all combined Fans for the miner
  */
 export const useMinerFans = (): FanData[] => {
-  const hardwareFans = useMinerStore((state) => state.hardware.fans);
+  const hardware = useMinerStore((state) => state.hardware);
   const telemetryFans = useMinerStore((state) => state.telemetry.fans);
 
   return useMemo(() => {
-    const fans = Array.from(hardwareFans.values());
+    const fans = hardware.getAllFans();
 
     return fans.map((hardware) => {
-      const telemetry = telemetryFans.get(hardware.slot);
+      const value = telemetryFans.get(asComponentId(`module:root:fan:${hardware.slot}`));
+      const telemetry = value ? fanTelemetryView(value) : undefined;
 
       return {
         ...hardware,
         ...telemetry,
       };
     });
-  }, [hardwareFans, telemetryFans]);
+  }, [hardware, telemetryFans]);
 };
 
 // =============================================================================
@@ -196,10 +227,17 @@ export const useChartDataForMetric = (
   metricName: "hashrate" | "temperature" | "power" | "efficiency",
 ): { chartData: ChartData[]; chartLines: string[]; xAxisDomain?: [number, number] } => {
   // Select primitive values and lastUpdated to trigger re-render when data clears
-  const miner = useMinerStore((state) => state.telemetry.miner);
+  const miner = useMinerStore((state) =>
+    minerTelemetryView(
+      state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY),
+      [...state.hardware.hashboards.values()].map((board) => board.identity.value),
+    ),
+  );
   const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
-  const hashboardsHardware = useMinerStore((state) => state.hardware.hashboards);
-  const intervalMs = useMinerStore((state) => state.telemetry.intervalMs);
+  const hardware = useMinerStore((state) => state.hardware);
+  const intervalMs = useMinerStore(
+    (state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY)?.[metricName]?.timeSeries?.bucketSizeMs ?? 900_000,
+  );
   const duration = useMinerStore((state) => state.ui.duration);
 
   return useMemo(() => {
@@ -210,13 +248,14 @@ export const useChartDataForMetric = (
 
     // Get hashboards associated with this miner
     const minerHashboards = miner.hashboards
-      .map((id) => hashboardsTelemetry.get(id))
-      .filter(Boolean) as HashboardTelemetryData[];
+      .map((id) => hashboardsTelemetry.get(asHashboardId(`serial:${id}`)))
+      .filter((value) => value !== undefined)
+      .map(hashboardTelemetryView) as HashboardTelemetryData[];
 
     // Sort hashboards by slot using hardware slice
     const sortedMinerHashboards = minerHashboards.sort((a, b) => {
-      const slotA = hashboardsHardware.get(a.serial)?.slot;
-      const slotB = hashboardsHardware.get(b.serial)?.slot;
+      const slotA = hardware.getHashboard(a.serial)?.slot;
+      const slotB = hardware.getHashboard(b.serial)?.slot;
       return (slotA ?? 0) - (slotB ?? 0);
     });
 
@@ -249,7 +288,7 @@ export const useChartDataForMetric = (
     const xAxisDomain: [number, number] = [minerMetric.startTime, minerMetric.startTime + durationMs];
 
     return { chartData, chartLines, xAxisDomain };
-  }, [miner, hashboardsTelemetry, hashboardsHardware, intervalMs, metricName, duration]);
+  }, [miner, hashboardsTelemetry, hardware, intervalMs, metricName, duration]);
 };
 
 // =============================================================================

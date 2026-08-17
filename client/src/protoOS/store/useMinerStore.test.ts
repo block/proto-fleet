@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { asDeviceId, ROOT_MODULE_KEY } from "./contract";
+import { asDeviceId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
 import useMinerStore from "./useMinerStore";
 
 const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
@@ -25,7 +25,7 @@ describe("useMinerStore.resetDeviceData", () => {
     s.pools.setPoolsInfo([{ url: "stratum+tcp://a" }] as never);
     s.hardware.setHashboards([{ serial: "HB-A-1" }] as never);
     s.telemetry.updateFanTelemetry(0, { rpm: 4200 } as never);
-    s.telemetry.updateCoolingMode("Auto" as never);
+    s.telemetry.updateCoolingMode("automatic");
     s.systemInfo.setSystemInfo(systemInfo("Rig"));
     s.networkInfo.setNetworkInfo(new Map([["primary", { id: "primary", macAddress: "AA:BB", isPrimary: true }]]));
 
@@ -39,7 +39,7 @@ describe("useMinerStore.resetDeviceData", () => {
     expect(after.pools.byOwner.has(ROOT_MODULE_KEY)).toBe(false);
     expect(after.hardware.hashboards.size).toBe(0);
     expect(after.telemetry.fans.size).toBe(0);
-    expect(after.telemetry.coolingMode).toBeNull();
+    expect(after.telemetry.coolingModeByOwner.size).toBe(0);
     // setSystemInfo(undefined)/setNetworkInfo(undefined) are no-ops, so these
     // assert the real reset clears the flattened fields.
     expect(after.systemInfo.data).toBeUndefined();
@@ -67,5 +67,18 @@ describe("useMinerStore.resetDeviceData", () => {
     expect(after.minerStatus.lifecycle.onboarded).toBe(true);
     expect(after.minerStatus.lifecycle.defaultPasswordActive).toBe(false);
     expect(after.ui.theme).toBe(theme);
+  });
+
+  test("rejects stale writes after a device reset and out-of-order responses", () => {
+    const resource = asResourceKey("telemetry:current");
+    const beforeReset = useMinerStore.getState().beginStoreWrite();
+
+    useMinerStore.getState().resetDeviceData();
+    expect(useMinerStore.getState().acceptStoreWrite(resource, beforeReset)).toBe(false);
+
+    const older = useMinerStore.getState().beginStoreWrite();
+    const newer = useMinerStore.getState().beginStoreWrite();
+    expect(useMinerStore.getState().acceptStoreWrite(resource, newer)).toBe(true);
+    expect(useMinerStore.getState().acceptStoreWrite(resource, older)).toBe(false);
   });
 });

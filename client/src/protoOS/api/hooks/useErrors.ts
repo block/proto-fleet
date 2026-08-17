@@ -4,6 +4,7 @@ import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetErrors } from "@/protoOS/store";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import { usePoll } from "@/shared/hooks/usePoll";
 
@@ -24,10 +25,13 @@ const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
     if (!adapter) return;
 
     setPending(true);
+    const accept = beginStoreWrite("errors:module:root");
     setError(undefined);
     return adapter
       .getErrors()
-      .then(setErrors)
+      .then((errors) => {
+        if (accept()) setErrors(errors);
+      })
       .catch((err) => {
         handleAuthErrors({
           error: err,

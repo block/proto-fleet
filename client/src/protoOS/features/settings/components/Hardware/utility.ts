@@ -1,7 +1,7 @@
-import { ControlBoardInfo } from "@/protoOS/api/generatedApi";
+import type { ControlBoardHardware } from "@/protoOS/store/contract";
 
-export const getControlBoardGeneration = (controlBoardInfo: ControlBoardInfo) => {
-  switch (controlBoardInfo.board_id) {
+export const getControlBoardGeneration = (controlBoardInfo: ControlBoardHardware) => {
+  switch (controlBoardInfo.boardId) {
     case "0": // C1 (proto0)
     case "1": // C1 (evt)
       return 1; // Gen 1

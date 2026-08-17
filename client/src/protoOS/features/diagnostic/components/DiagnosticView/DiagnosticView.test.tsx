@@ -49,7 +49,7 @@ describe("DiagnosticView - Fans Section", () => {
     mockUseMiningStart.mockReturnValue({ startMining: vi.fn() });
     mockUseMiningStatus.mockReturnValue({ fetchData: vi.fn() });
     mockUseFanIds.mockReturnValue([1, 2, 3]);
-    mockUseCoolingMode.mockReturnValue("Auto");
+    mockUseCoolingMode.mockReturnValue("automatic");
     mockUseBayCount.mockReturnValue(3);
     mockUseHashboardSerialsByBay.mockReturnValue({});
     mockUsePsuIds.mockReturnValue([1, 2, 3]);
@@ -70,7 +70,7 @@ describe("DiagnosticView - Fans Section", () => {
   describe("No fans to display state", () => {
     it("shows 'No fans to display' when no fans are connected and in immersion mode", () => {
       mockUseFanIds.mockReturnValue([]);
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       // All fans have RPM = 0 → no fans connected
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -92,7 +92,7 @@ describe("DiagnosticView - Fans Section", () => {
 
     it("does not show 'No fans to display' when fans are connected in immersion mode", () => {
       mockUseFanIds.mockReturnValue([1, 2, 3]);
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       // At least one fan has RPM > 0 → fans ARE connected
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -112,7 +112,7 @@ describe("DiagnosticView - Fans Section", () => {
 
     it("does not show 'No fans to display' when no fans are connected but in air cooling mode", () => {
       mockUseFanIds.mockReturnValue([]);
-      mockUseCoolingMode.mockReturnValue("Auto");
+      mockUseCoolingMode.mockReturnValue("automatic");
       // All fans have RPM = 0 but in air cooling mode (not immersion)
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -135,7 +135,7 @@ describe("DiagnosticView - Fans Section", () => {
 
     it("shows fan cards when fans are connected in air cooling mode", () => {
       mockUseFanIds.mockReturnValue([1, 2, 3]);
-      mockUseCoolingMode.mockReturnValue("Auto");
+      mockUseCoolingMode.mockReturnValue("automatic");
       // Fans with RPM > 0 means they're connected
       mockUseCoolingStatus.mockReturnValue({
         data: {

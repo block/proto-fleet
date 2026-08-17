@@ -1,11 +1,12 @@
 import { useCallback } from "react";
+import { authTokensFromSlice } from "../slices/authSlice";
 import useMinerStore from "../useMinerStore";
 import { useAuthErrors } from "./useAuth";
+import type { AdapterRequestOptions } from "@/protoOS/api/adapters/types";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { RequestParams } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 
-type AuthRequestParams = RequestParams & { headers?: { Authorization?: string } };
+type AuthRequestParams = AdapterRequestOptions & { headers?: { Authorization?: string } };
 
 interface AuthRetryOptions<T> {
   request: (params: AuthRequestParams) => Promise<T>;
@@ -32,7 +33,7 @@ export const useAuthRetry = () => {
         : {
             secure: false,
             headers: {
-              Authorization: `Bearer ${useMinerStore.getState().auth.authTokens.accessToken?.value || ""}`,
+              Authorization: `Bearer ${authTokensFromSlice(useMinerStore.getState().auth).accessToken.value}`,
             },
           };
 

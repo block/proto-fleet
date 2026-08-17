@@ -13,6 +13,7 @@ import {
   useSetMiningTargetPending,
 } from "@/protoOS/store";
 import type { MiningTargetUpdate } from "@/protoOS/store/contract";
+import { beginStoreWrite } from "@/protoOS/store/storeWriteGuard";
 
 const useMiningTarget = () => {
   const { adapter } = useMinerHosting();
@@ -36,9 +37,12 @@ const useMiningTarget = () => {
     if (!adapter) return;
 
     setPending(true);
+    const accept = beginStoreWrite("miningTarget:module:root");
     adapter
       .getMiningTarget()
-      .then(setFromResponse)
+      .then((target) => {
+        if (accept()) setFromResponse(target);
+      })
       .catch((err) => {
         setError(err?.error?.message ?? "An error occurred");
       });
@@ -57,10 +61,13 @@ const useMiningTarget = () => {
       if (!adapter) return;
 
       setPending(true);
+      const accept = beginStoreWrite("miningTarget:module:root");
       setError(null);
       authRetry({
         request: (header) => adapter.updateMiningTarget(newTarget, header),
-        onSuccess: setFromResponse,
+        onSuccess: (target) => {
+          if (accept()) setFromResponse(target);
+        },
         onError: (error) => {
           setPending(false);
           setError(error?.error?.message ?? "An error occurred");

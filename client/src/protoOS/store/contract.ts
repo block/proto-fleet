@@ -533,6 +533,11 @@ export interface UIState {
   pausedAuthAction: string | null;
 }
 
+export interface StoreWriteToken {
+  connectionGeneration: number;
+  requestId: number;
+}
+
 export const ROOT_MODULE_ID = "module:root" as ModuleId;
 export const ROOT_MODULE_KEY = "module:root" as EntityKey;
 

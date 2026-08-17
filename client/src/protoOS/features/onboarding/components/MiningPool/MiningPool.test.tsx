@@ -384,7 +384,7 @@ describe("MiningPoolPage", () => {
         await waitFor(() => {
           expect(mockSetCooling).toHaveBeenCalledWith(
             expect.objectContaining({
-              mode: "Off",
+              mode: "off",
             }),
           );
         });
@@ -508,7 +508,7 @@ describe("MiningPoolPage", () => {
         await waitFor(() => {
           expect(mockSetCooling).toHaveBeenCalledWith(
             expect.objectContaining({
-              mode: "Off",
+              mode: "off",
             }),
           );
         });

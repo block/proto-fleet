@@ -19,7 +19,7 @@ import ComponentSection from "../ComponentSection";
 import HashboardStatusCard from "../HashboardStatusCard/HashboardStatusCard";
 import HashboardTemperature from "./HashboardTemperature";
 import { CONTAINER_HASHBOARD_COLUMNS, CONTAINER_HASHBOARD_ROWS } from "@/protoOS/store";
-import { asDeviceId } from "@/protoOS/store/contract";
+import { asAsicId, asDeviceId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const N = CONTAINER_HASHBOARD_COLUMNS; // 26
@@ -68,7 +68,7 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
     BOARDS.forEach(({ serial, slot, profile }) => {
       const asicIds: string[] = [];
       const asics: { id: string; hashboardSerial: string; row: number; column: number; index: number }[] = [];
-      const telemetry = new Map<string, { id: string; temperature: { latest: { value: number; units: "C" } } }>();
+      const telemetry = new Map<string, { temperature: { latest: { value: number; units: "°C" } } }>();
 
       let index = 0;
       for (let row = 0; row < ROWS; row++) {
@@ -76,7 +76,7 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
           const id = `${serial}-asic-${index}`;
           asicIds.push(id);
           asics.push({ id, hashboardSerial: serial, row, column: col, index });
-          telemetry.set(id, { id, temperature: { latest: { value: temp(profile, row, col), units: "C" } } });
+          telemetry.set(id, { temperature: { latest: { value: temp(profile, row, col), units: "°C" } } });
           index++;
         }
       }
@@ -86,16 +86,17 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
 
       useMinerStore.setState((state) => {
         telemetry.forEach((t, id) => {
-          state.telemetry.asics.set(id, { ...(state.telemetry.asics.get(id) || {}), ...t });
+          const asicId = asAsicId(id);
+          state.telemetry.asics.set(asicId, { asicId, ...state.telemetry.asics.get(asicId), ...t });
         });
       });
 
       store.telemetry.updateHashboardTemperatures(
         serial,
-        { value: profile === "warm" ? 59.5 : 41.2, units: "C" },
-        { value: profile === "warm" ? 62.1 : 43.8, units: "C" },
-        { value: profile === "warm" ? 55.2 : 30.1, units: "C" },
-        { value: profile === "warm" ? 88.0 : 35.7, units: "C" },
+        { value: profile === "warm" ? 59.5 : 41.2, units: "°C" },
+        { value: profile === "warm" ? 62.1 : 43.8, units: "°C" },
+        { value: profile === "warm" ? 55.2 : 30.1, units: "°C" },
+        { value: profile === "warm" ? 88.0 : 35.7, units: "°C" },
       );
     });
 

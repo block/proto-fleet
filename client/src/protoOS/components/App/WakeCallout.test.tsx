@@ -47,7 +47,7 @@ describe("WakeCallout", () => {
     });
 
     mockUseIsSleeping.mockReturnValue(false);
-    mockUseCoolingMode.mockReturnValue("Auto");
+    mockUseCoolingMode.mockReturnValue("automatic");
     mockUseFansTelemetry.mockReturnValue([]);
   });
 
@@ -72,7 +72,7 @@ describe("WakeCallout", () => {
     it("calls wakeMiner when wake button is clicked and in air cooled mode", async () => {
       const user = userEvent.setup();
       mockUseIsSleeping.mockReturnValue(true);
-      mockUseCoolingMode.mockReturnValue("Auto");
+      mockUseCoolingMode.mockReturnValue("automatic");
       mockUseFansTelemetry.mockReturnValue([]);
 
       render(<WakeCallout />);
@@ -88,7 +88,7 @@ describe("WakeCallout", () => {
     it("shows fans disabled dialog after waking in immersion mode with fans running", async () => {
       const user = userEvent.setup();
       mockUseIsSleeping.mockReturnValue(true);
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       mockUseFansTelemetry.mockReturnValue([{ slot: 1, rpm: { latest: { value: 1000 } } }]);
 
       // Start with shouldWake false
@@ -126,7 +126,7 @@ describe("WakeCallout", () => {
 
     it("dismisses dialog when clicking 'Continue'", async () => {
       const user = userEvent.setup();
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       mockUseFansTelemetry.mockReturnValue([{ slot: 1, rpm: { latest: { value: 1000 } } }]);
 
       // Start with miner sleeping
@@ -151,7 +151,7 @@ describe("WakeCallout", () => {
 
     it("switches to air cooled mode and dismisses dialog when clicking 'Switch to air cooling'", async () => {
       const user = userEvent.setup();
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       mockUseFansTelemetry.mockReturnValue([{ slot: 1, rpm: { latest: { value: 1000 } } }]);
 
       // Start with miner sleeping
@@ -167,7 +167,7 @@ describe("WakeCallout", () => {
 
       // Mock setCooling to call onSuccess
       mockSetCooling.mockImplementation(({ onSuccess }) => {
-        onSuccess?.({ mode: "Auto" });
+        onSuccess?.({ mode: "automatic" });
       });
 
       const switchButton = screen.getByRole("button", { name: "Switch to air cooling" });
@@ -175,7 +175,7 @@ describe("WakeCallout", () => {
 
       expect(mockSetCooling).toHaveBeenCalledWith(
         expect.objectContaining({
-          mode: "Auto",
+          mode: "automatic",
         }),
       );
 
@@ -187,7 +187,7 @@ describe("WakeCallout", () => {
 
     it("stops loading on error when switching to air cooling", async () => {
       const user = userEvent.setup();
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       mockUseFansTelemetry.mockReturnValue([{ slot: 1, rpm: { latest: { value: 1000 } } }]);
 
       // Start with miner sleeping
@@ -220,7 +220,7 @@ describe("WakeCallout", () => {
     });
 
     it("shows dialog on multiple wake cycles", async () => {
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       mockUseFansTelemetry.mockReturnValue([{ slot: 1, rpm: { latest: { value: 1000 } } }]);
 
       // First wake cycle
@@ -252,7 +252,7 @@ describe("WakeCallout", () => {
     });
 
     it("does not show dialog when waking in air cooled mode even with fans running", async () => {
-      mockUseCoolingMode.mockReturnValue("Auto");
+      mockUseCoolingMode.mockReturnValue("automatic");
       mockUseFansTelemetry.mockReturnValue([{ slot: 1, rpm: { latest: { value: 1000 } } }]);
 
       mockUseIsSleeping.mockReturnValue(true);
@@ -266,7 +266,7 @@ describe("WakeCallout", () => {
     });
 
     it("does not show dialog if miner is already awake (no isSleeping transition)", async () => {
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       mockUseFansTelemetry.mockReturnValue([{ slot: 1, rpm: { latest: { value: 1000 } } }]);
 
       // Miner is already awake
@@ -284,7 +284,7 @@ describe("WakeCallout", () => {
     it("does not show dialog after waking in immersion mode without fans running", async () => {
       const user = userEvent.setup();
       mockUseIsSleeping.mockReturnValue(true);
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       mockUseFansTelemetry.mockReturnValue([]); // No fans running
 
       // Start with shouldWake false

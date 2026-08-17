@@ -25,16 +25,16 @@ export function useComponentHardware(source: ErrorSource, slot: number | undefin
     if (slot === undefined) {
       // For control board or when no slot
       if (componentType === "controlBoard") {
-        return state.hardware.controlBoard;
+        return state.hardware.getControlBoard();
       }
       return undefined;
     }
 
     switch (componentType) {
       case "fan":
-        return state.hardware.fans.get(slot);
+        return state.hardware.getFan(slot);
       case "psu":
-        return state.hardware.psus.get(slot);
+        return state.hardware.getPsu(slot);
       case "hashboard": {
         const hashboard = state.hardware.getHashboardBySlot(slot);
         return hashboard;

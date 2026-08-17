@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { useTelemetry, useTimeSeries } from "@/protoOS/api";
-import { HashboardFieldType, MinerFieldType } from "@/protoOS/api/generatedApi";
+import type { TimeSeriesLevel } from "@/protoOS/api/adapters/types";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
@@ -20,20 +20,15 @@ const KpiLayout = () => {
   useTelemetry({ level: ["miner"] });
 
   // Memoize levels to prevent recreating on every render
-  const levels = useMemo(
+  const levels = useMemo<TimeSeriesLevel[]>(
     () => [
       {
         type: "miner" as const,
-        fields: [MinerFieldType.Hashrate, MinerFieldType.Power, MinerFieldType.Efficiency, MinerFieldType.Temperature],
+        fields: ["hashrate", "power", "efficiency", "temperature"],
       },
       {
         type: "hashboard" as const,
-        fields: [
-          HashboardFieldType.Hashrate,
-          HashboardFieldType.Power,
-          HashboardFieldType.Efficiency,
-          HashboardFieldType.Temperature,
-        ],
+        fields: ["hashrate", "power", "efficiency", "temperature"],
       },
     ],
     [],

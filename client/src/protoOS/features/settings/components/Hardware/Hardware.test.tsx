@@ -22,7 +22,7 @@ describe("Hardware", () => {
     vi.clearAllMocks();
 
     // Default mock implementations
-    mockUseCoolingMode.mockReturnValue("Auto");
+    mockUseCoolingMode.mockReturnValue("automatic");
     mockUseHardware.mockReturnValue({
       hashboardsInfo: [{ board: "1234", hb_sn: "PM-123456789" }],
       controlBoardInfo: { board_id: "3", serial_number: "CB-123456789" },
@@ -49,7 +49,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("Auto");
+      mockUseCoolingMode.mockReturnValue("automatic");
       // Fans with RPM > 0 means they're connected
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -76,7 +76,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("Auto");
+      mockUseCoolingMode.mockReturnValue("automatic");
       // Some fans have RPM > 0, so not all disconnected
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -105,7 +105,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       // All fans have RPM = 0 → no fans connected
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -134,7 +134,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("Auto");
+      mockUseCoolingMode.mockReturnValue("automatic");
       // All fans have RPM = 0 but in air cooling mode (not immersion)
       mockUseCoolingStatus.mockReturnValue({
         data: {
@@ -163,7 +163,7 @@ describe("Hardware", () => {
         pending: false,
         error: null,
       });
-      mockUseCoolingMode.mockReturnValue("Off");
+      mockUseCoolingMode.mockReturnValue("off");
       // At least one fan has RPM > 0 → fans ARE connected, so don't show callout
       mockUseCoolingStatus.mockReturnValue({
         data: {

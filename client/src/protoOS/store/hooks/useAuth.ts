@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { type AuthTokens, authTokensFromSlice, authTokensView } from "../slices/authSlice";
 import useMinerStore from "../useMinerStore";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { isDefaultPasswordActiveError } from "@/protoOS/api/defaultPasswordContract";
@@ -11,9 +12,18 @@ import { isAuthRequiredPath } from "@/protoOS/routeAuth";
 // Auth State Selectors
 // =============================================================================
 
-export const useAuthTokens = () => useMinerStore((state) => state.auth.authTokens);
-export const useRefreshToken = () => useMinerStore((state) => state.auth.authTokens.refreshToken);
-export const useAuthLoading = () => useMinerStore((state) => state.auth.loading);
+export const useAuthTokens = () => {
+  const session = useMinerStore((state) => state.auth.session);
+  const legacy = useMinerStore((state) => (state.auth as unknown as { authTokens?: AuthTokens }).authTokens);
+  return useMemo(() => (session ? authTokensView(session) : (legacy ?? authTokensView(undefined))), [legacy, session]);
+};
+export const useRefreshToken = () => useAuthTokens().refreshToken;
+export const useAuthLoading = () =>
+  useMinerStore((state) =>
+    state.auth.session
+      ? state.auth.session.status === "loading" || state.auth.session.status === "refreshing"
+      : Boolean((state.auth as unknown as { loading?: boolean }).loading),
+  );
 
 // =============================================================================
 // Auth Action Selectors
@@ -92,7 +102,7 @@ export const useAuthErrors = () => {
         if (!refreshPromise) {
           refreshPromise = new Promise<string | null>((resolve) => {
             void refresh({
-              refreshToken: useMinerStore.getState().auth.authTokens.refreshToken?.value || "",
+              refreshToken: authTokensFromSlice(useMinerStore.getState().auth).refreshToken.value,
               onSuccess: (accessToken) => {
                 resolve(accessToken);
               },
@@ -139,7 +149,11 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const logout = useLogout();
   const pausedAuthAction = useMinerStore((state) => state.ui.pausedAuthAction);
-  const passwordSet = useMinerStore((state) => state.minerStatus.lifecycle.passwordSet);
+  const passwordSet = useMinerStore(
+    (state) =>
+      state.minerStatus.lifecycle?.passwordSet ??
+      (state.minerStatus as unknown as { passwordSet?: boolean }).passwordSet,
+  );
 
   // returns undefined if access is not needed
   // returns true if access token is valid

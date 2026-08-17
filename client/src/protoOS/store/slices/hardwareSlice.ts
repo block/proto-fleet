@@ -1,34 +1,48 @@
 import type { StateCreator } from "zustand";
+
+import {
+  asAsicId,
+  asComponentId,
+  asDeviceId,
+  asHashboardId,
+  type AsicHardware,
+  type HardwareState,
+  type HashboardNode,
+  ROOT_MODULE_ID,
+} from "../contract";
 import type {
   AsicHardwareData,
-  AsicMap,
   ControlBoardHardwareData,
   FanHardwareData,
-  FanMap,
   HashboardHardwareData,
-  HashboardMap,
   MinerHardwareData,
   PsuHardwareData,
-  PsuMap,
 } from "../types";
 import type { MinerStore } from "../useMinerStore";
 
-export interface HardwareSlice {
-  miner: MinerHardwareData | null;
-  controlBoard: ControlBoardHardwareData | null;
-  hashboards: HashboardMap;
-  asics: AsicMap;
-  psus: PsuMap;
-  fans: FanMap;
+const owner = { kind: "module" as const, id: ROOT_MODULE_ID };
+const unknownCommands = {
+  startStop: "unknown" as const,
+  powerTarget: "unknown" as const,
+  locate: "unknown" as const,
+  reboot: "unknown" as const,
+  cooling: "unknown" as const,
+  logs: "unknown" as const,
+  firmwareUpdate: "unknown" as const,
+  poolEditing: "unknown" as const,
+  passwordManagement: "unknown" as const,
+};
 
+export interface HardwareSlice extends HardwareState {
   reset: () => void;
+  replaceHardware: (hardware: HardwareState) => void;
 
+  // Compatibility writers/selectors for existing diagnostic stories and the
+  // v1 hashboard-detail endpoint. Stored values remain contract types.
   setMiner: (miner: MinerHardwareData) => void;
   getMiner: () => MinerHardwareData | null;
-
   setControlBoard: (controlBoard: ControlBoardHardwareData) => void;
   getControlBoard: () => ControlBoardHardwareData | null;
-
   setHashboards: (hashboards: HashboardHardwareData[]) => void;
   addHashboard: (hashboard: HashboardHardwareData) => void;
   getHashboard: (serial: string) => HashboardHardwareData | undefined;
@@ -37,43 +51,138 @@ export interface HardwareSlice {
   getBayCount: () => number;
   getSlotByHbSn: (serial: string) => number | undefined;
   getBayByHbSn: (serial: string) => number | undefined;
-
   setAsics: (asics: AsicHardwareData[]) => void;
   addAsic: (asic: AsicHardwareData) => void;
   batchAddAsics: (asics: AsicHardwareData[]) => void;
   getAsic: (id: string) => AsicHardwareData | undefined;
-  getAsicsByHashboard: (hashboardSerial: string) => AsicHardwareData[];
+  getAsicsByHashboard: (serial: string) => AsicHardwareData[];
   getAsicPosition: (id: string) => { row?: number; column?: number } | undefined;
-  getAsicRowsByHashboard: (hashboardSerial: string) => number[];
-
-  linkAsicToHashboard: (asicId: string, hashboardSerial: string) => void;
-
+  getAsicRowsByHashboard: (serial: string) => number[];
+  linkAsicToHashboard: (asicId: string, serial: string) => void;
   setPsus: (psus: PsuHardwareData[]) => void;
   addPsu: (psu: PsuHardwareData) => void;
   getPsu: (id: number) => PsuHardwareData | undefined;
   getAllPsus: () => PsuHardwareData[];
-
   setFans: (fans: FanHardwareData[]) => void;
   addFan: (fan: FanHardwareData) => void;
   getFan: (slot: number) => FanHardwareData | undefined;
   getAllFans: () => FanHardwareData[];
-
-  initializeMinerStructure: (
-    miner: MinerHardwareData,
-    hashboards: HashboardHardwareData[],
-    asics: AsicHardwareData[],
-    psus?: PsuHardwareData[],
-    fans?: FanHardwareData[],
-    controlBoard?: ControlBoardHardwareData,
-  ) => void;
 }
+
+const ensureTopology = (state: HardwareSlice) => {
+  if (state.topology) return state.topology;
+  state.topology = {
+    kind: "directModule",
+    deviceId: asDeviceId("device:legacy"),
+    moduleId: ROOT_MODULE_ID,
+    modules: new Map([
+      [
+        ROOT_MODULE_ID,
+        {
+          id: ROOT_MODULE_ID,
+          profile: "unknown",
+          capabilities: { commands: unknownCommands },
+          hashboardIds: [],
+          controlBoardIds: [],
+          psuIds: [],
+          fanIds: [],
+        },
+      ],
+    ]),
+    hashboards: new Map(),
+  };
+  return state.topology!;
+};
+
+const nodeForSerial = (state: HardwareSlice, serial: string) =>
+  state.topology ? [...state.topology.hashboards.values()].find((node) => node.identity.value === serial) : undefined;
+
+const hashboardView = (state: HardwareSlice, serial: string): HashboardHardwareData | undefined => {
+  const node = nodeForSerial(state, serial);
+  const hardware = node ? state.hashboards.get(node.id) : state.hashboards.get(asHashboardId(`serial:${serial}`));
+  if (!hardware) return undefined;
+  return {
+    serial: hardware.identity.value,
+    slot: node?.location?.slot,
+    bay: node?.location?.bay,
+    port: node?.location?.port,
+    board: hardware.boardModel,
+    asicIds: node?.asicIds.map(String),
+    apiVersion: hardware.apiVersion,
+    chipId: hardware.chipId,
+    miningAsic: hardware.miningAsic === "unknown" ? undefined : hardware.miningAsic,
+    miningAsicCount: hardware.miningAsicCount,
+    temperatureSensorCount: hardware.temperatureSensorCount,
+    ecLogsPath: hardware.ecLogsPath,
+    firmware: hardware.firmware
+      ? {
+          ...hardware.firmware,
+          build:
+            hardware.firmware.build === "debug" || hardware.firmware.build === "release"
+              ? hardware.firmware.build
+              : undefined,
+        }
+      : undefined,
+    bootloader: hardware.bootloader
+      ? {
+          ...hardware.bootloader,
+          build:
+            hardware.bootloader.build === "debug" || hardware.bootloader.build === "release"
+              ? hardware.bootloader.build
+              : undefined,
+        }
+      : undefined,
+  };
+};
+
+const upsertHashboard = (state: HardwareSlice, input: HashboardHardwareData) => {
+  const id = asHashboardId(`serial:${input.serial}`);
+  const existing = state.hashboards.get(id);
+  state.hashboards.set(id, {
+    ref: { id, kind: "hashboard", owner },
+    identity: { kind: "serial", value: input.serial },
+    boardModel: input.board ?? existing?.boardModel,
+    apiVersion: input.apiVersion ?? existing?.apiVersion,
+    chipId: input.chipId ?? existing?.chipId,
+    miningAsic: input.miningAsic ?? existing?.miningAsic,
+    miningAsicCount: input.miningAsicCount ?? existing?.miningAsicCount,
+    temperatureSensorCount: input.temperatureSensorCount ?? existing?.temperatureSensorCount,
+    ecLogsPath: input.ecLogsPath ?? existing?.ecLogsPath,
+    firmware: input.firmware ?? existing?.firmware,
+    bootloader: input.bootloader ?? existing?.bootloader,
+  });
+  const topology = ensureTopology(state);
+  const prior = topology.hashboards.get(id);
+  topology.hashboards.set(id, {
+    id,
+    identity: { kind: "serial", value: input.serial },
+    moduleId: ROOT_MODULE_ID,
+    asicIds: (input.asicIds ?? prior?.asicIds ?? []).map(asAsicId),
+    location: {
+      slot: input.slot ?? prior?.location?.slot,
+      bay: input.bay ?? prior?.location?.bay,
+      port: input.port ?? prior?.location?.port,
+    },
+  });
+  const module = topology.modules.get(ROOT_MODULE_ID);
+  if (module && !module.hashboardIds.includes(id)) module.hashboardIds.push(id);
+};
+
+const asicView = (asic: AsicHardware): AsicHardwareData => ({
+  id: String(asic.ref.id),
+  hashboardSerial: String(asic.hashboardId).replace(/^serial:/, ""),
+  index: asic.index,
+  row: asic.row,
+  column: asic.column,
+});
 
 export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], HardwareSlice> = (
   set,
   get,
 ) => ({
-  miner: null,
-  controlBoard: null,
+  resource: { status: "idle" },
+  topology: undefined,
+  controlBoards: new Map(),
   hashboards: new Map(),
   asics: new Map(),
   psus: new Map(),
@@ -81,199 +190,254 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
 
   reset: () =>
     set((state) => {
-      state.hardware.miner = null;
-      state.hardware.controlBoard = null;
-      state.hardware.hashboards = new Map();
-      state.hardware.asics = new Map();
-      state.hardware.psus = new Map();
-      state.hardware.fans = new Map();
+      Object.assign(state.hardware, {
+        resource: { status: "idle" },
+        topology: undefined,
+        controlBoards: new Map(),
+        hashboards: new Map(),
+        asics: new Map(),
+        psus: new Map(),
+        fans: new Map(),
+      });
     }),
-
-  setMiner: (miner) =>
+  replaceHardware: (hardware) =>
     set((state) => {
-      state.hardware.miner = miner;
+      Object.assign(state.hardware, hardware);
     }),
-
+  setMiner: () => undefined,
   getMiner: () => {
-    return get().hardware.miner;
+    const state = get().hardware;
+    const serials = [...state.hashboards.values()].map((board) => board.identity.value);
+    return serials.length
+      ? { hashboardSerials: serials, controlBoardSerial: [...state.controlBoards.values()][0]?.serialNumber }
+      : null;
   },
-
-  setControlBoard: (controlBoard) =>
+  setControlBoard: (input) =>
     set((state) => {
-      state.hardware.controlBoard = controlBoard;
+      const id = asComponentId(`${ROOT_MODULE_ID}:controlBoard:1`);
+      state.hardware.controlBoards.set(id, {
+        ref: { id, kind: "controlBoard", owner },
+        role: "primary",
+        serialNumber: input.serial,
+        boardId: input.boardId,
+        machineName: input.machineName,
+        firmware: input.firmware,
+        cpu: input.mpu
+          ? {
+              modelName: input.mpu.modelName,
+              architecture: input.mpu.cpuArchitecture?.toString(),
+              hardware: input.mpu.hardware,
+              revision: input.mpu.revision,
+              implementer: input.mpu.cpuImplementer,
+              part: input.mpu.cpuPart,
+              variant: input.mpu.cpuVariant,
+            }
+          : undefined,
+      });
     }),
-
   getControlBoard: () => {
-    return get().hardware.controlBoard;
+    const board = [...get().hardware.controlBoards.values()][0];
+    return board
+      ? {
+          serial: board.serialNumber,
+          boardId: board.boardId,
+          machineName: board.machineName,
+          firmware: board.firmware,
+          mpu: board.cpu
+            ? {
+                modelName: board.cpu.modelName,
+                cpuArchitecture: Number(board.cpu.architecture) || undefined,
+                hardware: board.cpu.hardware,
+                revision: board.cpu.revision,
+                cpuImplementer: board.cpu.implementer,
+                cpuPart: board.cpu.part,
+                cpuVariant: board.cpu.variant,
+              }
+            : undefined,
+        }
+      : null;
   },
-
-  setHashboards: (hashboards) =>
+  setHashboards: (items) =>
     set((state) => {
       state.hardware.hashboards.clear();
-      hashboards.forEach((hb) => {
-        state.hardware.hashboards.set(hb.serial, hb);
-      });
+      ensureTopology(state.hardware).hashboards.clear();
+      items.forEach((item) => upsertHashboard(state.hardware, item));
     }),
-
-  addHashboard: (hashboard) => {
-    set((state) => {
-      state.hardware.hashboards.set(hashboard.serial, hashboard);
-    });
-  },
-
-  getHashboard: (serial) => {
-    return get().hardware.hashboards.get(serial);
-  },
-
+  addHashboard: (item) => set((state) => upsertHashboard(state.hardware, item)),
+  getHashboard: (serial) => hashboardView(get().hardware, serial),
   getHashboardBySlot: (slot) => {
-    return Array.from(get().hardware.hashboards.values()).find((hb) => hb.slot === slot);
+    const state = get().hardware;
+    const node = state.topology
+      ? [...state.topology.hashboards.values()].find((item) => item.location?.slot === slot)
+      : undefined;
+    return node ? hashboardView(state, node.identity.value) : undefined;
   },
-
   getHashboardsByBay: (bay) => {
-    return Array.from(get().hardware.hashboards.values()).filter((hb) => hb.bay === bay);
+    const state = get().hardware;
+    return state.topology
+      ? [...state.topology.hashboards.values()]
+          .filter((node) => node.location?.bay === bay)
+          .map((node) => hashboardView(state, node.identity.value))
+          .filter((item): item is HashboardHardwareData => !!item)
+      : [];
   },
-
-  getBayCount: () => {
-    const hashboards = Array.from(get().hardware.hashboards.values());
-    if (hashboards.length === 0) return 0;
-    return Math.max(...hashboards.map((hb) => hb.bay || -1));
-  },
-
-  getSlotByHbSn: (serial) => {
-    return get().hardware.hashboards.get(serial)?.slot;
-  },
-
-  getBayByHbSn: (serial) => {
-    return get().hardware.hashboards.get(serial)?.bay;
-  },
-
-  setAsics: (asics) =>
+  getBayCount: () =>
+    Math.max(
+      0,
+      ...[...(get().hardware.topology?.hashboards.values() ?? [])].map(
+        (node: HashboardNode) => node.location?.bay ?? 0,
+      ),
+    ),
+  getSlotByHbSn: (serial) => nodeForSerial(get().hardware, serial)?.location?.slot,
+  getBayByHbSn: (serial) => nodeForSerial(get().hardware, serial)?.location?.bay,
+  setAsics: (items) =>
     set((state) => {
       state.hardware.asics.clear();
-      asics.forEach((asic) => {
-        state.hardware.asics.set(asic.id, asic);
+      items.forEach((item) => {
+        const id = asAsicId(item.id);
+        state.hardware.asics.set(id, {
+          ref: { id, kind: "asic", owner },
+          hashboardId: asHashboardId(`serial:${item.hashboardSerial}`),
+          index: item.index,
+          row: item.row,
+          column: item.column,
+        });
       });
     }),
-
-  addAsic: (asic) =>
+  addAsic: (item) =>
     set((state) => {
-      state.hardware.asics.set(asic.id, asic);
-    }),
-
-  batchAddAsics: (asics) =>
-    set((state) => {
-      asics.forEach((asic) => {
-        state.hardware.asics.set(asic.id, asic);
+      const id = asAsicId(item.id);
+      state.hardware.asics.set(id, {
+        ref: { id, kind: "asic", owner },
+        hashboardId: asHashboardId(`serial:${item.hashboardSerial}`),
+        index: item.index,
+        row: item.row,
+        column: item.column,
       });
     }),
-
+  batchAddAsics: (items) =>
+    set((state) =>
+      items.forEach((item) => {
+        const id = asAsicId(item.id);
+        state.hardware.asics.set(id, {
+          ref: { id, kind: "asic", owner },
+          hashboardId: asHashboardId(`serial:${item.hashboardSerial}`),
+          index: item.index,
+          row: item.row,
+          column: item.column,
+        });
+      }),
+    ),
   getAsic: (id) => {
-    return get().hardware.asics.get(id);
+    const asic = get().hardware.asics.get(asAsicId(id));
+    return asic ? asicView(asic) : undefined;
   },
-
-  getAsicsByHashboard: (hashboardSerial) => {
-    return Array.from(get().hardware.asics.values()).filter((asic) => asic.hashboardSerial === hashboardSerial);
-  },
-
+  getAsicsByHashboard: (serial) =>
+    [...get().hardware.asics.values()]
+      .filter((asic) => asic.hashboardId === asHashboardId(`serial:${serial}`))
+      .map(asicView),
   getAsicPosition: (id) => {
-    const asic = get().hardware.asics.get(id);
+    const asic = get().hardware.asics.get(asAsicId(id));
     return asic ? { row: asic.row, column: asic.column } : undefined;
   },
-
-  getAsicRowsByHashboard: (hashboardSerial) => {
-    const state = get();
-    const hashboard = state.hardware.hashboards.get(hashboardSerial);
-    if (!hashboard?.asicIds) return [];
-
-    const asicRows = hashboard.asicIds
-      .map((asicId) => state.hardware.asics.get(asicId)?.row)
-      .filter((row): row is number => row !== undefined);
-
-    const uniqueRows = new Set(asicRows);
-    return Array.from(uniqueRows).sort((a, b) => a - b);
-  },
-
-  linkAsicToHashboard: (asicId, hashboardSerial) => {
+  getAsicRowsByHashboard: (serial) =>
+    [
+      ...new Set(
+        [...get().hardware.asics.values()]
+          .filter((asic) => asic.hashboardId === asHashboardId(`serial:${serial}`))
+          .map((asic) => asic.row)
+          .filter((row): row is number => row !== undefined),
+      ),
+    ].sort((a, b) => a - b),
+  linkAsicToHashboard: (asicId, serial) =>
     set((state) => {
-      const hashboard = state.hardware.hashboards.get(hashboardSerial);
-      if (hashboard?.asicIds && !hashboard.asicIds.includes(asicId)) {
-        hashboard.asicIds.push(asicId);
-      }
-    });
-  },
-
-  setPsus: (psus) =>
+      const node = nodeForSerial(state.hardware, serial);
+      const id = asAsicId(asicId);
+      if (node && !node.asicIds.includes(id)) node.asicIds.push(id);
+    }),
+  setPsus: (items) =>
     set((state) => {
       state.hardware.psus.clear();
-      psus.forEach((psu) => {
-        state.hardware.psus.set(psu.id, psu);
+      items.forEach((item) => {
+        const id = asComponentId(`${ROOT_MODULE_ID}:psu:${item.slot ?? item.id}`);
+        state.hardware.psus.set(id, {
+          ref: { id, kind: "psu", owner },
+          slot: item.slot ?? item.id,
+          serialNumber: item.serial,
+          manufacturer: item.manufacturer,
+          model: item.model,
+          hardwareRevision: item.hwRevision,
+          firmware: item.firmware
+            ? {
+                application: { version: item.firmware.appVersion },
+                bootloader: { version: item.firmware.bootloaderVersion },
+              }
+            : undefined,
+        });
       });
     }),
-
-  addPsu: (psu) =>
+  addPsu: (item) =>
     set((state) => {
-      state.hardware.psus.set(psu.id, psu);
+      const id = asComponentId(`${ROOT_MODULE_ID}:psu:${item.slot ?? item.id}`);
+      state.hardware.psus.set(id, {
+        ref: { id, kind: "psu", owner },
+        slot: item.slot ?? item.id,
+        serialNumber: item.serial,
+        manufacturer: item.manufacturer,
+        model: item.model,
+        hardwareRevision: item.hwRevision,
+        firmware: item.firmware
+          ? {
+              application: { version: item.firmware.appVersion },
+              bootloader: { version: item.firmware.bootloaderVersion },
+            }
+          : undefined,
+      });
     }),
-
-  getPsu: (id) => {
-    return get().hardware.psus.get(id);
+  getPsu: (slot) => {
+    const item = [...get().hardware.psus.values()].find((psu) => psu.slot === slot);
+    return item
+      ? {
+          id: slot,
+          slot,
+          serial: item.serialNumber,
+          manufacturer: item.manufacturer,
+          model: item.model,
+          hwRevision: item.hardwareRevision,
+          firmware: item.firmware
+            ? { appVersion: item.firmware.application?.version, bootloaderVersion: item.firmware.bootloader?.version }
+            : undefined,
+        }
+      : undefined;
   },
-
-  getAllPsus: () => {
-    return Array.from(get().hardware.psus.values());
-  },
-
-  setFans: (fans) =>
+  getAllPsus: () =>
+    [...get().hardware.psus.values()].map((item) => ({
+      id: item.slot ?? 0,
+      slot: item.slot,
+      serial: item.serialNumber,
+      manufacturer: item.manufacturer,
+      model: item.model,
+      hwRevision: item.hardwareRevision,
+      firmware: item.firmware
+        ? { appVersion: item.firmware.application?.version, bootloaderVersion: item.firmware.bootloader?.version }
+        : undefined,
+    })),
+  setFans: (items) =>
     set((state) => {
       state.hardware.fans.clear();
-      fans.forEach((fan) => {
-        state.hardware.fans.set(fan.slot, fan);
+      items.forEach((item) => {
+        const id = asComponentId(`${ROOT_MODULE_ID}:fan:${item.slot}`);
+        state.hardware.fans.set(id, { ref: { id, kind: "fan", owner }, slot: item.slot, name: item.name });
       });
     }),
-
-  addFan: (fan) =>
+  addFan: (item) =>
     set((state) => {
-      state.hardware.fans.set(fan.slot, fan);
+      const id = asComponentId(`${ROOT_MODULE_ID}:fan:${item.slot}`);
+      state.hardware.fans.set(id, { ref: { id, kind: "fan", owner }, slot: item.slot, name: item.name });
     }),
-
   getFan: (slot) => {
-    return get().hardware.fans.get(slot);
+    const item = [...get().hardware.fans.values()].find((fan) => fan.slot === slot);
+    return item ? { slot, name: item.name } : undefined;
   },
-
-  getAllFans: () => {
-    return Array.from(get().hardware.fans.values());
-  },
-
-  initializeMinerStructure: (miner, hashboards, asics, psus, fans, controlBoard) =>
-    set((state) => {
-      state.hardware.miner = miner;
-
-      if (controlBoard) {
-        state.hardware.controlBoard = controlBoard;
-      }
-
-      state.hardware.hashboards.clear();
-      hashboards.forEach((hb) => {
-        state.hardware.hashboards.set(hb.serial, hb);
-      });
-
-      state.hardware.asics.clear();
-      asics.forEach((asic) => {
-        state.hardware.asics.set(asic.id, asic);
-      });
-
-      if (psus) {
-        state.hardware.psus.clear();
-        psus.forEach((psu) => {
-          state.hardware.psus.set(psu.id, psu);
-        });
-      }
-
-      if (fans) {
-        state.hardware.fans.clear();
-        fans.forEach((fan) => {
-          state.hardware.fans.set(fan.slot, fan);
-        });
-      }
-    }),
+  getAllFans: () => [...get().hardware.fans.values()].map((item) => ({ slot: item.slot ?? 0, name: item.name })),
 });

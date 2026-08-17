@@ -1,59 +1,63 @@
-import type { MinerAdapter } from "../types";
+import type { AdapterRequestOptions, MinerAdapter, TelemetryLevel, TimeSeriesQuery } from "../types";
 import {
-  toCanonicalErrors,
-  toCanonicalHardware,
-  toCanonicalMiningStatus,
-  toCanonicalMiningTarget,
-  toCanonicalNetworkInfo,
-  toCanonicalPools,
-  toCanonicalSystemInfo,
-  toCanonicalTelemetry,
-  toCanonicalTimeSeries,
+  denormalizeV1CoolingMode,
+  normalizeV1CoolingStatus,
+  normalizeV1Errors,
+  normalizeV1Hardware,
+  normalizeV1HardwareTelemetry,
+  normalizeV1MiningStatus,
+  normalizeV1MiningTarget,
+  normalizeV1NetworkInfo,
+  normalizeV1Pools,
+  normalizeV1SystemInfo,
+  normalizeV1Telemetry,
+  normalizeV1TimeSeries,
 } from "./normalize";
-import { type Api, type RequestParams, PerformanceMode as V1PerformanceMode } from "@/protoOS/api/generatedApi";
-import type { MiningTargetUpdate } from "@/protoOS/store/contract";
+import { type Api, type TimeSeriesRequest, PerformanceMode as V1PerformanceMode } from "@/protoOS/api/generatedApi";
+import type { CoolingMode, MiningTargetUpdate } from "@/protoOS/store/contract";
 
 export type MdkV1Client = InstanceType<typeof Api>["api"];
 
 export class MdkV1Adapter implements MinerAdapter {
+
   constructor(private readonly client: MdkV1Client) {}
 
-  async getSystemInfo(params: RequestParams = {}) {
+  async getSystemInfo(params: AdapterRequestOptions = {}) {
     const response = await this.client.getSystemInfo(params);
-    return toCanonicalSystemInfo(response.data["system-info"] ?? {});
+    return normalizeV1SystemInfo(response.data["system-info"] ?? {});
   }
 
-  async getNetworkInfo(params: RequestParams = {}) {
+  async getNetworkInfo(params: AdapterRequestOptions = {}) {
     const response = await this.client.getNetwork(params);
-    return toCanonicalNetworkInfo(response.data["network-info"] ?? {});
+    return normalizeV1NetworkInfo(response.data["network-info"] ?? {});
   }
 
-  async getSystemStatus(params: RequestParams = {}) {
+  async getSystemStatus(params: AdapterRequestOptions = {}) {
     const response = await this.client.getSystemStatus(params);
     return { onboarded: response.data.onboarded, passwordSet: response.data.password_set };
   }
 
-  async getMiningStatus(params: RequestParams = {}) {
+  async getMiningStatus(params: AdapterRequestOptions = {}) {
     const response = await this.client.getMiningStatus(params);
-    return toCanonicalMiningStatus(response.data["mining-status"] ?? {});
+    return normalizeV1MiningStatus(response.data["mining-status"] ?? {});
   }
 
-  async getErrors(params: RequestParams = {}) {
+  async getErrors(params: AdapterRequestOptions = {}) {
     const response = await this.client.getErrors(params);
-    return toCanonicalErrors(response.data);
+    return normalizeV1Errors(response.data);
   }
 
-  async getPools(params: RequestParams = {}) {
+  async getPools(params: AdapterRequestOptions = {}) {
     const response = await this.client.listPools(params);
-    return toCanonicalPools(response.data.pools ?? []);
+    return normalizeV1Pools(response.data.pools ?? []);
   }
 
-  async getMiningTarget(params: RequestParams = {}) {
+  async getMiningTarget(params: AdapterRequestOptions = {}) {
     const response = await this.client.getMiningTarget(params);
-    return toCanonicalMiningTarget(response.data);
+    return normalizeV1MiningTarget(response.data);
   }
 
-  async updateMiningTarget(update: MiningTargetUpdate, params: RequestParams = {}) {
+  async updateMiningTarget(update: MiningTargetUpdate, params: AdapterRequestOptions = {}) {
     const response = await this.client.editMiningTarget(
       {
         power_target_watts: update.valueWatts,
@@ -68,21 +72,45 @@ export class MdkV1Adapter implements MinerAdapter {
       },
       params,
     );
-    return toCanonicalMiningTarget(response.data);
+    return normalizeV1MiningTarget(response.data);
   }
 
-  async getHardware(context: { deviceId: string; profile: "r2" | "ct1" | "unknown" }, params: RequestParams = {}) {
+  async getHardware(
+    context: { deviceId: string; profile: "r2" | "ct1" | "unknown" },
+    params: AdapterRequestOptions = {},
+  ) {
     const response = await this.client.getHardware(params);
-    return toCanonicalHardware(response.data["hardware-info"] ?? {}, context);
+    const wire = response.data["hardware-info"] ?? {};
+    return { hardware: normalizeV1Hardware(wire, context), telemetry: normalizeV1HardwareTelemetry(wire) };
   }
 
-  async getCurrentTelemetry(query = {}, params: RequestParams = {}) {
-    const response = await this.client.getCurrentTelemetry(query, params);
-    return toCanonicalTelemetry(response.data);
+  async getCurrentTelemetry(levels: TelemetryLevel[] = [], params: AdapterRequestOptions = {}) {
+    const response = await this.client.getCurrentTelemetry(
+      { level: levels.length ? (levels.join(",") as never) : undefined },
+      params,
+    );
+    return normalizeV1Telemetry(response.data);
   }
 
-  async getTimeSeries(request: Parameters<MdkV1Client["getTimeSeries"]>[0], params: RequestParams = {}) {
-    const response = await this.client.getTimeSeries(request, params);
-    return toCanonicalTimeSeries(response.data);
+  async getTimeSeries(request: TimeSeriesQuery, params: AdapterRequestOptions = {}) {
+    const wireRequest: TimeSeriesRequest = {
+      start_time: request.startTime,
+      duration: request.duration,
+      end_time: request.endTime,
+      interval: request.interval,
+      levels: request.levels as TimeSeriesRequest["levels"],
+      aggregation: request.aggregation,
+    };
+    const response = await this.client.getTimeSeries(wireRequest, params);
+    return normalizeV1TimeSeries(response.data);
+  }
+
+  async getCoolingStatus(params: AdapterRequestOptions = {}) {
+    const response = await this.client.getCooling(params);
+    return normalizeV1CoolingStatus(response.data["cooling-status"]);
+  }
+
+  async setCoolingMode(mode: CoolingMode, params: AdapterRequestOptions = {}) {
+    await this.client.setCoolingMode({ mode: denormalizeV1CoolingMode(mode) }, params);
   }
 }
