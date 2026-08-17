@@ -85,6 +85,24 @@ jobs:
             - **Infrastructure**: Docker multi-stage builds, Docker Compose orchestration,
               Nginx reverse proxy, multi-arch (amd64/arm64) deployment
 
+            ## Repository Provenance Boundaries
+
+            Files under `proto-rig-api/grpc/**` are byte-identical protobuf snapshots
+            copied from the upstream `miner-firmware` repository. They are retained for
+            reference and provenance only: Proto Fleet does not generate code from them,
+            compile them, or load them at runtime.
+
+            Do not emit findings or increase `overall_risk` for defects that exist solely
+            in these vendored gRPC files, including upstream wire-compatibility or enum
+            numbering changes. Such defects must be corrected upstream and incorporated
+            through a later snapshot. Report a finding only when repo-owned code or
+            tooling consumes these files and the PR introduces a concrete Proto Fleet
+            risk; cite that repo-owned consumption site.
+
+            This exclusion does not apply to `proto-rig-api/openapi/MDK-API.json`, which
+            generates the ProtoOS REST client, or to repo-owned adapters and simulators
+            that implement that contract.
+
             Perform a review focused strictly on the latest changes.
             Start by reading `${{ env.REVIEW_DIFF_FILE }}` and treat it as the authoritative review scope.
             - The checked out repository contents are pinned to commit `${{ env.REVIEW_HEAD_SHA }}`.
