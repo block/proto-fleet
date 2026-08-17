@@ -71,6 +71,9 @@ func uninstall(ctx context.Context, purgeData bool, deps uninstallDependencies) 
 	if err := uninstallStep(ctx, deps, "disable HA services", "systemctl", "disable", "--now", "proto-fleet-ha.service"); err != nil {
 		return err
 	}
+	if err := uninstallStep(ctx, deps, "clear HA service restart limit", "systemctl", "reset-failed", "proto-fleet-ha.service"); err != nil {
+		return err
+	}
 	if err := deps.stopServices(ctx, installedNodeEnvironment); err != nil {
 		return fmt.Errorf("stop installed HA containers: %w", err)
 	}

@@ -33,6 +33,7 @@ func TestUninstallDatabaseNodePreservesPersistentState(t *testing.T) {
 		"systemctl disable --now keepalived.service",
 		"ip address flush to "+testVirtualIP+"/32 dev eth0",
 		"systemctl disable --now proto-fleet-ha.service",
+		"systemctl reset-failed proto-fleet-ha.service",
 		"stop-installed-services",
 	)
 	requireCallOrder(t, calls,
@@ -48,6 +49,9 @@ func TestUninstallDatabaseNodePreservesPersistentState(t *testing.T) {
 	require.NotContains(t, joined, "--rmi")
 	require.NotContains(t, joined, "apt-get")
 	require.NotContains(t, joined, "systemctl disable --now docker")
+	require.NotContains(t, joined, "systemctl reset-failed proto-fleet-ha-firewall.service")
+	require.NotContains(t, joined, "systemctl reset-failed keepalived.service")
+	require.NotContains(t, joined, "systemctl reset-failed proto-fleet-updater.service")
 }
 
 func TestUninstallPurgeDeletesPersistentStateLast(t *testing.T) {
@@ -68,7 +72,6 @@ func TestUninstallPurgeDeletesPersistentStateLast(t *testing.T) {
 	config := callIndex(calls, "rm -rf -- "+configRoot)
 	require.Greater(t, data, cleanup)
 	require.Greater(t, config, data)
-	require.NotContains(t, strings.Join(calls, "\n"), "systemctl reset-failed")
 }
 
 func TestUninstallWitnessSkipsDatabaseServices(t *testing.T) {
