@@ -28,7 +28,8 @@ Proto Fleet supports multiple miner integrations through plugins:
 - `plugin/asicrs/` for Rust-based multi-manufacturer ASIC miner support
 - `plugin/example-python/` for the example Python plugin (template for plugin authors)
 
-Shared RPC and message contracts live in `proto/`. Miner-hosted ProtoOS API definitions live in `proto-rig-api/`.
+Shared Fleet RPC and message contracts live in `proto/`. The miner-hosted
+ProtoOS REST contract lives at `proto-rig-api/openapi/MDK-API.json`.
 
 ## Project Layout
 
