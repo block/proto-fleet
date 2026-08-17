@@ -97,6 +97,7 @@ func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(
 	// Assert
 	require.ErrorIs(t, err, composeErr)
 	require.Equal(t, []string{
+		"--project-name", "deployment",
 		"--env-file", filepath.Join(configRoot, "base.env"),
 		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
 		"--env-file", filepath.Join(configRoot, "node.env"),

@@ -2,7 +2,6 @@ package deployment
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -97,20 +96,12 @@ func removeBootstrapCredential(path string) error {
 }
 
 func waitForLocalEtcd(ctx context.Context, config NodeConfig) error {
-	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
-	if err != nil {
-		return fmt.Errorf("load local etcd TLS configuration: %w", err)
-	}
-	tlsConfig.ServerName = config.NodeIP
-	address := net.JoinHostPort(config.NodeIP, "2379")
+	// The peer listener opens before quorum, unlike the client TLS endpoint.
+	address := net.JoinHostPort(config.NodeIP, "2380")
 	deadline := time.NewTimer(time.Minute)
 	defer deadline.Stop()
 	for {
-		ready, err := probeLocalEtcdTLS(ctx, address, tlsConfig)
-		if err != nil {
-			return fmt.Errorf("validate local etcd TLS: %w", err)
-		}
-		if ready {
+		if probeLocalEtcdListener(ctx, address) {
 			return nil
 		}
 		select {
@@ -123,19 +114,13 @@ func waitForLocalEtcd(ctx context.Context, config NodeConfig) error {
 	}
 }
 
-func probeLocalEtcdTLS(ctx context.Context, address string, tlsConfig *tls.Config) (bool, error) {
+func probeLocalEtcdListener(ctx context.Context, address string) bool {
 	connection, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp", address)
 	if err != nil {
-		return false, nil
+		return false
 	}
-	defer connection.Close()
-	tlsConnection := tls.Client(connection, tlsConfig)
-	handshakeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	if err := tlsConnection.HandshakeContext(handshakeCtx); err != nil {
-		return false, fmt.Errorf("handshake with local etcd: %w", err)
-	}
-	return true, nil
+	_ = connection.Close()
+	return true
 }
 
 func etcdAuthRequired(err error) bool {

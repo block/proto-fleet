@@ -209,6 +209,31 @@ If the target version is already installed and healthy, do not rerun the
 update. Retry only if the old version remains: use the ordinary update while
 passive, or `--complete` while active after the peer reaches the target.
 
+## Uninstall or reinstall HA
+
+Run the `fleet-ha` binary from the new extracted release, not the copy inside
+the installation being removed. The command is local to one host and requires
+an interactive root session:
+
+```bash
+sudo ./deployment/ha/fleet-ha uninstall --purge-data
+```
+
+Use `--purge-data` when preparing the host for a fresh guided installation. It
+removes the HA configuration, credentials, PostgreSQL and etcd data only after
+the local services and firewall have stopped successfully. Without the flag,
+the command preserves `/etc/proto-fleet/ha` and `/var/lib/proto-fleet/ha` as
+inert local state. That retained state blocks a fresh install and cannot be
+purged by a later uninstall invocation.
+
+The command preserves Docker, installed packages, images, volumes, unrelated
+nftables configuration, host networking, and SSH access. For a complete
+three-host reset, run it on the witness, then the passive Fleet host, then the
+active Fleet host. It does not connect to or modify the peer hosts.
+
+The uninstaller supports intact HA installations only. Missing or corrupt
+installation ownership files still require manual recovery or reimaging.
+
 ## Qualification
 
 The distributions above are installer-compatible targets. The HA profile is

@@ -33,6 +33,7 @@ type cli struct {
 	Compose           composeCmd           `cmd:"" help:"run Docker Compose with the installed HA environment" passthrough:""`
 	Status            statusCmd            `cmd:"" help:"print local HA status as JSON"`
 	Install           installCmd           `cmd:"" help:"prepare a new cluster or install a prepared host bundle"`
+	Uninstall         uninstallCmd         `cmd:"" help:"remove the local HA runtime"`
 	Update            updateCmd            `cmd:"" help:"update the application services on a passive HA host"`
 	Start             startCmd             `cmd:"" help:"start installed HA services"`
 	Stop              stopCmd              `cmd:"" help:"stop installed HA services"`
@@ -110,6 +111,14 @@ func (c *installCmd) Run(ctx context.Context) error {
 	}
 	fmt.Println("Proto Fleet HA installation completed")
 	return nil
+}
+
+type uninstallCmd struct {
+	PurgeData bool `help:"also permanently delete HA configuration, credentials, database, and DCS data"`
+}
+
+func (c *uninstallCmd) Run(ctx context.Context) error {
+	return deployment.Uninstall(ctx, c.PurgeData)
 }
 
 type updateCmd struct {

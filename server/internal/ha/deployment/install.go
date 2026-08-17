@@ -33,6 +33,15 @@ const (
 	minimumComposeVersion = "v2.24.4" // fleet-compose.yaml uses !override, added in this Compose release.
 	updaterDropIn         = "/etc/systemd/system/proto-fleet-updater.service.d/proto-fleet-ha.conf"
 	haUpdaterDropIn       = "/etc/systemd/system/proto-fleet-ha.service.d/proto-fleet-updater.conf"
+	updaterBinary         = "/usr/local/libexec/proto-fleet/proto-fleet-updater"
+	updaterUnit           = "/etc/systemd/system/proto-fleet-updater.service"
+	updaterEnvironment    = "/etc/proto-fleet/updater.env"
+	updaterStateRoot      = "/var/lib/proto-fleet-updater"
+	updaterRuntimeRoot    = "/run/proto-fleet-updater"
+	updaterLock           = updaterStateRoot + "/updater.lock"
+	keepalivedConfig      = "/etc/keepalived/keepalived.conf"
+	keepalivedOverride    = "/etc/systemd/system/keepalived.service.d/override.conf"
+	keepalivedHealthCheck = "/usr/local/libexec/proto-fleet/check-fleet-active"
 )
 
 var errInstallConverging = errors.New("HA service remains enabled and is still converging")
@@ -229,10 +238,10 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 	}
 	for _, path := range []string{
 		serviceUnit, firewallUnit, nftablesDropIn, nftablesReloadConfig,
-		"/usr/local/libexec/proto-fleet/check-fleet-active",
-		"/usr/local/libexec/proto-fleet/proto-fleet-updater",
-		"/etc/systemd/system/proto-fleet-updater.service",
-		"/etc/proto-fleet/updater.env",
+		keepalivedHealthCheck,
+		updaterBinary,
+		updaterUnit,
+		updaterEnvironment,
 	} {
 		if _, err := deps.lstat(path); err == nil {
 			return installedDependencies{}, fmt.Errorf("HA install requires a dedicated host without existing Proto Fleet state; found %s", path)
@@ -246,7 +255,7 @@ func inspectDedicatedHost(ctx context.Context, deps installDependencies) (instal
 	if err := rejectExistingPath(deps, "/etc/systemd/system/docker.service", "foreign Docker systemd unit"); err != nil {
 		return installedDependencies{}, err
 	}
-	if err := rejectExistingPath(deps, "/etc/keepalived/keepalived.conf", "existing keepalived configuration"); err != nil {
+	if err := rejectExistingPath(deps, keepalivedConfig, "existing keepalived configuration"); err != nil {
 		return installedDependencies{}, err
 	}
 	if err := rejectExistingPath(deps, "/etc/systemd/system/keepalived.service", "foreign keepalived systemd unit"); err != nil {
@@ -668,10 +677,10 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		}
 	}
 	if config.isDatabaseNode() {
-		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0755", filepath.Join(installRoot, "updater", "proto-fleet-updater"), "/usr/local/libexec/proto-fleet/proto-fleet-updater"); err != nil {
+		if output, err := deps.run(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0755", filepath.Join(installRoot, "updater", "proto-fleet-updater"), updaterBinary); err != nil {
 			return fmt.Errorf("install host updater: %s", commandError(output, err))
 		}
-		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "updater", "proto-fleet-updater.service"), "/etc/systemd/system/proto-fleet-updater.service"); err != nil {
+		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0644", filepath.Join(installRoot, "updater", "proto-fleet-updater.service"), updaterUnit); err != nil {
 			return fmt.Errorf("install host updater service: %s", commandError(output, err))
 		}
 		for sourceName, target := range map[string]string{
@@ -683,15 +692,15 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 			}
 		}
 		updaterEnv := fmt.Sprintf(
-			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=/usr/local/libexec/proto-fleet/proto-fleet-updater\n",
-			installBase,
+			"PROTO_FLEET_UPDATER_DEPLOYMENT_MODE=ha\nPROTO_FLEET_INSTALL_ROOT=%s\nPROTO_FLEET_UPDATER_BINARY_PATH=%s\n",
+			installBase, updaterBinary,
 		)
 		temp, err := writeInstallTemp("updater.env", updaterEnv, 0o600)
 		if err != nil {
 			return err
 		}
 		defer os.Remove(temp)
-		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", temp, "/etc/proto-fleet/updater.env"); err != nil {
+		if output, err := deps.run(ctx, "sudo", "install", "-o", "root", "-g", "root", "-m", "0600", temp, updaterEnvironment); err != nil {
 			return fmt.Errorf("install host updater configuration: %s", commandError(output, err))
 		}
 	}
@@ -748,8 +757,8 @@ func installKeepalived(ctx context.Context, source string, config NodeConfig, de
 		return fmt.Errorf("read keepalived systemd template: %w", err)
 	}
 	for name, contents := range map[string]string{
-		"/etc/keepalived/keepalived.conf": rendered,
-		"/etc/systemd/system/keepalived.service.d/override.conf": strings.NewReplacer(
+		keepalivedConfig: rendered,
+		keepalivedOverride: strings.NewReplacer(
 			"${HA_VIRTUAL_IP}", config.VirtualIP,
 			"${HA_NETWORK_INTERFACE}", config.NetworkInterface,
 		).Replace(string(systemdTemplate)),
@@ -763,7 +772,7 @@ func installKeepalived(ctx context.Context, source string, config NodeConfig, de
 			return err
 		}
 	}
-	if err := placeFile(ctx, deps, "install keepalived health check", filepath.Join(source, "ha", "scripts", "check-fleet-active.sh"), "/usr/local/libexec/proto-fleet/check-fleet-active", "0755"); err != nil {
+	if err := placeFile(ctx, deps, "install keepalived health check", filepath.Join(source, "ha", "scripts", "check-fleet-active.sh"), keepalivedHealthCheck, "0755"); err != nil {
 		return err
 	}
 	return placeFile(ctx, deps, "install keepalived service dependency", filepath.Join(source, "ha", "proto-fleet-ha-keepalived.conf"), "/etc/systemd/system/proto-fleet-ha.service.d/keepalived.conf", "0644")
@@ -911,6 +920,7 @@ func fleetComposeArgs(operation string, services ...string) []string {
 
 func fleetComposeArgsAt(root, operation string, services ...string) []string {
 	args := []string{
+		"--project-name", "deployment",
 		"--env-file", filepath.Join(configRoot, "base.env"),
 		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
 		"--env-file", filepath.Join(configRoot, "node.env"),

@@ -1,10 +1,7 @@
 package deployment
 
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,35 +9,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProbeLocalEtcdTLSRejectsUntrustedServer(t *testing.T) {
+func TestProbeLocalEtcdListenerAcceptsPreQuorumProcess(t *testing.T) {
 	// Arrange
-	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	defer server.Close()
-	trustedRoots := x509.NewCertPool()
-	trustedRoots.AddCert(server.Certificate())
-	serverName := server.Certificate().DNSNames[0]
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
 
-	for _, test := range []struct {
-		name    string
-		roots   *x509.CertPool
-		wantErr bool
-	}{
-		{name: "trusted", roots: trustedRoots},
-		{name: "untrusted", roots: x509.NewCertPool(), wantErr: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Act
-			ready, err := probeLocalEtcdTLS(t.Context(), server.Listener.Addr().String(), &tls.Config{RootCAs: test.roots, ServerName: serverName, MinVersion: tls.VersionTLS12})
+	// Act
+	ready := probeLocalEtcdListener(t.Context(), listener.Addr().String())
 
-			// Assert
-			require.Equal(t, !test.wantErr, ready)
-			if test.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
+	// Assert
+	require.True(t, ready)
 }
 
 func TestInfrastructureDownArgsSelectsDatabaseProfile(t *testing.T) {
