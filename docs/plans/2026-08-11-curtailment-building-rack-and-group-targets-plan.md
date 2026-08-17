@@ -126,6 +126,10 @@ When an owned miner leaves scope or becomes unpaired:
 - Render summaries by the terminal type, such as `2 buildings`.
 - This UI-neutral model plus contracts, persistence, and backend resolution can
   land before the final target-builder visuals are ready.
+- During that staged rollout, topology-scoped profiles remain visible but
+  read-only in Settings and are excluded from the New curtailment profile
+  selector until the UI can rehydrate their terminal selector. No intermediate
+  adapter may synthesize Whole organization for an unsupported typed scope.
 
 ### 2. Add the shared drill-down target builder
 
@@ -348,6 +352,8 @@ Frontend coverage:
 - Canonical request/hydration tests for each target type and mixed-type
   rejection across
   Preview, Start, profile create/reload/edit/test, automation, and display.
+- Staged-rollout tests prove unsupported topology profiles remain read-only and
+  cannot enter an execution path through a Whole organization fallback.
 - Stale-browser schema rejection and profile/automation revision handling;
   disable/delete remain available without a current revision.
 
@@ -381,7 +387,7 @@ Run:
 ```sh
 bin/just gen
 (cd server && ../bin/go test ./internal/domain/curtailment/... ./internal/handlers/curtailment ./internal/domain/stores/sqlstores)
-(cd client && ../bin/npx vitest run src/protoFleet/features/energy/CurtailmentStartModal.test.tsx src/protoFleet/features/energy/curtailmentRequestBuilders.test.ts src/protoFleet/features/energy/useCurtailmentPlanPreview.test.ts src/protoFleet/api/useCurtailmentResponseProfiles.test.tsx src/protoFleet/features/settings/components/Curtailment/CurtailmentSettingsPage.test.tsx)
+(cd client && ../bin/npx vitest run src/protoFleet/features/energy/CurtailmentStartModal.test.tsx src/protoFleet/features/energy/CurtailmentManagementPanel.test.tsx src/protoFleet/features/energy/curtailmentRequestBuilders.test.ts src/protoFleet/features/energy/useCurtailmentPlanPreview.test.ts src/protoFleet/api/curtailmentScopes.test.ts src/protoFleet/api/useCurtailmentResponseProfiles.test.tsx src/protoFleet/features/settings/components/Curtailment/CurtailmentSettingsPage.test.tsx)
 bin/just lint
 ```
 
