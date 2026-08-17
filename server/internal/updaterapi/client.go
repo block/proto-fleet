@@ -80,15 +80,29 @@ func (c *Client) TriggerComplete(ctx context.Context, operationID, targetVersion
 	return c.trigger(ctx, operationID, targetVersion, true)
 }
 
-func (c *Client) Acknowledge(ctx context.Context, operationID string) (Operation, bool, error) {
-	request := AcknowledgeRequest{OperationID: operationID}
+func (c *Client) Acknowledge(
+	ctx context.Context,
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (Operation, bool, error) {
+	request := AcknowledgeRequest{
+		OperationID:             operationID,
+		ExpectedStartedAt:       expectedStartedAt,
+		ExpectedOutcomeRevision: expectedOutcomeRevision,
+	}
 	var response AcknowledgeResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/acknowledge", request, &response); err != nil {
 		return Operation{}, false, err
 	}
-	if response.Operation.ID != operationID {
+	if response.Operation.ID != operationID ||
+		!response.Operation.StartedAt.Equal(expectedStartedAt) ||
+		response.Operation.OutcomeRevision != expectedOutcomeRevision {
 		return Operation{}, false, &ProtocolError{Cause: fmt.Errorf(
-			"operation identity mismatch: got id %q", response.Operation.ID,
+			"operation outcome identity mismatch: got id %q started_at %s revision %d",
+			response.Operation.ID,
+			response.Operation.StartedAt.UTC().Format(time.RFC3339Nano),
+			response.Operation.OutcomeRevision,
 		)}
 	}
 	return response.Operation, response.AlreadyAcknowledged, nil

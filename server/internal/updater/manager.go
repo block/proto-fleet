@@ -72,16 +72,20 @@ const (
 )
 
 var (
-	canonicalRelease         = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
-	staleStateArtifactName   = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
-	staleStagingArtifactName = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
-	operationLogNamePattern  = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
-	errTriggerInvalid        = errors.New("invalid updater trigger")
-	errTriggerPrecondition   = errors.New("updater trigger precondition failed")
-	errTriggerBusy           = errors.New("updater is busy")
-	errTriggerClosing        = errors.New("updater is shutting down")
-	errAcknowledgeUnknown    = errors.New("no matching updater operation")
-	errAcknowledgeActive     = errors.New("updater operation is not terminal")
+	canonicalRelease                = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
+	staleStateArtifactName          = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
+	staleStagingArtifactName        = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
+	operationLogNamePattern         = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
+	errTriggerInvalid               = errors.New("invalid updater trigger")
+	errTriggerPrecondition          = errors.New("updater trigger precondition failed")
+	errTriggerBusy                  = errors.New("updater is busy")
+	errTriggerClosing               = errors.New("updater is shutting down")
+	errAcknowledgeUnknown           = errors.New("no matching updater operation")
+	errAcknowledgeActive            = errors.New("updater operation is not terminal")
+	errAcknowledgeStartedAtRequired = errors.New("expected updater operation start time is required")
+	errAcknowledgeStartedAtMismatch = errors.New("updater operation start time does not match")
+	errAcknowledgeRevisionRequired  = errors.New("expected updater outcome revision is required")
+	errAcknowledgeRevisionMismatch  = errors.New("updater outcome revision does not match")
 )
 
 type classifiedTriggerError struct {
@@ -723,7 +727,7 @@ func newManager(cfg Config) (*Manager, error) {
 	}
 	protectedLogName := ""
 	if m.operation != nil {
-		protectedLogName = operationLogFilename(m.operation.ID)
+		protectedLogName = operationLogFilename(m.operation.ID, m.operation.StartedAt)
 	}
 	if err := m.pruneOperationLogs(protectedLogName, 0, 0); err != nil {
 		_ = processLock.Close()
@@ -785,19 +789,25 @@ func (m *Manager) RecoverApplication() error {
 	}
 	if err := m.runHACommand(context.Background(), m.cfg.ActivationTimeout, deployment, io.Discard, "app-start", version, "any"); err != nil {
 		recoveryErr := fmt.Errorf("restart interrupted HA application: %w", err)
+		now := m.terminalOutcomeCutoff(*m.operation)
+		advanceOutcomeRevision(m.operation)
 		m.operation.Phase = updaterapi.PhaseFailed
 		m.operation.Message = "HA application recovery failed"
 		m.operation.Error = recoveryErr.Error()
-		m.operation.UpdatedAt = m.cfg.Now().UTC()
+		m.operation.UpdatedAt = now
+		m.operation.CompletedAt = &now
 		if persistErr := m.persistLocked(); persistErr != nil {
 			return errors.Join(recoveryErr, fmt.Errorf("persist HA application recovery failure: %w", persistErr))
 		}
 		return recoveryErr
 	}
+	now := m.terminalOutcomeCutoff(*m.operation)
+	advanceOutcomeRevision(m.operation)
 	m.operation.RecoveryCommand = ""
 	m.operation.RecoveryPending = false
 	m.operation.Message += "; HA application restarted"
-	m.operation.UpdatedAt = m.cfg.Now().UTC()
+	m.operation.UpdatedAt = now
+	m.operation.CompletedAt = &now
 	return m.persistLocked()
 }
 
@@ -966,25 +976,65 @@ func (m *Manager) failureWasRemediated(operation updaterapi.Operation) bool {
 	return err == nil && proof.Mode().IsRegular() && proof.ModTime().After(*operation.CompletedAt)
 }
 
-// Acknowledge durably records that an operator dismissed the terminal outcome
-// of the given operation. It is idempotent for the same operation and fails
-// when the operation is no longer current or is still running, so a stale
-// dismissal can never suppress a different or in-flight upgrade. The boolean
-// reports whether the dismissal was already in place, letting callers retry
-// after ambiguous transport results without double-recording the action.
-func (m *Manager) Acknowledge(operationID string) (updaterapi.Operation, bool, error) {
+// Acknowledge durably records that an operator dismissed a terminal operation
+// outcome. It is idempotent for the same operation incarnation and outcome
+// revision and fails when any identity is stale or the operation is still
+// running, so a stale dismissal can never suppress a later operation that
+// deliberately reuses the caller-supplied ID or rewritten recovery guidance.
+// The boolean reports whether the dismissal was already in place, letting
+// callers retry after ambiguous transport results without double-recording the
+// action.
+func (m *Manager) Acknowledge(
+	operationID string,
+	expectedStartedAt time.Time,
+	expectedOutcomeRevision uint64,
+) (updaterapi.Operation, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if expectedStartedAt.IsZero() {
+		return updaterapi.Operation{}, false, newTriggerError(
+			errAcknowledgeStartedAtRequired,
+			"expected operation start time is required",
+		)
+	}
+	if expectedOutcomeRevision == 0 {
+		return updaterapi.Operation{}, false, newTriggerError(
+			errAcknowledgeRevisionRequired,
+			"expected outcome revision must be greater than zero",
+		)
+	}
 	if m.operation == nil || m.operation.ID != operationID {
 		return updaterapi.Operation{}, false, newTriggerError(
 			errAcknowledgeUnknown,
 			fmt.Sprintf("operation %s is not the current updater operation", operationID),
 		)
 	}
+	if !m.operation.StartedAt.Equal(expectedStartedAt) {
+		return updaterapi.Operation{}, false, newTriggerError(
+			errAcknowledgeStartedAtMismatch,
+			fmt.Sprintf(
+				"operation %s start time changed from %s to %s",
+				operationID,
+				expectedStartedAt.UTC().Format(time.RFC3339Nano),
+				m.operation.StartedAt.UTC().Format(time.RFC3339Nano),
+			),
+		)
+	}
 	if !m.operation.Phase.Terminal() {
 		return updaterapi.Operation{}, false, newTriggerError(
 			errAcknowledgeActive,
 			fmt.Sprintf("operation %s has not finished", operationID),
+		)
+	}
+	if m.operation.OutcomeRevision != expectedOutcomeRevision {
+		return updaterapi.Operation{}, false, newTriggerError(
+			errAcknowledgeRevisionMismatch,
+			fmt.Sprintf(
+				"operation %s outcome revision changed from %d to %d",
+				operationID,
+				expectedOutcomeRevision,
+				m.operation.OutcomeRevision,
+			),
 		)
 	}
 	if m.operation.Acknowledged {
@@ -1027,7 +1077,7 @@ func (m *Manager) TriggerCompleteWithID(targetVersion, operationID string) (upda
 
 func (m *Manager) triggerWithID(targetVersion, operationID string, complete bool) (updaterapi.Operation, error) {
 	parsedID, err := uuid.Parse(operationID)
-	if err != nil || parsedID.String() != operationID {
+	if err != nil || parsedID == uuid.Nil || parsedID.String() != operationID {
 		return updaterapi.Operation{}, newTriggerError(errTriggerInvalid, "operation id must be a canonical UUID")
 	}
 	return m.trigger(targetVersion, operationID, true, complete)
@@ -1144,12 +1194,18 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	}
 	protectedLogName := ""
 	if m.operation != nil {
-		protectedLogName = operationLogFilename(m.operation.ID)
+		protectedLogName = operationLogFilename(m.operation.ID, m.operation.StartedAt)
 	}
 	if err := m.pruneOperationLogs(protectedLogName, 1, maxCommandLogBytes); err != nil {
 		return updaterapi.Operation{}, fmt.Errorf("reserve updater operation log capacity: %w", err)
 	}
 	now := m.cfg.Now().UTC()
+	// StartedAt is part of the acknowledgement compare-and-set identity. Keep
+	// each freshly admitted incarnation strictly newer than the one retained in
+	// state even when the host clock is coarse, frozen, or moves backward.
+	if m.operation != nil && !now.After(m.operation.StartedAt) {
+		now = m.operation.StartedAt.Add(time.Nanosecond).UTC()
+	}
 	op := &updaterapi.Operation{
 		ID:            operationID,
 		TargetVersion: targetVersion,
@@ -1173,7 +1229,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	go func() {
 		defer m.operationWG.Done()
 		defer m.finishOperation()
-		m.run(operationCtx, operationCopy.ID, targetVersion, complete)
+		m.run(operationCtx, operationCopy.ID, operationCopy.StartedAt, targetVersion, complete)
 	}()
 	return operationCopy, nil
 }
@@ -1185,8 +1241,8 @@ func (m *Manager) finishOperation() {
 	m.cancelOperation = nil
 }
 
-func (m *Manager) run(ctx context.Context, operationID, targetVersion string, complete bool) {
-	logName := operationLogFilename(operationID)
+func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Time, targetVersion string, complete bool) {
+	logName := operationLogFilename(operationID, startedAt)
 	logPath := filepath.Join(m.cfg.StateDir, "logs", logName)
 	logFile, err := m.logRoot.OpenFile(logName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -1210,7 +1266,7 @@ func (m *Manager) run(ctx context.Context, operationID, targetVersion string, co
 		// Terminal state is already persisted by this point. Retention is best
 		// effort here so a filesystem cleanup problem cannot rewrite an upgrade
 		// outcome after Fleet has already been activated (or failed safely).
-		if err := m.pruneOperationLogs(operationLogFilename(operationID), 0, 0); err != nil {
+		if err := m.pruneOperationLogs(logName, 0, 0); err != nil {
 			log.Printf("prune updater operation logs after completion: %v", err)
 		}
 	}()
@@ -1575,8 +1631,13 @@ func operationArtifactBase(operationID string) string {
 	return operationArtifactPrefix + hex.EncodeToString(digest[:])
 }
 
-func operationLogFilename(operationID string) string {
-	return operationArtifactBase(operationID) + ".log"
+func operationLogFilename(operationID string, startedAt time.Time) string {
+	// Keep the externally visible name in the same fixed, SHA-derived format
+	// while making the retained file unique to the host-owned operation
+	// incarnation. The NUL separator makes the two variable-length identity
+	// components unambiguous without exposing either one in the filesystem.
+	identity := operationID + "\x00" + startedAt.UTC().Format(time.RFC3339Nano)
+	return operationArtifactBase(identity) + ".log"
 }
 
 func (m *Manager) writeActivationMarker(marker activationMarker) error {
@@ -2047,7 +2108,8 @@ func (m *Manager) finishFailure(id string, err error, recovery string, recoveryP
 		return
 	}
 	previous := *m.operation
-	now := m.cfg.Now().UTC()
+	now := m.terminalOutcomeCutoff(*m.operation)
+	advanceOutcomeRevision(m.operation)
 	m.operation.Phase = updaterapi.PhaseFailed
 	m.operation.Message = "Upgrade failed"
 	m.operation.Error = err.Error()
@@ -2071,7 +2133,8 @@ func (m *Manager) succeed(id, message string, closeForSelfUpdate bool) error {
 		return fmt.Errorf("operation %s is no longer current", id)
 	}
 	previous := *m.operation
-	now := m.cfg.Now().UTC()
+	now := m.terminalOutcomeCutoff(*m.operation)
+	advanceOutcomeRevision(m.operation)
 	m.operation.Phase = updaterapi.PhaseSucceeded
 	m.operation.Message = message
 	m.operation.RecoveryCommand = ""
@@ -2119,6 +2182,7 @@ func (m *Manager) loadState() error {
 		return fmt.Errorf("successful operation retains an unexpected activation marker")
 	}
 	wasTerminal := op.Phase.Terminal()
+	terminalOutcomeBeforeRecovery := op
 	deriveForwardRecovery := op.Phase == updaterapi.PhaseActivating || marker != nil
 	if !wasTerminal && !deriveForwardRecovery {
 		op.RecoveryCommand = ""
@@ -2131,7 +2195,7 @@ func (m *Manager) loadState() error {
 	)
 	if err != nil {
 		if marker != nil && op.RecoveryCommand != "" {
-			now := m.cfg.Now().UTC()
+			now := m.terminalOutcomeCutoff(op)
 			rewriteActivationRecoveryFailure(&op, now, err)
 			m.operation = &op
 			if persistErr := m.persistLocked(); persistErr != nil {
@@ -2142,7 +2206,8 @@ func (m *Manager) loadState() error {
 	}
 	if !wasTerminal {
 		op.RecoveryPending = m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != ""
-		now := m.cfg.Now().UTC()
+		now := m.terminalOutcomeCutoff(op)
+		advanceOutcomeRevision(&op)
 		op.Phase = updaterapi.PhaseFailed
 		if restoredPrevious {
 			op.Message = "Upgrade interrupted; previous deployment restored"
@@ -2154,11 +2219,9 @@ func (m *Manager) loadState() error {
 		op.UpdatedAt = now
 		op.CompletedAt = &now
 	} else if restoredPrevious {
-		now := m.cfg.Now().UTC()
+		now := m.terminalOutcomeCutoff(op)
+		advanceOutcomeRevision(&op)
 		op.Phase = updaterapi.PhaseFailed
-		// The rewritten outcome is new information; a dismissal of the old
-		// outcome must not carry over to it.
-		op.Acknowledged = false
 		op.Message = "Previous deployment restored during updater startup"
 		if op.Error == "" {
 			op.Error = "The active deployment was missing; the updater restored the validated previous deployment."
@@ -2174,8 +2237,18 @@ func (m *Manager) loadState() error {
 		// the newly surfaced recovery information.
 		op.CompletedAt = &now
 	}
-	if marker != nil && m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != "" {
-		op.RecoveryPending = true
+	if marker != nil {
+		if m.cfg.DeploymentMode == DeploymentModeHA && op.RecoveryCommand != "" {
+			op.RecoveryPending = true
+		}
+		if wasTerminal && !restoredPrevious && terminalOutcomeMateriallyChanged(terminalOutcomeBeforeRecovery, op) {
+			now := m.terminalOutcomeCutoff(op)
+			advanceOutcomeRevision(&op)
+			op.UpdatedAt = now
+			// Recovery derived from a retained activation marker is newly surfaced
+			// terminal guidance. Advance the remediation cutoff with its revision.
+			op.CompletedAt = &now
+		}
 	}
 	m.operation = &op
 	if err := m.persistReconciledState(); err != nil {
@@ -2188,10 +2261,8 @@ func (m *Manager) loadState() error {
 }
 
 func rewriteActivationRecoveryFailure(operation *updaterapi.Operation, now time.Time, recoveryErr error) {
+	advanceOutcomeRevision(operation)
 	operation.Phase = updaterapi.PhaseFailed
-	// Reconciliation discovered materially new recovery guidance. A dismissal
-	// of the prior outcome must not suppress the rewritten failure.
-	operation.Acknowledged = false
 	operation.Message = "Activation layout requires manual recovery"
 	errorMessage := "Activation layout recovery did not complete: " + recoveryErr.Error()
 	if !strings.Contains(operation.Error, errorMessage) {
@@ -2205,6 +2276,44 @@ func rewriteActivationRecoveryFailure(operation *updaterapi.Operation, now time.
 	// with it so startup proof from before the rewrite cannot immediately
 	// auto-acknowledge the new recovery guidance.
 	operation.CompletedAt = &now
+}
+
+// terminalOutcomeCutoff keeps each newly surfaced terminal outcome from being
+// ordered before state already visible on the host. In particular, Status
+// treats a regular startup proof newer than CompletedAt as remediation, so a
+// backward wall clock must not let an older proof hide a new recovery revision.
+func (m *Manager) terminalOutcomeCutoff(operation updaterapi.Operation) time.Time {
+	cutoff := m.cfg.Now().UTC()
+	if operation.StartedAt.After(cutoff) {
+		cutoff = operation.StartedAt.UTC()
+	}
+	if operation.UpdatedAt.After(cutoff) {
+		cutoff = operation.UpdatedAt.UTC()
+	}
+	if operation.CompletedAt != nil && operation.CompletedAt.After(cutoff) {
+		cutoff = operation.CompletedAt.UTC()
+	}
+	proof, err := os.Lstat(filepath.Join(m.cfg.InstallRoot, "deployment", startupProofFilename))
+	if err == nil && proof.Mode().IsRegular() && proof.ModTime().After(cutoff) {
+		cutoff = proof.ModTime().UTC()
+	}
+	return cutoff
+}
+
+// advanceOutcomeRevision gives each materially distinct terminal outcome a
+// compare-and-set identity. A prior acknowledgement applies only to the
+// outcome it observed, never to recovery guidance written later.
+func advanceOutcomeRevision(operation *updaterapi.Operation) {
+	operation.OutcomeRevision++
+	operation.Acknowledged = false
+}
+
+func terminalOutcomeMateriallyChanged(before, after updaterapi.Operation) bool {
+	return before.Phase != after.Phase ||
+		before.Message != after.Message ||
+		before.Error != after.Error ||
+		before.RecoveryCommand != after.RecoveryCommand ||
+		before.RecoveryPending != after.RecoveryPending
 }
 
 // persistReconciledState normally preserves the ordering of reconciliation,

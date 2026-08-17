@@ -22,6 +22,7 @@ export interface UpgradeOperationModalProps {
   open: boolean;
   operation?: UpgradeOperation;
   reconciling: boolean;
+  reloadPending?: boolean;
   release?: ReleaseInfo;
   targetVersion?: string;
   triggerError: string | null;
@@ -243,6 +244,7 @@ interface GetModalButtonsOptions {
   onUseManualFallback: () => void;
   operation?: UpgradeOperation;
   reconciling: boolean;
+  reloadPending: boolean;
   release?: ReleaseInfo;
   triggering: boolean;
 }
@@ -256,6 +258,7 @@ const getModalButtons = ({
   onUseManualFallback,
   operation,
   reconciling,
+  reloadPending,
   release,
   triggering,
 }: GetModalButtonsOptions): ModalButtons | undefined => {
@@ -275,6 +278,7 @@ const getModalButtons = ({
         text: "Reload Fleet",
         variant: variants.primary,
         onClick: onReload,
+        loading: reloadPending,
         dismissModalOnClick: false,
       },
     ];
@@ -320,6 +324,7 @@ const UpgradeOperationModal = ({
   open,
   operation,
   reconciling,
+  reloadPending = false,
   release,
   targetVersion,
   triggerError,
@@ -347,6 +352,7 @@ const UpgradeOperationModal = ({
     onUseManualFallback,
     operation,
     reconciling,
+    reloadPending,
     release,
     triggering,
   });

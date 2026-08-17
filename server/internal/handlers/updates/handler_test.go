@@ -9,10 +9,12 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	instancev1 "github.com/block/proto-fleet/server/generated/grpc/instance/v1"
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	updates "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
@@ -153,4 +155,50 @@ func TestUpgradePhaseMapping(t *testing.T) {
 	for phase, expected := range tests {
 		assert.Equal(t, expected, phaseToProto(phase), "phase %s", phase)
 	}
+}
+
+func TestUpgradeOperationMapsOutcomeRevision(t *testing.T) {
+	t.Parallel()
+
+	operation := operationToProto(updaterapi.Operation{
+		ID:              "11111111-1111-4111-8111-111111111111",
+		OutcomeRevision: 7,
+	})
+
+	assert.Equal(t, uint64(7), operation.GetOutcomeRevision())
+}
+
+func TestAcknowledgeUpgradeRejectsMissingOrInvalidExpectedStartedAt(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermInstanceUpdate)
+	for _, test := range []struct {
+		name      string
+		startedAt *timestamppb.Timestamp
+	}{
+		{name: "missing"},
+		{name: "zero", startedAt: timestamppb.New(time.Time{})},
+		{name: "outside protobuf range", startedAt: &timestamppb.Timestamp{Seconds: 253402300800}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := h.AcknowledgeUpgrade(ctx, connect.NewRequest(&instancev1.AcknowledgeUpgradeRequest{
+				OperationId:             "11111111-1111-4111-8111-111111111111",
+				ExpectedOutcomeRevision: 1,
+				ExpectedStartedAt:       test.startedAt,
+			}))
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		})
+	}
+}
+
+func TestProtoToExpectedStartedAtPreservesTheObservedInstant(t *testing.T) {
+	t.Parallel()
+
+	expected := time.Date(2026, 8, 15, 4, 30, 0, 123_456_789, time.UTC)
+	actual, err := protoToExpectedStartedAt(timestamppb.New(expected))
+	require.NoError(t, err)
+	assert.Equal(t, expected, actual)
 }
