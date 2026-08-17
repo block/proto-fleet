@@ -1,7 +1,13 @@
 import { ReactNode, useCallback, useMemo, useState } from "react";
 
-import { poolInfoAttributes } from "./constants";
-import { poolNameValidationErrors, urlValidationErrors, validateURLScheme } from "./PoolForm/constants";
+import { poolInfoAttributes, v2AuthorityPubkeyAttribute } from "./constants";
+import {
+  getV2AuthorityKeyValidationError,
+  isStratumV2URL,
+  poolNameValidationErrors,
+  urlValidationErrors,
+  validateURLScheme,
+} from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 import { getPoolUsernameValidationError } from "./validation";
 
@@ -33,6 +39,8 @@ interface PoolModalProps {
   usernameHelperText?: ReactNode;
   usernameRequired?: boolean;
   disallowUsernameSeparator?: boolean;
+  /** Render ProtoOS's standalone SV2 authority-key field instead of Fleet's legacy URL-path format. */
+  standaloneV2AuthorityKey?: boolean;
 }
 
 const PoolModal = ({
@@ -51,12 +59,14 @@ const PoolModal = ({
   usernameHelperText,
   usernameRequired = true,
   disallowUsernameSeparator = false,
+  standaloneV2AuthorityKey = false,
 }: PoolModalProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const [draftPoolInfo, setDraftPoolInfo] = useState(deepClone(pools));
   const [poolNameError, setPoolNameError] = useState<string | undefined>();
   const [urlError, setUrlError] = useState<string | undefined>();
   const [usernameError, setUsernameError] = useState<string | undefined>();
+  const [authorityKeyError, setAuthorityKeyError] = useState<string | undefined>();
   const [showCallout, setShowCallout] = useState(false);
   const [error, setError] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -80,6 +90,15 @@ const PoolModal = ({
     () => (mode === "edit" ? pools[poolIndex]?.username : undefined),
     [mode, pools, poolIndex],
   );
+  const showStandaloneV2AuthorityKey = standaloneV2AuthorityKey && isStratumV2URL(draftPoolInfo[poolIndex]?.url ?? "");
+  const missingStandaloneV2AuthorityKey =
+    standaloneV2AuthorityKey &&
+    Boolean(
+      getV2AuthorityKeyValidationError(
+        draftPoolInfo[poolIndex]?.url ?? "",
+        draftPoolInfo[poolIndex]?.v2_authority_pubkey,
+      ),
+    );
 
   const isSaveDisabled = useMemo(
     () =>
@@ -88,8 +107,20 @@ const PoolModal = ({
       (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()) ||
       Boolean(poolNameError) ||
       Boolean(urlError) ||
-      Boolean(usernameError),
-    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired, poolNameError, urlError, usernameError],
+      Boolean(usernameError) ||
+      Boolean(authorityKeyError) ||
+      missingStandaloneV2AuthorityKey,
+    [
+      draftPoolInfo,
+      poolIndex,
+      hidePoolName,
+      usernameRequired,
+      poolNameError,
+      urlError,
+      usernameError,
+      authorityKeyError,
+      missingStandaloneV2AuthorityKey,
+    ],
   );
 
   // Sync draft with incoming pools prop when parent updates it
@@ -107,6 +138,7 @@ const PoolModal = ({
       setPoolNameError(undefined);
       setUrlError(undefined);
       setUsernameError(undefined);
+      setAuthorityKeyError(undefined);
       setShowCallout(false);
       setError(false);
       setIsSaving(false);
@@ -135,7 +167,15 @@ const PoolModal = ({
         if (!stored) {
           setUrlError(undefined);
         } else {
-          setUrlError(validateURLScheme(stored));
+          setUrlError(validateURLScheme(stored, { standaloneV2AuthorityKey }));
+        }
+        if (standaloneV2AuthorityKey) {
+          if (!isStratumV2URL(stored)) {
+            poolsInfo[poolIndex][v2AuthorityPubkeyAttribute] = "";
+          }
+          setAuthorityKeyError(
+            getV2AuthorityKeyValidationError(stored, poolsInfo[poolIndex][v2AuthorityPubkeyAttribute]),
+          );
         }
       }
 
@@ -156,8 +196,12 @@ const PoolModal = ({
       if (infoKey === poolInfoAttributes.password) {
         setIsPasswordSet(true);
       }
+
+      if (infoKey === v2AuthorityPubkeyAttribute) {
+        setAuthorityKeyError(getV2AuthorityKeyValidationError(poolsInfo[poolIndex].url, value));
+      }
     },
-    [draftPoolInfo, poolIndex, disallowUsernameSeparator, editableLegacyUsername],
+    [draftPoolInfo, poolIndex, disallowUsernameSeparator, editableLegacyUsername, standaloneV2AuthorityKey],
   );
 
   const onSubmit = useCallback(async () => {
@@ -169,9 +213,20 @@ const PoolModal = ({
       hasError = true;
     }
 
-    if (!pool?.url?.trim()) {
-      setUrlError(urlValidationErrors.required);
+    const nextUrlError = !pool?.url?.trim()
+      ? urlValidationErrors.required
+      : validateURLScheme(pool.url, { standaloneV2AuthorityKey });
+    if (nextUrlError) {
+      setUrlError(nextUrlError);
       hasError = true;
+    }
+
+    if (standaloneV2AuthorityKey) {
+      const nextAuthorityKeyError = getV2AuthorityKeyValidationError(pool?.url ?? "", pool?.v2_authority_pubkey);
+      if (nextAuthorityKeyError) {
+        setAuthorityKeyError(nextAuthorityKeyError);
+        hasError = true;
+      }
     }
 
     const nextUsernameError = getPoolUsernameValidationError(pool?.username, {
@@ -233,13 +288,23 @@ const PoolModal = ({
     usernameRequired,
     disallowUsernameSeparator,
     editableLegacyUsername,
+    standaloneV2AuthorityKey,
   ]);
 
   const onTestConnection = useCallback(() => {
     const url = draftPoolInfo[poolIndex].url.trim();
-    if (!url) {
-      setUrlError(urlValidationErrors.required);
+    const nextUrlError = !url ? urlValidationErrors.required : validateURLScheme(url, { standaloneV2AuthorityKey });
+    if (nextUrlError) {
+      setUrlError(nextUrlError);
       return;
+    }
+
+    if (standaloneV2AuthorityKey) {
+      const nextAuthorityKeyError = getV2AuthorityKeyValidationError(url, draftPoolInfo[poolIndex].v2_authority_pubkey);
+      if (nextAuthorityKeyError) {
+        setAuthorityKeyError(nextAuthorityKeyError);
+        return;
+      }
     }
 
     const nextUsernameError = getPoolUsernameValidationError(draftPoolInfo[poolIndex].username, {
@@ -263,7 +328,15 @@ const PoolModal = ({
       },
       onFinally: () => setShowCallout(true),
     });
-  }, [draftPoolInfo, poolIndex, testConnection, usernameRequired, disallowUsernameSeparator, editableLegacyUsername]);
+  }, [
+    draftPoolInfo,
+    poolIndex,
+    testConnection,
+    usernameRequired,
+    disallowUsernameSeparator,
+    editableLegacyUsername,
+    standaloneV2AuthorityKey,
+  ]);
 
   const modalButtons = [
     ...(mode === "edit" && onDelete
@@ -351,6 +424,20 @@ const PoolModal = ({
           error={urlError}
           autoFocus={hidePoolName}
         />
+        {showStandaloneV2AuthorityKey ? (
+          <Input
+            id={`${v2AuthorityPubkeyAttribute} ${poolIndex}`}
+            label="Authority public key"
+            onChange={onPoolChange}
+            initValue={draftPoolInfo[poolIndex].v2_authority_pubkey || ""}
+            testId={`${v2AuthorityPubkeyAttribute}-${poolIndex}-input`}
+            error={authorityKeyError}
+            tooltip={{
+              header: "Stratum V2 authority public key",
+              body: "Enter the authority public key published by your pool operator. It authenticates the pool's Stratum V2 server.",
+            }}
+          />
+        ) : null}
         <div className="space-y-2">
           <Input
             id={`${poolInfoAttributes.username} ${poolIndex}`}

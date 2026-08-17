@@ -255,5 +255,70 @@ describe("PoolModal", () => {
 
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     });
+
+    it("collects a standalone authority key for ProtoOS SV2 pools", async () => {
+      mockOnSave.mockResolvedValue(undefined);
+      render(
+        <PoolModal
+          {...defaultProps}
+          pools={[
+            {
+              name: "SV2 Pool",
+              url: "stratum2+tcp://pool.example.com",
+              username: "worker",
+              password: "",
+              priority: 0,
+              v2_authority_pubkey: "",
+            },
+          ]}
+          onSave={mockOnSave}
+          standaloneV2AuthorityKey
+        />,
+      );
+
+      const authorityKeyInput = screen.getByLabelText("Authority public key");
+      expect(authorityKeyInput).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+      fireEvent.change(authorityKeyInput, { target: { value: "authority-key" } });
+      fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+      expect(mockTestConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          poolInfo: expect.objectContaining({
+            url: "stratum2+tcp://pool.example.com",
+            v2_authority_pubkey: "authority-key",
+          }),
+        }),
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => {
+        expect(mockOnSave).toHaveBeenCalledWith(
+          expect.objectContaining({ v2_authority_pubkey: "authority-key" }),
+          false,
+        );
+      });
+    });
+
+    it("preserves legacy path-based SV2 entry unless standalone keys are enabled", () => {
+      render(
+        <PoolModal
+          {...defaultProps}
+          pools={[
+            {
+              name: "Fleet SV2 Pool",
+              url: "stratum2+tcp://pool.example.com:3336/authority-key",
+              username: "worker",
+              password: "",
+              priority: 0,
+            },
+          ]}
+        />,
+      );
+
+      expect(screen.queryByLabelText("Authority public key")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    });
   });
 });
