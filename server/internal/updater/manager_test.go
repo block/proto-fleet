@@ -355,21 +355,39 @@ func TestManagerHARejectsDowngrade(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.4.0")
-	bundle := releaseBundle(t, "v1.3.0-rc.1")
-	server := releaseServer(t, "v1.3.0-rc.1", "amd64", bundle, "")
+	bundle := releaseBundle(t, "v1.3.0-alpha.1")
+	server := releaseServer(t, "v1.3.0-alpha.1", "amd64", bundle, "")
 	runner := &haRecordingRunner{}
 	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
 		cfg.DeploymentMode = DeploymentModeHA
 	})
 
 	// Act
-	_, err := manager.TriggerWithID("v1.3.0-rc.1", "11111111-1111-4111-8111-111111111111")
+	_, err := manager.TriggerWithID("v1.3.0-alpha.1", "11111111-1111-4111-8111-111111111111")
 
 	// Assert
 	require.ErrorIs(t, err, errTriggerPrecondition)
-	assert.ErrorContains(t, err, "target version v1.3.0-rc.1 must be newer than installed version v1.4.0")
+	assert.ErrorContains(t, err, "target version v1.3.0-alpha.1 must be newer than installed version v1.4.0")
 	assert.Empty(t, runner.Commands())
 	assert.Equal(t, "v1.4.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+}
+
+func TestIsCanonicalRelease(t *testing.T) {
+	for _, test := range []struct {
+		version string
+		want    bool
+	}{
+		{version: "v1.2.3", want: true},
+		{version: "v1.2.3-alpha.1", want: true},
+		{version: "v1.2.3-preview-20260817", want: true},
+		{version: "", want: false},
+		{version: "v1.2", want: false},
+		{version: "v1.2.3-alpha.1+build.7", want: false},
+	} {
+		t.Run(test.version, func(t *testing.T) {
+			assert.Equal(t, test.want, isCanonicalRelease(test.version))
+		})
+	}
 }
 
 func TestManagerHAInterruptedAfterStopRestartsCurrentApplication(t *testing.T) {

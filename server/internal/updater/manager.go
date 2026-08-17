@@ -72,7 +72,6 @@ const (
 )
 
 var (
-	canonicalRelease         = regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-rc\.\d+)?$`)
 	staleStateArtifactName   = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.(?:tar\.gz|sha256|updater)$`)
 	staleStagingArtifactName = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}$`)
 	operationLogNamePattern  = regexp.MustCompile(`^\.proto-fleet-upgrade-[a-f0-9]{64}\.log$`)
@@ -1001,10 +1000,10 @@ func (m *Manager) Acknowledge(operationID string) (updaterapi.Operation, bool, e
 }
 
 func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
-	if !canonicalRelease.MatchString(targetVersion) || !semver.IsValid(targetVersion) {
+	if !isCanonicalRelease(targetVersion) {
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerInvalid,
-			"target version must be a stable or RC release tag",
+			"target version must be a valid semantic release tag",
 		)
 	}
 	if m.cfg.NewID == nil {
@@ -1037,10 +1036,10 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	if operationID == "" {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: empty value")
 	}
-	if !canonicalRelease.MatchString(targetVersion) || !semver.IsValid(targetVersion) {
+	if !isCanonicalRelease(targetVersion) {
 		return updaterapi.Operation{}, newTriggerError(
 			errTriggerInvalid,
-			"target version must be a stable or RC release tag",
+			"target version must be a valid semantic release tag",
 		)
 	}
 	if complete && m.cfg.DeploymentMode != DeploymentModeHA {
@@ -1176,6 +1175,10 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 		m.run(operationCtx, operationCopy.ID, targetVersion, complete)
 	}()
 	return operationCopy, nil
+}
+
+func isCanonicalRelease(version string) bool {
+	return semver.IsValid(version) && semver.Canonical(version) == version
 }
 
 func (m *Manager) finishOperation() {
@@ -1651,7 +1654,7 @@ func (m *Manager) readActivationMarker() (*activationMarker, error) {
 	if err := json.Unmarshal(data, &marker); err != nil {
 		return nil, fmt.Errorf("decode activation marker: %w", err)
 	}
-	if marker.OperationID == "" || !canonicalRelease.MatchString(marker.TargetVersion) || !semver.IsValid(marker.TargetVersion) {
+	if marker.OperationID == "" || !isCanonicalRelease(marker.TargetVersion) {
 		return nil, fmt.Errorf("activation marker is invalid")
 	}
 	return &marker, nil

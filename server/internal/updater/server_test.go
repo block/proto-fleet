@@ -41,7 +41,7 @@ func TestHandleUpgradeRejectsTrailingContentAndAllowsWhitespace(t *testing.T) {
 		{
 			name:      "trailing whitespace",
 			body:      "{\"operation_id\":\"11111111-1111-4111-8111-111111111111\",\"target_version\":\"invalid\"}\n\t ",
-			wantError: "target version must be a stable or RC release tag",
+			wantError: "target version must be a valid semantic release tag",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
