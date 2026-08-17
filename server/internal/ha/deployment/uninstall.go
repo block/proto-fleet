@@ -91,14 +91,6 @@ func uninstall(ctx context.Context, purgeData bool, deps uninstallDependencies) 
 		return err
 	}
 
-	resetUnits := []string{"reset-failed", "proto-fleet-ha.service", "proto-fleet-ha-firewall.service"}
-	if config.isDatabaseNode() {
-		resetUnits = append(resetUnits, "keepalived.service")
-		resetUnits = append(resetUnits, "proto-fleet-updater.service")
-	}
-	if err := uninstallStep(ctx, deps, "clear HA service failures", "systemctl", resetUnits...); err != nil {
-		return err
-	}
 	if err := removeHAArtifacts(ctx, deps, config.isDatabaseNode()); err != nil {
 		return err
 	}

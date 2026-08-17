@@ -68,6 +68,7 @@ func TestUninstallPurgeDeletesPersistentStateLast(t *testing.T) {
 	config := callIndex(calls, "rm -rf -- "+configRoot)
 	require.Greater(t, data, cleanup)
 	require.Greater(t, config, data)
+	require.NotContains(t, strings.Join(calls, "\n"), "systemctl reset-failed")
 }
 
 func TestUninstallWitnessSkipsDatabaseServices(t *testing.T) {
