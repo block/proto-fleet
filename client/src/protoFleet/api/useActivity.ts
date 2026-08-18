@@ -7,6 +7,7 @@ import {
   ActivityFilterSchema,
 } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface UseActivityParams {
@@ -69,6 +70,14 @@ export function useActivity({ filter, pageSize = 50, enabled = true }: UseActivi
         handleAuthErrors({
           error: err,
           onError: (e) => {
+            if (isAuthOrPermissionError(e)) {
+              // Rows fetched under the revoked grant must not stay visible, resumable, or hold the
+              // merged feed's ordering barrier through a stale next-page token.
+              setActivities([]);
+              setTotalCount(0);
+              setPageToken("");
+              setHasMore(false);
+            }
             setError(getErrorMessage(e, "Failed to load activities"));
           },
         });

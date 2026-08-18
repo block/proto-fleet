@@ -8,6 +8,10 @@ import { useAuthErrors } from "@/protoFleet/store";
 
 const PAGE_SIZE = 50;
 
+// A failed first page leaves no cursor for Load more to retry with, so it self-heals with capped backoff.
+const FIRST_PAGE_RETRY_MS = 2_000;
+const FIRST_PAGE_RETRY_MAX_MS = 60_000;
+
 // Which alerts the pages cover: no filter is the whole history feed, an alert name with active_only is one
 // alert's firing instances.
 export interface PagedAlertsFilter {
@@ -63,11 +67,21 @@ export function usePagedAlerts(
 
   // Bumped on disable and on every new fetch, so a stale response cannot overwrite newer rows or cursor.
   const requestIdRef = useRef(0);
+  const retryDelayRef = useRef(FIRST_PAGE_RETRY_MS);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearRetry = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
   // A cursor appends, no cursor replaces: the first page of a newly mounted table.
   const loadPage = useCallback(
     async (pageCursor?: string) => {
       const requestId = ++requestIdRef.current;
+      // A new request supersedes any scheduled first-page retry.
+      clearRetry();
       try {
         const page = await api.listHistory({
           active_only: activeOnly,
@@ -77,6 +91,7 @@ export function usePagedAlerts(
           before_id: pageCursor,
         });
         if (requestId !== requestIdRef.current) return;
+        retryDelayRef.current = FIRST_PAGE_RETRY_MS;
         setItems((current) => (pageCursor ? [...current, ...page.alerts] : page.alerts));
         setCursor(page.next_cursor);
         // Clear a previous page's failure so a successful retry doesn't leave the callout up.
@@ -93,6 +108,12 @@ export function usePagedAlerts(
               setItems([]);
               setCursor("");
               setDenied(isPermissionDeniedError(e));
+            } else if (pageCursor === undefined) {
+              // Retried in the background without raising loading, so the error stays visible and the
+              // merged feed keeps treating the empty feed as exhausted rather than re-blocking on it.
+              const delay = retryDelayRef.current;
+              retryDelayRef.current = Math.min(delay * 2, FIRST_PAGE_RETRY_MAX_MS);
+              retryTimerRef.current = setTimeout(() => void loadPage(), delay);
             }
             setError(getErrorMessage(e, errorFallback));
           },
@@ -103,13 +124,14 @@ export function usePagedAlerts(
         }
       }
     },
-    [activeOnly, alertName, errorFallback, handleAuthErrors, ruleGroup],
+    [activeOnly, alertName, clearRetry, errorFallback, handleAuthErrors, ruleGroup],
   );
 
   useEffect(() => {
     if (!enabled) {
       // Invalidate any in-flight request so its late response cannot repopulate the feed.
       requestIdRef.current++;
+      clearRetry();
       return;
     }
     // Awaited in a wrapper rather than called bare, which react-hooks reads as setState during the effect.
@@ -119,7 +141,8 @@ export function usePagedAlerts(
       await loadPage();
     };
     void loadFirstPage();
-  }, [enabled, loadPage]);
+    return clearRetry;
+  }, [enabled, loadPage, clearRetry]);
 
   const loadMore = useCallback(() => {
     if (!cursor || loading) return;

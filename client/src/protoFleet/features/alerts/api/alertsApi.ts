@@ -563,13 +563,17 @@ export async function listHistory(input: {
   // The alert's rule group, matched exactly; "" is the group of rules carrying no rule label.
   rule_group?: string;
 }): Promise<HistoryPage> {
-  const res = await alertHistoryClient.listAlerts({
-    beforeId: input.before_id ?? "",
-    pageSize: input.page_size ?? 0,
-    activeOnly: input.active_only ?? false,
-    alertName: input.alert_name ?? "",
-    ruleGroup: input.rule_group ?? "",
-  });
+  // A deadline bounds how long a stalled request can hold the merged activity feed's ordering barrier.
+  const res = await alertHistoryClient.listAlerts(
+    {
+      beforeId: input.before_id ?? "",
+      pageSize: input.page_size ?? 0,
+      activeOnly: input.active_only ?? false,
+      alertName: input.alert_name ?? "",
+      ruleGroup: input.rule_group ?? "",
+    },
+    { timeoutMs: 15_000 },
+  );
   return { alerts: res.alerts.map(historyFromProto), next_cursor: res.nextCursor };
 }
 

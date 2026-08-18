@@ -133,6 +133,38 @@ describe("usePagedAlerts", () => {
     expect(result.current.hasMore).toBe(false);
   });
 
+  it("self-retries a failed first page until it loads", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      listMock.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce(page(["1"]));
+
+      const { result } = renderHook(() => usePagedAlerts({}, "Failed to load alert history"));
+
+      await waitFor(() => expect(result.current.error).toBe("boom"));
+      await vi.advanceTimersByTimeAsync(2_000);
+      await waitFor(() => expect(result.current.items).toHaveLength(1));
+      expect(result.current.error).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not self-retry a denied first page", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      listMock.mockRejectedValue(new ConnectError("forbidden", Code.PermissionDenied));
+
+      const { result } = renderHook(() => usePagedAlerts({}, "Failed to load alert history"));
+
+      await waitFor(() => expect(result.current.denied).toBe(true));
+      const attempts = listMock.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(180_000);
+      expect(listMock).toHaveBeenCalledTimes(attempts);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps loaded rows on a non-permission failure and recovers on retry", async () => {
     listMock.mockResolvedValueOnce(page(["1"], "1")).mockRejectedValueOnce(new Error("boom"));
 
