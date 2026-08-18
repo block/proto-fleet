@@ -893,7 +893,7 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
 		}
 		if state, _ := systemdUnitState(ctx, deps, "is-failed", "proto-fleet-ha.service"); state == "failed" {
-			return fmt.Errorf("%w; proto-fleet-ha.service is failed, inspect journalctl -u proto-fleet-ha.service", errInstallConverging)
+			return stopIncompleteHA(ctx, deps, errors.New("proto-fleet-ha.service failed; inspect journalctl -u proto-fleet-ha.service"), false)
 		}
 		deps.sleep(2 * time.Second)
 	}

@@ -25,7 +25,11 @@ const (
 	maxBundleSize       = 2 << 20
 )
 
-var sshUsernamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+var (
+	sshUsernamePattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
+	releaseVersionPattern = regexp.MustCompile(`^(v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*|nightly-[0-9]{8}-[0-9a-f]{12})$`)
+	releaseCommitPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+)
 
 type clusterMetadata struct {
 	Version     string
@@ -488,7 +492,7 @@ func readReleaseIdentity(path string) (clusterMetadata, error) {
 			identity.Commit = strings.TrimSpace(value)
 		}
 	}
-	if identity.Version == "" || identity.Commit == "" || strings.ContainsAny(identity.Version+identity.Commit, " \t\r\n") {
+	if !releaseVersionPattern.MatchString(identity.Version) || !releaseCommitPattern.MatchString(identity.Commit) {
 		return clusterMetadata{}, errors.New("packaged release identity must contain safe version and commit values")
 	}
 	return identity, nil
@@ -542,11 +546,15 @@ func installAction(installed bool) string {
 }
 
 func printPeerInstallCommands(output io.Writer, username string, metadata clusterMetadata) error {
-	return writeInstallerOutput(output, "\nRun these commands from your operator machine:\n"+
-		"ssh -t %s@%s 'curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- --ha %s'\n"+
-		"ssh -t %s@%s 'curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- --ha %s'\n",
-		username, metadata.DatabaseBIP, metadata.Version,
-		username, metadata.WitnessIP, metadata.Version)
+	return writeInstallerOutput(output, "\nRun these commands from your operator machine:\n%s\n%s\n",
+		peerInstallCommand(username, metadata.DatabaseBIP, metadata.Version),
+		peerInstallCommand(username, metadata.WitnessIP, metadata.Version))
+}
+
+func peerInstallCommand(username, address, version string) string {
+	installerURL := fmt.Sprintf("https://github.com/block/proto-fleet/releases/download/%s/install.sh", version)
+	return fmt.Sprintf(`ssh -t %s@%s 'test -f /var/tmp/proto-fleet-ha-host.json || { echo "Prepared HA bundle is missing: /var/tmp/proto-fleet-ha-host.json" >&2; exit 1; }; tmp=$(mktemp /var/tmp/proto-fleet-install.sh.XXXXXX) || exit; trap "rm -f $tmp" EXIT; curl -fsSL %s -o "$tmp" && sudo bash "$tmp" --ha %s'`,
+		username, address, installerURL, version)
 }
 
 func invokingUsername() string {

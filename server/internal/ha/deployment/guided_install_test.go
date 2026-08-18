@@ -79,8 +79,11 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.NotContains(t, prompts.String(), "Type COPIED")
 	require.Contains(t, prompts.String(), "Docker:    reuse existing installation")
 	require.NotContains(t, output.String(), testEtcdRootPassword)
-	require.Contains(t, output.String(), "ssh -t operator@"+testHostIPs[1]+" 'curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- --ha v0.2.10'")
-	require.Contains(t, output.String(), "ssh -t operator@"+testHostIPs[2]+" 'curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- --ha v0.2.10'")
+	require.Contains(t, output.String(), peerInstallCommand("operator", testHostIPs[1], "v0.2.10"))
+	require.Contains(t, output.String(), peerInstallCommand("operator", testHostIPs[2], "v0.2.10"))
+	require.Contains(t, output.String(), "test -f /var/tmp/proto-fleet-ha-host.json")
+	require.Contains(t, output.String(), "releases/download/v0.2.10/install.sh")
+	require.NotContains(t, output.String(), "curl -fsSL https://fleet.proto.xyz/install.sh |")
 	require.Equal(t, []string{
 		"check operator@" + testHostIPs[1],
 		"check operator@" + testHostIPs[2],
@@ -268,6 +271,18 @@ func TestInstallHostBundleValidatesIdentityAndRelease(t *testing.T) {
 	// Assert
 	require.ErrorContains(t, err, "release does not match")
 	require.FileExists(t, bundlePath)
+}
+
+func TestGuidedInstallRejectsUnsafePackagedReleaseVersion(t *testing.T) {
+	// Arrange
+	source := testGuidedRelease(t, "v0.2.10'", "abc123")
+	deps := testGuidedDependencies(source, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+
+	// Act
+	err := guidedInstall(t.Context(), "", deps)
+
+	// Assert
+	require.ErrorContains(t, err, "safe version and commit values")
 }
 
 func TestInstallHostBundleConsumption(t *testing.T) {
