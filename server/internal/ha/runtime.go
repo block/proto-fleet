@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
@@ -50,6 +51,7 @@ type Runtime struct {
 	healthCheck func() bool
 	config      RuntimeConfig
 	gate        *Gate
+	logger      *slog.Logger
 }
 
 func NewRuntime(
@@ -94,6 +96,7 @@ func newRuntime(
 		healthCheck: healthy,
 		config:      withRuntimeDefaults(config),
 		gate:        newGate(),
+		logger:      slog.Default(),
 	}
 }
 
@@ -184,10 +187,18 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	}
 
 	if err := r.group.Start(activeCtx); err != nil {
+		logDegraded := ctx.Err() == nil && activeCtx.Err() == nil
+		cancelCoordinator()
+		if logDegraded {
+			r.logDegraded("critical_runtime_unhealthy")
+		}
 		return fmt.Errorf("start active Fleet runtime: %w", err)
 	}
 	if !r.healthCheck() {
-		return r.abortGroup(errCriticalRuntimeUnhealthy)
+		cancelCoordinator()
+		abortErr := r.abortGroup(errCriticalRuntimeUnhealthy)
+		r.logDegraded("critical_runtime_unhealthy")
+		return abortErr
 	}
 
 	r.gate.activate(activeCtx)
@@ -196,9 +207,19 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return r.stopGroupAndDrainAdmissions(admissionDrained)
 	}
+	var degradedReason string
+	switch {
+	case errors.Is(activeErr, errCriticalRuntimeUnhealthy):
+		degradedReason = "critical_runtime_unhealthy"
+	case errors.Is(activeErr, errEndpointUnavailable):
+		degradedReason = string(ReasonEndpointUnhealthy)
+	}
 	// Stop lease renewal before cleanup so a blocked abort cannot delay takeover.
 	cancelCoordinator()
 	abortErr := r.abortGroup(activeErr)
+	if degradedReason != "" {
+		r.logDegraded(degradedReason)
+	}
 
 	select {
 	case coordinatorErr := <-coordinatorResult:
@@ -206,6 +227,14 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	default:
 		return abortErr
 	}
+}
+
+func (r *Runtime) logDegraded(reason string) {
+	r.logger.Warn(
+		"HA state is not optimal",
+		haEventAttribute, haEventStateDegraded,
+		"reason", reason,
+	)
 }
 
 func (r *Runtime) abortGroup(cause error) error {

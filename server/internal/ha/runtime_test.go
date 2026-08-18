@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -156,6 +157,27 @@ func TestHARuntimeStartsOnlyAfterOwnership(t *testing.T) {
 	cancelActive()
 	requireReceive(t, group.stoppedCh)
 	require.NoError(t, <-runResult)
+}
+
+func TestHARuntimeLogsDegradedWhenRuntimeGroupFailsToStart(t *testing.T) {
+	owner := newRuntimeTestOwner()
+	group := newRuntimeTestGroup()
+	group.startErr = errors.New("start failed")
+	runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
+	logger, logs := newHATestLogger()
+	runtime.logger = logger
+	runResult := make(chan error, 1)
+	go func() { runResult <- runtime.Run(t.Context()) }()
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	defer cancelActive()
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+
+	requireReceiveContext(t, group.startedCh)
+	runErr := <-runResult
+	require.ErrorContains(t, runErr, "start failed")
+	requireReceive(t, owner.stopped)
+	record := requireHAEvent(t, logs, haEventStateDegraded)
+	require.Equal(t, "critical_runtime_unhealthy", logAttr(record, "reason"))
 }
 
 func TestHARuntimeReturnsWhenOwnershipEndsBeforeActivationIsObserved(t *testing.T) {
@@ -353,6 +375,8 @@ func TestHARuntimeExitsWhenCriticalHealthFails(t *testing.T) {
 	var healthy atomic.Bool
 	healthy.Store(true)
 	runtime := newRuntime(owner, group, healthy.Load, runtimeTestConfig())
+	logger, logs := newHATestLogger()
+	runtime.logger = logger
 	runResult := make(chan error, 1)
 	go func() { runResult <- runtime.Run(t.Context()) }()
 	activeCtx, cancelActive := context.WithCancel(t.Context())
@@ -370,6 +394,31 @@ func TestHARuntimeExitsWhenCriticalHealthFails(t *testing.T) {
 	require.ErrorIs(t, runErr, errCriticalRuntimeUnhealthy)
 	requireReceiveContext(t, group.abortedCh)
 	require.False(t, runtime.Active())
+	record := requireHAEvent(t, logs, haEventStateDegraded)
+	require.Equal(t, "critical_runtime_unhealthy", logAttr(record, "reason"))
+}
+
+func TestHARuntimeFencesBeforeBlockedDegradedLog(t *testing.T) {
+	owner := newRuntimeTestOwner()
+	group := newRuntimeTestGroup()
+	runtime := newRuntime(owner, group, func() bool { return false }, runtimeTestConfig())
+	handler := newBlockingLogHandler()
+	t.Cleanup(handler.release)
+	runtime.logger = slog.New(handler)
+	runResult := make(chan error, 1)
+	go func() { runResult <- runtime.Run(t.Context()) }()
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	defer cancelActive()
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+
+	requireReceiveContext(t, group.startedCh)
+	requireReceive(t, handler.entered)
+	requireReceive(t, owner.stopped)
+	requireReceiveContext(t, group.abortedCh)
+
+	handler.release()
+	runErr := <-runResult
+	require.ErrorIs(t, runErr, errCriticalRuntimeUnhealthy)
 }
 
 func TestEndpointMonitorAllowsDelayedStartupThenFailsClosed(t *testing.T) {
@@ -416,6 +465,8 @@ func TestEndpointLossStopsLeaseRenewalBeforeAbortCleanup(t *testing.T) {
 		return healthy
 	}
 	runtime := newRuntime(owner, group, alwaysHealthy, config)
+	logger, logs := newHATestLogger()
+	runtime.logger = logger
 	runResult := make(chan error, 1)
 	go func() { runResult <- runtime.Run(t.Context()) }()
 	activeCtx, cancelActive := context.WithCancel(t.Context())
@@ -436,6 +487,8 @@ func TestEndpointLossStopsLeaseRenewalBeforeAbortCleanup(t *testing.T) {
 	require.ErrorIs(t, runErr, ErrRuntimeAborted)
 	require.ErrorIs(t, runErr, errEndpointUnavailable)
 	require.False(t, runtime.Active())
+	record := requireHAEvent(t, logs, haEventStateDegraded)
+	require.Equal(t, string(ReasonEndpointUnhealthy), logAttr(record, "reason"))
 }
 
 func TestHARuntimeJoinsAbortCleanupError(t *testing.T) {

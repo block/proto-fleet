@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -38,6 +40,69 @@ func TestCoordinatorActivatesAndExposesLifetime(t *testing.T) {
 	require.NoError(t, activeCtx.Err())
 	require.Equal(t, Token{WriterGeneration: 41, LeaseEpoch: 1}, token)
 	require.Equal(t, StateActive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorLogsFailoverAfterInitialLease(t *testing.T) {
+	coordinator := newCoordinatorWithHolder(
+		staticObserver{}, &fakeLeaseStore{}, coordinatorTestConfig(), uuid.New(),
+	)
+	logger, logs := newHATestLogger()
+	coordinator.logger = logger
+	now := time.Now()
+	ownership := Ownership{
+		DCSClusterID: "cluster-a",
+		Token: Token{
+			WriterGeneration: 41,
+			LeaseEpoch:       1,
+		},
+		HolderID:     coordinator.HolderID(),
+		DatabaseTime: now,
+		ExpiresAt:    now.Add(time.Second),
+	}
+
+	require.NoError(t, coordinator.activate(t.Context(), ownership, now, now.Add(time.Second)))
+	require.Empty(t, logs.Snapshot(logging.SnapshotOptions{}).Records)
+	coordinator.deactivateObserved(now.Add(time.Second))
+	ownership.Token.LeaseEpoch = 2
+	require.NoError(t, coordinator.activate(t.Context(), ownership, now, now.Add(time.Second)))
+
+	record := requireHAEvent(t, logs, haEventFailover)
+	require.Equal(t, slog.LevelWarn, record.Level)
+	require.Equal(t, "41", logAttr(record, "writer_generation"))
+	require.Equal(t, "2", logAttr(record, "lease_epoch"))
+}
+
+func TestCoordinatorDeduplicatesDegradedLogsUntilHealthyObservation(t *testing.T) {
+	coordinator := newCoordinatorWithHolder(
+		staticObserver{}, &fakeLeaseStore{}, coordinatorTestConfig(), uuid.New(),
+	)
+	logger, logs := newHATestLogger()
+	coordinator.logger = logger
+
+	coordinator.deactivate(errors.New("secret topology details"))
+	coordinator.deactivate(errors.New("secret topology details"))
+	coordinator.deactivateObserved(time.Now().Add(time.Second))
+	coordinator.deactivate(errors.New("secret topology details"))
+
+	records := logs.Snapshot(logging.SnapshotOptions{}).Records
+	require.Len(t, records, 2)
+	for _, record := range records {
+		require.Equal(t, haEventStateDegraded, logAttr(record, haEventAttribute))
+		require.Equal(t, string(ReasonControlPlaneUnavailable), logAttr(record, "reason"))
+		require.NotContains(t, fmt.Sprint(record), "secret topology details")
+	}
+}
+
+func TestCoordinatorDoesNotLogGracefulShutdownAsDegraded(t *testing.T) {
+	coordinator := newCoordinatorWithHolder(
+		staticObserver{}, &fakeLeaseStore{}, coordinatorTestConfig(), uuid.New(),
+	)
+	logger, logs := newHATestLogger()
+	coordinator.logger = logger
+
+	coordinator.deactivate(fmt.Errorf("shutdown: %w", context.Canceled))
+
+	require.Empty(t, logs.Snapshot(logging.SnapshotOptions{}).Records)
 }
 
 func TestCoordinatorRenewsAfterClosingDCSProof(t *testing.T) {
@@ -304,6 +369,32 @@ func TestCoordinatorCancelsLifetimeWhenLeaseExpiresWithoutRenewal(t *testing.T) 
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 
+func TestCoordinatorWatchdogDoesNotWaitForDegradedLog(t *testing.T) {
+	config := coordinatorTestConfig()
+	config.LeaseDuration = 40 * time.Millisecond
+	config.RenewInterval = 10 * time.Millisecond
+	coordinator := newCoordinatorWithHolder(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		&fakeLeaseStore{},
+		config,
+		uuid.New(),
+	)
+	require.NoError(t, coordinator.step(t.Context()))
+	activeCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+	handler := newBlockingLogHandler()
+	t.Cleanup(handler.release)
+	coordinator.logger = slog.New(handler)
+
+	markResult := make(chan error, 1)
+	go func() { markResult <- coordinator.markActiveObservationUnavailable(activeCtx) }()
+	requireReceive(t, handler.entered)
+	require.Eventually(t, func() bool { return activeCtx.Err() != nil }, time.Second, time.Millisecond)
+
+	handler.release()
+	require.NoError(t, <-markResult)
+}
+
 func TestCoordinatorRunRetriesWhenPassiveObservationBlocks(t *testing.T) {
 	config := coordinatorTestConfig()
 	config.LeaseDuration = 30 * time.Millisecond
@@ -426,6 +517,60 @@ func requireCall(t *testing.T, calls <-chan struct{}) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for observer call")
 	}
+}
+
+func newHATestLogger() (*slog.Logger, *logging.Buffer) {
+	buffer := logging.NewBuffer(10, slog.LevelDebug)
+	return slog.New(buffer), buffer
+}
+
+func requireHAEvent(t *testing.T, logs *logging.Buffer, event string) logging.BufferedRecord {
+	t.Helper()
+	for _, record := range logs.Snapshot(logging.SnapshotOptions{}).Records {
+		if logAttr(record, haEventAttribute) == event {
+			return record
+		}
+	}
+	t.Fatalf("HA event %q was not logged", event)
+	return logging.BufferedRecord{}
+}
+
+func logAttr(record logging.BufferedRecord, key string) string {
+	for _, attr := range record.Attrs {
+		if attr.Key == key {
+			return attr.Value
+		}
+	}
+	return ""
+}
+
+type blockingLogHandler struct {
+	entered     chan struct{}
+	releaseLog  chan struct{}
+	enterOnce   sync.Once
+	releaseOnce sync.Once
+}
+
+func newBlockingLogHandler() *blockingLogHandler {
+	return &blockingLogHandler{
+		entered:    make(chan struct{}),
+		releaseLog: make(chan struct{}),
+	}
+}
+
+func (h *blockingLogHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *blockingLogHandler) Handle(context.Context, slog.Record) error {
+	h.enterOnce.Do(func() { close(h.entered) })
+	<-h.releaseLog
+	return nil
+}
+
+func (h *blockingLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *blockingLogHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *blockingLogHandler) release() {
+	h.releaseOnce.Do(func() { close(h.releaseLog) })
 }
 
 func coordinatorObservation(

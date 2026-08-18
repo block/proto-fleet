@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -15,6 +16,10 @@ type State string
 const (
 	StatePassive State = "passive"
 	StateActive  State = "active"
+
+	haEventAttribute     = "ha_event"
+	haEventFailover      = "failover"
+	haEventStateDegraded = "state_degraded"
 )
 
 type CoordinatorConfig struct {
@@ -40,6 +45,7 @@ type Coordinator struct {
 	store    ownershipStore
 	config   CoordinatorConfig
 	holderID uuid.UUID
+	logger   *slog.Logger
 
 	mu            sync.RWMutex
 	ownership     Ownership
@@ -52,6 +58,7 @@ type Coordinator struct {
 	observed      bool
 	updatedAt     time.Time
 	proofDeadline time.Time
+	degraded      bool
 }
 
 func NewCoordinator(
@@ -80,6 +87,7 @@ func newCoordinatorWithHolder(
 		store:        store,
 		config:       config,
 		holderID:     holderID,
+		logger:       slog.Default(),
 		stateChanged: make(chan struct{}),
 	}
 }
@@ -359,11 +367,16 @@ func validateObservedWriter(current Ownership, observed WriterObservation) error
 
 func (c *Coordinator) markActiveObservationUnavailable(expectedCtx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.activeCtx != expectedCtx {
+		c.mu.Unlock()
 		return ErrOwnershipLost
 	}
 	c.observed = false
+	logDegraded := c.setDegradedLocked()
+	c.mu.Unlock()
+	if logDegraded {
+		c.logDegraded()
+	}
 	return nil
 }
 
@@ -383,8 +396,8 @@ func (c *Coordinator) activate(
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if err := parent.Err(); err != nil {
+		c.mu.Unlock()
 		return fmt.Errorf("activate HA coordinator: %w", err)
 	}
 	if c.cancelActive != nil {
@@ -395,8 +408,19 @@ func (c *Coordinator) activate(
 	c.observed = true
 	c.updatedAt = time.Now()
 	c.proofDeadline = dcsProofDeadline
+	c.clearDegradedLocked()
 	c.resetLeaseTimerLocked(deadline)
 	c.signalStateChangedLocked()
+	failover := ownership.Token.LeaseEpoch > 1
+	c.mu.Unlock()
+	if failover {
+		c.logger.Warn(
+			"HA failover ownership activated",
+			haEventAttribute, haEventFailover,
+			"writer_generation", ownership.Token.WriterGeneration,
+			"lease_epoch", ownership.Token.LeaseEpoch,
+		)
+	}
 	return nil
 }
 
@@ -416,18 +440,20 @@ func (c *Coordinator) updateActive(
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.activeCtx == nil ||
 		c.ownership.DCSClusterID != expected.DCSClusterID ||
 		c.ownership.Token != expected.Token ||
 		c.ownership.HolderID != expected.HolderID {
+		c.mu.Unlock()
 		return ErrOwnershipLost
 	}
 	c.ownership = renewed
 	c.updatedAt = time.Now()
 	c.observed = true
 	c.proofDeadline = dcsProofDeadline
+	c.clearDegradedLocked()
 	c.resetLeaseTimerLocked(deadline)
+	c.mu.Unlock()
 	return nil
 }
 
@@ -460,11 +486,15 @@ func (c *Coordinator) resetLeaseTimerLocked(deadline time.Time) {
 		time.Until(deadline),
 		func() {
 			c.mu.Lock()
-			defer c.mu.Unlock()
 			if c.activeCtx == nil || c.leaseVersion != version {
+				c.mu.Unlock()
 				return
 			}
-			c.deactivateLocked(ErrOwnershipExpired)
+			logDegraded := c.deactivateLocked(ErrOwnershipExpired)
+			c.mu.Unlock()
+			if logDegraded {
+				c.logDegraded()
+			}
 		},
 	)
 }
@@ -479,27 +509,33 @@ func (c *Coordinator) stopLeaseTimerLocked() {
 
 func (c *Coordinator) deactivate(cause error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.deactivateLocked(cause)
+	logDegraded := c.deactivateLocked(cause)
+	c.mu.Unlock()
+	if logDegraded {
+		c.logDegraded()
+	}
 }
 
 func (c *Coordinator) deactivateObserved(proofDeadline time.Time) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.deactivateLocked(nil)
+	_ = c.deactivateLocked(nil)
 	c.proofDeadline = proofDeadline
+	c.mu.Unlock()
 }
 
 func (c *Coordinator) abandonCandidate(leaseExpiresAt time.Time, cause error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.holderID = uuid.New()
 	// Give another process one normal retry interval after this lease expires.
 	c.acquireAfter = leaseExpiresAt.Add(c.config.RetryInterval)
-	c.deactivateLocked(cause)
+	logDegraded := c.deactivateLocked(cause)
+	c.mu.Unlock()
+	if logDegraded {
+		c.logDegraded()
+	}
 }
 
-func (c *Coordinator) deactivateLocked(cause error) {
+func (c *Coordinator) deactivateLocked(cause error) bool {
 	wasActive := c.activeCtx != nil
 	c.stopLeaseTimerLocked()
 	if c.cancelActive != nil {
@@ -514,6 +550,32 @@ func (c *Coordinator) deactivateLocked(cause error) {
 	c.updatedAt = time.Now()
 	c.observed = cause == nil
 	c.proofDeadline = time.Time{}
+	if cause == nil {
+		c.clearDegradedLocked()
+	} else if !errors.Is(cause, context.Canceled) {
+		return c.setDegradedLocked()
+	}
+	return false
+}
+
+func (c *Coordinator) setDegradedLocked() bool {
+	if c.degraded {
+		return false
+	}
+	c.degraded = true
+	return true
+}
+
+func (c *Coordinator) logDegraded() {
+	c.logger.Warn(
+		"HA state is not optimal",
+		haEventAttribute, haEventStateDegraded,
+		"reason", string(ReasonControlPlaneUnavailable),
+	)
+}
+
+func (c *Coordinator) clearDegradedLocked() {
+	c.degraded = false
 }
 
 func (c *Coordinator) signalStateChangedLocked() {

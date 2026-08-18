@@ -165,6 +165,29 @@ The Docker repository setup follows the official instructions for
 [Ubuntu](https://docs.docker.com/engine/install/ubuntu/), and
 [64-bit Raspberry Pi OS](https://docs.docker.com/engine/install/raspberry-pi-os/).
 
+## Log-based HA alerts
+
+No additional monitor service is required. The existing `fleet-api` process on
+both database hosts writes structured HA events to its normal container log:
+
+| `ha_event` | Level | Meaning |
+| --- | --- | --- |
+| `failover` | warning | A Fleet process activated a lease after the initial lease epoch. This covers database-writer and Fleet-owner takeovers; initial cluster bootstrap is excluded. |
+| `state_degraded` | warning | The local Fleet control plane cannot prove ownership safely, its critical runtime is unhealthy, or its active endpoint is unavailable. The `reason` field is a stable, redacted category. |
+
+Configure the existing log collector to ingest `fleet-api` stdout from both
+database hosts. Alert immediately on `ha_event=failover` and
+`ha_event=state_degraded`. Treat these as event notifications rather than a
+durable firing/resolved state. Enrich and group events by deployment and host
+in the collector. Repeated control-plane failures are suppressed within one
+Fleet process until it observes healthy state again.
+
+These events deliberately cover transitions visible to the Fleet process. They
+do not replace the broader point-in-time `fleet-ha status` check for redundancy
+loss that leaves the control plane working, such as loss of one etcd member or
+a synchronous standby. Alert directly on the existing etcd, Patroni, and
+keepalived logs when those infrastructure-only conditions are required.
+
 ## Update a passive Fleet host
 
 HA disables application-triggered updates. On the passive database host, run:
