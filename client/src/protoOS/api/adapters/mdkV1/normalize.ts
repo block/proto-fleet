@@ -17,7 +17,6 @@ import {
   asAsicId,
   asComponentId,
   asDeviceId,
-  asEntityKey,
   asHashboardId,
   type AsicHardware,
   type AsicTelemetry,
@@ -54,6 +53,7 @@ import {
   type TelemetryState,
   type Topology,
 } from "@/protoOS/store/contract";
+import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
 import { getAsicId } from "@/protoOS/store/utils/getAsicId";
 
 const V1_COMMANDS: CommandCapabilities = {
@@ -473,19 +473,8 @@ export const normalizeV1Hardware = (
   return { resource: ready(), topology, controlBoards, hashboards, asics, psus, fans };
 };
 
-const emptyTelemetry = (): TelemetryState => ({
-  resourceByScope: new Map(),
-  rollupsByEntity: new Map(),
-  hashboards: new Map(),
-  asics: new Map(),
-  psus: new Map(),
-  fans: new Map(),
-  coolingModeByOwner: new Map(),
-  asicLoadByHashboard: new Map(),
-});
-
 export const normalizeV1HardwareTelemetry = (wire: HardwareInfoHardwareinfo): TelemetryState => {
-  const state = emptyTelemetry();
+  const state = createEmptyTelemetryState();
   state.resourceByScope.set(asResourceKey("telemetry:fan-calibration:module:root"), ready());
   for (const fan of wire["fans-info"] ?? []) {
     if (fan.slot === undefined) continue;
@@ -516,7 +505,7 @@ const applyLatestMetrics = (target: LevelRollup | HashboardTelemetry, source: Re
 };
 
 export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
-  const state = emptyTelemetry();
+  const state = createEmptyTelemetryState();
   const timestampMs = Date.parse(wire.timestamp);
   state.resourceByScope.set(asResourceKey("telemetry:current:module:root"), {
     status: "ready",
@@ -643,7 +632,7 @@ export const normalizeV1TimeSeries = (
   wire: TimeSeriesResponse,
   options: { startTimeMs?: number; interval?: string } = {},
 ): TelemetryState => {
-  const state = emptyTelemetry();
+  const state = createEmptyTelemetryState();
   const responseStartTimeMs = Date.parse(wire.meta?.start_time ?? "");
   const safeStartTimeMs = Number.isNaN(responseStartTimeMs)
     ? (options.startTimeMs ?? Date.now())
@@ -693,21 +682,3 @@ export const normalizeV1TimeSeries = (
 
   return state;
 };
-
-export const normalizeV1FanTelemetry = (
-  fans: Array<{ slot?: number; rpm?: number; percentage?: number }>,
-): Map<string, FanTelemetry> => {
-  const result = new Map<string, FanTelemetry>();
-  for (const fan of fans) {
-    if (fan.slot === undefined) continue;
-    const id = asComponentId(`${ROOT_MODULE_ID}:fan:${fan.slot}`);
-    result.set(id, {
-      componentId: id,
-      rpm: fan.rpm === undefined ? undefined : { latest: { value: fan.rpm, units: "RPM" } },
-      speedPercent: fan.percentage === undefined ? undefined : { latest: { value: fan.percentage, units: "%" } },
-    });
-  }
-  return result;
-};
-
-export const normalizeV1EntityKey = (kind: string, id: string) => asEntityKey(`${kind}:${id}`);

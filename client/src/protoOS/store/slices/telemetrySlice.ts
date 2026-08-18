@@ -13,6 +13,7 @@ import {
 } from "../contract";
 import type { FanTelemetryData, PsuTelemetryData } from "../types";
 import type { MinerStore } from "../useMinerStore";
+import { createEmptyTelemetryState } from "../utils/createEmptyTelemetryState";
 
 enableMapSet();
 
@@ -95,17 +96,6 @@ export interface TelemetrySlice extends TelemetryState {
   clearAllData: () => void;
 }
 
-const empty = (): TelemetryState => ({
-  resourceByScope: new Map(),
-  rollupsByEntity: new Map(),
-  hashboards: new Map(),
-  asics: new Map(),
-  psus: new Map(),
-  fans: new Map(),
-  coolingModeByOwner: new Map(),
-  asicLoadByHashboard: new Map(),
-});
-
 const clearMetricPart = (state: TelemetryState, part: "latest" | "timeSeries") => {
   const values: object[] = [
     ...state.rollupsByEntity.values(),
@@ -125,7 +115,7 @@ const clearMetricPart = (state: TelemetryState, part: "latest" | "timeSeries") =
 export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", never]], [], TelemetrySlice> = (
   set,
 ) => ({
-  ...empty(),
+  ...createEmptyTelemetryState(),
   mergeTelemetry: (incoming) =>
     set((state) => {
       incoming.resourceByScope.forEach((value, key) => state.telemetry.resourceByScope.set(key, value));
@@ -190,6 +180,6 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
   clearLatestData: () => set((state) => clearMetricPart(state.telemetry, "latest")),
   clearAllData: () =>
     set((state) => {
-      Object.assign(state.telemetry, empty());
+      Object.assign(state.telemetry, createEmptyTelemetryState());
     }),
 });

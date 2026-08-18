@@ -26,6 +26,7 @@ export type {
 export { convertValueUnits, formatValue, convertAndFormatMeasurement } from "./utils/telemetryUtils";
 
 export { getAsicId } from "./utils/getAsicId";
+export { getFanId, getHashboardId, getPsuId } from "./utils/entityIds";
 export { getAsicName } from "./utils/getAsicName";
 export {
   getContainerAsicLabel,
