@@ -91,6 +91,16 @@ service DeviceSetService {
     // is rejected with InvalidArgument because moving every paired
     // device into a single rack is never the intended operation.
     rpc AssignDevicesToRack(AssignDevicesToRackRequest) returns (AssignDevicesToRackResponse);
+
+    // Creates an immutable set of per-model firmware release targets.
+    rpc CreateFirmwareReleaseSet(CreateFirmwareReleaseSetRequest) returns (CreateFirmwareReleaseSetResponse);
+
+    // Gets an immutable firmware release set by ID.
+    rpc GetFirmwareReleaseSet(GetFirmwareReleaseSetRequest) returns (GetFirmwareReleaseSetResponse);
+
+    // Atomically moves devices into one exclusive software channel, or
+    // clears channel membership when target_channel_id is unset.
+    rpc AssignDevicesToChannel(AssignDevicesToChannelRequest) returns (AssignDevicesToChannelResponse);
 }
 
 // Type of device set
@@ -101,6 +111,8 @@ enum DeviceSetType {
     DEVICE_SET_TYPE_GROUP = 1;
     // Rack: one-to-one relationship (device can only be in one rack)
     DEVICE_SET_TYPE_RACK = 2;
+    // Channel: one-to-one software release membership. Rack membership is independent.
+    DEVICE_SET_TYPE_CHANNEL = 3;
 }
 
 // DeviceSet represents a group or rack of devices
@@ -130,6 +142,7 @@ message DeviceSet {
     oneof type_details {
         RackInfo rack_info = 8;
         GroupInfo group_info = 9;
+        ChannelInfo channel_info = 11;
     }
 
     // Parent placement refs for display/filter rows. Populated for
@@ -184,6 +197,30 @@ message RackInfo {
 // Reserved for future group-specific fields (e.g., tags, policies)
 message GroupInfo {}
 
+// Channel-specific metadata for channel-type device sets.
+message ChannelInfo {
+    // Immutable release set currently declared by this channel.
+    int64 release_set_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Snapshotted per-model targets from release_set_id.
+    repeated FirmwareReleaseTarget release_targets = 2;
+}
+
+// An immutable firmware artifact snapshot for one manufacturer and model.
+message FirmwareReleaseTarget {
+    string firmware_file_id = 1;
+    string target_manufacturer = 2;
+    string target_model = 3;
+    string firmware_version = 4;
+    string sha256 = 5;
+}
+
+// An immutable set containing at most one firmware target per model.
+message FirmwareReleaseSet {
+    int64 id = 1;
+    repeated FirmwareReleaseTarget targets = 2;
+    google.protobuf.Timestamp created_at = 3;
+}
+
 // DeviceSetMember represents a device in a device set
 message DeviceSetMember {
     // Device identifier of the member
@@ -233,6 +270,7 @@ message CreateDeviceSetRequest {
     oneof type_details {
         RackInfo rack_info = 4;
         GroupInfo group_info = 5;
+        ChannelInfo channel_info = 7;
     }
 
     // Optional: devices to add atomically when creating the device set.
@@ -281,6 +319,8 @@ message UpdateDeviceSetRequest {
     oneof type_details {
         RackInfo rack_info = 4;
         GroupInfo group_info = 5;
+        // Omit to preserve the channel's current release set.
+        ChannelInfo channel_info = 7;
     }
 
     // Optional: atomically replace all device set members with the selected devices.
@@ -750,6 +790,41 @@ message AssignDevicesToRackResponse {
     // rack. When non-empty, NO write happened — the caller confirms and
     // retries with force_clear_conflicting_site = true.
     repeated PerDeviceRackConflict conflicts = 4;
+}
+
+message CreateFirmwareReleaseSetRequest {
+    // Firmware file IDs to snapshot. Each manufacturer and model may appear once.
+    repeated string firmware_file_ids = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 100
+        items: {
+            string: {min_len: 1}
+        }
+    }];
+}
+
+message CreateFirmwareReleaseSetResponse {
+    FirmwareReleaseSet release_set = 1;
+}
+
+message GetFirmwareReleaseSetRequest {
+    int64 release_set_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetFirmwareReleaseSetResponse {
+    FirmwareReleaseSet release_set = 1;
+}
+
+message AssignDevicesToChannelRequest {
+    // Unset clears channel membership without changing rack or site placement.
+    optional int64 target_channel_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Only the explicit device_list selector is accepted.
+    common.v1.DeviceSelector device_selector = 2 [(buf.validate.field).required = true];
+}
+
+message AssignDevicesToChannelResponse {
+    int64 assigned_count = 1;
+    int64 removed_count = 2;
 }
 
 // PerDeviceRackConflictReason enumerates why a device blocked an

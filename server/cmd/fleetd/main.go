@@ -589,7 +589,7 @@ func start(config *Config) error {
 	}
 
 	deviceResolver := deviceresolver.New(deviceStore)
-	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
+	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc, filesService)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
@@ -686,9 +686,9 @@ func start(config *Config) error {
 	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", activeHTTP.Wrap(firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore, permissionResolver)))
 	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
 	mux.Handle("GET /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore)))
-	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver)))
-	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore, permissionResolver)))
-	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore, permissionResolver)))
+	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver, collectionStore)))
+	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore, permissionResolver, collectionStore)))
+	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore, permissionResolver, collectionStore)))
 	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc)))
 
 	if len(reflectEnabledServices) != 0 {

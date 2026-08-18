@@ -52,6 +52,12 @@ type CreateRackExtensionParams struct {
 	BuildingID   *int64
 }
 
+type CreateChannelExtensionParams struct {
+	OrgID        int64
+	CollectionID int64
+	ReleaseSetID int64
+}
+
 // ZoneRefRow is the domain shape returned by ListRackZoneRefs. Maps to
 // common.v1.ZoneRef on the wire. BuildingID == 0 indicates a rack with
 // NULL building_id (legacy / Phase 1 uncategorized).
@@ -88,12 +94,40 @@ type CollectionStore interface {
 	// Must be called after CreateCollection for rack-type collections.
 	CreateRackExtension(ctx context.Context, params CreateRackExtensionParams) error
 
+	// CreateChannelExtension links a channel device set to an immutable
+	// firmware release set in the same organization.
+	CreateChannelExtension(ctx context.Context, params CreateChannelExtensionParams) error
+
 	// GetCollection retrieves a collection by ID with its device count.
 	GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error)
 
 	// GetRackInfo retrieves rack-specific info for a collection.
 	// Returns nil if the collection is not a rack.
 	GetRackInfo(ctx context.Context, collectionID int64, orgID int64) (*pb.RackInfo, error)
+
+	// GetChannelInfo retrieves channel-specific release metadata.
+	GetChannelInfo(ctx context.Context, collectionID, orgID int64) (*pb.ChannelInfo, error)
+
+	// LockChannelForWrite locks the channel extension and parent device-set row
+	// using the same order as channel membership assignment.
+	LockChannelForWrite(ctx context.Context, collectionID, orgID int64) error
+
+	// CreateFirmwareReleaseSet creates the immutable release-set parent row.
+	CreateFirmwareReleaseSet(ctx context.Context, orgID int64) (*pb.FirmwareReleaseSet, error)
+
+	// CreateFirmwareReleaseTarget adds one snapshotted model target while
+	// its release set is being created.
+	CreateFirmwareReleaseTarget(ctx context.Context, orgID, releaseSetID int64, target *pb.FirmwareReleaseTarget) error
+
+	// GetFirmwareReleaseSet returns an immutable release set and all targets.
+	GetFirmwareReleaseSet(ctx context.Context, orgID, releaseSetID int64) (*pb.FirmwareReleaseSet, error)
+
+	// FirmwareReleaseSetBelongsToOrg checks release-set ownership.
+	FirmwareReleaseSetBelongsToOrg(ctx context.Context, orgID, releaseSetID int64) (bool, error)
+
+	// UpdateChannelReleaseSet changes only the channel's pointer. Release-set
+	// rows and targets remain immutable.
+	UpdateChannelReleaseSet(ctx context.Context, orgID, collectionID, releaseSetID int64) error
 
 	// UpdateCollection updates a collection's label and/or description.
 	// Only non-nil values are updated.
@@ -302,6 +336,25 @@ type CollectionStore interface {
 	// LockRackPlacementForWrite call on the target still happens for
 	// its placement read; this query handles the rack-id locks.
 	LockRacksForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetRackID int64) ([]int64, error)
+
+	// LockChannelsForReparent locks source and target channels in ascending
+	// device-set order before a membership move.
+	LockChannelsForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetChannelID int64) ([]int64, error)
+
+	// LockDevicesForChannelAssignment locks every requested live device in
+	// stable identifier order and returns the owned identifiers.
+	LockDevicesForChannelAssignment(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+
+	// RemoveDevicesFromAnyChannel removes prior channel memberships while
+	// preserving membership in targetChannelID.
+	RemoveDevicesFromAnyChannel(ctx context.Context, orgID int64, deviceIdentifiers []string, targetChannelID int64) (int64, error)
+
+	// FirmwareArtifactReferenced reports whether any immutable release target
+	// snapshots the given firmware file ID.
+	FirmwareArtifactReferenced(ctx context.Context, firmwareFileID string) (bool, error)
+
+	// AnyFirmwareArtifactReferenced reports whether delete-all is safe.
+	AnyFirmwareArtifactReferenced(ctx context.Context) (bool, error)
 
 	// ListCollectionMembers returns paginated members of a collection ordered by when they were added (newest first).
 	// Returns the members and a next page token (empty if no more results).

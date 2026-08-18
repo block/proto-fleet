@@ -37,6 +37,7 @@ type Querier interface {
 	// Returns true if all provided device identifiers belong to the specified organization.
 	// Used for authorization checks - fails fast if any device is not owned by the org.
 	AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error)
+	AnyFirmwareArtifactReferenced(ctx context.Context) (bool, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
 	// contains a device assigned to a different site) is enforced in the
@@ -298,12 +299,15 @@ type Querier interface {
 	// layer. Unassigned buildings (site_id IS NULL) are not name-unique so
 	// cascade-unassign on site delete cannot collide.
 	CreateBuilding(ctx context.Context, arg CreateBuildingParams) (Building, error)
+	CreateChannelExtension(ctx context.Context, arg CreateChannelExtensionParams) (int64, error)
 	// organization_id is captured from the caller's session so downstream
 	// org-scoped queries (e.g. GetBatchHeaderForOrg) can filter directly on the
 	// batch's owning organization rather than joining through user_organization.
 	CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error)
 	CreateCustomRole(ctx context.Context, arg CreateCustomRoleParams) (Role, error)
 	CreateDeviceSet(ctx context.Context, arg CreateDeviceSetParams) (CreateDeviceSetRow, error)
+	CreateFirmwareReleaseSet(ctx context.Context, orgID int64) (FirmwareReleaseSet, error)
+	CreateFirmwareReleaseTarget(ctx context.Context, arg CreateFirmwareReleaseTargetParams) (FirmwareReleaseTarget, error)
 	CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error)
 	CreateFleetNodeApiKey(ctx context.Context, arg CreateFleetNodeApiKeyParams) error
 	// Name is unique per (site_id, name) among live rows; the partial
@@ -419,6 +423,8 @@ type Querier interface {
 	// miner with only a direct building (site NULL, building set, e.g. one
 	// assigned to a site-less building) must trip the confirm too.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
+	FirmwareArtifactReferenced(ctx context.Context, firmwareFileID string) (bool, error)
+	FirmwareReleaseSetBelongsToOrg(ctx context.Context, arg FirmwareReleaseSetBelongsToOrgParams) (bool, error)
 	// Last-resort recovery: persistently releases curtailment ownership for any
 	// non-terminal event row. Unlike AdminTerminateCurtailmentEvent, this
 	// intentionally supports ACTIVE events and has no in-flight command gate because
@@ -483,6 +489,8 @@ type Querier interface {
 	// The (org, builtin_key) pair is unique among live rows via the
 	// partial index uq_role_org_builtin_key.
 	GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleForOrgParams) (Role, error)
+	GetChannelInfo(ctx context.Context, arg GetChannelInfoParams) (int64, error)
+	GetChannelInfoBatch(ctx context.Context, arg GetChannelInfoBatchParams) ([]GetChannelInfoBatchRow, error)
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
 	GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error)
 	// Webhook idempotent replay lookup; mirrors the
@@ -593,6 +601,7 @@ type Querier interface {
 	// Returns device IDs filtered by pairing status and optional device status.
 	// Used for bulk command operations.
 	GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error)
+	GetFirmwareReleaseSet(ctx context.Context, arg GetFirmwareReleaseSetParams) (FirmwareReleaseSet, error)
 	GetFleetMetricRollupCoverage(ctx context.Context) (GetFleetMetricRollupCoverageRow, error)
 	GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDParams) (GetFleetNodeByIDRow, error)
 	GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFleetNodeByIDUnscopedRow, error)
@@ -979,6 +988,8 @@ type Querier interface {
 	// exist as live devices in the org. Used to surface "device_not_found"
 	// conflicts in AssignDevicesToSite without an N+1 lookup.
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
+	ListFirmwareReleaseTargets(ctx context.Context, arg ListFirmwareReleaseTargetsParams) ([]ListFirmwareReleaseTargetsRow, error)
+	ListFirmwareReleaseTargetsBySetIDs(ctx context.Context, arg ListFirmwareReleaseTargetsBySetIDsParams) ([]ListFirmwareReleaseTargetsBySetIDsRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
 	// Fleet-node-discovered devices not yet paired to their node. A discovered
@@ -1111,6 +1122,8 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
+	LockChannelForWrite(ctx context.Context, arg LockChannelForWriteParams) (int64, error)
+	LockChannelsForReparent(ctx context.Context, arg LockChannelsForReparentParams) ([]int64, error)
 	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
 	// Physical fan commands run only while this exact lifecycle phase remains
 	// current. Holding the row lock through the command serializes Force Release's
@@ -1130,6 +1143,7 @@ type Querier interface {
 	// Serialize hierarchy start checks by org so conflict detection and event
 	// insertion happen under one database-backed critical section.
 	LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error
+	LockDevicesForChannelAssignment(ctx context.Context, arg LockDevicesForChannelAssignmentParams) ([]string, error)
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are
 	// atomic against a concurrent reassign. Empty result means none of the
@@ -1275,6 +1289,7 @@ type Querier interface {
 	// be terminally released.
 	ReleaseUndispatchedAllPairedTargetsForRestore(ctx context.Context, curtailmentEventID int64) (int64, error)
 	RemoveAllDevicesFromDeviceSet(ctx context.Context, arg RemoveAllDevicesFromDeviceSetParams) (int64, error)
+	RemoveDevicesFromAnyChannel(ctx context.Context, arg RemoveDevicesFromAnyChannelParams) (int64, error)
 	// Removes the given devices from whatever rack they're currently in,
 	// EXCEPT the target rack (@target_rack_id). AssignDevicesToRack uses
 	// this to clear prior rack membership inside the same transaction as
@@ -1468,6 +1483,7 @@ type Querier interface {
 	UpdateAlertChannel(ctx context.Context, arg UpdateAlertChannelParams) (AlertChannel, error)
 	UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error
 	UpdateBuilding(ctx context.Context, arg UpdateBuildingParams) error
+	UpdateChannelReleaseSet(ctx context.Context, arg UpdateChannelReleaseSetParams) (int64, error)
 	UpdateCurtailmentAutomationRule(ctx context.Context, arg UpdateCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// The expected-state guard prevents a stale reconciler phase from stamping
 	// over a concurrent transition. Terminal states remain addressable so an

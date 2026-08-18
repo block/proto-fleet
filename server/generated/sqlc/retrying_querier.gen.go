@@ -90,6 +90,18 @@ func (q *retryingQuerier) AllDevicesBelongToOrg(ctx context.Context, arg AllDevi
 	return result, err
 }
 
+func (q *retryingQuerier) AnyFirmwareArtifactReferenced(ctx context.Context) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "AnyFirmwareArtifactReferenced", func() error {
+		callResult, callErr := q.next.AnyFirmwareArtifactReferenced(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AssignBuildingToSite(ctx context.Context, arg AssignBuildingToSiteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "AssignBuildingToSite", func() error {
@@ -798,6 +810,18 @@ func (q *retryingQuerier) CreateBuilding(ctx context.Context, arg CreateBuilding
 	return result, err
 }
 
+func (q *retryingQuerier) CreateChannelExtension(ctx context.Context, arg CreateChannelExtensionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CreateChannelExtension", func() error {
+		callResult, callErr := q.next.CreateChannelExtension(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error) {
 	var result sql.Result
 	err := q.retrier.RetryQuery(ctx, "CreateCommandBatchLog", func() error {
@@ -826,6 +850,30 @@ func (q *retryingQuerier) CreateDeviceSet(ctx context.Context, arg CreateDeviceS
 	var result CreateDeviceSetRow
 	err := q.retrier.RetryQuery(ctx, "CreateDeviceSet", func() error {
 		callResult, callErr := q.next.CreateDeviceSet(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateFirmwareReleaseSet(ctx context.Context, orgID int64) (FirmwareReleaseSet, error) {
+	var result FirmwareReleaseSet
+	err := q.retrier.RetryQuery(ctx, "CreateFirmwareReleaseSet", func() error {
+		callResult, callErr := q.next.CreateFirmwareReleaseSet(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateFirmwareReleaseTarget(ctx context.Context, arg CreateFirmwareReleaseTargetParams) (FirmwareReleaseTarget, error) {
+	var result FirmwareReleaseTarget
+	err := q.retrier.RetryQuery(ctx, "CreateFirmwareReleaseTarget", func() error {
+		callResult, callErr := q.next.CreateFirmwareReleaseTarget(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1266,6 +1314,30 @@ func (q *retryingQuerier) FindDevicesWithSiteOrBuilding(ctx context.Context, arg
 	return result, err
 }
 
+func (q *retryingQuerier) FirmwareArtifactReferenced(ctx context.Context, firmwareFileID string) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "FirmwareArtifactReferenced", func() error {
+		callResult, callErr := q.next.FirmwareArtifactReferenced(ctx, firmwareFileID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) FirmwareReleaseSetBelongsToOrg(ctx context.Context, arg FirmwareReleaseSetBelongsToOrgParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "FirmwareReleaseSetBelongsToOrg", func() error {
+		callResult, callErr := q.next.FirmwareReleaseSetBelongsToOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ForceReleaseCurtailmentEvent(ctx context.Context, arg ForceReleaseCurtailmentEventParams) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "ForceReleaseCurtailmentEvent", func() error {
@@ -1594,6 +1666,30 @@ func (q *retryingQuerier) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuilt
 	var result Role
 	err := q.retrier.RetryQuery(ctx, "GetBuiltinRoleForOrg", func() error {
 		callResult, callErr := q.next.GetBuiltinRoleForOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetChannelInfo(ctx context.Context, arg GetChannelInfoParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "GetChannelInfo", func() error {
+		callResult, callErr := q.next.GetChannelInfo(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetChannelInfoBatch(ctx context.Context, arg GetChannelInfoBatchParams) ([]GetChannelInfoBatchRow, error) {
+	var result []GetChannelInfoBatchRow
+	err := q.retrier.RetryQuery(ctx, "GetChannelInfoBatch", func() error {
+		callResult, callErr := q.next.GetChannelInfoBatch(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2230,6 +2326,18 @@ func (q *retryingQuerier) GetFilteredDeviceIds(ctx context.Context, arg GetFilte
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "GetFilteredDeviceIds", func() error {
 		callResult, callErr := q.next.GetFilteredDeviceIds(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetFirmwareReleaseSet(ctx context.Context, arg GetFirmwareReleaseSetParams) (FirmwareReleaseSet, error) {
+	var result FirmwareReleaseSet
+	err := q.retrier.RetryQuery(ctx, "GetFirmwareReleaseSet", func() error {
+		callResult, callErr := q.next.GetFirmwareReleaseSet(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3666,6 +3774,30 @@ func (q *retryingQuerier) ListExistingDeviceIdentifiers(ctx context.Context, arg
 	return result, err
 }
 
+func (q *retryingQuerier) ListFirmwareReleaseTargets(ctx context.Context, arg ListFirmwareReleaseTargetsParams) ([]ListFirmwareReleaseTargetsRow, error) {
+	var result []ListFirmwareReleaseTargetsRow
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareReleaseTargets", func() error {
+		callResult, callErr := q.next.ListFirmwareReleaseTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareReleaseTargetsBySetIDs(ctx context.Context, arg ListFirmwareReleaseTargetsBySetIDsParams) ([]ListFirmwareReleaseTargetsBySetIDsRow, error) {
+	var result []ListFirmwareReleaseTargetsBySetIDsRow
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareReleaseTargetsBySetIDs", func() error {
+		callResult, callErr := q.next.ListFirmwareReleaseTargetsBySetIDs(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "ListFleetNodeDeviceIDsForRevocation", func() error {
@@ -4062,6 +4194,30 @@ func (q *retryingQuerier) LockBuildingsBySiteForWrite(ctx context.Context, arg L
 	return result, err
 }
 
+func (q *retryingQuerier) LockChannelForWrite(ctx context.Context, arg LockChannelForWriteParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockChannelForWrite", func() error {
+		callResult, callErr := q.next.LockChannelForWrite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockChannelsForReparent(ctx context.Context, arg LockChannelsForReparentParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockChannelsForReparent", func() error {
+		callResult, callErr := q.next.LockChannelsForReparent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error) {
 	var result CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "LockCurtailmentEventByUUIDForWrite", func() error {
@@ -4114,6 +4270,18 @@ func (q *retryingQuerier) LockCurtailmentScopeForWrite(ctx context.Context, orgI
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentScopeForWrite", func() error {
 		return q.next.LockCurtailmentScopeForWrite(ctx, orgID)
 	})
+}
+
+func (q *retryingQuerier) LockDevicesForChannelAssignment(ctx context.Context, arg LockDevicesForChannelAssignmentParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "LockDevicesForChannelAssignment", func() error {
+		callResult, callErr := q.next.LockDevicesForChannelAssignment(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error) {
@@ -4468,6 +4636,18 @@ func (q *retryingQuerier) RemoveAllDevicesFromDeviceSet(ctx context.Context, arg
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "RemoveAllDevicesFromDeviceSet", func() error {
 		callResult, callErr := q.next.RemoveAllDevicesFromDeviceSet(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) RemoveDevicesFromAnyChannel(ctx context.Context, arg RemoveDevicesFromAnyChannelParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RemoveDevicesFromAnyChannel", func() error {
+		callResult, callErr := q.next.RemoveDevicesFromAnyChannel(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5122,6 +5302,18 @@ func (q *retryingQuerier) UpdateBuilding(ctx context.Context, arg UpdateBuilding
 	return q.retrier.RetryQuery(ctx, "UpdateBuilding", func() error {
 		return q.next.UpdateBuilding(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) UpdateChannelReleaseSet(ctx context.Context, arg UpdateChannelReleaseSetParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UpdateChannelReleaseSet", func() error {
+		callResult, callErr := q.next.UpdateChannelReleaseSet(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) UpdateCurtailmentAutomationRule(ctx context.Context, arg UpdateCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error) {

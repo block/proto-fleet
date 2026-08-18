@@ -65,6 +65,8 @@ enum CollectionType {
     COLLECTION_TYPE_GROUP = 1;
     // Rack: one-to-one relationship (device can only be in one rack)
     COLLECTION_TYPE_RACK = 2;
+    // Channel: one-to-one software release membership. Rack membership is independent.
+    COLLECTION_TYPE_CHANNEL = 3;
 }
 
 // DeviceCollection represents a group or rack of devices
@@ -94,6 +96,7 @@ message DeviceCollection {
     oneof type_details {
         RackInfo rack_info = 8;
         GroupInfo group_info = 9;
+        ChannelInfo channel_info = 11;
     }
 
     // Parent placement refs for display/filter rows. Populated for
@@ -148,6 +151,30 @@ message RackInfo {
 // Reserved for future group-specific fields (e.g., tags, policies)
 message GroupInfo {}
 
+// Channel-specific metadata for channel-type collections.
+message ChannelInfo {
+    // Immutable release set currently declared by this channel.
+    int64 release_set_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Snapshotted per-model targets from release_set_id.
+    repeated FirmwareReleaseTarget release_targets = 2;
+}
+
+// An immutable firmware artifact snapshot for one manufacturer and model.
+message FirmwareReleaseTarget {
+    string firmware_file_id = 1;
+    string target_manufacturer = 2;
+    string target_model = 3;
+    string firmware_version = 4;
+    string sha256 = 5;
+}
+
+// An immutable set containing at most one firmware target per model.
+message FirmwareReleaseSet {
+    int64 id = 1;
+    repeated FirmwareReleaseTarget targets = 2;
+    google.protobuf.Timestamp created_at = 3;
+}
+
 // CollectionMember represents a device in a collection
 message CollectionMember {
     // Device identifier of the member
@@ -197,6 +224,7 @@ message CreateCollectionRequest {
     oneof type_details {
         RackInfo rack_info = 4;
         GroupInfo group_info = 5;
+        ChannelInfo channel_info = 7;
     }
 
     // Optional: devices to add atomically when creating the collection.
@@ -245,6 +273,8 @@ message UpdateCollectionRequest {
     oneof type_details {
         RackInfo rack_info = 4;
         GroupInfo group_info = 5;
+        // Omit to preserve the channel's current release set.
+        ChannelInfo channel_info = 7;
     }
 
     // Optional: atomically replace all collection members with the selected devices.

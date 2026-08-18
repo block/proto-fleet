@@ -79,6 +79,7 @@ func newTestHandler(t *testing.T) *testHarness {
 		noopResolver,
 		nil, // telemetry: unused
 		activitySvc,
+		nil, // firmware artifacts: unused
 	)
 
 	return &testHarness{
@@ -1221,6 +1222,7 @@ func newGroupHandlerWithResolver(t *testing.T, ids []string) *testHarness {
 		resolver,
 		nil,
 		activitySvc,
+		nil,
 	)
 	return &testHarness{
 		handler:         NewHandler(svc),
@@ -1228,4 +1230,120 @@ func newGroupHandlerWithResolver(t *testing.T, ids []string) *testHarness {
 		buildingStore:   buildingStore,
 		ctrl:            ctrl,
 	}
+}
+
+func TestCreateDeviceSet_ChannelConvertsChannelInfo(t *testing.T) {
+	h := newTestHandler(t)
+	channelInfo := &collectionpb.ChannelInfo{
+		ReleaseSetId: 91,
+		ReleaseTargets: []*collectionpb.FirmwareReleaseTarget{{
+			FirmwareFileId:     "firmware-1",
+			TargetManufacturer: "Proto",
+			TargetModel:        "Rig",
+			FirmwareVersion:    "2.0.0",
+			Sha256:             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+	}
+	h.collectionStore.EXPECT().
+		FirmwareReleaseSetBelongsToOrg(gomock.Any(), testOrgID, int64(91)).
+		Return(true, nil)
+	h.collectionStore.EXPECT().
+		CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL, "Stable", "").
+		Return(&collectionpb.DeviceCollection{
+			Id:    33,
+			Type:  collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL,
+			Label: "Stable",
+		}, nil)
+	h.collectionStore.EXPECT().
+		CreateChannelExtension(gomock.Any(), interfaces.CreateChannelExtensionParams{
+			OrgID:        testOrgID,
+			CollectionID: 33,
+			ReleaseSetID: 91,
+		}).
+		Return(nil)
+	h.collectionStore.EXPECT().
+		GetChannelInfo(gomock.Any(), int64(33), testOrgID).
+		Return(channelInfo, nil)
+
+	response, err := h.handler.CreateDeviceSet(testCtx(t), connect.NewRequest(&dspb.CreateDeviceSetRequest{
+		Type:  dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL,
+		Label: "Stable",
+		TypeDetails: &dspb.CreateDeviceSetRequest_ChannelInfo{
+			ChannelInfo: &dspb.ChannelInfo{ReleaseSetId: 91},
+		},
+	}))
+
+	require.NoError(t, err)
+	require.Equal(t, dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL, response.Msg.DeviceSet.Type)
+	require.Equal(t, int64(91), response.Msg.DeviceSet.GetChannelInfo().ReleaseSetId)
+	require.Len(t, response.Msg.DeviceSet.GetChannelInfo().ReleaseTargets, 1)
+}
+
+func TestAssignDevicesToChannel_HappyPath(t *testing.T) {
+	h := newTestHandler(t)
+	targetChannelID := int64(77)
+	deviceIDs := []string{"device-1", "device-2"}
+	gomock.InOrder(
+		h.collectionStore.EXPECT().
+			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
+			Return([]int64{12, 77}, nil),
+		h.collectionStore.EXPECT().
+			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
+			Return(deviceIDs, nil),
+		h.collectionStore.EXPECT().
+			GetCollection(gomock.Any(), testOrgID, targetChannelID).
+			Return(&collectionpb.DeviceCollection{
+				Id:    targetChannelID,
+				Type:  collectionpb.CollectionType_COLLECTION_TYPE_CHANNEL,
+				Label: "Stable",
+			}, nil),
+		h.collectionStore.EXPECT().
+			GetChannelInfo(gomock.Any(), targetChannelID, testOrgID).
+			Return(&collectionpb.ChannelInfo{ReleaseSetId: 91}, nil),
+		h.collectionStore.EXPECT().
+			RemoveDevicesFromAnyChannel(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
+			Return(int64(1), nil),
+		h.collectionStore.EXPECT().
+			AddDevicesToCollection(gomock.Any(), testOrgID, targetChannelID, deviceIDs).
+			Return(int64(2), nil),
+	)
+
+	response, err := h.handler.AssignDevicesToChannel(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToChannelRequest{
+		TargetChannelId: &targetChannelID,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	}))
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), response.Msg.AssignedCount)
+	assert.Equal(t, int64(1), response.Msg.RemovedCount)
+}
+
+func TestGetFirmwareReleaseSet_ReturnsSnapshot(t *testing.T) {
+	h := newTestHandler(t)
+	h.collectionStore.EXPECT().
+		GetFirmwareReleaseSet(gomock.Any(), testOrgID, int64(91)).
+		Return(&collectionpb.FirmwareReleaseSet{
+			Id: 91,
+			Targets: []*collectionpb.FirmwareReleaseTarget{{
+				FirmwareFileId:     "firmware-1",
+				TargetManufacturer: "Proto",
+				TargetModel:        "Rig",
+				FirmwareVersion:    "2.0.0",
+				Sha256:             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			}},
+		}, nil)
+
+	response, err := h.handler.GetFirmwareReleaseSet(
+		testCtx(t),
+		connect.NewRequest(&dspb.GetFirmwareReleaseSetRequest{ReleaseSetId: 91}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(91), response.Msg.ReleaseSet.Id)
+	require.Len(t, response.Msg.ReleaseSet.Targets, 1)
+	assert.Equal(t, "firmware-1", response.Msg.ReleaseSet.Targets[0].FirmwareFileId)
 }

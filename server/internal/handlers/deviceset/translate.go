@@ -35,6 +35,26 @@ func toAssignDevicesToRackParams(req *dspb.AssignDevicesToRackRequest, orgID int
 	}, nil
 }
 
+func toAssignDevicesToChannelParams(
+	req *dspb.AssignDevicesToChannelRequest,
+	orgID int64,
+) (collection.AssignDevicesToChannelParams, error) {
+	var targetChannelID *int64
+	if req.TargetChannelId != nil {
+		value := req.GetTargetChannelId()
+		targetChannelID = &value
+	}
+	identifiers, err := identifiersFromExplicitAssignSelector(req.GetDeviceSelector(), "AssignDevicesToChannel")
+	if err != nil {
+		return collection.AssignDevicesToChannelParams{}, err
+	}
+	return collection.AssignDevicesToChannelParams{
+		OrgID:             orgID,
+		TargetChannelID:   targetChannelID,
+		DeviceIdentifiers: identifiers,
+	}, nil
+}
+
 // toProtoRackConflicts maps domain add-to-rack conflicts onto the proto
 // response shape. Returns nil for an empty list so the response field
 // stays unset on the happy path.
@@ -68,6 +88,10 @@ func toProtoRackConflictReason(r collection.PerDeviceRackConflictReason) dspb.Pe
 // oneof are both rejected with InvalidArgument so callers learn
 // up-front instead of getting a 0-row response or a panic downstream.
 func identifiersFromAssignSelector(sel *commonpb.DeviceSelector) ([]string, error) {
+	return identifiersFromExplicitAssignSelector(sel, "AssignDevicesToRack")
+}
+
+func identifiersFromExplicitAssignSelector(sel *commonpb.DeviceSelector, operation string) ([]string, error) {
 	if sel == nil {
 		return nil, fleeterror.NewInvalidArgumentError("device_selector is required")
 	}
@@ -87,7 +111,10 @@ func identifiersFromAssignSelector(sel *commonpb.DeviceSelector) ([]string, erro
 		}
 		return ids, nil
 	case *commonpb.DeviceSelector_AllDevices:
-		return nil, fleeterror.NewInvalidArgumentError("device_selector.all_devices is not supported for AssignDevicesToRack; pass an explicit device_list")
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"device_selector.all_devices is not supported for %s; pass an explicit device_list",
+			operation,
+		)
 	default:
 		return nil, fleeterror.NewInvalidArgumentError("device_selector must set device_list")
 	}

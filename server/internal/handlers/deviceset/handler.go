@@ -426,3 +426,57 @@ func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[ds
 		SiteReassignedCount: result.SiteReassignedCount,
 	}), nil
 }
+
+func (h *Handler) CreateFirmwareReleaseSet(
+	ctx context.Context,
+	r *connect.Request[dspb.CreateFirmwareReleaseSetRequest],
+) (*connect.Response[dspb.CreateFirmwareReleaseSetResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	releaseSet, err := h.svc.CreateFirmwareReleaseSet(ctx, r.Msg.GetFirmwareFileIds())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&dspb.CreateFirmwareReleaseSetResponse{
+		ReleaseSet: toDeviceSetReleaseSet(releaseSet),
+	}), nil
+}
+
+func (h *Handler) GetFirmwareReleaseSet(
+	ctx context.Context,
+	r *connect.Request[dspb.GetFirmwareReleaseSetRequest],
+) (*connect.Response[dspb.GetFirmwareReleaseSetResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	releaseSet, err := h.svc.GetFirmwareReleaseSet(ctx, r.Msg.GetReleaseSetId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&dspb.GetFirmwareReleaseSetResponse{
+		ReleaseSet: toDeviceSetReleaseSet(releaseSet),
+	}), nil
+}
+
+func (h *Handler) AssignDevicesToChannel(
+	ctx context.Context,
+	r *connect.Request[dspb.AssignDevicesToChannelRequest],
+) (*connect.Response[dspb.AssignDevicesToChannelResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	params, err := toAssignDevicesToChannelParams(r.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.AssignDevicesToChannel(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&dspb.AssignDevicesToChannelResponse{
+		AssignedCount: result.AssignedCount,
+		RemovedCount:  result.RemovedCount,
+	}), nil
+}

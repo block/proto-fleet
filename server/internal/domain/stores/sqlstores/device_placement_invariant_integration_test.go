@@ -111,7 +111,7 @@ func TestDevicePlacementInvariant_HoldsAcrossReparentPaths(t *testing.T) {
 	collectionSvc := collection.NewService(
 		collectionStore, nil, siteStore, buildingStore, transactor,
 		func(context.Context, *commonpb.DeviceSelector, int64) ([]string, error) { return nil, nil },
-		nil, nil,
+		nil, nil, nil,
 	)
 
 	assertHolds := func(label string) {

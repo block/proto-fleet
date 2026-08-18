@@ -103,8 +103,9 @@ func (ns NullDeviceCommandStatusEnum) Value() (driver.Value, error) {
 type DeviceSetType string
 
 const (
-	DeviceSetTypeGroup DeviceSetType = "group"
-	DeviceSetTypeRack  DeviceSetType = "rack"
+	DeviceSetTypeGroup   DeviceSetType = "group"
+	DeviceSetTypeRack    DeviceSetType = "rack"
+	DeviceSetTypeChannel DeviceSetType = "channel"
 )
 
 func (e *DeviceSetType) Scan(src interface{}) error {
@@ -735,6 +736,14 @@ type DeviceSet struct {
 	DeletedAt   sql.NullTime
 }
 
+type DeviceSetChannel struct {
+	DeviceSetID  int64
+	OrgID        int64
+	ReleaseSetID int64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 type DeviceSetMembership struct {
 	ID               int64
 	OrgID            int64
@@ -852,6 +861,24 @@ type Error struct {
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	SiteID            sql.NullInt64
+}
+
+type FirmwareReleaseSet struct {
+	ID        int64
+	OrgID     int64
+	CreatedAt time.Time
+}
+
+type FirmwareReleaseTarget struct {
+	ID                 int64
+	ReleaseSetID       int64
+	OrgID              int64
+	FirmwareFileID     string
+	TargetManufacturer string
+	TargetModel        string
+	FirmwareVersion    string
+	Sha256             string
+	CreatedAt          time.Time
 }
 
 type FleetActiveOrganization struct {

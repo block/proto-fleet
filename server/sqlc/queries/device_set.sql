@@ -339,6 +339,7 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND d.org_id = $1
   AND d.deleted_at IS NULL
   AND ds.id = $2
+  AND ds.org_id = $1
   AND ds.deleted_at IS NULL
 ON CONFLICT (device_set_id, device_id) DO NOTHING
 RETURNING device_identifier;

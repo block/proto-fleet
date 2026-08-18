@@ -72,6 +72,21 @@ func (mr *MockCollectionStoreMockRecorder) AddDevicesToCollectionReturningAdded(
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDevicesToCollectionReturningAdded", reflect.TypeOf((*MockCollectionStore)(nil).AddDevicesToCollectionReturningAdded), ctx, orgID, collectionID, deviceIdentifiers)
 }
 
+// AnyFirmwareArtifactReferenced mocks base method.
+func (m *MockCollectionStore) AnyFirmwareArtifactReferenced(ctx context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AnyFirmwareArtifactReferenced", ctx)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AnyFirmwareArtifactReferenced indicates an expected call of AnyFirmwareArtifactReferenced.
+func (mr *MockCollectionStoreMockRecorder) AnyFirmwareArtifactReferenced(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AnyFirmwareArtifactReferenced", reflect.TypeOf((*MockCollectionStore)(nil).AnyFirmwareArtifactReferenced), ctx)
+}
+
 // CascadeAddedDeviceBuildings mocks base method.
 func (m *MockCollectionStore) CascadeAddedDeviceBuildings(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -220,6 +235,20 @@ func (mr *MockCollectionStoreMockRecorder) CollectionBelongsToOrg(ctx, collectio
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectionBelongsToOrg", reflect.TypeOf((*MockCollectionStore)(nil).CollectionBelongsToOrg), ctx, collectionID, orgID)
 }
 
+// CreateChannelExtension mocks base method.
+func (m *MockCollectionStore) CreateChannelExtension(ctx context.Context, params interfaces.CreateChannelExtensionParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateChannelExtension", ctx, params)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateChannelExtension indicates an expected call of CreateChannelExtension.
+func (mr *MockCollectionStoreMockRecorder) CreateChannelExtension(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateChannelExtension", reflect.TypeOf((*MockCollectionStore)(nil).CreateChannelExtension), ctx, params)
+}
+
 // CreateCollection mocks base method.
 func (m *MockCollectionStore) CreateCollection(ctx context.Context, orgID int64, collectionType collectionv1.CollectionType, label, description string) (*collectionv1.DeviceCollection, error) {
 	m.ctrl.T.Helper()
@@ -233,6 +262,35 @@ func (m *MockCollectionStore) CreateCollection(ctx context.Context, orgID int64,
 func (mr *MockCollectionStoreMockRecorder) CreateCollection(ctx, orgID, collectionType, label, description any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateCollection", reflect.TypeOf((*MockCollectionStore)(nil).CreateCollection), ctx, orgID, collectionType, label, description)
+}
+
+// CreateFirmwareReleaseSet mocks base method.
+func (m *MockCollectionStore) CreateFirmwareReleaseSet(ctx context.Context, orgID int64) (*collectionv1.FirmwareReleaseSet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateFirmwareReleaseSet", ctx, orgID)
+	ret0, _ := ret[0].(*collectionv1.FirmwareReleaseSet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateFirmwareReleaseSet indicates an expected call of CreateFirmwareReleaseSet.
+func (mr *MockCollectionStoreMockRecorder) CreateFirmwareReleaseSet(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateFirmwareReleaseSet", reflect.TypeOf((*MockCollectionStore)(nil).CreateFirmwareReleaseSet), ctx, orgID)
+}
+
+// CreateFirmwareReleaseTarget mocks base method.
+func (m *MockCollectionStore) CreateFirmwareReleaseTarget(ctx context.Context, orgID, releaseSetID int64, target *collectionv1.FirmwareReleaseTarget) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateFirmwareReleaseTarget", ctx, orgID, releaseSetID, target)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateFirmwareReleaseTarget indicates an expected call of CreateFirmwareReleaseTarget.
+func (mr *MockCollectionStoreMockRecorder) CreateFirmwareReleaseTarget(ctx, orgID, releaseSetID, target any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateFirmwareReleaseTarget", reflect.TypeOf((*MockCollectionStore)(nil).CreateFirmwareReleaseTarget), ctx, orgID, releaseSetID, target)
 }
 
 // CreateRackExtension mocks base method.
@@ -264,6 +322,36 @@ func (mr *MockCollectionStoreMockRecorder) FindDevicesWithSiteOrBuilding(ctx, or
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindDevicesWithSiteOrBuilding", reflect.TypeOf((*MockCollectionStore)(nil).FindDevicesWithSiteOrBuilding), ctx, orgID, deviceIdentifiers)
 }
 
+// FirmwareArtifactReferenced mocks base method.
+func (m *MockCollectionStore) FirmwareArtifactReferenced(ctx context.Context, firmwareFileID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FirmwareArtifactReferenced", ctx, firmwareFileID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FirmwareArtifactReferenced indicates an expected call of FirmwareArtifactReferenced.
+func (mr *MockCollectionStoreMockRecorder) FirmwareArtifactReferenced(ctx, firmwareFileID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareArtifactReferenced", reflect.TypeOf((*MockCollectionStore)(nil).FirmwareArtifactReferenced), ctx, firmwareFileID)
+}
+
+// FirmwareReleaseSetBelongsToOrg mocks base method.
+func (m *MockCollectionStore) FirmwareReleaseSetBelongsToOrg(ctx context.Context, orgID, releaseSetID int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FirmwareReleaseSetBelongsToOrg", ctx, orgID, releaseSetID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FirmwareReleaseSetBelongsToOrg indicates an expected call of FirmwareReleaseSetBelongsToOrg.
+func (mr *MockCollectionStoreMockRecorder) FirmwareReleaseSetBelongsToOrg(ctx, orgID, releaseSetID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FirmwareReleaseSetBelongsToOrg", reflect.TypeOf((*MockCollectionStore)(nil).FirmwareReleaseSetBelongsToOrg), ctx, orgID, releaseSetID)
+}
+
 // GetAddedDeviceSiteConflicts mocks base method.
 func (m *MockCollectionStore) GetAddedDeviceSiteConflicts(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) ([]interfaces.AddedDeviceSiteConflict, error) {
 	m.ctrl.T.Helper()
@@ -292,6 +380,21 @@ func (m *MockCollectionStore) GetBuildingSite(ctx context.Context, orgID, buildi
 func (mr *MockCollectionStoreMockRecorder) GetBuildingSite(ctx, orgID, buildingID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBuildingSite", reflect.TypeOf((*MockCollectionStore)(nil).GetBuildingSite), ctx, orgID, buildingID)
+}
+
+// GetChannelInfo mocks base method.
+func (m *MockCollectionStore) GetChannelInfo(ctx context.Context, collectionID, orgID int64) (*collectionv1.ChannelInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetChannelInfo", ctx, collectionID, orgID)
+	ret0, _ := ret[0].(*collectionv1.ChannelInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetChannelInfo indicates an expected call of GetChannelInfo.
+func (mr *MockCollectionStoreMockRecorder) GetChannelInfo(ctx, collectionID, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetChannelInfo", reflect.TypeOf((*MockCollectionStore)(nil).GetChannelInfo), ctx, collectionID, orgID)
 }
 
 // GetCollection mocks base method.
@@ -382,6 +485,21 @@ func (m *MockCollectionStore) GetDeviceSiteIDsByMembership(ctx context.Context, 
 func (mr *MockCollectionStoreMockRecorder) GetDeviceSiteIDsByMembership(ctx, collectionID, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceSiteIDsByMembership", reflect.TypeOf((*MockCollectionStore)(nil).GetDeviceSiteIDsByMembership), ctx, collectionID, orgID)
+}
+
+// GetFirmwareReleaseSet mocks base method.
+func (m *MockCollectionStore) GetFirmwareReleaseSet(ctx context.Context, orgID, releaseSetID int64) (*collectionv1.FirmwareReleaseSet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFirmwareReleaseSet", ctx, orgID, releaseSetID)
+	ret0, _ := ret[0].(*collectionv1.FirmwareReleaseSet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetFirmwareReleaseSet indicates an expected call of GetFirmwareReleaseSet.
+func (mr *MockCollectionStoreMockRecorder) GetFirmwareReleaseSet(ctx, orgID, releaseSetID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFirmwareReleaseSet", reflect.TypeOf((*MockCollectionStore)(nil).GetFirmwareReleaseSet), ctx, orgID, releaseSetID)
 }
 
 // GetGroupRefsForDevices mocks base method.
@@ -537,6 +655,50 @@ func (mr *MockCollectionStoreMockRecorder) ListRackZones(ctx, orgID any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackZones", reflect.TypeOf((*MockCollectionStore)(nil).ListRackZones), ctx, orgID)
 }
 
+// LockChannelForWrite mocks base method.
+func (m *MockCollectionStore) LockChannelForWrite(ctx context.Context, collectionID, orgID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockChannelForWrite", ctx, collectionID, orgID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockChannelForWrite indicates an expected call of LockChannelForWrite.
+func (mr *MockCollectionStoreMockRecorder) LockChannelForWrite(ctx, collectionID, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockChannelForWrite", reflect.TypeOf((*MockCollectionStore)(nil).LockChannelForWrite), ctx, collectionID, orgID)
+}
+
+// LockChannelsForReparent mocks base method.
+func (m *MockCollectionStore) LockChannelsForReparent(ctx context.Context, orgID int64, deviceIdentifiers []string, targetChannelID int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockChannelsForReparent", ctx, orgID, deviceIdentifiers, targetChannelID)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockChannelsForReparent indicates an expected call of LockChannelsForReparent.
+func (mr *MockCollectionStoreMockRecorder) LockChannelsForReparent(ctx, orgID, deviceIdentifiers, targetChannelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockChannelsForReparent", reflect.TypeOf((*MockCollectionStore)(nil).LockChannelsForReparent), ctx, orgID, deviceIdentifiers, targetChannelID)
+}
+
+// LockDevicesForChannelAssignment mocks base method.
+func (m *MockCollectionStore) LockDevicesForChannelAssignment(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockDevicesForChannelAssignment", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockDevicesForChannelAssignment indicates an expected call of LockDevicesForChannelAssignment.
+func (mr *MockCollectionStoreMockRecorder) LockDevicesForChannelAssignment(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDevicesForChannelAssignment", reflect.TypeOf((*MockCollectionStore)(nil).LockDevicesForChannelAssignment), ctx, orgID, deviceIdentifiers)
+}
+
 // LockDevicesForReassign mocks base method.
 func (m *MockCollectionStore) LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error {
 	m.ctrl.T.Helper()
@@ -594,6 +756,21 @@ func (m *MockCollectionStore) RemoveAllDevicesFromCollection(ctx context.Context
 func (mr *MockCollectionStoreMockRecorder) RemoveAllDevicesFromCollection(ctx, orgID, collectionID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveAllDevicesFromCollection", reflect.TypeOf((*MockCollectionStore)(nil).RemoveAllDevicesFromCollection), ctx, orgID, collectionID)
+}
+
+// RemoveDevicesFromAnyChannel mocks base method.
+func (m *MockCollectionStore) RemoveDevicesFromAnyChannel(ctx context.Context, orgID int64, deviceIdentifiers []string, targetChannelID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveDevicesFromAnyChannel", ctx, orgID, deviceIdentifiers, targetChannelID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RemoveDevicesFromAnyChannel indicates an expected call of RemoveDevicesFromAnyChannel.
+func (mr *MockCollectionStoreMockRecorder) RemoveDevicesFromAnyChannel(ctx, orgID, deviceIdentifiers, targetChannelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveDevicesFromAnyChannel", reflect.TypeOf((*MockCollectionStore)(nil).RemoveDevicesFromAnyChannel), ctx, orgID, deviceIdentifiers, targetChannelID)
 }
 
 // RemoveDevicesFromAnyRack mocks base method.
@@ -698,6 +875,20 @@ func (m *MockCollectionStore) UnassignDeviceSitesByRack(ctx context.Context, col
 func (mr *MockCollectionStoreMockRecorder) UnassignDeviceSitesByRack(ctx, collectionID, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnassignDeviceSitesByRack", reflect.TypeOf((*MockCollectionStore)(nil).UnassignDeviceSitesByRack), ctx, collectionID, orgID)
+}
+
+// UpdateChannelReleaseSet mocks base method.
+func (m *MockCollectionStore) UpdateChannelReleaseSet(ctx context.Context, orgID, collectionID, releaseSetID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateChannelReleaseSet", ctx, orgID, collectionID, releaseSetID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateChannelReleaseSet indicates an expected call of UpdateChannelReleaseSet.
+func (mr *MockCollectionStoreMockRecorder) UpdateChannelReleaseSet(ctx, orgID, collectionID, releaseSetID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateChannelReleaseSet", reflect.TypeOf((*MockCollectionStore)(nil).UpdateChannelReleaseSet), ctx, orgID, collectionID, releaseSetID)
 }
 
 // UpdateCollection mocks base method.

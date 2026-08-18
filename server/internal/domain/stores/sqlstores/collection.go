@@ -83,6 +83,159 @@ func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, params int
 	return nil
 }
 
+func (s *SQLCollectionStore) CreateChannelExtension(ctx context.Context, params interfaces.CreateChannelExtensionParams) error {
+	count, err := s.GetQueries(ctx).CreateChannelExtension(ctx, sqlc.CreateChannelExtensionParams{
+		OrgID:        params.OrgID,
+		DeviceSetID:  params.CollectionID,
+		ReleaseSetID: params.ReleaseSetID,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to create channel extension: %v", err)
+	}
+	if count != 1 {
+		return fleeterror.NewFailedPreconditionError("channel and release set must exist in the same organization")
+	}
+	return nil
+}
+
+func (s *SQLCollectionStore) CreateFirmwareReleaseSet(ctx context.Context, orgID int64) (*pb.FirmwareReleaseSet, error) {
+	row, err := s.GetQueries(ctx).CreateFirmwareReleaseSet(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create firmware release set: %v", err)
+	}
+	return &pb.FirmwareReleaseSet{
+		Id:        row.ID,
+		CreatedAt: timestamppb.New(row.CreatedAt),
+	}, nil
+}
+
+func (s *SQLCollectionStore) CreateFirmwareReleaseTarget(
+	ctx context.Context,
+	orgID, releaseSetID int64,
+	target *pb.FirmwareReleaseTarget,
+) error {
+	if target == nil {
+		return fleeterror.NewInvalidArgumentError("firmware release target is required")
+	}
+	_, err := s.GetQueries(ctx).CreateFirmwareReleaseTarget(ctx, sqlc.CreateFirmwareReleaseTargetParams{
+		ReleaseSetID:       releaseSetID,
+		OrgID:              orgID,
+		FirmwareFileID:     target.FirmwareFileId,
+		TargetManufacturer: target.TargetManufacturer,
+		TargetModel:        target.TargetModel,
+		FirmwareVersion:    target.FirmwareVersion,
+		Sha256:             target.Sha256,
+	})
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"release set contains duplicate target for %s %s",
+				target.TargetManufacturer,
+				target.TargetModel,
+			)
+		}
+		return fleeterror.NewInternalErrorf("failed to create firmware release target: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCollectionStore) GetFirmwareReleaseSet(ctx context.Context, orgID, releaseSetID int64) (*pb.FirmwareReleaseSet, error) {
+	row, err := s.GetQueries(ctx).GetFirmwareReleaseSet(ctx, sqlc.GetFirmwareReleaseSetParams{
+		ID:    releaseSetID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("firmware release set not found: %d", releaseSetID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get firmware release set: %v", err)
+	}
+	targetRows, err := s.GetQueries(ctx).ListFirmwareReleaseTargets(ctx, sqlc.ListFirmwareReleaseTargetsParams{
+		ReleaseSetID: releaseSetID,
+		OrgID:        orgID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list firmware release targets: %v", err)
+	}
+	targets := make([]*pb.FirmwareReleaseTarget, 0, len(targetRows))
+	for _, target := range targetRows {
+		targets = append(targets, newFirmwareReleaseTarget(
+			target.FirmwareFileID,
+			target.TargetManufacturer,
+			target.TargetModel,
+			target.FirmwareVersion,
+			target.Sha256,
+		))
+	}
+	return &pb.FirmwareReleaseSet{
+		Id:        row.ID,
+		Targets:   targets,
+		CreatedAt: timestamppb.New(row.CreatedAt),
+	}, nil
+}
+
+func (s *SQLCollectionStore) FirmwareReleaseSetBelongsToOrg(ctx context.Context, orgID, releaseSetID int64) (bool, error) {
+	belongs, err := s.GetQueries(ctx).FirmwareReleaseSetBelongsToOrg(ctx, sqlc.FirmwareReleaseSetBelongsToOrgParams{
+		ID:    releaseSetID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to check firmware release set ownership: %v", err)
+	}
+	return belongs, nil
+}
+
+func (s *SQLCollectionStore) GetChannelInfo(ctx context.Context, collectionID, orgID int64) (*pb.ChannelInfo, error) {
+	releaseSetID, err := s.GetQueries(ctx).GetChannelInfo(ctx, sqlc.GetChannelInfoParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get channel info: %v", err)
+	}
+	releaseSet, err := s.GetFirmwareReleaseSet(ctx, orgID, releaseSetID)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.ChannelInfo{
+		ReleaseSetId:   releaseSet.Id,
+		ReleaseTargets: releaseSet.Targets,
+	}, nil
+}
+
+func (s *SQLCollectionStore) LockChannelForWrite(ctx context.Context, collectionID, orgID int64) error {
+	_, err := s.GetQueries(ctx).LockChannelForWrite(ctx, sqlc.LockChannelForWriteParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewNotFoundErrorf("channel %d not found", collectionID)
+		}
+		return fleeterror.NewInternalErrorf("failed to lock channel: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCollectionStore) UpdateChannelReleaseSet(ctx context.Context, orgID, collectionID, releaseSetID int64) error {
+	count, err := s.GetQueries(ctx).UpdateChannelReleaseSet(ctx, sqlc.UpdateChannelReleaseSetParams{
+		DeviceSetID:  collectionID,
+		OrgID:        orgID,
+		ReleaseSetID: releaseSetID,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update channel release set: %v", err)
+	}
+	if count != 1 {
+		return fleeterror.NewFailedPreconditionError("channel and release set must exist in the same organization")
+	}
+	return nil
+}
+
 func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error) {
 	row, err := s.GetQueries(ctx).GetDeviceSet(ctx, sqlc.GetDeviceSetParams{
 		ID:    collectionID,
@@ -154,6 +307,63 @@ func (s *SQLCollectionStore) getRackInfoBatch(ctx context.Context, orgID int64, 
 			ri.Zone = row.Zone.String
 		}
 		result[row.DeviceSetID] = ri
+	}
+	return result, nil
+}
+
+func (s *SQLCollectionStore) getChannelInfoBatch(
+	ctx context.Context,
+	orgID int64,
+	collectionIDs []int64,
+) (map[int64]*pb.ChannelInfo, error) {
+	if len(collectionIDs) == 0 {
+		return make(map[int64]*pb.ChannelInfo), nil
+	}
+	rows, err := s.GetQueries(ctx).GetChannelInfoBatch(ctx, sqlc.GetChannelInfoBatchParams{
+		DeviceSetIds: collectionIDs,
+		OrgID:        orgID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to batch-fetch channel info: %v", err)
+	}
+	releaseSetIDs := make([]int64, 0, len(rows))
+	seenReleaseSets := make(map[int64]struct{}, len(rows))
+	for _, row := range rows {
+		if _, seen := seenReleaseSets[row.ReleaseSetID]; seen {
+			continue
+		}
+		seenReleaseSets[row.ReleaseSetID] = struct{}{}
+		releaseSetIDs = append(releaseSetIDs, row.ReleaseSetID)
+	}
+	targetRows, err := s.GetQueries(ctx).ListFirmwareReleaseTargetsBySetIDs(
+		ctx,
+		sqlc.ListFirmwareReleaseTargetsBySetIDsParams{
+			ReleaseSetIds: releaseSetIDs,
+			OrgID:         orgID,
+		},
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to batch-fetch channel release targets: %v", err)
+	}
+	targetsByReleaseSet := make(map[int64][]*pb.FirmwareReleaseTarget, len(releaseSetIDs))
+	for _, target := range targetRows {
+		targetsByReleaseSet[target.ReleaseSetID] = append(
+			targetsByReleaseSet[target.ReleaseSetID],
+			newFirmwareReleaseTarget(
+				target.FirmwareFileID,
+				target.TargetManufacturer,
+				target.TargetModel,
+				target.FirmwareVersion,
+				target.Sha256,
+			),
+		)
+	}
+	result := make(map[int64]*pb.ChannelInfo, len(rows))
+	for _, row := range rows {
+		result[row.DeviceSetID] = &pb.ChannelInfo{
+			ReleaseSetId:   row.ReleaseSetID,
+			ReleaseTargets: targetsByReleaseSet[row.ReleaseSetID],
+		}
 	}
 	return result, nil
 }
@@ -535,11 +745,17 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 
 	result := make([]*pb.DeviceCollection, len(rows))
 	var rackIDs []int64
+	var channelIDs []int64
 	for i, row := range rows {
 		result[i] = newDeviceCollection(row.ID, sqlc.DeviceSetType(row.Type), row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
 		result[i].Placement = collectionPlacementRefs(row.SiteID, row.SiteLabel, row.BuildingID, row.BuildingLabel)
-		if sqlc.DeviceSetType(row.Type) == sqlc.DeviceSetTypeRack {
+		switch sqlc.DeviceSetType(row.Type) {
+		case sqlc.DeviceSetTypeRack:
 			rackIDs = append(rackIDs, row.ID)
+		case sqlc.DeviceSetTypeChannel:
+			channelIDs = append(channelIDs, row.ID)
+		case sqlc.DeviceSetTypeGroup:
+			// Groups have no type-specific extension row.
 		}
 	}
 
@@ -552,6 +768,17 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 		for _, c := range result {
 			if ri, ok := rackInfoMap[c.Id]; ok {
 				c.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: ri}
+			}
+		}
+	}
+	if len(channelIDs) > 0 {
+		channelInfoMap, err := s.getChannelInfoBatch(ctx, orgID, channelIDs)
+		if err != nil {
+			return nil, "", 0, err
+		}
+		for _, collection := range result {
+			if info, ok := channelInfoMap[collection.Id]; ok {
+				collection.TypeDetails = &pb.DeviceCollection_ChannelInfo{ChannelInfo: info}
 			}
 		}
 	}
@@ -717,6 +944,71 @@ func (s *SQLCollectionStore) LockRacksForReparent(ctx context.Context, orgID int
 	return ids, nil
 }
 
+func (s *SQLCollectionStore) LockChannelsForReparent(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+	targetChannelID int64,
+) ([]int64, error) {
+	ids, err := s.GetQueries(ctx).LockChannelsForReparent(ctx, sqlc.LockChannelsForReparentParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+		TargetChannelID:   targetChannelID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock channels for reparent: %v", err)
+	}
+	return ids, nil
+}
+
+func (s *SQLCollectionStore) LockDevicesForChannelAssignment(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+) ([]string, error) {
+	ids, err := s.GetQueries(ctx).LockDevicesForChannelAssignment(ctx, sqlc.LockDevicesForChannelAssignmentParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock devices for channel assignment: %v", err)
+	}
+	return ids, nil
+}
+
+func (s *SQLCollectionStore) RemoveDevicesFromAnyChannel(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+	targetChannelID int64,
+) (int64, error) {
+	count, err := s.GetQueries(ctx).RemoveDevicesFromAnyChannel(ctx, sqlc.RemoveDevicesFromAnyChannelParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+		TargetChannelID:   targetChannelID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to remove devices from channel: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLCollectionStore) FirmwareArtifactReferenced(ctx context.Context, firmwareFileID string) (bool, error) {
+	referenced, err := s.GetQueries(ctx).FirmwareArtifactReferenced(ctx, firmwareFileID)
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to check firmware artifact references: %v", err)
+	}
+	return referenced, nil
+}
+
+func (s *SQLCollectionStore) AnyFirmwareArtifactReferenced(ctx context.Context) (bool, error) {
+	referenced, err := s.GetQueries(ctx).AnyFirmwareArtifactReferenced(ctx)
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to check firmware artifact references: %v", err)
+	}
+	return referenced, nil
+}
+
 func (s *SQLCollectionStore) ListCollectionMembers(ctx context.Context, orgID int64, collectionID int64, pageSize int32, pageToken string, filter *interfaces.DeviceSetFilter) ([]*pb.CollectionMember, string, error) {
 	cursor, err := decodeMemberCursor(pageToken)
 	if err != nil {
@@ -836,6 +1128,9 @@ func (s *SQLCollectionStore) GetDeviceCollections(ctx context.Context, orgID int
 		for i, row := range rows {
 			result[i] = newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
 		}
+		if err := s.hydrateChannelInfo(ctx, orgID, result); err != nil {
+			return nil, err
+		}
 		return result, nil
 	}
 
@@ -852,7 +1147,33 @@ func (s *SQLCollectionStore) GetDeviceCollections(ctx context.Context, orgID int
 	for i, row := range rows {
 		result[i] = newDeviceCollection(row.ID, row.Type, row.Label, row.Description, row.DeviceCount, row.CreatedAt, row.UpdatedAt)
 	}
+	if err := s.hydrateChannelInfo(ctx, orgID, result); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+func (s *SQLCollectionStore) hydrateChannelInfo(
+	ctx context.Context,
+	orgID int64,
+	collections []*pb.DeviceCollection,
+) error {
+	channelIDs := make([]int64, 0)
+	for _, collection := range collections {
+		if collection.Type == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
+			channelIDs = append(channelIDs, collection.Id)
+		}
+	}
+	channelInfo, err := s.getChannelInfoBatch(ctx, orgID, channelIDs)
+	if err != nil {
+		return err
+	}
+	for _, collection := range collections {
+		if info, ok := channelInfo[collection.Id]; ok {
+			collection.TypeDetails = &pb.DeviceCollection_ChannelInfo{ChannelInfo: info}
+		}
+	}
+	return nil
 }
 
 func (s *SQLCollectionStore) GetGroupRefsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string][]interfaces.DeviceGroupRef, error) {
@@ -1114,6 +1435,8 @@ func protoDeviceSetTypeToSQL(ct pb.CollectionType) sqlc.DeviceSetType {
 		return sqlc.DeviceSetTypeGroup
 	case pb.CollectionType_COLLECTION_TYPE_RACK:
 		return sqlc.DeviceSetTypeRack
+	case pb.CollectionType_COLLECTION_TYPE_CHANNEL:
+		return sqlc.DeviceSetTypeChannel
 	case pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED:
 		// Callers should validate type before reaching this point.
 		// Default to group to avoid panicking on unvalidated input.
@@ -1129,6 +1452,8 @@ func sqlDeviceSetTypeToProto(ct sqlc.DeviceSetType) pb.CollectionType {
 		return pb.CollectionType_COLLECTION_TYPE_GROUP
 	case sqlc.DeviceSetTypeRack:
 		return pb.CollectionType_COLLECTION_TYPE_RACK
+	case sqlc.DeviceSetTypeChannel:
+		return pb.CollectionType_COLLECTION_TYPE_CHANNEL
 	default:
 		return pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED
 	}
@@ -1152,6 +1477,18 @@ func newDeviceCollection(id int64, ct sqlc.DeviceSetType, label string, descript
 		DeviceCount: deviceCount,
 		CreatedAt:   timestamppb.New(createdAt),
 		UpdatedAt:   timestamppb.New(updatedAt),
+	}
+}
+
+func newFirmwareReleaseTarget(
+	fileID, manufacturer, model, version, checksum string,
+) *pb.FirmwareReleaseTarget {
+	return &pb.FirmwareReleaseTarget{
+		FirmwareFileId:     fileID,
+		TargetManufacturer: manufacturer,
+		TargetModel:        model,
+		FirmwareVersion:    version,
+		Sha256:             checksum,
 	}
 }
 
