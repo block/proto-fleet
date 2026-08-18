@@ -129,4 +129,39 @@ describe("useHashboardStatus", () => {
     // is updated separately with the full asicIds list).
     expect(mockLinkAsicToHashboard).not.toHaveBeenCalled();
   });
+
+  test("preserves the device-local index when creating ASIC hardware", async () => {
+    mockGetHashboard.mockReturnValue(undefined);
+    mockGetAsic.mockReturnValue(undefined);
+    mockGetHashboardStatus.mockResolvedValue({
+      data: {
+        "hashboard-stats": {
+          asics: [{ index: 0, row: 0, column: 0 }],
+        },
+      },
+    });
+
+    renderHook(() =>
+      useHashboardStatus({
+        hashboardSerialNumbers: ["HB-1"],
+        poll: false,
+      }),
+    );
+
+    const pollArgs = (usePoll as Mock).mock.calls[0][0];
+
+    await act(async () => {
+      await pollArgs.fetchData();
+    });
+
+    expect(mockBatchAddAsics).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: "serial:HB-1:asic:0",
+        hashboardSerial: "HB-1",
+        index: 0,
+        row: 0,
+        column: 0,
+      }),
+    ]);
+  });
 });

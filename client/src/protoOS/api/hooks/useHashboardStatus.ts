@@ -103,6 +103,7 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
             ...existingAsic,
             id: asicId,
             hashboardSerial: hashboardSerialNumber,
+            index: asic.index,
             row: asic.row,
             column: asic.column,
           });
