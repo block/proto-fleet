@@ -113,6 +113,10 @@ vi.mock("@/shared/features/toaster", () => ({
   },
 }));
 
+vi.mock("./AvailableUpdateAnimation", () => ({
+  default: () => <canvas aria-hidden="true" data-testid="available-update-animation" />,
+}));
+
 const INSTALL_COMMAND = "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.3.0";
 const RELEASE_NOTES_URL = "https://github.com/block/proto-fleet/releases/tag/v1.3.0";
 const DISMISSED_UPDATE_TAG_KEY = "dismissedUpdateTag";
@@ -220,10 +224,7 @@ describe("Updates", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(getByText("Fleet v1.3.0 available")).toBeInTheDocument();
     expect(screen.getByTestId("available-update-lockup")).toBeInTheDocument();
-    expect(screen.getByTestId("available-update-animation")).toHaveAttribute(
-      "src",
-      "/fog-proto-logo-volume-white.html",
-    );
+    expect(screen.getByTestId("available-update-animation").tagName).toBe("CANVAS");
     expect(getByText("Use manual install to update this Fleet.")).toBeInTheDocument();
     expect(screen.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
     expect(

@@ -6,6 +6,7 @@ import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/instanc
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { isAuthOrPermissionError, isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
 import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
+import AvailableUpdateAnimation from "@/protoFleet/features/settings/components/AvailableUpdateAnimation";
 import ManualInstallModal from "@/protoFleet/features/settings/components/ManualInstallModal";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -31,7 +32,6 @@ import Row from "@/shared/components/Row";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import Switch from "@/shared/components/Switch";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-import useCssVariable from "@/shared/hooks/useCssVariable";
 
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
 const INSTANCE_UPDATE_PERMISSION = "instance:update";
@@ -39,66 +39,6 @@ const UPDATE_STATUS_REQUEST_TIMEOUT_MS = 10_000;
 const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 const UPDATES_PAGE_DESCRIPTION = "View the server version, choose eligible releases, and update this instance.";
-
-const AvailableUpdateAnimation = () => {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const foreground = useCssVariable("--color-core-primary-fill");
-  const isVisibleRef = useRef(true);
-
-  const applyTheme = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: "proto-fleet-animation-theme",
-        foreground,
-      },
-      "*",
-    );
-  }, [foreground]);
-
-  const applyPlayback = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      {
-        type: "proto-fleet-animation-playback",
-        isVisible: isVisibleRef.current,
-      },
-      "*",
-    );
-  }, []);
-
-  useEffect(() => {
-    applyTheme();
-  }, [applyTheme]);
-
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe || !("IntersectionObserver" in window)) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(([entry]) => {
-      isVisibleRef.current = entry.isIntersecting;
-      applyPlayback();
-    });
-    observer.observe(iframe);
-    return () => observer.disconnect();
-  }, [applyPlayback]);
-
-  return (
-    <iframe
-      ref={iframeRef}
-      data-testid="available-update-animation"
-      title="Animated Proto logo"
-      src="/fog-proto-logo-volume-white.html"
-      sandbox="allow-scripts"
-      tabIndex={-1}
-      onLoad={() => {
-        applyTheme();
-        applyPlayback();
-      }}
-      className="h-[240px] min-h-[240px] w-full shrink-0 border-0 bg-transparent tablet:h-auto tablet:w-[30%] tablet:self-stretch"
-    />
-  );
-};
 
 interface UpdateStatusLockupProps {
   action?: ReactNode;
