@@ -104,6 +104,16 @@ describe("UpgradeOperationModal", () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
+  it("keeps active update details available while reconciling", () => {
+    renderModal({
+      operation: operation(UpgradePhase.PREFLIGHT, { message: "Validating the new stack" }),
+      reconciling: true,
+    });
+
+    expect(screen.getByTestId("upgrade-operation-modal")).toHaveTextContent("Checking update to v1.3.0");
+    expect(screen.getByRole("status")).toHaveTextContent("You can close this dialog while the update runs.");
+  });
+
   it("announces the expected reconnect state", () => {
     renderModal({
       connectionLost: true,

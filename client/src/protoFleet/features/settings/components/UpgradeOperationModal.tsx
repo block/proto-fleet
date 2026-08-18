@@ -133,7 +133,10 @@ const UpgradeOperationContent = ({
   release,
 }: UpgradeOperationContentProps) => {
   if (reconciling) {
-    return manualFallbackReady ? <ReconciliationPanel /> : null;
+    if (manualFallbackReady) {
+      return <ReconciliationPanel />;
+    }
+    return operation ? <ActiveUpgradePanel connectionLost={connectionLost} /> : null;
   }
   if (!operation) {
     return release ? <UpgradeConfirmationPanel release={release} /> : null;
@@ -316,7 +319,7 @@ const UpgradeOperationModal = ({
   triggerError,
   triggering,
 }: UpgradeOperationModalProps) => {
-  if (reconciling && !manualFallbackReady) {
+  if (reconciling && !manualFallbackReady && !operation) {
     return null;
   }
   if (!release && !operation && !reconciling && !triggerError) {

@@ -24,7 +24,9 @@ export class SettingsUpdatesPage extends BasePage {
   }
 
   async validateCopyInstallCommandEnabled() {
-    await expect(this.page.getByTestId("manual-install-modal").getByRole("button", { name: "Copy install command" })).toBeEnabled();
+    await expect(
+      this.page.getByTestId("manual-install-modal").getByRole("button", { name: "Copy install command" }),
+    ).toBeEnabled();
   }
 
   async clickInstallManually() {
@@ -50,7 +52,10 @@ export class SettingsUpdatesPage extends BasePage {
   }
 
   async clickUpdateNow() {
-    await this.page.getByTestId("available-update-lockup").getByRole("button", { name: "Update now", exact: true }).click();
+    await this.page
+      .getByTestId("available-update-lockup")
+      .getByRole("button", { name: "Update now", exact: true })
+      .click();
   }
 
   async validateUpgradeConfirmationOpened(version: string) {
@@ -61,7 +66,10 @@ export class SettingsUpdatesPage extends BasePage {
   }
 
   async confirmUpdate() {
-    await this.page.getByTestId("upgrade-operation-modal").getByRole("button", { name: "Update now", exact: true }).click();
+    await this.page
+      .getByTestId("upgrade-operation-modal")
+      .getByRole("button", { name: "Update now", exact: true })
+      .click();
   }
 
   async validateManualInstallActionHidden() {

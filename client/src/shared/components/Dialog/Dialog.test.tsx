@@ -26,6 +26,18 @@ describe("Dialog", () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
+  it("keeps dialogs accessible within narrow and short viewports", () => {
+    render(<Dialog title="Responsive dialog" testId="dialog" />);
+
+    expect(screen.getByTestId("dialog")).toHaveClass(
+      "max-h-[calc(100dvh-(--spacing(32)))]",
+      "max-w-[calc(100vw-theme(spacing.4))]",
+      "overflow-y-auto",
+      "phone:w-screen",
+      "phone:max-h-[calc(100dvh-theme(spacing.10))]",
+    );
+  });
+
   it("keeps two short actions horizontal on mobile while flexing buttons to fill the row", () => {
     render(
       <Dialog

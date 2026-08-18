@@ -492,6 +492,9 @@
         CSS.supports("color", data.foreground)
       ) {
         foregroundColor = data.foreground;
+        if (reducedMotion.matches) {
+          renderStaticFrame();
+        }
       }
     });
     window.addEventListener("resize", resize);
