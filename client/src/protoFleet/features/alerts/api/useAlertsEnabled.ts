@@ -47,16 +47,23 @@ export function _resetAlertsEnabledCache(): void {
   inflight = null;
 }
 
+export interface AlertsEnabledState {
+  enabled: boolean;
+  // False only while no probe has answered yet: "not enabled" then means "unknown", not "off".
+  resolved: boolean;
+}
+
 /**
  * Whether the Alerts feature is available, decided at runtime by the
  * server (the Grafana sidecar this feature proxies). The released client is a
  * prebuilt bundle, so this can't be a build-time flag — the server reports it.
  * `ALERTS_ENABLED` stays as a build-time override for QA/dogfood.
  */
-export function useAlertsEnabled(): boolean {
+export function useAlertsEnabledState(): AlertsEnabledState {
   // Same shape as the answered case below, so a build forcing alerts on keeps them on across a remount that
   // reads a cached "disabled" rather than re-probing.
   const [enabled, setEnabled] = useState<boolean>((cache ?? false) || ALERTS_ENABLED);
+  const [resolved, setResolved] = useState<boolean>(cache !== null || ALERTS_ENABLED);
   // No short-circuit on an already-cached answer: effects run after the render that seeded state, so another
   // consumer's probe can answer in between, and returning on it would leave the initializer's "disabled" to
   // outlive the answer and hide the alerts surface for this mount's whole life. A cached answer costs no
@@ -70,6 +77,7 @@ export function useAlertsEnabled(): boolean {
       if (!active) return;
       if (answer !== null) {
         setEnabled(answer || ALERTS_ENABLED);
+        setResolved(true);
         return;
       }
       retryId = setTimeout(() => void probe(Math.min(retryMs * 2, PROBE_RETRY_MAX_MS)), retryMs);
@@ -81,5 +89,10 @@ export function useAlertsEnabled(): boolean {
       if (retryId !== null) clearTimeout(retryId);
     };
   }, []);
-  return enabled;
+  return { enabled, resolved };
+}
+
+// The common consumer shape: chrome that hides the alerts surface treats "unknown" the same as "off".
+export function useAlertsEnabled(): boolean {
+  return useAlertsEnabledState().enabled;
 }

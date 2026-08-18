@@ -2,13 +2,25 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import ActivityPage from "./ActivityPage";
-import type { ActivityFilter } from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import {
+  type ActivityEntry,
+  ActivityEntrySchema,
+  type ActivityFilter,
+} from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import { buildAlertHistoryEntry, buildPagedAlertsResult } from "@/protoFleet/features/alerts/alertHistory.fixtures";
+import type { UsePagedAlertsOptions } from "@/protoFleet/features/alerts/api/usePagedAlerts";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 
-const canReadActivityMock = vi.hoisted(() => ({ current: true }));
+const permissionsMock = vi.hoisted(() => ({
+  current: { "activity:read": true, "alert:read": true } as Record<string, boolean>,
+}));
 const useActivityMock = vi.hoisted(() => vi.fn());
+const usePagedAlertsMock = vi.hoisted(() => vi.fn());
+const alertsEnabledMock = vi.hoisted(() => ({ current: true, resolved: true }));
 const exportCsvMock = vi.hoisted(() => vi.fn());
 const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as ActiveSite }));
 
@@ -16,7 +28,16 @@ let listFilter: ActivityFilter | undefined;
 let exportFilter: ActivityFilter | undefined;
 
 vi.mock("@/protoFleet/store", () => ({
-  useHasPermission: () => canReadActivityMock.current,
+  useHasPermission: (permission: string) => permissionsMock.current[permission] ?? false,
+}));
+
+vi.mock("@/protoFleet/features/alerts/api/useAlertsEnabled", () => ({
+  useAlertsEnabledState: () => ({ enabled: alertsEnabledMock.current, resolved: alertsEnabledMock.resolved }),
+}));
+
+vi.mock("@/protoFleet/features/alerts/api/usePagedAlerts", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/features/alerts/api/usePagedAlerts")>()),
+  usePagedAlerts: usePagedAlertsMock,
 }));
 
 vi.mock("@/protoFleet/api/useActivity", () => ({
@@ -46,7 +67,9 @@ vi.mock("@/protoFleet/features/activity/components/ActivityFilters", () => ({
 }));
 
 vi.mock("@/protoFleet/features/activity/components/ActivityTable", () => ({
-  default: () => <div data-testid="activity-table" />,
+  default: ({ activities }: { activities: ActivityEntry[] }) => (
+    <div data-testid="activity-table">{activities.map((entry) => entry.eventId).join(",")}</div>
+  ),
 }));
 
 const LocationProbe = () => {
@@ -65,9 +88,17 @@ const renderActivityRoute = () =>
     </MemoryRouter>,
   );
 
+const pagedAlertsEnabled = (): boolean =>
+  usePagedAlertsMock.mock.calls.some((call) => (call[2] as UsePagedAlertsOptions | undefined)?.enabled === true);
+
+const lastUseActivityParams = (): { enabled?: boolean } | undefined =>
+  useActivityMock.mock.calls[useActivityMock.mock.calls.length - 1]?.[0] as { enabled?: boolean } | undefined;
+
 describe("ActivityPage", () => {
   beforeEach(() => {
-    canReadActivityMock.current = true;
+    permissionsMock.current = { "activity:read": true, "alert:read": true };
+    alertsEnabledMock.current = true;
+    alertsEnabledMock.resolved = true;
     activeSiteMock.current = { kind: "all" };
     listFilter = undefined;
     exportFilter = undefined;
@@ -84,14 +115,15 @@ describe("ActivityPage", () => {
         refresh: vi.fn(),
       };
     });
+    usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult());
     exportCsvMock.mockImplementation((filter?: ActivityFilter) => {
       exportFilter = filter;
     });
   });
 
   describe("permission guard", () => {
-    it("redirects without calling activity data hooks when org activity:read is missing", async () => {
-      canReadActivityMock.current = false;
+    it("redirects without calling activity data hooks when both reads are missing", async () => {
+      permissionsMock.current = {};
 
       renderActivityRoute();
 
@@ -105,7 +137,41 @@ describe("ActivityPage", () => {
 
       expect(screen.getByTestId("location-probe").textContent).toBe("/activity");
       expect(screen.getByTestId("activity-table")).toBeInTheDocument();
-      expect(useActivityMock).toHaveBeenCalledOnce();
+      expect(useActivityMock).toHaveBeenCalled();
+      expect(lastUseActivityParams()?.enabled).toBe(true);
+    });
+
+    it("renders an alerts-only view for alert:read without activity:read", () => {
+      permissionsMock.current = { "alert:read": true };
+
+      renderActivityRoute();
+
+      expect(screen.getByTestId("location-probe").textContent).toBe("/activity");
+      expect(lastUseActivityParams()?.enabled).toBe(false);
+      expect(pagedAlertsEnabled()).toBe(true);
+      expect(screen.queryByText("Export activity CSV")).not.toBeInTheDocument();
+    });
+
+    it("explains the empty page to alert-only viewers when the alerts feature is off", () => {
+      permissionsMock.current = { "alert:read": true };
+      alertsEnabledMock.current = false;
+
+      renderActivityRoute();
+
+      expect(screen.getByText(/alerts aren't enabled on this server/i)).toBeInTheDocument();
+      expect(screen.queryByTestId("activity-table")).not.toBeInTheDocument();
+      expect(pagedAlertsEnabled()).toBe(false);
+    });
+
+    it("shows loading, not the disabled claim, while the alerts probe is unanswered", () => {
+      permissionsMock.current = { "alert:read": true };
+      alertsEnabledMock.current = false;
+      alertsEnabledMock.resolved = false;
+
+      renderActivityRoute();
+
+      expect(screen.queryByText(/alerts aren't enabled on this server/i)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("activity-table")).not.toBeInTheDocument();
     });
   });
 
@@ -141,10 +207,75 @@ describe("ActivityPage", () => {
       activeSiteMock.current = { kind: "site", id: "7", slug: "north" };
 
       render(<ActivityPage />);
-      screen.getByText("Export CSV").click();
+      screen.getByText("Export activity CSV").click();
 
       expect(exportFilter?.siteIds).toEqual([7n]);
       expect(exportFilter?.includeUnassigned).toBe(false);
+    });
+  });
+
+  describe("merged alert history", () => {
+    const alertItem = buildAlertHistoryEntry({ id: "9", received_at: "2026-08-01T00:00:10Z" });
+
+    it("interleaves alert history into the feed by time", () => {
+      useActivityMock.mockReturnValue({
+        activities: [
+          create(ActivityEntrySchema, {
+            eventId: "act-new",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:20Z")),
+          }),
+          create(ActivityEntrySchema, {
+            eventId: "act-old",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:00Z")),
+          }),
+        ],
+        totalCount: 2,
+        isLoading: false,
+        error: null,
+        hasMore: false,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+      });
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ items: [alertItem] }));
+
+      render(<ActivityPage />);
+
+      expect(pagedAlertsEnabled()).toBe(true);
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9,act-old");
+    });
+
+    it("keeps the alert feed off without alert:read", () => {
+      permissionsMock.current = { "activity:read": true };
+
+      render(<ActivityPage />);
+
+      expect(pagedAlertsEnabled()).toBe(false);
+    });
+
+    it("keeps the alert feed off when the alerts feature is disabled", () => {
+      alertsEnabledMock.current = false;
+
+      render(<ActivityPage />);
+
+      expect(pagedAlertsEnabled()).toBe(false);
+    });
+
+    it("keeps the alert feed off on a site-scoped route since ListAlerts is org-wide", () => {
+      activeSiteMock.current = { kind: "site", id: "42", slug: "north" };
+
+      render(<ActivityPage />);
+
+      expect(pagedAlertsEnabled()).toBe(false);
+    });
+
+    it("suppresses the denial error when the org-scoped read is denied", () => {
+      // The hook clears its own rows and cursor on denial, so denied arrives with an empty feed.
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ error: "permission denied", denied: true }));
+
+      render(<ActivityPage />);
+
+      expect(screen.getByTestId("activity-table").textContent).toBe("");
+      expect(screen.queryByText("permission denied")).not.toBeInTheDocument();
     });
   });
 });

@@ -10,6 +10,14 @@ import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEm
 import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ActivityFilters from "@/protoFleet/features/activity/components/ActivityFilters";
 import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
+import {
+  activityEntryFromAlert,
+  ALERT_TYPE_OPTION,
+  alertsMatchFilter,
+  mergeAlertEntries,
+} from "@/protoFleet/features/activity/utils/alertEntries";
+import { useAlertsEnabledState } from "@/protoFleet/features/alerts/api/useAlertsEnabled";
+import { EMPTY_PAGED_ALERTS, usePagedAlerts } from "@/protoFleet/features/alerts/api/usePagedAlerts";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -68,25 +76,61 @@ const ActivityPageContent = () => {
     [selectedTypes, selectedScopes, selectedUsers, debouncedSearchText, scopeFilter],
   );
 
+  // Each feed is fetched only under its own read permission, mirroring the server's per-RPC gates,
+  // so an alert:read-only viewer still gets the history feed without firing denied activity RPCs.
+  const canReadActivity = useHasPermission("activity:read");
   const { activities, totalCount, isLoading, error, hasMore, loadMore } = useActivity({
     filter,
     pageSize: PAGE_SIZE,
+    enabled: canReadActivity,
   });
   const { exportCsv, isExportingCsv } = useExportActivity();
-  const { eventTypes, scopeTypes, users } = useActivityFilterOptions();
+  const { eventTypes, scopeTypes, users } = useActivityFilterOptions({ enabled: canReadActivity });
+
+  // Alert history is org-scoped (no site filter on ListAlerts) and gated behind its own permission, so the
+  // merged feed only carries alerts on the org-wide route for viewers the alerts feature is on for.
+  const canReadAlerts = useHasPermission("alert:read");
+  const { enabled: alertsEnabled, resolved: alertsProbeResolved } = useAlertsEnabledState();
+  const alertsAvailable = canReadAlerts && alertsEnabled;
+  const orgWideScope = activeSite.kind === "all";
+  const canViewAlerts = alertsAvailable && orgWideScope;
+  const includeAlerts = canViewAlerts && alertsMatchFilter(filter);
+
+  // Fetch on the stable gate so filter toggles hide/show loaded alerts instead of refetching them.
+  const alertFeed = usePagedAlerts({}, "Failed to load alert history", { enabled: canViewAlerts });
+  const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
+  const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
+  const entries = useMemo(
+    () => mergeAlertEntries(activities, hasMore, alertEntries, alerts.hasMore),
+    [activities, hasMore, alertEntries, alerts.hasMore],
+  );
+  const typeOptions = useMemo(
+    () => (canViewAlerts ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
+    [canViewAlerts, eventTypes],
+  );
+  // A denied org-scoped read (alert:read revoked mid-session) degrades to an empty feed — the hook
+  // already cleared its rows and cursor — instead of erroring the page.
+  const feedError = error ?? (alerts.denied ? null : alerts.error);
+  const feedHasMore = hasMore || alerts.hasMore;
+  const feedLoading = isLoading || alerts.loading;
+  // Both loadMore calls no-op internally when their feed has nothing to page or is already loading.
+  const loadMoreFeed = () => {
+    loadMore();
+    alerts.loadMore();
+  };
 
   const hasStartedLoadingRef = useRef(false);
   const hasLoadedRef = useRef(false);
   useEffect(() => {
-    if (isLoading) {
+    if (feedLoading) {
       hasStartedLoadingRef.current = true;
     } else if (hasStartedLoadingRef.current) {
       hasLoadedRef.current = true;
     }
-  }, [isLoading]);
+  }, [feedLoading]);
 
-  const isInitialLoad = isLoading && activities.length === 0 && !hasLoadedRef.current;
-  const isLoadingMore = isLoading && activities.length > 0;
+  const isInitialLoad = feedLoading && entries.length === 0 && !hasLoadedRef.current;
+  const isLoadingMore = feedLoading && entries.length > 0;
 
   const hasActiveFilters =
     selectedTypes.length > 0 || selectedScopes.length > 0 || selectedUsers.length > 0 || debouncedSearchText !== "";
@@ -100,7 +144,19 @@ const ActivityPageContent = () => {
     setSelectedUsers([]);
   }, [debouncedSetSearch]);
 
-  if (isInitialLoad) {
+  // An alert-only viewer on a deployment without the alerts feature has no feed at all; say so rather
+  // than presenting a permanently empty table — but until the probe answers, "not enabled" only means
+  // "unknown", so show loading, not a false claim.
+  const noFeed = !canReadActivity && !alertsEnabled;
+  if (noFeed && alertsProbeResolved) {
+    return (
+      <div className="flex h-full items-center justify-center p-10 text-center text-text-primary-50">
+        Alert history isn't available because alerts aren't enabled on this server.
+      </div>
+    );
+  }
+
+  if (noFeed || isInitialLoad) {
     return (
       <div className="flex h-full items-center justify-center">
         <ProgressCircular indeterminate />
@@ -118,7 +174,8 @@ const ActivityPageContent = () => {
           <ActivityFilters
             searchValue={searchText}
             onSearchChange={handleSearchChange}
-            eventTypes={eventTypes}
+            hideSearch={!canReadActivity}
+            eventTypes={typeOptions}
             scopeTypes={scopeTypes}
             users={users}
             selectedTypes={selectedTypes}
@@ -128,41 +185,48 @@ const ActivityPageContent = () => {
             onScopesChange={setSelectedScopes}
             onUsersChange={setSelectedUsers}
             actions={
-              <Button
-                variant={variants.secondary}
-                size={sizes.compact}
-                onClick={() => exportCsv(filter)}
-                loading={isExportingCsv}
-                disabled={isExportingCsv || totalCount === 0}
-              >
-                Export CSV
-              </Button>
+              canReadActivity ? (
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => exportCsv(filter)}
+                  loading={isExportingCsv}
+                  disabled={isExportingCsv || totalCount === 0}
+                >
+                  Export activity CSV
+                </Button>
+              ) : undefined
             }
           />
         </div>
+        {alertsAvailable && !orgWideScope ? (
+          <p className="pb-4 text-200 text-text-primary-50">
+            Alert history is organization-wide and appears only on the all-sites activity feed.
+          </p>
+        ) : null}
       </div>
 
-      {error ? (
-        <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
+      {feedError ? (
+        <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={feedError} />
       ) : null}
 
       <div className="p-6 pt-0 laptop:p-10 laptop:pt-0">
         <ActivityTable
-          activities={activities}
+          activities={entries}
           noDataElement={
-            isLoading ? (
+            feedLoading ? (
               <></>
             ) : hasActiveFilters ? (
               <NoFilterResultsEmptyState hasActiveFilters onClearFilters={handleClearFilters} />
             ) : undefined
           }
         />
-        {hasMore ? (
+        {feedHasMore ? (
           <div className="flex justify-center py-6">
             <Button
               variant={variants.secondary}
               size={sizes.compact}
-              onClick={loadMore}
+              onClick={loadMoreFeed}
               loading={isLoadingMore}
               disabled={isLoadingMore}
             >
@@ -177,8 +241,10 @@ const ActivityPageContent = () => {
 
 const ActivityPage = () => {
   const canReadActivity = useHasPermission("activity:read");
+  const canReadAlerts = useHasPermission("alert:read");
 
-  if (!canReadActivity) {
+  // Either read grants a feed on this page; the content gates each fetch on its own permission.
+  if (!canReadActivity && !canReadAlerts) {
     return <Navigate to="/" replace />;
   }
 

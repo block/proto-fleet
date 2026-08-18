@@ -11,7 +11,14 @@ interface UseActivityFilterOptionsResult {
   error: string | null;
 }
 
-export function useActivityFilterOptions(): UseActivityFilterOptionsResult {
+interface UseActivityFilterOptionsParams {
+  // Off for viewers the server would deny (no activity:read); the options then stay empty.
+  enabled?: boolean;
+}
+
+export function useActivityFilterOptions({
+  enabled = true,
+}: UseActivityFilterOptionsParams = {}): UseActivityFilterOptionsResult {
   const { handleAuthErrors } = useAuthErrors();
 
   const [eventTypes, setEventTypes] = useState<EventTypeOption[]>([]);
@@ -42,9 +49,10 @@ export function useActivityFilterOptions(): UseActivityFilterOptionsResult {
   }, [handleAuthErrors]);
 
   useEffect(() => {
+    if (!enabled) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount; setState inside async fetch is the external-sync pattern
     void fetchFilterOptions();
-  }, [fetchFilterOptions]);
+  }, [enabled, fetchFilterOptions]);
 
   return { eventTypes, scopeTypes, users, isLoading, error };
 }

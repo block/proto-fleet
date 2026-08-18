@@ -169,6 +169,8 @@ const filterLabelMap: Record<string, string> = {
   curtailment_admin_terminated_replay: "Curtailment already stopped",
   curtailment_updated: "Update curtailment",
   curtailment_force_released: "Release curtailment ownership",
+
+  alert: "Alerts",
 };
 
 const acronymMap: Record<string, string> = {

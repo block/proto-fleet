@@ -12,6 +12,8 @@ import { useAuthErrors } from "@/protoFleet/store";
 interface UseActivityParams {
   filter?: ActivityFilter;
   pageSize?: number;
+  // Off for viewers the server would deny (no activity:read); the hook then holds an empty feed.
+  enabled?: boolean;
 }
 
 interface UseActivityResult {
@@ -24,7 +26,7 @@ interface UseActivityResult {
   refresh: () => void;
 }
 
-export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseActivityResult {
+export function useActivity({ filter, pageSize = 50, enabled = true }: UseActivityParams): UseActivityResult {
   const { handleAuthErrors } = useAuthErrors();
 
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
@@ -105,14 +107,19 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
     hasMoreRef.current = hasMore;
   }, [hasMore]);
 
+  const enabledRef = useRef(enabled);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
   const loadMore = useCallback(() => {
-    if (hasMoreRef.current && !isLoadingRef.current) {
+    if (enabledRef.current && hasMoreRef.current && !isLoadingRef.current) {
       fetchRef.current(filterRef.current, pageTokenRef.current, true);
     }
   }, []);
 
   const refresh = useCallback(() => {
-    if (isLoadingRef.current) return;
+    if (!enabledRef.current || isLoadingRef.current) return;
     setActivities([]);
     setPageToken("");
     setHasMore(false);
@@ -120,9 +127,10 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
     fetchRef.current(filterRef.current, "", false);
   }, []);
 
-  // Re-fetch when filter or pageSize changes (deep equality for filter)
+  // Re-fetch when filter, pageSize, or enabled changes (deep equality for filter)
   const previousFilterRef = useRef<ActivityFilter | undefined>(undefined);
   const previousPageSizeRef = useRef(pageSize);
+  const previousEnabledRef = useRef(enabled);
   const hasLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -132,11 +140,13 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
         filter !== undefined &&
         equals(ActivityFilterSchema, previousFilterRef.current, filter));
     const pageSizeChanged = previousPageSizeRef.current !== pageSize;
+    const enabledChanged = previousEnabledRef.current !== enabled;
 
-    if (hasLoadedRef.current && filtersEqual && !pageSizeChanged) return;
+    if (hasLoadedRef.current && filtersEqual && !pageSizeChanged && !enabledChanged) return;
 
     previousFilterRef.current = filter;
     previousPageSizeRef.current = pageSize;
+    previousEnabledRef.current = enabled;
     hasLoadedRef.current = true;
 
     setActivities([]);
@@ -144,8 +154,23 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
     setHasMore(false);
     setTotalCount(0);
 
+    if (!enabled) {
+      // Invalidate any in-flight request so its late response cannot repopulate the cleared feed.
+      requestIdRef.current++;
+      return;
+    }
     void fetchRef.current(filter, "", false);
-  }, [filter, pageSize]);
+  }, [filter, pageSize, enabled]);
 
-  return { activities, totalCount, isLoading, error, hasMore, loadMore, refresh };
+  // The invalidated request's finally can no longer settle these flags (it sees a stale request
+  // id), so a disabled hook reports them settled itself.
+  return {
+    activities,
+    totalCount,
+    isLoading: enabled && isLoading,
+    error: enabled ? error : null,
+    hasMore,
+    loadMore,
+    refresh,
+  };
 }

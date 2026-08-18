@@ -220,4 +220,80 @@ describe("useActivity", () => {
     expect(result.current.error).toBeTruthy();
     expect(result.current.activities).toHaveLength(0);
   });
+
+  it("does not fetch while disabled and fetches once enabled", async () => {
+    vi.mocked(activityClient.listActivities).mockResolvedValue(mockListResponse([makeEntry("1")], "", 1));
+
+    const { result, rerender } = renderHook(({ enabled }) => useActivity({ enabled }), {
+      initialProps: { enabled: false },
+    });
+
+    expect(activityClient.listActivities).not.toHaveBeenCalled();
+    expect(result.current.activities).toHaveLength(0);
+
+    rerender({ enabled: true });
+
+    await waitFor(() => {
+      expect(result.current.activities).toHaveLength(1);
+    });
+    expect(activityClient.listActivities).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles loading and drops the response when disabled mid-flight", async () => {
+    let resolveResponse!: (value: ReturnType<typeof mockListResponse>) => void;
+    vi.mocked(activityClient.listActivities).mockReturnValue(
+      new Promise((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+
+    const { result, rerender } = renderHook(({ enabled }) => useActivity({ enabled }), {
+      initialProps: { enabled: true },
+    });
+    expect(result.current.isLoading).toBe(true);
+
+    rerender({ enabled: false });
+    expect(result.current.isLoading).toBe(false);
+
+    await act(async () => {
+      resolveResponse(mockListResponse([makeEntry("1")], "next", 1));
+    });
+
+    expect(result.current.activities).toHaveLength(0);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("refresh is a no-op while disabled", async () => {
+    vi.mocked(activityClient.listActivities).mockResolvedValue(mockListResponse([], "", 0));
+
+    const { result } = renderHook(() => useActivity({ enabled: false }));
+
+    act(() => {
+      result.current.refresh();
+    });
+
+    expect(activityClient.listActivities).not.toHaveBeenCalled();
+  });
+
+  it("clears the feed when disabled after loading", async () => {
+    vi.mocked(activityClient.listActivities).mockResolvedValue(mockListResponse([makeEntry("1")], "next", 1));
+
+    const { result, rerender } = renderHook(({ enabled }) => useActivity({ enabled }), {
+      initialProps: { enabled: true },
+    });
+
+    await waitFor(() => {
+      expect(result.current.activities).toHaveLength(1);
+    });
+
+    rerender({ enabled: false });
+
+    await waitFor(() => {
+      expect(result.current.activities).toHaveLength(0);
+    });
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.totalCount).toBe(0);
+    expect(activityClient.listActivities).toHaveBeenCalledTimes(1);
+  });
 });
