@@ -14,6 +14,7 @@ import {
   normalizeV1TimeSeries,
 } from "./normalize";
 import { MetricUnit, PerformanceMode } from "@/protoOS/api/generatedApi";
+import { getAsicId } from "@/protoOS/store";
 import { asHashboardId, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 
 describe("MDK v1 normalization", () => {
@@ -67,6 +68,10 @@ describe("MDK v1 normalization", () => {
           efficiency: { value: 30, unit: MetricUnit.JTH },
           power: { value: 1_500, unit: MetricUnit.W },
           temperature: { average: 65, inlet: 40, outlet: 70, unit: MetricUnit.ValueC },
+          asics: {
+            hashrate: { values: [0.5], unit: MetricUnit.THS },
+            temperature: { values: [72], unit: MetricUnit.ValueC },
+          },
         },
       ],
       timestamp: "2026-08-17T00:00:00Z",
@@ -83,6 +88,10 @@ describe("MDK v1 normalization", () => {
     );
 
     expect(latest.rollupsByEntity.get(ROOT_MODULE_KEY)?.hashrate?.latest).toEqual({ value: 100, units: "TH/s" });
+    expect(latest.asics.get(getAsicId("HB-1", 0))?.temperature?.latest).toEqual({
+      value: 72,
+      units: "°C",
+    });
     expect(history.rollupsByEntity.get(ROOT_MODULE_KEY)?.hashrate?.timeSeries?.points).toEqual([
       { timestampMs: 1_000, value: 90 },
       { timestampMs: 61_000, value: 100 },

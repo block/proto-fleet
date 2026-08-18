@@ -40,7 +40,7 @@ vi.mock("@/protoOS/store", () => ({
     }),
     setState: mockSetState,
   },
-  getAsicId: (serial: string, index: number) => `${serial}-${index}`,
+  getAsicId: (serial: string, index: number) => `serial:${serial}:asic:${index}`,
 }));
 
 vi.mock("@/protoOS/store/hooks/useAuthRetry", () => ({
@@ -89,7 +89,7 @@ describe("useHashboardStatus", () => {
   test("merges row/column onto ASICs that already exist in the hardware store", async () => {
     mockGetHashboard.mockReturnValue(undefined);
     mockGetAsic.mockReturnValue({
-      id: "HB-1-0",
+      id: "serial:HB-1:asic:0",
       hashboardSerial: "HB-1",
       index: 0,
       hashboardIndex: 1,
@@ -117,7 +117,7 @@ describe("useHashboardStatus", () => {
 
     expect(mockBatchAddAsics).toHaveBeenCalledWith([
       expect.objectContaining({
-        id: "HB-1-0",
+        id: "serial:HB-1:asic:0",
         hashboardSerial: "HB-1",
         index: 0,
         hashboardIndex: 1,

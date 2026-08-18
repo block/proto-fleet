@@ -54,6 +54,7 @@ import {
   type TelemetryState,
   type Topology,
 } from "@/protoOS/store/contract";
+import { getAsicId } from "@/protoOS/store/utils/getAsicId";
 
 const V1_COMMANDS: CommandCapabilities = {
   startStop: "supported",
@@ -544,7 +545,7 @@ export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
     );
     const temperatures: number[] = [];
     for (let index = 0; index < asicCount; index += 1) {
-      const asicId = asAsicId(`${id}:asic:${index}`);
+      const asicId = getAsicId(board.serial_number, index);
       const asic: AsicTelemetry = { asicId };
       const hashrate = normalizeMeasurement(board.asics?.hashrate?.values?.[index], board.asics?.hashrate?.unit);
       const temperature = normalizeMeasurement(
@@ -660,7 +661,7 @@ export const normalizeV1TimeSeries = (
   for (const asicWire of wire.data?.asics ?? []) {
     const board = wire.data?.hashboards?.find((candidate) => candidate.index === asicWire.hashboard_index);
     if (!board?.serial_number) continue;
-    const id = asAsicId(`serial:${board.serial_number}:asic:${asicWire.index}`);
+    const id = getAsicId(board.serial_number, asicWire.index);
     const normalized: AsicTelemetry = { asicId: id };
     for (const field of ["hashrate", "temperature"] as const) {
       const metric = asicWire[field];
@@ -688,5 +689,4 @@ export const normalizeV1FanTelemetry = (
   return result;
 };
 
-export const normalizeV1AsicId = (hashboardId: HashboardId, index: number) => asAsicId(`${hashboardId}:asic:${index}`);
 export const normalizeV1EntityKey = (kind: string, id: string) => asEntityKey(`${kind}:${id}`);

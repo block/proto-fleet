@@ -1,12 +1,15 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { normalizeV1Telemetry } from "../../api/adapters/mdkV1/normalize";
 import { asComponentId, ROOT_MODULE_ID, ROOT_MODULE_KEY } from "../contract";
 import useMinerStore from "../useMinerStore";
+import { getAsicId } from "../utils/getAsicId";
 import { useHashboardsHardware, useMinerHardware } from "./useHardware";
-import { useMiner } from "./useMiner";
+import { useMiner, useMinerHashboardAsics } from "./useMiner";
 import { useErrors } from "./useMinerStatus";
 import { useFansTelemetry, useMinerTelemetry } from "./useTelemetry";
+import { MetricUnit } from "@/protoOS/api/generatedApi";
 
 describe("useMiner", () => {
   beforeEach(() => {
@@ -75,6 +78,45 @@ describe("useMiner", () => {
         slot: 1,
         source: "FAN",
       },
+    ]);
+  });
+
+  it("joins normalized ASIC temperatures to hashboard-status positions", () => {
+    const asicId = getAsicId("HB-1", 0);
+    useMinerStore.getState().hardware.setHashboards([{ serial: "HB-1", slot: 1, asicIds: [asicId] }]);
+    useMinerStore
+      .getState()
+      .hardware.batchAddAsics([{ id: asicId, hashboardSerial: "HB-1", index: 0, row: 0, column: 0 }]);
+    useMinerStore.getState().telemetry.mergeTelemetry(
+      normalizeV1Telemetry({
+        timestamp: "2026-08-18T00:00:00Z",
+        hashboards: [
+          {
+            index: 0,
+            serial_number: "HB-1",
+            efficiency: { value: 30, unit: MetricUnit.JTH },
+            hashrate: { value: 0.5, unit: MetricUnit.THS },
+            power: { value: 15, unit: MetricUnit.W },
+            temperature: { average: 65, inlet: 40, outlet: 70, unit: MetricUnit.ValueC },
+            asics: {
+              hashrate: { values: [0.5], unit: MetricUnit.THS },
+              temperature: { values: [72], unit: MetricUnit.ValueC },
+            },
+          },
+        ],
+      }),
+    );
+
+    const { result } = renderHook(() => useMinerHashboardAsics("HB-1"));
+
+    expect(result.current).toEqual([
+      expect.objectContaining({
+        id: "serial:HB-1:asic:0",
+        index: 0,
+        row: 0,
+        column: 0,
+        temperature: { latest: { value: 72, units: "°C" } },
+      }),
     ]);
   });
 });
