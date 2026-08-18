@@ -127,12 +127,13 @@ const ActivityPageContent = () => {
     pageSize: PAGE_SIZE,
     enabled: canReadActivity,
   });
-  const { exportCsv, isExportingCsv } = useExportActivity();
-  const { eventTypes, scopeTypes, users } = useActivityFilterOptions({ enabled: canReadActivity });
-
-  // A server-side denial (the hook stays enabled on the cached client permission) leaves the activity
-  // criteria with no feed to apply to, so they must not also exclude the still-authorized alert feed.
+  // A server-side denial (the hook stays enabled on the cached client permission) withdraws the whole
+  // activity surface: its criteria must not exclude the still-authorized alert feed, and its controls
+  // and fetched metadata (usernames in the options) must not stay visible under the revoked grant.
   const activityUsable = canReadActivity && !activityDenied;
+  const { exportCsv, isExportingCsv } = useExportActivity();
+  const { eventTypes, scopeTypes, users } = useActivityFilterOptions({ enabled: activityUsable });
+
   const includeAlerts = canViewAlerts && (!activityUsable || alertsMatchFilter(filter));
   const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
   const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
@@ -234,7 +235,7 @@ const ActivityPageContent = () => {
           <ActivityFilters
             searchValue={searchText}
             onSearchChange={handleSearchChange}
-            hideSearch={!canReadActivity}
+            hideSearch={!activityUsable}
             eventTypes={typeOptions}
             scopeTypes={scopeTypes}
             users={users}
@@ -245,7 +246,7 @@ const ActivityPageContent = () => {
             onScopesChange={setSelectedScopes}
             onUsersChange={setSelectedUsers}
             actions={
-              canReadActivity ? (
+              activityUsable ? (
                 <Button
                   variant={variants.secondary}
                   size={sizes.compact}

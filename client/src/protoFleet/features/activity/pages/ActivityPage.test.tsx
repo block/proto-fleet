@@ -21,7 +21,9 @@ const permissionsMock = vi.hoisted(() => ({
 const useActivityMock = vi.hoisted(() => vi.fn());
 const usePagedAlertsMock = vi.hoisted(() => vi.fn());
 const alertsEnabledMock = vi.hoisted(() => ({ current: true, resolved: true, failing: false }));
+const filterOptionsMock = vi.hoisted(() => vi.fn());
 const filtersEventTypesMock = vi.hoisted(() => ({ current: [] as { eventType: string }[] }));
+const filtersHideSearchMock = vi.hoisted(() => ({ current: false }));
 const filtersOnScopesChangeMock = vi.hoisted(() => ({
   current: undefined as ((scopes: string[]) => void) | undefined,
 }));
@@ -56,7 +58,7 @@ vi.mock("@/protoFleet/api/useActivity", () => ({
 }));
 
 vi.mock("@/protoFleet/api/useActivityFilterOptions", () => ({
-  useActivityFilterOptions: () => ({ eventTypes: [], scopeTypes: [], users: [], isLoading: false, error: null }),
+  useActivityFilterOptions: filterOptionsMock,
 }));
 
 vi.mock("@/protoFleet/api/useExportActivity", () => ({
@@ -77,15 +79,18 @@ vi.mock("@/protoFleet/features/activity/components/ActivityFilters", () => ({
   default: ({
     actions,
     eventTypes,
+    hideSearch,
     onScopesChange,
     onTypesChange,
   }: {
     actions?: ReactNode;
     eventTypes: { eventType: string }[];
+    hideSearch?: boolean;
     onScopesChange: (scopes: string[]) => void;
     onTypesChange: (types: string[]) => void;
   }) => {
     filtersEventTypesMock.current = eventTypes;
+    filtersHideSearchMock.current = hideSearch ?? false;
     filtersOnScopesChangeMock.current = onScopesChange;
     filtersOnTypesChangeMock.current = onTypesChange;
     return <div data-testid="activity-filters">{actions}</div>;
@@ -127,12 +132,14 @@ describe("ActivityPage", () => {
     alertsEnabledMock.resolved = true;
     alertsEnabledMock.failing = false;
     filtersEventTypesMock.current = [];
+    filtersHideSearchMock.current = false;
     filtersOnScopesChangeMock.current = undefined;
     filtersOnTypesChangeMock.current = undefined;
     activeSiteMock.current = { kind: "all" };
     listFilter = undefined;
     exportFilter = undefined;
     vi.clearAllMocks();
+    filterOptionsMock.mockReturnValue({ eventTypes: [], scopeTypes: [], users: [], isLoading: false, error: null });
     useActivityMock.mockImplementation(({ filter }: { filter?: ActivityFilter }) => {
       listFilter = filter;
       return {
@@ -427,6 +434,65 @@ describe("ActivityPage", () => {
       act(() => filtersOnTypesChangeMock.current?.(["login"]));
 
       expect(screen.getByTestId("activity-table").textContent).toBe("alert-9");
+    });
+
+    it("withdraws activity-only controls and options when the server denies the activity read", () => {
+      useActivityMock.mockImplementation(({ filter }: { filter?: ActivityFilter }) => {
+        listFilter = filter;
+        return {
+          activities: [],
+          totalCount: 0,
+          isLoading: false,
+          error: "permission denied",
+          denied: true,
+          hasMore: false,
+          loadMore: vi.fn(),
+          refresh: vi.fn(),
+        };
+      });
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ items: [alertItem] }));
+
+      render(<ActivityPage />);
+
+      // Usernames and other fetched metadata must not stay visible under the revoked grant.
+      expect(filterOptionsMock).toHaveBeenLastCalledWith({ enabled: false });
+      expect(filtersHideSearchMock.current).toBe(true);
+      expect(screen.queryByText("Export activity CSV")).not.toBeInTheDocument();
+    });
+
+    it("excludes the alert feed from pagination when the selected scopes cannot match alerts", () => {
+      useActivityMock.mockReturnValue({
+        activities: [
+          create(ActivityEntrySchema, {
+            eventId: "act-new",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:30Z")),
+          }),
+          create(ActivityEntrySchema, {
+            eventId: "act-old",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:05Z")),
+          }),
+        ],
+        totalCount: 2,
+        isLoading: false,
+        error: null,
+        hasMore: false,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+      });
+      usePagedAlertsMock.mockReturnValue(
+        buildPagedAlertsResult({
+          items: [buildAlertHistoryEntry({ id: "9", received_at: "2026-08-01T00:00:20Z" })],
+          hasMore: true,
+        }),
+      );
+
+      render(<ActivityPage />);
+      act(() => filtersOnScopesChangeMock.current?.(["rack"]));
+
+      // No alert can carry a rack scope, so the unloaded alert tail must not truncate the
+      // activities behind its cursor or offer a Load more that pages through hidden rows.
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,act-old");
+      expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
     });
 
     it("retires non-device scope selections that outlive a server-side activity denial", () => {

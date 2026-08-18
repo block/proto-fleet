@@ -57,6 +57,8 @@ describe("alertsMatchFilter", () => {
     expect(alertsMatchFilter(filterWith({ userIds: ["u1"] }))).toBe(false);
     expect(alertsMatchFilter(filterWith({ searchText: "reboot" }))).toBe(false);
     expect(alertsMatchFilter(filterWith({ eventTypes: ["login"] }))).toBe(false);
+    expect(alertsMatchFilter(filterWith({ scopeTypes: ["rack"] }))).toBe(false);
+    expect(alertsMatchFilter(filterWith({ scopeTypes: ["rack", "device"] }))).toBe(true);
   });
 });
 

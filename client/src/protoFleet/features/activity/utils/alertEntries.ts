@@ -20,12 +20,15 @@ export const ALERT_RESOLVED_EVENT_TYPE = "alert_resolved";
 // The one scope type a synthetic alert entry can carry (device alerts name their device).
 export const ALERT_SCOPE_TYPE = "device";
 
-// Alerts have no user or searchable description, so either filter excludes the feed wholesale;
-// scope is matched per entry (alertEntryMatchesScopes) since device alerts carry a device scope.
+// Alerts have no user or searchable description, so either filter excludes the feed wholesale, as do
+// scopes no alert can carry — otherwise pagination would drag hidden alert pages through the merge.
+// A selection that includes the device scope keeps the feed; entries then match individually
+// (alertEntryMatchesScopes), since only device alerts carry a scope.
 export const alertsMatchFilter = (filter: ActivityFilter): boolean =>
   filter.userIds.length === 0 &&
   filter.searchText === "" &&
-  (filter.eventTypes.length === 0 || filter.eventTypes.includes(ALERT_EVENT_TYPE));
+  (filter.eventTypes.length === 0 || filter.eventTypes.includes(ALERT_EVENT_TYPE)) &&
+  (filter.scopeTypes.length === 0 || filter.scopeTypes.includes(ALERT_SCOPE_TYPE));
 
 export const alertEntryMatchesScopes = (entry: ActivityEntry, scopeTypes: string[]): boolean =>
   scopeTypes.length === 0 || (entry.scopeType !== undefined && scopeTypes.includes(entry.scopeType));
