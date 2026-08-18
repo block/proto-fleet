@@ -74,6 +74,8 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	joined := strings.Join(calls, "\n")
 	require.Contains(t, joined, "wait-local-etcd "+testHostIPs[0])
 	require.NotContains(t, joined, "fleet-ha status")
+	require.Contains(t, joined, "sudo install -D -o root -g root -m 0644 "+filepath.Join(secrets, "service-ca.crt")+" "+filepath.Join(configRoot, "service-ca.crt"))
+	require.Contains(t, joined, "sudo install -D -o root -g root -m 0600 "+filepath.Join(secrets, "fleet-client.key")+" "+filepath.Join(configRoot, "fleet-client.key"))
 }
 
 func TestInstallRejectsExistingNftablesInputFilteringBeforeConfiguration(t *testing.T) {
@@ -263,6 +265,20 @@ func TestInitialStartCleansUpFailedWitnessService(t *testing.T) {
 	require.ErrorContains(t, err, "proto-fleet-ha.service failed")
 	require.NotErrorIs(t, err, errInstallConverging)
 	require.Contains(t, strings.Join(calls, "\n"), "sudo systemctl disable --now proto-fleet-ha.service")
+}
+
+func TestPublicCAInstructionsUseTheVIP(t *testing.T) {
+	// Arrange
+	var output strings.Builder
+
+	// Act
+	printPublicCAInstructions(&output, testVirtualIP)
+
+	// Assert
+	require.Contains(t, output.String(), "https://"+testVirtualIP+"/proto-fleet-ha-service-ca.crt")
+	require.Contains(t, output.String(), "--noproxy '*'")
+	require.Contains(t, output.String(), "openssl x509 -in proto-fleet-ha-service-ca.download -out proto-fleet-ha-service-ca.crt")
+	require.Contains(t, output.String(), "Import only proto-fleet-ha-service-ca.crt")
 }
 
 func TestInitialStartCleansUpWhenLocalEtcdDoesNotStart(t *testing.T) {
