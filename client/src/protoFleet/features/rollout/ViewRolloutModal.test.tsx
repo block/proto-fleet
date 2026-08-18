@@ -41,4 +41,67 @@ describe("ViewRolloutModal", () => {
     expect(screen.getByTestId("view-rollout-view-miners-action")).toBeInTheDocument();
     expect(screen.getByTestId("view-rollout-cancel-action")).toBeInTheDocument();
   });
+
+  it("wires abort and revert as distinct eligible actions", async () => {
+    const user = userEvent.setup();
+    const onAbort = vi.fn();
+    const onRevert = vi.fn();
+    const { rerender } = render(
+      <ViewRolloutModal
+        event={{ ...inProgressFirmwareEvent, state: "running" }}
+        onDismiss={vi.fn()}
+        onAbort={onAbort}
+        onRevert={onRevert}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: `More actions for ${inProgressFirmwareEvent.title}` }));
+    await user.click(screen.getByTestId("view-rollout-abort-action"));
+    expect(onAbort).toHaveBeenCalledTimes(1);
+    expect(onRevert).not.toHaveBeenCalled();
+
+    rerender(
+      <ViewRolloutModal
+        event={{ ...inProgressFirmwareEvent, state: "aborted" }}
+        onDismiss={vi.fn()}
+        onAbort={onAbort}
+        onRevert={onRevert}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Revert" }));
+    expect(onRevert).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides lifecycle controls when control permission is absent", () => {
+    render(
+      <ViewRolloutModal
+        event={{ ...inProgressFirmwareEvent, state: "running" }}
+        onDismiss={vi.fn()}
+        canControl={false}
+        onAbort={vi.fn()}
+        onPause={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("view-rollout-abort-action")).not.toBeInTheDocument();
+  });
+
+  it("renders membership and convergence progress independently", () => {
+    render(
+      <ViewRolloutModal
+        event={{
+          ...inProgressFirmwareEvent,
+          membershipProgress: { completed: 3, total: 10 },
+          convergenceProgress: { completed: 7, total: 10, attentionRequired: 1 },
+        }}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("active-rollout-membership-progress")).toHaveTextContent("3 of 10");
+    expect(screen.getByTestId("active-rollout-convergence-progress")).toHaveTextContent("7 of 10");
+    expect(screen.getByTestId("active-rollout-convergence-progress")).toHaveTextContent("1 needs attention");
+  });
 });

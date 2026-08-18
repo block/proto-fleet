@@ -25,6 +25,10 @@ const phaseStatus: Record<RolloutTargetPhase, keyof typeof statuses> = {
   retrying: statuses.warning,
   queued: statuses.inactive,
   failed: statuses.error,
+  attentionRequired: statuses.error,
+  cancelled: statuses.inactive,
+  reverting: statuses.warning,
+  reverted: statuses.normal,
   excluded: statuses.inactive,
 };
 
@@ -57,39 +61,39 @@ function RolloutColumnState({
     );
   }
 
-  if (phase === "retrying") {
+  if (phase === "retrying" || phase === "reverting") {
     return (
       <div className="flex items-center gap-2 text-text-primary">
         {dot}
         <ProgressCircular size={14} indeterminate />
-        Retrying
+        {phase === "retrying" ? "Retrying" : "Reverting"}
       </div>
     );
   }
 
-  if (phase === "done") {
+  if (phase === "done" || phase === "reverted") {
     return (
       <div className="flex items-center gap-2 text-text-primary">
         {dot}
-        {doneLabel ?? "Done"}
+        {doneLabel ?? (phase === "reverted" ? "Reverted" : "Done")}
       </div>
     );
   }
 
-  if (phase === "failed") {
+  if (phase === "failed" || phase === "attentionRequired") {
     return (
       <div className="flex items-center gap-2 text-text-primary">
         {dot}
-        Failed
+        {phase === "attentionRequired" ? "Needs attention" : "Failed"}
       </div>
     );
   }
 
-  if (phase === "excluded") {
+  if (phase === "excluded" || phase === "cancelled") {
     return (
       <div className="flex items-center gap-2 text-text-primary-50">
         {dot}
-        Excluded
+        {phase === "cancelled" ? "Cancelled" : "Excluded"}
       </div>
     );
   }

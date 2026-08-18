@@ -145,6 +145,14 @@ export function phaseLabel(processType: RolloutProcessType, phase: RolloutTarget
       return "Queued";
     case "failed":
       return "Failed";
+    case "attentionRequired":
+      return "Needs attention";
+    case "cancelled":
+      return "Cancelled";
+    case "reverting":
+      return "Reverting";
+    case "reverted":
+      return "Reverted";
     case "excluded":
       return "Excluded";
   }
@@ -195,16 +203,23 @@ export function deviceStatusToRolloutPhase(deviceStatus: number): RolloutTargetP
  */
 export function rolloutProgressSegments(event: RolloutEvent): Segment[] {
   const done = rolloutPhaseCount(event.rollups, "done");
+  const reverted = rolloutPhaseCount(event.rollups, "reverted");
   const failed = rolloutPhaseCount(event.rollups, "failed");
+  const attentionRequired = rolloutPhaseCount(event.rollups, "attentionRequired");
+  const cancelled = rolloutPhaseCount(event.rollups, "cancelled");
   const remaining =
     rolloutPhaseCount(event.rollups, "inProgress") +
     rolloutPhaseCount(event.rollups, "retrying") +
-    rolloutPhaseCount(event.rollups, "queued");
+    rolloutPhaseCount(event.rollups, "queued") +
+    rolloutPhaseCount(event.rollups, "reverting");
 
   return [
     { name: phaseLabel(event.processType, "done"), status: "OK" as const, count: done },
     { name: "Remaining", status: "WARNING" as const, count: remaining },
     { name: "Failed", status: "CRITICAL" as const, count: failed },
+    { name: "Needs attention", status: "CRITICAL" as const, count: attentionRequired },
+    { name: "Cancelled", status: "NA" as const, count: cancelled },
+    { name: "Reverted", status: "OK" as const, count: reverted },
   ].filter((segment) => segment.count > 0);
 }
 
@@ -217,13 +232,20 @@ export function inScopeTargetCount(event: Pick<RolloutEvent, "totalTargets" | "e
   return Math.max(event.totalTargets - event.excludedTargets, 0);
 }
 
+export function rolloutCompletionPhase(event: Pick<RolloutEvent, "state">): "done" | "reverted" {
+  return event.state === "reverting" || event.state === "reverted" ? "reverted" : "done";
+}
+
+export function rolloutCompletedTargetCount(event: Pick<RolloutEvent, "state" | "rollups">): number {
+  return rolloutPhaseCount(event.rollups, rolloutCompletionPhase(event));
+}
+
 export function rolloutCompletionPercent(event: RolloutEvent): number {
   const inScope = inScopeTargetCount(event);
   if (inScope <= 0) {
     return 0;
   }
-  const done = rolloutPhaseCount(event.rollups, "done");
-  return Math.round((done / inScope) * 100);
+  return Math.round((rolloutCompletedTargetCount(event) / inScope) * 100);
 }
 
 /**
@@ -400,12 +422,18 @@ export function pacingDetail(
 /** Primary lockup headline for the current rollout step. */
 export function rolloutStageLabel(event: RolloutEvent): string {
   switch (event.state) {
+    case "created":
+      return "Created";
     case "scheduled":
       return "Scheduled";
+    case "running":
+      return "In progress";
     case "stabilizingTelemetry":
       return "Waiting for telemetry";
     case "paused":
       return "Paused";
+    case "review":
+      return "Review";
     case "pausedAtPilotGate":
       return "Pilot batch review";
     case "pausedAtBatchReview":
@@ -417,6 +445,14 @@ export function rolloutStageLabel(event: RolloutEvent): string {
       return event.processType === "curtailment" ? "Curtailed" : "Completed";
     case "completedWithFailures":
       return "Completed with failures";
+    case "aborted":
+      return "Aborted";
+    case "reverting":
+      return "Reverting";
+    case "reverted":
+      return "Reverted";
+    case "unknown":
+      return "Status unavailable";
     case "inProgress":
       if (event.strategy === "allAtOnce") {
         return phaseLabel(event.processType, "inProgress");
@@ -444,9 +480,17 @@ export interface RolloutLifecycleHandlers {
   onManage?: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  onAbort?: () => void;
+  onRevert?: () => void;
+  /** Fixture compatibility. API-backed surfaces use onAbort. */
   onCancelRemaining?: () => void;
   onContinueFromReview?: () => void;
   onRetryFailed?: () => void;
+}
+
+export interface RolloutLifecycleOptions {
+  canManage?: boolean;
+  canControl?: boolean;
 }
 
 /** A normalized lifecycle action descriptor, rendered either as the card's own
@@ -462,6 +506,31 @@ function cancelRemainingActionText(processType: RolloutProcessType): string {
   return processType === "curtailment" ? "Abort curtailment" : "Cancel remaining";
 }
 
+function rolloutStateEligibility(event: RolloutEvent) {
+  if (event.availableActions) {
+    return event.availableActions;
+  }
+
+  const state = event.state;
+  return {
+    admit: state === "created" || state === "running" || state === "review",
+    continue: state === "review" || state === "pausedAtPilotGate" || state === "pausedAtBatchReview",
+    pause: state === "running" || state === "inProgress" || state === "review",
+    resume: state === "paused",
+    abort:
+      state === "created" ||
+      state === "running" ||
+      state === "inProgress" ||
+      state === "paused" ||
+      state === "review" ||
+      state === "pausedAtPilotGate" ||
+      state === "pausedAtBatchReview" ||
+      state === "stabilizingTelemetry",
+    revert: state === "aborted" || state === "completed" || state === "completedWithFailures",
+    complete: state === "running" || state === "inProgress" || state === "review" || state === "reverting",
+  };
+}
+
 /**
  * Single source of truth for which lifecycle controls a rollout shows, given
  * its state + the available handlers. Ordering matches the card's top-right
@@ -471,19 +540,26 @@ function cancelRemainingActionText(processType: RolloutProcessType): string {
 export function rolloutLifecycleActions(
   event: RolloutEvent,
   handlers: RolloutLifecycleHandlers,
+  options: RolloutLifecycleOptions = {},
 ): RolloutLifecycleAction[] {
-  const isRunning = event.state === "inProgress";
-  const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
-  const showReviewGate = event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview";
+  const eligibility = rolloutStateEligibility(event);
+  const isTerminal =
+    event.state === "aborted" ||
+    event.state === "completed" ||
+    event.state === "completedWithFailures" ||
+    event.state === "reverted";
   const isScheduled = event.state === "scheduled";
   const failed = rolloutPhaseCount(event.rollups, "failed");
+  const attentionRequired = rolloutPhaseCount(event.rollups, "attentionRequired");
   const actions: RolloutLifecycleAction[] = [];
+  const canManage = options.canManage ?? true;
+  const canControl = options.canControl ?? true;
 
   // "Manage" edits the live plan and is available until the rollout is terminal.
-  if (handlers.onManage && !isTerminal && !isScheduled) {
+  if (canManage && handlers.onManage && !isTerminal && !isScheduled) {
     actions.push({ key: "manage", text: "Manage", variant: "secondary", onClick: handlers.onManage });
   }
-  if (handlers.onContinueFromReview && showReviewGate) {
+  if (canControl && handlers.onContinueFromReview && eligibility.continue) {
     actions.push({
       key: "continue",
       text: "Continue",
@@ -491,21 +567,42 @@ export function rolloutLifecycleActions(
       onClick: handlers.onContinueFromReview,
     });
   }
-  if (handlers.onResume && event.state === "paused") {
+  if (canControl && handlers.onResume && eligibility.resume) {
     actions.push({ key: "resume", text: "Resume", variant: "primary", onClick: handlers.onResume });
   }
-  if (handlers.onRetryFailed && failed > 0 && isTerminal) {
+  if (
+    canControl &&
+    handlers.onRetryFailed &&
+    failed > 0 &&
+    attentionRequired === 0 &&
+    (event.state === "completed" || event.state === "completedWithFailures")
+  ) {
     actions.push({ key: "retry", text: "Retry failed", variant: "secondary", onClick: handlers.onRetryFailed });
   }
-  if (handlers.onPause && isRunning) {
+  if (canControl && handlers.onPause && eligibility.pause) {
     actions.push({ key: "pause", text: "Pause", variant: "secondary", onClick: handlers.onPause });
   }
-  if (handlers.onCancelRemaining && !isTerminal && !isScheduled) {
+  if (canControl && handlers.onAbort && eligibility.abort) {
+    actions.push({
+      key: "abort",
+      text: "Abort rollout",
+      variant: "danger",
+      onClick: handlers.onAbort,
+    });
+  } else if (canControl && handlers.onCancelRemaining && eligibility.abort && !isScheduled) {
     actions.push({
       key: "cancel",
       text: cancelRemainingActionText(event.processType),
       variant: "danger",
       onClick: handlers.onCancelRemaining,
+    });
+  }
+  if (canControl && handlers.onRevert && eligibility.revert) {
+    actions.push({
+      key: "revert",
+      text: "Revert",
+      variant: "danger",
+      onClick: handlers.onRevert,
     });
   }
   return actions;

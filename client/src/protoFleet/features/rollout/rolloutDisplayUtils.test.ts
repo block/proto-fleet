@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { rolloutErrorImpactCount, rolloutMetricDeltaIntent } from "./rolloutDisplayUtils";
+import { inProgressFirmwareEvent } from "./rollout.fixtures";
+import {
+  rolloutCompletionPercent,
+  rolloutErrorImpactCount,
+  rolloutLifecycleActions,
+  rolloutMetricDeltaIntent,
+  rolloutStageLabel,
+} from "./rolloutDisplayUtils";
 
 describe("rolloutMetricDeltaIntent", () => {
   it("treats lower hashrate as a positive curtailment dispatch outcome", () => {
@@ -25,5 +32,80 @@ describe("rolloutErrorImpactCount", () => {
         { id: "two", message: "Second error", impactedMiners: ["miner-1"] },
       ]),
     ).toBe(2);
+  });
+});
+
+describe("rolloutLifecycleActions", () => {
+  it("keeps abort and revert as separate lifecycle actions", () => {
+    const onAbort = () => undefined;
+    const onRevert = () => undefined;
+
+    expect(
+      rolloutLifecycleActions({ ...inProgressFirmwareEvent, state: "running" }, { onAbort, onRevert }).map(
+        (action) => action.key,
+      ),
+    ).toEqual(["abort"]);
+    expect(
+      rolloutLifecycleActions({ ...inProgressFirmwareEvent, state: "aborted" }, { onAbort, onRevert }).map(
+        (action) => action.key,
+      ),
+    ).toEqual(["revert"]);
+  });
+
+  it("hides control actions without rollout control permission", () => {
+    expect(
+      rolloutLifecycleActions(
+        { ...inProgressFirmwareEvent, state: "running" },
+        { onAbort: () => undefined, onPause: () => undefined },
+        { canControl: false },
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not offer ordinary retry for attention-required members", () => {
+    const actions = rolloutLifecycleActions(
+      {
+        ...inProgressFirmwareEvent,
+        state: "completedWithFailures",
+        rollups: [
+          { phase: "failed", count: 1 },
+          { phase: "attentionRequired", count: 1 },
+        ],
+      },
+      { onRetryFailed: () => undefined },
+    );
+
+    expect(actions.map((action) => action.key)).not.toContain("retry");
+  });
+});
+
+describe("rolloutStageLabel", () => {
+  it.each([
+    ["created", "Created"],
+    ["running", "In progress"],
+    ["paused", "Paused"],
+    ["review", "Review"],
+    ["aborted", "Aborted"],
+    ["completed", "Completed"],
+    ["completedWithFailures", "Completed with failures"],
+    ["reverting", "Reverting"],
+    ["reverted", "Reverted"],
+  ] as const)("renders the API lifecycle state %s", (state, expected) => {
+    expect(rolloutStageLabel({ ...inProgressFirmwareEvent, state })).toBe(expected);
+  });
+
+  it("uses reverted members for reverse-transition completion", () => {
+    expect(
+      rolloutCompletionPercent({
+        ...inProgressFirmwareEvent,
+        state: "reverted",
+        totalTargets: 10,
+        excludedTargets: 0,
+        rollups: [
+          { phase: "done", count: 10 },
+          { phase: "reverted", count: 10 },
+        ],
+      }),
+    ).toBe(100);
   });
 });

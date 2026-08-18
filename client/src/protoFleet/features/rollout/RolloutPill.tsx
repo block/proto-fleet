@@ -5,7 +5,8 @@ import {
   pacingSummary,
   phaseLabel,
   rolloutActionNoun,
-  rolloutPhaseCount,
+  rolloutCompletedTargetCount,
+  rolloutCompletionPhase,
   rolloutProcessLabel,
 } from "./rolloutDisplayUtils";
 import type { RolloutEvent } from "./rolloutTypes";
@@ -27,7 +28,11 @@ function pillDotClass(event: RolloutEvent): string {
     case "completedWithFailures":
       return "bg-intent-critical-fill";
     case "completed":
+    case "reverted":
       return "bg-intent-success-fill";
+    case "aborted":
+      return "bg-intent-critical-fill";
+    case "review":
     case "paused":
     case "pausedAtPilotGate":
     case "pausedAtBatchReview":
@@ -39,6 +44,9 @@ function pillDotClass(event: RolloutEvent): string {
 
 function pillStatePhrase(event: RolloutEvent): string {
   switch (event.state) {
+    case "created":
+      return "created";
+    case "running":
     case "inProgress":
       return event.processType === "curtailment" ? "active" : "in progress";
     case "stabilizingTelemetry":
@@ -49,6 +57,16 @@ function pillStatePhrase(event: RolloutEvent): string {
       return "paused for batch review";
     case "paused":
       return "paused";
+    case "review":
+      return "awaiting review";
+    case "aborted":
+      return "aborted";
+    case "reverting":
+      return "reverting";
+    case "reverted":
+      return "reverted";
+    case "unknown":
+      return "status unavailable";
     case "scheduled":
       return "scheduled";
     case "completed":
@@ -64,7 +82,8 @@ function pillStatePhrase(event: RolloutEvent): string {
  * on the same {@link PageHeaderPopoverPill} the CurtailmentPill uses.
  */
 function RolloutPill({ event, detailsPath, onViewRollout }: RolloutPillProps): ReactElement {
-  const done = rolloutPhaseCount(event.rollups, "done");
+  const done = rolloutCompletedTargetCount(event);
+  const completionLabel = phaseLabel(event.processType, rolloutCompletionPhase(event)).toLowerCase();
   const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
   const batchDetail =
     event.currentBatch && event.totalBatches ? `Batch ${event.currentBatch} of ${event.totalBatches}` : null;
@@ -74,7 +93,7 @@ function RolloutPill({ event, detailsPath, onViewRollout }: RolloutPillProps): R
     { id: "pacing", value: pacingSummary(event) },
     {
       id: "progress",
-      value: `${done.toLocaleString()} of ${inScope.toLocaleString()} ${phaseLabel(event.processType, "done").toLowerCase()}`,
+      value: `${done.toLocaleString()} of ${inScope.toLocaleString()} ${completionLabel}`,
     },
     ...(batchDetail ? [{ id: "batch", value: batchDetail }] : []),
   ];

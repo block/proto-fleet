@@ -11,9 +11,13 @@ interface ViewRolloutModalProps {
   /** The rollout to show; when null the modal is closed. */
   event: RolloutEvent | null;
   onDismiss: () => void;
+  canManage?: boolean;
+  canControl?: boolean;
   onManage?: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  onAbort?: () => void;
+  onRevert?: () => void;
   onCancelRemaining?: () => void;
   onContinueFromReview?: () => void;
   onRetryFailed?: () => void;
@@ -37,25 +41,39 @@ interface ModalActions {
 
 function modalActions({
   event,
+  canManage,
+  canControl,
   onManage,
   onPause,
   onResume,
+  onAbort,
+  onRevert,
   onCancelRemaining,
   onContinueFromReview,
   onRetryFailed,
   onViewMiners,
 }: ViewRolloutModalProps & { event: RolloutEvent }): ModalActions {
-  const lifecycleActions = rolloutLifecycleActions(event, {
-    onManage,
-    onPause,
-    onResume,
-    onCancelRemaining,
-    onContinueFromReview,
-    onRetryFailed,
-  });
+  const lifecycleActions = rolloutLifecycleActions(
+    event,
+    {
+      onManage,
+      onPause,
+      onResume,
+      onAbort,
+      onRevert,
+      onCancelRemaining,
+      onContinueFromReview,
+      onRetryFailed,
+    },
+    { canManage, canControl },
+  );
 
-  const visibleLifecycleActions = lifecycleActions.filter((action) => action.key !== "cancel");
-  const overflowLifecycleActions = lifecycleActions.filter((action) => action.key === "cancel");
+  const visibleLifecycleActions = lifecycleActions.filter(
+    (action) => action.key !== "cancel" && action.key !== "abort",
+  );
+  const overflowLifecycleActions = lifecycleActions.filter(
+    (action) => action.key === "cancel" || action.key === "abort",
+  );
   const visibleButtons = visibleLifecycleActions.map((action) => ({
     text: action.text,
     variant: lifecycleButtonVariant[action.variant],
@@ -100,9 +118,13 @@ function modalActions({
 function ViewRolloutModal({
   event,
   onDismiss,
+  canManage = true,
+  canControl = true,
   onManage,
   onPause,
   onResume,
+  onAbort,
+  onRevert,
   onCancelRemaining,
   onContinueFromReview,
   onRetryFailed,
@@ -116,9 +138,13 @@ function ViewRolloutModal({
   const actions = modalActions({
     event,
     onDismiss,
+    canManage,
+    canControl,
     onManage,
     onPause,
     onResume,
+    onAbort,
+    onRevert,
     onCancelRemaining,
     onContinueFromReview,
     onRetryFailed,
@@ -156,9 +182,13 @@ function ViewRolloutModal({
         event={event}
         embedded
         hideActions
+        canManage={canManage}
+        canControl={canControl}
         onManage={onManage}
         onPause={onPause}
         onResume={onResume}
+        onAbort={onAbort}
+        onRevert={onRevert}
         onCancelRemaining={onCancelRemaining}
         onContinueFromReview={onContinueFromReview}
         onRetryFailed={onRetryFailed}

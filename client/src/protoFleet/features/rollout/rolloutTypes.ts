@@ -1,10 +1,6 @@
-/**
- * Shared vocabulary for paced rollout UI.
- *
- * This is presentational scaffolding: the Storybook stories drive these with
- * fixtures. Wiring to real RPCs (the reconciler-backed RolloutPlan) is a later
- * phase. See `PLANS/PROTO_FLEET_ROLLOUT_FRAMEWORK.md`.
- */
+import type { JsonObject } from "@bufbuild/protobuf";
+
+/** Shared vocabulary for API-backed and fixture-driven rollout UI. */
 
 /** The kind of uptime-impacting process a rollout is running. */
 export type RolloutProcessType = "firmware" | "reboot" | "curtailment";
@@ -21,30 +17,170 @@ export type RolloutStrategy = "allAtOnce" | "batched" | "pilotThenContinue";
  */
 export type RolloutOrder = "leastEfficientFirst" | "random";
 
-/** When the rollout begins. */
+/** Fixture-only scheduling vocabulary. Production rollout wiring omits it. */
 export type RolloutScheduleType = "startNow" | "scheduleForLater";
 
-/** Lifecycle state of an in-flight or finished rollout. */
-export type RolloutState =
-  | "scheduled"
-  | "inProgress"
-  | "stabilizingTelemetry"
-  | "pausedAtPilotGate"
-  | "pausedAtBatchReview"
+/** Lifecycle states persisted by the generic rollout service. */
+export type RolloutLifecycleState =
+  | "created"
+  | "running"
   | "paused"
+  | "review"
+  | "aborted"
   | "completed"
-  | "completedWithFailures";
+  | "completedWithFailures"
+  | "reverting"
+  | "reverted"
+  | "unknown";
+
+/**
+ * Fixture-only states retained by the existing Storybook framework. Production
+ * adapters use RolloutLifecycleState and do not add scheduling or automation.
+ */
+export type RolloutFixtureState =
+  "scheduled" | "inProgress" | "stabilizingTelemetry" | "pausedAtPilotGate" | "pausedAtBatchReview";
+
+/** Lifecycle state accepted by shared rollout surfaces. */
+export type RolloutState = RolloutLifecycleState | RolloutFixtureState;
 
 /**
  * Per-target phase, aggregated into the composition bar + counts.
  *
- * `retrying` is a target that failed a step and is being automatically
- * re-dispatched by the reconciler. A target only reaches `failed` once
- * auto-retries are exhausted.
+ * `retrying` remains for existing Storybook fixture processes. API-backed
+ * firmware rollouts map ambiguous execution to `attentionRequired`.
  */
-export type RolloutTargetPhase = "done" | "inProgress" | "retrying" | "queued" | "failed" | "excluded";
+export type RolloutTargetPhase =
+  | "done"
+  | "inProgress"
+  | "retrying"
+  | "queued"
+  | "failed"
+  | "attentionRequired"
+  | "cancelled"
+  | "reverting"
+  | "reverted"
+  | "excluded";
 
-/** Config captured in the modal, previewed live in the summary rail. */
+/** Model-neutral progress for one independently measured outcome. */
+export interface RolloutProgress {
+  completed: number;
+  total: number;
+  failed?: number;
+  attentionRequired?: number;
+}
+
+export type RolloutMemberState =
+  | "pending"
+  | "admitted"
+  | "succeeded"
+  | "failed"
+  | "attentionRequired"
+  | "cancelled"
+  | "reverting"
+  | "reverted"
+  | "unknown";
+
+export type RolloutBatchState = "pending" | "admitted" | "completed" | "cancelled" | "unknown";
+
+export type RolloutEvidencePhase = "baseline" | "post" | "unknown";
+
+export interface RolloutEvidence {
+  id: bigint;
+  phase: RolloutEvidencePhase;
+  windowStart?: string;
+  windowEnd?: string;
+  observedAt?: string;
+  avgHashrateHs?: number;
+  avgPowerW?: number;
+  avgTemperatureC?: number;
+  errorCount?: bigint;
+  sampleCount?: bigint;
+}
+
+export interface RolloutMember {
+  id: bigint;
+  batchId: bigint;
+  deviceIdentifier: string;
+  position: number;
+  state: RolloutMemberState;
+  revision: bigint;
+  sourceSnapshot?: JsonObject;
+  targetSnapshot?: JsonObject;
+  revertSnapshot?: JsonObject;
+  enforcementId?: bigint;
+  commandBatchUuid?: string;
+  lastError?: string;
+  admittedAt?: string;
+  settledAt?: string;
+  evidence: RolloutEvidence[];
+}
+
+export interface RolloutBatch {
+  id: bigint;
+  position: number;
+  label: string;
+  state: RolloutBatchState;
+  revision: bigint;
+  members: RolloutMember[];
+}
+
+export interface RolloutCause {
+  id: bigint;
+  memberId?: bigint;
+  operation: string;
+  reason: string;
+  actorUserId: bigint;
+  fromState: RolloutLifecycleState;
+  toState: RolloutLifecycleState;
+  rolloutRevision: bigint;
+  createdAt?: string;
+}
+
+export interface RolloutActionEligibility {
+  admit: boolean;
+  continue: boolean;
+  pause: boolean;
+  resume: boolean;
+  abort: boolean;
+  revert: boolean;
+  complete: boolean;
+}
+
+/** API-backed model that does not choose a rollout admission strategy. */
+export interface RolloutRecord {
+  id: string;
+  name: string;
+  strategyKey: string;
+  state: RolloutLifecycleState;
+  revision: bigint;
+  sourceChannelId?: bigint;
+  targetChannelId?: bigint;
+  sourceReleaseSetId?: bigint;
+  targetReleaseSetId?: bigint;
+  sourceSnapshot?: JsonObject;
+  targetSnapshot?: JsonObject;
+  revertSnapshot?: JsonObject;
+  reason: string;
+  startedAt?: string;
+  pausedAt?: string;
+  abortedAt?: string;
+  completedAt?: string;
+  revertingAt?: string;
+  revertedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  batches: RolloutBatch[];
+  members: RolloutMember[];
+  causes: RolloutCause[];
+  membershipProgress?: RolloutProgress;
+  convergenceProgress?: RolloutProgress;
+  availableActions: RolloutActionEligibility;
+}
+
+/**
+ * Config captured by the existing Storybook framework. Scheduling and
+ * threshold automation remain fixture-only until production hardening.
+ */
 export interface RolloutPlanConfig {
   processType: RolloutProcessType;
   strategy: RolloutStrategy;
@@ -168,5 +304,11 @@ export interface RolloutEvent {
   performance?: RolloutPerformance;
   /** Authoritative error details used by summaries and miner-level views. */
   errors?: RolloutErrorImpact[];
+  /** Optional progress for strategy-defined membership changes. */
+  membershipProgress?: RolloutProgress;
+  /** Optional progress for firmware or health convergence. */
+  convergenceProgress?: RolloutProgress;
+  /** Server-derived control eligibility for API-backed rollouts. */
+  availableActions?: RolloutActionEligibility;
   rollups: RolloutPhaseRollup[];
 }

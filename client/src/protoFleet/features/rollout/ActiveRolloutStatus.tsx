@@ -8,15 +8,16 @@ import {
   rolloutActiveHeaderDetail,
   rolloutActiveSectionLabel,
   rolloutActiveStatusLabel,
+  rolloutCompletedTargetCount,
   rolloutCompletionPercent,
+  rolloutCompletionPhase,
   rolloutLifecycleActions,
-  rolloutPhaseCount,
   rolloutProgressSegments,
   rolloutStageLabel,
 } from "./rolloutDisplayUtils";
 import RolloutErrorCallout from "./RolloutErrorCallout";
 import RolloutPerformanceStrip from "./RolloutPerformanceStrip";
-import type { RolloutEvent } from "./rolloutTypes";
+import type { RolloutEvent, RolloutProgress } from "./rolloutTypes";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import { Alert, Info, Success } from "@/shared/assets/icons";
@@ -48,9 +49,13 @@ interface ActiveRolloutStatusProps {
   /** Start with the lower detail section expanded. */
   defaultDetailsOpen?: boolean;
   /** Lifecycle actions. Missing handlers hide their controls. */
+  canManage?: boolean;
+  canControl?: boolean;
   onManage?: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  onAbort?: () => void;
+  onRevert?: () => void;
   onCancelRemaining?: () => void;
   onContinueFromReview?: () => void;
   onRetryFailed?: () => void;
@@ -130,16 +135,57 @@ function statusIcon(event: RolloutEvent): ReactNode {
   if (event.state === "completedWithFailures") {
     return <Alert className="text-intent-critical-fill" />;
   }
-  if (event.state === "completed") {
+  if (event.state === "completed" || event.state === "reverted") {
     return <Success className="text-intent-success-fill" />;
   }
-  if (event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview") {
+  if (event.state === "review" || event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview") {
     return <Info className="text-text-primary" />;
   }
-  if (event.state === "paused") {
+  if (event.state === "paused" || event.state === "aborted") {
     return <Alert className="text-core-accent-fill" />;
   }
   return <ProgressCircular indeterminate className="text-core-primary-fill" />;
+}
+
+function IndependentProgress({
+  label,
+  progress,
+  testId,
+}: {
+  label: string;
+  progress: RolloutProgress;
+  testId: string;
+}): ReactElement {
+  const total = Math.max(progress.total, 0);
+  const completed = Math.min(Math.max(progress.completed, 0), total);
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const details = [
+    progress.failed ? `${progress.failed.toLocaleString()} failed` : null,
+    progress.attentionRequired ? `${progress.attentionRequired.toLocaleString()} needs attention` : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="grid gap-2" data-testid={testId}>
+      <div className="flex flex-wrap justify-between gap-2 text-200">
+        <span className="text-text-primary-70">{label}</span>
+        <span className="text-text-primary">
+          {completed.toLocaleString()} of {total.toLocaleString()} ({percent}%)
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-core-primary-10">
+        <div
+          className="h-full rounded-full bg-core-primary-fill"
+          style={{ width: `${percent}%` }}
+          role="progressbar"
+          aria-label={label}
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={completed}
+        />
+      </div>
+      {details.length > 0 ? <div className="text-200 text-text-primary-70">{details.join(", ")}</div> : null}
+    </div>
+  );
 }
 
 function ProgressLegend({ event, segments }: { event: RolloutEvent; segments: Segment[] }): ReactElement {
@@ -175,9 +221,13 @@ function ActiveRolloutStatus({
   embedded = false,
   hideActions = false,
   defaultDetailsOpen = false,
+  canManage = true,
+  canControl = true,
   onManage,
   onPause,
   onResume,
+  onAbort,
+  onRevert,
   onCancelRemaining,
   onContinueFromReview,
   onRetryFailed,
@@ -185,7 +235,8 @@ function ActiveRolloutStatus({
   onViewErrors,
 }: ActiveRolloutStatusProps): ReactElement {
   const detailsId = useId();
-  const isReviewGate = event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview";
+  const isReviewGate =
+    event.state === "review" || event.state === "pausedAtPilotGate" || event.state === "pausedAtBatchReview";
   const detailsStateKey = isReviewGate ? `${event.state}-${event.currentBatch ?? "current"}` : "default";
   const [detailsState, setDetailsState] = useState(() => ({
     key: detailsStateKey,
@@ -193,14 +244,18 @@ function ActiveRolloutStatus({
   }));
   const detailsOpen =
     embedded || (detailsState.key === detailsStateKey ? detailsState.open : defaultDetailsOpen || isReviewGate);
-  const isRunning = event.state === "inProgress";
+  const isRunning = event.state === "running" || event.state === "inProgress";
   const isTelemetryStabilizing = event.state === "stabilizingTelemetry";
-  const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
+  const isTerminal =
+    event.state === "aborted" ||
+    event.state === "completed" ||
+    event.state === "completedWithFailures" ||
+    event.state === "reverted";
   const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
-  const done = rolloutPhaseCount(event.rollups, "done");
+  const done = rolloutCompletedTargetCount(event);
   const percent = rolloutCompletionPercent(event);
   const segments = rolloutProgressSegments(event);
-  const doneVerb = phaseLabel(event.processType, "done").toLowerCase();
+  const doneVerb = phaseLabel(event.processType, rolloutCompletionPhase(event)).toLowerCase();
 
   // Live-ticking elapsed timer while running, matching the curtailment card.
   const [now, setNow] = useState(() => Date.now());
@@ -235,16 +290,22 @@ function ActiveRolloutStatus({
   const progressSummary = `${done.toLocaleString()} of ${inScope.toLocaleString()} miners ${doneVerb} (${percent}%)`;
   const actions = hideActions
     ? []
-    : rolloutLifecycleActions(event, {
-        onManage,
-        onPause,
-        onResume,
-        onCancelRemaining,
-        onContinueFromReview,
-        onRetryFailed,
-      });
-  const visibleActions = actions.filter((action) => action.key !== "cancel");
-  const overflowLifecycleActions = actions.filter((action) => action.key === "cancel");
+    : rolloutLifecycleActions(
+        event,
+        {
+          onManage,
+          onPause,
+          onResume,
+          onAbort,
+          onRevert,
+          onCancelRemaining,
+          onContinueFromReview,
+          onRetryFailed,
+        },
+        { canManage, canControl },
+      );
+  const visibleActions = actions.filter((action) => action.key !== "cancel" && action.key !== "abort");
+  const overflowLifecycleActions = actions.filter((action) => action.key === "cancel" || action.key === "abort");
   const overflowMenuActions: RowAction[] = [];
   if (!hideActions && onViewMiners) {
     overflowMenuActions.push({
@@ -349,6 +410,25 @@ function ActiveRolloutStatus({
           <CompositionBar segments={segments} height={12} colorMap={rolloutProgressColorMap} />
           <ProgressLegend event={event} segments={segments} />
         </div>
+
+        {event.membershipProgress || event.convergenceProgress ? (
+          <div className="mt-6 grid gap-5 border-t border-border-5 pt-5 tablet:grid-cols-2">
+            {event.membershipProgress ? (
+              <IndependentProgress
+                label="Membership progress"
+                progress={event.membershipProgress}
+                testId="active-rollout-membership-progress"
+              />
+            ) : null}
+            {event.convergenceProgress ? (
+              <IndependentProgress
+                label="Firmware convergence"
+                progress={event.convergenceProgress}
+                testId="active-rollout-convergence-progress"
+              />
+            ) : null}
+          </div>
+        ) : null}
 
         {embedded ? null : (
           <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-200">
