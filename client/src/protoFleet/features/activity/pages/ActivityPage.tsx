@@ -137,24 +137,42 @@ const ActivityPageContent = () => {
   const includeAlerts = canViewAlerts && (!activityUsable || alertsMatchFilter(filter));
   const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
   const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
-  // Tracked as state, not a ref: the merge barrier below keys off it, so a change must recompute.
+  // Tracked as state, not refs: the merge barrier below keys off them, so a change must recompute.
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [alertsMissedFirstRender, setAlertsMissedFirstRender] = useState(false);
+  // Latched during render, the moment the tell-tale state is observable: rows are on screen while
+  // the alert feed is still answering with nothing shown, or its failed first page is retrying.
+  if (hasLoaded && !alertsMissedFirstRender && alerts.items.length === 0 && (alerts.loading || alerts.error !== null)) {
+    setAlertsMissedFirstRender(true);
+  }
   // Scope filtering runs on the merged output: the merge must see every loaded alert row so its pause
   // barrier stays the real pagination frontier — filtering first would hold activities back behind
   // rows the scope filter had already hidden, since alerts.hasMore describes the unfiltered feed.
   // A feed still answering its current request counts as unexhausted so rows its response may predate
-  // are withheld up front instead of rendered and then re-hidden mid-load. After the first composite
-  // render that no longer holds for the alert feed: enabling it late (a slow probe, a scope change
-  // back to all-sites) must not blank rows already on screen, so its first page interleaves on landing.
+  // are withheld up front instead of rendered and then re-hidden mid-load. That holds only for a feed
+  // present from the first composite render: one that missed it (a slow probe, a failed first page
+  // retrying in the background) is latched unbarriered, so even its late pages that arrive with a
+  // cursor interleave on landing rather than withhold — then hide — rows already on screen.
   const entries = useMemo(() => {
-    const alertsPending = alerts.hasMore || (alerts.loading && !hasLoaded);
+    const alertsPending = !alertsMissedFirstRender && (alerts.hasMore || (alerts.loading && !hasLoaded));
     const merged = mergeAlertEntries(activities, hasMore || isLoading, alertEntries, alertsPending);
     // Scopes an alert can never carry (rack, site, …) also go inert once the activity surface is gone:
     // applied to the synthetic entries they would blank the only feed. A Device selection still filters.
     const alertScopes = activityUsable ? filter.scopeTypes : filter.scopeTypes.filter((s) => s === ALERT_SCOPE_TYPE);
     if (alertScopes.length === 0) return merged;
     return merged.filter((entry) => !isAlertEntry(entry) || alertEntryMatchesScopes(entry, alertScopes));
-  }, [activities, hasMore, isLoading, alertEntries, alerts.hasMore, alerts.loading, filter, activityUsable, hasLoaded]);
+  }, [
+    activities,
+    hasMore,
+    isLoading,
+    alertEntries,
+    alerts.hasMore,
+    alerts.loading,
+    filter,
+    activityUsable,
+    hasLoaded,
+    alertsMissedFirstRender,
+  ]);
   const typeOptions = useMemo(
     () => (alertsSelectable ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
     [alertsSelectable, eventTypes],

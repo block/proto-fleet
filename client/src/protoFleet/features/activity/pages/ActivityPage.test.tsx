@@ -436,6 +436,92 @@ describe("ActivityPage", () => {
       expect(screen.getByTestId("activity-table").textContent).toBe("alert-9");
     });
 
+    it("keeps visible activities when a late first alert page lands with more history behind it", () => {
+      alertsEnabledMock.current = false;
+      alertsEnabledMock.resolved = false;
+      const loadedActivities = {
+        activities: [
+          create(ActivityEntrySchema, {
+            eventId: "act-new",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:30Z")),
+          }),
+          create(ActivityEntrySchema, {
+            eventId: "act-old",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:05Z")),
+          }),
+        ],
+        totalCount: 2,
+        isLoading: false,
+        error: null,
+        hasMore: false,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+      };
+      useActivityMock.mockReturnValue({ ...loadedActivities, activities: [], totalCount: 0, isLoading: true });
+
+      const { rerender } = render(<ActivityPage />);
+
+      useActivityMock.mockReturnValue(loadedActivities);
+      rerender(<ActivityPage />);
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,act-old");
+
+      alertsEnabledMock.current = true;
+      alertsEnabledMock.resolved = true;
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ loading: true }));
+      rerender(<ActivityPage />);
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,act-old");
+
+      usePagedAlertsMock.mockReturnValue(
+        buildPagedAlertsResult({
+          items: [buildAlertHistoryEntry({ id: "9", received_at: "2026-08-01T00:00:20Z" })],
+          hasMore: true,
+        }),
+      );
+      rerender(<ActivityPage />);
+
+      // The landed page's cursor must not re-arm the barrier and hide act-old, which was on screen.
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9,act-old");
+    });
+
+    it("keeps visible activities when a failed first alert page later lands with a cursor", () => {
+      useActivityMock.mockReturnValue({
+        activities: [
+          create(ActivityEntrySchema, {
+            eventId: "act-new",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:30Z")),
+          }),
+          create(ActivityEntrySchema, {
+            eventId: "act-old",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:05Z")),
+          }),
+        ],
+        totalCount: 2,
+        isLoading: false,
+        error: null,
+        hasMore: false,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+      });
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ loading: true }));
+
+      const { rerender } = render(<ActivityPage />);
+
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ error: "boom" }));
+      rerender(<ActivityPage />);
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,act-old");
+
+      // The background retry lands without a loading window; its cursor must not hide act-old.
+      usePagedAlertsMock.mockReturnValue(
+        buildPagedAlertsResult({
+          items: [buildAlertHistoryEntry({ id: "9", received_at: "2026-08-01T00:00:20Z" })],
+          hasMore: true,
+        }),
+      );
+      rerender(<ActivityPage />);
+
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9,act-old");
+    });
+
     it("withdraws activity-only controls and options when the server denies the activity read", () => {
       useActivityMock.mockImplementation(({ filter }: { filter?: ActivityFilter }) => {
         listFilter = filter;
