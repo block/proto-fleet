@@ -17,6 +17,7 @@ export const createSystemInfoSlice: StateCreator<MinerStore, [["zustand/immer", 
 ) => ({
   resource: idleResource(),
   data: undefined,
+  systemTag: undefined,
 
   setSystemInfo: (systemInfo) =>
     set((state) => {
@@ -26,7 +27,7 @@ export const createSystemInfoSlice: StateCreator<MinerStore, [["zustand/immer", 
 
   setSystemTag: (systemTag) =>
     set((state) => {
-      if (state.systemInfo.data) state.systemInfo.data.systemTag = systemTag;
+      state.systemInfo.systemTag = systemTag;
     }),
 
   setError: (error) =>
@@ -44,6 +45,7 @@ export const createSystemInfoSlice: StateCreator<MinerStore, [["zustand/immer", 
   reset: () =>
     set((state) => {
       state.systemInfo.data = undefined;
+      state.systemInfo.systemTag = undefined;
       state.systemInfo.resource = idleResource();
     }),
 });

@@ -144,29 +144,28 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
     set((state) => {
       const id = asComponentId(`${ROOT_MODULE_ID}:psu:${slot}`);
       const current = state.telemetry.psus.get(id) ?? { componentId: id };
-      Object.assign(current, {
-        inputVoltage: mapMeasurement(input.inputVoltage, "V"),
-        inputCurrent: mapMeasurement(input.inputCurrent, "A"),
-        inputPower: mapMeasurement(input.inputPower, "W"),
-        outputVoltage: mapMeasurement(input.outputVoltage, "V"),
-        outputCurrent: mapMeasurement(input.outputCurrent, "A"),
-        outputPower: mapMeasurement(input.outputPower, "W"),
-        ambientTemperature: mapMeasurement(input.temperatureAmbient, "°C"),
-        averageTemperature: mapMeasurement(input.temperatureAverage, "°C"),
-        hotspotTemperature: mapMeasurement(input.temperatureHotspot, "°C"),
-      });
+      if (input.inputVoltage !== undefined) current.inputVoltage = mapMeasurement(input.inputVoltage, "V");
+      if (input.inputCurrent !== undefined) current.inputCurrent = mapMeasurement(input.inputCurrent, "A");
+      if (input.inputPower !== undefined) current.inputPower = mapMeasurement(input.inputPower, "W");
+      if (input.outputVoltage !== undefined) current.outputVoltage = mapMeasurement(input.outputVoltage, "V");
+      if (input.outputCurrent !== undefined) current.outputCurrent = mapMeasurement(input.outputCurrent, "A");
+      if (input.outputPower !== undefined) current.outputPower = mapMeasurement(input.outputPower, "W");
+      if (input.temperatureAmbient !== undefined)
+        current.ambientTemperature = mapMeasurement(input.temperatureAmbient, "°C");
+      if (input.temperatureAverage !== undefined)
+        current.averageTemperature = mapMeasurement(input.temperatureAverage, "°C");
+      if (input.temperatureHotspot !== undefined)
+        current.hotspotTemperature = mapMeasurement(input.temperatureHotspot, "°C");
       state.telemetry.psus.set(id, current);
     }),
   updateFanTelemetry: (slot, input) =>
     set((state) => {
       const id = asComponentId(`${ROOT_MODULE_ID}:fan:${slot}`);
       const current = state.telemetry.fans.get(id) ?? { componentId: id };
-      Object.assign(current, {
-        rpm: mapMeasurement(input.rpm, "RPM"),
-        speedPercent: mapMeasurement(input.percentage, "%"),
-        minimumRpm: mapMeasurement(input.minRpm, "RPM"),
-        maximumRpm: mapMeasurement(input.maxRpm, "RPM"),
-      });
+      if (input.rpm !== undefined) current.rpm = mapMeasurement(input.rpm, "RPM");
+      if (input.percentage !== undefined) current.speedPercent = mapMeasurement(input.percentage, "%");
+      if (input.minRpm !== undefined) current.minimumRpm = mapMeasurement(input.minRpm, "RPM");
+      if (input.maxRpm !== undefined) current.maximumRpm = mapMeasurement(input.maxRpm, "RPM");
       state.telemetry.fans.set(id, current);
     }),
   updateCoolingMode: (mode) =>

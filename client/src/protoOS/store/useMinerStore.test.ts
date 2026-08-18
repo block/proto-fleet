@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { asDeviceId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
+import { asComponentId, asDeviceId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
 import useMinerStore from "./useMinerStore";
 
 const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
@@ -80,5 +80,42 @@ describe("useMinerStore.resetDeviceData", () => {
     const newer = useMinerStore.getState().beginStoreWrite();
     expect(useMinerStore.getState().acceptStoreWrite(resource, newer)).toBe(true);
     expect(useMinerStore.getState().acceptStoreWrite(resource, older)).toBe(false);
+  });
+});
+
+describe("partial normalized store updates", () => {
+  beforeEach(() => {
+    useMinerStore.getState().resetDeviceData();
+  });
+
+  test("preserves fan calibration fields when a cooling poll only updates live values", () => {
+    const telemetry = useMinerStore.getState().telemetry;
+    telemetry.updateFanTelemetry(1, {
+      slot: 1,
+      minRpm: { latest: { value: 1_200, units: "RPM" } },
+      maxRpm: { latest: { value: 6_000, units: "RPM" } },
+    });
+
+    telemetry.updateFanTelemetry(1, {
+      slot: 1,
+      rpm: { latest: { value: 4_800, units: "RPM" } },
+      percentage: { latest: { value: 75, units: "%" } },
+    });
+
+    const fan = useMinerStore.getState().telemetry.fans.get(asComponentId("module:root:fan:1"));
+    expect(fan?.minimumRpm?.latest?.value).toBe(1_200);
+    expect(fan?.maximumRpm?.latest?.value).toBe(6_000);
+    expect(fan?.rpm?.latest?.value).toBe(4_800);
+  });
+
+  test("preserves independently loaded system tags across system-info refreshes", () => {
+    const store = useMinerStore.getState();
+    store.systemInfo.setSystemTag("rack-7");
+
+    store.systemInfo.setSystemInfo(systemInfo("Rig"));
+    expect(useMinerStore.getState().systemInfo.systemTag).toBe("rack-7");
+
+    useMinerStore.getState().systemInfo.setSystemInfo(systemInfo("Rig refreshed"));
+    expect(useMinerStore.getState().systemInfo.systemTag).toBe("rack-7");
   });
 });

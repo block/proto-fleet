@@ -414,6 +414,7 @@ export interface SystemInfoData {
 export interface SystemInfoState {
   resource: ResourceState;
   data?: SystemInfoData;
+  systemTag?: string;
 }
 
 export interface NetworkInterface {
