@@ -172,8 +172,6 @@ export interface RolloutRecord {
   batches: RolloutBatch[];
   members: RolloutMember[];
   causes: RolloutCause[];
-  membershipProgress?: RolloutProgress;
-  convergenceProgress?: RolloutProgress;
   availableActions: RolloutActionEligibility;
 }
 

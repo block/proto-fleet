@@ -27,8 +27,13 @@ type fakeStore struct {
 	dispatchedCalls  int
 	verifyingCalls   int
 	attentionCalls   int
-	observationCalls int
+	observationCalls []observationCall
 	confirmCalls     int
+}
+
+type observationCall struct {
+	observation     channel.Observation
+	nextReconcileAt time.Time
 }
 
 func (f *fakeStore) ListForReconcile(context.Context, int32) ([]channel.Enforcement, error) {
@@ -108,11 +113,15 @@ func (f *fakeStore) MarkVerifying(
 }
 
 func (f *fakeStore) RecordObservation(
-	context.Context,
-	channel.Enforcement,
-	channel.Observation,
+	_ context.Context,
+	_ channel.Enforcement,
+	observation channel.Observation,
+	nextReconcileAt time.Time,
 ) error {
-	f.observationCalls++
+	f.observationCalls = append(f.observationCalls, observationCall{
+		observation:     observation,
+		nextReconcileAt: nextReconcileAt,
+	})
 	return nil
 }
 
@@ -279,6 +288,136 @@ func TestReconcilePostEnqueueFailureNeedsAttention(t *testing.T) {
 
 	assert.Equal(t, 1, store.attentionCalls)
 	assert.Zero(t, store.claimCalls)
+}
+
+func TestReconcileUnusableVerificationSamplesPersistRetry(t *testing.T) {
+	completedAt := time.Date(2026, 8, 18, 1, 0, 0, 0, time.UTC)
+	row := testEnforcement(channel.EnforcementStateVerifying)
+	row.AttemptCount = 1
+	row.CommandCompletedAt = &completedAt
+	fresh := telemetry.SampleResult{
+		DeviceID:    telemetrymodels.DeviceIdentifier(row.DeviceIdentifier),
+		OrgID:       row.OrgID,
+		FlightStart: completedAt.Add(time.Second),
+		Metrics: modelsv2.DeviceMetrics{
+			DeviceIdentifier: row.DeviceIdentifier,
+			FirmwareVersion:  row.DesiredFirmwareVersion,
+			Health:           modelsv2.HealthHealthyActive,
+			HashrateHS:       &modelsv2.MetricValue{Value: 100},
+		},
+	}
+
+	tests := []struct {
+		name      string
+		results   []telemetry.SampleResult
+		errorPart string
+	}{
+		{
+			name:      "zero results",
+			errorPart: "no results",
+		},
+		{
+			name:      "multiple results",
+			results:   []telemetry.SampleResult{fresh, fresh},
+			errorPart: "returned 2 results",
+		},
+		{
+			name: "sampler error",
+			results: []telemetry.SampleResult{func() telemetry.SampleResult {
+				result := fresh
+				result.Err = errors.New("telemetry unavailable")
+				return result
+			}()},
+			errorPart: "telemetry unavailable",
+		},
+		{
+			name: "wrong organization",
+			results: []telemetry.SampleResult{func() telemetry.SampleResult {
+				result := fresh
+				result.OrgID++
+				return result
+			}()},
+			errorPart: "organization mismatch",
+		},
+		{
+			name: "wrong device",
+			results: []telemetry.SampleResult{func() telemetry.SampleResult {
+				result := fresh
+				result.DeviceID = "other-miner"
+				return result
+			}()},
+			errorPart: "device mismatch",
+		},
+		{
+			name: "stale sample",
+			results: []telemetry.SampleResult{func() telemetry.SampleResult {
+				result := fresh
+				result.FlightStart = completedAt
+				return result
+			}()},
+			errorPart: "sample is stale",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeStore{rows: []channel.Enforcement{row}}
+			r := newTestReconciler(
+				store,
+				&fakeDispatcher{},
+				&fakeSampler{results: tt.results},
+			)
+
+			r.reconcile(t.Context())
+
+			assert.Zero(t, store.confirmCalls)
+			if assert.Len(t, store.observationCalls, 1) {
+				call := store.observationCalls[0]
+				assert.Contains(t, call.observation.Error, tt.errorPart)
+				assert.Equal(
+					t,
+					time.Date(2026, 8, 18, 2, 0, 30, 0, time.UTC),
+					call.nextReconcileAt,
+				)
+			}
+			assert.Equal(t, int32(1), store.rows[0].AttemptCount)
+		})
+	}
+}
+
+func TestReconcileFreshNonConfirmingObservationDefersRetry(t *testing.T) {
+	completedAt := time.Date(2026, 8, 18, 1, 0, 0, 0, time.UTC)
+	row := testEnforcement(channel.EnforcementStateVerifying)
+	row.AttemptCount = 1
+	row.CommandCompletedAt = &completedAt
+	store := &fakeStore{rows: []channel.Enforcement{row}}
+	sampler := &fakeSampler{results: []telemetry.SampleResult{{
+		DeviceID:    telemetrymodels.DeviceIdentifier(row.DeviceIdentifier),
+		OrgID:       row.OrgID,
+		FlightStart: completedAt.Add(time.Second),
+		Metrics: modelsv2.DeviceMetrics{
+			DeviceIdentifier: row.DeviceIdentifier,
+			FirmwareVersion:  "still-old",
+			Health:           modelsv2.HealthHealthyActive,
+			HashrateHS:       &modelsv2.MetricValue{Value: 100},
+		},
+	}}}
+	r := newTestReconciler(store, &fakeDispatcher{}, sampler)
+
+	r.reconcile(t.Context())
+
+	assert.Zero(t, store.confirmCalls)
+	if assert.Len(t, store.observationCalls, 1) {
+		call := store.observationCalls[0]
+		assert.Empty(t, call.observation.Error)
+		assert.Equal(t, "still-old", call.observation.FirmwareVersion)
+		assert.Equal(
+			t,
+			time.Date(2026, 8, 18, 2, 0, 30, 0, time.UTC),
+			call.nextReconcileAt,
+		)
+	}
+	assert.Equal(t, int32(1), store.rows[0].AttemptCount)
 }
 
 func TestReconcileConfirmationRequiresFreshTargetAndHashing(t *testing.T) {

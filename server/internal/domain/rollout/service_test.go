@@ -47,6 +47,43 @@ func TestNextStateManualGateLifecycle(t *testing.T) {
 	}
 }
 
+func TestStateIsTerminal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		state State
+		want  bool
+	}{
+		{StateCreated, false},
+		{StateRunning, false},
+		{StatePaused, false},
+		{StateReview, false},
+		{StateAborted, true},
+		{StateCompleted, true},
+		{StateCompletedWithFailures, true},
+		{StateReverting, false},
+		{StateReverted, true},
+	}
+
+	for _, testCase := range tests {
+		t.Run(string(testCase.state), func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, testCase.want, testCase.state.IsTerminal())
+		})
+	}
+}
+
+func TestFingerprintCreateRejectsUnmarshalableSnapshots(t *testing.T) {
+	t.Parallel()
+
+	_, err := fingerprintCreate(CreateRequest{
+		SourceSnapshot: map[string]any{"invalid": func() {}},
+	})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "marshal rollout creation fingerprint")
+}
+
 func TestServiceAdmitDuplicateIdempotencyDoesNotCallStrategyTwice(t *testing.T) {
 	t.Parallel()
 

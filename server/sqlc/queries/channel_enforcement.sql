@@ -72,7 +72,7 @@ RETURNING id, org_id, device_id, desired_release_set_id,
           desired_firmware_version, cause_type, cause_reference,
           authority_id, authority_revision, state, attempt_count,
           command_batch_uuid, revision, desired_at, held_at, claimed_at,
-          enqueued_at, command_completed_at,
+          enqueued_at, command_completed_at, next_reconcile_at,
           last_observed_firmware_version, firmware_observed_at,
           last_observed_hashrate_hs, hashing_observed_at, confirmed_at,
           attention_required_at, last_error, created_at, updated_at;
@@ -99,6 +99,7 @@ SELECT enforcement.id,
        enforcement.claimed_at,
        enforcement.enqueued_at,
        enforcement.command_completed_at,
+       enforcement.next_reconcile_at,
        enforcement.last_observed_firmware_version,
        enforcement.firmware_observed_at,
        enforcement.last_observed_hashrate_hs,
@@ -140,6 +141,7 @@ SELECT enforcement.id,
        enforcement.claimed_at,
        enforcement.enqueued_at,
        enforcement.command_completed_at,
+       enforcement.next_reconcile_at,
        enforcement.last_observed_firmware_version,
        enforcement.firmware_observed_at,
        enforcement.last_observed_hashrate_hs,
@@ -164,7 +166,8 @@ WHERE enforcement.state IN (
     'dispatched',
     'verifying'
 )
-ORDER BY enforcement.updated_at, enforcement.id
+  AND enforcement.next_reconcile_at <= CURRENT_TIMESTAMP
+ORDER BY enforcement.next_reconcile_at, enforcement.updated_at, enforcement.id
 LIMIT sqlc.arg('reconcile_limit');
 
 -- name: ListChannelManagedDeviceIdentifiers :many
@@ -257,6 +260,7 @@ LIMIT 1;
 UPDATE channel_firmware_enforcement
 SET state = 'verifying',
     command_completed_at = sqlc.arg('command_completed_at'),
+    next_reconcile_at = CURRENT_TIMESTAMP,
     last_error = NULL,
     revision = revision + 1
 WHERE id = sqlc.arg('enforcement_id')
@@ -267,11 +271,28 @@ WHERE id = sqlc.arg('enforcement_id')
 
 -- name: RecordChannelFirmwareObservation :execrows
 UPDATE channel_firmware_enforcement
-SET last_observed_firmware_version = sqlc.arg('firmware_version'),
-    firmware_observed_at = sqlc.arg('firmware_observed_at'),
-    last_observed_hashrate_hs = sqlc.narg('hashrate_hs'),
-    hashing_observed_at = sqlc.narg('hashing_observed_at'),
-    last_error = sqlc.narg('observation_error'),
+SET last_observed_firmware_version = CASE
+        WHEN sqlc.narg('observation_error')::text IS NOT NULL
+            THEN last_observed_firmware_version
+        ELSE sqlc.arg('firmware_version')
+    END,
+    firmware_observed_at = CASE
+        WHEN sqlc.narg('observation_error')::text IS NOT NULL
+            THEN firmware_observed_at
+        ELSE sqlc.arg('firmware_observed_at')
+    END,
+    last_observed_hashrate_hs = CASE
+        WHEN sqlc.narg('observation_error')::text IS NOT NULL
+            THEN last_observed_hashrate_hs
+        ELSE sqlc.narg('hashrate_hs')
+    END,
+    hashing_observed_at = CASE
+        WHEN sqlc.narg('observation_error')::text IS NOT NULL
+            THEN hashing_observed_at
+        ELSE sqlc.narg('hashing_observed_at')
+    END,
+    last_error = sqlc.narg('observation_error')::text,
+    next_reconcile_at = sqlc.arg('next_reconcile_at'),
     revision = revision + 1
 WHERE id = sqlc.arg('enforcement_id')
   AND revision = sqlc.arg('expected_revision')

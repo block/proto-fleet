@@ -315,7 +315,7 @@ type Querier interface {
 	CreateBuilding(ctx context.Context, arg CreateBuildingParams) (Building, error)
 	CreateChannelExtension(ctx context.Context, arg CreateChannelExtensionParams) (int64, error)
 	CreateChannelFirmwareAuthority(ctx context.Context, arg CreateChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error)
-	CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (ChannelFirmwareEnforcement, error)
+	CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (CreateChannelFirmwareEnforcementRow, error)
 	// organization_id is captured from the caller's session so downstream
 	// org-scoped queries (e.g. GetBatchHeaderForOrg) can filter directly on the
 	// batch's owning organization rather than joining through user_organization.

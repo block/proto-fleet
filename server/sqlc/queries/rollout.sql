@@ -102,6 +102,8 @@ INSERT INTO firmware_rollout_cause (
     operation,
     reason,
     actor_user_id,
+    actor_type,
+    actor_credential_id,
     from_state,
     to_state,
     rollout_revision
@@ -114,6 +116,8 @@ VALUES (
     sqlc.arg('operation'),
     sqlc.arg('reason'),
     sqlc.arg('actor_user_id'),
+    sqlc.arg('actor_type'),
+    sqlc.narg('actor_credential_id'),
     sqlc.narg('from_state'),
     sqlc.arg('to_state'),
     sqlc.arg('rollout_revision')
@@ -208,7 +212,9 @@ INSERT INTO firmware_rollout_control (
     expected_revision,
     resulting_revision,
     status,
-    created_by_user_id
+    created_by_user_id,
+    actor_type,
+    actor_credential_id
 )
 VALUES (
     sqlc.arg('control_id'),
@@ -221,7 +227,9 @@ VALUES (
     sqlc.arg('expected_revision'),
     sqlc.arg('resulting_revision'),
     sqlc.arg('status'),
-    sqlc.arg('created_by_user_id')
+    sqlc.arg('created_by_user_id'),
+    sqlc.arg('actor_type'),
+    sqlc.narg('actor_credential_id')
 )
 RETURNING *;
 

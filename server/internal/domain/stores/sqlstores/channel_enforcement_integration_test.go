@@ -220,6 +220,137 @@ func TestChannelEnforcementStoreClaimAndHaltLinearize(t *testing.T) {
 	}
 }
 
+func TestChannelEnforcementStoreVerificationRetriesDoNotStarveDueRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	const batchSize int32 = 2
+	db, orgID, deviceIdentifiers := setupCollectionTestData(t, 5)
+	collectionStore := newCollectionStore(db)
+	releaseSet := createTestReleaseSet(t, collectionStore, orgID, "reconcile-fairness")
+	enforcementStore := sqlstores.NewSQLChannelEnforcementStore(db)
+	_, targetID := enforcementFixtureIDs(
+		t,
+		db,
+		deviceIdentifiers[0],
+		releaseSet.Id,
+	)
+	authority, err := enforcementStore.CreateAuthority(t.Context(), channel.CreateAuthorityParams{
+		ID:              uuid.New(),
+		OrgID:           orgID,
+		Type:            "rollout",
+		Reference:       "rollout-reconcile-fairness",
+		CreatedByUserID: testOrganizationUserID(t, db, orgID),
+	})
+	require.NoError(t, err)
+
+	enforcements := make([]channel.Enforcement, 0, len(deviceIdentifiers))
+	for _, deviceIdentifier := range deviceIdentifiers {
+		deviceID, _ := enforcementFixtureIDs(t, db, deviceIdentifier, releaseSet.Id)
+		enforcement, createErr := enforcementStore.CreateEnforcement(
+			t.Context(),
+			channel.CreateEnforcementParams{
+				OrgID:             orgID,
+				DeviceID:          deviceID,
+				ReleaseTargetID:   targetID,
+				CauseType:         "rollout_admission",
+				AuthorityID:       authority.ID,
+				AuthorityRevision: authority.Revision,
+			},
+		)
+		require.NoError(t, createErr)
+		enforcements = append(enforcements, enforcement)
+	}
+
+	now := time.Now().UTC()
+	dueAt := now.Add(-time.Hour)
+	for _, enforcement := range enforcements[:3] {
+		_, err = db.ExecContext(
+			t.Context(),
+			`UPDATE channel_firmware_enforcement
+			 SET state = 'verifying',
+			     attempt_count = 1,
+			     command_batch_uuid = $2,
+			     command_completed_at = $3,
+			     next_reconcile_at = $4
+			 WHERE id = $1`,
+			enforcement.ID,
+			uuid.NewString(),
+			now.Add(-2*time.Hour),
+			dueAt,
+		)
+		require.NoError(t, err)
+	}
+	duePending := enforcements[3]
+	_, err = db.ExecContext(
+		t.Context(),
+		`UPDATE channel_firmware_enforcement
+		 SET next_reconcile_at = $2
+		 WHERE id = $1`,
+		duePending.ID,
+		now.Add(-30*time.Minute),
+	)
+	require.NoError(t, err)
+	delayedPending := enforcements[4]
+	_, err = db.ExecContext(
+		t.Context(),
+		`UPDATE channel_firmware_enforcement
+		 SET next_reconcile_at = $2
+		 WHERE id = $1`,
+		delayedPending.ID,
+		now.Add(time.Hour),
+	)
+	require.NoError(t, err)
+
+	firstBatch, err := enforcementStore.ListForReconcile(t.Context(), batchSize)
+	require.NoError(t, err)
+	require.Len(t, firstBatch, int(batchSize))
+	for _, enforcement := range firstBatch {
+		require.Equal(t, channel.EnforcementStateVerifying, enforcement.State)
+		require.NoError(t, enforcementStore.RecordObservation(
+			t.Context(),
+			enforcement,
+			channel.Observation{Error: "stale telemetry sample"},
+			now.Add(time.Hour),
+		))
+	}
+
+	secondBatch, err := enforcementStore.ListForReconcile(t.Context(), batchSize)
+	require.NoError(t, err)
+	require.Len(t, secondBatch, int(batchSize))
+	secondIDs := []int64{secondBatch[0].ID, secondBatch[1].ID}
+	require.Contains(t, secondIDs, duePending.ID)
+	require.NotContains(t, secondIDs, delayedPending.ID)
+
+	persisted, err := enforcementStore.GetEnforcement(t.Context(), firstBatch[0].ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.LastError)
+	require.Equal(t, "stale telemetry sample", *persisted.LastError)
+	require.WithinDuration(t, now.Add(time.Hour), persisted.NextReconcileAt, time.Millisecond)
+	require.Equal(t, int32(1), persisted.AttemptCount)
+
+	hashrate := 100.0
+	freshObservedAt := now.Add(-time.Minute)
+	require.NoError(t, enforcementStore.RecordObservation(
+		t.Context(),
+		persisted,
+		channel.Observation{
+			FirmwareVersion: "still-old",
+			ObservedAt:      freshObservedAt,
+			HashrateHS:      &hashrate,
+		},
+		now.Add(2*time.Hour),
+	))
+	persisted, err = enforcementStore.GetEnforcement(t.Context(), persisted.ID)
+	require.NoError(t, err)
+	require.Nil(t, persisted.LastError)
+	require.NotNil(t, persisted.LastObservedFirmwareVersion)
+	require.Equal(t, "still-old", *persisted.LastObservedFirmwareVersion)
+	require.WithinDuration(t, now.Add(2*time.Hour), persisted.NextReconcileAt, time.Millisecond)
+	require.Equal(t, int32(1), persisted.AttemptCount)
+}
+
 func enforcementFixtureIDs(
 	t *testing.T,
 	db queryRower,

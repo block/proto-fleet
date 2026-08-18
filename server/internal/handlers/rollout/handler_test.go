@@ -73,6 +73,8 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 
 	for _, testCase := range calls {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := testCase.call()
 			require.Error(t, err)
 			var fleetErr fleeterror.FleetError
@@ -158,6 +160,74 @@ func TestHandlerDerivesControlOrganizationAndActorFromSession(t *testing.T) {
 	assert.Equal(t, int64(73), service.control.OrgID)
 	assert.Equal(t, int64(91), service.control.ActorUserID)
 	assert.Equal(t, rolloutID, service.control.RolloutID)
+}
+
+func TestHandlerDerivesAPIKeyControlActorFromSession(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	service := &recordingRolloutService{
+		result: &rolloutDomain.Rollout{
+			ID:        rolloutID,
+			OrgID:     73,
+			State:     rolloutDomain.StatePaused,
+			Revision:  3,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+	handler := NewHandler(service)
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodAPIKey,
+		APIKeyID:       "rollout-key-77",
+		OrganizationID: 73,
+		UserID:         91,
+	})
+	ctx = middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  []string{authz.PermRolloutControl},
+	}}))
+
+	_, err := handler.PauseRollout(
+		ctx,
+		connect.NewRequest(&pb.PauseRolloutRequest{
+			RolloutId:        rolloutID.String(),
+			ExpectedRevision: 2,
+			IdempotencyKey:   "pause-api-key",
+			Reason:           "automation pause",
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, rolloutDomain.ActorTypeAPIKey, service.control.ActorType)
+	require.NotNil(t, service.control.ActorCredentialID)
+	assert.Equal(t, "apikey:rollout-key-77", *service.control.ActorCredentialID)
+	assert.Equal(t, int64(91), service.control.ActorUserID)
+}
+
+func TestProtoTranslationClampsNegativePositionsAndRevisions(t *testing.T) {
+	t.Parallel()
+
+	translatedRollout := rolloutToProto(&rolloutDomain.Rollout{Revision: -1})
+	translatedBatch := batchToProto(&rolloutDomain.Batch{Position: -1, Revision: -1})
+	translatedMember := memberToProto(&rolloutDomain.Member{Position: -1, Revision: -1})
+	translatedCause := causeToProto(&rolloutDomain.Cause{RolloutRevision: -1})
+
+	assert.Zero(t, translatedRollout.GetRevision())
+	assert.Zero(t, translatedBatch.GetPosition())
+	assert.Zero(t, translatedBatch.GetRevision())
+	assert.Zero(t, translatedMember.GetPosition())
+	assert.Zero(t, translatedMember.GetRevision())
+	assert.Zero(t, translatedCause.GetRolloutRevision())
+}
+
+func TestStateFromProtoTreatsUnspecifiedAsUnknown(t *testing.T) {
+	t.Parallel()
+
+	state, ok := stateFromProto(pb.RolloutState_ROLLOUT_STATE_UNSPECIFIED)
+
+	assert.Empty(t, state)
+	assert.False(t, ok)
 }
 
 type recordingRolloutService struct {

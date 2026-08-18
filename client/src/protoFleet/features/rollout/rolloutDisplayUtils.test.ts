@@ -62,6 +62,42 @@ describe("rolloutLifecycleActions", () => {
     ).toEqual([]);
   });
 
+  it("preserves fixture-state fallbacks and API eligibility overrides", () => {
+    const handlers = {
+      onContinueFromReview: () => undefined,
+      onPause: () => undefined,
+      onAbort: () => undefined,
+    };
+
+    expect(
+      rolloutLifecycleActions({ ...inProgressFirmwareEvent, state: "pausedAtPilotGate" }, handlers).map(
+        (action) => action.key,
+      ),
+    ).toEqual(["continue", "abort"]);
+    expect(rolloutLifecycleActions(inProgressFirmwareEvent, handlers).map((action) => action.key)).toEqual([
+      "pause",
+      "abort",
+    ]);
+    expect(
+      rolloutLifecycleActions(
+        {
+          ...inProgressFirmwareEvent,
+          state: "running",
+          availableActions: {
+            admit: false,
+            continue: false,
+            pause: false,
+            resume: false,
+            abort: false,
+            revert: false,
+            complete: false,
+          },
+        },
+        handlers,
+      ),
+    ).toEqual([]);
+  });
+
   it("does not offer ordinary retry for attention-required members", () => {
     const actions = rolloutLifecycleActions(
       {

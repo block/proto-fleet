@@ -19,13 +19,15 @@ type Service struct {
 }
 
 type AdmitRequest struct {
-	OrgID            int64
-	RolloutID        uuid.UUID
-	BatchID          int64
-	ExpectedRevision int64
-	IdempotencyKey   string
-	Reason           string
-	ActorUserID      int64
+	OrgID             int64
+	RolloutID         uuid.UUID
+	BatchID           int64
+	ExpectedRevision  int64
+	IdempotencyKey    string
+	Reason            string
+	ActorUserID       int64
+	ActorType         ActorType
+	ActorCredentialID *string
 }
 
 func NewService(store Store, strategies ...AdmissionStrategy) *Service {
@@ -52,7 +54,14 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Rollout, erro
 	if req.ID == uuid.Nil {
 		req.ID = uuid.New()
 	}
-	req.RequestFingerprint = fingerprintCreate(req)
+	fingerprint, err := fingerprintCreate(req)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf(
+			"create rollout request fingerprint: %w",
+			err,
+		)
+	}
+	req.RequestFingerprint = fingerprint
 	result, err := s.store.Create(ctx, req)
 	if err != nil {
 		return nil, mapStoreError(err)
@@ -109,14 +118,16 @@ func (s *Service) runAdmission(
 	}
 
 	control := ControlRequest{
-		OrgID:            req.OrgID,
-		RolloutID:        req.RolloutID,
-		BatchID:          req.BatchID,
-		ExpectedRevision: req.ExpectedRevision,
-		Operation:        operation,
-		IdempotencyKey:   req.IdempotencyKey,
-		Reason:           req.Reason,
-		ActorUserID:      req.ActorUserID,
+		OrgID:             req.OrgID,
+		RolloutID:         req.RolloutID,
+		BatchID:           req.BatchID,
+		ExpectedRevision:  req.ExpectedRevision,
+		Operation:         operation,
+		IdempotencyKey:    req.IdempotencyKey,
+		Reason:            req.Reason,
+		ActorUserID:       req.ActorUserID,
+		ActorType:         req.ActorType,
+		ActorCredentialID: req.ActorCredentialID,
 	}
 	control.RequestFingerprint = fingerprintControl(control)
 	result, err := s.store.ApplyControl(ctx, control)
@@ -335,6 +346,9 @@ func validateCreateRequest(req CreateRequest) error {
 		strings.TrimSpace(req.StrategyKey) == "" || req.ActorUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("organization, name, strategy, and actor are required")
 	}
+	if err := ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
 	if strings.TrimSpace(req.IdempotencyKey) == "" || strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("idempotency key and reason are required")
 	}
@@ -364,6 +378,9 @@ func validateAdmitRequest(req AdmitRequest) error {
 	if req.OrgID <= 0 || req.RolloutID == uuid.Nil || req.ActorUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("organization, rollout, and actor IDs are required")
 	}
+	if err := ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
 	if req.ExpectedRevision <= 0 || strings.TrimSpace(req.IdempotencyKey) == "" ||
 		strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("expected revision, idempotency key, and reason are required")
@@ -375,9 +392,23 @@ func validateControlRequest(req ControlRequest) error {
 	if req.OrgID <= 0 || req.RolloutID == uuid.Nil || req.ActorUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("organization, rollout, and actor IDs are required")
 	}
+	if err := ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
 	if req.ExpectedRevision <= 0 || strings.TrimSpace(req.IdempotencyKey) == "" ||
 		strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("expected revision, idempotency key, and reason are required")
+	}
+	return nil
+}
+
+// ValidateActorIdentity checks actor metadata shared by rollout entry points.
+func ValidateActorIdentity(actorType ActorType, credentialID *string) error {
+	if !actorType.Valid() {
+		return fleeterror.NewInvalidArgumentError("actor type is invalid")
+	}
+	if credentialID != nil && strings.TrimSpace(*credentialID) == "" {
+		return fleeterror.NewInvalidArgumentError("actor credential ID cannot be empty")
 	}
 	return nil
 }
@@ -395,7 +426,7 @@ func fingerprintControl(req ControlRequest) string {
 	return cryptohash.Sha256Hex(payload)
 }
 
-func fingerprintCreate(req CreateRequest) string {
+func fingerprintCreate(req CreateRequest) (string, error) {
 	fingerprintInput := struct {
 		Name               string
 		StrategyKey        string
@@ -423,8 +454,11 @@ func fingerprintCreate(req CreateRequest) string {
 		Reason:             req.Reason,
 		ActorUserID:        req.ActorUserID,
 	}
-	encoded, _ := json.Marshal(fingerprintInput)
-	return cryptohash.Sha256Hex(string(encoded))
+	encoded, err := json.Marshal(fingerprintInput)
+	if err != nil {
+		return "", fmt.Errorf("marshal rollout creation fingerprint: %w", err)
+	}
+	return cryptohash.Sha256Hex(string(encoded)), nil
 }
 
 func replayResult(result ControlResult) (*Rollout, error) {

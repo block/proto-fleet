@@ -1,11 +1,10 @@
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-
 import {
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
+import { timestampToIsoString } from "@/protoFleet/api/timestamps";
 import type {
   ActiveCurtailmentEvent,
   ActiveCurtailmentTargetSiteCoverage,
@@ -57,15 +56,6 @@ interface ObservedPowerSummary {
 
 interface CurtailmentMapperOptions {
   siteNameById?: SiteNameById;
-}
-
-export function timestampToIsoString(timestamp?: Timestamp): string | undefined {
-  if (!timestamp) {
-    return undefined;
-  }
-
-  const date = new Date(Number(timestamp.seconds) * 1000 + Math.floor(timestamp.nanos / 1_000_000));
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
 export function getFixedKwTarget(event: ProtoCurtailmentEvent): number | undefined {

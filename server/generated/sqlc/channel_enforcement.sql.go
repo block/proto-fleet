@@ -233,7 +233,7 @@ RETURNING id, org_id, device_id, desired_release_set_id,
           desired_firmware_version, cause_type, cause_reference,
           authority_id, authority_revision, state, attempt_count,
           command_batch_uuid, revision, desired_at, held_at, claimed_at,
-          enqueued_at, command_completed_at,
+          enqueued_at, command_completed_at, next_reconcile_at,
           last_observed_firmware_version, firmware_observed_at,
           last_observed_hashrate_hs, hashing_observed_at, confirmed_at,
           attention_required_at, last_error, created_at, updated_at
@@ -249,7 +249,40 @@ type CreateChannelFirmwareEnforcementParams struct {
 	AuthorityRevision int64
 }
 
-func (q *Queries) CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (ChannelFirmwareEnforcement, error) {
+type CreateChannelFirmwareEnforcementRow struct {
+	ID                          int64
+	OrgID                       int64
+	DeviceID                    int64
+	DesiredReleaseSetID         int64
+	DesiredReleaseTargetID      int64
+	DesiredFirmwareFileID       string
+	DesiredFirmwareVersion      string
+	CauseType                   string
+	CauseReference              sql.NullString
+	AuthorityID                 uuid.UUID
+	AuthorityRevision           int64
+	State                       string
+	AttemptCount                int32
+	CommandBatchUuid            sql.NullString
+	Revision                    int64
+	DesiredAt                   time.Time
+	HeldAt                      sql.NullTime
+	ClaimedAt                   sql.NullTime
+	EnqueuedAt                  sql.NullTime
+	CommandCompletedAt          sql.NullTime
+	NextReconcileAt             time.Time
+	LastObservedFirmwareVersion sql.NullString
+	FirmwareObservedAt          sql.NullTime
+	LastObservedHashrateHs      sql.NullFloat64
+	HashingObservedAt           sql.NullTime
+	ConfirmedAt                 sql.NullTime
+	AttentionRequiredAt         sql.NullTime
+	LastError                   sql.NullString
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+}
+
+func (q *Queries) CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (CreateChannelFirmwareEnforcementRow, error) {
 	row := q.queryRow(ctx, q.createChannelFirmwareEnforcementStmt, createChannelFirmwareEnforcement,
 		arg.CauseType,
 		arg.CauseReference,
@@ -259,7 +292,7 @@ func (q *Queries) CreateChannelFirmwareEnforcement(ctx context.Context, arg Crea
 		arg.OrgID,
 		arg.AuthorityRevision,
 	)
-	var i ChannelFirmwareEnforcement
+	var i CreateChannelFirmwareEnforcementRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
@@ -281,6 +314,7 @@ func (q *Queries) CreateChannelFirmwareEnforcement(ctx context.Context, arg Crea
 		&i.ClaimedAt,
 		&i.EnqueuedAt,
 		&i.CommandCompletedAt,
+		&i.NextReconcileAt,
 		&i.LastObservedFirmwareVersion,
 		&i.FirmwareObservedAt,
 		&i.LastObservedHashrateHs,
@@ -343,6 +377,7 @@ SELECT enforcement.id,
        enforcement.claimed_at,
        enforcement.enqueued_at,
        enforcement.command_completed_at,
+       enforcement.next_reconcile_at,
        enforcement.last_observed_firmware_version,
        enforcement.firmware_observed_at,
        enforcement.last_observed_hashrate_hs,
@@ -385,6 +420,7 @@ type GetChannelFirmwareEnforcementRow struct {
 	ClaimedAt                   sql.NullTime
 	EnqueuedAt                  sql.NullTime
 	CommandCompletedAt          sql.NullTime
+	NextReconcileAt             time.Time
 	LastObservedFirmwareVersion sql.NullString
 	FirmwareObservedAt          sql.NullTime
 	LastObservedHashrateHs      sql.NullFloat64
@@ -422,6 +458,7 @@ func (q *Queries) GetChannelFirmwareEnforcement(ctx context.Context, id int64) (
 		&i.ClaimedAt,
 		&i.EnqueuedAt,
 		&i.CommandCompletedAt,
+		&i.NextReconcileAt,
 		&i.LastObservedFirmwareVersion,
 		&i.FirmwareObservedAt,
 		&i.LastObservedHashrateHs,
@@ -530,6 +567,7 @@ SELECT enforcement.id,
        enforcement.claimed_at,
        enforcement.enqueued_at,
        enforcement.command_completed_at,
+       enforcement.next_reconcile_at,
        enforcement.last_observed_firmware_version,
        enforcement.firmware_observed_at,
        enforcement.last_observed_hashrate_hs,
@@ -554,7 +592,8 @@ WHERE enforcement.state IN (
     'dispatched',
     'verifying'
 )
-ORDER BY enforcement.updated_at, enforcement.id
+  AND enforcement.next_reconcile_at <= CURRENT_TIMESTAMP
+ORDER BY enforcement.next_reconcile_at, enforcement.updated_at, enforcement.id
 LIMIT $1
 `
 
@@ -580,6 +619,7 @@ type ListChannelFirmwareEnforcementsForReconcileRow struct {
 	ClaimedAt                   sql.NullTime
 	EnqueuedAt                  sql.NullTime
 	CommandCompletedAt          sql.NullTime
+	NextReconcileAt             time.Time
 	LastObservedFirmwareVersion sql.NullString
 	FirmwareObservedAt          sql.NullTime
 	LastObservedHashrateHs      sql.NullFloat64
@@ -623,6 +663,7 @@ func (q *Queries) ListChannelFirmwareEnforcementsForReconcile(ctx context.Contex
 			&i.ClaimedAt,
 			&i.EnqueuedAt,
 			&i.CommandCompletedAt,
+			&i.NextReconcileAt,
 			&i.LastObservedFirmwareVersion,
 			&i.FirmwareObservedAt,
 			&i.LastObservedHashrateHs,
@@ -758,6 +799,7 @@ const markChannelFirmwareEnforcementVerifying = `-- name: MarkChannelFirmwareEnf
 UPDATE channel_firmware_enforcement
 SET state = 'verifying',
     command_completed_at = $1,
+    next_reconcile_at = CURRENT_TIMESTAMP,
     last_error = NULL,
     revision = revision + 1
 WHERE id = $2
@@ -789,24 +831,42 @@ func (q *Queries) MarkChannelFirmwareEnforcementVerifying(ctx context.Context, a
 
 const recordChannelFirmwareObservation = `-- name: RecordChannelFirmwareObservation :execrows
 UPDATE channel_firmware_enforcement
-SET last_observed_firmware_version = $1,
-    firmware_observed_at = $2,
-    last_observed_hashrate_hs = $3,
-    hashing_observed_at = $4,
-    last_error = $5,
+SET last_observed_firmware_version = CASE
+        WHEN $1::text IS NOT NULL
+            THEN last_observed_firmware_version
+        ELSE $2
+    END,
+    firmware_observed_at = CASE
+        WHEN $1::text IS NOT NULL
+            THEN firmware_observed_at
+        ELSE $3
+    END,
+    last_observed_hashrate_hs = CASE
+        WHEN $1::text IS NOT NULL
+            THEN last_observed_hashrate_hs
+        ELSE $4
+    END,
+    hashing_observed_at = CASE
+        WHEN $1::text IS NOT NULL
+            THEN hashing_observed_at
+        ELSE $5
+    END,
+    last_error = $1::text,
+    next_reconcile_at = $6,
     revision = revision + 1
-WHERE id = $6
-  AND revision = $7
+WHERE id = $7
+  AND revision = $8
   AND state = 'verifying'
-  AND command_batch_uuid = $8
+  AND command_batch_uuid = $9
 `
 
 type RecordChannelFirmwareObservationParams struct {
+	ObservationError   sql.NullString
 	FirmwareVersion    sql.NullString
 	FirmwareObservedAt sql.NullTime
 	HashrateHs         sql.NullFloat64
 	HashingObservedAt  sql.NullTime
-	ObservationError   sql.NullString
+	NextReconcileAt    time.Time
 	EnforcementID      int64
 	ExpectedRevision   int64
 	ExpectedBatchUuid  sql.NullString
@@ -814,11 +874,12 @@ type RecordChannelFirmwareObservationParams struct {
 
 func (q *Queries) RecordChannelFirmwareObservation(ctx context.Context, arg RecordChannelFirmwareObservationParams) (int64, error) {
 	result, err := q.exec(ctx, q.recordChannelFirmwareObservationStmt, recordChannelFirmwareObservation,
+		arg.ObservationError,
 		arg.FirmwareVersion,
 		arg.FirmwareObservedAt,
 		arg.HashrateHs,
 		arg.HashingObservedAt,
-		arg.ObservationError,
+		arg.NextReconcileAt,
 		arg.EnforcementID,
 		arg.ExpectedRevision,
 		arg.ExpectedBatchUuid,

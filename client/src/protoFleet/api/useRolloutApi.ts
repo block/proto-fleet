@@ -7,8 +7,6 @@ import {
   AdmitRolloutRequestSchema,
   CompleteRolloutRequestSchema,
   ContinueRolloutRequestSchema,
-  CreateRolloutBatchSchema,
-  CreateRolloutMemberSchema,
   CreateRolloutRequestSchema,
   GetRolloutRequestSchema,
   ListRolloutsRequestSchema,
@@ -115,19 +113,7 @@ function createRolloutRequest(input: CreateRolloutInput) {
   return create(CreateRolloutRequestSchema, {
     name: input.name,
     strategyKey: input.strategyKey,
-    batches: input.batches.map((batch) =>
-      create(CreateRolloutBatchSchema, {
-        label: batch.label,
-        members: batch.members.map((member) =>
-          create(CreateRolloutMemberSchema, {
-            deviceIdentifier: member.deviceIdentifier,
-            sourceSnapshot: member.sourceSnapshot,
-            targetSnapshot: member.targetSnapshot,
-            revertSnapshot: member.revertSnapshot,
-          }),
-        ),
-      }),
-    ),
+    batches: input.batches,
     sourceChannelId: input.sourceChannelId,
     targetChannelId: input.targetChannelId,
     sourceReleaseSetId: input.sourceReleaseSetId,

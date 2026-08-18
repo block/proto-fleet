@@ -320,6 +320,9 @@ func requireDeviceSetListPermission(
 			return nil, err
 		}
 		return info, nil
+	case dspb.DeviceSetType_DEVICE_SET_TYPE_GROUP,
+		dspb.DeviceSetType_DEVICE_SET_TYPE_RACK:
+		return requireDeviceSetReadPermission(ctx, siteIDs)
 	default:
 		return requireDeviceSetReadPermission(ctx, siteIDs)
 	}

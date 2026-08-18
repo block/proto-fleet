@@ -1,7 +1,3 @@
-CREATE UNIQUE INDEX idx_one_channel_per_device
-    ON device_set_membership(device_id)
-    WHERE device_set_type = 'channel';
-
 ALTER TABLE device_set_membership
     ADD CONSTRAINT fk_device_set_membership_device_set_org
     FOREIGN KEY (device_set_id, org_id)

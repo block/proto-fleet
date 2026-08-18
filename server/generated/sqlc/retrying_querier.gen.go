@@ -966,8 +966,8 @@ func (q *retryingQuerier) CreateChannelFirmwareAuthority(ctx context.Context, ar
 	return result, err
 }
 
-func (q *retryingQuerier) CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (ChannelFirmwareEnforcement, error) {
-	var result ChannelFirmwareEnforcement
+func (q *retryingQuerier) CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (CreateChannelFirmwareEnforcementRow, error) {
+	var result CreateChannelFirmwareEnforcementRow
 	err := q.retrier.RetryQuery(ctx, "CreateChannelFirmwareEnforcement", func() error {
 		callResult, callErr := q.next.CreateChannelFirmwareEnforcement(ctx, arg)
 		if callErr == nil {

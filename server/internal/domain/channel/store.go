@@ -52,6 +52,7 @@ type EnforcementStore interface {
 		ctx context.Context,
 		enforcement Enforcement,
 		observation Observation,
+		nextReconcileAt time.Time,
 	) error
 	Confirm(ctx context.Context, enforcement Enforcement, observation Observation) error
 	MarkAttentionRequired(

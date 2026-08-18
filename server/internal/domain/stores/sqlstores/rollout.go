@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/google/uuid"
 
@@ -22,6 +23,13 @@ var _ rollout.Store = (*SQLRolloutStore)(nil)
 
 func NewSQLRolloutStore(conn *sql.DB) *SQLRolloutStore {
 	return &SQLRolloutStore{conn: conn}
+}
+
+func rolloutPositionToInt32(value int) (int32, error) {
+	if value < 0 || value > math.MaxInt32 {
+		return 0, fmt.Errorf("rollout position %d is outside the int32 range", value)
+	}
+	return int32(value), nil
 }
 
 func (s *SQLRolloutStore) Create(
@@ -101,16 +109,24 @@ func (s *SQLRolloutStore) Create(
 		}
 		batchInputs := make([]batchInput, 0, len(req.Batches))
 		memberInputs := make([]memberInput, 0)
-		var memberPosition int32
+		memberPosition := 0
 		for batchPosition, inputBatch := range req.Batches {
+			batchPositionInt32, positionErr := rolloutPositionToInt32(batchPosition)
+			if positionErr != nil {
+				return createResult{}, fmt.Errorf("convert rollout batch position: %w", positionErr)
+			}
 			batchInputs = append(batchInputs, batchInput{
-				Position: int32(batchPosition),
+				Position: batchPositionInt32,
 				Label:    inputBatch.Label,
 			})
 			for _, inputMember := range inputBatch.Members {
+				memberPositionInt32, positionErr := rolloutPositionToInt32(memberPosition)
+				if positionErr != nil {
+					return createResult{}, fmt.Errorf("convert rollout member position: %w", positionErr)
+				}
 				memberInputs = append(memberInputs, memberInput{
-					BatchPosition:    int32(batchPosition),
-					Position:         memberPosition,
+					BatchPosition:    batchPositionInt32,
+					Position:         memberPositionInt32,
 					DeviceIdentifier: inputMember.DeviceIdentifier,
 					SourceSnapshot:   nonNilSnapshot(inputMember.SourceSnapshot),
 					TargetSnapshot:   nonNilSnapshot(inputMember.TargetSnapshot),
@@ -121,7 +137,7 @@ func (s *SQLRolloutStore) Create(
 		}
 		batchJSON, marshalErr := json.Marshal(batchInputs)
 		if marshalErr != nil {
-			return createResult{}, marshalErr
+			return createResult{}, fmt.Errorf("marshal rollout batches: %w", marshalErr)
 		}
 		batches, batchErr := q.CreateFirmwareRolloutBatches(
 			ctx,
@@ -139,7 +155,7 @@ func (s *SQLRolloutStore) Create(
 		}
 		memberJSON, marshalErr := json.Marshal(memberInputs)
 		if marshalErr != nil {
-			return createResult{}, marshalErr
+			return createResult{}, fmt.Errorf("marshal rollout members: %w", marshalErr)
 		}
 		members, memberErr := q.CreateFirmwareRolloutMembers(
 			ctx,
@@ -158,13 +174,15 @@ func (s *SQLRolloutStore) Create(
 		if _, causeErr := q.CreateFirmwareRolloutCause(
 			ctx,
 			sqlc.CreateFirmwareRolloutCauseParams{
-				RolloutID:       req.ID,
-				OrgID:           req.OrgID,
-				Operation:       "create",
-				Reason:          req.Reason,
-				ActorUserID:     req.ActorUserID,
-				ToState:         string(rollout.StateCreated),
-				RolloutRevision: row.Revision,
+				RolloutID:         req.ID,
+				OrgID:             req.OrgID,
+				Operation:         "create",
+				Reason:            req.Reason,
+				ActorUserID:       req.ActorUserID,
+				ActorType:         persistedActorType(req.ActorType),
+				ActorCredentialID: ptrToNullString(req.ActorCredentialID),
+				ToState:           string(rollout.StateCreated),
+				RolloutRevision:   row.Revision,
 			},
 		); causeErr != nil {
 			return createResult{}, causeErr
@@ -225,18 +243,26 @@ func (s *SQLRolloutStore) List(
 	for index, state := range states {
 		stateValues[index] = string(state)
 	}
-	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.FirmwareRollout, error) {
-		return q.ListFirmwareRollouts(ctx, sqlc.ListFirmwareRolloutsParams{
+	result, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]rollout.Rollout, error) {
+		rows, listErr := q.ListFirmwareRollouts(ctx, sqlc.ListFirmwareRolloutsParams{
 			OrgID:  orgID,
 			States: stateValues,
 		})
+		if listErr != nil {
+			return nil, listErr
+		}
+		loaded := make([]rollout.Rollout, 0, len(rows))
+		for _, row := range rows {
+			item, loadErr := loadRollout(ctx, q, row)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			loaded = append(loaded, *item)
+		}
+		return loaded, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list firmware rollouts: %w", err)
-	}
-	result := make([]rollout.Rollout, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, rolloutFromSQL(row))
 	}
 	return result, nil
 }
@@ -427,6 +453,9 @@ func (s *SQLRolloutStore) ApplyControl(
 				}
 				forwardRevision = sql.NullInt64{Int64: authority.Revision, Valid: true}
 			}
+		case rollout.ControlOperationPause,
+			rollout.ControlOperationResume:
+			// These operations do not change channel firmware authority.
 		}
 
 		nextResumeState := sql.NullString{}
@@ -454,7 +483,7 @@ func (s *SQLRolloutStore) ApplyControl(
 		}
 
 		if selectedBatchID.Valid {
-			selectedBatch, updateErr = q.AdmitFirmwareRolloutBatch(
+			_, updateErr = q.AdmitFirmwareRolloutBatch(
 				ctx,
 				sqlc.AdmitFirmwareRolloutBatchParams{
 					BatchID:   selectedBatchID.Int64,
@@ -587,6 +616,8 @@ func (s *SQLRolloutStore) ApplyControl(
 				ResultingRevision:  updated.Revision,
 				Status:             string(status),
 				CreatedByUserID:    req.ActorUserID,
+				ActorType:          persistedActorType(req.ActorType),
+				ActorCredentialID:  ptrToNullString(req.ActorCredentialID),
 			},
 		)
 		if controlErr != nil {
@@ -595,15 +626,17 @@ func (s *SQLRolloutStore) ApplyControl(
 		if _, causeErr := q.CreateFirmwareRolloutCause(
 			ctx,
 			sqlc.CreateFirmwareRolloutCauseParams{
-				RolloutID:       req.RolloutID,
-				ControlID:       uuid.NullUUID{UUID: control.ID, Valid: true},
-				OrgID:           req.OrgID,
-				Operation:       string(req.Operation),
-				Reason:          req.Reason,
-				ActorUserID:     req.ActorUserID,
-				FromState:       sql.NullString{String: current.State, Valid: true},
-				ToState:         updated.State,
-				RolloutRevision: updated.Revision,
+				RolloutID:         req.RolloutID,
+				ControlID:         uuid.NullUUID{UUID: control.ID, Valid: true},
+				OrgID:             req.OrgID,
+				Operation:         string(req.Operation),
+				Reason:            req.Reason,
+				ActorUserID:       req.ActorUserID,
+				ActorType:         persistedActorType(req.ActorType),
+				ActorCredentialID: ptrToNullString(req.ActorCredentialID),
+				FromState:         sql.NullString{String: current.State, Valid: true},
+				ToState:           updated.State,
+				RolloutRevision:   updated.Revision,
 			},
 		); causeErr != nil {
 			return rollout.ControlResult{}, causeErr
@@ -1001,18 +1034,20 @@ func evidenceFromSQL(row sqlc.FirmwareRolloutEvidence) rollout.Evidence {
 
 func causeFromSQL(row sqlc.FirmwareRolloutCause) rollout.Cause {
 	return rollout.Cause{
-		ID:              row.ID,
-		RolloutID:       row.RolloutID,
-		MemberID:        nullInt64ToPtr(row.MemberID),
-		ControlID:       uuidPtr(row.ControlID),
-		OrgID:           row.OrgID,
-		Operation:       rollout.ControlOperation(row.Operation),
-		Reason:          row.Reason,
-		ActorUserID:     row.ActorUserID,
-		FromState:       statePtr(row.FromState),
-		ToState:         rollout.State(row.ToState),
-		RolloutRevision: row.RolloutRevision,
-		CreatedAt:       row.CreatedAt,
+		ID:                row.ID,
+		RolloutID:         row.RolloutID,
+		MemberID:          nullInt64ToPtr(row.MemberID),
+		ControlID:         uuidPtr(row.ControlID),
+		OrgID:             row.OrgID,
+		Operation:         rollout.ControlOperation(row.Operation),
+		Reason:            row.Reason,
+		ActorUserID:       row.ActorUserID,
+		ActorType:         rollout.ActorType(row.ActorType),
+		ActorCredentialID: stringPtr(row.ActorCredentialID),
+		FromState:         statePtr(row.FromState),
+		ToState:           rollout.State(row.ToState),
+		RolloutRevision:   row.RolloutRevision,
+		CreatedAt:         row.CreatedAt,
 	}
 }
 
@@ -1030,6 +1065,8 @@ func controlFromSQL(row sqlc.FirmwareRolloutControl) rollout.Control {
 		Status:             rollout.ControlStatus(row.Status),
 		ErrorMessage:       stringPtr(row.ErrorMessage),
 		CreatedByUserID:    row.CreatedByUserID,
+		ActorType:          rollout.ActorType(row.ActorType),
+		ActorCredentialID:  stringPtr(row.ActorCredentialID),
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
 	}
@@ -1045,6 +1082,13 @@ func findBatch(batches []rollout.Batch, batchID sql.NullInt64) *rollout.Batch {
 		}
 	}
 	return nil
+}
+
+func persistedActorType(actorType rollout.ActorType) string {
+	if actorType == "" {
+		return string(rollout.ActorTypeUser)
+	}
+	return string(actorType)
 }
 
 func marshalSnapshot(value map[string]any) json.RawMessage {

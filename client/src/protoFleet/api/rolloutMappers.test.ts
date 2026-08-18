@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { TimestampSchema } from "@bufbuild/protobuf/wkt";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
   RolloutEvidencePhase,
@@ -11,16 +11,14 @@ import {
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
+  getRolloutActionEligibility,
   mapRollout,
   mapRolloutMemberState,
   mapRolloutState,
   rolloutMemberStateToTargetPhase,
 } from "@/protoFleet/api/rolloutMappers";
 
-const timestamp = (iso: string) =>
-  create(TimestampSchema, {
-    seconds: BigInt(Math.floor(new Date(iso).getTime() / 1000)),
-  });
+const timestamp = (iso: string) => timestampFromDate(new Date(iso));
 
 describe("rollout mappers", () => {
   it.each([
@@ -98,21 +96,17 @@ describe("rollout mappers", () => {
     });
   });
 
-  it("keeps membership and convergence progress independent", () => {
-    const rollout = create(RolloutSchema, {
-      rolloutId: "2f214a71-f94e-4e5f-8daf-d36c71b72f6c",
-      name: "Firmware rollout",
-      strategyKey: "fixture-strategy",
-      state: RolloutState.RUNNING,
+  it("preserves fixture eligibility alongside server lifecycle states", () => {
+    expect(getRolloutActionEligibility("pausedAtPilotGate")).toMatchObject({
+      continue: true,
+      abort: true,
+      pause: false,
     });
-
-    const mapped = mapRollout(rollout, {
-      membershipProgress: { completed: 3, total: 10 },
-      convergenceProgress: { completed: 7, total: 10, attentionRequired: 1 },
+    expect(getRolloutActionEligibility("stabilizingTelemetry")).toMatchObject({
+      continue: false,
+      abort: true,
+      pause: false,
     });
-
-    expect(mapped.membershipProgress).toEqual({ completed: 3, total: 10 });
-    expect(mapped.convergenceProgress).toEqual({ completed: 7, total: 10, attentionRequired: 1 });
   });
 
   it("maps attention-required members to a non-retry presentation phase", () => {
