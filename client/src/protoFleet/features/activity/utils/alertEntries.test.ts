@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
-import { activityEntryFromAlert, alertsMatchFilter, mergeAlertEntries } from "./alertEntries";
+import { activityEntryFromAlert, alertEntryMatchesScopes, alertsMatchFilter, mergeAlertEntries } from "./alertEntries";
 import {
   type ActivityEntry,
   ActivityEntrySchema,
@@ -53,11 +53,27 @@ describe("alertsMatchFilter", () => {
     expect(alertsMatchFilter(filterWith({ eventTypes: ["alert", "login"] }))).toBe(true);
   });
 
-  it("excludes alerts for user, scope, search, or other-type filters", () => {
+  it("excludes alerts for user, search, or other-type filters", () => {
     expect(alertsMatchFilter(filterWith({ userIds: ["u1"] }))).toBe(false);
-    expect(alertsMatchFilter(filterWith({ scopeTypes: ["device"] }))).toBe(false);
     expect(alertsMatchFilter(filterWith({ searchText: "reboot" }))).toBe(false);
     expect(alertsMatchFilter(filterWith({ eventTypes: ["login"] }))).toBe(false);
+  });
+});
+
+describe("alertEntryMatchesScopes", () => {
+  const filterWith = (overrides: MessageInitShape<typeof ActivityFilterSchema> = {}) =>
+    create(ActivityFilterSchema, overrides);
+  const deviceAlert = activityEntryFromAlert(buildAlertHistoryEntry());
+  const devicelessAlert = activityEntryFromAlert(buildAlertHistoryEntry({ device_name: "" }));
+
+  it("matches device alerts against a device scope and drops device-less ones", () => {
+    expect(alertEntryMatchesScopes(deviceAlert, filterWith({ scopeTypes: ["device"] }))).toBe(true);
+    expect(alertEntryMatchesScopes(devicelessAlert, filterWith({ scopeTypes: ["device"] }))).toBe(false);
+  });
+
+  it("matches every alert when no scope is selected", () => {
+    expect(alertEntryMatchesScopes(deviceAlert, filterWith())).toBe(true);
+    expect(alertEntryMatchesScopes(devicelessAlert, filterWith())).toBe(true);
   });
 });
 

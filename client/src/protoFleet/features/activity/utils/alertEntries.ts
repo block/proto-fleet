@@ -17,12 +17,15 @@ export const ALERT_EVENT_TYPE = "alert";
 export const ALERT_FIRING_EVENT_TYPE = "alert_firing";
 export const ALERT_RESOLVED_EVENT_TYPE = "alert_resolved";
 
-// Alerts have no user, scope-type, or searchable description, so any of those filters excludes them.
+// Alerts have no user or searchable description, so either filter excludes the feed wholesale;
+// scope is matched per entry (alertEntryMatchesScopes) since device alerts carry a device scope.
 export const alertsMatchFilter = (filter: ActivityFilter): boolean =>
-  filter.scopeTypes.length === 0 &&
   filter.userIds.length === 0 &&
   filter.searchText === "" &&
   (filter.eventTypes.length === 0 || filter.eventTypes.includes(ALERT_EVENT_TYPE));
+
+export const alertEntryMatchesScopes = (entry: ActivityEntry, filter: ActivityFilter): boolean =>
+  filter.scopeTypes.length === 0 || (entry.scopeType !== undefined && filter.scopeTypes.includes(entry.scopeType));
 
 export const ALERT_TYPE_OPTION: EventTypeOption = create(EventTypeOptionSchema, {
   eventType: ALERT_EVENT_TYPE,

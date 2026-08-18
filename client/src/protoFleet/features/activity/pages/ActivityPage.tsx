@@ -13,6 +13,7 @@ import ActivityTable from "@/protoFleet/features/activity/components/ActivityTab
 import {
   activityEntryFromAlert,
   ALERT_TYPE_OPTION,
+  alertEntryMatchesScopes,
   alertsMatchFilter,
   mergeAlertEntries,
 } from "@/protoFleet/features/activity/utils/alertEntries";
@@ -99,7 +100,10 @@ const ActivityPageContent = () => {
   // Fetch on the stable gate so filter toggles hide/show loaded alerts instead of refetching them.
   const alertFeed = usePagedAlerts({}, "Failed to load alert history", { enabled: canViewAlerts });
   const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
-  const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
+  const alertEntries = useMemo(
+    () => alerts.items.map(activityEntryFromAlert).filter((entry) => alertEntryMatchesScopes(entry, filter)),
+    [alerts.items, filter],
+  );
   const entries = useMemo(
     () => mergeAlertEntries(activities, hasMore, alertEntries, alerts.hasMore),
     [activities, hasMore, alertEntries, alerts.hasMore],
