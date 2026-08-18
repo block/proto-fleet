@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
@@ -23,6 +23,8 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
   const [error, setError] = useState<string>();
   const [loaded, setLoaded] = useState(false);
   const [pending, setPending] = useState(false);
+  const nextCommandIdRef = useRef(0);
+  const activeCommandIdRef = useRef<number | undefined>(undefined);
   const authRetry = useAuthRetry();
   const mode = useCoolingMode();
   const fans = useFansTelemetry();
@@ -42,13 +44,15 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
   );
 
   const fetchData = useCallback(() => {
-    if (!adapter) return;
-    const accept = beginStoreWrite("cooling:module:root");
+    if (!adapter || activeCommandIdRef.current !== undefined) return;
+    const commandIdAtStart = nextCommandIdRef.current;
+    const accept = beginStoreWrite("cooling:read:module:root");
     setPending(true);
     return adapter
       .getCoolingStatus()
       .then((status) => {
-        if (!accept()) return;
+        if (commandIdAtStart !== nextCommandIdRef.current || activeCommandIdRef.current !== undefined || !accept())
+          return;
         const telemetry = useMinerStore.getState().telemetry;
         telemetry.updateCoolingMode(status.mode);
         status.fans.forEach((fan) => {
@@ -66,7 +70,7 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
       .catch((err) => setError(err?.error?.message ?? "An error occurred"))
       .finally(() => {
         setLoaded(true);
-        setPending(false);
+        if (activeCommandIdRef.current === undefined) setPending(false);
       });
   }, [adapter]);
 
@@ -75,22 +79,33 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
   const setCooling = useCallback(
     async ({ mode: nextMode, onSuccess, onError }: SetCoolingProps) => {
       if (!adapter) return;
-      const accept = beginStoreWrite("cooling:module:root");
+      const commandId = nextCommandIdRef.current + 1;
+      nextCommandIdRef.current = commandId;
+      activeCommandIdRef.current = commandId;
+      const accept = beginStoreWrite("cooling:command:module:root");
       setPending(true);
       await authRetry({
         request: (params) => adapter.setCoolingMode(nextMode, params),
         onSuccess: () => {
-          if (accept()) useMinerStore.getState().telemetry.updateCoolingMode(nextMode);
-          setPending(false);
+          const isCurrentCommand = activeCommandIdRef.current === commandId;
+          if (isCurrentCommand) activeCommandIdRef.current = undefined;
+          const accepted = isCurrentCommand && accept();
+          if (isCurrentCommand) setPending(false);
+          if (accepted) {
+            useMinerStore.getState().telemetry.updateCoolingMode(nextMode);
+            void fetchData();
+          }
           onSuccess?.();
         },
         onError: (requestError) => {
+          const isCurrentCommand = activeCommandIdRef.current === commandId;
+          if (isCurrentCommand) activeCommandIdRef.current = undefined;
           onError?.(requestError);
-          setPending(false);
+          if (isCurrentCommand) setPending(false);
         },
       });
     },
-    [adapter, authRetry],
+    [adapter, authRetry, fetchData],
   );
 
   return useMemo(() => ({ pending, error, data, loaded, setCooling }), [pending, error, data, loaded, setCooling]);
