@@ -15,6 +15,7 @@ import {
   ALERT_TYPE_OPTION,
   alertEntryMatchesScopes,
   alertsMatchFilter,
+  isAlertEntry,
   mergeAlertEntries,
 } from "@/protoFleet/features/activity/utils/alertEntries";
 import { useAlertsEnabledState } from "@/protoFleet/features/alerts/api/useAlertsEnabled";
@@ -104,14 +105,15 @@ const ActivityPageContent = () => {
   // Fetch on the stable gate so filter toggles hide/show loaded alerts instead of refetching them.
   const alertFeed = usePagedAlerts({}, "Failed to load alert history", { enabled: canViewAlerts });
   const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
-  const alertEntries = useMemo(
-    () => alerts.items.map(activityEntryFromAlert).filter((entry) => alertEntryMatchesScopes(entry, filter)),
-    [alerts.items, filter],
-  );
-  const entries = useMemo(
-    () => mergeAlertEntries(activities, hasMore, alertEntries, alerts.hasMore),
-    [activities, hasMore, alertEntries, alerts.hasMore],
-  );
+  const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
+  // Scope filtering runs on the merged output: the merge must see every loaded alert row so its pause
+  // barrier stays the real pagination frontier — filtering first would hold activities back behind
+  // rows the scope filter had already hidden, since alerts.hasMore describes the unfiltered feed.
+  const entries = useMemo(() => {
+    const merged = mergeAlertEntries(activities, hasMore, alertEntries, alerts.hasMore);
+    if (filter.scopeTypes.length === 0) return merged;
+    return merged.filter((entry) => !isAlertEntry(entry) || alertEntryMatchesScopes(entry, filter));
+  }, [activities, hasMore, alertEntries, alerts.hasMore, filter]);
   // A denied org-scoped read (alert:read revoked mid-session) is tracked on the underlying feed, not the
   // filter-swapped view, so the partial-data note below persists even while a filter excludes alerts.
   const alertsDenied = canViewAlerts && alertFeed.denied;

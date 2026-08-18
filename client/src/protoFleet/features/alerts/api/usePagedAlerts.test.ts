@@ -10,6 +10,15 @@ vi.mock("@/protoFleet/features/alerts/api/alertsApi", () => ({
   listHistory: vi.fn(),
 }));
 
+// Forwards every error to onError like the real handler; the tests assert the routing, not the logout.
+const handleAuthErrorsMock = vi.hoisted(() =>
+  vi.fn(({ error, onError }: { error: unknown; onError?: (e: unknown) => void }) => onError?.(error)),
+);
+
+vi.mock("@/protoFleet/store", () => ({
+  useAuthErrors: () => ({ handleAuthErrors: handleAuthErrorsMock }),
+}));
+
 const listMock = vi.mocked(api.listHistory);
 
 const page = (ids: string[], nextCursor = "") => ({
@@ -103,6 +112,24 @@ describe("usePagedAlerts", () => {
     });
 
     expect(result.current.items.map((item) => item.id)).toEqual(["fresh"]);
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("routes an expired session through the auth handler and clears loaded rows", async () => {
+    listMock.mockResolvedValueOnce(page(["1"], "1"));
+
+    const { result } = renderHook(() => usePagedAlerts({}, "Failed to load alert history"));
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    listMock.mockRejectedValueOnce(new ConnectError("session expired", Code.Unauthenticated));
+    await act(async () => {
+      result.current.loadMore();
+    });
+
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    expect(handleAuthErrorsMock).toHaveBeenCalledWith(expect.objectContaining({ error: expect.any(ConnectError) }));
+    expect(result.current.denied).toBe(false);
+    expect(result.current.items).toEqual([]);
     expect(result.current.hasMore).toBe(false);
   });
 

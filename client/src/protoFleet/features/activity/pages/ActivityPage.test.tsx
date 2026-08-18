@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -22,6 +22,9 @@ const useActivityMock = vi.hoisted(() => vi.fn());
 const usePagedAlertsMock = vi.hoisted(() => vi.fn());
 const alertsEnabledMock = vi.hoisted(() => ({ current: true, resolved: true, failing: false }));
 const filtersEventTypesMock = vi.hoisted(() => ({ current: [] as { eventType: string }[] }));
+const filtersOnScopesChangeMock = vi.hoisted(() => ({
+  current: undefined as ((scopes: string[]) => void) | undefined,
+}));
 const exportCsvMock = vi.hoisted(() => vi.fn());
 const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as ActiveSite }));
 
@@ -68,8 +71,17 @@ vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) =>
 // The presentational children pull in their own dependency trees; stub them so
 // these tests isolate permission gating and filter wiring.
 vi.mock("@/protoFleet/features/activity/components/ActivityFilters", () => ({
-  default: ({ actions, eventTypes }: { actions?: ReactNode; eventTypes: { eventType: string }[] }) => {
+  default: ({
+    actions,
+    eventTypes,
+    onScopesChange,
+  }: {
+    actions?: ReactNode;
+    eventTypes: { eventType: string }[];
+    onScopesChange: (scopes: string[]) => void;
+  }) => {
     filtersEventTypesMock.current = eventTypes;
+    filtersOnScopesChangeMock.current = onScopesChange;
     return <div data-testid="activity-filters">{actions}</div>;
   },
 }));
@@ -109,6 +121,7 @@ describe("ActivityPage", () => {
     alertsEnabledMock.resolved = true;
     alertsEnabledMock.failing = false;
     filtersEventTypesMock.current = [];
+    filtersOnScopesChangeMock.current = undefined;
     activeSiteMock.current = { kind: "all" };
     listFilter = undefined;
     exportFilter = undefined;
@@ -266,6 +279,43 @@ describe("ActivityPage", () => {
       expect(pagedAlertsEnabled()).toBe(true);
       expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9,act-old");
       expect(filtersEventTypesMock.current.some((option) => option.eventType === "alert")).toBe(true);
+    });
+
+    it("does not hold activities back behind scope-filtered alert rows", () => {
+      useActivityMock.mockReturnValue({
+        activities: [
+          create(ActivityEntrySchema, {
+            eventId: "act-new",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:30Z")),
+          }),
+          create(ActivityEntrySchema, {
+            eventId: "act-mid",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:12Z")),
+          }),
+        ],
+        totalCount: 2,
+        isLoading: false,
+        error: null,
+        hasMore: false,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+      });
+      usePagedAlertsMock.mockReturnValue(
+        buildPagedAlertsResult({
+          items: [
+            buildAlertHistoryEntry({ id: "9", received_at: "2026-08-01T00:00:20Z" }),
+            buildAlertHistoryEntry({ id: "8", received_at: "2026-08-01T00:00:05Z", device_name: "" }),
+          ],
+          hasMore: true,
+        }),
+      );
+
+      render(<ActivityPage />);
+      act(() => filtersOnScopesChangeMock.current?.(["device"]));
+
+      // act-mid (00:12) sits between the device alert (00:20) and the loaded device-less alert (00:05);
+      // the merge frontier is the full loaded alert feed, so hiding alert-8 must not also hide act-mid.
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9,act-mid");
     });
 
     it("keeps the alert feed off without alert:read", () => {

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
+import { isAuthOrPermissionError, isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
 import * as api from "@/protoFleet/features/alerts/api/alertsApi";
 import type { AlertHistoryEntry } from "@/protoFleet/features/alerts/types";
+import { useAuthErrors } from "@/protoFleet/store";
 
 const PAGE_SIZE = 50;
 
@@ -55,6 +56,7 @@ export function usePagedAlerts(
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
+  const { handleAuthErrors } = useAuthErrors();
 
   // Destructured to primitives so a caller's inline filter object doesn't refetch on every render.
   const { active_only: activeOnly, alert_name: alertName, rule_group: ruleGroup } = filter;
@@ -82,20 +84,26 @@ export function usePagedAlerts(
         setDenied(false);
       } catch (err) {
         if (requestId !== requestIdRef.current) return;
-        if (isPermissionDeniedError(err)) {
-          // Rows fetched under the revoked grant must not stay visible or resumable.
-          setDenied(true);
-          setItems([]);
-          setCursor("");
-        }
-        setError(getErrorMessage(err, errorFallback));
+        // An expired session routes through the app's auth handler (logout); rows fetched under a
+        // now-invalid session or revoked grant must not stay visible or resumable.
+        handleAuthErrors({
+          error: err,
+          onError: (e) => {
+            if (isAuthOrPermissionError(e)) {
+              setItems([]);
+              setCursor("");
+              setDenied(isPermissionDeniedError(e));
+            }
+            setError(getErrorMessage(e, errorFallback));
+          },
+        });
       } finally {
         if (requestId === requestIdRef.current) {
           setLoading(false);
         }
       }
     },
-    [activeOnly, alertName, errorFallback, ruleGroup],
+    [activeOnly, alertName, errorFallback, handleAuthErrors, ruleGroup],
   );
 
   useEffect(() => {
