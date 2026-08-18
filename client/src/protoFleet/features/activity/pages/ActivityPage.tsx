@@ -13,6 +13,7 @@ import ActivityTable from "@/protoFleet/features/activity/components/ActivityTab
 import {
   activityEntryFromAlert,
   ALERT_EVENT_TYPE,
+  ALERT_SCOPE_TYPE,
   ALERT_TYPE_OPTION,
   alertEntryMatchesScopes,
   alertsMatchFilter,
@@ -129,9 +130,10 @@ const ActivityPageContent = () => {
   const { exportCsv, isExportingCsv } = useExportActivity();
   const { eventTypes, scopeTypes, users } = useActivityFilterOptions({ enabled: canReadActivity });
 
-  // A server-side activity denial leaves the activity-only criteria (user, search, other types) with no
-  // feed to apply to, so they must not also exclude the still-authorized alert feed.
-  const includeAlerts = canViewAlerts && (activityDenied || alertsMatchFilter(filter));
+  // A server-side denial (the hook stays enabled on the cached client permission) leaves the activity
+  // criteria with no feed to apply to, so they must not also exclude the still-authorized alert feed.
+  const activityUsable = canReadActivity && !activityDenied;
+  const includeAlerts = canViewAlerts && (!activityUsable || alertsMatchFilter(filter));
   const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
   const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
   // Scope filtering runs on the merged output: the merge must see every loaded alert row so its pause
@@ -141,9 +143,12 @@ const ActivityPageContent = () => {
   // are withheld up front instead of rendered and then re-hidden mid-load.
   const entries = useMemo(() => {
     const merged = mergeAlertEntries(activities, hasMore || isLoading, alertEntries, alerts.hasMore || alerts.loading);
-    if (filter.scopeTypes.length === 0) return merged;
-    return merged.filter((entry) => !isAlertEntry(entry) || alertEntryMatchesScopes(entry, filter));
-  }, [activities, hasMore, isLoading, alertEntries, alerts.hasMore, alerts.loading, filter]);
+    // Scopes an alert can never carry (rack, site, …) also go inert once the activity surface is gone:
+    // applied to the synthetic entries they would blank the only feed. A Device selection still filters.
+    const alertScopes = activityUsable ? filter.scopeTypes : filter.scopeTypes.filter((s) => s === ALERT_SCOPE_TYPE);
+    if (alertScopes.length === 0) return merged;
+    return merged.filter((entry) => !isAlertEntry(entry) || alertEntryMatchesScopes(entry, alertScopes));
+  }, [activities, hasMore, isLoading, alertEntries, alerts.hasMore, alerts.loading, filter, activityUsable]);
   const typeOptions = useMemo(
     () => (alertsSelectable ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
     [alertsSelectable, eventTypes],

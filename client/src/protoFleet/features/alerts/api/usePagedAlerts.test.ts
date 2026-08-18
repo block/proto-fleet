@@ -149,6 +149,29 @@ describe("usePagedAlerts", () => {
     }
   });
 
+  it("does not schedule a retry for a first-page failure that lands after unmount", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let rejectFirst!: (e: Error) => void;
+      listMock.mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          rejectFirst = reject;
+        }),
+      );
+
+      const { unmount } = renderHook(() => usePagedAlerts({}, "Failed to load alert history"));
+      expect(listMock).toHaveBeenCalledTimes(1);
+
+      unmount();
+      rejectFirst(new Error("boom"));
+      await vi.advanceTimersByTimeAsync(180_000);
+
+      expect(listMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not self-retry a denied first page", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

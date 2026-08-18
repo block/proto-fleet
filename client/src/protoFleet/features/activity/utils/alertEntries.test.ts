@@ -61,19 +61,17 @@ describe("alertsMatchFilter", () => {
 });
 
 describe("alertEntryMatchesScopes", () => {
-  const filterWith = (overrides: MessageInitShape<typeof ActivityFilterSchema> = {}) =>
-    create(ActivityFilterSchema, overrides);
   const deviceAlert = activityEntryFromAlert(buildAlertHistoryEntry());
   const devicelessAlert = activityEntryFromAlert(buildAlertHistoryEntry({ device_name: "" }));
 
   it("matches device alerts against a device scope and drops device-less ones", () => {
-    expect(alertEntryMatchesScopes(deviceAlert, filterWith({ scopeTypes: ["device"] }))).toBe(true);
-    expect(alertEntryMatchesScopes(devicelessAlert, filterWith({ scopeTypes: ["device"] }))).toBe(false);
+    expect(alertEntryMatchesScopes(deviceAlert, ["device"])).toBe(true);
+    expect(alertEntryMatchesScopes(devicelessAlert, ["device"])).toBe(false);
   });
 
   it("matches every alert when no scope is selected", () => {
-    expect(alertEntryMatchesScopes(deviceAlert, filterWith())).toBe(true);
-    expect(alertEntryMatchesScopes(devicelessAlert, filterWith())).toBe(true);
+    expect(alertEntryMatchesScopes(deviceAlert, [])).toBe(true);
+    expect(alertEntryMatchesScopes(devicelessAlert, [])).toBe(true);
   });
 });
 

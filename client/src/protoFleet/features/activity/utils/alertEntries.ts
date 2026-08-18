@@ -17,6 +17,9 @@ export const ALERT_EVENT_TYPE = "alert";
 export const ALERT_FIRING_EVENT_TYPE = "alert_firing";
 export const ALERT_RESOLVED_EVENT_TYPE = "alert_resolved";
 
+// The one scope type a synthetic alert entry can carry (device alerts name their device).
+export const ALERT_SCOPE_TYPE = "device";
+
 // Alerts have no user or searchable description, so either filter excludes the feed wholesale;
 // scope is matched per entry (alertEntryMatchesScopes) since device alerts carry a device scope.
 export const alertsMatchFilter = (filter: ActivityFilter): boolean =>
@@ -24,8 +27,8 @@ export const alertsMatchFilter = (filter: ActivityFilter): boolean =>
   filter.searchText === "" &&
   (filter.eventTypes.length === 0 || filter.eventTypes.includes(ALERT_EVENT_TYPE));
 
-export const alertEntryMatchesScopes = (entry: ActivityEntry, filter: ActivityFilter): boolean =>
-  filter.scopeTypes.length === 0 || (entry.scopeType !== undefined && filter.scopeTypes.includes(entry.scopeType));
+export const alertEntryMatchesScopes = (entry: ActivityEntry, scopeTypes: string[]): boolean =>
+  scopeTypes.length === 0 || (entry.scopeType !== undefined && scopeTypes.includes(entry.scopeType));
 
 export const ALERT_TYPE_OPTION: EventTypeOption = create(EventTypeOptionSchema, {
   eventType: ALERT_EVENT_TYPE,
@@ -46,7 +49,7 @@ export const activityEntryFromAlert = (alert: AlertHistoryEntry): ActivityEntry 
     eventCategory: "alert",
     eventType: resolved ? ALERT_RESOLVED_EVENT_TYPE : ALERT_FIRING_EVENT_TYPE,
     description: `Alert ${resolved ? "resolved" : "firing"}: ${alert.alert_name}`,
-    scopeType: alert.device_name ? "device" : undefined,
+    scopeType: alert.device_name ? ALERT_SCOPE_TYPE : undefined,
     scopeLabel: alert.device_name || undefined,
     actorType: "system",
     result: "success",

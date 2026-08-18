@@ -75,6 +75,12 @@ export function usePagedAlerts(
       retryTimerRef.current = null;
     }
   }, []);
+  // Run when the fetch surface goes away (disable, unmount, re-fetch): a late response cannot
+  // repopulate the feed and a late failure cannot schedule a fresh retry.
+  const cancelPending = useCallback(() => {
+    requestIdRef.current++;
+    clearRetry();
+  }, [clearRetry]);
   // The scheduled retry dereferences this at fire time (useActivity's fetchRef pattern), so it calls the
   // current loadPage without the callback closing over itself.
   const loadPageRef = useRef<(pageCursor?: string) => Promise<void>>(async () => {});
@@ -136,9 +142,7 @@ export function usePagedAlerts(
 
   useEffect(() => {
     if (!enabled) {
-      // Invalidate any in-flight request so its late response cannot repopulate the feed.
-      requestIdRef.current++;
-      clearRetry();
+      cancelPending();
       return;
     }
     // Awaited in a wrapper rather than called bare, which react-hooks reads as setState during the effect.
@@ -148,8 +152,8 @@ export function usePagedAlerts(
       await loadPage();
     };
     void loadFirstPage();
-    return clearRetry;
-  }, [enabled, loadPage, clearRetry]);
+    return cancelPending;
+  }, [enabled, loadPage, cancelPending]);
 
   const loadMore = useCallback(() => {
     if (!cursor || loading) return;

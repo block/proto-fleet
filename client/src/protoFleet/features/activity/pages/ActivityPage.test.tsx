@@ -382,6 +382,38 @@ describe("ActivityPage", () => {
       expect(screen.getByTestId("activity-table").textContent).toBe("alert-9");
     });
 
+    it("retires non-device scope selections that outlive a server-side activity denial", () => {
+      useActivityMock.mockImplementation(({ filter }: { filter?: ActivityFilter }) => {
+        listFilter = filter;
+        return {
+          activities: [],
+          totalCount: 0,
+          isLoading: false,
+          error: "permission denied",
+          denied: true,
+          hasMore: false,
+          loadMore: vi.fn(),
+          refresh: vi.fn(),
+        };
+      });
+      usePagedAlertsMock.mockReturnValue(
+        buildPagedAlertsResult({
+          items: [buildAlertHistoryEntry({ id: "9" }), buildAlertHistoryEntry({ id: "8", device_name: "" })],
+        }),
+      );
+
+      render(<ActivityPage />);
+      act(() => filtersOnScopesChangeMock.current?.(["rack"]));
+
+      // A rack scope can never match an alert; applied, it would blank the only remaining feed.
+      expect(screen.getByTestId("activity-table").textContent).toBe("alert-9,alert-8");
+
+      act(() => filtersOnScopesChangeMock.current?.(["rack", "device"]));
+
+      // The device portion of the selection still filters: alert-8 carries no device scope.
+      expect(screen.getByTestId("activity-table").textContent).toBe("alert-9");
+    });
+
     it("does not hold activities back behind scope-filtered alert rows", () => {
       useActivityMock.mockReturnValue({
         activities: [
