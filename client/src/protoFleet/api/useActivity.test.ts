@@ -315,9 +315,9 @@ describe("useActivity", () => {
 
     rerender({ enabled: false });
 
-    await waitFor(() => {
-      expect(result.current.activities).toHaveLength(0);
-    });
+    // Masked synchronously in the return: withdrawn rows must not paint again while the clearing
+    // effect catches up.
+    expect(result.current.activities).toHaveLength(0);
     expect(result.current.hasMore).toBe(false);
     expect(result.current.totalCount).toBe(0);
     expect(activityClient.listActivities).toHaveBeenCalledTimes(1);

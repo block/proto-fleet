@@ -337,6 +337,53 @@ describe("ActivityPage", () => {
       expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9");
     });
 
+    it("keeps loaded activities visible while a late-enabled alert feed loads its first page", () => {
+      alertsEnabledMock.current = false;
+      alertsEnabledMock.resolved = false;
+      useActivityMock.mockReturnValue({
+        activities: [],
+        totalCount: 0,
+        isLoading: true,
+        error: null,
+        hasMore: false,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+      });
+
+      const { rerender } = render(<ActivityPage />);
+
+      useActivityMock.mockReturnValue({
+        activities: [
+          create(ActivityEntrySchema, {
+            eventId: "act-new",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:30Z")),
+          }),
+        ],
+        totalCount: 1,
+        isLoading: false,
+        error: null,
+        hasMore: false,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+      });
+      rerender(<ActivityPage />);
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new");
+
+      // The probe answers late: the first alert page's ordering barrier must not blank the rows
+      // already on screen the way it withholds them on a cold load.
+      alertsEnabledMock.current = true;
+      alertsEnabledMock.resolved = true;
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ loading: true }));
+      rerender(<ActivityPage />);
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new");
+
+      usePagedAlertsMock.mockReturnValue(
+        buildPagedAlertsResult({ items: [buildAlertHistoryEntry({ id: "9", received_at: "2026-08-01T00:00:20Z" })] }),
+      );
+      rerender(<ActivityPage />);
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9");
+    });
+
     it("stops applying a selected Alerts pseudo-type once the org-scoped read is denied", () => {
       const { rerender } = render(<ActivityPage />);
       act(() => filtersOnTypesChangeMock.current?.(["alert"]));

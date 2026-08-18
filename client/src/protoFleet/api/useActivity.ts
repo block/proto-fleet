@@ -10,6 +10,9 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { isAuthOrPermissionError, isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
+// A stable value for the disabled mask below, so consumers' memos don't churn on a fresh literal.
+const NO_ACTIVITIES: ActivityEntry[] = [];
+
 interface UseActivityParams {
   filter?: ActivityFilter;
   pageSize?: number;
@@ -178,15 +181,15 @@ export function useActivity({ filter, pageSize = 50, enabled = true }: UseActivi
     void fetchRef.current(filter, "", false);
   }, [filter, pageSize, enabled]);
 
-  // The invalidated request's finally can no longer settle these flags (it sees a stale request
-  // id), so a disabled hook reports them settled itself.
+  // A disabled hook reports the zero state itself, synchronously: the clearing effect lags a paint,
+  // and the invalidated request's finally can no longer settle these flags (it sees a stale id).
   return {
-    activities,
-    totalCount,
+    activities: enabled ? activities : NO_ACTIVITIES,
+    totalCount: enabled ? totalCount : 0,
     isLoading: enabled && isLoading,
     error: enabled ? error : null,
     denied: enabled && denied,
-    hasMore,
+    hasMore: enabled && hasMore,
     loadMore,
     refresh,
   };

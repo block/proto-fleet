@@ -136,19 +136,24 @@ const ActivityPageContent = () => {
   const includeAlerts = canViewAlerts && (!activityUsable || alertsMatchFilter(filter));
   const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
   const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
+  // Tracked as state, not a ref: the merge barrier below keys off it, so a change must recompute.
+  const [hasLoaded, setHasLoaded] = useState(false);
   // Scope filtering runs on the merged output: the merge must see every loaded alert row so its pause
   // barrier stays the real pagination frontier — filtering first would hold activities back behind
   // rows the scope filter had already hidden, since alerts.hasMore describes the unfiltered feed.
   // A feed still answering its current request counts as unexhausted so rows its response may predate
-  // are withheld up front instead of rendered and then re-hidden mid-load.
+  // are withheld up front instead of rendered and then re-hidden mid-load. After the first composite
+  // render that no longer holds for the alert feed: enabling it late (a slow probe, a scope change
+  // back to all-sites) must not blank rows already on screen, so its first page interleaves on landing.
   const entries = useMemo(() => {
-    const merged = mergeAlertEntries(activities, hasMore || isLoading, alertEntries, alerts.hasMore || alerts.loading);
+    const alertsPending = alerts.hasMore || (alerts.loading && !hasLoaded);
+    const merged = mergeAlertEntries(activities, hasMore || isLoading, alertEntries, alertsPending);
     // Scopes an alert can never carry (rack, site, …) also go inert once the activity surface is gone:
     // applied to the synthetic entries they would blank the only feed. A Device selection still filters.
     const alertScopes = activityUsable ? filter.scopeTypes : filter.scopeTypes.filter((s) => s === ALERT_SCOPE_TYPE);
     if (alertScopes.length === 0) return merged;
     return merged.filter((entry) => !isAlertEntry(entry) || alertEntryMatchesScopes(entry, alertScopes));
-  }, [activities, hasMore, isLoading, alertEntries, alerts.hasMore, alerts.loading, filter, activityUsable]);
+  }, [activities, hasMore, isLoading, alertEntries, alerts.hasMore, alerts.loading, filter, activityUsable, hasLoaded]);
   const typeOptions = useMemo(
     () => (alertsSelectable ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
     [alertsSelectable, eventTypes],
@@ -166,16 +171,15 @@ const ActivityPageContent = () => {
   };
 
   const hasStartedLoadingRef = useRef(false);
-  const hasLoadedRef = useRef(false);
   useEffect(() => {
     if (feedLoading) {
       hasStartedLoadingRef.current = true;
     } else if (hasStartedLoadingRef.current) {
-      hasLoadedRef.current = true;
+      setHasLoaded(true);
     }
   }, [feedLoading]);
 
-  const isInitialLoad = feedLoading && entries.length === 0 && !hasLoadedRef.current;
+  const isInitialLoad = feedLoading && entries.length === 0 && !hasLoaded;
   const isLoadingMore = feedLoading && entries.length > 0;
 
   const hasActiveFilters =
