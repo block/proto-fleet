@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/semver"
+
+	"github.com/block/proto-fleet/server/internal/ha"
 )
 
 const (
@@ -97,6 +99,8 @@ type installDependencies struct {
 	runInput     func(context.Context, string, string, ...string) error
 	sourceRoot   func() (string, error)
 	verifyVIP    func(context.Context, NodeConfig) error
+	localReady   func(context.Context, NodeConfig) error
+	vipReady     func(context.Context, NodeConfig) bool
 	sleep        func(time.Duration)
 }
 
@@ -105,7 +109,8 @@ func defaultInstallDependencies() installDependencies {
 		goos: runtime.GOOS, goarch: runtime.GOARCH, pageSize: os.Getpagesize(),
 		readFile: os.ReadFile, lstat: os.Lstat, lookPath: exec.LookPath, requireEmpty: requireEmptyDir, validateHost: ValidateHost,
 		run: runCommand, runInput: runWithInput,
-		sourceRoot: ReleaseRoot, verifyVIP: verifyInstallVirtualIP, sleep: time.Sleep,
+		sourceRoot: ReleaseRoot, verifyVIP: verifyInstallVirtualIP,
+		localReady: waitForLocalEtcd, vipReady: probeInstalledActiveVIP, sleep: time.Sleep,
 	}
 }
 
@@ -872,25 +877,40 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 	if output, err := deps.run(ctx, "sudo", "systemctl", "start", "--no-block", "proto-fleet-ha.service"); err != nil {
 		return stopIncompleteHA(ctx, deps, fmt.Errorf("start HA services: %s", commandError(output, err)), cleanupUpdater)
 	}
+	if err := deps.localReady(ctx, config); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
+		}
+		return stopIncompleteHA(ctx, deps, err, cleanupUpdater)
+	}
 	fmt.Println("[peer waiting] HA service is enabled and will keep converging while peers join")
+	if config.isDatabaseNode() {
+		return nil
+	}
 	for {
-		if config.isDatabaseNode() {
-			if _, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env")); err == nil {
-				fmt.Println("[final readiness] HA control and failover paths are ready")
-				return nil
-			}
-		} else if state, _ := systemdUnitState(ctx, deps, "is-active", "proto-fleet-ha.service"); state == "active" {
-			fmt.Println("[final readiness] HA witness joined the etcd quorum")
+		state, _ := systemdUnitState(ctx, deps, "is-active", "proto-fleet-ha.service")
+		if state == "failed" {
+			return stopIncompleteHA(ctx, deps, errors.New("proto-fleet-ha.service failed; inspect journalctl -u proto-fleet-ha.service"), false)
+		}
+		if state == "active" && deps.vipReady(ctx, config) {
+			fmt.Println("[final readiness] Fleet is reachable through the virtual IP")
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
 		}
-		if state, _ := systemdUnitState(ctx, deps, "is-failed", "proto-fleet-ha.service"); state == "failed" {
-			return stopIncompleteHA(ctx, deps, errors.New("HA service failed during local startup; inspect journalctl -u proto-fleet-ha.service"), cleanupUpdater)
-		}
 		deps.sleep(2 * time.Second)
 	}
+}
+
+func probeInstalledActiveVIP(ctx context.Context, config NodeConfig) bool {
+	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(configRoot, "service-ca.crt"))
+	if err != nil {
+		return false
+	}
+	client, cleanup := newProbeHTTPClient(tlsConfig, nil)
+	defer cleanup()
+	return endpointReadyWithClient(ctx, client, "https://"+config.VirtualIP+"/api-proxy/health/active")
 }
 
 func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error, cleanupUpdater bool) error {

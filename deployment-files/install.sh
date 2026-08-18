@@ -2,6 +2,7 @@
 set -euo pipefail
 
 DEPLOYMENT_DIR="deployment"
+HA_BUNDLE_PATH="/var/tmp/proto-fleet-ha-host.json"
 DOWNLOAD_DIR=""
 UPDATER_BOOTSTRAP_DIR=""
 UPDATER_CLEANUP_FAILED=0
@@ -1545,6 +1546,55 @@ service_docker_id_with() {
   fi
 }
 
+run_ha_install() {
+  local tar_path="$1"
+  local download_dir="$2"
+  local release_dir="${download_dir%/}/ha-release"
+  local fleet_ha
+
+  mkdir -m 700 "$release_dir"
+  tar --no-same-owner -xzf "$tar_path" -C "$release_dir"
+  fleet_ha="${release_dir}/${DEPLOYMENT_DIR}/ha/fleet-ha"
+  if [ -L "$fleet_ha" ] || [ ! -f "$fleet_ha" ] || [ ! -x "$fleet_ha" ]; then
+    echo "❌ Release archive does not contain an executable deployment/ha/fleet-ha." >&2
+    return 1
+  fi
+
+  if [ -e "$HA_BUNDLE_PATH" ] || [ -L "$HA_BUNDLE_PATH" ]; then
+    if [ -L "$HA_BUNDLE_PATH" ] || [ ! -f "$HA_BUNDLE_PATH" ]; then
+      echo "❌ Prepared HA host bundle must be a regular file: $HA_BUNDLE_PATH" >&2
+      return 1
+    fi
+    local bundle_owner bundle_mode trusted_uid
+    read -r bundle_owner bundle_mode <<< "$(install_path_metadata "$HA_BUNDLE_PATH")" || {
+      echo "❌ Could not inspect prepared HA host bundle: $HA_BUNDLE_PATH" >&2
+      return 1
+    }
+    if [ "$bundle_mode" != "600" ]; then
+      echo "❌ Prepared HA host bundle must have mode 0600: $HA_BUNDLE_PATH" >&2
+      return 1
+    fi
+    trusted_uid=$(install_admin_uid) || {
+      echo "❌ Could not determine the invoking installation administrator." >&2
+      return 1
+    }
+    if [ "$bundle_owner" != "$trusted_uid" ] && [ "$bundle_owner" != "0" ]; then
+      echo "❌ Prepared HA host bundle is not owned by the invoking administrator: $HA_BUNDLE_PATH" >&2
+      return 1
+    fi
+    if [ "$(id -u)" -eq 0 ]; then
+      chown 0:0 "$HA_BUNDLE_PATH"
+    fi
+    "$fleet_ha" install "$HA_BUNDLE_PATH"
+    return
+  fi
+  if [ ! -r /dev/tty ]; then
+    echo "❌ HA cluster preparation requires an interactive terminal." >&2
+    return 1
+  fi
+  "$fleet_ha" install </dev/tty
+}
+
 # END INSTALLER TESTABLE HELPERS
 
 # Function to extract files to the installation directory and cd to it
@@ -1584,6 +1634,7 @@ Usage: install.sh [options] [VERSION]
 If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
 Options:
+  --ha                     Install the three-node high-availability profile.
   --install-dir PATH       Use PATH without prompting.
   --non-interactive        Fail instead of prompting; for an existing install
                            with a complete deployment .env.
@@ -1687,11 +1738,16 @@ check_page_size() {
 }
 
 NON_INTERACTIVE=0
+HA_INSTALL=0
 REQUESTED_INSTALL_DIR=""
 REQUESTED_VERSION=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --ha)
+      HA_INSTALL=1
+      shift
+      ;;
     --install-dir)
       [ "$#" -ge 2 ] || { echo "Error: --install-dir requires a path." >&2; usage; }
       REQUESTED_INSTALL_DIR="$2"
@@ -1725,6 +1781,11 @@ done
 
 if [ "$#" -gt 0 ]; then
   echo "Error: unexpected arguments: $*" >&2
+  usage
+fi
+
+if [ "$HA_INSTALL" = "1" ] && { [ -n "$REQUESTED_INSTALL_DIR" ] || [ "$NON_INTERACTIVE" = "1" ]; }; then
+  echo "Error: --ha cannot be combined with --install-dir or --non-interactive." >&2
   usage
 fi
 
@@ -1799,6 +1860,11 @@ else
   exit 1
 fi
 rm -f "${CHECKSUM_PATH}"
+
+if [ "$HA_INSTALL" = "1" ]; then
+  run_ha_install "$TAR_PATH" "$DOWNLOAD_DIR"
+  exit $?
+fi
 
 UPDATER_BOOTSTRAP_DIR="${DOWNLOAD_DIR}/updater-bootstrap"
 if ! extract_updater_bootstrap "$TAR_PATH" "$UPDATER_BOOTSTRAP_DIR"; then
