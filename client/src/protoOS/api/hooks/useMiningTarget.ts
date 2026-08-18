@@ -7,6 +7,7 @@ import {
   useMiningTargetError,
   useMiningTargetPending,
   useMiningTargetPerformanceMode,
+  useMiningTargetStatus,
   useMiningTargetValue,
   useSetMiningTargetError,
   useSetMiningTargetFromResponse,
@@ -24,6 +25,7 @@ const useMiningTarget = () => {
   const defaultTarget = useMiningTargetDefault();
   const performanceMode = useMiningTargetPerformanceMode();
   const bounds = useMiningTargetBounds();
+  const status = useMiningTargetStatus();
   const pending = useMiningTargetPending();
   const error = useMiningTargetError();
 
@@ -44,16 +46,16 @@ const useMiningTarget = () => {
         if (accept()) setFromResponse(target);
       })
       .catch((err) => {
-        setError(err?.error?.message ?? "An error occurred");
+        if (accept()) setError(err?.error?.message ?? "An error occurred");
       });
   }, [adapter, setPending, setFromResponse, setError]);
 
   // Load initial data
   useEffect(() => {
-    if (adapter && miningTarget === undefined && !pending) {
+    if (adapter && status === "idle") {
       fetchData();
     }
-  }, [adapter, miningTarget, pending, fetchData]);
+  }, [adapter, status, fetchData]);
 
   // Update mining target
   const updateMiningTarget = useCallback(

@@ -209,6 +209,7 @@ export {
   useMiningTargetDefault,
   useMiningTargetPerformanceMode,
   useMiningTargetBounds,
+  useMiningTargetStatus,
   useMiningTargetPending,
   useMiningTargetError,
   useSetMiningTargetValue,
