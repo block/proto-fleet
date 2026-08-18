@@ -4,11 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
@@ -303,11 +305,12 @@ func TestResponseProfileService_CreateAllowsFacilityFanOutsideExplicitMinerSite(
 	assert.Equal(t, []int64{31}, profile.FacilityFanDeviceIDs)
 }
 
-func TestResponseProfileService_CreateRejectsTopologyScopeUntilResolverLands(t *testing.T) {
+func TestResponseProfileService_CreateValidatesTopologyScope(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 2500.0
-	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+	store := newResponseProfileFakeStore()
+	profile, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:       42,
 			ProfileName: "Building shed",
@@ -317,9 +320,91 @@ func TestResponseProfileService_CreateRejectsTopologyScopeUntilResolverLands(t *
 		},
 	})
 
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), store.lastTopologyFilter.OrgID)
+	assert.Equal(t, []int64{7}, store.lastTopologyFilter.BuildingIDs)
+	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(profile.ScopeJSON))
+}
+
+func TestResponseProfileService_CreateRejectsMissingTopologyResource(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	store.topologyCoverageErr = fleeterror.NewNotFoundError("buildings not found in caller's org: [7]")
+
+	_, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Missing building",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+			ScopeJSON:   []byte(`{"scope_schema_version":1,"building_ids":[7]}`),
+		},
+	})
+
 	require.Error(t, err)
-	assert.True(t, fleeterror.IsUnimplementedError(err))
-	assert.Contains(t, err.Error(), "building, rack, and group scope resolution is not implemented yet")
+	assert.True(t, fleeterror.IsNotFoundError(err))
+	assert.Nil(t, store.created)
+}
+
+func TestResponseProfileService_CreateEnforcesResolvedMinerLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		scopeJSON string
+		count     int
+		wantErr   bool
+	}{
+		{
+			name:      "whole org overflow",
+			scopeJSON: `{"scope_schema_version":1,"whole_org":true}`,
+			count:     ScopeResolvedMinerMax + 1,
+			wantErr:   true,
+		},
+		{
+			name:      "site overflow",
+			scopeJSON: `{"scope_schema_version":1,"site_ids":[7]}`,
+			count:     ScopeResolvedMinerMax + 1,
+			wantErr:   true,
+		},
+		{
+			name:      "site exact bound",
+			scopeJSON: `{"scope_schema_version":1,"site_ids":[7]}`,
+			count:     ScopeResolvedMinerMax,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			targetKW := 2500.0
+			store := newResponseProfileFakeStore()
+			store.candidates = make([]*models.Candidate, tc.count)
+
+			_, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
+				Profile: models.ResponseProfile{
+					OrgID:       42,
+					ProfileName: "Bounded profile",
+					Mode:        models.ModeFixedKw,
+					TargetKW:    &targetKW,
+					ScopeJSON:   []byte(tc.scopeJSON),
+				},
+			})
+
+			assert.Equal(t, int32(ScopeResolvedMinerMax+1), store.lastCandidateFilter.ResultLimit)
+			if !tc.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodeResourceExhausted, fleetErr.GRPCCode)
+			assert.Nil(t, store.created)
+		})
+	}
 }
 
 func TestScopeFromJSONRejectsRemovedDeviceSetKey(t *testing.T) {
@@ -751,6 +836,11 @@ type responseProfileFakeStore struct {
 	profiles              []*models.ResponseProfile
 	infrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice
 	deviceSites           map[string]*int64
+	topologyCoverage      interfaces.CurtailmentTopologyScopeCoverage
+	topologyCoverageErr   error
+	lastTopologyFilter    interfaces.ListCandidatesParams
+	candidates            []*models.Candidate
+	lastCandidateFilter   interfaces.ListCandidatesParams
 }
 
 func newResponseProfileFakeStore() *responseProfileFakeStore {
@@ -772,6 +862,17 @@ func (s *responseProfileFakeStore) GetResponseProfile(_ context.Context, _ int64
 		}
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+}
+
+func (s *responseProfileFakeStore) ListCandidates(
+	_ context.Context,
+	params interfaces.ListCandidatesParams,
+) ([]*models.Candidate, error) {
+	s.lastCandidateFilter = params
+	if params.ResultLimit > 0 && len(s.candidates) > int(params.ResultLimit) {
+		return s.candidates[:params.ResultLimit], nil
+	}
+	return s.candidates, nil
 }
 
 func (s *responseProfileFakeStore) ListResponseProfileDeviceSites(_ context.Context, _ int64, deviceIdentifiers []string) (map[string]*int64, error) {
@@ -819,6 +920,14 @@ func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, orgID, si
 	s.siteCheckOrgID = orgID
 	s.siteCheckSiteID = siteID
 	return s.siteBelongs, nil
+}
+
+func (s *responseProfileFakeStore) ResolveCurtailmentTopologyScope(
+	_ context.Context,
+	params interfaces.ListCandidatesParams,
+) (interfaces.CurtailmentTopologyScopeCoverage, error) {
+	s.lastTopologyFilter = params
+	return s.topologyCoverage, s.topologyCoverageErr
 }
 
 func ptrInt64(v int64) *int64 {

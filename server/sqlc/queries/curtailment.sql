@@ -1454,7 +1454,7 @@ SET last_tick_at          = EXCLUDED.last_tick_at,
 -- name: ListCurtailmentCandidatesByOrg :many
 -- Per-device state for the selector. Returns every in-scope device;
 -- service applies skip-reason attribution. nil power/hash = stale
--- (15-min window). site_ids and device_identifiers nil = whole-org.
+-- (15-min window). All selector arrays nil = whole-org.
 WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
         device_metrics.device_identifier,
@@ -1502,10 +1502,75 @@ LEFT JOIN latest_hourly lh ON lh.device_identifier = d.device_identifier
 WHERE d.org_id = sqlc.arg('org_id')
     AND d.deleted_at IS NULL
     AND (
-        (sqlc.narg('site_ids')::BIGINT[] IS NULL AND sqlc.narg('device_identifiers')::text[] IS NULL)
+        (sqlc.narg('site_ids')::BIGINT[] IS NULL
+            AND sqlc.narg('building_ids')::BIGINT[] IS NULL
+            AND sqlc.narg('rack_ids')::BIGINT[] IS NULL
+            AND sqlc.narg('group_ids')::BIGINT[] IS NULL
+            AND sqlc.narg('device_identifiers')::text[] IS NULL)
         OR (
             sqlc.narg('site_ids')::BIGINT[] IS NOT NULL
             AND d.site_id = ANY(sqlc.narg('site_ids')::BIGINT[])
+        )
+        OR (
+            sqlc.narg('building_ids')::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM building b
+                WHERE b.org_id = sqlc.arg('org_id')
+                  AND b.deleted_at IS NULL
+                  AND b.id = ANY(sqlc.narg('building_ids')::BIGINT[])
+                  AND (
+                    d.building_id = b.id
+                    OR EXISTS (
+                        SELECT 1
+                        FROM device_set_membership dsm
+                        JOIN device_set ds
+                          ON ds.id = dsm.device_set_id
+                         AND ds.org_id = dsm.org_id
+                         AND ds.type = 'rack'
+                         AND ds.deleted_at IS NULL
+                        JOIN device_set_rack dsr
+                          ON dsr.device_set_id = ds.id
+                         AND dsr.org_id = ds.org_id
+                        WHERE dsm.org_id = sqlc.arg('org_id')
+                          AND dsm.device_id = d.id
+                          AND dsm.device_set_type = 'rack'
+                          AND dsr.building_id = b.id
+                    )
+                  )
+            )
+        )
+        OR (
+            sqlc.narg('rack_ids')::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM device_set_membership dsm
+                JOIN device_set ds
+                  ON ds.id = dsm.device_set_id
+                 AND ds.org_id = dsm.org_id
+                 AND ds.type = 'rack'
+                 AND ds.deleted_at IS NULL
+                WHERE dsm.org_id = sqlc.arg('org_id')
+                  AND dsm.device_id = d.id
+                  AND dsm.device_set_type = 'rack'
+                  AND dsm.device_set_id = ANY(sqlc.narg('rack_ids')::BIGINT[])
+            )
+        )
+        OR (
+            sqlc.narg('group_ids')::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM device_set_membership dsm
+                JOIN device_set ds
+                  ON ds.id = dsm.device_set_id
+                 AND ds.org_id = dsm.org_id
+                 AND ds.type = 'group'
+                 AND ds.deleted_at IS NULL
+                WHERE dsm.org_id = sqlc.arg('org_id')
+                  AND dsm.device_id = d.id
+                  AND dsm.device_set_type = 'group'
+                  AND dsm.device_set_id = ANY(sqlc.narg('group_ids')::BIGINT[])
+            )
         )
         OR (
             sqlc.narg('device_identifiers')::text[] IS NOT NULL
@@ -1513,4 +1578,150 @@ WHERE d.org_id = sqlc.arg('org_id')
         )
     )
 -- Stable order so the selector's stable sort is deterministic on ties.
-ORDER BY d.device_identifier;
+ORDER BY d.device_identifier
+LIMIT NULLIF(sqlc.arg('result_limit')::BIGINT, 0);
+
+-- name: ListCurtailmentBuildingScopeCoverage :many
+WITH selected_buildings AS (
+    SELECT b.id, b.site_id
+    FROM building b
+    WHERE b.org_id = sqlc.arg('org_id')
+      AND b.deleted_at IS NULL
+      AND b.id = ANY(sqlc.arg('building_ids')::BIGINT[])
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device d
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND EXISTS (
+          SELECT 1
+          FROM selected_buildings sb
+          WHERE d.building_id = sb.id
+             OR EXISTS (
+                 SELECT 1
+                 FROM device_set_membership dsm
+                 JOIN device_set ds
+                   ON ds.id = dsm.device_set_id
+                  AND ds.org_id = dsm.org_id
+                  AND ds.type = 'rack'
+                  AND ds.deleted_at IS NULL
+                 JOIN device_set_rack dsr
+                   ON dsr.device_set_id = ds.id
+                  AND dsr.org_id = ds.org_id
+                 WHERE dsm.org_id = sqlc.arg('org_id')
+                   AND dsm.device_id = d.id
+                   AND dsm.device_set_type = 'rack'
+                   AND dsr.building_id = sb.id
+             )
+      )
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sb.id AS selector_id,
+       sb.site_id AS resource_site_id,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selected_buildings sb
+UNION ALL
+SELECT 0 AS selector_id,
+       NULL::BIGINT AS resource_site_id,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id;
+
+-- name: ListCurtailmentRackScopeCoverage :many
+WITH selected_racks AS (
+    SELECT ds.id,
+           dsr.site_id,
+           dsr.building_id,
+           b.site_id AS building_site_id
+    FROM device_set ds
+    JOIN device_set_rack dsr
+      ON dsr.device_set_id = ds.id
+     AND dsr.org_id = ds.org_id
+    LEFT JOIN building b
+      ON b.id = dsr.building_id
+     AND b.org_id = dsr.org_id
+     AND b.deleted_at IS NULL
+    WHERE ds.org_id = sqlc.arg('org_id')
+      AND ds.type = 'rack'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device_set_membership dsm
+    JOIN selected_racks sr ON sr.id = dsm.device_set_id
+    JOIN device d
+      ON d.id = dsm.device_id
+     AND d.org_id = dsm.org_id
+     AND d.deleted_at IS NULL
+    WHERE dsm.org_id = sqlc.arg('org_id')
+      AND dsm.device_set_type = 'rack'
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sr.id AS selector_id,
+       sr.site_id AS resource_site_id,
+       sr.building_id,
+       sr.building_site_id,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selected_racks sr
+UNION ALL
+SELECT 0 AS selector_id,
+       NULL::BIGINT AS resource_site_id,
+       NULL::BIGINT AS building_id,
+       NULL::BIGINT AS building_site_id,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id;
+
+-- name: ListCurtailmentGroupScopeCoverage :many
+WITH selected_groups AS (
+    SELECT ds.id
+    FROM device_set ds
+    WHERE ds.org_id = sqlc.arg('org_id')
+      AND ds.type = 'group'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY(sqlc.arg('group_ids')::BIGINT[])
+), selector_rows AS (
+    SELECT sg.id,
+           EXISTS (
+               SELECT 1
+               FROM device_set_membership dsm
+               JOIN device d
+                 ON d.id = dsm.device_id
+                AND d.org_id = dsm.org_id
+                AND d.deleted_at IS NULL
+               WHERE dsm.org_id = sqlc.arg('org_id')
+                 AND dsm.device_set_id = sg.id
+                 AND dsm.device_set_type = 'group'
+           ) AS has_members
+    FROM selected_groups sg
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device_set_membership dsm
+    JOIN selected_groups sg ON sg.id = dsm.device_set_id
+    JOIN device d
+      ON d.id = dsm.device_id
+     AND d.org_id = dsm.org_id
+     AND d.deleted_at IS NULL
+    WHERE dsm.org_id = sqlc.arg('org_id')
+      AND dsm.device_set_type = 'group'
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sr.id AS selector_id,
+       sr.has_members AS selector_has_members,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selector_rows sr
+UNION ALL
+SELECT 0 AS selector_id,
+       TRUE AS selector_has_members,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id;

@@ -1897,6 +1897,96 @@ func (q *Queries) ListActiveCurtailmentTargetDevicesByOrg(ctx context.Context, o
 	return items, nil
 }
 
+const listCurtailmentBuildingScopeCoverage = `-- name: ListCurtailmentBuildingScopeCoverage :many
+WITH selected_buildings AS (
+    SELECT b.id, b.site_id
+    FROM building b
+    WHERE b.org_id = $1
+      AND b.deleted_at IS NULL
+      AND b.id = ANY($2::BIGINT[])
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device d
+    WHERE d.org_id = $1
+      AND d.deleted_at IS NULL
+      AND EXISTS (
+          SELECT 1
+          FROM selected_buildings sb
+          WHERE d.building_id = sb.id
+             OR EXISTS (
+                 SELECT 1
+                 FROM device_set_membership dsm
+                 JOIN device_set ds
+                   ON ds.id = dsm.device_set_id
+                  AND ds.org_id = dsm.org_id
+                  AND ds.type = 'rack'
+                  AND ds.deleted_at IS NULL
+                 JOIN device_set_rack dsr
+                   ON dsr.device_set_id = ds.id
+                  AND dsr.org_id = ds.org_id
+                 WHERE dsm.org_id = $1
+                   AND dsm.device_id = d.id
+                   AND dsm.device_set_type = 'rack'
+                   AND dsr.building_id = sb.id
+             )
+      )
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sb.id AS selector_id,
+       sb.site_id AS resource_site_id,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selected_buildings sb
+UNION ALL
+SELECT 0 AS selector_id,
+       NULL::BIGINT AS resource_site_id,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id
+`
+
+type ListCurtailmentBuildingScopeCoverageParams struct {
+	OrgID       int64
+	BuildingIds []int64
+}
+
+type ListCurtailmentBuildingScopeCoverageRow struct {
+	SelectorID     int64
+	ResourceSiteID sql.NullInt64
+	MemberSiteID   sql.NullInt64
+	MemberDeviceID sql.NullInt64
+}
+
+func (q *Queries) ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error) {
+	rows, err := q.query(ctx, q.listCurtailmentBuildingScopeCoverageStmt, listCurtailmentBuildingScopeCoverage, arg.OrgID, pq.Array(arg.BuildingIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCurtailmentBuildingScopeCoverageRow
+	for rows.Next() {
+		var i ListCurtailmentBuildingScopeCoverageRow
+		if err := rows.Scan(
+			&i.SelectorID,
+			&i.ResourceSiteID,
+			&i.MemberSiteID,
+			&i.MemberDeviceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCurtailmentCandidatesByOrg = `-- name: ListCurtailmentCandidatesByOrg :many
 WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
@@ -1945,23 +2035,93 @@ LEFT JOIN latest_hourly lh ON lh.device_identifier = d.device_identifier
 WHERE d.org_id = $1
     AND d.deleted_at IS NULL
     AND (
-        ($2::BIGINT[] IS NULL AND $3::text[] IS NULL)
+        ($2::BIGINT[] IS NULL
+            AND $3::BIGINT[] IS NULL
+            AND $4::BIGINT[] IS NULL
+            AND $5::BIGINT[] IS NULL
+            AND $6::text[] IS NULL)
         OR (
             $2::BIGINT[] IS NOT NULL
             AND d.site_id = ANY($2::BIGINT[])
         )
         OR (
-            $3::text[] IS NOT NULL
-            AND d.device_identifier = ANY($3::text[])
+            $3::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM building b
+                WHERE b.org_id = $1
+                  AND b.deleted_at IS NULL
+                  AND b.id = ANY($3::BIGINT[])
+                  AND (
+                    d.building_id = b.id
+                    OR EXISTS (
+                        SELECT 1
+                        FROM device_set_membership dsm
+                        JOIN device_set ds
+                          ON ds.id = dsm.device_set_id
+                         AND ds.org_id = dsm.org_id
+                         AND ds.type = 'rack'
+                         AND ds.deleted_at IS NULL
+                        JOIN device_set_rack dsr
+                          ON dsr.device_set_id = ds.id
+                         AND dsr.org_id = ds.org_id
+                        WHERE dsm.org_id = $1
+                          AND dsm.device_id = d.id
+                          AND dsm.device_set_type = 'rack'
+                          AND dsr.building_id = b.id
+                    )
+                  )
+            )
+        )
+        OR (
+            $4::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM device_set_membership dsm
+                JOIN device_set ds
+                  ON ds.id = dsm.device_set_id
+                 AND ds.org_id = dsm.org_id
+                 AND ds.type = 'rack'
+                 AND ds.deleted_at IS NULL
+                WHERE dsm.org_id = $1
+                  AND dsm.device_id = d.id
+                  AND dsm.device_set_type = 'rack'
+                  AND dsm.device_set_id = ANY($4::BIGINT[])
+            )
+        )
+        OR (
+            $5::BIGINT[] IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM device_set_membership dsm
+                JOIN device_set ds
+                  ON ds.id = dsm.device_set_id
+                 AND ds.org_id = dsm.org_id
+                 AND ds.type = 'group'
+                 AND ds.deleted_at IS NULL
+                WHERE dsm.org_id = $1
+                  AND dsm.device_id = d.id
+                  AND dsm.device_set_type = 'group'
+                  AND dsm.device_set_id = ANY($5::BIGINT[])
+            )
+        )
+        OR (
+            $6::text[] IS NOT NULL
+            AND d.device_identifier = ANY($6::text[])
         )
     )
 ORDER BY d.device_identifier
+LIMIT NULLIF($7::BIGINT, 0)
 `
 
 type ListCurtailmentCandidatesByOrgParams struct {
 	OrgID             int64
 	SiteIds           []int64
+	BuildingIds       []int64
+	RackIds           []int64
+	GroupIds          []int64
 	DeviceIdentifiers []string
+	ResultLimit       int64
 }
 
 type ListCurtailmentCandidatesByOrgRow struct {
@@ -1978,10 +2138,18 @@ type ListCurtailmentCandidatesByOrgRow struct {
 
 // Per-device state for the selector. Returns every in-scope device;
 // service applies skip-reason attribution. nil power/hash = stale
-// (15-min window). site_ids and device_identifiers nil = whole-org.
+// (15-min window). All selector arrays nil = whole-org.
 // Stable order so the selector's stable sort is deterministic on ties.
 func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error) {
-	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, pq.Array(arg.SiteIds), pq.Array(arg.DeviceIdentifiers))
+	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg,
+		arg.OrgID,
+		pq.Array(arg.SiteIds),
+		pq.Array(arg.BuildingIds),
+		pq.Array(arg.RackIds),
+		pq.Array(arg.GroupIds),
+		pq.Array(arg.DeviceIdentifiers),
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2183,6 +2351,188 @@ func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurta
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CreatedByUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCurtailmentGroupScopeCoverage = `-- name: ListCurtailmentGroupScopeCoverage :many
+WITH selected_groups AS (
+    SELECT ds.id
+    FROM device_set ds
+    WHERE ds.org_id = $1
+      AND ds.type = 'group'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY($2::BIGINT[])
+), selector_rows AS (
+    SELECT sg.id,
+           EXISTS (
+               SELECT 1
+               FROM device_set_membership dsm
+               JOIN device d
+                 ON d.id = dsm.device_id
+                AND d.org_id = dsm.org_id
+                AND d.deleted_at IS NULL
+               WHERE dsm.org_id = $1
+                 AND dsm.device_set_id = sg.id
+                 AND dsm.device_set_type = 'group'
+           ) AS has_members
+    FROM selected_groups sg
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device_set_membership dsm
+    JOIN selected_groups sg ON sg.id = dsm.device_set_id
+    JOIN device d
+      ON d.id = dsm.device_id
+     AND d.org_id = dsm.org_id
+     AND d.deleted_at IS NULL
+    WHERE dsm.org_id = $1
+      AND dsm.device_set_type = 'group'
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sr.id AS selector_id,
+       sr.has_members AS selector_has_members,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selector_rows sr
+UNION ALL
+SELECT 0 AS selector_id,
+       TRUE AS selector_has_members,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id
+`
+
+type ListCurtailmentGroupScopeCoverageParams struct {
+	OrgID    int64
+	GroupIds []int64
+}
+
+type ListCurtailmentGroupScopeCoverageRow struct {
+	SelectorID         int64
+	SelectorHasMembers bool
+	MemberSiteID       sql.NullInt64
+	MemberDeviceID     sql.NullInt64
+}
+
+func (q *Queries) ListCurtailmentGroupScopeCoverage(ctx context.Context, arg ListCurtailmentGroupScopeCoverageParams) ([]ListCurtailmentGroupScopeCoverageRow, error) {
+	rows, err := q.query(ctx, q.listCurtailmentGroupScopeCoverageStmt, listCurtailmentGroupScopeCoverage, arg.OrgID, pq.Array(arg.GroupIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCurtailmentGroupScopeCoverageRow
+	for rows.Next() {
+		var i ListCurtailmentGroupScopeCoverageRow
+		if err := rows.Scan(
+			&i.SelectorID,
+			&i.SelectorHasMembers,
+			&i.MemberSiteID,
+			&i.MemberDeviceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCurtailmentRackScopeCoverage = `-- name: ListCurtailmentRackScopeCoverage :many
+WITH selected_racks AS (
+    SELECT ds.id,
+           dsr.site_id,
+           dsr.building_id,
+           b.site_id AS building_site_id
+    FROM device_set ds
+    JOIN device_set_rack dsr
+      ON dsr.device_set_id = ds.id
+     AND dsr.org_id = ds.org_id
+    LEFT JOIN building b
+      ON b.id = dsr.building_id
+     AND b.org_id = dsr.org_id
+     AND b.deleted_at IS NULL
+    WHERE ds.org_id = $1
+      AND ds.type = 'rack'
+      AND ds.deleted_at IS NULL
+      AND ds.id = ANY($2::BIGINT[])
+), members AS MATERIALIZED (
+    SELECT DISTINCT d.id AS device_id, d.site_id
+    FROM device_set_membership dsm
+    JOIN selected_racks sr ON sr.id = dsm.device_set_id
+    JOIN device d
+      ON d.id = dsm.device_id
+     AND d.org_id = dsm.org_id
+     AND d.deleted_at IS NULL
+    WHERE dsm.org_id = $1
+      AND dsm.device_set_type = 'rack'
+    ORDER BY d.id
+    LIMIT 10001
+)
+SELECT sr.id AS selector_id,
+       sr.site_id AS resource_site_id,
+       sr.building_id,
+       sr.building_site_id,
+       NULL::BIGINT AS member_site_id,
+       NULL::BIGINT AS member_device_id
+FROM selected_racks sr
+UNION ALL
+SELECT 0 AS selector_id,
+       NULL::BIGINT AS resource_site_id,
+       NULL::BIGINT AS building_id,
+       NULL::BIGINT AS building_site_id,
+       m.site_id AS member_site_id,
+       m.device_id AS member_device_id
+FROM members m
+ORDER BY selector_id, member_device_id
+`
+
+type ListCurtailmentRackScopeCoverageParams struct {
+	OrgID   int64
+	RackIds []int64
+}
+
+type ListCurtailmentRackScopeCoverageRow struct {
+	SelectorID     int64
+	ResourceSiteID sql.NullInt64
+	BuildingID     sql.NullInt64
+	BuildingSiteID sql.NullInt64
+	MemberSiteID   sql.NullInt64
+	MemberDeviceID sql.NullInt64
+}
+
+func (q *Queries) ListCurtailmentRackScopeCoverage(ctx context.Context, arg ListCurtailmentRackScopeCoverageParams) ([]ListCurtailmentRackScopeCoverageRow, error) {
+	rows, err := q.query(ctx, q.listCurtailmentRackScopeCoverageStmt, listCurtailmentRackScopeCoverage, arg.OrgID, pq.Array(arg.RackIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCurtailmentRackScopeCoverageRow
+	for rows.Next() {
+		var i ListCurtailmentRackScopeCoverageRow
+		if err := rows.Scan(
+			&i.SelectorID,
+			&i.ResourceSiteID,
+			&i.BuildingID,
+			&i.BuildingSiteID,
+			&i.MemberSiteID,
+			&i.MemberDeviceID,
 		); err != nil {
 			return nil, err
 		}

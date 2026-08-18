@@ -911,9 +911,10 @@ type Querier interface {
 	// onboarding hook that seeds built-ins for a new org.
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
+	ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error)
 	// Per-device state for the selector. Returns every in-scope device;
 	// service applies skip-reason attribution. nil power/hash = stale
-	// (15-min window). site_ids and device_identifiers nil = whole-org.
+	// (15-min window). All selector arrays nil = whole-org.
 	// Stable order so the selector's stable sort is deterministic on ties.
 	ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error)
 	// Cursor-paginated history (newest-first). cursor_id=0 is the first page;
@@ -923,6 +924,8 @@ type Querier interface {
 	// stripped into a `skipped_aggregate` reason→count map so 10K-miner
 	// snapshots don't ride the wire on every list row.
 	ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurtailmentEventsForOrgParams) ([]ListCurtailmentEventsForOrgRow, error)
+	ListCurtailmentGroupScopeCoverage(ctx context.Context, arg ListCurtailmentGroupScopeCoverageParams) ([]ListCurtailmentGroupScopeCoverageRow, error)
+	ListCurtailmentRackScopeCoverage(ctx context.Context, arg ListCurtailmentRackScopeCoverageParams) ([]ListCurtailmentRackScopeCoverageRow, error)
 	ListCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg ListCurtailmentResponseProfileDeviceSitesByOrgParams) ([]ListCurtailmentResponseProfileDeviceSitesByOrgRow, error)
 	ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgID int64) ([]CurtailmentResponseProfile, error)
 	// Coverage for explicit-device event authorization. target_count is every

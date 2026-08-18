@@ -27,6 +27,7 @@ const (
 	ScopeSchemaVersionCurrent  uint32 = 1
 	ScopeTopologyIDsPerTypeMax        = 256
 	ScopeDeviceIdentifiersMax         = 10000
+	ScopeResolvedMinerMax             = interfaces.CurtailmentResolvedMinerMax
 )
 
 // Scope identifies one terminal target type. A terminal type may contain
@@ -194,6 +195,11 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
+	}
+	if hasTopologySelectors(req.Scope) {
+		return nil, fleeterror.NewUnimplementedError(
+			"topology-scoped Start requires durable authorization and lifecycle support",
+		)
 	}
 	req.PostEventCooldownSec = effectivePostEventCooldownSec(req.PreviewRequest)
 
@@ -1227,29 +1233,15 @@ func (s *Service) ListTargetSiteCoverageByEvents(
 // candidate floor (for the decision snapshot) and the OrgConfig (so Start
 // can resolve max_duration_seconds=0 without a second DB read).
 func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
-	candidateFilter, err := resolveScope(req.Scope)
+	candidateFilter, err := s.resolveScopeForOrg(ctx, req.OrgID, req.Scope)
 	if err != nil {
 		return nil, 0, nil, err
-	}
-	// Empty-but-non-nil would match nothing under the query's `IS NULL` check.
-	if len(candidateFilter.DeviceIdentifiers) == 0 {
-		candidateFilter.DeviceIdentifiers = nil
 	}
 
 	orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	for _, siteID := range candidateFilter.SiteIDs {
-		exists, err := s.store.SiteBelongsToOrg(ctx, req.OrgID, siteID)
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		if !exists {
-			return nil, 0, nil, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
-		}
-	}
-
 	// Effective candidate floor: per-org default, admin-overridable.
 	// Handler enforces the admin role gate.
 	minPowerW := orgConfig.CandidateMinPowerW
@@ -1263,9 +1255,12 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	}
 	activeSet := toStringSet(activeDevices)
 
-	candidateFilter.OrgID = req.OrgID
+	candidateFilter.ResultLimit = ScopeResolvedMinerMax + 1
 	candidates, err := s.store.ListCandidates(ctx, candidateFilter)
 	if err != nil {
+		return nil, 0, nil, err
+	}
+	if err := validateResolvedMinerCount(len(candidates)); err != nil {
 		return nil, 0, nil, err
 	}
 
@@ -1293,14 +1288,13 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	}
 
 	cooldownSet := map[string]struct{}{}
-	if req.PostEventCooldownSec > 0 {
+	if req.PostEventCooldownSec > 0 && len(candidates) > 0 {
 		cooldownDevices, err := s.store.ListRecentlyResolvedCurtailedDevices(
 			ctx,
 			interfaces.ListRecentlyResolvedCurtailedDevicesParams{
 				OrgID:             req.OrgID,
 				CooldownSec:       req.PostEventCooldownSec,
-				DeviceIdentifiers: candidateFilter.DeviceIdentifiers,
-				SiteIDs:           candidateFilter.SiteIDs,
+				DeviceIdentifiers: candidateDeviceIdentifiers(candidates),
 			},
 		)
 		if err != nil {
@@ -1325,6 +1319,26 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
 	return &plan, minPowerW, orgConfig, nil
+}
+
+func candidateDeviceIdentifiers(candidates []*models.Candidate) []string {
+	identifiers := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate != nil && candidate.DeviceIdentifier != "" {
+			identifiers = append(identifiers, candidate.DeviceIdentifier)
+		}
+	}
+	return identifiers
+}
+
+func validateResolvedMinerCount(count int) error {
+	if count <= ScopeResolvedMinerMax {
+		return nil
+	}
+	return fleeterror.NewResourceExhaustedErrorf(
+		"scope resolves to more than %d miners",
+		ScopeResolvedMinerMax,
+	)
 }
 
 // buildMode constructs the selection mode from the request. FULL_FLEET takes
@@ -1646,13 +1660,17 @@ func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
 		}
 		return interfaces.ListCandidatesParams{DeviceIdentifiers: s.DeviceIdentifiers}, nil
 	case models.ScopeTypeMixed:
-		if hasTopologySelectors(s) {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewUnimplementedErrorf(
-				"building, rack, and group scope resolution is not implemented yet",
-			)
-		}
 		if len(s.SiteIDs) == 0 && len(s.DeviceIdentifiers) == 0 {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("scope must include terminal selector IDs")
+			switch {
+			case len(s.BuildingIDs) > 0:
+				return interfaces.ListCandidatesParams{BuildingIDs: s.BuildingIDs}, nil
+			case len(s.RackIDs) > 0:
+				return interfaces.ListCandidatesParams{RackIDs: s.RackIDs}, nil
+			case len(s.GroupIDs) > 0:
+				return interfaces.ListCandidatesParams{GroupIDs: s.GroupIDs}, nil
+			default:
+				return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("scope must include terminal selector IDs")
+			}
 		}
 		return interfaces.ListCandidatesParams{
 			SiteIDs:           s.SiteIDs,
@@ -1661,6 +1679,48 @@ func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
 	default:
 		return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentErrorf("unrecognized scope type: %q", s.Type)
 	}
+}
+
+func (s *Service) resolveScopeForOrg(
+	ctx context.Context,
+	orgID int64,
+	scope Scope,
+) (interfaces.ListCandidatesParams, error) {
+	filter, err := resolveScope(scope)
+	if err != nil {
+		return interfaces.ListCandidatesParams{}, err
+	}
+	filter.OrgID = orgID
+	if len(filter.SiteIDs) > 0 {
+		for _, siteID := range filter.SiteIDs {
+			exists, err := s.store.SiteBelongsToOrg(ctx, orgID, siteID)
+			if err != nil {
+				return interfaces.ListCandidatesParams{}, err
+			}
+			if !exists {
+				return interfaces.ListCandidatesParams{}, fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+			}
+		}
+		return filter, nil
+	}
+	if !listCandidatesFilterHasTopology(filter) {
+		return filter, nil
+	}
+	topologyStore, ok := s.store.(interfaces.CurtailmentTopologyScopeStore)
+	if !ok {
+		return interfaces.ListCandidatesParams{}, fleeterror.NewInternalErrorf(
+			"curtailment topology scope resolver is not configured",
+		)
+	}
+	_, err = topologyStore.ResolveCurtailmentTopologyScope(ctx, filter)
+	if err != nil {
+		return interfaces.ListCandidatesParams{}, err
+	}
+	return filter, nil
+}
+
+func listCandidatesFilterHasTopology(filter interfaces.ListCandidatesParams) bool {
+	return len(filter.BuildingIDs) > 0 || len(filter.RackIDs) > 0 || len(filter.GroupIDs) > 0
 }
 
 func normalizeScope(s Scope) Scope {

@@ -512,9 +512,10 @@ func (h *Handler) scopeResourceContextRequirements(
 		return out, nil
 	}
 	if len(scope.BuildingIDs) > 0 || len(scope.RackIDs) > 0 || len(scope.GroupIDs) > 0 {
-		// Topology resolution will eventually derive the complete site envelope.
-		// Until then, fail closed instead of authorizing an unresolved selector
-		// against an empty resource context.
+		// Scoped topology authorization must be bound to the same snapshot used
+		// for candidate resolution. Until the durable authorization envelope and
+		// dispatch-time recheck land, require org-wide permission so membership
+		// changes cannot broaden a site-scoped request after authorization.
 		out.requireOrgWide = true
 		return out, nil
 	}

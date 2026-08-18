@@ -963,11 +963,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentAutomationRulesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentAutomationRulesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentAutomationRulesByOrg: %w", err)
 	}
+	if q.listCurtailmentBuildingScopeCoverageStmt, err = db.PrepareContext(ctx, listCurtailmentBuildingScopeCoverage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentBuildingScopeCoverage: %w", err)
+	}
 	if q.listCurtailmentCandidatesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentCandidatesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentCandidatesByOrg: %w", err)
 	}
 	if q.listCurtailmentEventsForOrgStmt, err = db.PrepareContext(ctx, listCurtailmentEventsForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentEventsForOrg: %w", err)
+	}
+	if q.listCurtailmentGroupScopeCoverageStmt, err = db.PrepareContext(ctx, listCurtailmentGroupScopeCoverage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentGroupScopeCoverage: %w", err)
+	}
+	if q.listCurtailmentRackScopeCoverageStmt, err = db.PrepareContext(ctx, listCurtailmentRackScopeCoverage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentRackScopeCoverage: %w", err)
 	}
 	if q.listCurtailmentResponseProfileDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentResponseProfileDeviceSitesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentResponseProfileDeviceSitesByOrg: %w", err)
@@ -3205,6 +3214,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentAutomationRulesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listCurtailmentBuildingScopeCoverageStmt != nil {
+		if cerr := q.listCurtailmentBuildingScopeCoverageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentBuildingScopeCoverageStmt: %w", cerr)
+		}
+	}
 	if q.listCurtailmentCandidatesByOrgStmt != nil {
 		if cerr := q.listCurtailmentCandidatesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentCandidatesByOrgStmt: %w", cerr)
@@ -3213,6 +3227,16 @@ func (q *Queries) Close() error {
 	if q.listCurtailmentEventsForOrgStmt != nil {
 		if cerr := q.listCurtailmentEventsForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentEventsForOrgStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentGroupScopeCoverageStmt != nil {
+		if cerr := q.listCurtailmentGroupScopeCoverageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentGroupScopeCoverageStmt: %w", cerr)
+		}
+	}
+	if q.listCurtailmentRackScopeCoverageStmt != nil {
+		if cerr := q.listCurtailmentRackScopeCoverageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentRackScopeCoverageStmt: %w", cerr)
 		}
 	}
 	if q.listCurtailmentResponseProfileDeviceSitesByOrgStmt != nil {
@@ -4677,8 +4701,11 @@ type Queries struct {
 	listBuildingsByOrgStmt                                       *sql.Stmt
 	listBuiltinRolesForOrgStmt                                   *sql.Stmt
 	listCurtailmentAutomationRulesByOrgStmt                      *sql.Stmt
+	listCurtailmentBuildingScopeCoverageStmt                     *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                           *sql.Stmt
 	listCurtailmentEventsForOrgStmt                              *sql.Stmt
+	listCurtailmentGroupScopeCoverageStmt                        *sql.Stmt
+	listCurtailmentRackScopeCoverageStmt                         *sql.Stmt
 	listCurtailmentResponseProfileDeviceSitesByOrgStmt           *sql.Stmt
 	listCurtailmentResponseProfilesByOrgStmt                     *sql.Stmt
 	listCurtailmentTargetSiteCoverageByEventStmt                 *sql.Stmt
@@ -5220,8 +5247,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listBuildingsByOrgStmt:                                       q.listBuildingsByOrgStmt,
 		listBuiltinRolesForOrgStmt:                                   q.listBuiltinRolesForOrgStmt,
 		listCurtailmentAutomationRulesByOrgStmt:                      q.listCurtailmentAutomationRulesByOrgStmt,
+		listCurtailmentBuildingScopeCoverageStmt:                     q.listCurtailmentBuildingScopeCoverageStmt,
 		listCurtailmentCandidatesByOrgStmt:                           q.listCurtailmentCandidatesByOrgStmt,
 		listCurtailmentEventsForOrgStmt:                              q.listCurtailmentEventsForOrgStmt,
+		listCurtailmentGroupScopeCoverageStmt:                        q.listCurtailmentGroupScopeCoverageStmt,
+		listCurtailmentRackScopeCoverageStmt:                         q.listCurtailmentRackScopeCoverageStmt,
 		listCurtailmentResponseProfileDeviceSitesByOrgStmt:           q.listCurtailmentResponseProfileDeviceSitesByOrgStmt,
 		listCurtailmentResponseProfilesByOrgStmt:                     q.listCurtailmentResponseProfilesByOrgStmt,
 		listCurtailmentTargetSiteCoverageByEventStmt:                 q.listCurtailmentTargetSiteCoverageByEventStmt,

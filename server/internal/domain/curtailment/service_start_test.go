@@ -53,6 +53,25 @@ func TestService_Start_RejectsEmptyReason(t *testing.T) {
 	}
 }
 
+func TestService_Start_RejectsTopologyScopeUntilAuthorizationLifecycleLands(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	svc := NewService(store)
+	req := validStartRequest(1)
+	req.Scope = Scope{
+		SchemaVersion: ScopeSchemaVersionCurrent,
+		BuildingIDs:   []int64{7},
+	}
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "durable authorization and lifecycle")
+	assert.Zero(t, store.listCandidatesCalls)
+}
+
 func TestService_Start_RejectsAllowUnboundedWithMaxDuration(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
@@ -939,7 +958,7 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 		want             int32
 	}{
 		{"immediate_restore_claims_all_selected", 0, 5, 5},
-		{"immediate_restore_is_safety_limited", 0, int(RestoreBatchSizeMax) + 1, RestoreBatchSizeMax},
+		{"immediate_restore_at_resolved_miner_limit", 0, int(RestoreBatchSizeMax), RestoreBatchSizeMax},
 		{"positive_restore_batch_size_used_verbatim", 60, 5, 60},
 		{"positive_restore_batch_size_not_increased_by_large_fleet", 10, 5000, 10},
 		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},
