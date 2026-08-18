@@ -593,7 +593,9 @@ const parseDurationMs = (duration: string | undefined): number | undefined => {
   if (!duration) return undefined;
   const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration);
   if (!match) return undefined;
-  return (Number(match[1] ?? 0) * 60 * 60 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
+  const durationMs =
+    (Number(match[1] ?? 0) * 60 * 60 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
+  return durationMs > 0 ? durationMs : undefined;
 };
 
 const normalizeSeries = (
@@ -639,13 +641,29 @@ const applySeriesMetrics = (
 
 export const normalizeV1TimeSeries = (
   wire: TimeSeriesResponse,
-  options: { startTimeMs?: number } = {},
+  options: { startTimeMs?: number; interval?: string } = {},
 ): TelemetryState => {
   const state = emptyTelemetry();
-  const startTimeMs = options.startTimeMs ?? Date.parse(wire.meta?.start_time ?? "");
-  const safeStartTimeMs = Number.isNaN(startTimeMs) ? Date.now() : startTimeMs;
-  const bucketSizeMs = parseDurationMs(wire.meta?.interval) ?? 0;
+  const responseStartTimeMs = Date.parse(wire.meta?.start_time ?? "");
+  const safeStartTimeMs = Number.isNaN(responseStartTimeMs)
+    ? (options.startTimeMs ?? Date.now())
+    : responseStartTimeMs;
+  const bucketSizeMs = parseDurationMs(wire.meta?.interval) ?? parseDurationMs(options.interval);
+  if (bucketSizeMs === undefined) throw new Error("MDK v1 time-series response did not provide a valid positive interval");
   state.resourceByScope.set(asResourceKey("telemetry:history:module:root"), ready());
+
+  type TimeSeriesHashboard = NonNullable<NonNullable<TimeSeriesResponse["data"]>["hashboards"]>[number];
+  const boardByIndex = new Map<number, TimeSeriesHashboard>();
+  const ambiguousBoardIndexes = new Set<number>();
+  for (const board of wire.data?.hashboards ?? []) {
+    if (board.index === undefined || !board.serial_number || ambiguousBoardIndexes.has(board.index)) continue;
+    if (boardByIndex.has(board.index)) {
+      boardByIndex.delete(board.index);
+      ambiguousBoardIndexes.add(board.index);
+    } else {
+      boardByIndex.set(board.index, board);
+    }
+  }
 
   if (wire.data?.miner) {
     const rollup: LevelRollup = {};
@@ -662,7 +680,7 @@ export const normalizeV1TimeSeries = (
   }
 
   for (const asicWire of wire.data?.asics ?? []) {
-    const board = wire.data?.hashboards?.find((candidate) => candidate.index === asicWire.hashboard_index);
+    const board = boardByIndex.get(asicWire.hashboard_index);
     if (!board?.serial_number) continue;
     const id = getAsicId(board.serial_number, asicWire.index);
     const normalized: AsicTelemetry = { asicId: id };

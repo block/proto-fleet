@@ -120,6 +120,24 @@ describe("MDK v1 normalization", () => {
     expect(board?.outletTemperature?.latest?.value).toBe(70);
   });
 
+  it("does not attribute ASIC history through ambiguous hashboard indexes", () => {
+    const history = normalizeV1TimeSeries(
+      {
+        meta: { interval: "PT1M" },
+        data: {
+          hashboards: [
+            { index: 0, serial_number: "HB-1" },
+            { index: 0, serial_number: "HB-2" },
+          ],
+          asics: [{ hashboard_index: 0, index: 2, temperature: { unit: MetricUnit.ValueC, values: [70] } }],
+        },
+      },
+      { startTimeMs: 1_000 },
+    );
+
+    expect(history.asics.size).toBe(0);
+  });
+
   it("normalizes network, status, pool, target, and error reads without wire types", () => {
     expect(
       normalizeV1NetworkInfo({

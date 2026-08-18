@@ -103,16 +103,24 @@ export class MdkV1Adapter implements MinerAdapter {
   }
 
   async getTimeSeries(request: TimeSeriesQuery, params: AdapterRequestOptions = {}) {
+    const needsHashboardIdentity =
+      request.levels.some((level) => level.type === "asic") && !request.levels.some((level) => level.type === "hashboard");
+    const levels = needsHashboardIdentity
+      ? [...request.levels, { type: "hashboard" as const, fields: ["hashrate" as const] }]
+      : request.levels;
     const wireRequest: TimeSeriesRequest = {
       start_time: request.startTime,
       duration: request.duration,
       end_time: request.endTime,
       interval: request.interval,
-      levels: request.levels as TimeSeriesRequest["levels"],
+      levels: levels as TimeSeriesRequest["levels"],
       aggregation: request.aggregation,
     };
     const response = await this.client.getTimeSeries(wireRequest, params);
-    return normalizeV1TimeSeries(response.data);
+    return normalizeV1TimeSeries(response.data, {
+      startTimeMs: Date.parse(request.startTime),
+      interval: request.interval,
+    });
   }
 
   async getCoolingStatus(params: AdapterRequestOptions = {}) {
