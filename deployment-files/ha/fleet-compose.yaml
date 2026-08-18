@@ -32,6 +32,7 @@ services:
     volumes: !override
       - "${HA_SECRETS_DIR}/fleet-client.crt:/etc/nginx/ssl/cert.pem:ro"
       - "${HA_SECRETS_DIR}/fleet-client.key:/etc/nginx/ssl/key.pem:ro"
+      - "${HA_SECRETS_DIR}/service-ca.crt:/usr/share/nginx/html/proto-fleet-ha-service-ca.crt:ro"
 
   grafana:
     # HA keeps Grafana intentionally local: the file-provisioned readiness

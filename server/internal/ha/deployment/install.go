@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"golang.org/x/mod/semver"
+
+	"github.com/block/proto-fleet/server/internal/ha"
 )
 
 const (
@@ -98,6 +101,8 @@ type installDependencies struct {
 	runInput     func(context.Context, string, string, ...string) error
 	sourceRoot   func() (string, error)
 	verifyVIP    func(context.Context, NodeConfig) error
+	localReady   func(context.Context, NodeConfig) error
+	vipReady     func(context.Context, NodeConfig) bool
 	sleep        func(time.Duration)
 }
 
@@ -106,7 +111,8 @@ func defaultInstallDependencies() installDependencies {
 		goos: runtime.GOOS, goarch: runtime.GOARCH, pageSize: os.Getpagesize(),
 		readFile: os.ReadFile, lstat: os.Lstat, lookPath: exec.LookPath, requireEmpty: requireEmptyDir, validateHost: ValidateHost,
 		run: runCommand, runInput: runWithInput,
-		sourceRoot: ReleaseRoot, verifyVIP: verifyInstallVirtualIP, sleep: time.Sleep,
+		sourceRoot: ReleaseRoot, verifyVIP: verifyInstallVirtualIP,
+		localReady: waitForLocalEtcd, vipReady: probeInstalledActiveVIP, sleep: time.Sleep,
 	}
 }
 
@@ -645,7 +651,8 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		}
 	}
 	for _, name := range copiedSecretFiles(config) {
-		if err := placeFile(ctx, deps, "install HA secret "+name, filepath.Join(config.SecretsDir, name), filepath.Join(configRoot, name), "0600"); err != nil {
+		mode := fmt.Sprintf("%04o", secretFileMode(name))
+		if err := placeFile(ctx, deps, "install HA secret "+name, filepath.Join(config.SecretsDir, name), filepath.Join(configRoot, name), mode); err != nil {
 			return err
 		}
 	}
@@ -879,25 +886,57 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 	if output, err := deps.run(ctx, "sudo", "systemctl", "start", "--no-block", "proto-fleet-ha.service"); err != nil {
 		return stopIncompleteHA(ctx, deps, fmt.Errorf("start HA services: %s", commandError(output, err)), cleanupUpdater)
 	}
+	if err := deps.localReady(ctx, config); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
+		}
+		return stopIncompleteHA(ctx, deps, err, cleanupUpdater)
+	}
 	fmt.Println("[peer waiting] HA service is enabled and will keep converging while peers join")
+	if config.isDatabaseNode() {
+		return nil
+	}
 	for {
-		if config.isDatabaseNode() {
-			if _, err := deps.run(ctx, "sudo", filepath.Join(installRoot, "ha", "fleet-ha"), "status", filepath.Join(configRoot, "node.env")); err == nil {
-				fmt.Println("[final readiness] HA control and failover paths are ready")
-				return nil
-			}
-		} else if state, _ := systemdUnitState(ctx, deps, "is-active", "proto-fleet-ha.service"); state == "active" {
-			fmt.Println("[final readiness] HA witness joined the etcd quorum")
+		state, _ := systemdUnitState(ctx, deps, "is-active", "proto-fleet-ha.service")
+		if state == "failed" {
+			return stopIncompleteHA(ctx, deps, errors.New("proto-fleet-ha.service failed; inspect journalctl -u proto-fleet-ha.service"), false)
+		}
+		if state == "active" && deps.vipReady(ctx, config) {
+			fmt.Println("[final readiness] Fleet is reachable through the virtual IP")
+			printPublicCAInstructions(os.Stdout, config.VirtualIP)
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
 		}
-		if state, _ := systemdUnitState(ctx, deps, "is-failed", "proto-fleet-ha.service"); state == "failed" {
-			return stopIncompleteHA(ctx, deps, errors.New("HA service failed during local startup; inspect journalctl -u proto-fleet-ha.service"), cleanupUpdater)
-		}
 		deps.sleep(2 * time.Second)
 	}
+}
+
+func printPublicCAInstructions(output io.Writer, virtualIP string) {
+	_, _ = fmt.Fprintf(output, `
+On your operator machine, download the public service CA:
+  curl --insecure --fail --noproxy '*' --output proto-fleet-ha-service-ca.download https://%s/proto-fleet-ha-service-ca.crt
+
+Write only the verified certificate to the file you will import:
+  openssl x509 -in proto-fleet-ha-service-ca.download -out proto-fleet-ha-service-ca.crt
+  rm proto-fleet-ha-service-ca.download
+
+Display its SHA-256 fingerprint:
+  openssl x509 -in proto-fleet-ha-service-ca.crt -noout -fingerprint -sha256
+
+Compare it with the fingerprint printed by ha-a. Import only proto-fleet-ha-service-ca.crt.
+`, virtualIP)
+}
+
+func probeInstalledActiveVIP(ctx context.Context, config NodeConfig) bool {
+	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(configRoot, "service-ca.crt"))
+	if err != nil {
+		return false
+	}
+	client, cleanup := newProbeHTTPClient(tlsConfig, nil)
+	defer cleanup()
+	return endpointReadyWithClient(ctx, client, "https://"+config.VirtualIP+"/api-proxy/health/active")
 }
 
 func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error, cleanupUpdater bool) error {
