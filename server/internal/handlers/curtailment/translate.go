@@ -318,7 +318,13 @@ func toTerminalScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) {
 			wholeOrgSelected = true
 		case *pb.CurtailmentScope_DeviceIdentifiers:
 			deviceSelected = true
-			deviceIdentifiers = append(deviceIdentifiers, s.DeviceIdentifiers.GetDeviceIdentifiers()...)
+			identifiers := s.DeviceIdentifiers.GetDeviceIdentifiers()
+			if len(identifiers) > curtailment.ScopeDeviceIdentifiersMax-len(deviceIdentifiers) {
+				return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
+					"device_identifiers must contain at most 10000 entries",
+				)
+			}
+			deviceIdentifiers = append(deviceIdentifiers, identifiers...)
 		case *pb.CurtailmentScope_Site:
 			siteSelected = true
 			siteIDs = append(siteIDs, s.Site.GetSiteId())
@@ -341,11 +347,6 @@ func toTerminalScope(scopes []*pb.CurtailmentScope) (curtailment.Scope, error) {
 		len(groupIDs) > curtailment.ScopeTopologyIDsPerTypeMax {
 		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
 			"site, building, rack, and group scopes must contain at most 256 entries per type",
-		)
-	}
-	if len(deviceIdentifiers) > curtailment.ScopeDeviceIdentifiersMax {
-		return curtailment.Scope{}, fleeterror.NewInvalidArgumentError(
-			"device_identifiers must contain at most 10000 entries",
 		)
 	}
 	selectorTypeCount := 0

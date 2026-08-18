@@ -97,6 +97,45 @@ func TestToTerminalScopeValidatesRawInputBeforeMixedTypeRejection(t *testing.T) 
 	assert.Contains(t, err.Error(), "device_identifiers must contain at most 10000 entries")
 }
 
+func TestToTerminalScopeRejectsAggregateDeviceIdentifierLimitBeforeAppend(t *testing.T) {
+	t.Parallel()
+
+	firstIdentifiers := make([]string, domaincurtailment.ScopeDeviceIdentifiersMax)
+	secondIdentifiers := []string{"miner-over-limit"}
+
+	_, err := toTerminalScope([]*pb.CurtailmentScope{
+		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{
+			DeviceIdentifiers: firstIdentifiers,
+		}}},
+		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{
+			DeviceIdentifiers: secondIdentifiers,
+		}}},
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device_identifiers must contain at most 10000 entries")
+}
+
+func TestToTerminalScopeAcceptsAggregateDeviceIdentifierLimit(t *testing.T) {
+	t.Parallel()
+
+	firstIdentifiers := make([]string, domaincurtailment.ScopeDeviceIdentifiersMax-1)
+	secondIdentifiers := []string{"miner-at-limit"}
+
+	got, err := toTerminalScope([]*pb.CurtailmentScope{
+		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{
+			DeviceIdentifiers: firstIdentifiers,
+		}}},
+		{Scope: &pb.CurtailmentScope_DeviceIdentifiers{DeviceIdentifiers: &pb.ScopeDeviceList{
+			DeviceIdentifiers: secondIdentifiers,
+		}}},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, models.ScopeTypeDeviceList, got.Type)
+	assert.Len(t, got.DeviceIdentifiers, domaincurtailment.ScopeDeviceIdentifiersMax)
+}
+
 // TestToInsufficientLoadError_IncludesAllNonZeroCounters pins the
 // contract that every non-zero exclusion counter on InsufficientLoadDetail
 // surfaces in the formatted error message. Without this, callers can't

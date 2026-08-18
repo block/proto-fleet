@@ -31,6 +31,8 @@ const listCurtailmentEventsDefaultPageSize int32 = 50
 const listCurtailmentEventsMaxPageSize int32 = 200
 const listCurtailmentEventsMaxPermissionScanPages = 3
 
+const requestReadMaxBytes = 2 << 20
+
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.
 type Handler struct {
@@ -41,6 +43,11 @@ type Handler struct {
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
+
+// RequestReadLimitOption caps curtailment RPC bodies before Connect unmarshals them.
+func RequestReadLimitOption() connect.HandlerOption {
+	return connect.WithReadMaxBytes(requestReadMaxBytes)
+}
 
 func NewHandler(service *curtailment.Service, mqttSettings ...*mqttingest.SettingsService) *Handler {
 	h := &Handler{service: service}

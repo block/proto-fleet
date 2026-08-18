@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"connectrpc.com/authn"
@@ -73,6 +74,32 @@ func siteScopeJSON(t *testing.T, siteID int64) []byte {
 	out, err := json.Marshal(map[string]int64{"site_id": siteID})
 	require.NoError(t, err)
 	return out
+}
+
+func TestRequestReadLimitOptionRejectsOversizedBody(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
+		NewHandler(nil),
+		RequestReadLimitOption(),
+	))
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := curtailmentv1connect.NewCurtailmentServiceClient(http.DefaultClient, server.URL)
+	_, err := client.PreviewCurtailmentPlan(t.Context(), connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
+		Scopes: []*pb.CurtailmentScope{{
+			Scope: &pb.CurtailmentScope_DeviceIdentifiers{
+				DeviceIdentifiers: &pb.ScopeDeviceList{
+					DeviceIdentifiers: []string{strings.Repeat("x", requestReadMaxBytes)},
+				},
+			},
+		}},
+	}))
+
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeResourceExhausted, connect.CodeOf(err))
 }
 
 // Stubbed routes are wired. Ungated/read routes reach CodeUnimplemented

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
-import { parseCurtailmentTerminalScopes } from "@/protoFleet/api/curtailmentScopes";
+import {
+  type CurtailmentTerminalScope,
+  getCurtailmentScopeSummary,
+  parseCurtailmentTerminalScopes,
+} from "@/protoFleet/api/curtailmentScopes";
 import {
   CurtailmentScopeSchema,
   ScopeBuildingSchema,
@@ -80,5 +84,52 @@ describe("parseCurtailmentTerminalScopes", () => {
     );
 
     expect(parseCurtailmentTerminalScopes(scopes)).toEqual({ type: "group", groupIds: ["7", "8"] });
+  });
+});
+
+describe("getCurtailmentScopeSummary", () => {
+  it("uses the caller's fallback label for whole-org and empty selections", () => {
+    const options = { fallbackLabel: "Whole fleet" };
+
+    expect(getCurtailmentScopeSummary({ type: "wholeOrg" }, options)).toBe("Whole fleet");
+    expect(getCurtailmentScopeSummary({ minerSelectionMode: "subset" }, options)).toBe("Whole fleet");
+  });
+
+  it("keeps explicit miners ahead of retained site selections", () => {
+    expect(
+      getCurtailmentScopeSummary(
+        {
+          minerSelectionMode: "subset",
+          deviceIdentifiers: ["miner-1", "miner-2"],
+          siteSelection: "site",
+          siteIds: ["101"],
+        },
+        { fallbackLabel: "Whole fleet" },
+      ),
+    ).toBe("2 miners");
+  });
+
+  it("formats all-sites, named single-site, and multi-site selections", () => {
+    const options = {
+      fallbackLabel: "Whole fleet",
+      getSiteLabel: (siteId: string) => (siteId === "101" ? "Austin, TX" : undefined),
+    };
+
+    expect(getCurtailmentScopeSummary({ siteSelection: "allSites", siteIds: ["101", "102"] }, options)).toBe(
+      "All sites",
+    );
+    expect(getCurtailmentScopeSummary({ siteSelection: "allSites", siteIds: [] }, options)).toBe("All sites");
+    expect(getCurtailmentScopeSummary({ siteSelection: "site", siteIds: ["101"] }, options)).toBe("Austin, TX");
+    expect(getCurtailmentScopeSummary({ siteSelection: "site", siteIds: ["101", "102"] }, options)).toBe("2 sites");
+  });
+
+  const topologyCases: [CurtailmentTerminalScope, string][] = [
+    [{ type: "building", buildingIds: ["7"] }, "1 building"],
+    [{ type: "rack", rackIds: ["7", "8"] }, "2 racks"],
+    [{ type: "group", groupIds: ["7", "8"] }, "2 groups"],
+  ];
+
+  it.each(topologyCases)("formats topology scope %j as %s", (scope, expected) => {
+    expect(getCurtailmentScopeSummary(scope, { fallbackLabel: "Whole fleet" })).toBe(expected);
   });
 });

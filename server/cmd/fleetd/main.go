@@ -762,7 +762,11 @@ func start(config *Config) (result error) {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
+		curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
+		li,
+		curtailmentHandler.RequestReadLimitOption(),
+	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

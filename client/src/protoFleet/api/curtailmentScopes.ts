@@ -16,8 +16,80 @@ export type CurtailmentTerminalScope =
   | { type: "group"; groupIds: string[] }
   | { type: "deviceIdentifiers"; deviceIdentifiers: string[] };
 
+type CurtailmentScopeSummarySelection = {
+  minerSelectionMode?: "all" | "subset";
+  siteSelection?: "none" | "site" | "allSites";
+  siteId?: string;
+  siteIds?: readonly string[];
+  deviceIdentifiers?: readonly string[];
+};
+
+type CurtailmentScopeSummaryOptions = {
+  fallbackLabel: string;
+  getSiteLabel?: (siteId: string) => string | undefined;
+};
+
 export function normalizeCurtailmentSelectionValues(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function formatScopeCount(count: number, singular: string): string {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
+export function getCurtailmentScopeSummary(
+  scopeOrSelection: CurtailmentTerminalScope | CurtailmentScopeSummarySelection,
+  { fallbackLabel, getSiteLabel }: CurtailmentScopeSummaryOptions,
+): string {
+  let scope: CurtailmentTerminalScope | undefined;
+  let isAllSites = false;
+
+  if ("type" in scopeOrSelection) {
+    scope = scopeOrSelection;
+  } else if (scopeOrSelection.minerSelectionMode === "all") {
+    scope = { type: "wholeOrg" };
+  } else if ((scopeOrSelection.deviceIdentifiers?.length ?? 0) > 0) {
+    scope = {
+      type: "deviceIdentifiers",
+      deviceIdentifiers: [...(scopeOrSelection.deviceIdentifiers ?? [])],
+    };
+  } else {
+    const siteIds = normalizeCurtailmentSelectionValues(
+      scopeOrSelection.siteIds !== undefined && scopeOrSelection.siteIds.length > 0
+        ? scopeOrSelection.siteIds
+        : scopeOrSelection.siteId
+          ? [scopeOrSelection.siteId]
+          : [],
+    );
+    isAllSites = scopeOrSelection.siteSelection === "allSites";
+    const hasSiteScope =
+      isAllSites ||
+      ((scopeOrSelection.siteSelection === "site" || scopeOrSelection.siteSelection === undefined) &&
+        siteIds.length > 0);
+    if (hasSiteScope) {
+      scope = { type: "site", siteIds };
+    }
+  }
+
+  if (!scope || scope.type === "wholeOrg") {
+    return fallbackLabel;
+  }
+  if (scope.type === "deviceIdentifiers") {
+    return formatScopeCount(scope.deviceIdentifiers.length, "miner");
+  }
+  if (scope.type === "site") {
+    if (isAllSites) {
+      return "All sites";
+    }
+    if (scope.siteIds.length === 1) {
+      const siteId = scope.siteIds[0];
+      return getSiteLabel?.(siteId)?.trim() || `Site ${siteId}`;
+    }
+    return formatScopeCount(scope.siteIds.length, "site");
+  }
+
+  const ids = scope.type === "building" ? scope.buildingIds : scope.type === "rack" ? scope.rackIds : scope.groupIds;
+  return formatScopeCount(ids.length, scope.type);
 }
 
 export function createWholeOrgCurtailmentScope(): CurtailmentScope {

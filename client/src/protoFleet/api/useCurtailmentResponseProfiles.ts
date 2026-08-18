@@ -6,6 +6,7 @@ import {
   createDeviceCurtailmentScope,
   createSiteCurtailmentScope,
   createWholeOrgCurtailmentScope,
+  getCurtailmentScopeSummary,
   normalizeCurtailmentSelectionValues,
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
@@ -276,8 +277,6 @@ function getApiResponseProfileScopeValues(
     } else if (scope.type === "deviceIdentifiers") {
       deviceIdentifiers.push(...scope.deviceIdentifiers);
     } else {
-      const ids =
-        scope.type === "building" ? scope.buildingIds : scope.type === "rack" ? scope.rackIds : scope.groupIds;
       return {
         siteSelection: "none",
         siteId: "",
@@ -286,7 +285,9 @@ function getApiResponseProfileScopeValues(
         siteNamesById: {},
         deviceIdentifiers: [],
         minerSelectionMode: "subset",
-        readOnlyScopeSummary: formatScopeCount(ids.length, scope.type),
+        readOnlyScopeSummary: getCurtailmentScopeSummary(scope, {
+          fallbackLabel: getResponseProfileScopeLabel(profile.mode),
+        }),
       };
     }
   } else if (profile.site?.siteId) {
@@ -320,33 +321,11 @@ function getApiResponseProfileScopeValues(
   };
 }
 
-function formatScopeCount(count: number, singular: "building" | "rack" | "group"): string {
-  return `${count} ${count === 1 ? singular : `${singular}s`}`;
-}
-
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues, mode: CurtailmentMode): string {
-  if (values.minerSelectionMode === "all") {
-    return getResponseProfileScopeLabel(mode);
-  }
-
-  const siteIds = getSelectedResponseProfileSiteIds(values);
-  const siteSelection = values.siteSelection ?? (siteIds.length > 0 ? "site" : "none");
-  const minerCount = values.deviceIdentifiers.length;
-  const minerSummary = minerCount === 1 ? "1 miner" : `${minerCount} miners`;
-  const siteSummary =
-    siteIds.length === 1
-      ? getResponseProfileSiteNameForId(values, siteIds[0]) || `Site ${siteIds[0]}`
-      : `${siteIds.length} sites`;
-  if (minerCount > 0) {
-    return minerSummary;
-  }
-  if (siteSelection === "allSites") {
-    return "All sites";
-  }
-  if (siteSelection === "site" && siteIds.length > 0) {
-    return siteSummary;
-  }
-  return getResponseProfileScopeLabel(mode);
+  return getCurtailmentScopeSummary(values, {
+    fallbackLabel: getResponseProfileScopeLabel(mode),
+    getSiteLabel: (siteId) => getResponseProfileSiteNameForId(values, siteId),
+  });
 }
 
 export function clearCurtailmentResponseProfileSessionCacheForTest(): void {
