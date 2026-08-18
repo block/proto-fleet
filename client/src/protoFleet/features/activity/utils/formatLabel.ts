@@ -75,6 +75,11 @@ const labelMap: Record<string, string> = {
   curtailment_updated: "Updated curtailment",
   curtailment_force_released: "Released curtailment ownership",
 
+  "between_channel_rollout_member.moved": "Confirmed rollout lane membership",
+  "between_channel_rollout_member.attention_required": "Rollout member needs attention",
+  "between_channel_rollout_member.cancelled": "Cancelled rollout lane membership",
+  "between_channel_rollout_member.membership_conflict": "Rollout membership changed",
+
   auth: "Authentication",
   device_command: "Miner command",
   fleet_management: "Fleet management",
@@ -169,6 +174,11 @@ const filterLabelMap: Record<string, string> = {
   curtailment_admin_terminated_replay: "Curtailment already stopped",
   curtailment_updated: "Update curtailment",
   curtailment_force_released: "Release curtailment ownership",
+
+  "between_channel_rollout_member.moved": "Confirm rollout lane membership",
+  "between_channel_rollout_member.attention_required": "Review rollout member attention",
+  "between_channel_rollout_member.cancelled": "Cancel rollout lane membership",
+  "between_channel_rollout_member.membership_conflict": "Review rollout membership change",
 };
 
 const acronymMap: Record<string, string> = {

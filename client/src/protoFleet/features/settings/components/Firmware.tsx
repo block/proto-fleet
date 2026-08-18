@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import RolloutLanesTab from "@/protoFleet/features/rollout/betweenChannel/RolloutLanesTab";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
@@ -12,6 +13,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
+import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimestamp";
 
@@ -117,7 +119,7 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
 };
 
 const activeCols: FirmwareColumns[] = ["filename", "target", "firmwareVersion", "uploadedAt", "size"];
-const FIRMWARE_PAGE_DESCRIPTION = "Upload and manage firmware files available to your fleet.";
+const FIRMWARE_PAGE_DESCRIPTION = "Manage uploaded firmware and stable rollout lanes for your fleet.";
 
 function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   return {
@@ -131,7 +133,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   };
 }
 
-const Firmware = () => {
+const FirmwareFilesTab = () => {
   const { listFirmwareFiles, updateFirmwareMetadata, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -269,27 +271,24 @@ const Firmware = () => {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader title="Firmware" description={FIRMWARE_PAGE_DESCRIPTION} />
-        <div className="flex shrink-0 gap-3 phone:w-full phone:flex-col">
+      <div className="flex justify-end gap-3 phone:w-full phone:flex-col">
+        <Button
+          variant={variants.primary}
+          size={sizes.compact}
+          text="Upload firmware"
+          onClick={() => setShowUploadDialog(true)}
+          className="phone:w-full"
+        />
+        {files.length > 0 ? (
           <Button
-            variant={variants.primary}
+            variant={variants.danger}
             size={sizes.compact}
-            text="Upload firmware"
-            onClick={() => setShowUploadDialog(true)}
+            text="Delete all"
+            onClick={() => setShowDeleteAllDialog(true)}
+            disabled={isDeletingAll}
             className="phone:w-full"
           />
-          {files.length > 0 ? (
-            <Button
-              variant={variants.danger}
-              size={sizes.compact}
-              text="Delete all"
-              onClick={() => setShowDeleteAllDialog(true)}
-              disabled={isDeletingAll}
-              className="phone:w-full"
-            />
-          ) : null}
-        </div>
+        ) : null}
       </div>
 
       {isLoading ? (
@@ -347,6 +346,22 @@ const Firmware = () => {
         onDismiss={() => setShowDeleteAllDialog(false)}
         isSubmitting={isDeletingAll}
       />
+    </div>
+  );
+};
+
+type FirmwareTab = "files" | "rolloutLanes";
+
+const Firmware = () => {
+  const [activeTab, setActiveTab] = useState<FirmwareTab>("files");
+  return (
+    <div className="flex flex-col gap-6">
+      <SettingsPageHeader title="Firmware" description={FIRMWARE_PAGE_DESCRIPTION} />
+      <TabStrip activeId={activeTab} onSelect={(id) => setActiveTab(id as FirmwareTab)} ariaLabel="Firmware sections">
+        <TabStripItem id="files" label="Files" />
+        <TabStripItem id="rolloutLanes" label="Rollout lanes" />
+      </TabStrip>
+      {activeTab === "files" ? <FirmwareFilesTab /> : <RolloutLanesTab />}
     </div>
   );
 };

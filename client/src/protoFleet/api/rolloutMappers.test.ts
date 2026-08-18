@@ -5,6 +5,8 @@ import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import {
   RolloutEvidencePhase,
   RolloutEvidenceSchema,
+  RolloutLaneChannelSchema,
+  RolloutLaneSchema,
   RolloutMemberSchema,
   RolloutMemberState,
   RolloutSchema,
@@ -12,8 +14,10 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
   mapRollout,
+  mapRolloutLane,
   mapRolloutMemberState,
   mapRolloutState,
+  mapRolloutToEvent,
   rolloutMemberStateToTargetPhase,
 } from "@/protoFleet/api/rolloutMappers";
 
@@ -23,6 +27,50 @@ const timestamp = (iso: string) =>
   });
 
 describe("rollout mappers", () => {
+  it("maps stable lane identity without exposing physical channel labels", () => {
+    const lane = create(RolloutLaneSchema, {
+      laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+      label: "Stable production",
+      description: "Production firmware lane",
+      currentChannelId: 41n,
+      revision: 3n,
+      channels: [
+        create(RolloutLaneChannelSchema, {
+          channelId: 41n,
+          releaseSetId: 7n,
+          position: 0,
+          current: true,
+        }),
+      ],
+      updatedAt: timestamp("2026-08-18T01:00:00Z"),
+    });
+
+    expect(
+      mapRolloutLane(lane, {
+        memberCount: 12,
+        memberIdentifiers: ["miner-1", "miner-2"],
+        releaseTargets: [
+          {
+            firmwareFileId: "file-alpha",
+            targetManufacturer: "Proto",
+            targetModel: "Alpha",
+            firmwareVersion: "1.0.0",
+            sha256: "abc",
+          },
+        ],
+      }),
+    ).toMatchObject({
+      id: "15bc6181-07d8-45ac-8424-50b5e938b871",
+      label: "Stable production",
+      currentChannelId: 41n,
+      currentReleaseSetId: 7n,
+      memberCount: 12,
+      memberIdentifiers: ["miner-1", "miner-2"],
+      currentReleaseTargets: [{ targetModel: "Alpha", firmwareVersion: "1.0.0" }],
+      updatedAt: "2026-08-18T01:00:00.000Z",
+    });
+  });
+
   it.each([
     [RolloutState.CREATED, "created"],
     [RolloutState.RUNNING, "running"],
@@ -117,5 +165,58 @@ describe("rollout mappers", () => {
 
   it("maps attention-required members to a non-retry presentation phase", () => {
     expect(rolloutMemberStateToTargetPhase("attentionRequired")).toBe("attentionRequired");
+  });
+
+  it("derives membership separately from terminal firmware convergence", () => {
+    const rollout = mapRollout(
+      create(RolloutSchema, {
+        rolloutId: "2f214a71-f94e-4e5f-8daf-d36c71b72f6c",
+        name: "Production 2.0.0",
+        strategyKey: "between-channel",
+        state: RolloutState.RUNNING,
+        members: [
+          create(RolloutMemberSchema, {
+            memberId: 1n,
+            deviceIdentifier: "confirmed",
+            state: RolloutMemberState.SUCCEEDED,
+          }),
+          create(RolloutMemberSchema, {
+            memberId: 2n,
+            deviceIdentifier: "attention",
+            state: RolloutMemberState.ATTENTION_REQUIRED,
+            lastError: "Firmware result is ambiguous",
+          }),
+          create(RolloutMemberSchema, {
+            memberId: 3n,
+            deviceIdentifier: "queued",
+            state: RolloutMemberState.PENDING,
+          }),
+        ],
+      }),
+    );
+
+    const event = mapRolloutToEvent(rollout, { laneLabel: "Stable production" });
+
+    expect(event.membershipProgress).toEqual({ completed: 1, total: 3 });
+    expect(event.convergenceProgress).toEqual({
+      completed: 2,
+      total: 3,
+      attentionRequired: 1,
+      failed: 0,
+    });
+    expect(event.rollups).toEqual(
+      expect.arrayContaining([
+        { phase: "done", count: 1 },
+        { phase: "attentionRequired", count: 1 },
+        { phase: "queued", count: 1 },
+      ]),
+    );
+    expect(event.errors).toEqual([
+      {
+        id: "Firmware result is ambiguous",
+        message: "Firmware result is ambiguous",
+        impactedMiners: ["attention"],
+      },
+    ]);
   });
 });

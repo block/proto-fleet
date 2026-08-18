@@ -1,27 +1,37 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { create, type JsonObject } from "@bufbuild/protobuf";
 
-import { rolloutClient } from "@/protoFleet/api/clients";
+import { deviceSetClient, rolloutClient } from "@/protoFleet/api/clients";
 import {
   AbortRolloutRequestSchema,
   AdmitRolloutRequestSchema,
   CompleteRolloutRequestSchema,
   ContinueRolloutRequestSchema,
   CreateRolloutBatchSchema,
+  CreateRolloutLaneRequestSchema,
   CreateRolloutMemberSchema,
   CreateRolloutRequestSchema,
+  GetRolloutLaneRequestSchema,
   GetRolloutRequestSchema,
+  ListRolloutLanesRequestSchema,
   ListRolloutsRequestSchema,
   PauseRolloutRequestSchema,
   type Rollout as ProtoRollout,
+  type RolloutLane as ProtoRolloutLane,
   RolloutState as ProtoRolloutState,
   ResumeRolloutRequestSchema,
   RevertRolloutRequestSchema,
+  StartRolloutLaneRequestSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
 import { emitRolloutChanged } from "@/protoFleet/api/rolloutEvents";
-import { mapRollout, mapRolloutStateToProto } from "@/protoFleet/api/rolloutMappers";
-import type { RolloutLifecycleState, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
+import { mapRollout, mapRolloutLane, mapRolloutStateToProto } from "@/protoFleet/api/rolloutMappers";
+import type {
+  RolloutLane,
+  RolloutLaneReleaseTarget,
+  RolloutLifecycleState,
+  RolloutRecord,
+} from "@/protoFleet/features/rollout/rolloutTypes";
 import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
 
 interface RolloutRequestOptions {
@@ -34,6 +44,10 @@ export interface ListRolloutsOptions extends RolloutRequestOptions {
 
 export interface GetRolloutOptions extends RolloutRequestOptions {
   rolloutId: string;
+}
+
+export interface GetRolloutLaneOptions extends RolloutRequestOptions {
+  laneId: string;
 }
 
 export interface CreateRolloutMemberInput {
@@ -63,6 +77,28 @@ export interface CreateRolloutInput extends RolloutRequestOptions {
   reason: string;
 }
 
+export interface CreateRolloutLaneInput extends RolloutRequestOptions {
+  label: string;
+  description: string;
+  firmwareFileIds: string[];
+  deviceIdentifiers: string[];
+  idempotencyKey: string;
+}
+
+export interface StartRolloutLaneInput extends RolloutRequestOptions {
+  laneId: string;
+  name: string;
+  firmwareFileIds: string[];
+  batches: CreateRolloutBatchInput[];
+  idempotencyKey: string;
+  reason: string;
+}
+
+export interface StartRolloutLaneResult {
+  lane: RolloutLane;
+  rollout: RolloutRecord;
+}
+
 export interface RolloutControlInput extends RolloutRequestOptions {
   rolloutId: string;
   expectedRevision: bigint;
@@ -79,12 +115,16 @@ export interface CompleteRolloutInput extends RolloutControlInput {
 }
 
 export interface RolloutPermissions {
+  canReadChannels: boolean;
+  canManageChannels: boolean;
   canRead: boolean;
   canManage: boolean;
   canControl: boolean;
 }
 
 export interface UseRolloutApiResult {
+  lane: RolloutLane | null;
+  lanes: RolloutLane[];
   rollout: RolloutRecord | null;
   rollouts: RolloutRecord[];
   isLoading: boolean;
@@ -92,6 +132,10 @@ export interface UseRolloutApiResult {
   loadError: string | null;
   mutationError: string | null;
   permissions: RolloutPermissions;
+  listRolloutLanes: (options?: RolloutRequestOptions) => Promise<RolloutLane[]>;
+  getRolloutLane: (options: GetRolloutLaneOptions) => Promise<RolloutLane>;
+  createRolloutLane: (input: CreateRolloutLaneInput) => Promise<RolloutLane>;
+  startRolloutLane: (input: StartRolloutLaneInput) => Promise<StartRolloutLaneResult>;
   listRollouts: (options?: ListRolloutsOptions) => Promise<RolloutRecord[]>;
   getRollout: (options: GetRolloutOptions) => Promise<RolloutRecord>;
   createRollout: (input: CreateRolloutInput) => Promise<RolloutRecord>;
@@ -115,19 +159,7 @@ function createRolloutRequest(input: CreateRolloutInput) {
   return create(CreateRolloutRequestSchema, {
     name: input.name,
     strategyKey: input.strategyKey,
-    batches: input.batches.map((batch) =>
-      create(CreateRolloutBatchSchema, {
-        label: batch.label,
-        members: batch.members.map((member) =>
-          create(CreateRolloutMemberSchema, {
-            deviceIdentifier: member.deviceIdentifier,
-            sourceSnapshot: member.sourceSnapshot,
-            targetSnapshot: member.targetSnapshot,
-            revertSnapshot: member.revertSnapshot,
-          }),
-        ),
-      }),
-    ),
+    batches: createBatches(input.batches),
     sourceChannelId: input.sourceChannelId,
     targetChannelId: input.targetChannelId,
     sourceReleaseSetId: input.sourceReleaseSetId,
@@ -140,11 +172,82 @@ function createRolloutRequest(input: CreateRolloutInput) {
   });
 }
 
+function createBatches(batches: CreateRolloutBatchInput[]) {
+  return batches.map((batch) =>
+    create(CreateRolloutBatchSchema, {
+      label: batch.label,
+      members: batch.members.map((member) =>
+        create(CreateRolloutMemberSchema, {
+          deviceIdentifier: member.deviceIdentifier,
+          sourceSnapshot: member.sourceSnapshot,
+          targetSnapshot: member.targetSnapshot,
+          revertSnapshot: member.revertSnapshot,
+        }),
+      ),
+    }),
+  );
+}
+
+async function hydrateRolloutLane(
+  lane: ProtoRolloutLane,
+  signal?: AbortSignal,
+  includeMembers = false,
+): Promise<RolloutLane> {
+  assertNotAborted(signal);
+  if (lane.currentChannelId <= 0n) {
+    return mapRolloutLane(lane);
+  }
+
+  const deviceSetResponse = await deviceSetClient.getDeviceSet(
+    { deviceSetId: lane.currentChannelId },
+    rpcOptions(signal),
+  );
+  assertNotAborted(signal);
+  const deviceSet = deviceSetResponse.deviceSet;
+  if (!deviceSet || deviceSet.typeDetails.case !== "channelInfo") {
+    throw new Error("Rollout lane current release is unavailable.");
+  }
+  const releaseTargets: RolloutLaneReleaseTarget[] = deviceSet.typeDetails.value.releaseTargets.map((target) => ({
+    firmwareFileId: target.firmwareFileId,
+    targetManufacturer: target.targetManufacturer,
+    targetModel: target.targetModel,
+    firmwareVersion: target.firmwareVersion,
+    sha256: target.sha256,
+  }));
+  const memberIdentifiers: string[] = [];
+  if (includeMembers) {
+    let pageToken = "";
+    do {
+      const response = await deviceSetClient.listDeviceSetMembers(
+        {
+          deviceSetId: lane.currentChannelId,
+          pageSize: 250,
+          pageToken,
+        },
+        rpcOptions(signal),
+      );
+      assertNotAborted(signal);
+      memberIdentifiers.push(...response.members.map((member) => member.deviceIdentifier));
+      pageToken = response.nextPageToken;
+    } while (pageToken);
+  }
+
+  return mapRolloutLane(lane, {
+    memberCount: deviceSet.deviceCount,
+    memberIdentifiers,
+    releaseTargets,
+  });
+}
+
 export function useRolloutApi(): UseRolloutApiResult {
   const { handleAuthErrors } = useAuthErrors();
+  const canReadChannels = useHasPermission("channel:read");
+  const canManageChannels = useHasPermission("channel:manage");
   const canRead = useHasPermission("rollout:read");
   const canManage = useHasPermission("rollout:manage");
   const canControl = useHasPermission("rollout:control");
+  const [lane, setLane] = useState<RolloutLane | null>(null);
+  const [lanes, setLanes] = useState<RolloutLane[]>([]);
   const [rollout, setRollout] = useState<RolloutRecord | null>(null);
   const [rollouts, setRollouts] = useState<RolloutRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -153,6 +256,8 @@ export function useRolloutApi(): UseRolloutApiResult {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const latestListRequestIdRef = useRef(0);
   const latestGetRequestIdRef = useRef(0);
+  const latestLaneListRequestIdRef = useRef(0);
+  const latestLaneGetRequestIdRef = useRef(0);
   const activeLoadCountRef = useRef(0);
   const activeMutationCountRef = useRef(0);
 
@@ -192,6 +297,93 @@ export function useRolloutApi(): UseRolloutApiResult {
       return current.map((item, index) => (index === existingIndex ? nextRollout : item));
     });
   }, []);
+
+  const applyLaneResult = useCallback((nextLane: RolloutLane) => {
+    setLane(nextLane);
+    setLanes((current) => {
+      const existing = current.findIndex((item) => item.id === nextLane.id);
+      if (existing === -1) {
+        return [nextLane, ...current];
+      }
+      if (current[existing].revision > nextLane.revision) {
+        return current;
+      }
+      return current.map((item, index) => (index === existing ? nextLane : item));
+    });
+  }, []);
+
+  const listRolloutLanes = useCallback(
+    async ({ signal }: RolloutRequestOptions = {}) => {
+      assertNotAborted(signal);
+      const requestId = ++latestLaneListRequestIdRef.current;
+      beginLoad();
+      setLoadError(null);
+      try {
+        const response = await rolloutClient.listRolloutLanes(
+          create(ListRolloutLanesRequestSchema),
+          rpcOptions(signal),
+        );
+        const mapped = await Promise.all(response.lanes.map((item) => hydrateRolloutLane(item, signal)));
+        assertNotAborted(signal);
+        if (requestId === latestLaneListRequestIdRef.current) {
+          setLanes(mapped);
+        }
+        return mapped;
+      } catch (error) {
+        if (isAbortError(error, signal)) {
+          throw error;
+        }
+        const resolvedError = handleFailure(error, "Failed to load rollout lanes.");
+        if (requestId === latestLaneListRequestIdRef.current) {
+          if (isAuthOrPermissionError(error)) {
+            setLane(null);
+            setLanes([]);
+          }
+          setLoadError(resolvedError.message);
+        }
+        throw resolvedError;
+      } finally {
+        finishLoad();
+      }
+    },
+    [beginLoad, finishLoad, handleFailure],
+  );
+
+  const getRolloutLane = useCallback(
+    async ({ laneId, signal }: GetRolloutLaneOptions) => {
+      assertNotAborted(signal);
+      const requestId = ++latestLaneGetRequestIdRef.current;
+      beginLoad();
+      setLoadError(null);
+      try {
+        const response = await rolloutClient.getRolloutLane(
+          create(GetRolloutLaneRequestSchema, { laneId }),
+          rpcOptions(signal),
+        );
+        if (!response.lane) {
+          throw new Error("Rollout lane response was missing a lane.");
+        }
+        const mapped = await hydrateRolloutLane(response.lane, signal, true);
+        assertNotAborted(signal);
+        if (requestId === latestLaneGetRequestIdRef.current) {
+          applyLaneResult(mapped);
+        }
+        return mapped;
+      } catch (error) {
+        if (isAbortError(error, signal)) {
+          throw error;
+        }
+        const resolvedError = handleFailure(error, "Failed to load rollout lane.");
+        if (requestId === latestLaneGetRequestIdRef.current) {
+          setLoadError(resolvedError.message);
+        }
+        throw resolvedError;
+      } finally {
+        finishLoad();
+      }
+    },
+    [applyLaneResult, beginLoad, finishLoad, handleFailure],
+  );
 
   const listRollouts = useCallback(
     async ({ states = [], signal }: ListRolloutsOptions = {}) => {
@@ -320,6 +512,102 @@ export function useRolloutApi(): UseRolloutApiResult {
     [runMutation],
   );
 
+  const runLaneMutation = useCallback(
+    async <T>(
+      request: () => Promise<T>,
+      signal: AbortSignal | undefined,
+      fallbackMessage: string,
+      mapResponse: (response: T) => Promise<RolloutLane>,
+    ) => {
+      assertNotAborted(signal);
+      activeMutationCountRef.current += 1;
+      setIsMutating(true);
+      setMutationError(null);
+      try {
+        const response = await request();
+        assertNotAborted(signal);
+        const mappedLane = await mapResponse(response);
+        assertNotAborted(signal);
+        applyLaneResult(mappedLane);
+        emitRolloutChanged();
+        return { response, lane: mappedLane };
+      } catch (error) {
+        if (isAbortError(error, signal)) {
+          throw error;
+        }
+        const resolvedError = handleFailure(error, fallbackMessage);
+        setMutationError(resolvedError.message);
+        throw resolvedError;
+      } finally {
+        activeMutationCountRef.current = Math.max(0, activeMutationCountRef.current - 1);
+        setIsMutating(activeMutationCountRef.current > 0);
+      }
+    },
+    [applyLaneResult, handleFailure],
+  );
+
+  const createRolloutLane = useCallback(
+    async (input: CreateRolloutLaneInput) => {
+      const result = await runLaneMutation(
+        () =>
+          rolloutClient.createRolloutLane(
+            create(CreateRolloutLaneRequestSchema, {
+              label: input.label,
+              description: input.description,
+              firmwareFileIds: input.firmwareFileIds,
+              deviceIdentifiers: input.deviceIdentifiers,
+              idempotencyKey: input.idempotencyKey,
+            }),
+            rpcOptions(input.signal),
+          ),
+        input.signal,
+        "Failed to create rollout lane.",
+        async (response) => {
+          if (!response.lane) {
+            throw new Error("Create rollout lane response was missing a lane.");
+          }
+          return hydrateRolloutLane(response.lane, input.signal);
+        },
+      );
+      return result.lane;
+    },
+    [runLaneMutation],
+  );
+
+  const startRolloutLane = useCallback(
+    async (input: StartRolloutLaneInput): Promise<StartRolloutLaneResult> => {
+      const result = await runLaneMutation(
+        () =>
+          rolloutClient.startRolloutLane(
+            create(StartRolloutLaneRequestSchema, {
+              laneId: input.laneId,
+              name: input.name,
+              firmwareFileIds: input.firmwareFileIds,
+              batches: createBatches(input.batches),
+              idempotencyKey: input.idempotencyKey,
+              reason: input.reason,
+            }),
+            rpcOptions(input.signal),
+          ),
+        input.signal,
+        "Failed to start rollout lane.",
+        async (response) => {
+          if (!response.lane) {
+            throw new Error("Start rollout lane response was missing a lane.");
+          }
+          return hydrateRolloutLane(response.lane, input.signal);
+        },
+      );
+      if (!result.response.rollout) {
+        throw new Error("Start rollout lane response was missing a rollout.");
+      }
+      const mappedRollout = mapRollout(result.response.rollout);
+      applyMutationResult(mappedRollout);
+      return { lane: result.lane, rollout: mappedRollout };
+    },
+    [applyMutationResult, runLaneMutation],
+  );
+
   const admitRollout = useCallback(
     (input: AdmitRolloutInput) =>
       runMutation(
@@ -385,10 +673,15 @@ export function useRolloutApi(): UseRolloutApiResult {
   const revertRollout = useCallback((input: RolloutControlInput) => runControl("revert", input), [runControl]);
   const completeRollout = useCallback((input: CompleteRolloutInput) => runControl("complete", input), [runControl]);
 
-  const permissions = useMemo(() => ({ canRead, canManage, canControl }), [canControl, canManage, canRead]);
+  const permissions = useMemo(
+    () => ({ canReadChannels, canManageChannels, canRead, canManage, canControl }),
+    [canControl, canManage, canManageChannels, canRead, canReadChannels],
+  );
 
   return useMemo(
     () => ({
+      lane,
+      lanes,
       rollout,
       rollouts,
       isLoading,
@@ -396,6 +689,10 @@ export function useRolloutApi(): UseRolloutApiResult {
       loadError,
       mutationError,
       permissions,
+      listRolloutLanes,
+      getRolloutLane,
+      createRolloutLane,
+      startRolloutLane,
       listRollouts,
       getRollout,
       createRollout,
@@ -412,10 +709,15 @@ export function useRolloutApi(): UseRolloutApiResult {
       admitRollout,
       completeRollout,
       continueRollout,
+      createRolloutLane,
       createRollout,
+      getRolloutLane,
       getRollout,
       isLoading,
       isMutating,
+      lane,
+      lanes,
+      listRolloutLanes,
       listRollouts,
       loadError,
       mutationError,
@@ -425,6 +727,7 @@ export function useRolloutApi(): UseRolloutApiResult {
       revertRollout,
       rollout,
       rollouts,
+      startRolloutLane,
     ],
   );
 }

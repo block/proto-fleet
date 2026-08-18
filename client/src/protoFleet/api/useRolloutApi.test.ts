@@ -3,9 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { RolloutSchema, RolloutState } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import {
+  RolloutLaneChannelSchema,
+  RolloutLaneSchema,
+  RolloutSchema,
+  RolloutState,
+} from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 const rolloutClientMock = vi.hoisted(() => ({
+  createRolloutLane: vi.fn(),
+  getRolloutLane: vi.fn(),
+  listRolloutLanes: vi.fn(),
+  startRolloutLane: vi.fn(),
   createRollout: vi.fn(),
   getRollout: vi.fn(),
   listRollouts: vi.fn(),
@@ -17,10 +26,15 @@ const rolloutClientMock = vi.hoisted(() => ({
   revertRollout: vi.fn(),
   completeRollout: vi.fn(),
 }));
+const deviceSetClientMock = vi.hoisted(() => ({
+  getDeviceSet: vi.fn(),
+  listDeviceSetMembers: vi.fn(),
+}));
 const handleAuthErrorsMock = vi.hoisted(() => vi.fn());
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
+  deviceSetClient: deviceSetClientMock,
   rolloutClient: rolloutClientMock,
 }));
 
@@ -41,6 +55,23 @@ function protoRollout(id: string, state = RolloutState.RUNNING, revision = 1n) {
   });
 }
 
+function protoLane(id = "15bc6181-07d8-45ac-8424-50b5e938b871") {
+  return create(RolloutLaneSchema, {
+    laneId: id,
+    label: "Stable production",
+    currentChannelId: 41n,
+    revision: 2n,
+    channels: [
+      create(RolloutLaneChannelSchema, {
+        channelId: 41n,
+        releaseSetId: 7n,
+        position: 0,
+        current: true,
+      }),
+    ],
+  });
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((next) => {
@@ -52,7 +83,121 @@ function deferred<T>() {
 describe("useRolloutApi", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    permissionsMock.current = ["rollout:read", "rollout:manage", "rollout:control"];
+    permissionsMock.current = ["channel:read", "channel:manage", "rollout:read", "rollout:manage", "rollout:control"];
+    deviceSetClientMock.getDeviceSet.mockResolvedValue({
+      deviceSet: {
+        id: 41n,
+        deviceCount: 2,
+        typeDetails: {
+          case: "channelInfo",
+          value: {
+            releaseSetId: 7n,
+            releaseTargets: [
+              {
+                firmwareFileId: "file-alpha",
+                targetManufacturer: "Proto",
+                targetModel: "Alpha",
+                firmwareVersion: "1.0.0",
+                sha256: "abc",
+              },
+            ],
+          },
+        },
+      },
+    });
+    deviceSetClientMock.listDeviceSetMembers.mockResolvedValue({
+      members: [{ deviceIdentifier: "miner-1" }, { deviceIdentifier: "miner-2" }],
+      nextPageToken: "",
+    });
+  });
+
+  it("lists, creates, and loads hydrated rollout lanes through real RPCs", async () => {
+    rolloutClientMock.listRolloutLanes.mockResolvedValue({ lanes: [protoLane()] });
+    rolloutClientMock.createRolloutLane.mockResolvedValue({ lane: protoLane("f209bd52-d1c8-46a2-b76a-07ecf8426476") });
+    rolloutClientMock.getRolloutLane.mockResolvedValue({ lane: protoLane() });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.listRolloutLanes();
+    });
+    await act(async () => {
+      await result.current.createRolloutLane({
+        label: "Stable production",
+        description: "Production firmware lane",
+        firmwareFileIds: ["file-alpha"],
+        deviceIdentifiers: ["miner-1", "miner-2"],
+        idempotencyKey: "create-lane-one",
+      });
+    });
+    await act(async () => {
+      await result.current.getRolloutLane({ laneId: "15bc6181-07d8-45ac-8424-50b5e938b871" });
+    });
+
+    expect(rolloutClientMock.listRolloutLanes).toHaveBeenCalledTimes(1);
+    expect(rolloutClientMock.createRolloutLane.mock.calls[0][0]).toMatchObject({
+      label: "Stable production",
+      description: "Production firmware lane",
+      firmwareFileIds: ["file-alpha"],
+      deviceIdentifiers: ["miner-1", "miner-2"],
+      idempotencyKey: "create-lane-one",
+    });
+    expect(rolloutClientMock.getRolloutLane.mock.calls[0][0]).toMatchObject({
+      laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+    });
+    expect(result.current.lane).toMatchObject({
+      label: "Stable production",
+      memberCount: 2,
+      memberIdentifiers: ["miner-1", "miner-2"],
+      currentReleaseTargets: [{ firmwareFileId: "file-alpha", firmwareVersion: "1.0.0" }],
+    });
+    expect(deviceSetClientMock.listDeviceSetMembers).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the selected lane with exact target files and frozen batch assignments", async () => {
+    rolloutClientMock.startRolloutLane.mockResolvedValue({
+      lane: protoLane(),
+      rollout: protoRollout("created", RolloutState.CREATED),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.startRolloutLane({
+        laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+        name: "Production 2.0.0",
+        firmwareFileIds: ["file-alpha-2", "file-beta-2"],
+        batches: [
+          {
+            label: "Pilot",
+            members: [{ deviceIdentifier: "miner-2" }],
+          },
+          {
+            label: "Remaining",
+            members: [{ deviceIdentifier: "miner-1" }, { deviceIdentifier: "miner-3" }],
+          },
+        ],
+        idempotencyKey: "start-lane-one",
+        reason: "Deploy validated release",
+      });
+    });
+
+    expect(rolloutClientMock.startRolloutLane.mock.calls[0][0]).toMatchObject({
+      laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+      name: "Production 2.0.0",
+      firmwareFileIds: ["file-alpha-2", "file-beta-2"],
+      batches: [
+        {
+          label: "Pilot",
+          members: [{ deviceIdentifier: "miner-2" }],
+        },
+        {
+          label: "Remaining",
+          members: [{ deviceIdentifier: "miner-1" }, { deviceIdentifier: "miner-3" }],
+        },
+      ],
+      idempotencyKey: "start-lane-one",
+      reason: "Deploy validated release",
+    });
+    expect(result.current.rollout).toMatchObject({ id: "created", state: "created" });
   });
 
   it("lists and gets mapped rollout records", async () => {
@@ -244,10 +389,12 @@ describe("useRolloutApi", () => {
   });
 
   it("exposes organization-scoped rollout permissions", () => {
-    permissionsMock.current = ["rollout:read"];
+    permissionsMock.current = ["channel:read", "rollout:read"];
     const { result } = renderHook(() => useRolloutApi());
 
     expect(result.current.permissions).toEqual({
+      canReadChannels: true,
+      canManageChannels: false,
       canRead: true,
       canManage: false,
       canControl: false,

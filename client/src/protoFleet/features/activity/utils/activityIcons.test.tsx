@@ -60,6 +60,7 @@ describe("activityIcons", () => {
     expect(getActivityIcon("update_pool")).toBe(MiningPools);
     expect(getActivityIcon("firmware_update")).toBe(Settings);
     expect(getActivityIcon("set_power_target")).toBe(Speedometer);
+    expect(getActivityIcon("between_channel_rollout_member.moved")).toBe(Settings);
   });
 
   it("marks alert and destructive events as critical", () => {
@@ -70,6 +71,8 @@ describe("activityIcons", () => {
     expect(getActivityIconTone("revoke_api_key")).toBe("critical");
     expect(getActivityIconTone("unpair")).toBe("critical");
     expect(getActivityIconTone("login", "failure")).toBe("critical");
+    expect(getActivityIconTone("between_channel_rollout_member.attention_required")).toBe("critical");
+    expect(getActivityIconTone("between_channel_rollout_member.membership_conflict")).toBe("critical");
   });
 
   it("treats rack position changes like normal save activity", () => {

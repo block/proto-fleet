@@ -146,6 +146,44 @@ export interface RolloutActionEligibility {
   complete: boolean;
 }
 
+/** Immutable firmware target attached to the lane's current physical channel. */
+export interface RolloutLaneReleaseTarget {
+  firmwareFileId: string;
+  targetManufacturer: string;
+  targetModel: string;
+  firmwareVersion: string;
+  sha256: string;
+}
+
+/** One physical version channel in a stable operator-facing lane. */
+export interface RolloutLaneChannel {
+  channelId: bigint;
+  releaseSetId: bigint;
+  position: number;
+  rolloutId?: string;
+  current: boolean;
+  createdAt?: string;
+}
+
+/**
+ * Stable lane facade. Physical channels remain IDs here so production UI can
+ * show release history without making channel churn the operator workflow.
+ */
+export interface RolloutLane {
+  id: string;
+  label: string;
+  description: string;
+  currentChannelId: bigint;
+  currentReleaseSetId?: bigint;
+  revision: bigint;
+  channels: RolloutLaneChannel[];
+  memberCount: number;
+  memberIdentifiers: string[];
+  currentReleaseTargets: RolloutLaneReleaseTarget[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 /** API-backed model that does not choose a rollout admission strategy. */
 export interface RolloutRecord {
   id: string;

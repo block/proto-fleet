@@ -7,6 +7,8 @@ import {
   type RolloutCause as ProtoRolloutCause,
   type RolloutEvidence as ProtoRolloutEvidence,
   RolloutEvidencePhase as ProtoRolloutEvidencePhase,
+  type RolloutLane as ProtoRolloutLane,
+  type RolloutLaneChannel as ProtoRolloutLaneChannel,
   type RolloutMember as ProtoRolloutMember,
   RolloutMemberState as ProtoRolloutMemberState,
   RolloutState as ProtoRolloutState,
@@ -16,8 +18,12 @@ import type {
   RolloutBatch,
   RolloutBatchState,
   RolloutCause,
+  RolloutEvent,
   RolloutEvidence,
   RolloutEvidencePhase,
+  RolloutLane,
+  RolloutLaneChannel,
+  RolloutLaneReleaseTarget,
   RolloutLifecycleState,
   RolloutMember,
   RolloutMemberState,
@@ -29,6 +35,16 @@ import type {
 export interface MapRolloutOptions {
   membershipProgress?: RolloutProgress;
   convergenceProgress?: RolloutProgress;
+}
+
+export interface MapRolloutLaneDetails {
+  memberCount?: number;
+  memberIdentifiers?: string[];
+  releaseTargets?: RolloutLaneReleaseTarget[];
+}
+
+export interface MapRolloutToEventOptions {
+  laneLabel?: string;
 }
 
 export function rolloutTimestampToIsoString(timestamp?: Timestamp): string | undefined {
@@ -177,6 +193,36 @@ export function getRolloutActionEligibility(state: RolloutLifecycleState): Rollo
   };
 }
 
+function mapRolloutLaneChannel(channel: ProtoRolloutLaneChannel): RolloutLaneChannel {
+  return {
+    channelId: channel.channelId,
+    releaseSetId: channel.releaseSetId,
+    position: channel.position,
+    rolloutId: channel.rolloutId,
+    current: channel.current,
+    createdAt: rolloutTimestampToIsoString(channel.createdAt),
+  };
+}
+
+export function mapRolloutLane(lane: ProtoRolloutLane, details: MapRolloutLaneDetails = {}): RolloutLane {
+  const channels = lane.channels.map(mapRolloutLaneChannel);
+  const currentChannel = channels.find((channel) => channel.current || channel.channelId === lane.currentChannelId);
+  return {
+    id: lane.laneId,
+    label: lane.label,
+    description: lane.description,
+    currentChannelId: lane.currentChannelId,
+    currentReleaseSetId: currentChannel?.releaseSetId,
+    revision: lane.revision,
+    channels,
+    memberCount: details.memberCount ?? 0,
+    memberIdentifiers: [...(details.memberIdentifiers ?? [])],
+    currentReleaseTargets: [...(details.releaseTargets ?? [])],
+    createdAt: rolloutTimestampToIsoString(lane.createdAt),
+    updatedAt: rolloutTimestampToIsoString(lane.updatedAt),
+  };
+}
+
 function mapRolloutEvidence(evidence: ProtoRolloutEvidence): RolloutEvidence {
   return {
     id: evidence.evidenceId,
@@ -267,5 +313,151 @@ export function mapRollout(rollout: ProtoRollout, options: MapRolloutOptions = {
     membershipProgress: options.membershipProgress ? { ...options.membershipProgress } : undefined,
     convergenceProgress: options.convergenceProgress ? { ...options.convergenceProgress } : undefined,
     availableActions: getRolloutActionEligibility(state),
+  };
+}
+
+function countMemberState(rollout: RolloutRecord, state: RolloutMemberState): number {
+  return rollout.members.filter((member) => member.state === state).length;
+}
+
+function memberCountForBatch(rollout: RolloutRecord, batchId: bigint): number {
+  return rollout.members.filter((member) => member.batchId === batchId).length;
+}
+
+function rolloutErrors(rollout: RolloutRecord) {
+  const impactedByMessage = new Map<string, string[]>();
+  rollout.members.forEach((member) => {
+    if (!member.lastError) {
+      return;
+    }
+    const impacted = impactedByMessage.get(member.lastError) ?? [];
+    impacted.push(member.deviceIdentifier);
+    impactedByMessage.set(member.lastError, impacted);
+  });
+  return [...impactedByMessage.entries()].map(([message, impactedMiners]) => ({
+    id: message,
+    message,
+    impactedMiners,
+  }));
+}
+
+function rolloutPerformance(rollout: RolloutRecord): RolloutEvent["performance"] {
+  const evidenceForPhase = (phase: RolloutEvidencePhase) =>
+    rollout.members.flatMap((member) => member.evidence).filter((evidence) => evidence.phase === phase);
+  const baseline = evidenceForPhase("baseline");
+  const post = evidenceForPhase("post");
+  const average = (values: Array<number | undefined>): number | undefined => {
+    const available = values.filter((value): value is number => value !== undefined && Number.isFinite(value));
+    if (available.length === 0) {
+      return undefined;
+    }
+    return available.reduce((sum, value) => sum + value, 0) / available.length;
+  };
+  const metric = (
+    label: string,
+    unit: "hashrate" | "power" | "temperature",
+    baselineValues: Array<number | undefined>,
+    currentValues: Array<number | undefined>,
+  ) => {
+    const baselineValue = average(baselineValues);
+    const currentValue = average(currentValues);
+    return baselineValue === undefined || currentValue === undefined
+      ? null
+      : { label, unit, baseline: baselineValue, current: currentValue };
+  };
+  const metrics = [
+    metric(
+      "Hashrate",
+      "hashrate",
+      baseline.map((item) => item.avgHashrateHs),
+      post.map((item) => item.avgHashrateHs),
+    ),
+    metric(
+      "Power",
+      "power",
+      baseline.map((item) => item.avgPowerW),
+      post.map((item) => item.avgPowerW),
+    ),
+    metric(
+      "Temperature",
+      "temperature",
+      baseline.map((item) => item.avgTemperatureC),
+      post.map((item) => item.avgTemperatureC),
+    ),
+  ].filter((item): item is NonNullable<typeof item> => item !== null);
+  return metrics.length > 0 ? { metrics } : undefined;
+}
+
+/** Adapts durable API data to the existing model-neutral rollout surfaces. */
+export function mapRolloutToEvent(
+  rollout: RolloutRecord,
+  { laneLabel = "Rollout lane" }: MapRolloutToEventOptions = {},
+): RolloutEvent {
+  const succeeded = countMemberState(rollout, "succeeded");
+  const failed = countMemberState(rollout, "failed");
+  const attentionRequired = countMemberState(rollout, "attentionRequired");
+  const reverted = countMemberState(rollout, "reverted");
+  const total = rollout.members.length;
+  const membershipCompleted = rollout.state === "reverting" || rollout.state === "reverted" ? reverted : succeeded;
+  const convergenceCompleted = succeeded + failed + attentionRequired + reverted;
+  const memberStates: RolloutMemberState[] = [
+    "pending",
+    "admitted",
+    "succeeded",
+    "failed",
+    "attentionRequired",
+    "cancelled",
+    "reverting",
+    "reverted",
+    "unknown",
+  ];
+  const rollups = memberStates
+    .map((state) => ({
+      phase: rolloutMemberStateToTargetPhase(state),
+      count: countMemberState(rollout, state),
+    }))
+    .filter((rollup) => rollup.count > 0);
+  const firstBatchLabel = rollout.batches[0]?.label.toLowerCase() ?? "";
+  const strategy =
+    rollout.batches.length <= 1
+      ? ("allAtOnce" as const)
+      : firstBatchLabel.includes("pilot")
+        ? ("pilotThenContinue" as const)
+        : ("batched" as const);
+  const activeBatch =
+    rollout.batches.find((batch) => batch.state === "admitted") ??
+    rollout.batches.find((batch) => batch.state === "pending") ??
+    rollout.batches[rollout.batches.length - 1];
+  const batchCounts = rollout.batches.map((batch) => batch.members.length || memberCountForBatch(rollout, batch.id));
+  const pilotSize = strategy === "pilotThenContinue" ? batchCounts[0] : undefined;
+  const batchSize = strategy === "batched" && batchCounts.length > 0 ? Math.max(...batchCounts) : undefined;
+
+  return {
+    processType: "firmware",
+    state: rollout.state,
+    title: rollout.name,
+    scopeLabel: laneLabel,
+    strategy,
+    order: "random",
+    totalTargets: total,
+    excludedTargets: 0,
+    batchSize,
+    pilotSize,
+    reviewAfterEachBatch: rollout.batches.length > 1,
+    autoContinueOnHealthyTelemetry: false,
+    currentBatch: activeBatch ? activeBatch.position + 1 : undefined,
+    totalBatches: rollout.batches.length || undefined,
+    startedAt: rollout.startedAt ?? rollout.createdAt,
+    performance: rolloutPerformance(rollout),
+    errors: rolloutErrors(rollout),
+    membershipProgress: { completed: membershipCompleted, total },
+    convergenceProgress: {
+      completed: convergenceCompleted,
+      total,
+      failed,
+      attentionRequired,
+    },
+    availableActions: rollout.availableActions,
+    rollups,
   };
 }

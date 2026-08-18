@@ -33,6 +33,10 @@ vi.mock("@/protoFleet/features/settings/components/EditFirmwareMetadataDialog", 
 
 vi.mock("@/shared/features/toaster");
 
+vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTab", () => ({
+  default: () => <div>Stable rollout lanes</div>,
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockListFirmwareFiles.mockResolvedValue([]);
@@ -61,6 +65,16 @@ const sampleFiles = [
 ];
 
 describe("Firmware", () => {
+  it("keeps files and stable rollout lanes under the existing firmware route", async () => {
+    render(<Firmware />);
+
+    expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute("aria-current", "page");
+    fireEvent.click(screen.getByRole("button", { name: "Rollout lanes" }));
+
+    expect(screen.getByText("Stable rollout lanes")).toBeInTheDocument();
+    expect(screen.queryByText("No firmware files uploaded")).not.toBeInTheDocument();
+  });
+
   it("renders page title", async () => {
     const { getByText } = render(<Firmware />);
 

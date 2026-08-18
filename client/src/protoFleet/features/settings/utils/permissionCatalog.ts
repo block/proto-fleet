@@ -34,6 +34,8 @@ const RESOURCE_TO_GROUP: Record<string, string> = {
   curtailment: "curtailment",
   pool: "pool",
   schedule: "schedule",
+  channel: "firmwareRollouts",
+  rollout: "firmwareRollouts",
   alert: "alerts",
   fleetnode: "admin",
   serverlog: "admin",
@@ -50,11 +52,22 @@ const GROUP_LABELS: Record<string, string> = {
   curtailment: "Curtailment",
   pool: "Mining pools",
   schedule: "Schedules",
+  firmwareRollouts: "Firmware rollouts",
   alerts: "Alerts",
   admin: "Administration",
 };
 
-const GROUP_ORDER = ["fleet", "miner", "infrastructure", "curtailment", "pool", "schedule", "alerts", "admin"];
+const GROUP_ORDER = [
+  "fleet",
+  "miner",
+  "infrastructure",
+  "curtailment",
+  "pool",
+  "schedule",
+  "firmwareRollouts",
+  "alerts",
+  "admin",
+];
 
 /** True for catalog keys whose action segment is "read". */
 export const isReadKey = (key: string): boolean => key.endsWith(":read");
@@ -153,6 +166,9 @@ const FUNCTIONAL_DEPENDENCIES: Record<string, FunctionalDependency> = {
   // Installing firmware can reboot the device, so the server gates the
   // firmware RPC on miner:reboot in addition to miner:firmware_update.
   "miner:firmware_update": { requires: ["miner:reboot"] },
+  // Between-channel rollout creation also creates a target channel, so the
+  // production workflow needs both rollout and channel management grants.
+  "rollout:manage": { requires: ["channel:manage"] },
 };
 
 export interface DependencyGaps {

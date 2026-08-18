@@ -21,12 +21,15 @@ interface RolloutControlsProps {
   disabled?: boolean;
   /** In-scope target count for the live plan readout. */
   inScopeCount?: number;
+  /** Limit methods on production surfaces whose API supports only explicit batches. */
+  allowedStrategies?: RolloutStrategy[];
+  /** Hide interval fields when the server persists assignments, not a timer. */
+  showTiming?: boolean;
+  /** Keep threshold automation out of manual-review production flows. */
+  allowAutomaticReview?: boolean;
+  /** Hide this field when the API has no concurrency input. */
+  showMaxConcurrentOffline?: boolean;
 }
-
-const strategyOptions = (Object.keys(strategyLabels) as RolloutStrategy[]).map((value) => ({
-  value,
-  label: strategyLabels[value],
-}));
 
 const orderOptions = (Object.keys(orderLabels) as RolloutOrder[]).map((value) => ({
   value,
@@ -41,7 +44,16 @@ const defaultAutomationThresholds: RolloutAutomationThresholds = {
 };
 
 /** Pacing controls shared by rollout config surfaces. */
-function RolloutControls({ config, onChange, disabled = false, inScopeCount }: RolloutControlsProps): ReactElement {
+function RolloutControls({
+  config,
+  onChange,
+  disabled = false,
+  inScopeCount,
+  allowedStrategies = Object.keys(strategyLabels) as RolloutStrategy[],
+  showTiming = true,
+  allowAutomaticReview = true,
+  showMaxConcurrentOffline = true,
+}: RolloutControlsProps): ReactElement {
   function patch(partial: Partial<RolloutPlanConfig>): void {
     onChange({ ...config, ...partial });
   }
@@ -80,6 +92,10 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
   const behaviorLabel = rolloutBehaviorLabel(config.processType);
   const strategyHelp = strategyHelpText(config.processType);
   const automationThresholds = config.automationThresholds ?? defaultAutomationThresholds;
+  const strategyOptions = allowedStrategies.map((value) => ({
+    value,
+    label: strategyLabels[value],
+  }));
 
   function patchAutomationThreshold(partial: Partial<RolloutAutomationThresholds>): void {
     patch({
@@ -103,7 +119,7 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
   );
 
   const batchFields = (
-    <div className="grid gap-3 tablet:grid-cols-2">
+    <div className={showTiming ? "grid gap-3 tablet:grid-cols-2" : "grid gap-3"}>
       <Input
         id="rollout-batch-size"
         label="Batch size (miners)"
@@ -113,16 +129,18 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
         onChange={(value) => patch({ batchSize: parseCount(value) })}
         disabled={disabled}
       />
-      <Input
-        id="rollout-batch-interval"
-        label="Wait between batches"
-        type="number"
-        inputMode="numeric"
-        units="sec"
-        initValue={config.batchIntervalSec ?? ""}
-        onChange={(value) => patch({ batchIntervalSec: parseCount(value) })}
-        disabled={disabled}
-      />
+      {showTiming ? (
+        <Input
+          id="rollout-batch-interval"
+          label="Wait between batches"
+          type="number"
+          inputMode="numeric"
+          units="sec"
+          initValue={config.batchIntervalSec ?? ""}
+          onChange={(value) => patch({ batchIntervalSec: parseCount(value) })}
+          disabled={disabled}
+        />
+      ) : null}
     </div>
   );
 
@@ -151,7 +169,7 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
         />
       </div>
 
-      {config.reviewAfterEachBatch ? (
+      {config.reviewAfterEachBatch && allowAutomaticReview ? (
         <div className="ml-8 grid gap-3">
           <div className="flex items-center gap-2">
             <label
@@ -287,18 +305,18 @@ function RolloutControls({ config, onChange, disabled = false, inScopeCount }: R
       </div>
 
       {showPilotFields ? (
-        <div className="grid gap-3 tablet:grid-cols-2">
+        <div className={showMaxConcurrentOffline ? "grid gap-3 tablet:grid-cols-2" : "grid gap-3"}>
           {pilotField}
-          {maxOfflineField}
+          {showMaxConcurrentOffline ? maxOfflineField : null}
         </div>
       ) : showBatchFields ? (
         <>
           {batchFields}
-          {maxOfflineField}
+          {showMaxConcurrentOffline ? maxOfflineField : null}
         </>
-      ) : (
+      ) : showMaxConcurrentOffline ? (
         maxOfflineField
-      )}
+      ) : null}
 
       {reviewAfterEachBatchControl}
 
