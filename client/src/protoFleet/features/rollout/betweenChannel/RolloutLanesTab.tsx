@@ -9,6 +9,7 @@ import BetweenChannelRolloutStatus from "@/protoFleet/features/rollout/betweenCh
 import {
   canCompleteWithFailures,
   canRevertRollout,
+  hasActiveInitialEnforcement,
   shouldMonitorRollout,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import CreateRolloutLaneModal, {
@@ -58,6 +59,7 @@ export default function RolloutLanesTab() {
     permissions,
     listRolloutLanes,
     getRolloutLane,
+    previewRolloutLane,
     createRolloutLane,
     startRolloutLane,
     listRollouts,
@@ -137,6 +139,7 @@ export default function RolloutLanesTab() {
     () => (monitoredRolloutIdsKey ? monitoredRolloutIdsKey.split("\0") : []),
     [monitoredRolloutIdsKey],
   );
+  const hasMonitoredInitialEnforcement = lanes.some(hasActiveInitialEnforcement);
   const monitoredRollout =
     focusedRollout ??
     rows.find((row) => shouldMonitorRollout(row.latestRollout))?.latestRollout ??
@@ -168,7 +171,8 @@ export default function RolloutLanesTab() {
   useEffect(() => {
     const refresh = () => void refreshMonitoredRollouts();
     window.addEventListener(ROLLOUT_CHANGED_EVENT, refresh);
-    const interval = monitoredRolloutIds.length > 0 ? window.setInterval(refresh, 5000) : undefined;
+    const interval =
+      monitoredRolloutIds.length > 0 || hasMonitoredInitialEnforcement ? window.setInterval(refresh, 5000) : undefined;
     return () => {
       window.removeEventListener(ROLLOUT_CHANGED_EVENT, refresh);
       if (interval !== undefined) {
@@ -177,7 +181,7 @@ export default function RolloutLanesTab() {
       refreshControllerRef.current?.abort();
       refreshControllerRef.current = null;
     };
-  }, [monitoredRolloutIds.length, refreshMonitoredRollouts]);
+  }, [hasMonitoredInitialEnforcement, monitoredRolloutIds.length, refreshMonitoredRollouts]);
 
   const handleCreate = useCallback(
     async (values: CreateRolloutLaneValues) => {
@@ -402,6 +406,7 @@ export default function RolloutLanesTab() {
           isSubmitting={isMutating}
           error={mutationError}
           onDismiss={() => setShowCreate(false)}
+          onPreview={previewRolloutLane}
           onCreate={(values) => void handleCreate(values)}
         />
       ) : null}

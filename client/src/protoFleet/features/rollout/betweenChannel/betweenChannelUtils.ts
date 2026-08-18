@@ -79,7 +79,14 @@ function hasMemberOutsideCurrentChannel(lane: RolloutLane, rollout: RolloutRecor
   return true;
 }
 
+export function hasActiveInitialEnforcement(lane: RolloutLane): boolean {
+  return lane.initialEnforcement.pendingCount > 0 || lane.initialEnforcement.updatingCount > 0;
+}
+
 export function rolloutLaneStartBlockedReason(lane: RolloutLane, rollout: RolloutRecord | undefined): string | null {
+  if (hasActiveInitialEnforcement(lane)) {
+    return "Wait for initial firmware enforcement to settle before starting a rollout.";
+  }
   if (!rollout) {
     return null;
   }

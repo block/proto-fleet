@@ -9,6 +9,7 @@ import (
 )
 
 type LaneStore interface {
+	PreviewLane(ctx context.Context, req PreviewLaneRequest) (InitialEnforcementPreview, error)
 	CreateLane(ctx context.Context, req CreateLaneRequest) (*Lane, error)
 	GetLane(ctx context.Context, orgID int64, laneID uuid.UUID) (*Lane, error)
 	ListLanes(ctx context.Context, orgID int64) ([]Lane, error)

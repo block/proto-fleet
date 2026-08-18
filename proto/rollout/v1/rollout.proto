@@ -7,6 +7,7 @@ import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 service RolloutService {
+    rpc PreviewRolloutLane(PreviewRolloutLaneRequest) returns (PreviewRolloutLaneResponse);
     rpc CreateRolloutLane(CreateRolloutLaneRequest) returns (CreateRolloutLaneResponse);
     rpc GetRolloutLane(GetRolloutLaneRequest) returns (GetRolloutLaneResponse);
     rpc ListRolloutLanes(ListRolloutLanesRequest) returns (ListRolloutLanesResponse);
@@ -32,6 +33,7 @@ message RolloutLane {
     repeated RolloutLaneChannel channels = 6;
     google.protobuf.Timestamp created_at = 7;
     google.protobuf.Timestamp updated_at = 8;
+    RolloutLaneInitialEnforcementStatus initial_enforcement = 9;
 }
 
 message RolloutLaneChannel {
@@ -59,6 +61,7 @@ message CreateRolloutLaneRequest {
         items: {string: {min_len: 1}}
     }];
     string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    bool confirm_initial_enforcement = 6;
 }
 
 message CreateRolloutLaneResponse {
@@ -356,4 +359,63 @@ message CompleteRolloutRequest {
 
 message CompleteRolloutResponse {
     Rollout rollout = 1;
+}
+
+enum InitialFirmwareMatchStatus {
+    INITIAL_FIRMWARE_MATCH_STATUS_UNSPECIFIED = 0;
+    INITIAL_FIRMWARE_MATCH_STATUS_MATCHING = 1;
+    INITIAL_FIRMWARE_MATCH_STATUS_MISMATCHED = 2;
+    INITIAL_FIRMWARE_MATCH_STATUS_UNKNOWN = 3;
+}
+
+message RolloutLanePreviewTarget {
+    string firmware_file_id = 1;
+    string manufacturer = 2;
+    string model = 3;
+    string firmware_version = 4;
+}
+
+message RolloutLanePreviewMiner {
+    string device_identifier = 1;
+    string manufacturer = 2;
+    string model = 3;
+    optional string current_firmware_version = 4;
+    string target_firmware_version = 5;
+    string target_firmware_file_id = 6;
+    InitialFirmwareMatchStatus status = 7;
+}
+
+message RolloutLanePreview {
+    repeated RolloutLanePreviewTarget targets = 1;
+    repeated RolloutLanePreviewMiner miners = 2;
+    uint32 matching_count = 3;
+    uint32 mismatched_count = 4;
+    uint32 unknown_count = 5;
+}
+
+message PreviewRolloutLaneRequest {
+    repeated string firmware_file_ids = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 100
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+}
+
+message PreviewRolloutLaneResponse {
+    RolloutLanePreview preview = 1;
+}
+
+message RolloutLaneInitialEnforcementStatus {
+    uint32 total_count = 1;
+    uint32 pending_count = 2;
+    uint32 updating_count = 3;
+    uint32 confirmed_count = 4;
+    uint32 attention_count = 5;
 }

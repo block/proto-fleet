@@ -5,10 +5,12 @@ import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
+import type { RolloutLanePreview } from "@/protoFleet/features/rollout/rolloutTypes";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Radio from "@/shared/components/Radio";
 import Textarea from "@/shared/components/Textarea";
@@ -18,7 +20,10 @@ export interface CreateRolloutLaneValues {
   description: string;
   firmwareFileIds: string[];
   deviceIdentifiers: string[];
+  confirmInitialEnforcement: boolean;
 }
+
+type PreviewRolloutLaneValues = Pick<CreateRolloutLaneValues, "firmwareFileIds" | "deviceIdentifiers">;
 
 interface CreateRolloutLaneModalProps {
   open: boolean;
@@ -26,6 +31,7 @@ interface CreateRolloutLaneModalProps {
   isSubmitting: boolean;
   error?: string | null;
   onDismiss: () => void;
+  onPreview: (values: PreviewRolloutLaneValues) => Promise<RolloutLanePreview>;
   onCreate: (values: CreateRolloutLaneValues) => void;
 }
 
@@ -35,6 +41,7 @@ export default function CreateRolloutLaneModal({
   isSubmitting,
   error,
   onDismiss,
+  onPreview,
   onCreate,
 }: CreateRolloutLaneModalProps) {
   const [label, setLabel] = useState("");
@@ -42,6 +49,10 @@ export default function CreateRolloutLaneModal({
   const [selectedFileByModel, setSelectedFileByModel] = useState<Record<string, string>>({});
   const [deviceIdentifiers, setDeviceIdentifiers] = useState<string[]>([]);
   const [showMinerSelection, setShowMinerSelection] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    values: Omit<CreateRolloutLaneValues, "confirmInitialEnforcement">;
+    preview: RolloutLanePreview;
+  } | null>(null);
   const targetFiles = useMemo(
     () =>
       files.filter((file) =>
@@ -66,18 +77,34 @@ export default function CreateRolloutLaneModal({
   }, [targetFiles]);
   const selectedFiles = Object.values(selectedFileByModel);
   const canCreate = label.trim().length > 0 && selectedFiles.length > 0 && deviceIdentifiers.length > 0;
+  const selectedValues = (): Omit<CreateRolloutLaneValues, "confirmInitialEnforcement"> => ({
+    label: label.trim(),
+    description: description.trim(),
+    firmwareFileIds: selectedFiles,
+    deviceIdentifiers,
+  });
+  const previewAndCreate = async () => {
+    const values = selectedValues();
+    try {
+      const preview = await onPreview({
+        firmwareFileIds: values.firmwareFileIds,
+        deviceIdentifiers: values.deviceIdentifiers,
+      });
+      if (preview.mismatchedCount > 0 || preview.unknownCount > 0) {
+        setConfirmation({ values, preview });
+        return;
+      }
+      onCreate({ ...values, confirmInitialEnforcement: false });
+    } catch {
+      // The API error remains visible in the lane creator.
+    }
+  };
   const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [
     {
       text: isSubmitting ? "Creating..." : "Create lane",
       variant: variants.primary,
       disabled: !canCreate || isSubmitting,
-      onClick: () =>
-        onCreate({
-          label: label.trim(),
-          description: description.trim(),
-          firmwareFileIds: selectedFiles,
-          deviceIdentifiers,
-        }),
+      onClick: () => void previewAndCreate(),
     },
   ];
   const summary = (
@@ -211,6 +238,52 @@ export default function CreateRolloutLaneModal({
           setShowMinerSelection(false);
         }}
       />
+      <Dialog
+        open={confirmation !== null}
+        title="Creating this lane starts firmware updates"
+        testId="initial-enforcement-confirmation"
+        onDismiss={() => setConfirmation(null)}
+        icon={
+          <DialogIcon intent="critical">
+            <Alert />
+          </DialogIcon>
+        }
+        buttons={[
+          {
+            text: "Cancel",
+            onClick: () => setConfirmation(null),
+            variant: variants.secondary,
+            disabled: isSubmitting,
+          },
+          {
+            text: "Create and update firmware",
+            onClick: () => {
+              if (!confirmation) {
+                return;
+              }
+              onCreate({ ...confirmation.values, confirmInitialEnforcement: true });
+            },
+            variant: variants.primary,
+            loading: isSubmitting,
+          },
+        ]}
+      >
+        {confirmation ? (
+          <div className="grid gap-3 text-300 text-text-primary-70">
+            <p>
+              {confirmation.preview.mismatchedCount.toLocaleString()} mismatched{" "}
+              {confirmation.preview.mismatchedCount === 1 ? "miner" : "miners"} and{" "}
+              {confirmation.preview.unknownCount.toLocaleString()}{" "}
+              {confirmation.preview.unknownCount === 1 ? "miner" : "miners"} with unknown firmware require updates.
+            </p>
+            <p>
+              Creating the lane immediately starts firmware updates for{" "}
+              {(confirmation.preview.mismatchedCount + confirmation.preview.unknownCount).toLocaleString()} miners.
+              Matching miners are recorded as already confirmed.
+            </p>
+          </div>
+        ) : null}
+      </Dialog>
     </>
   );
 }

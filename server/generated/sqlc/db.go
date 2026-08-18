@@ -231,6 +231,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
 	}
+	if q.countActiveRolloutLaneInitialEnforcementsStmt, err = db.PrepareContext(ctx, countActiveRolloutLaneInitialEnforcements); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveRolloutLaneInitialEnforcements: %w", err)
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -362,6 +365,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createInfrastructureDeviceStmt, err = db.PrepareContext(ctx, createInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateInfrastructureDevice: %w", err)
+	}
+	if q.createInitialRolloutLaneEnforcementsStmt, err = db.PrepareContext(ctx, createInitialRolloutLaneEnforcements); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateInitialRolloutLaneEnforcements: %w", err)
 	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
@@ -957,6 +963,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRolloutLaneForRolloutStmt, err = db.PrepareContext(ctx, getRolloutLaneForRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRolloutLaneForRollout: %w", err)
 	}
+	if q.getRolloutLaneInitialEnforcementStatusStmt, err = db.PrepareContext(ctx, getRolloutLaneInitialEnforcementStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneInitialEnforcementStatus: %w", err)
+	}
 	if q.getRunningPowerTargetScheduleOverlapsStmt, err = db.PrepareContext(ctx, getRunningPowerTargetScheduleOverlaps); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRunningPowerTargetScheduleOverlaps: %w", err)
 	}
@@ -1299,6 +1308,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolloutLaneChannelsStmt, err = db.PrepareContext(ctx, listRolloutLaneChannels); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolloutLaneChannels: %w", err)
 	}
+	if q.listRolloutLaneInitialEnforcementStatusesStmt, err = db.PrepareContext(ctx, listRolloutLaneInitialEnforcementStatuses); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneInitialEnforcementStatuses: %w", err)
+	}
 	if q.listRolloutLanesStmt, err = db.PrepareContext(ctx, listRolloutLanes); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolloutLanes: %w", err)
 	}
@@ -1328,6 +1340,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockBetweenChannelDevicesStmt, err = db.PrepareContext(ctx, lockBetweenChannelDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBetweenChannelDevices: %w", err)
+	}
+	if q.lockBetweenChannelInitialDevicesStmt, err = db.PrepareContext(ctx, lockBetweenChannelInitialDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query LockBetweenChannelInitialDevices: %w", err)
 	}
 	if q.lockBuildingForWriteStmt, err = db.PrepareContext(ctx, lockBuildingForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingForWrite: %w", err)
@@ -2249,6 +2264,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
 		}
 	}
+	if q.countActiveRolloutLaneInitialEnforcementsStmt != nil {
+		if cerr := q.countActiveRolloutLaneInitialEnforcementsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveRolloutLaneInitialEnforcementsStmt: %w", cerr)
+		}
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
 		if cerr := q.countActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
@@ -2467,6 +2487,11 @@ func (q *Queries) Close() error {
 	if q.createInfrastructureDeviceStmt != nil {
 		if cerr := q.createInfrastructureDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createInfrastructureDeviceStmt: %w", cerr)
+		}
+	}
+	if q.createInitialRolloutLaneEnforcementsStmt != nil {
+		if cerr := q.createInitialRolloutLaneEnforcementsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createInitialRolloutLaneEnforcementsStmt: %w", cerr)
 		}
 	}
 	if q.createOrganizationStmt != nil {
@@ -3459,6 +3484,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRolloutLaneForRolloutStmt: %w", cerr)
 		}
 	}
+	if q.getRolloutLaneInitialEnforcementStatusStmt != nil {
+		if cerr := q.getRolloutLaneInitialEnforcementStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneInitialEnforcementStatusStmt: %w", cerr)
+		}
+	}
 	if q.getRunningPowerTargetScheduleOverlapsStmt != nil {
 		if cerr := q.getRunningPowerTargetScheduleOverlapsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRunningPowerTargetScheduleOverlapsStmt: %w", cerr)
@@ -4029,6 +4059,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolloutLaneChannelsStmt: %w", cerr)
 		}
 	}
+	if q.listRolloutLaneInitialEnforcementStatusesStmt != nil {
+		if cerr := q.listRolloutLaneInitialEnforcementStatusesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneInitialEnforcementStatusesStmt: %w", cerr)
+		}
+	}
 	if q.listRolloutLanesStmt != nil {
 		if cerr := q.listRolloutLanesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolloutLanesStmt: %w", cerr)
@@ -4077,6 +4112,11 @@ func (q *Queries) Close() error {
 	if q.lockBetweenChannelDevicesStmt != nil {
 		if cerr := q.lockBetweenChannelDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockBetweenChannelDevicesStmt: %w", cerr)
+		}
+	}
+	if q.lockBetweenChannelInitialDevicesStmt != nil {
+		if cerr := q.lockBetweenChannelInitialDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockBetweenChannelInitialDevicesStmt: %w", cerr)
 		}
 	}
 	if q.lockBuildingForWriteStmt != nil {
@@ -5137,6 +5177,7 @@ type Queries struct {
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
+	countActiveRolloutLaneInitialEnforcementsStmt                *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
 	countActivityLogsStmt                                        *sql.Stmt
 	countBetweenChannelAdmittedBatchMembersStmt                  *sql.Stmt
@@ -5181,6 +5222,7 @@ type Queries struct {
 	createFleetNodeStmt                                          *sql.Stmt
 	createFleetNodeApiKeyStmt                                    *sql.Stmt
 	createInfrastructureDeviceStmt                               *sql.Stmt
+	createInitialRolloutLaneEnforcementsStmt                     *sql.Stmt
 	createOrganizationStmt                                       *sql.Stmt
 	createPendingEnrollmentStmt                                  *sql.Stmt
 	createPoolStmt                                               *sql.Stmt
@@ -5379,6 +5421,7 @@ type Queries struct {
 	getRolloutLaneByIdempotencyKeyStmt                           *sql.Stmt
 	getRolloutLaneChannelByStartKeyStmt                          *sql.Stmt
 	getRolloutLaneForRolloutStmt                                 *sql.Stmt
+	getRolloutLaneInitialEnforcementStatusStmt                   *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt                    *sql.Stmt
 	getScheduleStmt                                              *sql.Stmt
 	getScheduleByIDForProcessorStmt                              *sql.Stmt
@@ -5493,6 +5536,7 @@ type Queries struct {
 	listRolesWithDetailsForOrgStmt                               *sql.Stmt
 	listRolloutLaneChannelTransitionsStmt                        *sql.Stmt
 	listRolloutLaneChannelsStmt                                  *sql.Stmt
+	listRolloutLaneInitialEnforcementStatusesStmt                *sql.Stmt
 	listRolloutLanesStmt                                         *sql.Stmt
 	listScheduleIDStatusesStmt                                   *sql.Stmt
 	listSchedulesStmt                                            *sql.Stmt
@@ -5503,6 +5547,7 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
 	lockBetweenChannelChannelsStmt                               *sql.Stmt
 	lockBetweenChannelDevicesStmt                                *sql.Stmt
+	lockBetweenChannelInitialDevicesStmt                         *sql.Stmt
 	lockBuildingForWriteStmt                                     *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
 	lockChannelForWriteStmt                                      *sql.Stmt
@@ -5768,6 +5813,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
+		countActiveRolloutLaneInitialEnforcementsStmt:                q.countActiveRolloutLaneInitialEnforcementsStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                     q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                        q.countActivityLogsStmt,
 		countBetweenChannelAdmittedBatchMembersStmt:                  q.countBetweenChannelAdmittedBatchMembersStmt,
@@ -5812,6 +5858,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createFleetNodeStmt:                                          q.createFleetNodeStmt,
 		createFleetNodeApiKeyStmt:                                    q.createFleetNodeApiKeyStmt,
 		createInfrastructureDeviceStmt:                               q.createInfrastructureDeviceStmt,
+		createInitialRolloutLaneEnforcementsStmt:                     q.createInitialRolloutLaneEnforcementsStmt,
 		createOrganizationStmt:                                       q.createOrganizationStmt,
 		createPendingEnrollmentStmt:                                  q.createPendingEnrollmentStmt,
 		createPoolStmt:                                               q.createPoolStmt,
@@ -6010,6 +6057,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRolloutLaneByIdempotencyKeyStmt:                           q.getRolloutLaneByIdempotencyKeyStmt,
 		getRolloutLaneChannelByStartKeyStmt:                          q.getRolloutLaneChannelByStartKeyStmt,
 		getRolloutLaneForRolloutStmt:                                 q.getRolloutLaneForRolloutStmt,
+		getRolloutLaneInitialEnforcementStatusStmt:                   q.getRolloutLaneInitialEnforcementStatusStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:                    q.getRunningPowerTargetScheduleOverlapsStmt,
 		getScheduleStmt:                                              q.getScheduleStmt,
 		getScheduleByIDForProcessorStmt:                              q.getScheduleByIDForProcessorStmt,
@@ -6124,6 +6172,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRolesWithDetailsForOrgStmt:                               q.listRolesWithDetailsForOrgStmt,
 		listRolloutLaneChannelTransitionsStmt:                        q.listRolloutLaneChannelTransitionsStmt,
 		listRolloutLaneChannelsStmt:                                  q.listRolloutLaneChannelsStmt,
+		listRolloutLaneInitialEnforcementStatusesStmt:                q.listRolloutLaneInitialEnforcementStatusesStmt,
 		listRolloutLanesStmt:                                         q.listRolloutLanesStmt,
 		listScheduleIDStatusesStmt:                                   q.listScheduleIDStatusesStmt,
 		listSchedulesStmt:                                            q.listSchedulesStmt,
@@ -6134,6 +6183,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBetweenChannelChannelsStmt:                               q.lockBetweenChannelChannelsStmt,
 		lockBetweenChannelDevicesStmt:                                q.lockBetweenChannelDevicesStmt,
+		lockBetweenChannelInitialDevicesStmt:                         q.lockBetweenChannelInitialDevicesStmt,
 		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
 		lockChannelForWriteStmt:                                      q.lockChannelForWriteStmt,

@@ -29,6 +29,10 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 		name string
 		call func() error
 	}{
+		{"PreviewRolloutLane", func() error {
+			_, err := handler.PreviewRolloutLane(ctx, connect.NewRequest(&pb.PreviewRolloutLaneRequest{}))
+			return err
+		}},
 		{"CreateRolloutLane", func() error {
 			_, err := handler.CreateRolloutLane(ctx, connect.NewRequest(&pb.CreateRolloutLaneRequest{}))
 			return err

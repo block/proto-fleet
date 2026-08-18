@@ -25,7 +25,7 @@ func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 2)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
 	laneService := betweenchannel.NewService(laneStore, nil)
@@ -223,7 +223,7 @@ func TestRolloutLaneFinalizerAdvancesBatchesAndCompletesRollout(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 2)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
 	laneService := betweenchannel.NewService(laneStore, nil)
@@ -354,7 +354,7 @@ func TestRolloutLaneFinalizerCompletesFailedRevertWithoutMovingLane(t *testing.T
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
 	laneService := betweenchannel.NewService(laneStore, nil)
@@ -447,7 +447,7 @@ func TestRolloutLaneRejectsRevertWithoutSucceededMembers(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
 	laneService := betweenchannel.NewService(laneStore, nil)
@@ -509,7 +509,7 @@ func TestRolloutLaneAbortCompletesFullyCancelledBatch(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
 	laneService := betweenchannel.NewService(laneStore, nil)
@@ -578,7 +578,7 @@ func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 3)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 3)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
 	laneService := betweenchannel.NewService(laneStore, nil)
@@ -745,7 +745,7 @@ func TestRolloutLaneManualMembershipMoveConflictsInsteadOfOverwriting(t *testing
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
 	laneService := betweenchannel.NewService(laneStore, nil)
@@ -859,7 +859,7 @@ func TestRolloutLaneRejectsMissingAndNoopReleaseTargets(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	store := sqlstores.NewSQLRolloutLaneStore(db)
 	service := betweenchannel.NewService(store, nil)
@@ -943,12 +943,174 @@ func TestRolloutLaneRejectsMissingAndNoopReleaseTargets(t *testing.T) {
 	require.Len(t, lane.Channels, 1)
 }
 
+func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 3)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	setDiscoveredModel(t, db, orgID, deviceIDs[1], "TestMinerB")
+	setDiscoveredModel(t, db, orgID, deviceIDs[2], "TestMinerB")
+	setDiscoveredFirmwareVersion(t, db, orgID, deviceIDs[0], "1.0.0")
+	setDiscoveredFirmwareVersion(t, db, orgID, deviceIDs[1], "1.9.0")
+	setDiscoveredFirmwareVersion(t, db, orgID, deviceIDs[2], "")
+	targets := []betweenchannel.ReleaseTarget{
+		testLaneTarget("1.0.0", "c"),
+		testLaneTargetForModel("TestMinerB", "2.0.0", "d"),
+	}
+
+	preview, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    targets,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), preview.MatchingCount)
+	assert.Equal(t, int32(1), preview.MismatchedCount)
+	assert.Equal(t, int32(1), preview.UnknownCount)
+	require.Len(t, preview.Miners, 3)
+	previewByIdentifier := make(map[string]betweenchannel.InitialFirmwareMiner, len(preview.Miners))
+	for _, miner := range preview.Miners {
+		previewByIdentifier[miner.DeviceIdentifier] = miner
+	}
+	assert.Equal(t, betweenchannel.InitialFirmwareMatch, previewByIdentifier[deviceIDs[0]].Status)
+	assert.Equal(t, "1.0.0", previewByIdentifier[deviceIDs[0]].TargetFirmwareVersion)
+	assert.Equal(t, betweenchannel.InitialFirmwareMismatch, previewByIdentifier[deviceIDs[1]].Status)
+	assert.Equal(t, "2.0.0", previewByIdentifier[deviceIDs[1]].TargetFirmwareVersion)
+	assert.Equal(t, betweenchannel.InitialFirmwareUnknown, previewByIdentifier[deviceIDs[2]].Status)
+	assert.Equal(t, "2.0.0", previewByIdentifier[deviceIDs[2]].TargetFirmwareVersion)
+
+	_, err = service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID + 1,
+		ReleaseTargets:    targets,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.ErrorIs(t, err, betweenchannel.ErrMembershipConflict)
+
+	request := betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Enforced stable",
+		ReleaseTargets:    targets,
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "create-enforced-stable",
+		ActorUserID:       actorID,
+	}
+	beforeUnconfirmed := rolloutLaneCreateStateCounts(t, db, orgID)
+	_, err = service.CreateLane(t.Context(), request)
+	require.ErrorIs(t, err, betweenchannel.ErrInitialEnforcementConfirmationRequired)
+	assert.Equal(t, beforeUnconfirmed, rolloutLaneCreateStateCounts(t, db, orgID))
+	assert.Zero(t, rolloutLaneCountByCreateKey(t, db, orgID, request.IdempotencyKey))
+	assert.Zero(t, laneInitialEnforcementCount(t, db, orgID, ""))
+
+	request.ConfirmInitialEnforcement = true
+	lane, err := service.CreateLane(t.Context(), request)
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), lane.InitialEnforcement.TotalCount)
+	assert.Equal(t, int32(2), lane.InitialEnforcement.PendingCount)
+	assert.Equal(t, int32(0), lane.InitialEnforcement.UpdatingCount)
+	assert.Equal(t, int32(1), lane.InitialEnforcement.ConfirmedCount)
+	assert.Equal(t, int32(0), lane.InitialEnforcement.AttentionCount)
+	lanes, err := service.ListLanes(t.Context(), orgID)
+	require.NoError(t, err)
+	require.Len(t, lanes, 1)
+	assert.Equal(t, lane.InitialEnforcement, lanes[0].InitialEnforcement)
+
+	var confirmed, pending int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*) FILTER (WHERE enforcement.state = 'confirmed'),
+		       COUNT(*) FILTER (WHERE enforcement.state = 'pending')
+		FROM channel_firmware_enforcement enforcement
+		JOIN channel_firmware_authority authority
+		  ON authority.id = enforcement.authority_id
+		 AND authority.org_id = enforcement.org_id
+		WHERE authority.org_id = $1
+		  AND authority.authority_type = 'rollout_lane_initial'
+		  AND authority.authority_reference = $2
+	`, orgID, lane.ID.String()).Scan(&confirmed, &pending))
+	assert.Equal(t, int64(1), confirmed)
+	assert.Equal(t, int64(2), pending)
+
+	reconcileRows, err := sqlc.New(db).ListChannelFirmwareEnforcementsForReconcile(t.Context(), 10)
+	require.NoError(t, err)
+	assert.Len(t, reconcileRows, 2, "matching reported firmware must never enter dispatch")
+	reconcileByIdentifier := make(map[string]sqlc.ListChannelFirmwareEnforcementsForReconcileRow, len(reconcileRows))
+	for _, row := range reconcileRows {
+		assert.NotEqual(t, deviceIDs[0], row.DeviceIdentifier)
+		reconcileByIdentifier[row.DeviceIdentifier] = row
+	}
+	assert.Equal(t, "2.0.0", reconcileByIdentifier[deviceIDs[1]].DesiredFirmwareVersion)
+	assert.Equal(t, "1.9.0", reconcileByIdentifier[deviceIDs[1]].LastObservedFirmwareVersion.String)
+	assert.True(t, reconcileByIdentifier[deviceIDs[1]].FirmwareObservedAt.Valid)
+	assert.Equal(t, "2.0.0", reconcileByIdentifier[deviceIDs[2]].DesiredFirmwareVersion)
+	assert.False(t, reconcileByIdentifier[deviceIDs[2]].LastObservedFirmwareVersion.Valid)
+	assert.False(t, reconcileByIdentifier[deviceIDs[2]].FirmwareObservedAt.Valid)
+
+	request.ConfirmInitialEnforcement = false
+	replayed, err := service.CreateLane(t.Context(), request)
+	require.NoError(t, err)
+	assert.Equal(t, lane.ID, replayed.ID)
+	assert.Equal(t, int64(3), laneInitialEnforcementCount(t, db, orgID, lane.ID.String()))
+
+	_, err = service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Blocked while initial enforcement is active",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "d")},
+		Batches: []rollout.CreateBatch{{
+			Label: "all",
+			Members: []rollout.CreateMember{
+				{DeviceIdentifier: deviceIDs[0]},
+				{DeviceIdentifier: deviceIDs[1]},
+				{DeviceIdentifier: deviceIDs[2]},
+			},
+		}},
+		IdempotencyKey: "blocked-initial-enforcement",
+		Reason:         "integration test",
+		ActorUserID:    actorID,
+	})
+	require.ErrorIs(t, err, betweenchannel.ErrInitialEnforcementActive)
+}
+
+func TestRolloutLaneCreateFailureRollsBackInitialEnforcementGraph(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	_, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Existing lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "e")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "existing-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	before := rolloutLaneCreateStateCounts(t, db, orgID)
+
+	_, err = service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Conflicting lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "f")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "conflicting-lane",
+		ActorUserID:       actorID,
+	})
+	require.Error(t, err)
+	assert.Equal(t, before, rolloutLaneCreateStateCounts(t, db, orgID))
+	assert.Zero(t, rolloutLaneCountByCreateKey(t, db, orgID, "conflicting-lane"))
+}
+
 func TestRolloutLaneSortedChannelLocksAvoidOppositeDirectionDeadlock(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	store := sqlstores.NewSQLRolloutLaneStore(db)
 	service := betweenchannel.NewService(store, nil)
@@ -1020,7 +1182,7 @@ func TestRolloutLaneConcurrentCreateReplaysIdempotently(t *testing.T) {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
 	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
 	request := betweenchannel.CreateLaneRequest{
 		OrgID:             orgID,
@@ -1054,14 +1216,151 @@ func TestRolloutLaneConcurrentCreateReplaysIdempotently(t *testing.T) {
 	assert.Equal(t, first.lane.ID, second.lane.ID)
 }
 
+func setupRolloutLaneTestData(
+	t *testing.T,
+	deviceCount int,
+) (db *sql.DB, orgID int64, deviceIDs []string) {
+	t.Helper()
+	db, orgID, deviceIDs = setupCollectionTestData(t, deviceCount)
+	for _, deviceIdentifier := range deviceIDs {
+		setDiscoveredFirmwareVersion(t, db, orgID, deviceIdentifier, "1.0.0")
+	}
+	return db, orgID, deviceIDs
+}
+
 func testLaneTarget(version, shaCharacter string) betweenchannel.ReleaseTarget {
+	return testLaneTargetForModel("TestMiner", version, shaCharacter)
+}
+
+func testLaneTargetForModel(
+	model string,
+	version string,
+	shaCharacter string,
+) betweenchannel.ReleaseTarget {
 	return betweenchannel.ReleaseTarget{
-		FirmwareFileID:  "firmware-" + version + "-" + shaCharacter,
+		FirmwareFileID:  "firmware-" + model + "-" + version + "-" + shaCharacter,
 		Manufacturer:    "TestCorp",
-		Model:           "TestMiner",
+		Model:           model,
 		FirmwareVersion: version,
 		SHA256:          strings.Repeat(shaCharacter, 64),
 	}
+}
+
+func setDiscoveredModel(
+	t *testing.T,
+	db *sql.DB,
+	orgID int64,
+	deviceIdentifier string,
+	model string,
+) {
+	t.Helper()
+	rows, err := sqlc.New(db).UpdateDiscoveredDeviceModelByDeviceIdentifier(
+		t.Context(),
+		sqlc.UpdateDiscoveredDeviceModelByDeviceIdentifierParams{
+			OrgID:            orgID,
+			DeviceIdentifier: deviceIdentifier,
+			Model:            model,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+}
+
+func setDiscoveredFirmwareVersion(
+	t *testing.T,
+	db *sql.DB,
+	orgID int64,
+	deviceIdentifier string,
+	version string,
+) {
+	t.Helper()
+	result, err := db.ExecContext(t.Context(), `
+		UPDATE discovered_device discovered
+		SET firmware_version = NULLIF($3, '')
+		FROM device
+		WHERE device.discovered_device_id = discovered.id
+		  AND device.org_id = discovered.org_id
+		  AND device.org_id = $1
+		  AND device.device_identifier = $2
+	`, orgID, deviceIdentifier, version)
+	require.NoError(t, err)
+	rows, err := result.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+}
+
+func rolloutLaneCountByCreateKey(
+	t *testing.T,
+	db *sql.DB,
+	orgID int64,
+	idempotencyKey string,
+) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM rollout_lane
+		WHERE org_id = $1
+		  AND idempotency_key = $2
+	`, orgID, idempotencyKey).Scan(&count))
+	return count
+}
+
+func laneInitialEnforcementCount(
+	t *testing.T,
+	db *sql.DB,
+	orgID int64,
+	laneID string,
+) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM channel_firmware_enforcement enforcement
+		JOIN channel_firmware_authority authority
+		  ON authority.id = enforcement.authority_id
+		 AND authority.org_id = enforcement.org_id
+		WHERE authority.org_id = $1
+		  AND authority.authority_type = 'rollout_lane_initial'
+		  AND ($2 = '' OR authority.authority_reference = $2)
+	`, orgID, laneID).Scan(&count))
+	return count
+}
+
+type rolloutLaneStateCounts struct {
+	ReleaseSets  int64
+	Channels     int64
+	Memberships  int64
+	Lanes        int64
+	Authorities  int64
+	Enforcements int64
+}
+
+func rolloutLaneCreateStateCounts(
+	t *testing.T,
+	db *sql.DB,
+	orgID int64,
+) rolloutLaneStateCounts {
+	t.Helper()
+	var result rolloutLaneStateCounts
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT
+		    (SELECT COUNT(*) FROM firmware_release_set WHERE org_id = $1),
+		    (SELECT COUNT(*) FROM device_set_channel WHERE org_id = $1),
+		    (SELECT COUNT(*) FROM device_set_membership
+		     WHERE org_id = $1 AND device_set_type = 'channel'),
+		    (SELECT COUNT(*) FROM rollout_lane WHERE org_id = $1),
+		    (SELECT COUNT(*) FROM channel_firmware_authority WHERE org_id = $1),
+		    (SELECT COUNT(*) FROM channel_firmware_enforcement WHERE org_id = $1)
+	`, orgID).Scan(
+		&result.ReleaseSets,
+		&result.Channels,
+		&result.Memberships,
+		&result.Lanes,
+		&result.Authorities,
+		&result.Enforcements,
+	))
+	return result
 }
 
 func memberByIdentifier(

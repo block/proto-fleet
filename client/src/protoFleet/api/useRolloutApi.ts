@@ -14,6 +14,7 @@ import {
   ListRolloutLanesRequestSchema,
   ListRolloutsRequestSchema,
   PauseRolloutRequestSchema,
+  PreviewRolloutLaneRequestSchema,
   type Rollout as ProtoRollout,
   type RolloutLane as ProtoRolloutLane,
   RolloutState as ProtoRolloutState,
@@ -23,9 +24,15 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
 import { emitRolloutChanged } from "@/protoFleet/api/rolloutEvents";
-import { mapRollout, mapRolloutLane, mapRolloutStateToProto } from "@/protoFleet/api/rolloutMappers";
+import {
+  mapRollout,
+  mapRolloutLane,
+  mapRolloutLanePreview,
+  mapRolloutStateToProto,
+} from "@/protoFleet/api/rolloutMappers";
 import type {
   RolloutLane,
+  RolloutLanePreview,
   RolloutLaneReleaseTarget,
   RolloutLifecycleState,
   RolloutRecord,
@@ -81,6 +88,12 @@ export interface CreateRolloutLaneInput extends RolloutRequestOptions {
   firmwareFileIds: string[];
   deviceIdentifiers: string[];
   idempotencyKey: string;
+  confirmInitialEnforcement?: boolean;
+}
+
+export interface PreviewRolloutLaneInput extends RolloutRequestOptions {
+  firmwareFileIds: string[];
+  deviceIdentifiers: string[];
 }
 
 export interface StartRolloutLaneInput extends RolloutRequestOptions {
@@ -132,6 +145,7 @@ export interface UseRolloutApiResult {
   permissions: RolloutPermissions;
   listRolloutLanes: (options?: RolloutRequestOptions) => Promise<RolloutLane[]>;
   getRolloutLane: (options: GetRolloutLaneOptions) => Promise<RolloutLane>;
+  previewRolloutLane: (input: PreviewRolloutLaneInput) => Promise<RolloutLanePreview>;
   createRolloutLane: (input: CreateRolloutLaneInput) => Promise<RolloutLane>;
   startRolloutLane: (input: StartRolloutLaneInput) => Promise<StartRolloutLaneResult>;
   listRollouts: (options?: ListRolloutsOptions) => Promise<RolloutRecord[]>;
@@ -549,6 +563,7 @@ export function useRolloutApi(): UseRolloutApiResult {
               firmwareFileIds: input.firmwareFileIds,
               deviceIdentifiers: input.deviceIdentifiers,
               idempotencyKey: input.idempotencyKey,
+              confirmInitialEnforcement: input.confirmInitialEnforcement ?? false,
             }),
             rpcOptions(input.signal),
           ),
@@ -564,6 +579,29 @@ export function useRolloutApi(): UseRolloutApiResult {
       return result.lane;
     },
     [runLaneMutation],
+  );
+
+  const previewRolloutLane = useCallback(
+    (input: PreviewRolloutLaneInput) =>
+      executeMutation(
+        async () => {
+          const response = await rolloutClient.previewRolloutLane(
+            create(PreviewRolloutLaneRequestSchema, {
+              firmwareFileIds: input.firmwareFileIds,
+              deviceIdentifiers: input.deviceIdentifiers,
+            }),
+            rpcOptions(input.signal),
+          );
+          assertNotAborted(input.signal);
+          if (!response.preview) {
+            throw new Error("Rollout lane preview response was missing a preview.");
+          }
+          return mapRolloutLanePreview(response.preview);
+        },
+        input.signal,
+        "Couldn't preview initial firmware enforcement. Try again.",
+      ),
+    [executeMutation],
   );
 
   const startRolloutLane = useCallback(
@@ -683,6 +721,7 @@ export function useRolloutApi(): UseRolloutApiResult {
       permissions,
       listRolloutLanes,
       getRolloutLane,
+      previewRolloutLane,
       createRolloutLane,
       startRolloutLane,
       listRollouts,
@@ -715,6 +754,7 @@ export function useRolloutApi(): UseRolloutApiResult {
       mutationError,
       pauseRollout,
       permissions,
+      previewRolloutLane,
       resumeRollout,
       revertRollout,
       rollout,

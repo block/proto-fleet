@@ -16,6 +16,13 @@ const rows: LaneTableRow[] = [
       channels: [],
       memberCount: 12,
       memberIdentifiers: [],
+      initialEnforcement: {
+        totalCount: 12,
+        pendingCount: 0,
+        updatingCount: 0,
+        confirmedCount: 11,
+        attentionCount: 1,
+      },
       currentReleaseTargets: [
         {
           firmwareFileId: "alpha-1",
@@ -69,6 +76,8 @@ describe("RolloutLanesTable", () => {
     expect(screen.getByText("Stable production")).toBeInTheDocument();
     expect(screen.getByText("Alpha 1.0.0")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getByText("11 confirmed")).toBeInTheDocument();
+    expect(screen.getByText("1 attention")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start rollout/i })).not.toBeInTheDocument();
   });
 
@@ -96,5 +105,32 @@ describe("RolloutLanesTable", () => {
     render(<RolloutLanesTable rows={rows} canStart isPreparingStart onStart={vi.fn()} onView={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
+  });
+
+  it("blocks rollout start while initial firmware is still converging", () => {
+    const activeLane = {
+      ...rows[0].lane,
+      initialEnforcement: {
+        totalCount: 12,
+        pendingCount: 2,
+        updatingCount: 3,
+        confirmedCount: 7,
+        attentionCount: 0,
+      },
+    };
+
+    render(
+      <RolloutLanesTable
+        rows={[{ id: activeLane.id, lane: activeLane }]}
+        canStart
+        onStart={vi.fn()}
+        onView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
+    expect(
+      screen.getByText("Wait for initial firmware enforcement to settle before starting a rollout."),
+    ).toBeInTheDocument();
   });
 });

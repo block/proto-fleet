@@ -155,6 +155,41 @@ export interface RolloutLaneReleaseTarget {
   sha256: string;
 }
 
+export type InitialFirmwareMatchStatus = "matching" | "mismatched" | "unknown";
+
+export interface RolloutLanePreviewTarget {
+  firmwareFileId: string;
+  manufacturer: string;
+  model: string;
+  firmwareVersion: string;
+}
+
+export interface RolloutLanePreviewMiner {
+  deviceIdentifier: string;
+  manufacturer: string;
+  model: string;
+  currentFirmwareVersion?: string;
+  targetFirmwareVersion: string;
+  targetFirmwareFileId: string;
+  status: InitialFirmwareMatchStatus;
+}
+
+export interface RolloutLanePreview {
+  targets: RolloutLanePreviewTarget[];
+  miners: RolloutLanePreviewMiner[];
+  matchingCount: number;
+  mismatchedCount: number;
+  unknownCount: number;
+}
+
+export interface RolloutLaneInitialEnforcementStatus {
+  totalCount: number;
+  pendingCount: number;
+  updatingCount: number;
+  confirmedCount: number;
+  attentionCount: number;
+}
+
 /** One physical version channel in a stable operator-facing lane. */
 export interface RolloutLaneChannel {
   channelId: bigint;
@@ -179,6 +214,7 @@ export interface RolloutLane {
   memberCount: number;
   memberIdentifiers: string[];
   currentReleaseTargets: RolloutLaneReleaseTarget[];
+  initialEnforcement: RolloutLaneInitialEnforcementStatus;
   createdAt?: string;
   updatedAt?: string;
 }

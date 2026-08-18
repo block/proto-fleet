@@ -804,6 +804,18 @@ func (q *retryingQuerier) CountActiveCurtailmentEventsByInfrastructureDevices(ct
 	return result, err
 }
 
+func (q *retryingQuerier) CountActiveRolloutLaneInitialEnforcements(ctx context.Context, arg CountActiveRolloutLaneInitialEnforcementsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountActiveRolloutLaneInitialEnforcements", func() error {
+		callResult, callErr := q.next.CountActiveRolloutLaneInitialEnforcements(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveUnpairedDiscoveredDevices", func() error {
@@ -1312,6 +1324,18 @@ func (q *retryingQuerier) CreateInfrastructureDevice(ctx context.Context, arg Cr
 	var result InfrastructureDevice
 	err := q.retrier.RetryQuery(ctx, "CreateInfrastructureDevice", func() error {
 		callResult, callErr := q.next.CreateInfrastructureDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateInitialRolloutLaneEnforcements(ctx context.Context, arg CreateInitialRolloutLaneEnforcementsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CreateInitialRolloutLaneEnforcements", func() error {
+		callResult, callErr := q.next.CreateInitialRolloutLaneEnforcements(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3630,6 +3654,18 @@ func (q *retryingQuerier) GetRolloutLaneForRollout(ctx context.Context, arg GetR
 	return result, err
 }
 
+func (q *retryingQuerier) GetRolloutLaneInitialEnforcementStatus(ctx context.Context, arg GetRolloutLaneInitialEnforcementStatusParams) (GetRolloutLaneInitialEnforcementStatusRow, error) {
+	var result GetRolloutLaneInitialEnforcementStatusRow
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneInitialEnforcementStatus", func() error {
+		callResult, callErr := q.next.GetRolloutLaneInitialEnforcementStatus(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetRunningPowerTargetScheduleOverlaps(ctx context.Context, arg GetRunningPowerTargetScheduleOverlapsParams) ([]GetRunningPowerTargetScheduleOverlapsRow, error) {
 	var result []GetRunningPowerTargetScheduleOverlapsRow
 	err := q.retrier.RetryQuery(ctx, "GetRunningPowerTargetScheduleOverlaps", func() error {
@@ -4962,6 +4998,18 @@ func (q *retryingQuerier) ListRolloutLaneChannels(ctx context.Context, arg ListR
 	return result, err
 }
 
+func (q *retryingQuerier) ListRolloutLaneInitialEnforcementStatuses(ctx context.Context, orgID int64) ([]ListRolloutLaneInitialEnforcementStatusesRow, error) {
+	var result []ListRolloutLaneInitialEnforcementStatusesRow
+	err := q.retrier.RetryQuery(ctx, "ListRolloutLaneInitialEnforcementStatuses", func() error {
+		callResult, callErr := q.next.ListRolloutLaneInitialEnforcementStatuses(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListRolloutLanes(ctx context.Context, orgID int64) ([]RolloutLane, error) {
 	var result []RolloutLane
 	err := q.retrier.RetryQuery(ctx, "ListRolloutLanes", func() error {
@@ -5074,6 +5122,18 @@ func (q *retryingQuerier) LockBetweenChannelDevices(ctx context.Context, arg Loc
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockBetweenChannelDevices", func() error {
 		callResult, callErr := q.next.LockBetweenChannelDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockBetweenChannelInitialDevices(ctx context.Context, arg LockBetweenChannelInitialDevicesParams) ([]LockBetweenChannelInitialDevicesRow, error) {
+	var result []LockBetweenChannelInitialDevicesRow
+	err := q.retrier.RetryQuery(ctx, "LockBetweenChannelInitialDevices", func() error {
+		callResult, callErr := q.next.LockBetweenChannelInitialDevices(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

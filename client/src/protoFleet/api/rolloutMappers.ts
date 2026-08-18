@@ -1,4 +1,5 @@
 import {
+  InitialFirmwareMatchStatus as ProtoInitialFirmwareMatchStatus,
   type Rollout as ProtoRollout,
   type RolloutBatch as ProtoRolloutBatch,
   RolloutBatchState as ProtoRolloutBatchState,
@@ -7,6 +8,7 @@ import {
   RolloutEvidencePhase as ProtoRolloutEvidencePhase,
   type RolloutLane as ProtoRolloutLane,
   type RolloutLaneChannel as ProtoRolloutLaneChannel,
+  type RolloutLanePreview as ProtoRolloutLanePreview,
   type RolloutMember as ProtoRolloutMember,
   RolloutMemberState as ProtoRolloutMemberState,
   RolloutState as ProtoRolloutState,
@@ -22,6 +24,7 @@ import type {
   RolloutEvidencePhase,
   RolloutLane,
   RolloutLaneChannel,
+  RolloutLanePreview,
   RolloutLaneReleaseTarget,
   RolloutLifecycleState,
   RolloutMember,
@@ -111,6 +114,21 @@ export function mapRolloutMemberState(state: ProtoRolloutMemberState): RolloutMe
     case ProtoRolloutMemberState.REVERTED:
       return "reverted";
     case ProtoRolloutMemberState.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
+}
+
+export function mapInitialFirmwareStatus(
+  status: ProtoInitialFirmwareMatchStatus,
+): RolloutLanePreview["miners"][number]["status"] {
+  switch (status) {
+    case ProtoInitialFirmwareMatchStatus.MATCHING:
+      return "matching";
+    case ProtoInitialFirmwareMatchStatus.MISMATCHED:
+      return "mismatched";
+    case ProtoInitialFirmwareMatchStatus.UNKNOWN:
+    case ProtoInitialFirmwareMatchStatus.UNSPECIFIED:
     default:
       return "unknown";
   }
@@ -209,8 +227,38 @@ export function mapRolloutLane(lane: ProtoRolloutLane, details: MapRolloutLaneDe
     memberCount: details.memberCount ?? 0,
     memberIdentifiers: [...(details.memberIdentifiers ?? [])],
     currentReleaseTargets: [...(details.releaseTargets ?? [])],
+    initialEnforcement: {
+      totalCount: lane.initialEnforcement?.totalCount ?? 0,
+      pendingCount: lane.initialEnforcement?.pendingCount ?? 0,
+      updatingCount: lane.initialEnforcement?.updatingCount ?? 0,
+      confirmedCount: lane.initialEnforcement?.confirmedCount ?? 0,
+      attentionCount: lane.initialEnforcement?.attentionCount ?? 0,
+    },
     createdAt: timestampToIsoString(lane.createdAt),
     updatedAt: timestampToIsoString(lane.updatedAt),
+  };
+}
+
+export function mapRolloutLanePreview(preview: ProtoRolloutLanePreview): RolloutLanePreview {
+  return {
+    targets: preview.targets.map((target) => ({
+      firmwareFileId: target.firmwareFileId,
+      manufacturer: target.manufacturer,
+      model: target.model,
+      firmwareVersion: target.firmwareVersion,
+    })),
+    miners: preview.miners.map((miner) => ({
+      deviceIdentifier: miner.deviceIdentifier,
+      manufacturer: miner.manufacturer,
+      model: miner.model,
+      currentFirmwareVersion: miner.currentFirmwareVersion,
+      targetFirmwareVersion: miner.targetFirmwareVersion,
+      targetFirmwareFileId: miner.targetFirmwareFileId,
+      status: mapInitialFirmwareStatus(miner.status),
+    })),
+    matchingCount: preview.matchingCount,
+    mismatchedCount: preview.mismatchedCount,
+    unknownCount: preview.unknownCount,
   };
 }
 

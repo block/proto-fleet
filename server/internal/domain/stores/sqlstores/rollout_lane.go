@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,6 +39,33 @@ func NewSQLRolloutLaneStore(conn *sql.DB) *SQLRolloutLaneStore {
 	}
 }
 
+func (s *SQLRolloutLaneStore) PreviewLane(
+	ctx context.Context,
+	req betweenchannel.PreviewLaneRequest,
+) (betweenchannel.InitialEnforcementPreview, error) {
+	rows, err := s.GetQueries(ctx).ListBetweenChannelDeviceModels(
+		ctx,
+		sqlc.ListBetweenChannelDeviceModelsParams{
+			OrgID:             req.OrgID,
+			DeviceIdentifiers: req.DeviceIdentifiers,
+		},
+	)
+	if err != nil {
+		return betweenchannel.InitialEnforcementPreview{}, fmt.Errorf(
+			"preview rollout lane devices: %w",
+			err,
+		)
+	}
+	devices := initialDevicesFromPreviewRows(rows)
+	if len(devices) != len(req.DeviceIdentifiers) {
+		return betweenchannel.InitialEnforcementPreview{}, betweenchannel.ErrMembershipConflict
+	}
+	if err = validateInitialLaneTargets(devices, req.ReleaseTargets); err != nil {
+		return betweenchannel.InitialEnforcementPreview{}, err
+	}
+	return buildInitialEnforcementPreview(devices, req.ReleaseTargets), nil
+}
+
 func (s *SQLRolloutLaneStore) CreateLane(
 	ctx context.Context,
 	req betweenchannel.CreateLaneRequest,
@@ -63,9 +91,9 @@ func (s *SQLRolloutLaneStore) CreateLane(
 				return nil, getErr
 			}
 
-			models, modelErr := q.ListBetweenChannelDeviceModels(
+			models, modelErr := q.LockBetweenChannelInitialDevices(
 				txCtx,
-				sqlc.ListBetweenChannelDeviceModelsParams{
+				sqlc.LockBetweenChannelInitialDevicesParams{
 					OrgID:             req.OrgID,
 					DeviceIdentifiers: req.DeviceIdentifiers,
 				},
@@ -76,8 +104,18 @@ func (s *SQLRolloutLaneStore) CreateLane(
 			if len(models) != len(req.DeviceIdentifiers) {
 				return nil, betweenchannel.ErrMembershipConflict
 			}
-			if compatibilityErr := validateInitialLaneTargets(models, req.ReleaseTargets); compatibilityErr != nil {
+			devices := initialDevicesFromLockedRows(models)
+			if compatibilityErr := validateInitialLaneTargets(devices, req.ReleaseTargets); compatibilityErr != nil {
 				return nil, compatibilityErr
+			}
+			preview := buildInitialEnforcementPreview(devices, req.ReleaseTargets)
+			if preview.RequiresConfirmation() && !req.ConfirmInitialEnforcement {
+				return nil, fmt.Errorf(
+					"%w: %d mismatched and %d unknown miners",
+					betweenchannel.ErrInitialEnforcementConfirmationRequired,
+					preview.MismatchedCount,
+					preview.UnknownCount,
+				)
 			}
 
 			releaseSetID, createErr := createLaneReleaseSet(
@@ -99,19 +137,6 @@ func (s *SQLRolloutLaneStore) CreateLane(
 			)
 			if createErr != nil {
 				return nil, createErr
-			}
-			locked, lockErr := q.LockDevicesForChannelAssignment(
-				txCtx,
-				sqlc.LockDevicesForChannelAssignmentParams{
-					OrgID:             req.OrgID,
-					DeviceIdentifiers: req.DeviceIdentifiers,
-				},
-			)
-			if lockErr != nil {
-				return nil, lockErr
-			}
-			if len(locked) != len(req.DeviceIdentifiers) {
-				return nil, betweenchannel.ErrMembershipConflict
 			}
 			added, addErr := q.AddDevicesToDeviceSet(
 				txCtx,
@@ -154,6 +179,36 @@ func (s *SQLRolloutLaneStore) CreateLane(
 				},
 			); createErr != nil {
 				return nil, createErr
+			}
+			authority, createErr := q.CreateChannelFirmwareAuthority(
+				txCtx,
+				sqlc.CreateChannelFirmwareAuthorityParams{
+					ID:                 uuid.New(),
+					OrgID:              req.OrgID,
+					AuthorityType:      "rollout_lane_initial",
+					AuthorityReference: req.ID.String(),
+					CreatedByUserID:    req.ActorUserID,
+				},
+			)
+			if createErr != nil {
+				return nil, createErr
+			}
+			enforcementCount, createErr := q.CreateInitialRolloutLaneEnforcements(
+				txCtx,
+				sqlc.CreateInitialRolloutLaneEnforcementsParams{
+					LaneID:            req.ID,
+					ReleaseSetID:      releaseSetID,
+					AuthorityID:       authority.ID,
+					AuthorityRevision: authority.Revision,
+					OrgID:             req.OrgID,
+					DeviceIdentifiers: req.DeviceIdentifiers,
+				},
+			)
+			if createErr != nil {
+				return nil, createErr
+			}
+			if enforcementCount != int64(len(req.DeviceIdentifiers)) {
+				return nil, betweenchannel.ErrMembershipConflict
 			}
 			return loadRolloutLane(txCtx, q, laneRow)
 		},
@@ -231,9 +286,31 @@ func (s *SQLRolloutLaneStore) ListLanes(
 	if err != nil {
 		return nil, fmt.Errorf("list rollout lanes: %w", err)
 	}
+	statusRows, err := q.ListRolloutLaneInitialEnforcementStatuses(ctx, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list rollout lane initial enforcement statuses: %w", err)
+	}
+	initialStatusByLane := make(
+		map[uuid.UUID]betweenchannel.InitialEnforcementStatus,
+		len(statusRows),
+	)
+	for _, status := range statusRows {
+		initialStatusByLane[status.LaneID] = initialEnforcementStatus(
+			status.TotalCount,
+			status.PendingCount,
+			status.UpdatingCount,
+			status.ConfirmedCount,
+			status.AttentionCount,
+		)
+	}
 	result := make([]betweenchannel.Lane, 0, len(rows))
 	for _, row := range rows {
-		lane, loadErr := loadRolloutLane(ctx, q, row)
+		lane, loadErr := loadRolloutLaneWithInitialStatus(
+			ctx,
+			q,
+			row,
+			initialStatusByLane[row.ID],
+		)
 		if loadErr != nil {
 			return nil, fmt.Errorf("load rollout lane: %w", loadErr)
 		}
@@ -300,6 +377,23 @@ func (s *SQLRolloutLaneStore) StartRollout(
 				}, laneErr
 			case !errors.Is(getErr, sql.ErrNoRows):
 				return nil, getErr
+			}
+			activeInitial, countErr := q.CountActiveRolloutLaneInitialEnforcements(
+				txCtx,
+				sqlc.CountActiveRolloutLaneInitialEnforcementsParams{
+					OrgID:  req.OrgID,
+					LaneID: req.LaneID,
+				},
+			)
+			if countErr != nil {
+				return nil, countErr
+			}
+			if activeInitial > 0 {
+				return nil, fmt.Errorf(
+					"%w: %d miners have not settled",
+					betweenchannel.ErrInitialEnforcementActive,
+					activeInitial,
+				)
 			}
 
 			transitions, transitionErr := q.ListRolloutLaneChannelTransitions(
@@ -1258,8 +1352,48 @@ func rolloutInputs(
 	return batchJSON, memberJSON, nil
 }
 
+type initialLaneDevice struct {
+	DeviceID               int64
+	DeviceIdentifier       string
+	Manufacturer           string
+	Model                  string
+	CurrentFirmwareVersion string
+}
+
+func initialDevicesFromPreviewRows(
+	rows []sqlc.ListBetweenChannelDeviceModelsRow,
+) []initialLaneDevice {
+	result := make([]initialLaneDevice, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, initialLaneDevice{
+			DeviceID:               row.DeviceID,
+			DeviceIdentifier:       row.DeviceIdentifier,
+			Manufacturer:           row.Manufacturer,
+			Model:                  row.Model,
+			CurrentFirmwareVersion: row.CurrentFirmwareVersion,
+		})
+	}
+	return result
+}
+
+func initialDevicesFromLockedRows(
+	rows []sqlc.LockBetweenChannelInitialDevicesRow,
+) []initialLaneDevice {
+	result := make([]initialLaneDevice, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, initialLaneDevice{
+			DeviceID:               row.DeviceID,
+			DeviceIdentifier:       row.DeviceIdentifier,
+			Manufacturer:           row.Manufacturer,
+			Model:                  row.Model,
+			CurrentFirmwareVersion: row.CurrentFirmwareVersion,
+		})
+	}
+	return result
+}
+
 func validateInitialLaneTargets(
-	models []sqlc.ListBetweenChannelDeviceModelsRow,
+	models []initialLaneDevice,
 	targets []betweenchannel.ReleaseTarget,
 ) error {
 	targetByModel := make(map[string]struct{}, len(targets))
@@ -1284,6 +1418,45 @@ func validateInitialLaneTargets(
 		}
 	}
 	return nil
+}
+
+func buildInitialEnforcementPreview(
+	devices []initialLaneDevice,
+	targets []betweenchannel.ReleaseTarget,
+) betweenchannel.InitialEnforcementPreview {
+	targetByModel := make(map[string]betweenchannel.ReleaseTarget, len(targets))
+	for _, target := range targets {
+		targetByModel[betweenchannel.ModelKey(target.Manufacturer, target.Model)] = target
+	}
+	result := betweenchannel.InitialEnforcementPreview{
+		Targets: append([]betweenchannel.ReleaseTarget(nil), targets...),
+		Miners:  make([]betweenchannel.InitialFirmwareMiner, 0, len(devices)),
+	}
+	for _, device := range devices {
+		target := targetByModel[betweenchannel.ModelKey(device.Manufacturer, device.Model)]
+		status := betweenchannel.InitialFirmwareUnknown
+		switch {
+		case strings.TrimSpace(device.CurrentFirmwareVersion) == "":
+			result.UnknownCount++
+		case strings.TrimSpace(device.CurrentFirmwareVersion) == target.FirmwareVersion:
+			status = betweenchannel.InitialFirmwareMatch
+			result.MatchingCount++
+		default:
+			status = betweenchannel.InitialFirmwareMismatch
+			result.MismatchedCount++
+		}
+		result.Miners = append(result.Miners, betweenchannel.InitialFirmwareMiner{
+			DeviceID:               device.DeviceID,
+			DeviceIdentifier:       device.DeviceIdentifier,
+			Manufacturer:           device.Manufacturer,
+			Model:                  device.Model,
+			CurrentFirmwareVersion: strings.TrimSpace(device.CurrentFirmwareVersion),
+			TargetFirmwareVersion:  target.FirmwareVersion,
+			TargetFirmwareFileID:   target.FirmwareFileID,
+			Status:                 status,
+		})
+	}
+	return result
 }
 
 func validateFrozenPopulation(
@@ -1340,6 +1513,36 @@ func loadRolloutLane(
 	q sqlc.Querier,
 	row sqlc.RolloutLane,
 ) (*betweenchannel.Lane, error) {
+	status, err := q.GetRolloutLaneInitialEnforcementStatus(
+		ctx,
+		sqlc.GetRolloutLaneInitialEnforcementStatusParams{
+			OrgID:  row.OrgID,
+			LaneID: row.ID,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return loadRolloutLaneWithInitialStatus(
+		ctx,
+		q,
+		row,
+		initialEnforcementStatus(
+			status.TotalCount,
+			status.PendingCount,
+			status.UpdatingCount,
+			status.ConfirmedCount,
+			status.AttentionCount,
+		),
+	)
+}
+
+func loadRolloutLaneWithInitialStatus(
+	ctx context.Context,
+	q sqlc.Querier,
+	row sqlc.RolloutLane,
+	initialStatus betweenchannel.InitialEnforcementStatus,
+) (*betweenchannel.Lane, error) {
 	channels, err := q.ListRolloutLaneChannels(
 		ctx,
 		sqlc.ListRolloutLaneChannelsParams{
@@ -1351,16 +1554,17 @@ func loadRolloutLane(
 		return nil, err
 	}
 	result := &betweenchannel.Lane{
-		ID:               row.ID,
-		OrgID:            row.OrgID,
-		Label:            row.Label,
-		Description:      row.Description,
-		CurrentChannelID: row.CurrentChannelID,
-		Revision:         row.Revision,
-		CreatedByUserID:  row.CreatedByUserID,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
-		Channels:         make([]betweenchannel.LaneChannel, 0, len(channels)),
+		ID:                 row.ID,
+		OrgID:              row.OrgID,
+		Label:              row.Label,
+		Description:        row.Description,
+		CurrentChannelID:   row.CurrentChannelID,
+		Revision:           row.Revision,
+		CreatedByUserID:    row.CreatedByUserID,
+		CreatedAt:          row.CreatedAt,
+		UpdatedAt:          row.UpdatedAt,
+		Channels:           make([]betweenchannel.LaneChannel, 0, len(channels)),
+		InitialEnforcement: initialStatus,
 	}
 	for _, channel := range channels {
 		var rolloutID *uuid.UUID
@@ -1377,6 +1581,22 @@ func loadRolloutLane(
 		})
 	}
 	return result, nil
+}
+
+func initialEnforcementStatus(
+	total int64,
+	pending int64,
+	updating int64,
+	confirmed int64,
+	attention int64,
+) betweenchannel.InitialEnforcementStatus {
+	return betweenchannel.InitialEnforcementStatus{
+		TotalCount:     int32(total),     //nolint:gosec // Lane creation caps membership at 10,000.
+		PendingCount:   int32(pending),   //nolint:gosec // Lane creation caps membership at 10,000.
+		UpdatingCount:  int32(updating),  //nolint:gosec // Lane creation caps membership at 10,000.
+		ConfirmedCount: int32(confirmed), //nolint:gosec // Lane creation caps membership at 10,000.
+		AttentionCount: int32(attention), //nolint:gosec // Lane creation caps membership at 10,000.
+	}
 }
 
 func finalizationFromListRow(

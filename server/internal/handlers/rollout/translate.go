@@ -74,6 +74,13 @@ func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
 		CreatedAt:        timestamppb.New(input.CreatedAt),
 		UpdatedAt:        timestamppb.New(input.UpdatedAt),
 		Channels:         make([]*pb.RolloutLaneChannel, 0, len(input.Channels)),
+		InitialEnforcement: &pb.RolloutLaneInitialEnforcementStatus{
+			TotalCount:     nonNegativeUint32(input.InitialEnforcement.TotalCount),
+			PendingCount:   nonNegativeUint32(input.InitialEnforcement.PendingCount),
+			UpdatingCount:  nonNegativeUint32(input.InitialEnforcement.UpdatingCount),
+			ConfirmedCount: nonNegativeUint32(input.InitialEnforcement.ConfirmedCount),
+			AttentionCount: nonNegativeUint32(input.InitialEnforcement.AttentionCount),
+		},
 	}
 	for _, inputChannel := range input.Channels {
 		channel := &pb.RolloutLaneChannel{
@@ -90,6 +97,59 @@ func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
 		result.Channels = append(result.Channels, channel)
 	}
 	return result
+}
+
+func lanePreviewToProto(input betweenchannel.InitialEnforcementPreview) *pb.RolloutLanePreview {
+	result := &pb.RolloutLanePreview{
+		Targets:         make([]*pb.RolloutLanePreviewTarget, 0, len(input.Targets)),
+		Miners:          make([]*pb.RolloutLanePreviewMiner, 0, len(input.Miners)),
+		MatchingCount:   nonNegativeUint32(input.MatchingCount),
+		MismatchedCount: nonNegativeUint32(input.MismatchedCount),
+		UnknownCount:    nonNegativeUint32(input.UnknownCount),
+	}
+	for _, target := range input.Targets {
+		result.Targets = append(result.Targets, &pb.RolloutLanePreviewTarget{
+			FirmwareFileId:  target.FirmwareFileID,
+			Manufacturer:    target.Manufacturer,
+			Model:           target.Model,
+			FirmwareVersion: target.FirmwareVersion,
+		})
+	}
+	for _, miner := range input.Miners {
+		currentVersion := miner.CurrentFirmwareVersion
+		result.Miners = append(result.Miners, &pb.RolloutLanePreviewMiner{
+			DeviceIdentifier:       miner.DeviceIdentifier,
+			Manufacturer:           miner.Manufacturer,
+			Model:                  miner.Model,
+			CurrentFirmwareVersion: optionalString(currentVersion),
+			TargetFirmwareVersion:  miner.TargetFirmwareVersion,
+			TargetFirmwareFileId:   miner.TargetFirmwareFileID,
+			Status:                 initialFirmwareStatusToProto(miner.Status),
+		})
+	}
+	return result
+}
+
+func initialFirmwareStatusToProto(
+	status betweenchannel.InitialFirmwareStatus,
+) pb.InitialFirmwareMatchStatus {
+	switch status {
+	case betweenchannel.InitialFirmwareMatch:
+		return pb.InitialFirmwareMatchStatus_INITIAL_FIRMWARE_MATCH_STATUS_MATCHING
+	case betweenchannel.InitialFirmwareMismatch:
+		return pb.InitialFirmwareMatchStatus_INITIAL_FIRMWARE_MATCH_STATUS_MISMATCHED
+	case betweenchannel.InitialFirmwareUnknown:
+		return pb.InitialFirmwareMatchStatus_INITIAL_FIRMWARE_MATCH_STATUS_UNKNOWN
+	default:
+		return pb.InitialFirmwareMatchStatus_INITIAL_FIRMWARE_MATCH_STATUS_UNSPECIFIED
+	}
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func batchesFromProto(inputs []*pb.CreateRolloutBatch) []rolloutDomain.CreateBatch {

@@ -19,13 +19,14 @@ interface RolloutLanesTableProps {
   onView: (rollout: RolloutRecord) => void;
 }
 
-type LaneColumn = "lane" | "release" | "members" | "rollout" | "actions";
+type LaneColumn = "lane" | "release" | "members" | "initial" | "rollout" | "actions";
 
-const columns: LaneColumn[] = ["lane", "release", "members", "rollout", "actions"];
+const columns: LaneColumn[] = ["lane", "release", "members", "initial", "rollout", "actions"];
 const titles: ColTitles<LaneColumn> = {
   lane: "Rollout lane",
   release: "Current release",
   members: "Miners",
+  initial: "Initial firmware",
   rollout: "Latest rollout",
   actions: "",
 };
@@ -72,6 +73,17 @@ export default function RolloutLanesTable({
     members: {
       component: ({ lane }) => lane.memberCount.toLocaleString(),
       width: "w-28",
+    },
+    initial: {
+      component: ({ lane }) => (
+        <div className="grid gap-0.5 text-200 text-text-primary-70">
+          <span>{lane.initialEnforcement.pendingCount.toLocaleString()} pending</span>
+          <span>{lane.initialEnforcement.updatingCount.toLocaleString()} updating</span>
+          <span>{lane.initialEnforcement.confirmedCount.toLocaleString()} confirmed</span>
+          <span>{lane.initialEnforcement.attentionCount.toLocaleString()} attention</span>
+        </div>
+      ),
+      width: "w-36",
     },
     rollout: {
       component: ({ latestRollout }) =>

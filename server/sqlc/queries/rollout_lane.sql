@@ -145,7 +145,8 @@ FOR UPDATE;
 SELECT device.id AS device_id,
        device.device_identifier,
        COALESCE(discovered.manufacturer, '') AS manufacturer,
-       COALESCE(discovered.model, '') AS model
+       COALESCE(discovered.model, '') AS model,
+       COALESCE(discovered.firmware_version, '') AS current_firmware_version
 FROM device
 JOIN discovered_device discovered
   ON discovered.id = device.discovered_device_id
@@ -155,6 +156,153 @@ WHERE device.org_id = sqlc.arg('org_id')
   AND device.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND device.deleted_at IS NULL
 ORDER BY device.device_identifier;
+
+-- name: LockBetweenChannelInitialDevices :many
+SELECT device.id AS device_id,
+       device.device_identifier,
+       COALESCE(discovered.manufacturer, '') AS manufacturer,
+       COALESCE(discovered.model, '') AS model,
+       COALESCE(discovered.firmware_version, '') AS current_firmware_version
+FROM device
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+WHERE device.org_id = sqlc.arg('org_id')
+  AND device.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND device.deleted_at IS NULL
+ORDER BY device.device_identifier
+FOR UPDATE OF device, discovered;
+
+-- name: CreateInitialRolloutLaneEnforcements :execrows
+INSERT INTO channel_firmware_enforcement (
+    org_id,
+    device_id,
+    desired_release_set_id,
+    desired_release_target_id,
+    desired_firmware_file_id,
+    desired_firmware_version,
+    cause_type,
+    cause_reference,
+    authority_id,
+    authority_revision,
+    state,
+    last_observed_firmware_version,
+    firmware_observed_at,
+    confirmed_at
+)
+SELECT device.org_id,
+       device.id,
+       target.release_set_id,
+       target.id,
+       target.firmware_file_id,
+       target.firmware_version,
+       'rollout_lane_initial',
+       sqlc.arg('lane_id')::uuid::text,
+       authority.id,
+       authority.revision,
+       CASE
+           WHEN btrim(COALESCE(discovered.firmware_version, '')) = target.firmware_version
+               THEN 'confirmed'
+           ELSE 'pending'
+       END,
+       NULLIF(btrim(COALESCE(discovered.firmware_version, '')), ''),
+       CASE
+           WHEN btrim(COALESCE(discovered.firmware_version, '')) <> ''
+               THEN discovered.last_seen
+           ELSE NULL
+       END,
+       CASE
+           WHEN btrim(COALESCE(discovered.firmware_version, '')) = target.firmware_version
+               THEN CURRENT_TIMESTAMP
+           ELSE NULL
+       END
+FROM device
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+JOIN firmware_release_target target
+  ON target.release_set_id = sqlc.arg('release_set_id')
+ AND target.org_id = device.org_id
+ AND lower(btrim(target.target_manufacturer)) =
+     lower(btrim(COALESCE(discovered.manufacturer, '')))
+ AND lower(btrim(target.target_model)) =
+     lower(btrim(COALESCE(discovered.model, '')))
+JOIN channel_firmware_authority authority
+  ON authority.id = sqlc.arg('authority_id')
+ AND authority.org_id = device.org_id
+ AND authority.revision = sqlc.arg('authority_revision')
+ AND authority.halted_at IS NULL
+WHERE device.org_id = sqlc.arg('org_id')
+  AND device.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND device.deleted_at IS NULL
+ON CONFLICT (authority_id, device_id) DO NOTHING;
+
+-- name: GetRolloutLaneInitialEnforcementStatus :one
+SELECT COUNT(enforcement.id)::bigint AS total_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('pending', 'held')
+       )::bigint AS pending_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('dispatching', 'dispatched', 'verifying')
+       )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'confirmed'
+       )::bigint AS confirmed_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('attention_required', 'cancelled')
+       )::bigint AS attention_count
+FROM channel_firmware_authority authority
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+WHERE authority.org_id = sqlc.arg('org_id')
+  AND authority.authority_type = 'rollout_lane_initial'
+  AND authority.authority_reference = sqlc.arg('lane_id')::uuid::text;
+
+-- name: ListRolloutLaneInitialEnforcementStatuses :many
+SELECT lane.id AS lane_id,
+       COUNT(enforcement.id)::bigint AS total_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('pending', 'held')
+       )::bigint AS pending_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('dispatching', 'dispatched', 'verifying')
+       )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'confirmed'
+       )::bigint AS confirmed_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('attention_required', 'cancelled')
+       )::bigint AS attention_count
+FROM channel_firmware_authority authority
+JOIN rollout_lane lane
+  ON lane.id::text = authority.authority_reference
+ AND lane.org_id = authority.org_id
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+WHERE authority.org_id = sqlc.arg('org_id')
+  AND authority.authority_type = 'rollout_lane_initial'
+GROUP BY lane.id;
+
+-- name: CountActiveRolloutLaneInitialEnforcements :one
+SELECT COUNT(*)::bigint
+FROM channel_firmware_authority authority
+JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+WHERE authority.org_id = sqlc.arg('org_id')
+  AND authority.authority_type = 'rollout_lane_initial'
+  AND authority.authority_reference = sqlc.arg('lane_id')::uuid::text
+  AND enforcement.state IN (
+      'pending',
+      'held',
+      'dispatching',
+      'dispatched',
+      'verifying'
+  );
 
 -- name: ListRolloutLaneChannelTransitions :many
 SELECT device.id AS device_id,

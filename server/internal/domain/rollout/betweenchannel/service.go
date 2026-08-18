@@ -49,6 +49,27 @@ func NewService(store LaneStore, resolver ReleaseTargetResolver) *Service {
 	}
 }
 
+func (s *Service) PreviewLane(
+	ctx context.Context,
+	req PreviewLaneRequest,
+) (InitialEnforcementPreview, error) {
+	if err := validatePreviewLaneRequest(req); err != nil {
+		return InitialEnforcementPreview{}, err
+	}
+	targets, release, err := s.resolveTargets(ctx, req.FirmwareFileIDs, req.ReleaseTargets)
+	if err != nil {
+		return InitialEnforcementPreview{}, err
+	}
+	defer release()
+	req.ReleaseTargets = targets
+	preview, err := s.store.PreviewLane(ctx, req)
+	if err != nil {
+		return InitialEnforcementPreview{}, mapStoreError(err)
+	}
+	preview.Targets = sortedTargets(targets)
+	return preview, nil
+}
+
 func (s *Service) CreateLane(
 	ctx context.Context,
 	req CreateLaneRequest,
@@ -153,6 +174,16 @@ func validateCreateLaneRequest(req CreateLaneRequest) error {
 		return err
 	}
 	return nil
+}
+
+func validatePreviewLaneRequest(req PreviewLaneRequest) error {
+	if req.OrgID <= 0 {
+		return fleeterror.NewInvalidArgumentError("organization ID is required")
+	}
+	if err := validateReleaseInput(req.FirmwareFileIDs, req.ReleaseTargets); err != nil {
+		return err
+	}
+	return validateIdentifiers(req.DeviceIdentifiers)
 }
 
 func validateStartRolloutRequest(req StartRolloutRequest) error {
@@ -336,6 +367,8 @@ func ModelKey(manufacturer, model string) string {
 }
 
 func fingerprintLaneCreate(req CreateLaneRequest) (string, error) {
+	// Confirmation acknowledges the initial updates but does not change the
+	// desired lane, so confirmed retries share the original idempotency identity.
 	payload := struct {
 		Label             string
 		Description       string
@@ -404,7 +437,9 @@ func mapStoreError(err error) error {
 		return fleeterror.NewNotFoundErrorf("%w", err)
 	case errors.Is(err, ErrLaneConflict),
 		errors.Is(err, ErrMembershipConflict),
-		errors.Is(err, ErrCompatibility):
+		errors.Is(err, ErrCompatibility),
+		errors.Is(err, ErrInitialEnforcementConfirmationRequired),
+		errors.Is(err, ErrInitialEnforcementActive):
 		return fleeterror.NewFailedPreconditionErrorf("%w", err)
 	case errors.Is(err, ErrIdempotencyConflict):
 		return fleeterror.NewAlreadyExistsErrorf("%w", err)

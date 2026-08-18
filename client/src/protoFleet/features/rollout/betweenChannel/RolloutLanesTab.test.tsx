@@ -22,6 +22,7 @@ const rolloutApi = vi.hoisted(() => ({
   },
   listRolloutLanes: vi.fn(),
   getRolloutLane: vi.fn(),
+  previewRolloutLane: vi.fn(),
   createRolloutLane: vi.fn(),
   startRolloutLane: vi.fn(),
   listRollouts: vi.fn(),
@@ -112,6 +113,13 @@ function lane(id: string, label: string, rolloutId?: string, currentChannelId = 
     memberCount: 2,
     memberIdentifiers: ["miner-1", "miner-2"],
     currentReleaseTargets: [],
+    initialEnforcement: {
+      totalCount: 2,
+      pendingCount: 0,
+      updatingCount: 0,
+      confirmedCount: 2,
+      attentionCount: 0,
+    },
   };
 }
 
@@ -204,6 +212,13 @@ describe("RolloutLanesTab", () => {
       return result;
     });
     rolloutApi.completeRollout.mockImplementation(async () => rolloutApi.rollouts[0]);
+    rolloutApi.previewRolloutLane.mockResolvedValue({
+      targets: [],
+      miners: [],
+      matchingCount: 2,
+      mismatchedCount: 0,
+      unknownCount: 0,
+    });
     listFirmwareFiles.mockResolvedValue([]);
   });
 
@@ -278,6 +293,35 @@ describe("RolloutLanesTab", () => {
     expect(rolloutApi.listRollouts).toHaveBeenCalledTimes(1);
     expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
     expect(rolloutApi.completeRollout).not.toHaveBeenCalled();
+  });
+
+  it("polls lane status while initial firmware enforcement is active", async () => {
+    vi.useFakeTimers();
+    rolloutApi.lanes = [
+      {
+        ...lane("lane-initial", "Initial convergence"),
+        initialEnforcement: {
+          totalCount: 2,
+          pendingCount: 1,
+          updatingCount: 1,
+          confirmedCount: 0,
+          attentionCount: 0,
+        },
+      },
+    ];
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+
+    render(<RolloutLanesTab />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
+    expect(rolloutApi.getRollout).not.toHaveBeenCalled();
   });
 
   it("does not overlap bounded rollout refreshes", async () => {

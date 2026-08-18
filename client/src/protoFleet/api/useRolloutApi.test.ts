@@ -4,13 +4,17 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
+  InitialFirmwareMatchStatus,
   RolloutLaneChannelSchema,
+  RolloutLanePreviewMinerSchema,
+  RolloutLanePreviewSchema,
   RolloutLaneSchema,
   RolloutSchema,
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 
 const rolloutClientMock = vi.hoisted(() => ({
+  previewRolloutLane: vi.fn(),
   createRolloutLane: vi.fn(),
   getRolloutLane: vi.fn(),
   listRolloutLanes: vi.fn(),
@@ -151,6 +155,66 @@ describe("useRolloutApi", () => {
       currentReleaseTargets: [{ firmwareFileId: "file-alpha", firmwareVersion: "1.0.0" }],
     });
     expect(deviceSetClientMock.listDeviceSetMembers).toHaveBeenCalledTimes(1);
+  });
+
+  it("previews initial convergence and sends confirmation only on confirmed create", async () => {
+    rolloutClientMock.previewRolloutLane.mockResolvedValue({
+      preview: create(RolloutLanePreviewSchema, {
+        matchingCount: 1,
+        mismatchedCount: 1,
+        unknownCount: 1,
+        miners: [
+          create(RolloutLanePreviewMinerSchema, {
+            deviceIdentifier: "miner-1",
+            manufacturer: "Proto",
+            model: "Alpha",
+            currentFirmwareVersion: "1.0.0",
+            targetFirmwareVersion: "2.0.0",
+            targetFirmwareFileId: "file-alpha",
+            status: InitialFirmwareMatchStatus.MISMATCHED,
+          }),
+        ],
+      }),
+    });
+    rolloutClientMock.createRolloutLane.mockResolvedValue({ lane: protoLane() });
+    const { result } = renderHook(() => useRolloutApi());
+    const selection = {
+      firmwareFileIds: ["file-alpha"],
+      deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+    };
+
+    let preview!: Awaited<ReturnType<typeof result.current.previewRolloutLane>>;
+    await act(async () => {
+      preview = await result.current.previewRolloutLane(selection);
+    });
+    await act(async () => {
+      await result.current.createRolloutLane({
+        label: "Stable production",
+        description: "",
+        ...selection,
+        idempotencyKey: "create-confirmed",
+        confirmInitialEnforcement: true,
+      });
+    });
+
+    expect(rolloutClientMock.previewRolloutLane.mock.calls[0][0]).toMatchObject(selection);
+    expect(preview).toMatchObject({
+      matchingCount: 1,
+      mismatchedCount: 1,
+      unknownCount: 1,
+      miners: [
+        {
+          deviceIdentifier: "miner-1",
+          currentFirmwareVersion: "1.0.0",
+          targetFirmwareVersion: "2.0.0",
+          status: "mismatched",
+        },
+      ],
+    });
+    expect(rolloutClientMock.createRolloutLane.mock.calls[0][0]).toMatchObject({
+      idempotencyKey: "create-confirmed",
+      confirmInitialEnforcement: true,
+    });
   });
 
   it("refreshes a lane pointer and its current release count without remounting", async () => {

@@ -6,6 +6,7 @@ import {
   RolloutEvidencePhase,
   RolloutEvidenceSchema,
   RolloutLaneChannelSchema,
+  RolloutLaneInitialEnforcementStatusSchema,
   RolloutLaneSchema,
   RolloutMemberSchema,
   RolloutMemberState,
@@ -40,6 +41,13 @@ describe("rollout mappers", () => {
           current: true,
         }),
       ],
+      initialEnforcement: create(RolloutLaneInitialEnforcementStatusSchema, {
+        totalCount: 12,
+        pendingCount: 2,
+        updatingCount: 1,
+        confirmedCount: 8,
+        attentionCount: 1,
+      }),
       updatedAt: timestamp("2026-08-18T01:00:00Z"),
     });
 
@@ -64,6 +72,13 @@ describe("rollout mappers", () => {
       memberCount: 12,
       memberIdentifiers: ["miner-1", "miner-2"],
       currentReleaseTargets: [{ targetModel: "Alpha", firmwareVersion: "1.0.0" }],
+      initialEnforcement: {
+        totalCount: 12,
+        pendingCount: 2,
+        updatingCount: 1,
+        confirmedCount: 8,
+        attentionCount: 1,
+      },
       updatedAt: "2026-08-18T01:00:00.000Z",
     });
   });

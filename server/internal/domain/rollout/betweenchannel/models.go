@@ -13,11 +13,13 @@ import (
 const StrategyKey = "between_channel"
 
 var (
-	ErrLaneNotFound        = errors.New("rollout lane not found")
-	ErrLaneConflict        = errors.New("rollout lane changed")
-	ErrIdempotencyConflict = errors.New("rollout lane idempotency key was reused with different input")
-	ErrMembershipConflict  = errors.New("rollout lane membership changed")
-	ErrCompatibility       = errors.New("rollout lane release is incompatible")
+	ErrLaneNotFound                           = errors.New("rollout lane not found")
+	ErrLaneConflict                           = errors.New("rollout lane changed")
+	ErrIdempotencyConflict                    = errors.New("rollout lane idempotency key was reused with different input")
+	ErrMembershipConflict                     = errors.New("rollout lane membership changed")
+	ErrCompatibility                          = errors.New("rollout lane release is incompatible")
+	ErrInitialEnforcementConfirmationRequired = errors.New("initial firmware enforcement confirmation required")
+	ErrInitialEnforcementActive               = errors.New("initial firmware enforcement is still active")
 )
 
 type ReleaseTarget struct {
@@ -26,6 +28,45 @@ type ReleaseTarget struct {
 	Model           string
 	FirmwareVersion string
 	SHA256          string
+}
+
+type InitialFirmwareStatus string
+
+const (
+	InitialFirmwareMatch    InitialFirmwareStatus = "matching"
+	InitialFirmwareMismatch InitialFirmwareStatus = "mismatched"
+	InitialFirmwareUnknown  InitialFirmwareStatus = "unknown"
+)
+
+type InitialFirmwareMiner struct {
+	DeviceID               int64
+	DeviceIdentifier       string
+	Manufacturer           string
+	Model                  string
+	CurrentFirmwareVersion string
+	TargetFirmwareVersion  string
+	TargetFirmwareFileID   string
+	Status                 InitialFirmwareStatus
+}
+
+type InitialEnforcementPreview struct {
+	Targets         []ReleaseTarget
+	Miners          []InitialFirmwareMiner
+	MatchingCount   int32
+	MismatchedCount int32
+	UnknownCount    int32
+}
+
+func (p InitialEnforcementPreview) RequiresConfirmation() bool {
+	return p.MismatchedCount > 0 || p.UnknownCount > 0
+}
+
+type InitialEnforcementStatus struct {
+	TotalCount     int32
+	PendingCount   int32
+	UpdatingCount  int32
+	ConfirmedCount int32
+	AttentionCount int32
 }
 
 type DeviceTransition struct {
@@ -40,16 +81,17 @@ type DeviceTransition struct {
 }
 
 type Lane struct {
-	ID               uuid.UUID
-	OrgID            int64
-	Label            string
-	Description      string
-	CurrentChannelID int64
-	Revision         int64
-	CreatedByUserID  int64
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	Channels         []LaneChannel
+	ID                 uuid.UUID
+	OrgID              int64
+	Label              string
+	Description        string
+	CurrentChannelID   int64
+	Revision           int64
+	CreatedByUserID    int64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Channels           []LaneChannel
+	InitialEnforcement InitialEnforcementStatus
 }
 
 type LaneChannel struct {
@@ -61,16 +103,24 @@ type LaneChannel struct {
 }
 
 type CreateLaneRequest struct {
-	ID                 uuid.UUID
-	OrgID              int64
-	Label              string
-	Description        string
-	FirmwareFileIDs    []string
-	ReleaseTargets     []ReleaseTarget
-	DeviceIdentifiers  []string
-	IdempotencyKey     string
-	RequestFingerprint string
-	ActorUserID        int64
+	ID                        uuid.UUID
+	OrgID                     int64
+	Label                     string
+	Description               string
+	FirmwareFileIDs           []string
+	ReleaseTargets            []ReleaseTarget
+	DeviceIdentifiers         []string
+	IdempotencyKey            string
+	RequestFingerprint        string
+	ActorUserID               int64
+	ConfirmInitialEnforcement bool
+}
+
+type PreviewLaneRequest struct {
+	OrgID             int64
+	FirmwareFileIDs   []string
+	ReleaseTargets    []ReleaseTarget
+	DeviceIdentifiers []string
 }
 
 type StartRolloutRequest struct {

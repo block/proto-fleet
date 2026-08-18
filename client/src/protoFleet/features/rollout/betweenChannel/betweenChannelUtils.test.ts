@@ -128,6 +128,13 @@ const lane: RolloutLane = {
   memberCount: 2,
   memberIdentifiers: [],
   currentReleaseTargets: [],
+  initialEnforcement: {
+    totalCount: 2,
+    pendingCount: 0,
+    updatingCount: 0,
+    confirmedCount: 2,
+    attentionCount: 0,
+  },
 };
 
 describe("between-channel rollout helpers", () => {

@@ -30,6 +30,10 @@ type rolloutService interface {
 }
 
 type laneService interface {
+	PreviewLane(
+		ctx context.Context,
+		req betweenchannel.PreviewLaneRequest,
+	) (betweenchannel.InitialEnforcementPreview, error)
 	CreateLane(ctx context.Context, req betweenchannel.CreateLaneRequest) (*betweenchannel.Lane, error)
 	GetLane(ctx context.Context, orgID int64, laneID uuid.UUID) (*betweenchannel.Lane, error)
 	ListLanes(ctx context.Context, orgID int64) ([]betweenchannel.Lane, error)
@@ -50,6 +54,36 @@ func NewHandler(service rolloutService, laneService laneService) *Handler {
 	return &Handler{service: service, laneService: laneService}
 }
 
+func (h *Handler) PreviewRolloutLane(
+	ctx context.Context,
+	req *connect.Request[pb.PreviewRolloutLaneRequest],
+) (*connect.Response[pb.PreviewRolloutLaneResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	preview, err := h.laneService.PreviewLane(ctx, betweenchannel.PreviewLaneRequest{
+		OrgID:             info.OrganizationID,
+		FirmwareFileIDs:   req.Msg.GetFirmwareFileIds(),
+		DeviceIdentifiers: req.Msg.GetDeviceIdentifiers(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.PreviewRolloutLaneResponse{
+		Preview: lanePreviewToProto(preview),
+	}), nil
+}
+
 func (h *Handler) CreateRolloutLane(
 	ctx context.Context,
 	req *connect.Request[pb.CreateRolloutLaneRequest],
@@ -68,13 +102,14 @@ func (h *Handler) CreateRolloutLane(
 		)
 	}
 	lane, err := h.laneService.CreateLane(ctx, betweenchannel.CreateLaneRequest{
-		OrgID:             info.OrganizationID,
-		Label:             req.Msg.GetLabel(),
-		Description:       req.Msg.GetDescription(),
-		FirmwareFileIDs:   req.Msg.GetFirmwareFileIds(),
-		DeviceIdentifiers: req.Msg.GetDeviceIdentifiers(),
-		IdempotencyKey:    req.Msg.GetIdempotencyKey(),
-		ActorUserID:       info.UserID,
+		OrgID:                     info.OrganizationID,
+		Label:                     req.Msg.GetLabel(),
+		Description:               req.Msg.GetDescription(),
+		FirmwareFileIDs:           req.Msg.GetFirmwareFileIds(),
+		DeviceIdentifiers:         req.Msg.GetDeviceIdentifiers(),
+		IdempotencyKey:            req.Msg.GetIdempotencyKey(),
+		ActorUserID:               info.UserID,
+		ConfirmInitialEnforcement: req.Msg.GetConfirmInitialEnforcement(),
 	})
 	if err != nil {
 		return nil, err

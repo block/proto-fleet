@@ -432,6 +432,36 @@ func (q *Queries) CompleteSettledBetweenChannelBatches(ctx context.Context, arg 
 	return result.RowsAffected()
 }
 
+const countActiveRolloutLaneInitialEnforcements = `-- name: CountActiveRolloutLaneInitialEnforcements :one
+SELECT COUNT(*)::bigint
+FROM channel_firmware_authority authority
+JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+WHERE authority.org_id = $1
+  AND authority.authority_type = 'rollout_lane_initial'
+  AND authority.authority_reference = $2::uuid::text
+  AND enforcement.state IN (
+      'pending',
+      'held',
+      'dispatching',
+      'dispatched',
+      'verifying'
+  )
+`
+
+type CountActiveRolloutLaneInitialEnforcementsParams struct {
+	OrgID  int64
+	LaneID uuid.UUID
+}
+
+func (q *Queries) CountActiveRolloutLaneInitialEnforcements(ctx context.Context, arg CountActiveRolloutLaneInitialEnforcementsParams) (int64, error) {
+	row := q.queryRow(ctx, q.countActiveRolloutLaneInitialEnforcementsStmt, countActiveRolloutLaneInitialEnforcements, arg.OrgID, arg.LaneID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countBetweenChannelAdmittedBatchMembers = `-- name: CountBetweenChannelAdmittedBatchMembers :one
 SELECT COUNT(*)::bigint
 FROM firmware_rollout_member
@@ -673,6 +703,96 @@ func (q *Queries) CreateBetweenChannelRevertEnforcements(ctx context.Context, ar
 		arg.AuthorityRevision,
 		arg.RolloutID,
 		arg.OrgID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const createInitialRolloutLaneEnforcements = `-- name: CreateInitialRolloutLaneEnforcements :execrows
+INSERT INTO channel_firmware_enforcement (
+    org_id,
+    device_id,
+    desired_release_set_id,
+    desired_release_target_id,
+    desired_firmware_file_id,
+    desired_firmware_version,
+    cause_type,
+    cause_reference,
+    authority_id,
+    authority_revision,
+    state,
+    last_observed_firmware_version,
+    firmware_observed_at,
+    confirmed_at
+)
+SELECT device.org_id,
+       device.id,
+       target.release_set_id,
+       target.id,
+       target.firmware_file_id,
+       target.firmware_version,
+       'rollout_lane_initial',
+       $1::uuid::text,
+       authority.id,
+       authority.revision,
+       CASE
+           WHEN btrim(COALESCE(discovered.firmware_version, '')) = target.firmware_version
+               THEN 'confirmed'
+           ELSE 'pending'
+       END,
+       NULLIF(btrim(COALESCE(discovered.firmware_version, '')), ''),
+       CASE
+           WHEN btrim(COALESCE(discovered.firmware_version, '')) <> ''
+               THEN discovered.last_seen
+           ELSE NULL
+       END,
+       CASE
+           WHEN btrim(COALESCE(discovered.firmware_version, '')) = target.firmware_version
+               THEN CURRENT_TIMESTAMP
+           ELSE NULL
+       END
+FROM device
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+JOIN firmware_release_target target
+  ON target.release_set_id = $2
+ AND target.org_id = device.org_id
+ AND lower(btrim(target.target_manufacturer)) =
+     lower(btrim(COALESCE(discovered.manufacturer, '')))
+ AND lower(btrim(target.target_model)) =
+     lower(btrim(COALESCE(discovered.model, '')))
+JOIN channel_firmware_authority authority
+  ON authority.id = $3
+ AND authority.org_id = device.org_id
+ AND authority.revision = $4
+ AND authority.halted_at IS NULL
+WHERE device.org_id = $5
+  AND device.device_identifier = ANY($6::text[])
+  AND device.deleted_at IS NULL
+ON CONFLICT (authority_id, device_id) DO NOTHING
+`
+
+type CreateInitialRolloutLaneEnforcementsParams struct {
+	LaneID            uuid.UUID
+	ReleaseSetID      int64
+	AuthorityID       uuid.UUID
+	AuthorityRevision int64
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+func (q *Queries) CreateInitialRolloutLaneEnforcements(ctx context.Context, arg CreateInitialRolloutLaneEnforcementsParams) (int64, error) {
+	result, err := q.exec(ctx, q.createInitialRolloutLaneEnforcementsStmt, createInitialRolloutLaneEnforcements,
+		arg.LaneID,
+		arg.ReleaseSetID,
+		arg.AuthorityID,
+		arg.AuthorityRevision,
+		arg.OrgID,
+		pq.Array(arg.DeviceIdentifiers),
 	)
 	if err != nil {
 		return 0, err
@@ -1450,6 +1570,55 @@ func (q *Queries) GetRolloutLaneForRollout(ctx context.Context, arg GetRolloutLa
 	return i, err
 }
 
+const getRolloutLaneInitialEnforcementStatus = `-- name: GetRolloutLaneInitialEnforcementStatus :one
+SELECT COUNT(enforcement.id)::bigint AS total_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('pending', 'held')
+       )::bigint AS pending_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('dispatching', 'dispatched', 'verifying')
+       )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'confirmed'
+       )::bigint AS confirmed_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('attention_required', 'cancelled')
+       )::bigint AS attention_count
+FROM channel_firmware_authority authority
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+WHERE authority.org_id = $1
+  AND authority.authority_type = 'rollout_lane_initial'
+  AND authority.authority_reference = $2::uuid::text
+`
+
+type GetRolloutLaneInitialEnforcementStatusParams struct {
+	OrgID  int64
+	LaneID uuid.UUID
+}
+
+type GetRolloutLaneInitialEnforcementStatusRow struct {
+	TotalCount     int64
+	PendingCount   int64
+	UpdatingCount  int64
+	ConfirmedCount int64
+	AttentionCount int64
+}
+
+func (q *Queries) GetRolloutLaneInitialEnforcementStatus(ctx context.Context, arg GetRolloutLaneInitialEnforcementStatusParams) (GetRolloutLaneInitialEnforcementStatusRow, error) {
+	row := q.queryRow(ctx, q.getRolloutLaneInitialEnforcementStatusStmt, getRolloutLaneInitialEnforcementStatus, arg.OrgID, arg.LaneID)
+	var i GetRolloutLaneInitialEnforcementStatusRow
+	err := row.Scan(
+		&i.TotalCount,
+		&i.PendingCount,
+		&i.UpdatingCount,
+		&i.ConfirmedCount,
+		&i.AttentionCount,
+	)
+	return i, err
+}
+
 const listActiveRolloutOwnedDeviceIdentifiers = `-- name: ListActiveRolloutOwnedDeviceIdentifiers :many
 SELECT device.device_identifier
 FROM firmware_rollout_member member
@@ -1572,7 +1741,8 @@ const listBetweenChannelDeviceModels = `-- name: ListBetweenChannelDeviceModels 
 SELECT device.id AS device_id,
        device.device_identifier,
        COALESCE(discovered.manufacturer, '') AS manufacturer,
-       COALESCE(discovered.model, '') AS model
+       COALESCE(discovered.model, '') AS model,
+       COALESCE(discovered.firmware_version, '') AS current_firmware_version
 FROM device
 JOIN discovered_device discovered
   ON discovered.id = device.discovered_device_id
@@ -1590,10 +1760,11 @@ type ListBetweenChannelDeviceModelsParams struct {
 }
 
 type ListBetweenChannelDeviceModelsRow struct {
-	DeviceID         int64
-	DeviceIdentifier string
-	Manufacturer     string
-	Model            string
+	DeviceID               int64
+	DeviceIdentifier       string
+	Manufacturer           string
+	Model                  string
+	CurrentFirmwareVersion string
 }
 
 func (q *Queries) ListBetweenChannelDeviceModels(ctx context.Context, arg ListBetweenChannelDeviceModelsParams) ([]ListBetweenChannelDeviceModelsRow, error) {
@@ -1610,6 +1781,7 @@ func (q *Queries) ListBetweenChannelDeviceModels(ctx context.Context, arg ListBe
 			&i.DeviceIdentifier,
 			&i.Manufacturer,
 			&i.Model,
+			&i.CurrentFirmwareVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -1907,6 +2079,72 @@ func (q *Queries) ListRolloutLaneChannels(ctx context.Context, arg ListRolloutLa
 	return items, nil
 }
 
+const listRolloutLaneInitialEnforcementStatuses = `-- name: ListRolloutLaneInitialEnforcementStatuses :many
+SELECT lane.id AS lane_id,
+       COUNT(enforcement.id)::bigint AS total_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('pending', 'held')
+       )::bigint AS pending_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('dispatching', 'dispatched', 'verifying')
+       )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'confirmed'
+       )::bigint AS confirmed_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('attention_required', 'cancelled')
+       )::bigint AS attention_count
+FROM channel_firmware_authority authority
+JOIN rollout_lane lane
+  ON lane.id::text = authority.authority_reference
+ AND lane.org_id = authority.org_id
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+WHERE authority.org_id = $1
+  AND authority.authority_type = 'rollout_lane_initial'
+GROUP BY lane.id
+`
+
+type ListRolloutLaneInitialEnforcementStatusesRow struct {
+	LaneID         uuid.UUID
+	TotalCount     int64
+	PendingCount   int64
+	UpdatingCount  int64
+	ConfirmedCount int64
+	AttentionCount int64
+}
+
+func (q *Queries) ListRolloutLaneInitialEnforcementStatuses(ctx context.Context, orgID int64) ([]ListRolloutLaneInitialEnforcementStatusesRow, error) {
+	rows, err := q.query(ctx, q.listRolloutLaneInitialEnforcementStatusesStmt, listRolloutLaneInitialEnforcementStatuses, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRolloutLaneInitialEnforcementStatusesRow
+	for rows.Next() {
+		var i ListRolloutLaneInitialEnforcementStatusesRow
+		if err := rows.Scan(
+			&i.LaneID,
+			&i.TotalCount,
+			&i.PendingCount,
+			&i.UpdatingCount,
+			&i.ConfirmedCount,
+			&i.AttentionCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRolloutLanes = `-- name: ListRolloutLanes :many
 SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at
 FROM rollout_lane
@@ -2019,6 +2257,66 @@ func (q *Queries) LockBetweenChannelDevices(ctx context.Context, arg LockBetween
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockBetweenChannelInitialDevices = `-- name: LockBetweenChannelInitialDevices :many
+SELECT device.id AS device_id,
+       device.device_identifier,
+       COALESCE(discovered.manufacturer, '') AS manufacturer,
+       COALESCE(discovered.model, '') AS model,
+       COALESCE(discovered.firmware_version, '') AS current_firmware_version
+FROM device
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+WHERE device.org_id = $1
+  AND device.device_identifier = ANY($2::text[])
+  AND device.deleted_at IS NULL
+ORDER BY device.device_identifier
+FOR UPDATE OF device, discovered
+`
+
+type LockBetweenChannelInitialDevicesParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type LockBetweenChannelInitialDevicesRow struct {
+	DeviceID               int64
+	DeviceIdentifier       string
+	Manufacturer           string
+	Model                  string
+	CurrentFirmwareVersion string
+}
+
+func (q *Queries) LockBetweenChannelInitialDevices(ctx context.Context, arg LockBetweenChannelInitialDevicesParams) ([]LockBetweenChannelInitialDevicesRow, error) {
+	rows, err := q.query(ctx, q.lockBetweenChannelInitialDevicesStmt, lockBetweenChannelInitialDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockBetweenChannelInitialDevicesRow
+	for rows.Next() {
+		var i LockBetweenChannelInitialDevicesRow
+		if err := rows.Scan(
+			&i.DeviceID,
+			&i.DeviceIdentifier,
+			&i.Manufacturer,
+			&i.Model,
+			&i.CurrentFirmwareVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
