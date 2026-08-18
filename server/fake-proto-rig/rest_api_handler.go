@@ -1925,7 +1925,17 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		newVersion, err := stagedFirmwareVersion(file.FileName(), file, currentVersion)
 		if err != nil {
+			_ = file.Close()
 			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Unable to inspect firmware upload")
+			return
+		}
+		if _, err := io.Copy(io.Discard, file); err != nil {
+			_ = file.Close()
+			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Unable to read firmware upload")
+			return
+		}
+		if err := file.Close(); err != nil {
+			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Unable to close firmware upload")
 			return
 		}
 
