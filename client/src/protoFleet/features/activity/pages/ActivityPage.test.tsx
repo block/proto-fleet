@@ -277,5 +277,14 @@ describe("ActivityPage", () => {
       expect(screen.getByTestId("activity-table").textContent).toBe("");
       expect(screen.queryByText("permission denied")).not.toBeInTheDocument();
     });
+
+    it("surfaces the denial error for an alert-only viewer with no fallback feed", () => {
+      permissionsMock.current = { "alert:read": true };
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ error: "permission denied", denied: true }));
+
+      render(<ActivityPage />);
+
+      expect(screen.getByText("permission denied")).toBeInTheDocument();
+    });
   });
 });

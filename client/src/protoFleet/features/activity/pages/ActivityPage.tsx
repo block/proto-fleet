@@ -109,8 +109,9 @@ const ActivityPageContent = () => {
     [canViewAlerts, eventTypes],
   );
   // A denied org-scoped read (alert:read revoked mid-session) degrades to an empty feed — the hook
-  // already cleared its rows and cursor — instead of erroring the page.
-  const feedError = error ?? (alerts.denied ? null : alerts.error);
+  // already cleared its rows and cursor — but only when the activity feed remains as a fallback;
+  // an alert-only viewer gets the access error, not a page that claims there is no activity.
+  const feedError = error ?? (alerts.denied && canReadActivity ? null : alerts.error);
   const feedHasMore = hasMore || alerts.hasMore;
   const feedLoading = isLoading || alerts.loading;
   // Both loadMore calls no-op internally when their feed has nothing to page or is already loading.
