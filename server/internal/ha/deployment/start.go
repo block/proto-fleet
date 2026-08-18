@@ -168,7 +168,10 @@ func StopInstalledServices(ctx context.Context, envPath string) error {
 	}
 	var stopFleetErr error
 	if config.isDatabaseNode() {
-		if err := RunCompose(ctx, fleetComposeArgs("down")); err != nil {
+		args, err := fleetComposeArgsForInstalledProfile("down")
+		if err != nil {
+			stopFleetErr = fmt.Errorf("stop Fleet: %w", err)
+		} else if err := RunCompose(ctx, args); err != nil {
 			stopFleetErr = fmt.Errorf("stop Fleet: %w", err)
 		}
 	}

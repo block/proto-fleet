@@ -2,9 +2,11 @@ package deployment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 )
 
@@ -18,6 +20,20 @@ func fleetApplicationComposeArgsAt(root, operation string, flags ...string) []st
 	args := slices.Clone(flags)
 	args = append(args, "fleet-api", "fleet-client", "grafana")
 	return fleetComposeArgsAt(root, operation, args...)
+}
+
+func fleetComposeArgsForInstalledProfile(operation string, flags ...string) ([]string, error) {
+	return fleetComposeArgsForInstalledProfileAt(installRoot, operation, flags...)
+}
+
+func fleetComposeArgsForInstalledProfileAt(root, operation string, flags ...string) ([]string, error) {
+	alertsPath := filepath.Join(root, "docker-compose.alerts.yaml")
+	if _, err := os.Stat(alertsPath); err == nil {
+		return fleetComposeArgsAtProfile(root, true, operation, flags...), nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect installed alerts Compose file: %w", err)
+	}
+	return fleetComposeArgsAtProfile(root, false, operation, flags...), nil
 }
 
 // RunCompose prevents parent variables from overriding generated HA identity and secrets.

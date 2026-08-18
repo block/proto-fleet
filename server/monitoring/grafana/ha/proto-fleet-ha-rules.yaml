@@ -26,7 +26,7 @@ groups:
                     o.organization_id,
                     1 AS value
                 FROM fleet_active_organization o
-                LEFT JOIN LATERAL (
+                LEFT JOIN (
                     SELECT value, time
                     FROM notification_metric_sample
                     WHERE metric = 'fleet_ha_failover_ready'

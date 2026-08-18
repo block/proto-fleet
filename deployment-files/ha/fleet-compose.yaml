@@ -37,6 +37,9 @@ services:
     # HA keeps Grafana intentionally local: the file-provisioned readiness
     # rule is identical on both hosts, while each instance keeps standalone
     # SQLite state in its own grafana-data volume.
+    # Pin the verified multi-architecture manifest because HA release installs
+    # otherwise pull this image outside the checksummed release archive.
+    image: grafana/grafana:13.0@sha256:e78917cdd3336d0d679d345b2e6d0f60a0fe85ed7ac3882b68f089fdb6ff2ace
     depends_on: !reset []
     network_mode: host
     ports: !reset []

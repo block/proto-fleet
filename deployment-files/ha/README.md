@@ -251,16 +251,18 @@ sudo ./deployment/ha/fleet-ha uninstall --purge-data
 ```
 
 Use `--purge-data` when preparing the host for a fresh guided installation. It
-removes the HA configuration, credentials, PostgreSQL and etcd data only after
-the local services and firewall have stopped successfully. Without the flag,
-the command preserves `/etc/proto-fleet/ha` and `/var/lib/proto-fleet/ha` as
+removes the HA configuration, credentials, PostgreSQL and etcd data, plus the
+exact HA Grafana volume, only after the local services have stopped
+successfully. Without the flag, the command preserves
+`/etc/proto-fleet/ha`, `/var/lib/proto-fleet/ha`, and Grafana's local state as
 inert local state. That retained state blocks a fresh install and cannot be
 purged by a later uninstall invocation.
 
-The command preserves Docker, installed packages, images, volumes, unrelated
-nftables configuration, host networking, and SSH access. For a complete
-three-host reset, run it on the witness, then the passive Fleet host, then the
-active Fleet host. It does not connect to or modify the peer hosts.
+The command preserves Docker, installed packages, images, unrelated Docker
+volumes, unrelated nftables configuration, host networking, and SSH access.
+For a complete three-host reset, run it on the witness, then the passive Fleet
+host, then the active Fleet host. It does not connect to or modify the peer
+hosts.
 
 The uninstaller supports intact HA installations only. Missing or corrupt
 installation ownership files still require manual recovery or reimaging.

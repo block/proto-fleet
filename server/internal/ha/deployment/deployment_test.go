@@ -293,7 +293,7 @@ func TestPreflight(t *testing.T) {
 	if !slices.Equal(arpingArgs, []string{"arping", "-D", "-I", "eth0", "-c", "2", "10.40.0.100"}) {
 		t.Fatalf("arping arguments = %q", arpingArgs)
 	}
-	for _, port := range []int{80, 443} {
+	for _, port := range []int{80, 443, 3030} {
 		listeners = fmt.Sprintf("LISTEN 0 4096 0.0.0.0:%d 0.0.0.0:*\n", port)
 		if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("TCP port %d is already occupied", port)) {
 			t.Fatalf("preflight(occupied Fleet port %d) error = %v", port, err)

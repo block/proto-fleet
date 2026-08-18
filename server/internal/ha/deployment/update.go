@@ -199,11 +199,7 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 		if readinessErr != nil {
 			return readinessErr
 		}
-		if ready {
-			_, _ = defaultInstallDependencies().run(ctx, "docker", "image", "prune", "--force")
-			return nil
-		}
-		if !applicationMayConverge(localReport.Runtime, targetVersion, requirePassive) {
+		if !ready && !applicationMayConverge(localReport.Runtime, targetVersion, requirePassive) {
 			return errors.New("running HA application is not ready; refusing to replace it")
 		}
 	}

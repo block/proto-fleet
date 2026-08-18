@@ -30,6 +30,7 @@ const (
 	firewallReplaceConfig = configRoot + "/firewall-replace.nft"
 	dockerDropIn          = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
 	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	fleetComposeProject   = "deployment"
 	minimumComposeVersion = "v2.24.4" // fleet-compose.yaml uses !override, added in this Compose release.
 	updaterDropIn         = "/etc/systemd/system/proto-fleet-updater.service.d/proto-fleet-ha.conf"
 	haUpdaterDropIn       = "/etc/systemd/system/proto-fleet-ha.service.d/proto-fleet-updater.conf"
@@ -925,15 +926,21 @@ func fleetComposeArgs(operation string, services ...string) []string {
 }
 
 func fleetComposeArgsAt(root, operation string, services ...string) []string {
+	return fleetComposeArgsAtProfile(root, true, operation, services...)
+}
+
+func fleetComposeArgsAtProfile(root string, includeAlerts bool, operation string, services ...string) []string {
 	args := []string{
-		"--project-name", "deployment",
+		"--project-name", fleetComposeProject,
 		"--env-file", filepath.Join(configRoot, "base.env"),
 		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
 		"--env-file", filepath.Join(configRoot, "node.env"),
 		"--file", filepath.Join(root, "docker-compose.yaml"),
-		"--file", filepath.Join(root, "docker-compose.alerts.yaml"),
-		"--file", filepath.Join(root, "ha", "fleet-compose.yaml"), operation,
 	}
+	if includeAlerts {
+		args = append(args, "--file", filepath.Join(root, "docker-compose.alerts.yaml"))
+	}
+	args = append(args, "--file", filepath.Join(root, "ha", "fleet-compose.yaml"), operation)
 	return append(args, services...)
 }
 

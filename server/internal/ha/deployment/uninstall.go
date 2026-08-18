@@ -14,6 +14,8 @@ import (
 
 const installedNodeEnvironment = configRoot + "/node.env"
 
+const haGrafanaVolume = fleetComposeProject + "_grafana-data"
+
 type uninstallDependencies struct {
 	input        io.Reader
 	output       io.Writer
@@ -76,6 +78,11 @@ func uninstall(ctx context.Context, purgeData bool, deps uninstallDependencies) 
 	}
 	if err := deps.stopServices(ctx, installedNodeEnvironment); err != nil {
 		return fmt.Errorf("stop installed HA containers: %w", err)
+	}
+	if purgeData && config.isDatabaseNode() {
+		if err := removeHAGrafanaVolume(ctx, deps); err != nil {
+			return err
+		}
 	}
 
 	if _, err := fmt.Fprintln(deps.output, "[host cleanup] Removing HA-owned services, firewall, and runtime files..."); err != nil {
@@ -219,6 +226,14 @@ func deleteHAFirewallTable(ctx context.Context, deps uninstallDependencies) erro
 		return nil
 	}
 	return fmt.Errorf("remove HA firewall table: %s", commandError(output, err))
+}
+
+func removeHAGrafanaVolume(ctx context.Context, deps uninstallDependencies) error {
+	output, err := deps.run(ctx, "docker", "--host", localDockerHost, "volume", "rm", "--force", haGrafanaVolume)
+	if err == nil || strings.Contains(strings.ToLower(string(output)), "no such volume") {
+		return nil
+	}
+	return fmt.Errorf("remove HA Grafana state: %s", commandError(output, err))
 }
 
 func removeHAArtifacts(ctx context.Context, deps uninstallDependencies, databaseNode bool) error {

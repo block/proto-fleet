@@ -150,6 +150,7 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "target: /etc/nginx/ssl/key.pem"
     assert_contains "$rendered" "GF_SERVER_HTTP_ADDR: 127.0.0.1"
     assert_contains "$rendered" "GF_SERVER_HTTP_PORT: \"3030\""
+    assert_contains "$rendered" "image: grafana/grafana:13.0@sha256:e78917cdd3336d0d679d345b2e6d0f60a0fe85ed7ac3882b68f089fdb6ff2ace"
     assert_contains "$rendered" "GRAFANA_DB_USERNAME: grafana_ha_ro"
     assert_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD: test-grafana-admin-password"
     assert_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-ha-rules.yaml"
