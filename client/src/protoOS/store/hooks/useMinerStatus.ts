@@ -8,21 +8,20 @@ const selectOperationalStatus = (state: ReturnType<typeof useMinerStore.getState
   state.minerStatus.operationalByOwner.get(ROOT_MODULE_KEY);
 
 const componentSlot = (error: NormalizedMinerError) => {
+  if (error.source?.slot !== undefined) return error.source.slot;
   const match = error.component?.id.toString().match(/(?:slot:|:)(\d+)$/);
   return match ? Number(match[1]) : undefined;
+};
+
+const errorSource = (error: NormalizedMinerError): ErrorSource => {
+  const kind = error.source?.kind ?? error.component?.kind ?? "rig";
+  return kind === "hashboard" ? "HASHBOARD" : kind === "psu" ? "PSU" : kind === "fan" ? "FAN" : "RIG";
 };
 
 const toLegacyError = (error: NormalizedMinerError): MinerError => ({
   errorCode: error.code,
   timestamp: error.timestampMs === undefined ? undefined : error.timestampMs / 1_000,
-  source:
-    error.component?.kind === "hashboard"
-      ? "HASHBOARD"
-      : error.component?.kind === "psu"
-        ? "PSU"
-        : error.component?.kind === "fan"
-          ? "FAN"
-          : "RIG",
+  source: errorSource(error),
   slot: componentSlot(error),
   message: error.message,
 });

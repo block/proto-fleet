@@ -324,24 +324,19 @@ export const normalizeV1Errors = (wire: ErrorListResponse): MinerError[] =>
     const source = error.source ?? "rig";
     const slot = error.slot;
     const component =
-      source === "rig" || slot === undefined
+      source === "rig" || source === "hashboard" || slot === undefined
         ? undefined
-        : source === "hashboard"
-          ? {
-              id: asHashboardId(`slot:${slot}`),
-              kind: "hashboard" as const,
-              owner: moduleOwner,
-            }
-          : {
-              id: asComponentId(`${ROOT_MODULE_ID}:${source}:${slot}`),
-              kind: source as "fan" | "psu",
-              owner: moduleOwner,
-            };
+        : {
+            id: asComponentId(`${ROOT_MODULE_ID}:${source}:${slot}`),
+            kind: source as "fan" | "psu",
+            owner: moduleOwner,
+          };
     return {
       id: `${error.error_code ?? "unknown"}:${error.timestamp ?? "none"}:${source}:${slot ?? "none"}:${index}`,
       code: error.error_code ?? "UNKNOWN",
       message: error.message ?? "Unknown miner error",
       owner: moduleOwner,
+      source: { kind: source, slot },
       component,
       severity: "critical",
       timestampMs: error.timestamp === undefined ? undefined : error.timestamp * 1_000,

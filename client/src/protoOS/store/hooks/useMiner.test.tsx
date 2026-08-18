@@ -81,6 +81,34 @@ describe("useMiner", () => {
     ]);
   });
 
+  it("groups slot-less errors by their preserved source", () => {
+    useMinerStore.getState().minerStatus.setErrors([
+      {
+        id: "error-slotless-fan",
+        code: "FanUnknown",
+        message: "Fan subsystem unavailable",
+        owner: { kind: "module", id: ROOT_MODULE_ID },
+        source: { kind: "fan" },
+        severity: "critical",
+      },
+      {
+        id: "error-hashboard-2",
+        code: "BoardFault",
+        message: "Hashboard fault",
+        owner: { kind: "module", id: ROOT_MODULE_ID },
+        source: { kind: "hashboard", slot: 2 },
+        severity: "critical",
+      },
+    ]);
+
+    const { result } = renderHook(() => useErrors());
+
+    expect(result.current).toEqual([
+      expect.objectContaining({ source: "FAN", slot: undefined }),
+      expect.objectContaining({ source: "HASHBOARD", slot: 2 }),
+    ]);
+  });
+
   it("joins normalized ASIC temperatures to hashboard-status positions", () => {
     const asicId = getAsicId("HB-1", 0);
     useMinerStore.getState().hardware.setHashboards([{ serial: "HB-1", slot: 1, asicIds: [asicId] }]);

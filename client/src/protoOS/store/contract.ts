@@ -465,11 +465,17 @@ export interface OperationalStatus {
   message?: string;
 }
 
+export interface ErrorSourceLocator {
+  kind: "rig" | "fan" | "psu" | "hashboard";
+  slot?: number;
+}
+
 export interface MinerError {
   id: string;
   code: string;
   message: string;
   owner: EntityRef;
+  source?: ErrorSourceLocator;
   component?: ComponentRef;
   severity: "info" | "warning" | "critical";
   timestampMs?: number;

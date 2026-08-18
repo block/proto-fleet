@@ -151,8 +151,22 @@ describe("MDK v1 normalization", () => {
     ).toMatchObject({
       code: "FanSlow",
       message: "Fan stalled",
+      source: { kind: "fan", slot: 1 },
       component: { id: "module:root:fan:1", kind: "fan" },
       severity: "critical",
+    });
+  });
+
+  it("preserves error source and location without inventing unresolved component ids", () => {
+    const [fanError, hashboardError] = normalizeV1Errors([
+      { error_code: "FanUnknown", source: "fan" },
+      { error_code: "BoardFault", source: "hashboard", slot: 2 },
+    ]);
+
+    expect(fanError).toMatchObject({ source: { kind: "fan" }, component: undefined });
+    expect(hashboardError).toMatchObject({
+      source: { kind: "hashboard", slot: 2 },
+      component: undefined,
     });
   });
 
