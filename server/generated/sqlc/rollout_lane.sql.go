@@ -1800,6 +1800,164 @@ func (q *Queries) HasActiveRolloutLaneLinkedWork(ctx context.Context, arg HasAct
 	return exists, err
 }
 
+const listActiveInitialRolloutLaneEnforcementStatuses = `-- name: ListActiveInitialRolloutLaneEnforcementStatuses :many
+WITH active_lane_ids AS (
+    SELECT DISTINCT authority.authority_reference::uuid AS lane_id
+    FROM channel_firmware_authority authority
+    JOIN channel_firmware_enforcement enforcement
+      ON enforcement.authority_id = authority.id
+     AND enforcement.org_id = authority.org_id
+    WHERE authority.org_id = $1
+      AND authority.authority_type = 'rollout_lane_initial'
+      AND enforcement.state IN (
+          'pending',
+          'held',
+          'dispatching',
+          'dispatched',
+          'verifying'
+      )
+)
+SELECT lane.id AS lane_id,
+       COUNT(enforcement.id)::bigint AS total_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('pending', 'held')
+       )::bigint AS pending_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('dispatching', 'dispatched')
+       )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'verifying'
+       )::bigint AS verifying_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'confirmed'
+       )::bigint AS confirmed_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('attention_required', 'cancelled')
+       )::bigint AS attention_count
+FROM active_lane_ids active
+JOIN rollout_lane lane
+  ON lane.id = active.lane_id
+ AND lane.org_id = $1
+JOIN channel_firmware_authority authority
+  ON authority.authority_reference = lane.id::text
+ AND authority.org_id = lane.org_id
+ AND authority.authority_type = 'rollout_lane_initial'
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+WHERE lane.deleted_at IS NULL
+GROUP BY lane.id
+`
+
+type ListActiveInitialRolloutLaneEnforcementStatusesRow struct {
+	LaneID         uuid.UUID
+	TotalCount     int64
+	PendingCount   int64
+	UpdatingCount  int64
+	VerifyingCount int64
+	ConfirmedCount int64
+	AttentionCount int64
+}
+
+func (q *Queries) ListActiveInitialRolloutLaneEnforcementStatuses(ctx context.Context, orgID int64) ([]ListActiveInitialRolloutLaneEnforcementStatusesRow, error) {
+	rows, err := q.query(ctx, q.listActiveInitialRolloutLaneEnforcementStatusesStmt, listActiveInitialRolloutLaneEnforcementStatuses, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveInitialRolloutLaneEnforcementStatusesRow
+	for rows.Next() {
+		var i ListActiveInitialRolloutLaneEnforcementStatusesRow
+		if err := rows.Scan(
+			&i.LaneID,
+			&i.TotalCount,
+			&i.PendingCount,
+			&i.UpdatingCount,
+			&i.VerifyingCount,
+			&i.ConfirmedCount,
+			&i.AttentionCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveInitialRolloutLanes = `-- name: ListActiveInitialRolloutLanes :many
+WITH active_lane_ids AS (
+    SELECT DISTINCT authority.authority_reference::uuid AS lane_id
+    FROM channel_firmware_authority authority
+    JOIN channel_firmware_enforcement enforcement
+      ON enforcement.authority_id = authority.id
+     AND enforcement.org_id = authority.org_id
+    WHERE authority.org_id = $1
+      AND authority.authority_type = 'rollout_lane_initial'
+      AND enforcement.state IN (
+          'pending',
+          'held',
+          'dispatching',
+          'dispatched',
+          'verifying'
+      )
+)
+SELECT lane.id, lane.org_id, lane.label, lane.description, lane.current_channel_id, lane.revision, lane.idempotency_key, lane.create_fingerprint, lane.created_by_user_id, lane.created_at, lane.updated_at, lane.deleted_at, lane.deleted_by_user_id, lane.deleted_actor_type, lane.deleted_actor_credential_id, lane.delete_reason, lane.delete_idempotency_key, lane.delete_fingerprint
+FROM rollout_lane lane
+JOIN active_lane_ids active
+  ON active.lane_id = lane.id
+WHERE lane.org_id = $1
+  AND lane.deleted_at IS NULL
+ORDER BY lane.label, lane.id
+`
+
+func (q *Queries) ListActiveInitialRolloutLanes(ctx context.Context, orgID int64) ([]RolloutLane, error) {
+	rows, err := q.query(ctx, q.listActiveInitialRolloutLanesStmt, listActiveInitialRolloutLanes, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RolloutLane
+	for rows.Next() {
+		var i RolloutLane
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Label,
+			&i.Description,
+			&i.CurrentChannelID,
+			&i.Revision,
+			&i.IdempotencyKey,
+			&i.CreateFingerprint,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.DeletedByUserID,
+			&i.DeletedActorType,
+			&i.DeletedActorCredentialID,
+			&i.DeleteReason,
+			&i.DeleteIdempotencyKey,
+			&i.DeleteFingerprint,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActiveRolloutOwnedDeviceIdentifiers = `-- name: ListActiveRolloutOwnedDeviceIdentifiers :many
 SELECT device.device_identifier
 FROM firmware_rollout_member member

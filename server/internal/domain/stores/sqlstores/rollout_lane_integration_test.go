@@ -1074,7 +1074,7 @@ func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
 	detailedLane, err := service.GetLane(t.Context(), orgID, lane.ID, true, nil)
 	require.NoError(t, err)
 	require.Len(t, detailedLane.InitialEnforcement.Members, 3)
-	lanes, err := service.ListLanes(t.Context(), orgID)
+	lanes, err := service.ListLanes(t.Context(), orgID, false)
 	require.NoError(t, err)
 	require.Len(t, lanes, 1)
 	assert.Empty(t, lanes[0].InitialEnforcement.Members)
@@ -1587,6 +1587,86 @@ func TestRolloutLaneConcurrentCreateReplaysIdempotently(t *testing.T) {
 	require.NotNil(t, first.lane)
 	require.NotNil(t, second.lane)
 	assert.Equal(t, first.lane.ID, second.lane.ID)
+}
+
+func TestListRolloutLanesActiveInitialOnlyStaysBoundedByActiveWork(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 11)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	actorID := testOrganizationUserID(t, db, orgID)
+	activeStates := []string{"pending", "held", "dispatching", "dispatched", "verifying"}
+	activeLanes := make([]*betweenchannel.Lane, 0, len(activeStates))
+	shaCharacters := "abcdef0123456789"
+
+	for index, state := range activeStates {
+		lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+			OrgID:                     orgID,
+			Label:                     "Active " + state,
+			ReleaseTargets:            []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", string(shaCharacters[index]))},
+			DeviceIdentifiers:         []string{deviceIDs[index]},
+			IdempotencyKey:            "active-initial-" + state,
+			ActorUserID:               actorID,
+			ConfirmInitialEnforcement: true,
+		})
+		require.NoError(t, err)
+		activeLanes = append(activeLanes, lane)
+		_, err = db.ExecContext(t.Context(), `
+			UPDATE channel_firmware_enforcement enforcement
+			SET state = $3
+			FROM channel_firmware_authority authority
+			WHERE enforcement.authority_id = authority.id
+			  AND enforcement.org_id = authority.org_id
+			  AND authority.org_id = $1
+			  AND authority.authority_type = 'rollout_lane_initial'
+			  AND authority.authority_reference = $2
+		`, orgID, lane.ID.String(), state)
+		require.NoError(t, err)
+	}
+
+	activeOnly, err := service.ListLanes(t.Context(), orgID, true)
+	require.NoError(t, err)
+	require.Len(t, activeOnly, len(activeStates))
+
+	for index := len(activeStates); index < len(deviceIDs)-1; index++ {
+		_, err = service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+			OrgID:             orgID,
+			Label:             "History " + deviceIDs[index],
+			ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", string(shaCharacters[index]))},
+			DeviceIdentifiers: []string{deviceIDs[index]},
+			IdempotencyKey:    "inactive-history-" + deviceIDs[index],
+			ActorUserID:       actorID,
+		})
+		require.NoError(t, err)
+	}
+
+	allLanes, err := service.ListLanes(t.Context(), orgID, false)
+	require.NoError(t, err)
+	require.Len(t, allLanes, len(deviceIDs)-1)
+	activeOnly, err = service.ListLanes(t.Context(), orgID, true)
+	require.NoError(t, err)
+	require.Len(t, activeOnly, len(activeStates))
+
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE rollout_lane
+		SET deleted_at = NOW(),
+		    deleted_by_user_id = $3,
+		    deleted_actor_type = 'user',
+		    delete_reason = 'archive active lane fixture',
+		    delete_idempotency_key = 'archive-active-lane-fixture',
+		    delete_fingerprint = repeat('a', 64)
+		WHERE id = $1 AND org_id = $2
+	`, activeLanes[0].ID, orgID, actorID)
+	require.NoError(t, err)
+
+	allLanes, err = service.ListLanes(t.Context(), orgID, false)
+	require.NoError(t, err)
+	require.Len(t, allLanes, len(deviceIDs)-2)
+	activeOnly, err = service.ListLanes(t.Context(), orgID, true)
+	require.NoError(t, err)
+	require.Len(t, activeOnly, len(activeStates)-1)
 }
 
 func setupRolloutLaneTestData(

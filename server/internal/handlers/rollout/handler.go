@@ -43,7 +43,7 @@ type laneService interface {
 		includeInitialEnforcementMembers bool,
 		initialEnforcementMembersUpdatedAfter *time.Time,
 	) (*betweenchannel.Lane, error)
-	ListLanes(ctx context.Context, orgID int64) ([]betweenchannel.Lane, error)
+	ListLanes(ctx context.Context, orgID int64, activeInitialOnly bool) ([]betweenchannel.Lane, error)
 	DeleteLane(ctx context.Context, req betweenchannel.DeleteLaneRequest) error
 	StartRollout(
 		ctx context.Context,
@@ -175,7 +175,7 @@ func (h *Handler) GetRolloutLane(
 
 func (h *Handler) ListRolloutLanes(
 	ctx context.Context,
-	_ *connect.Request[pb.ListRolloutLanesRequest],
+	req *connect.Request[pb.ListRolloutLanesRequest],
 ) (*connect.Response[pb.ListRolloutLanesResponse], error) {
 	info, err := middleware.RequirePermission(
 		ctx,
@@ -190,7 +190,11 @@ func (h *Handler) ListRolloutLanes(
 			"rollout lane service is not registered",
 		)
 	}
-	lanes, err := h.laneService.ListLanes(ctx, info.OrganizationID)
+	lanes, err := h.laneService.ListLanes(
+		ctx,
+		info.OrganizationID,
+		req.Msg.GetActiveInitialOnly(),
+	)
 	if err != nil {
 		return nil, err
 	}

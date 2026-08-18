@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BETWEEN_CHANNEL_STRATEGY_KEY,
   buildManualBatches,
   canCompleteWithFailures,
   canRevertRollout,
+  dominantInitialFirmwareState,
   evaluateTargetCompatibility,
+  firstActiveInitialLane,
+  laneForRollout,
+  rolloutLaneActionStatus,
   rolloutLaneDeleteBlockedReason,
   rolloutLaneStartBlockedReason,
   shouldMonitorRollout,
@@ -80,7 +85,7 @@ function rolloutWithMembers(
   return {
     id: "rollout-1",
     name: "Production rollout",
-    strategyKey: "between_channel",
+    strategyKey: BETWEEN_CHANNEL_STRATEGY_KEY,
     state,
     revision: 1n,
     sourceChannelId: 41n,
@@ -141,6 +146,80 @@ const lane: RolloutLane = {
 };
 
 describe("between-channel rollout helpers", () => {
+  it("selects lanes in the server-provided order", () => {
+    const inactiveLane = { ...lane, id: "inactive" };
+    const firstActiveLane = {
+      ...lane,
+      id: "first-active",
+      initialEnforcement: { ...lane.initialEnforcement, confirmedCount: 1, updatingCount: 1 },
+    };
+    const secondActiveLane = {
+      ...firstActiveLane,
+      id: "second-active",
+    };
+    const rolloutLane = {
+      ...lane,
+      id: "rollout-lane",
+      channels: [{ channelId: 42n, releaseSetId: 8n, position: 1, rolloutId: "rollout-1", current: true }],
+    };
+    const lanes = [inactiveLane, firstActiveLane, secondActiveLane, rolloutLane];
+
+    expect(firstActiveInitialLane(lanes)).toBe(firstActiveLane);
+    expect(laneForRollout(lanes, "rollout-1")).toBe(rolloutLane);
+  });
+
+  it.each([
+    ["needsAttention", { attentionCount: 1, verifyingCount: 1, updatingCount: 1, pendingCount: 1 }],
+    ["verifying", { attentionCount: 0, verifyingCount: 1, updatingCount: 1, pendingCount: 1 }],
+    ["updating", { attentionCount: 0, verifyingCount: 0, updatingCount: 1, pendingCount: 1 }],
+    ["pending", { attentionCount: 0, verifyingCount: 0, updatingCount: 0, pendingCount: 1 }],
+    ["confirmed", { attentionCount: 0, verifyingCount: 0, updatingCount: 0, pendingCount: 0 }],
+  ] as const)("returns %s as the dominant initial firmware state", (expected, counts) => {
+    expect(
+      dominantInitialFirmwareState({
+        ...lane,
+        initialEnforcement: {
+          ...lane.initialEnforcement,
+          ...counts,
+        },
+      }),
+    ).toBe(expected);
+  });
+
+  it("returns one concise action status for visible lane actions", () => {
+    const activeInitialLane = {
+      ...lane,
+      initialEnforcement: { ...lane.initialEnforcement, confirmedCount: 1, updatingCount: 1 },
+    };
+    const activeRollout = rolloutWithMembers("running", ["admitted"]);
+
+    expect(
+      rolloutLaneActionStatus(activeInitialLane, undefined, {
+        canStart: true,
+        canDelete: true,
+      }),
+    ).toBe("Initial firmware rollout in progress.");
+    expect(
+      rolloutLaneActionStatus(lane, activeRollout, {
+        canStart: true,
+        canDelete: true,
+      }),
+    ).toBe("Rollout in progress.");
+    expect(
+      rolloutLaneActionStatus(lane, undefined, {
+        canStart: false,
+        canDelete: true,
+        deletePermissionBlockedReason: "Rollout read access is required.",
+      }),
+    ).toBe("Rollout read access is required.");
+    expect(
+      rolloutLaneActionStatus(lane, undefined, {
+        canStart: false,
+        canDelete: false,
+      }),
+    ).toBeNull();
+  });
+
   it("blocks a target that is missing a source model", () => {
     const rows = evaluateTargetCompatibility(sourceTargets, files, {
       [targetKey("Proto", "Alpha")]: "alpha-2",

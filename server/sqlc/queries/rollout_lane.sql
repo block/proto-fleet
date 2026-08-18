@@ -49,6 +49,31 @@ WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
 ORDER BY label, id;
 
+-- name: ListActiveInitialRolloutLanes :many
+WITH active_lane_ids AS (
+    SELECT DISTINCT authority.authority_reference::uuid AS lane_id
+    FROM channel_firmware_authority authority
+    JOIN channel_firmware_enforcement enforcement
+      ON enforcement.authority_id = authority.id
+     AND enforcement.org_id = authority.org_id
+    WHERE authority.org_id = sqlc.arg('org_id')
+      AND authority.authority_type = 'rollout_lane_initial'
+      AND enforcement.state IN (
+          'pending',
+          'held',
+          'dispatching',
+          'dispatched',
+          'verifying'
+      )
+)
+SELECT lane.*
+FROM rollout_lane lane
+JOIN active_lane_ids active
+  ON active.lane_id = lane.id
+WHERE lane.org_id = sqlc.arg('org_id')
+  AND lane.deleted_at IS NULL
+ORDER BY lane.label, lane.id;
+
 -- name: LockRolloutLaneForArchive :one
 SELECT *
 FROM rollout_lane
@@ -442,6 +467,54 @@ LEFT JOIN channel_firmware_enforcement enforcement
 WHERE authority.org_id = sqlc.arg('org_id')
   AND authority.authority_type = 'rollout_lane_initial'
   AND lane.deleted_at IS NULL
+GROUP BY lane.id;
+
+-- name: ListActiveInitialRolloutLaneEnforcementStatuses :many
+WITH active_lane_ids AS (
+    SELECT DISTINCT authority.authority_reference::uuid AS lane_id
+    FROM channel_firmware_authority authority
+    JOIN channel_firmware_enforcement enforcement
+      ON enforcement.authority_id = authority.id
+     AND enforcement.org_id = authority.org_id
+    WHERE authority.org_id = sqlc.arg('org_id')
+      AND authority.authority_type = 'rollout_lane_initial'
+      AND enforcement.state IN (
+          'pending',
+          'held',
+          'dispatching',
+          'dispatched',
+          'verifying'
+      )
+)
+SELECT lane.id AS lane_id,
+       COUNT(enforcement.id)::bigint AS total_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('pending', 'held')
+       )::bigint AS pending_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('dispatching', 'dispatched')
+       )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'verifying'
+       )::bigint AS verifying_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'confirmed'
+       )::bigint AS confirmed_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state IN ('attention_required', 'cancelled')
+       )::bigint AS attention_count
+FROM active_lane_ids active
+JOIN rollout_lane lane
+  ON lane.id = active.lane_id
+ AND lane.org_id = sqlc.arg('org_id')
+JOIN channel_firmware_authority authority
+  ON authority.authority_reference = lane.id::text
+ AND authority.org_id = lane.org_id
+ AND authority.authority_type = 'rollout_lane_initial'
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+WHERE lane.deleted_at IS NULL
 GROUP BY lane.id;
 
 -- name: ListRolloutLaneInitialEnforcementMembers :many

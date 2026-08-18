@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import RolloutLanesTable, { type LaneTableRow } from "./RolloutLanesTable";
+import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import type { RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 
 const rows: LaneTableRow[] = [
@@ -41,7 +42,7 @@ const rows: LaneTableRow[] = [
 const abortedSplit: RolloutRecord = {
   id: "rollout-1",
   name: "Production 2.0.0",
-  strategyKey: "between_channel",
+  strategyKey: BETWEEN_CHANNEL_STRATEGY_KEY,
   state: "aborted",
   revision: 2n,
   sourceChannelId: 41n,
@@ -79,8 +80,57 @@ describe("RolloutLanesTable", () => {
     expect(screen.getByText("Alpha 1.0.0")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("12 confirmed")).toBeInTheDocument();
-    expect(screen.getByText("0 needs attention")).toBeInTheDocument();
+    expect(screen.queryByText("0 needs attention")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 pending")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start rollout/i })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: "attention",
+      enforcement: { confirmedCount: 5, attentionCount: 1, verifyingCount: 2, updatingCount: 2, pendingCount: 2 },
+      summary: "5/12 confirmed · 1 needs attention",
+    },
+    {
+      name: "verifying",
+      enforcement: { confirmedCount: 4, attentionCount: 0, verifyingCount: 2, updatingCount: 3, pendingCount: 3 },
+      summary: "4/12 confirmed · Verifying",
+    },
+    {
+      name: "updating",
+      enforcement: { confirmedCount: 0, attentionCount: 0, verifyingCount: 0, updatingCount: 6, pendingCount: 6 },
+      summary: "0/12 confirmed · Updating",
+    },
+    {
+      name: "pending",
+      enforcement: { confirmedCount: 0, attentionCount: 0, verifyingCount: 0, updatingCount: 0, pendingCount: 12 },
+      summary: "0/12 confirmed · Pending",
+    },
+  ])("shows one dominant $name initial firmware summary", ({ enforcement, summary }) => {
+    const summarizedLane = {
+      ...rows[0].lane,
+      initialEnforcement: {
+        ...rows[0].lane.initialEnforcement,
+        ...enforcement,
+      },
+    };
+
+    render(
+      <RolloutLanesTable
+        rows={[{ id: summarizedLane.id, lane: summarizedLane }]}
+        canStart={false}
+        onSetup={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+      />,
+    );
+
+    const initialFirmwareButton = screen.getByRole("button", {
+      name: "View initial firmware setup for Stable production",
+    });
+    expect(initialFirmwareButton).toHaveTextContent(summary);
+    expect(initialFirmwareButton.querySelectorAll("span")).toHaveLength(1);
+    expect(initialFirmwareButton.closest("td")?.firstElementChild).not.toHaveClass("truncate");
   });
 
   it("shows lane start only to managers", () => {
@@ -142,7 +192,7 @@ describe("RolloutLanesTable", () => {
     );
 
     expect(screen.getByRole("button", { name: "Delete Stable production" })).toBeDisabled();
-    expect(screen.getByText("Wait for rollout work to settle before deleting this lane.")).toBeInTheDocument();
+    expect(screen.getByText("Rollout in progress.")).toBeInTheDocument();
   });
 
   it("disables deletion when rollout visibility cannot establish safety", () => {
@@ -222,9 +272,41 @@ describe("RolloutLanesTable", () => {
     );
 
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
+    expect(screen.getByText("Initial firmware rollout in progress.")).toBeInTheDocument();
     expect(
-      screen.getByText("Wait for initial firmware setup to finish before starting a rollout."),
-    ).toBeInTheDocument();
+      screen.queryByText("Wait for initial firmware setup to finish before deleting this lane."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows one rollout-in-progress sentence for separately disabled actions", () => {
+    render(
+      <RolloutLanesTable
+        rows={[
+          {
+            ...rows[0],
+            latestRollout: {
+              ...abortedSplit,
+              state: "running",
+              members: [{ ...abortedSplit.members[0], state: "admitted" }],
+            },
+          },
+        ]}
+        canStart
+        canDelete
+        onSetup={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete Stable production" })).toBeDisabled();
+    expect(screen.getAllByText("Rollout in progress.")).toHaveLength(1);
+    expect(
+      screen.queryByText("Finish or abort the current rollout before starting another rollout."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Wait for rollout work to settle before deleting this lane.")).not.toBeInTheDocument();
   });
 
   it("blocks rollout start until every initial member is confirmed", () => {

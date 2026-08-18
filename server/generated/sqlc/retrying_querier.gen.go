@@ -4308,6 +4308,30 @@ func (q *retryingQuerier) ListActiveCurtailmentTargetDevicesByOrg(ctx context.Co
 	return result, err
 }
 
+func (q *retryingQuerier) ListActiveInitialRolloutLaneEnforcementStatuses(ctx context.Context, orgID int64) ([]ListActiveInitialRolloutLaneEnforcementStatusesRow, error) {
+	var result []ListActiveInitialRolloutLaneEnforcementStatusesRow
+	err := q.retrier.RetryQuery(ctx, "ListActiveInitialRolloutLaneEnforcementStatuses", func() error {
+		callResult, callErr := q.next.ListActiveInitialRolloutLaneEnforcementStatuses(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListActiveInitialRolloutLanes(ctx context.Context, orgID int64) ([]RolloutLane, error) {
+	var result []RolloutLane
+	err := q.retrier.RetryQuery(ctx, "ListActiveInitialRolloutLanes", func() error {
+		callResult, callErr := q.next.ListActiveInitialRolloutLanes(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error) {
 	var result []ListActiveNotificationGroupsRow
 	err := q.retrier.RetryQuery(ctx, "ListActiveNotificationGroups", func() error {

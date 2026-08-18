@@ -288,29 +288,55 @@ func (s *SQLRolloutLaneStore) GetLane(
 func (s *SQLRolloutLaneStore) ListLanes(
 	ctx context.Context,
 	orgID int64,
+	activeInitialOnly bool,
 ) ([]betweenchannel.Lane, error) {
 	q := s.GetQueries(ctx)
-	rows, err := q.ListRolloutLanes(ctx, orgID)
+	var (
+		rows []sqlc.RolloutLane
+		err  error
+	)
+	if activeInitialOnly {
+		rows, err = q.ListActiveInitialRolloutLanes(ctx, orgID)
+	} else {
+		rows, err = q.ListRolloutLanes(ctx, orgID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list rollout lanes: %w", err)
 	}
-	statusRows, err := q.ListRolloutLaneInitialEnforcementStatuses(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("list rollout lane initial enforcement statuses: %w", err)
-	}
 	initialStatusByLane := make(
 		map[uuid.UUID]betweenchannel.InitialEnforcementStatus,
-		len(statusRows),
+		len(rows),
 	)
-	for _, status := range statusRows {
-		initialStatusByLane[status.LaneID] = initialEnforcementStatus(initialEnforcementCounts{
-			Total:     status.TotalCount,
-			Pending:   status.PendingCount,
-			Updating:  status.UpdatingCount,
-			Verifying: status.VerifyingCount,
-			Confirmed: status.ConfirmedCount,
-			Attention: status.AttentionCount,
-		})
+	if activeInitialOnly {
+		statusRows, statusErr := q.ListActiveInitialRolloutLaneEnforcementStatuses(ctx, orgID)
+		if statusErr != nil {
+			return nil, fmt.Errorf("list active rollout lane initial enforcement statuses: %w", statusErr)
+		}
+		for _, status := range statusRows {
+			initialStatusByLane[status.LaneID] = initialEnforcementStatus(initialEnforcementCounts{
+				Total:     status.TotalCount,
+				Pending:   status.PendingCount,
+				Updating:  status.UpdatingCount,
+				Verifying: status.VerifyingCount,
+				Confirmed: status.ConfirmedCount,
+				Attention: status.AttentionCount,
+			})
+		}
+	} else {
+		statusRows, statusErr := q.ListRolloutLaneInitialEnforcementStatuses(ctx, orgID)
+		if statusErr != nil {
+			return nil, fmt.Errorf("list rollout lane initial enforcement statuses: %w", statusErr)
+		}
+		for _, status := range statusRows {
+			initialStatusByLane[status.LaneID] = initialEnforcementStatus(initialEnforcementCounts{
+				Total:     status.TotalCount,
+				Pending:   status.PendingCount,
+				Updating:  status.UpdatingCount,
+				Verifying: status.VerifyingCount,
+				Confirmed: status.ConfirmedCount,
+				Attention: status.AttentionCount,
+			})
+		}
 	}
 	result := make([]betweenchannel.Lane, 0, len(rows))
 	for _, row := range rows {

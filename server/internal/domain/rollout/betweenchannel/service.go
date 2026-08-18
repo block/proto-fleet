@@ -126,11 +126,15 @@ func (s *Service) GetLane(
 	return lane, nil
 }
 
-func (s *Service) ListLanes(ctx context.Context, orgID int64) ([]Lane, error) {
+func (s *Service) ListLanes(
+	ctx context.Context,
+	orgID int64,
+	activeInitialOnly bool,
+) ([]Lane, error) {
 	if orgID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("organization ID is required")
 	}
-	lanes, err := s.store.ListLanes(ctx, orgID)
+	lanes, err := s.store.ListLanes(ctx, orgID, activeInitialOnly)
 	if err != nil {
 		return nil, mapStoreError(err)
 	}

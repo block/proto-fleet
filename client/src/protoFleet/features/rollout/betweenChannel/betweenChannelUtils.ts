@@ -2,12 +2,15 @@ import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { CreateRolloutBatchInput, CreateRolloutMemberInput } from "@/protoFleet/api/useRolloutApi";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type {
+  FirmwareTransitionState,
   RolloutLane,
   RolloutLaneReleaseTarget,
   RolloutMemberState,
   RolloutRecord,
   RolloutStrategy,
 } from "@/protoFleet/features/rollout/rolloutTypes";
+
+export const BETWEEN_CHANNEL_STRATEGY_KEY = "between_channel";
 
 export type TargetCompatibilityStatus = "compatible" | "missing" | "noOp";
 
@@ -25,6 +28,12 @@ export interface ManualBatchConfig {
   strategy: Extract<RolloutStrategy, "batched" | "pilotThenContinue">;
   batchSize?: number;
   pilotSize?: number;
+}
+
+interface RolloutLaneActionStatusOptions {
+  canStart: boolean;
+  canDelete: boolean;
+  deletePermissionBlockedReason?: string;
 }
 
 const terminalMemberStates = new Set<RolloutMemberState>([
@@ -84,6 +93,32 @@ export function hasActiveInitialEnforcement(lane: RolloutLane): boolean {
   return totalCount > confirmedCount + attentionCount;
 }
 
+export function laneForRollout(lanes: RolloutLane[], rolloutId: string): RolloutLane | undefined {
+  return lanes.find((lane) => lane.channels.some((channel) => channel.rolloutId === rolloutId));
+}
+
+export function firstActiveInitialLane(lanes: RolloutLane[]): RolloutLane | undefined {
+  // Array.find preserves the server-provided lane order as the deterministic tie-breaker.
+  return lanes.find(hasActiveInitialEnforcement);
+}
+
+export function dominantInitialFirmwareState(lane: RolloutLane): FirmwareTransitionState {
+  const { attentionCount, verifyingCount, updatingCount, pendingCount } = lane.initialEnforcement;
+  if (attentionCount > 0) {
+    return "needsAttention";
+  }
+  if (verifyingCount > 0) {
+    return "verifying";
+  }
+  if (updatingCount > 0) {
+    return "updating";
+  }
+  if (pendingCount > 0) {
+    return "pending";
+  }
+  return "confirmed";
+}
+
 export function isInitialFirmwareReady(lane: RolloutLane): boolean {
   return (
     lane.initialEnforcement.totalCount > 0 &&
@@ -118,6 +153,32 @@ export function rolloutLaneDeleteBlockedReason(lane: RolloutLane, rollout: Rollo
   }
   if (shouldMonitorRollout(rollout)) {
     return "Wait for rollout work to settle before deleting this lane.";
+  }
+  return null;
+}
+
+export function rolloutLaneActionStatus(
+  lane: RolloutLane,
+  rollout: RolloutRecord | undefined,
+  { canStart, canDelete, deletePermissionBlockedReason }: RolloutLaneActionStatusOptions,
+): string | null {
+  if (!canStart && !canDelete) {
+    return null;
+  }
+  if (hasActiveInitialEnforcement(lane)) {
+    return "Initial firmware rollout in progress.";
+  }
+  if (shouldMonitorRollout(rollout)) {
+    return "Rollout in progress.";
+  }
+  if (canStart) {
+    const startBlockedReason = rolloutLaneStartBlockedReason(lane, rollout);
+    if (startBlockedReason) {
+      return startBlockedReason;
+    }
+  }
+  if (canDelete) {
+    return deletePermissionBlockedReason ?? rolloutLaneDeleteBlockedReason(lane, rollout);
   }
   return null;
 }

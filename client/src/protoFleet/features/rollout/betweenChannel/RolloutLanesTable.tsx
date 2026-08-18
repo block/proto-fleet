@@ -1,4 +1,6 @@
 import {
+  dominantInitialFirmwareState,
+  rolloutLaneActionStatus,
   rolloutLaneDeleteBlockedReason,
   rolloutLaneStartBlockedReason,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
@@ -55,6 +57,18 @@ function rolloutStateLabel(state: RolloutRecord["state"]): string {
   }
 }
 
+function initialFirmwareSummary(lane: RolloutLane): string {
+  const { totalCount, confirmedCount, attentionCount } = lane.initialEnforcement;
+  const dominantState = dominantInitialFirmwareState(lane);
+  if (dominantState === "needsAttention") {
+    const attentionLabel = attentionCount === 1 ? "needs attention" : "need attention";
+    return `${confirmedCount.toLocaleString()}/${totalCount.toLocaleString()} confirmed · ${attentionCount.toLocaleString()} ${attentionLabel}`;
+  }
+  return dominantState === "confirmed"
+    ? `${confirmedCount.toLocaleString()} confirmed`
+    : `${confirmedCount.toLocaleString()}/${totalCount.toLocaleString()} confirmed · ${firmwareTransitionDisplay[dominantState].summaryLabel}`;
+}
+
 export default function RolloutLanesTable({
   rows,
   canStart,
@@ -90,29 +104,15 @@ export default function RolloutLanesTable({
       component: ({ lane }) => (
         <button
           type="button"
-          className="grid gap-0.5 text-left text-200 text-text-primary-70 underline-offset-2 hover:underline"
+          className="text-left text-200 whitespace-normal text-text-primary-70 underline-offset-2 hover:underline"
           aria-label={`View initial firmware setup for ${lane.label}`}
           onClick={() => onSetup(lane)}
         >
-          <span>
-            {lane.initialEnforcement.pendingCount.toLocaleString()} {firmwareTransitionDisplay.pending.countLabel}
-          </span>
-          <span>
-            {lane.initialEnforcement.updatingCount.toLocaleString()} {firmwareTransitionDisplay.updating.countLabel}
-          </span>
-          <span>
-            {lane.initialEnforcement.verifyingCount.toLocaleString()} {firmwareTransitionDisplay.verifying.countLabel}
-          </span>
-          <span>
-            {lane.initialEnforcement.confirmedCount.toLocaleString()} {firmwareTransitionDisplay.confirmed.countLabel}
-          </span>
-          <span>
-            {lane.initialEnforcement.attentionCount.toLocaleString()}{" "}
-            {firmwareTransitionDisplay.needsAttention.countLabel}
-          </span>
+          <span>{initialFirmwareSummary(lane)}</span>
         </button>
       ),
       width: "w-36",
+      allowWrap: true,
     },
     rollout: {
       component: ({ latestRollout }) =>
@@ -135,6 +135,11 @@ export default function RolloutLanesTable({
         const startBlockedReason = rolloutLaneStartBlockedReason(lane, latestRollout);
         const deleteBlockedReason =
           deletePermissionBlockedReason ?? rolloutLaneDeleteBlockedReason(lane, latestRollout);
+        const actionStatus = rolloutLaneActionStatus(lane, latestRollout, {
+          canStart,
+          canDelete: canDelete && onDelete !== undefined,
+          deletePermissionBlockedReason,
+        });
         return (
           <div className="flex flex-col items-end gap-2">
             <div className="flex justify-end gap-2">
@@ -168,11 +173,8 @@ export default function RolloutLanesTable({
                 />
               ) : null}
             </div>
-            {canStart && startBlockedReason ? (
-              <div className="max-w-64 text-right text-200 text-text-primary-70">{startBlockedReason}</div>
-            ) : null}
-            {canDelete && deleteBlockedReason ? (
-              <div className="max-w-64 text-right text-200 text-text-primary-70">{deleteBlockedReason}</div>
+            {actionStatus ? (
+              <div className="max-w-64 text-right text-200 text-text-primary-70">{actionStatus}</div>
             ) : null}
           </div>
         );

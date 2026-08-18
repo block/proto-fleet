@@ -12,6 +12,7 @@ import { useHasPermission } from "@/protoFleet/store";
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
 const mockUseCurtailmentPillData = vi.fn();
+const mockUseRolloutPillData = vi.fn();
 const mockUseActiveAlertsPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
 const mockUseUpdateIndicator = vi.fn();
@@ -42,6 +43,10 @@ vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
   useCurtailmentPillData: () => mockUseCurtailmentPillData(),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/useRolloutPillData", () => ({
+  useRolloutPillData: (options: { enabled?: boolean }) => mockUseRolloutPillData(options),
 }));
 
 vi.mock("@/protoFleet/components/PageHeader/useActiveAlertsPillData", () => ({
@@ -110,6 +115,7 @@ describe("AppLayout", () => {
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
+    mockUseRolloutPillData.mockReturnValue({ activeEvent: null, detailsPath: null, hasVisiblePill: false });
     mockUseActiveAlertsPillData.mockReturnValue({ groups: [], error: null, hasMore: false, hasVisiblePill: false });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
     mockUseUpdateIndicator.mockReturnValue(null);
@@ -282,6 +288,73 @@ describe("AppLayout", () => {
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+160px)]");
   });
 
+  it("uses the five-widget phone content offset when rollout makes six widgets visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseActiveAlertsPillData.mockReturnValue({
+      groups: [{ key: "miner|offline" }],
+      error: null,
+      hasMore: false,
+      hasVisiblePill: true,
+    });
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseRolloutPillData.mockReturnValue({
+      hasVisiblePill: true,
+      activeEvent: {
+        processType: "firmware",
+        state: "running",
+        title: "Stable 2.0",
+        scopeLabel: "Stable production",
+        strategy: "allAtOnce",
+        order: "random",
+        totalTargets: 6,
+        excludedTargets: 0,
+        rollups: [],
+      },
+      detailsPath: "/settings/firmware?tab=rolloutLanes",
+    });
+    mockUseSchedulePillData.mockReturnValue(createSchedulePillData({ pillSchedule: createPillSchedule() }));
+    mockUseUpdateIndicator.mockReturnValue({ version: "v1.3.0", onClick: vi.fn() });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+200px)]");
+  });
+
+  it("uses the rollout hook visibility signal for phone offsets", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseRolloutPillData.mockReturnValue({
+      hasVisiblePill: false,
+      activeEvent: {
+        processType: "firmware",
+        state: "running",
+        title: "Stable 2.0",
+        scopeLabel: "Stable production",
+        strategy: "allAtOnce",
+        order: "random",
+        totalTargets: 6,
+        excludedTargets: 0,
+        rollups: [],
+      },
+      detailsPath: "/settings/firmware?tab=rolloutLanes",
+    });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
+  });
+
   it("disables update polling when the route hides the shell header", () => {
     render(
       <MemoryRouter>
@@ -304,6 +377,18 @@ describe("AppLayout", () => {
     );
 
     expect(mockUseActiveAlertsPillData).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("disables rollout polling when the route hides the shell header", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(mockUseRolloutPillData).toHaveBeenCalledWith({ enabled: false });
   });
 
   it("offsets the phone content for a firing alert so the pill has a row", () => {

@@ -913,6 +913,8 @@ type Querier interface {
 	// admission to skip miners already owned by other events without excluding
 	// the current targetless scope watcher.
 	ListActiveCurtailmentTargetDevicesByOrg(ctx context.Context, orgID int64) ([]string, error)
+	ListActiveInitialRolloutLaneEnforcementStatuses(ctx context.Context, orgID int64) ([]ListActiveInitialRolloutLaneEnforcementStatusesRow, error)
+	ListActiveInitialRolloutLanes(ctx context.Context, orgID int64) ([]RolloutLane, error)
 	// Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
 	// keeps titles unique per folder and a rule_group label maps to one folder, so a title repeats only across labels.
 	// Counts and identity aggregate here; the one piece of per-instance detail is picked off in the lateral below.

@@ -11,8 +11,10 @@ import BetweenChannelRolloutStatus from "@/protoFleet/features/rollout/betweenCh
 import {
   canCompleteWithFailures,
   canRevertRollout,
+  firstActiveInitialLane,
   hasActiveInitialEnforcement,
   isInitialFirmwareReady,
+  laneForRollout,
   shouldMonitorRollout,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import CreateRolloutLaneModal, {
@@ -52,10 +54,6 @@ function latestRolloutForLane(
     .sort((a, b) => b.position - a.position)
     .flatMap((channel) => (channel.rolloutId ? [rolloutsById.get(channel.rolloutId)] : []))
     .find((rollout): rollout is RolloutRecord => rollout !== undefined);
-}
-
-function laneForRollout(lanes: RolloutLane[], rolloutId: string): RolloutLane | undefined {
-  return lanes.find((lane) => lane.channels.some((channel) => channel.rolloutId === rolloutId));
 }
 
 function latestInitialEnforcementMemberUpdate(lane: RolloutLane | undefined): Timestamp | undefined {
@@ -108,11 +106,15 @@ export default function RolloutLanesTab() {
   const [isPreparingLane, setIsPreparingLane] = useState(false);
   const [focusedRolloutId, setFocusedRolloutId] = useState<string | null>(null);
   const [modalRolloutId, setModalRolloutId] = useState<string | null>(null);
-  const refreshControllerRef = useRef<AbortController | null>(null);
+  const detailRefreshControllerRef = useRef<AbortController | null>(null);
+  const laneListRefreshControllerRef = useRef<AbortController | null>(null);
+  const retrySetupControllerRef = useRef<AbortController | null>(null);
   const prepareStartControllerRef = useRef<AbortController | null>(null);
   const skipSetupHydrationLaneIdRef = useRef<string | null>(null);
   const setupLaneRef = useRef<RolloutLane | undefined>(undefined);
   const setupLaneId = searchParams.get("setupLane");
+  const activeInitialLane = useMemo(() => firstActiveInitialLane(lanes), [lanes]);
+  const selectedSetupLaneId = setupLaneId ?? activeInitialLane?.id ?? null;
 
   const updateSetupLaneParam = useCallback(
     (laneId: string | null) => {
@@ -168,32 +170,42 @@ export default function RolloutLanesTab() {
     void loadData();
   }, [loadData]);
 
+  const hydrateSetupLane = useCallback(
+    async (laneId: string, signal: AbortSignal, initialEnforcementMembersUpdatedAfter?: Timestamp): Promise<void> => {
+      try {
+        await getRolloutLane({
+          laneId,
+          includeDeviceSetMembers: false,
+          includeInitialEnforcementMembers: true,
+          initialEnforcementMembersUpdatedAfter,
+          signal,
+        });
+      } catch (error) {
+        if (!isAbortError(error, signal)) {
+          setPageError(toError(error, "Initial firmware setup is unavailable.").message);
+        }
+      }
+    },
+    [getRolloutLane],
+  );
+
   useEffect(() => {
-    if (!setupLaneId || !permissions.canReadChannels) {
+    if (!selectedSetupLaneId || !permissions.canReadChannels) {
       return;
     }
-    if (skipSetupHydrationLaneIdRef.current === setupLaneId) {
+    if (skipSetupHydrationLaneIdRef.current === selectedSetupLaneId) {
       skipSetupHydrationLaneIdRef.current = null;
       return;
     }
 
     const controller = new AbortController();
     setPageError(null);
-    void getRolloutLane({
-      laneId: setupLaneId,
-      includeDeviceSetMembers: false,
-      includeInitialEnforcementMembers: true,
-      signal: controller.signal,
-    }).catch((error) => {
-      if (!isAbortError(error, controller.signal)) {
-        setPageError(toError(error, "Initial firmware setup is unavailable.").message);
-      }
-    });
+    void hydrateSetupLane(selectedSetupLaneId, controller.signal);
 
     return () => {
       controller.abort();
     };
-  }, [getRolloutLane, permissions.canReadChannels, setupLaneId]);
+  }, [hydrateSetupLane, permissions.canReadChannels, selectedSetupLaneId]);
 
   const rows = useMemo<LaneTableRow[]>(() => {
     const rolloutsById = new Map(rollouts.map((rollout) => [rollout.id, rollout]));
@@ -204,14 +216,14 @@ export default function RolloutLanesTab() {
     }));
   }, [lanes, rollouts]);
   const setupLane = useMemo(() => {
-    if (!setupLaneId) {
+    if (!selectedSetupLaneId) {
       return undefined;
     }
-    if (loadedLane?.id === setupLaneId) {
+    if (loadedLane?.id === selectedSetupLaneId) {
       return loadedLane;
     }
-    return lanes.find((lane) => lane.id === setupLaneId);
-  }, [lanes, loadedLane, setupLaneId]);
+    return lanes.find((lane) => lane.id === selectedSetupLaneId);
+  }, [lanes, loadedLane, selectedSetupLaneId]);
   const laneToDelete = useMemo(() => {
     if (!deleteLaneId) {
       return undefined;
@@ -239,7 +251,7 @@ export default function RolloutLanesTab() {
     () => (monitoredRolloutIdsKey ? monitoredRolloutIdsKey.split("\0") : []),
     [monitoredRolloutIdsKey],
   );
-  const hasMonitoredInitialEnforcement = lanes.some(hasActiveInitialEnforcement);
+  const hasMonitoredInitialEnforcement = activeInitialLane !== undefined;
   const monitoredRollout =
     focusedRollout ??
     rows.find((row) => shouldMonitorRollout(row.latestRollout))?.latestRollout ??
@@ -248,25 +260,21 @@ export default function RolloutLanesTab() {
   const canManageLanes = permissions.canManageChannels;
   const canStartLane = permissions.canManageChannels && permissions.canManage;
 
-  const refreshMonitoredRollouts = useCallback(async () => {
-    if (!permissions.canReadChannels || refreshControllerRef.current) {
+  const refreshMonitoredDetails = useCallback(async () => {
+    if (!permissions.canReadChannels || detailRefreshControllerRef.current) {
       return;
     }
     const controller = new AbortController();
-    refreshControllerRef.current = controller;
-    const shouldRefreshLaneList = !shouldPollSetupLane || monitoredRolloutIds.length > 0;
+    detailRefreshControllerRef.current = controller;
     try {
       await Promise.allSettled([
-        ...(shouldRefreshLaneList ? [listRolloutLanes({ signal: controller.signal })] : []),
-        ...(setupLaneId && shouldPollSetupLane
+        ...(selectedSetupLaneId && shouldPollSetupLane
           ? [
-              getRolloutLane({
-                laneId: setupLaneId,
-                includeDeviceSetMembers: false,
-                includeInitialEnforcementMembers: true,
-                initialEnforcementMembersUpdatedAfter: latestInitialEnforcementMemberUpdate(setupLaneRef.current),
-                signal: controller.signal,
-              }),
+              hydrateSetupLane(
+                selectedSetupLaneId,
+                controller.signal,
+                latestInitialEnforcementMemberUpdate(setupLaneRef.current),
+              ),
             ]
           : []),
         ...(permissions.canRead
@@ -274,35 +282,85 @@ export default function RolloutLanesTab() {
           : []),
       ]);
     } finally {
-      if (refreshControllerRef.current === controller) {
-        refreshControllerRef.current = null;
+      if (detailRefreshControllerRef.current === controller) {
+        detailRefreshControllerRef.current = null;
       }
     }
   }, [
     getRollout,
-    getRolloutLane,
-    listRolloutLanes,
+    hydrateSetupLane,
     monitoredRolloutIds,
     permissions.canRead,
     permissions.canReadChannels,
-    setupLaneId,
+    selectedSetupLaneId,
     shouldPollSetupLane,
   ]);
 
+  const refreshLaneList = useCallback(async () => {
+    if (!permissions.canReadChannels || laneListRefreshControllerRef.current) {
+      return;
+    }
+    const controller = new AbortController();
+    laneListRefreshControllerRef.current = controller;
+    try {
+      await listRolloutLanes({ signal: controller.signal });
+    } catch {
+      // listRolloutLanes records non-abort failures in loadError.
+    } finally {
+      if (laneListRefreshControllerRef.current === controller) {
+        laneListRefreshControllerRef.current = null;
+      }
+    }
+  }, [listRolloutLanes, permissions.canReadChannels]);
+
   useEffect(() => {
-    const refresh = () => void refreshMonitoredRollouts();
+    const refresh = () => {
+      void refreshMonitoredDetails();
+      void refreshLaneList();
+    };
     window.addEventListener(ROLLOUT_CHANGED_EVENT, refresh);
-    const interval =
+    const detailInterval =
       monitoredRolloutIds.length > 0 || hasMonitoredInitialEnforcement || shouldPollSetupLane
-        ? window.setInterval(refresh, 5000)
+        ? window.setInterval(() => void refreshMonitoredDetails(), 5000)
         : undefined;
+    const laneListPollIntervalMs = monitoredRolloutIds.length > 0 ? 5_000 : shouldPollSetupLane ? 30_000 : undefined;
+    const laneListInterval =
+      laneListPollIntervalMs === undefined
+        ? undefined
+        : window.setInterval(() => void refreshLaneList(), laneListPollIntervalMs);
     return () => {
       window.removeEventListener(ROLLOUT_CHANGED_EVENT, refresh);
-      if (interval !== undefined) {
-        window.clearInterval(interval);
+      if (detailInterval !== undefined) {
+        window.clearInterval(detailInterval);
+      }
+      if (laneListInterval !== undefined) {
+        window.clearInterval(laneListInterval);
       }
     };
-  }, [hasMonitoredInitialEnforcement, monitoredRolloutIds.length, refreshMonitoredRollouts, shouldPollSetupLane]);
+  }, [
+    hasMonitoredInitialEnforcement,
+    monitoredRolloutIds.length,
+    refreshLaneList,
+    refreshMonitoredDetails,
+    shouldPollSetupLane,
+  ]);
+
+  const retryLoadData = useCallback(async () => {
+    retrySetupControllerRef.current?.abort();
+    const controller = new AbortController();
+    retrySetupControllerRef.current = controller;
+    setPageError(null);
+    try {
+      await Promise.allSettled([
+        loadData(),
+        ...(selectedSetupLaneId ? [hydrateSetupLane(selectedSetupLaneId, controller.signal)] : []),
+      ]);
+    } finally {
+      if (retrySetupControllerRef.current === controller) {
+        retrySetupControllerRef.current = null;
+      }
+    }
+  }, [hydrateSetupLane, loadData, selectedSetupLaneId]);
 
   const handleCreate = useCallback(
     async (values: CreateRolloutLaneValues) => {
@@ -377,19 +435,23 @@ export default function RolloutLanesTab() {
         reason: "Delete rollout lane",
       });
       setDeleteLaneId(null);
-      if (setupLaneId === laneToDelete.id) {
+      if (selectedSetupLaneId === laneToDelete.id) {
         updateSetupLaneParam(null);
       }
       pushToast({ message: `Deleted ${laneToDelete.label}`, status: STATUSES.success });
     } catch {
       // mutationError is rendered in the open dialog.
     }
-  }, [deleteRolloutLane, laneToDelete, setupLaneId, updateSetupLaneParam]);
+  }, [deleteRolloutLane, laneToDelete, selectedSetupLaneId, updateSetupLaneParam]);
 
   useEffect(
     () => () => {
-      refreshControllerRef.current?.abort();
-      refreshControllerRef.current = null;
+      detailRefreshControllerRef.current?.abort();
+      detailRefreshControllerRef.current = null;
+      laneListRefreshControllerRef.current?.abort();
+      laneListRefreshControllerRef.current = null;
+      retrySetupControllerRef.current?.abort();
+      retrySetupControllerRef.current = null;
       prepareStartControllerRef.current?.abort();
       prepareStartControllerRef.current = null;
     },
@@ -527,7 +589,7 @@ export default function RolloutLanesTab() {
           title="Firmware rollout lanes are unavailable"
           subtitle={pageError ?? loadError ?? undefined}
           buttonText="Retry"
-          buttonOnClick={() => void loadData()}
+          buttonOnClick={() => void retryLoadData()}
         />
       ) : null}
 
@@ -558,7 +620,7 @@ export default function RolloutLanesTab() {
         <InitialLaneFirmwareSetup
           lane={setupLane}
           canStart={canStartLane}
-          onClose={() => updateSetupLaneParam(null)}
+          onClose={hasActiveInitialEnforcement(setupLane) ? undefined : () => updateSetupLaneParam(null)}
           onStart={() => void prepareStart(setupLane)}
         />
       ) : null}

@@ -1,4 +1,5 @@
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
+import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import type { RolloutLane, RolloutMember, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 
 const member = (
@@ -78,7 +79,7 @@ export const stableProductionLane: RolloutLane = {
 export const attentionRequiredRollout: RolloutRecord = {
   id: "2f214a71-f94e-4e5f-8daf-d36c71b72f6c",
   name: "Production 2.0.0",
-  strategyKey: "between_channel",
+  strategyKey: BETWEEN_CHANNEL_STRATEGY_KEY,
   state: "running",
   revision: 4n,
   reason: "Validated release",

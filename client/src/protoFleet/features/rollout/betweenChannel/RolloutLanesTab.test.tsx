@@ -1,10 +1,11 @@
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { MemoryRouter, useLocation, useSearchParams } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import userEvent from "@testing-library/user-event";
 
 import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
+import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import type { RolloutLane, RolloutMemberState, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 
 const listFirmwareFiles = vi.hoisted(() => vi.fn());
@@ -172,15 +173,17 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/CreateRolloutLaneModal", (
 }));
 
 vi.mock("@/protoFleet/features/rollout/betweenChannel/InitialLaneFirmwareSetup", () => ({
-  default: ({ lane, onClose, onStart }: { lane: RolloutLane; onClose: () => void; onStart?: () => void }) => (
+  default: ({ lane, onClose, onStart }: { lane: RolloutLane; onClose?: () => void; onStart?: () => void }) => (
     <div>
       <span>Initial setup for {lane.label}</span>
       <span data-testid="setup-member-states">
         {lane.initialEnforcement.members.map((member) => `${member.deviceIdentifier}:${member.state}`).join(",")}
       </span>
-      <button type="button" onClick={onClose}>
-        Close setup
-      </button>
+      {onClose ? (
+        <button type="button" onClick={onClose}>
+          Close setup
+        </button>
+      ) : null}
       {onStart ? (
         <button type="button" onClick={onStart}>
           Start ready lane
@@ -234,9 +237,26 @@ const LocationProbe = () => {
   return <div data-testid="location-probe">{`${location.pathname}${location.search}`}</div>;
 };
 
+const ClearSetupParamButton = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete("setupLane");
+        setSearchParams(nextParams);
+      }}
+    >
+      Remove setup param
+    </button>
+  );
+};
+
 const TestApp = ({ initialEntry = "/settings/firmware?tab=rolloutLanes" }: { initialEntry?: string }) => (
   <MemoryRouter initialEntries={[initialEntry]}>
     <RolloutLanesTab />
+    <ClearSetupParamButton />
     <LocationProbe />
   </MemoryRouter>
 );
@@ -284,7 +304,7 @@ function rollout(
   return {
     id,
     name: `Rollout ${id}`,
-    strategyKey: "between_channel",
+    strategyKey: BETWEEN_CHANNEL_STRATEGY_KEY,
     state,
     revision: 2n,
     sourceChannelId: 41n,
@@ -489,12 +509,86 @@ describe("RolloutLanesTab", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Initial setup for Initial convergence")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close setup" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/settings/firmware?tab=rolloutLanes");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.getRolloutLane).toHaveBeenCalledWith(
+      expect.objectContaining({
+        laneId: "lane-initial",
+        includeDeviceSetMembers: false,
+        includeInitialEnforcementMembers: true,
+      }),
+    );
     expect(rolloutApi.getRollout).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(25_000);
+    });
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes the lane table on rollout events during active setup", async () => {
+    const activeLane = {
+      ...lane("lane-initial", "Initial convergence"),
+      initialEnforcement: {
+        totalCount: 2,
+        pendingCount: 1,
+        updatingCount: 1,
+        verifyingCount: 0,
+        confirmedCount: 0,
+        attentionCount: 0,
+        members: [],
+      },
+    };
+    const otherLane = lane("lane-other", "Created by another operator");
+    rolloutApi.lanes = [activeLane];
+    rolloutApi.listRolloutLanes.mockResolvedValueOnce(rolloutApi.lanes).mockImplementationOnce(async () => {
+      rolloutApi.lanes = [activeLane, otherLane];
+      return rolloutApi.lanes;
+    });
+
+    const view = renderRolloutLanesTab();
+    await waitFor(() => expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1));
+
+    act(() => window.dispatchEvent(new CustomEvent(ROLLOUT_CHANGED_EVENT)));
+    await waitFor(() => expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2));
+    view.rerender(<TestApp />);
+
+    expect(screen.getByText("Created by another operator")).toBeInTheDocument();
+  });
+
+  it("keeps an active setup visible when setupLane is manually removed", async () => {
+    const user = userEvent.setup();
+    const activeLane = {
+      ...lane("lane-initial", "Initial convergence"),
+      initialEnforcement: {
+        totalCount: 2,
+        pendingCount: 1,
+        updatingCount: 1,
+        verifyingCount: 0,
+        confirmedCount: 0,
+        attentionCount: 0,
+        members: [],
+      },
+    };
+    rolloutApi.lane = activeLane;
+    rolloutApi.lanes = [activeLane];
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.getRolloutLane.mockResolvedValue(activeLane);
+
+    renderRolloutLanesTab("/settings/firmware?tab=rolloutLanes&setupLane=lane-initial");
+    expect(await screen.findByText("Initial setup for Initial convergence")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close setup" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove setup param" }));
+
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/settings/firmware?tab=rolloutLanes");
+    expect(screen.getByText("Initial setup for Initial convergence")).toBeInTheDocument();
   });
 
   it("does not overlap bounded rollout refreshes", async () => {
@@ -755,6 +849,37 @@ describe("RolloutLanesTab", () => {
     expect(await screen.findByText("Firmware rollout lanes are unavailable")).toBeInTheDocument();
     expect(screen.getByText("Lane not found")).toBeInTheDocument();
     expect(screen.getByTestId("location-probe")).toHaveTextContent(initialEntry);
+  });
+
+  it("retries selected setup detail hydration with the aggregate load", async () => {
+    const user = userEvent.setup();
+    const activeLane = {
+      ...lane("lane-initial", "Initial convergence"),
+      initialEnforcement: {
+        totalCount: 1,
+        pendingCount: 1,
+        updatingCount: 0,
+        verifyingCount: 0,
+        confirmedCount: 0,
+        attentionCount: 0,
+        members: [],
+      },
+    };
+    rolloutApi.lane = activeLane;
+    rolloutApi.lanes = [activeLane];
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.getRolloutLane.mockRejectedValueOnce(new Error("Detail hydration failed")).mockResolvedValue(activeLane);
+
+    renderRolloutLanesTab();
+
+    expect(await screen.findByText("Detail hydration failed")).toBeInTheDocument();
+    expect(rolloutApi.getRolloutLane).toHaveBeenCalledTimes(1);
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(rolloutApi.getRolloutLane).toHaveBeenCalledTimes(2));
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
   });
 
   it("successful rollout start removes setupLane from the URL", async () => {

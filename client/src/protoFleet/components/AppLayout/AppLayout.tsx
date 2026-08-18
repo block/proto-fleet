@@ -15,6 +15,7 @@ import {
 } from "@/protoFleet/components/PageHeader/headerWidgetLayout";
 import { useActiveAlertsPillData } from "@/protoFleet/components/PageHeader/useActiveAlertsPillData";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
+import { useRolloutPillData } from "@/protoFleet/components/PageHeader/useRolloutPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { useUpdateIndicator } from "@/protoFleet/features/updates/useUpdateIndicator";
@@ -36,6 +37,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
+  const rolloutPillData = useRolloutPillData({ enabled: !hideShellHeader });
   // Release discovery is an enhancement of the normal Fleet header. Focused
   // detail routes deliberately skip the poll along with the hidden header.
   const updatePill = useUpdateIndicator({ enabled: !hideShellHeader });
@@ -50,6 +52,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
     hasVisibleAlertsPill: activeAlertsPillData.hasVisiblePill,
     hasVisibleUpdatePill,
     hasVisibleCurtailmentPill,
+    hasVisibleRolloutPill: rolloutPillData.hasVisiblePill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
   });
   const inlineFirstPhoneWidget = isPhone && shouldInlineFirstPhoneHeaderWidget(headerWidgetCount);
@@ -104,6 +107,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
             activeCurtailmentEvent={activeCurtailmentEvent}
             isMenuOpen={isMenuOpen}
             openMenu={() => setIsMenuOpen(true)}
+            rolloutPillData={rolloutPillData}
             schedulePillData={schedulePillData}
             updatePill={updatePill}
           />

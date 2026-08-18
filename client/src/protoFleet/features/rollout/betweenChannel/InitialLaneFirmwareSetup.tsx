@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
 import { isInitialFirmwareReady } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import FirmwareTransitionMinerDetails from "@/protoFleet/features/rollout/FirmwareTransitionMinerDetails";
@@ -10,16 +12,20 @@ import Callout, { intents } from "@/shared/components/Callout";
 interface InitialLaneFirmwareSetupProps {
   lane: RolloutLane;
   canStart: boolean;
-  onClose: () => void;
+  onClose?: () => void;
   onStart: () => void;
 }
 
 export default function InitialLaneFirmwareSetup({ lane, canStart, onClose, onStart }: InitialLaneFirmwareSetupProps) {
   const ready = isInitialFirmwareReady(lane);
-  const event = mapFirmwareTransitionToRolloutEvent(lane.initialEnforcement, {
-    scopeLabel: lane.label,
-    startedAt: lane.createdAt,
-  });
+  const event = useMemo(
+    () =>
+      mapFirmwareTransitionToRolloutEvent(lane.initialEnforcement, {
+        scopeLabel: lane.label,
+        startedAt: lane.createdAt,
+      }),
+    [lane.createdAt, lane.initialEnforcement, lane.label],
+  );
 
   return (
     <section className="grid gap-5" aria-labelledby="initial-lane-firmware-setup-title">
@@ -30,13 +36,15 @@ export default function InitialLaneFirmwareSetup({ lane, canStart, onClose, onSt
           </div>
           <div className="mt-1 text-300 text-text-primary-70">{lane.label}</div>
         </div>
-        <Button
-          text="Close setup"
-          variant={variants.secondary}
-          size={sizes.compact}
-          className="phone:w-full"
-          onClick={onClose}
-        />
+        {onClose ? (
+          <Button
+            text="Close setup"
+            variant={variants.secondary}
+            size={sizes.compact}
+            className="phone:w-full"
+            onClick={onClose}
+          />
+        ) : null}
       </div>
 
       {ready ? (

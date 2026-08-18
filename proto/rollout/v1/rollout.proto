@@ -79,7 +79,9 @@ message GetRolloutLaneResponse {
     RolloutLane lane = 1;
 }
 
-message ListRolloutLanesRequest {}
+message ListRolloutLanesRequest {
+    bool active_initial_only = 1;
+}
 
 message ListRolloutLanesResponse {
     repeated RolloutLane lanes = 1;

@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 import PageHeader from "./PageHeader";
 import type { UseActiveAlertsPillDataResult } from "./useActiveAlertsPillData";
+import type { UseRolloutPillDataResult } from "./useRolloutPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
@@ -29,6 +30,10 @@ vi.mock("./CurtailmentPill", () => ({
 vi.mock("./SchedulePill", () => ({
   __esModule: true,
   default: ({ pillSchedule }: { pillSchedule: { name: string } }) => <div>{pillSchedule.name}</div>,
+}));
+
+vi.mock("@/protoFleet/features/rollout/RolloutPill", () => ({
+  default: ({ detailsPath }: { detailsPath?: string }) => <div>Rollout pill ({detailsPath ?? "no details link"})</div>,
 }));
 
 vi.mock("./ActiveAlertsPill", () => ({
@@ -141,6 +146,22 @@ const createActiveAlertsPillData = (
     groups,
     hasVisiblePill: groups.length > 0,
   };
+};
+
+const rolloutPillData: UseRolloutPillDataResult = {
+  hasVisiblePill: true,
+  activeEvent: {
+    processType: "firmware",
+    state: "running",
+    title: "Stable 2.0",
+    scopeLabel: "Stable production",
+    strategy: "allAtOnce",
+    order: "random",
+    totalTargets: 6,
+    excludedTargets: 0,
+    rollups: [],
+  },
+  detailsPath: "/settings/firmware?tab=rolloutLanes",
 };
 
 describe("PageHeader", () => {
@@ -291,6 +312,77 @@ describe("PageHeader", () => {
     const schedulePill = within(widgets).getByText("Night reboot");
 
     expect(alertsPill.compareDocumentPosition(schedulePill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("orders rollout between curtailment and schedule in desktop widgets", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData({
+            hasVisibleSchedules: true,
+            pillSchedule: createPillSchedule("Night reboot"),
+          })}
+          activeCurtailmentEvent={{
+            reason: "Grid peak call",
+            state: "curtailing",
+            scopeLabel: "Whole fleet",
+            selectedMiners: 48,
+            estimatedReductionKw: 126.4,
+            targetMetricsAvailable: true,
+          }}
+          rolloutPillData={rolloutPillData}
+        />
+      </MemoryRouter>,
+    );
+
+    const widgets = screen.getByTestId("page-header-desktop-widgets");
+    const curtailment = within(widgets).getByText("Curtailment pill");
+    const rollout = within(widgets).getByText(/Rollout pill/);
+    const schedule = within(widgets).getByText("Night reboot");
+
+    expect(curtailment.compareDocumentPosition(rollout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rollout.compareDocumentPosition(schedule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("uses the rollout hook visibility signal", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData()}
+          rolloutPillData={{ ...rolloutPillData, hasVisiblePill: false }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText(/Rollout pill/)).not.toBeInTheDocument();
+  });
+
+  it("renders a visible rollout pill without a details link", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData()}
+          rolloutPillData={{ ...rolloutPillData, detailsPath: null }}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Rollout pill (no details link)")).toBeInTheDocument();
   });
 
   it("opens the drill-in it owns, so hiding the pill cannot tear the modal down mid-read", async () => {

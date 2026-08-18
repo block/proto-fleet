@@ -147,6 +147,29 @@ func TestDeleteRolloutLaneUsesChannelManagePermissionAndSessionIdentity(t *testi
 	assert.Equal(t, "remove broken demo lane", laneService.deleted.Reason)
 }
 
+func TestListRolloutLanesForwardsActiveInitialFilter(t *testing.T) {
+	t.Parallel()
+
+	laneService := &recordingLaneService{}
+	handler := NewHandler(nil, laneService)
+	ctx := rolloutHandlerContext(t, 42, 9, authz.PermChannelRead)
+
+	_, err := handler.ListRolloutLanes(
+		ctx,
+		connect.NewRequest(&pb.ListRolloutLanesRequest{}),
+	)
+	require.NoError(t, err)
+	assert.False(t, laneService.activeInitialOnly)
+
+	_, err = handler.ListRolloutLanes(
+		ctx,
+		connect.NewRequest(&pb.ListRolloutLanesRequest{ActiveInitialOnly: true}),
+	)
+	require.NoError(t, err)
+	assert.True(t, laneService.activeInitialOnly)
+	assert.Equal(t, int64(42), laneService.listOrgID)
+}
+
 func TestDeleteRolloutLaneDerivesAPIKeyActorIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -432,8 +455,20 @@ type recordingRolloutService struct {
 
 type recordingLaneService struct {
 	laneService
-	deleted   betweenchannel.DeleteLaneRequest
-	deleteErr error
+	deleted           betweenchannel.DeleteLaneRequest
+	deleteErr         error
+	listOrgID         int64
+	activeInitialOnly bool
+}
+
+func (s *recordingLaneService) ListLanes(
+	_ context.Context,
+	orgID int64,
+	activeInitialOnly bool,
+) ([]betweenchannel.Lane, error) {
+	s.listOrgID = orgID
+	s.activeInitialOnly = activeInitialOnly
+	return nil, nil
 }
 
 func (s *recordingLaneService) DeleteLane(

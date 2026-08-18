@@ -1140,6 +1140,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveCurtailmentTargetDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailmentTargetDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailmentTargetDevicesByOrg: %w", err)
 	}
+	if q.listActiveInitialRolloutLaneEnforcementStatusesStmt, err = db.PrepareContext(ctx, listActiveInitialRolloutLaneEnforcementStatuses); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveInitialRolloutLaneEnforcementStatuses: %w", err)
+	}
+	if q.listActiveInitialRolloutLanesStmt, err = db.PrepareContext(ctx, listActiveInitialRolloutLanes); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveInitialRolloutLanes: %w", err)
+	}
 	if q.listActiveNotificationGroupsStmt, err = db.PrepareContext(ctx, listActiveNotificationGroups); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveNotificationGroups: %w", err)
 	}
@@ -3884,6 +3890,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveCurtailmentTargetDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listActiveInitialRolloutLaneEnforcementStatusesStmt != nil {
+		if cerr := q.listActiveInitialRolloutLaneEnforcementStatusesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveInitialRolloutLaneEnforcementStatusesStmt: %w", cerr)
+		}
+	}
+	if q.listActiveInitialRolloutLanesStmt != nil {
+		if cerr := q.listActiveInitialRolloutLanesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveInitialRolloutLanesStmt: %w", cerr)
+		}
+	}
 	if q.listActiveNotificationGroupsStmt != nil {
 		if cerr := q.listActiveNotificationGroupsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveNotificationGroupsStmt: %w", cerr)
@@ -5760,6 +5776,8 @@ type Queries struct {
 	listActiveCurtailedDevicesByOrgStmt                          *sql.Stmt
 	listActiveCurtailmentEventsStmt                              *sql.Stmt
 	listActiveCurtailmentTargetDevicesByOrgStmt                  *sql.Stmt
+	listActiveInitialRolloutLaneEnforcementStatusesStmt          *sql.Stmt
+	listActiveInitialRolloutLanesStmt                            *sql.Stmt
 	listActiveNotificationGroupsStmt                             *sql.Stmt
 	listActiveNotificationsStmt                                  *sql.Stmt
 	listActiveNotificationsByAlertStmt                           *sql.Stmt
@@ -6431,6 +6449,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listActiveCurtailedDevicesByOrgStmt:                        q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                            q.listActiveCurtailmentEventsStmt,
 		listActiveCurtailmentTargetDevicesByOrgStmt:                q.listActiveCurtailmentTargetDevicesByOrgStmt,
+		listActiveInitialRolloutLaneEnforcementStatusesStmt:        q.listActiveInitialRolloutLaneEnforcementStatusesStmt,
+		listActiveInitialRolloutLanesStmt:                          q.listActiveInitialRolloutLanesStmt,
 		listActiveNotificationGroupsStmt:                           q.listActiveNotificationGroupsStmt,
 		listActiveNotificationsStmt:                                q.listActiveNotificationsStmt,
 		listActiveNotificationsByAlertStmt:                         q.listActiveNotificationsByAlertStmt,
