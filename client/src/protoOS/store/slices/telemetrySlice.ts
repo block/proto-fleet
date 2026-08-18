@@ -2,18 +2,16 @@ import { enableMapSet } from "immer";
 import type { StateCreator } from "zustand";
 
 import {
-  asComponentId,
-  asHashboardId,
   type CoolingMode,
   type Measurement,
   type MetricTelemetry,
-  ROOT_MODULE_ID,
   ROOT_MODULE_KEY,
   type TelemetryState,
 } from "../contract";
 import type { FanTelemetryData, PsuTelemetryData } from "../types";
 import type { MinerStore } from "../useMinerStore";
 import { createEmptyTelemetryState } from "../utils/createEmptyTelemetryState";
+import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
 
 enableMapSet();
 
@@ -129,7 +127,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
     }),
   updateHashboardTemperatures: (serial, inlet, outlet, average, maximum) =>
     set((state) => {
-      const id = asHashboardId(`serial:${serial}`);
+      const id = getHashboardId(serial);
       const current = state.telemetry.hashboards.get(id) ?? { hashboardId: id };
       if (inlet) current.inletTemperature = { latest: inlet };
       if (outlet) current.outletTemperature = { latest: outlet };
@@ -139,7 +137,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
     }),
   updatePsuTelemetry: (slot, input) =>
     set((state) => {
-      const id = asComponentId(`${ROOT_MODULE_ID}:psu:${slot}`);
+      const id = getPsuId(slot);
       const current = state.telemetry.psus.get(id) ?? { componentId: id };
       if (input.inputVoltage !== undefined) current.inputVoltage = mapMeasurement(input.inputVoltage, "V");
       if (input.inputCurrent !== undefined) current.inputCurrent = mapMeasurement(input.inputCurrent, "A");
@@ -157,7 +155,7 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
     }),
   updateFanTelemetry: (slot, input) =>
     set((state) => {
-      const id = asComponentId(`${ROOT_MODULE_ID}:fan:${slot}`);
+      const id = getFanId(slot);
       const current = state.telemetry.fans.get(id) ?? { componentId: id };
       if (input.rpm !== undefined) current.rpm = mapMeasurement(input.rpm, "RPM");
       if (input.percentage !== undefined) current.speedPercent = mapMeasurement(input.percentage, "%");

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { asAsicId } from "../contract";
 import useMinerStore from "../useMinerStore";
 
 // TODO: This should come from the API when available
@@ -120,7 +121,7 @@ export const useAsicRowsByHbSn = (serial: string) => {
     if (!hashboard || !hashboard.asicIds) return [];
 
     const asicRows = hashboard.asicIds
-      .map((asicId) => hardware.asics.get(asicId as never)?.row)
+      .map((asicId) => hardware.asics.get(asAsicId(asicId))?.row)
       .filter((row): row is number => row !== undefined);
 
     const uniqueRows = new Set(asicRows);

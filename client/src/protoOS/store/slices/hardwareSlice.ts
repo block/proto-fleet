@@ -4,7 +4,6 @@ import {
   asAsicId,
   asComponentId,
   asDeviceId,
-  asHashboardId,
   type AsicHardware,
   type HardwareState,
   type HashboardNode,
@@ -19,6 +18,7 @@ import type {
   PsuHardwareData,
 } from "../types";
 import type { MinerStore } from "../useMinerStore";
+import { getFanId, getHashboardId, getPsuId } from "../utils/entityIds";
 
 const owner = { kind: "module" as const, id: ROOT_MODULE_ID };
 const unknownCommands = {
@@ -99,7 +99,7 @@ const nodeForSerial = (state: HardwareSlice, serial: string) =>
 
 const hashboardView = (state: HardwareSlice, serial: string): HashboardHardwareData | undefined => {
   const node = nodeForSerial(state, serial);
-  const hardware = node ? state.hashboards.get(node.id) : state.hashboards.get(asHashboardId(`serial:${serial}`));
+  const hardware = node ? state.hashboards.get(node.id) : state.hashboards.get(getHashboardId(serial));
   if (!hardware) return undefined;
   return {
     serial: hardware.identity.value,
@@ -136,7 +136,7 @@ const hashboardView = (state: HardwareSlice, serial: string): HashboardHardwareD
 };
 
 const upsertHashboard = (state: HardwareSlice, input: HashboardHardwareData) => {
-  const id = asHashboardId(`serial:${input.serial}`);
+  const id = getHashboardId(input.serial);
   const existing = state.hashboards.get(id);
   state.hashboards.set(id, {
     ref: { id, kind: "hashboard", owner },
@@ -175,6 +175,41 @@ const asicView = (asic: AsicHardware): AsicHardwareData => ({
   row: asic.row,
   column: asic.column,
 });
+
+const upsertAsic = (state: HardwareSlice, item: AsicHardwareData) => {
+  const id = asAsicId(item.id);
+  state.asics.set(id, {
+    ref: { id, kind: "asic", owner },
+    hashboardId: getHashboardId(item.hashboardSerial),
+    index: item.index,
+    row: item.row,
+    column: item.column,
+  });
+};
+
+const upsertPsu = (state: HardwareSlice, item: PsuHardwareData) => {
+  const slot = item.slot ?? item.id;
+  const id = getPsuId(slot);
+  state.psus.set(id, {
+    ref: { id, kind: "psu", owner },
+    slot,
+    serialNumber: item.serial,
+    manufacturer: item.manufacturer,
+    model: item.model,
+    hardwareRevision: item.hwRevision,
+    firmware: item.firmware
+      ? {
+          application: { version: item.firmware.appVersion },
+          bootloader: { version: item.firmware.bootloaderVersion },
+        }
+      : undefined,
+  });
+};
+
+const upsertFan = (state: HardwareSlice, item: FanHardwareData) => {
+  const id = getFanId(item.slot);
+  state.fans.set(id, { ref: { id, kind: "fan", owner }, slot: item.slot, name: item.name });
+};
 
 export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], HardwareSlice> = (
   set,
@@ -293,49 +328,16 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
   setAsics: (items) =>
     set((state) => {
       state.hardware.asics.clear();
-      items.forEach((item) => {
-        const id = asAsicId(item.id);
-        state.hardware.asics.set(id, {
-          ref: { id, kind: "asic", owner },
-          hashboardId: asHashboardId(`serial:${item.hashboardSerial}`),
-          index: item.index,
-          row: item.row,
-          column: item.column,
-        });
-      });
+      items.forEach((item) => upsertAsic(state.hardware, item));
     }),
-  addAsic: (item) =>
-    set((state) => {
-      const id = asAsicId(item.id);
-      state.hardware.asics.set(id, {
-        ref: { id, kind: "asic", owner },
-        hashboardId: asHashboardId(`serial:${item.hashboardSerial}`),
-        index: item.index,
-        row: item.row,
-        column: item.column,
-      });
-    }),
-  batchAddAsics: (items) =>
-    set((state) =>
-      items.forEach((item) => {
-        const id = asAsicId(item.id);
-        state.hardware.asics.set(id, {
-          ref: { id, kind: "asic", owner },
-          hashboardId: asHashboardId(`serial:${item.hashboardSerial}`),
-          index: item.index,
-          row: item.row,
-          column: item.column,
-        });
-      }),
-    ),
+  addAsic: (item) => set((state) => upsertAsic(state.hardware, item)),
+  batchAddAsics: (items) => set((state) => items.forEach((item) => upsertAsic(state.hardware, item))),
   getAsic: (id) => {
     const asic = get().hardware.asics.get(asAsicId(id));
     return asic ? asicView(asic) : undefined;
   },
   getAsicsByHashboard: (serial) =>
-    [...get().hardware.asics.values()]
-      .filter((asic) => asic.hashboardId === asHashboardId(`serial:${serial}`))
-      .map(asicView),
+    [...get().hardware.asics.values()].filter((asic) => asic.hashboardId === getHashboardId(serial)).map(asicView),
   getAsicPosition: (id) => {
     const asic = get().hardware.asics.get(asAsicId(id));
     return asic ? { row: asic.row, column: asic.column } : undefined;
@@ -344,7 +346,7 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     [
       ...new Set(
         [...get().hardware.asics.values()]
-          .filter((asic) => asic.hashboardId === asHashboardId(`serial:${serial}`))
+          .filter((asic) => asic.hashboardId === getHashboardId(serial))
           .map((asic) => asic.row)
           .filter((row): row is number => row !== undefined),
       ),
@@ -358,42 +360,9 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
   setPsus: (items) =>
     set((state) => {
       state.hardware.psus.clear();
-      items.forEach((item) => {
-        const id = asComponentId(`${ROOT_MODULE_ID}:psu:${item.slot ?? item.id}`);
-        state.hardware.psus.set(id, {
-          ref: { id, kind: "psu", owner },
-          slot: item.slot ?? item.id,
-          serialNumber: item.serial,
-          manufacturer: item.manufacturer,
-          model: item.model,
-          hardwareRevision: item.hwRevision,
-          firmware: item.firmware
-            ? {
-                application: { version: item.firmware.appVersion },
-                bootloader: { version: item.firmware.bootloaderVersion },
-              }
-            : undefined,
-        });
-      });
+      items.forEach((item) => upsertPsu(state.hardware, item));
     }),
-  addPsu: (item) =>
-    set((state) => {
-      const id = asComponentId(`${ROOT_MODULE_ID}:psu:${item.slot ?? item.id}`);
-      state.hardware.psus.set(id, {
-        ref: { id, kind: "psu", owner },
-        slot: item.slot ?? item.id,
-        serialNumber: item.serial,
-        manufacturer: item.manufacturer,
-        model: item.model,
-        hardwareRevision: item.hwRevision,
-        firmware: item.firmware
-          ? {
-              application: { version: item.firmware.appVersion },
-              bootloader: { version: item.firmware.bootloaderVersion },
-            }
-          : undefined,
-      });
-    }),
+  addPsu: (item) => set((state) => upsertPsu(state.hardware, item)),
   getPsu: (slot) => {
     const item = [...get().hardware.psus.values()].find((psu) => psu.slot === slot);
     return item
@@ -425,16 +394,9 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
   setFans: (items) =>
     set((state) => {
       state.hardware.fans.clear();
-      items.forEach((item) => {
-        const id = asComponentId(`${ROOT_MODULE_ID}:fan:${item.slot}`);
-        state.hardware.fans.set(id, { ref: { id, kind: "fan", owner }, slot: item.slot, name: item.name });
-      });
+      items.forEach((item) => upsertFan(state.hardware, item));
     }),
-  addFan: (item) =>
-    set((state) => {
-      const id = asComponentId(`${ROOT_MODULE_ID}:fan:${item.slot}`);
-      state.hardware.fans.set(id, { ref: { id, kind: "fan", owner }, slot: item.slot, name: item.name });
-    }),
+  addFan: (item) => set((state) => upsertFan(state.hardware, item)),
   getFan: (slot) => {
     const item = [...get().hardware.fans.values()].find((fan) => fan.slot === slot);
     return item ? { slot, name: item.name } : undefined;

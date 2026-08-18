@@ -17,7 +17,6 @@ import {
   asAsicId,
   asComponentId,
   asDeviceId,
-  asHashboardId,
   type AsicHardware,
   type AsicTelemetry,
   asPoolId,
@@ -54,6 +53,7 @@ import {
   type Topology,
 } from "@/protoOS/store/contract";
 import { createEmptyTelemetryState } from "@/protoOS/store/utils/createEmptyTelemetryState";
+import { getFanId, getHashboardId, getPsuId } from "@/protoOS/store/utils/entityIds";
 import { getAsicId } from "@/protoOS/store/utils/getAsicId";
 
 const V1_COMMANDS: CommandCapabilities = {
@@ -84,7 +84,7 @@ export const normalizeV1CoolingStatus = (
           : "unknown",
   fans: (wire?.fans ?? []).flatMap((fan) => {
     if (fan.slot === undefined) return [];
-    const componentId = asComponentId(`${ROOT_MODULE_ID}:fan:${fan.slot}`);
+    const componentId = getFanId(fan.slot);
     return [
       {
         componentId,
@@ -335,7 +335,7 @@ export const normalizeV1Errors = (wire: ErrorListResponse): MinerError[] =>
       source === "rig" || source === "hashboard" || slot === undefined
         ? undefined
         : {
-            id: asComponentId(`${ROOT_MODULE_ID}:${source}:${slot}`),
+            id: source === "fan" ? getFanId(slot) : getPsuId(slot),
             kind: source as "fan" | "psu",
             owner: moduleOwner,
           };
@@ -366,7 +366,7 @@ export const normalizeV1Hardware = (
 
   for (const board of wire["hashboards-info"] ?? []) {
     if (!board.hb_sn) continue;
-    const id = asHashboardId(`serial:${board.hb_sn}`);
+    const id = getHashboardId(board.hb_sn);
     const ref = { id, kind: "hashboard" as const, owner: moduleOwner };
     hashboards.set(id, {
       ref,
@@ -396,7 +396,7 @@ export const normalizeV1Hardware = (
 
   for (const psu of wire["psus-info"] ?? []) {
     if (psu.slot === undefined) continue;
-    const id = asComponentId(`${ROOT_MODULE_ID}:psu:${psu.slot}`);
+    const id = getPsuId(psu.slot);
     psus.set(id, {
       ref: { id, kind: "psu", owner: moduleOwner },
       slot: psu.slot,
@@ -413,7 +413,7 @@ export const normalizeV1Hardware = (
 
   for (const fan of wire["fans-info"] ?? []) {
     if (fan.slot === undefined) continue;
-    const id = asComponentId(`${ROOT_MODULE_ID}:fan:${fan.slot}`);
+    const id = getFanId(fan.slot);
     fans.set(id, { ref: { id, kind: "fan", owner: moduleOwner }, slot: fan.slot, name: fan.name });
   }
 
@@ -478,7 +478,7 @@ export const normalizeV1HardwareTelemetry = (wire: HardwareInfoHardwareinfo): Te
   state.resourceByScope.set(asResourceKey("telemetry:fan-calibration:module:root"), ready());
   for (const fan of wire["fans-info"] ?? []) {
     if (fan.slot === undefined) continue;
-    const componentId = asComponentId(`${ROOT_MODULE_ID}:fan:${fan.slot}`);
+    const componentId = getFanId(fan.slot);
     state.fans.set(componentId, {
       componentId,
       minimumRpm: fan.min_rpm === undefined ? undefined : { latest: { value: fan.min_rpm, units: "RPM" } },
@@ -520,7 +520,7 @@ export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
 
   for (const board of wire.hashboards ?? []) {
     if (!board.serial_number) continue;
-    const id = asHashboardId(`serial:${board.serial_number}`);
+    const id = getHashboardId(board.serial_number);
     const normalized: HashboardTelemetry = { hashboardId: id };
     applyLatestMetrics(normalized, board as unknown as Record<string, unknown>);
     const temp = board.temperature;
@@ -561,7 +561,7 @@ export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
 
   for (const psu of wire.psus ?? []) {
     const slot = psu.index + 1;
-    const id = asComponentId(`${ROOT_MODULE_ID}:psu:${slot}`);
+    const id = getPsuId(slot);
     const normalized: PsuTelemetry = { componentId: id };
     normalized.inputVoltage = normalizeLatestMetric(psu.voltage?.input, psu.voltage?.unit);
     normalized.outputVoltage = normalizeLatestMetric(psu.voltage?.output, psu.voltage?.unit);
@@ -582,8 +582,7 @@ const parseDurationMs = (duration: string | undefined): number | undefined => {
   if (!duration) return undefined;
   const match = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(duration);
   if (!match) return undefined;
-  const durationMs =
-    (Number(match[1] ?? 0) * 60 * 60 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
+  const durationMs = (Number(match[1] ?? 0) * 60 * 60 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000;
   return durationMs > 0 ? durationMs : undefined;
 };
 
@@ -634,11 +633,10 @@ export const normalizeV1TimeSeries = (
 ): TelemetryState => {
   const state = createEmptyTelemetryState();
   const responseStartTimeMs = Date.parse(wire.meta?.start_time ?? "");
-  const safeStartTimeMs = Number.isNaN(responseStartTimeMs)
-    ? (options.startTimeMs ?? Date.now())
-    : responseStartTimeMs;
+  const safeStartTimeMs = Number.isNaN(responseStartTimeMs) ? (options.startTimeMs ?? Date.now()) : responseStartTimeMs;
   const bucketSizeMs = parseDurationMs(wire.meta?.interval) ?? parseDurationMs(options.interval);
-  if (bucketSizeMs === undefined) throw new Error("MDK v1 time-series response did not provide a valid positive interval");
+  if (bucketSizeMs === undefined)
+    throw new Error("MDK v1 time-series response did not provide a valid positive interval");
   state.resourceByScope.set(asResourceKey("telemetry:history:module:root"), ready());
 
   type TimeSeriesHashboard = NonNullable<NonNullable<TimeSeriesResponse["data"]>["hashboards"]>[number];
@@ -662,7 +660,7 @@ export const normalizeV1TimeSeries = (
 
   for (const board of wire.data?.hashboards ?? []) {
     if (!board.serial_number) continue;
-    const id = asHashboardId(`serial:${board.serial_number}`);
+    const id = getHashboardId(board.serial_number);
     const normalized: HashboardTelemetry = { hashboardId: id };
     applySeriesMetrics(normalized, board, safeStartTimeMs, bucketSizeMs);
     state.hashboards.set(id, normalized);

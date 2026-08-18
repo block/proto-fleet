@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { asComponentId, asDeviceId, asHashboardId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
+import { asDeviceId, asHashboardId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
 import useMinerStore from "./useMinerStore";
+import { getFanId } from "./utils/entityIds";
 
 const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
   identity: {
@@ -102,7 +103,7 @@ describe("partial normalized store updates", () => {
       percentage: { latest: { value: 75, units: "%" } },
     });
 
-    const fan = useMinerStore.getState().telemetry.fans.get(asComponentId("module:root:fan:1"));
+    const fan = useMinerStore.getState().telemetry.fans.get(getFanId(1));
     expect(fan?.minimumRpm?.latest?.value).toBe(1_200);
     expect(fan?.maximumRpm?.latest?.value).toBe(6_000);
     expect(fan?.rpm?.latest?.value).toBe(4_800);
@@ -125,9 +126,7 @@ describe("partial normalized store updates", () => {
     telemetry.mergeTelemetry({
       resourceByScope: new Map(),
       rollupsByEntity: new Map(),
-      hashboards: new Map([
-        [hashboardId, { hashboardId, temperature: { latest: { value: 65, units: "°C" } } }],
-      ]),
+      hashboards: new Map([[hashboardId, { hashboardId, temperature: { latest: { value: 65, units: "°C" } } }]]),
       asics: new Map(),
       psus: new Map(),
       fans: new Map(),
