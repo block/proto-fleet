@@ -375,7 +375,7 @@ func (c *Coordinator) markActiveObservationUnavailable(expectedCtx context.Conte
 	logDegraded := c.setDegradedLocked()
 	c.mu.Unlock()
 	if logDegraded {
-		c.logDegraded()
+		go c.logDegraded()
 	}
 	return nil
 }

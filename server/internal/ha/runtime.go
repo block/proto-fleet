@@ -195,9 +195,12 @@ func (r *Runtime) runHA(ctx context.Context) error {
 		return fmt.Errorf("start active Fleet runtime: %w", err)
 	}
 	if !r.healthCheck() {
+		logDegraded := ctx.Err() == nil && activeCtx.Err() == nil
 		cancelCoordinator()
 		abortErr := r.abortGroup(errCriticalRuntimeUnhealthy)
-		r.logDegraded("critical_runtime_unhealthy")
+		if logDegraded {
+			r.logDegraded("critical_runtime_unhealthy")
+		}
 		return abortErr
 	}
 

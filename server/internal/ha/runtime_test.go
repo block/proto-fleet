@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -177,6 +178,26 @@ func TestHARuntimeLogsDegradedWhenRuntimeGroupFailsToStart(t *testing.T) {
 	requireReceive(t, owner.stopped)
 	record := requireHAEvent(t, logs, haEventStateDegraded)
 	require.Equal(t, "critical_runtime_unhealthy", logAttr(record, "reason"))
+}
+
+func TestHARuntimeDoesNotLogDegradedWhenOwnershipEndsDuringInitialHealthCheck(t *testing.T) {
+	owner := newRuntimeTestOwner()
+	group := newRuntimeTestGroup()
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	runtime := newRuntime(owner, group, func() bool {
+		cancelActive()
+		return false
+	}, runtimeTestConfig())
+	logger, logs := newHATestLogger()
+	runtime.logger = logger
+	runResult := make(chan error, 1)
+	go func() { runResult <- runtime.Run(t.Context()) }()
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+
+	requireReceiveContext(t, group.startedCh)
+	require.ErrorIs(t, <-runResult, ErrRuntimeAborted)
+	requireReceive(t, owner.stopped)
+	require.Empty(t, logs.Snapshot(logging.SnapshotOptions{}).Records)
 }
 
 func TestHARuntimeReturnsWhenOwnershipEndsBeforeActivationIsObserved(t *testing.T) {
