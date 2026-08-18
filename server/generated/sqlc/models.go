@@ -1373,17 +1373,24 @@ type RolePermission struct {
 }
 
 type RolloutLane struct {
-	ID                uuid.UUID
-	OrgID             int64
-	Label             string
-	Description       string
-	CurrentChannelID  int64
-	Revision          int64
-	IdempotencyKey    string
-	CreateFingerprint string
-	CreatedByUserID   int64
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                       uuid.UUID
+	OrgID                    int64
+	Label                    string
+	Description              string
+	CurrentChannelID         int64
+	Revision                 int64
+	IdempotencyKey           string
+	CreateFingerprint        string
+	CreatedByUserID          int64
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	DeletedAt                sql.NullTime
+	DeletedByUserID          sql.NullInt64
+	DeletedActorType         sql.NullString
+	DeletedActorCredentialID sql.NullString
+	DeleteReason             sql.NullString
+	DeleteIdempotencyKey     sql.NullString
+	DeleteFingerprint        sql.NullString
 }
 
 type RolloutLaneChannel struct {

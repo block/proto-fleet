@@ -1,13 +1,151 @@
 package betweenchannel
 
 import (
+	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/rollout"
 )
+
+type recordingDeleteLaneStore struct {
+	LaneStore
+	requests []DeleteLaneRequest
+}
+
+func (s *recordingDeleteLaneStore) DeleteLane(
+	_ context.Context,
+	req DeleteLaneRequest,
+) error {
+	s.requests = append(s.requests, req)
+	return nil
+}
+
+func TestServiceDeleteLaneFingerprintsActorIdentityForIdempotency(t *testing.T) {
+	t.Parallel()
+
+	identity := "apikey:lane-delete-1"
+	request := DeleteLaneRequest{
+		OrgID:             42,
+		LaneID:            uuid.New(),
+		ExpectedRevision:  3,
+		IdempotencyKey:    "delete-lane-retry",
+		Reason:            "retire test lane",
+		ActorUserID:       9,
+		ActorType:         rollout.ActorTypeAPIKey,
+		ActorCredentialID: &identity,
+	}
+	store := &recordingDeleteLaneStore{}
+	service := NewService(store, nil)
+
+	require.NoError(t, service.DeleteLane(t.Context(), request))
+	require.NoError(t, service.DeleteLane(t.Context(), request))
+
+	otherIdentity := "apikey:lane-delete-2"
+	otherCredential := request
+	otherCredential.ActorCredentialID = &otherIdentity
+	require.NoError(t, service.DeleteLane(t.Context(), otherCredential))
+
+	userActor := request
+	userActor.ActorType = rollout.ActorTypeUser
+	require.NoError(t, service.DeleteLane(t.Context(), userActor))
+
+	require.Len(t, store.requests, 4)
+	assert.Equal(t, request.IdempotencyKey, store.requests[0].IdempotencyKey)
+	assert.Len(t, store.requests[0].RequestFingerprint, 64)
+	assert.Equal(
+		t,
+		store.requests[0].RequestFingerprint,
+		store.requests[1].RequestFingerprint,
+		"an exact idempotent retry must retain its fingerprint",
+	)
+	assert.NotEqual(
+		t,
+		store.requests[0].RequestFingerprint,
+		store.requests[2].RequestFingerprint,
+		"credential identity must participate in the fingerprint",
+	)
+	assert.NotEqual(
+		t,
+		store.requests[0].RequestFingerprint,
+		store.requests[3].RequestFingerprint,
+		"actor type must participate in the fingerprint",
+	)
+}
+
+func TestValidateDeleteLaneActorIdentityPairing(t *testing.T) {
+	t.Parallel()
+
+	identity := "credential-1"
+	base := DeleteLaneRequest{
+		OrgID:            42,
+		LaneID:           uuid.New(),
+		ExpectedRevision: 1,
+		IdempotencyKey:   "delete-lane",
+		Reason:           "retire test lane",
+		ActorUserID:      9,
+	}
+	tests := []struct {
+		name         string
+		actorType    rollout.ActorType
+		credentialID *string
+		wantErr      string
+	}{
+		{name: "user without credential", actorType: rollout.ActorTypeUser},
+		{
+			name:         "user with credential",
+			actorType:    rollout.ActorTypeUser,
+			credentialID: &identity,
+		},
+		{
+			name:      "API key requires credential",
+			actorType: rollout.ActorTypeAPIKey,
+			wantErr:   "API key actor credential ID is required",
+		},
+		{
+			name:         "API key with credential",
+			actorType:    rollout.ActorTypeAPIKey,
+			credentialID: &identity,
+		},
+		{name: "system without credential", actorType: rollout.ActorTypeSystem},
+		{
+			name:         "system rejects credential",
+			actorType:    rollout.ActorTypeSystem,
+			credentialID: &identity,
+			wantErr:      "system actor credential ID must be omitted",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := base
+			req.ActorType = test.actorType
+			req.ActorCredentialID = test.credentialID
+			err := validateDeleteLaneRequest(req)
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), test.wantErr)
+		})
+	}
+}
+
+func TestMapStoreErrorDistinguishesMissingLaneFromIdempotencyConflict(t *testing.T) {
+	t.Parallel()
+
+	notFound := mapStoreError(ErrLaneNotFound)
+	assert.True(t, fleeterror.IsNotFoundError(notFound), "got %v", notFound)
+
+	conflict := mapStoreError(ErrIdempotencyConflict)
+	assert.True(t, fleeterror.IsAlreadyExistsError(conflict), "got %v", conflict)
+}
 
 func TestValidateTransitionTargetsFailsClosed(t *testing.T) {
 	t.Parallel()

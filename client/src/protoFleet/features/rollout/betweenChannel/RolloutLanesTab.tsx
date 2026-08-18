@@ -18,6 +18,7 @@ import {
 import CreateRolloutLaneModal, {
   type CreateRolloutLaneValues,
 } from "@/protoFleet/features/rollout/betweenChannel/CreateRolloutLaneModal";
+import DeleteRolloutLaneDialog from "@/protoFleet/features/rollout/betweenChannel/DeleteRolloutLaneDialog";
 import InitialLaneFirmwareSetup from "@/protoFleet/features/rollout/betweenChannel/InitialLaneFirmwareSetup";
 import RolloutLanesTable, { type LaneTableRow } from "@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable";
 import StartRolloutLaneModal, {
@@ -37,6 +38,10 @@ function idempotencyKey(action: string): string {
       ? crypto.randomUUID()
       : `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
   return `${action}-${unique}`;
+}
+
+function deleteLaneIdempotencyKey(laneId: string, expectedRevision: bigint): string {
+  return `delete-lane:${laneId}:${expectedRevision}`;
 }
 
 function latestRolloutForLane(
@@ -80,6 +85,7 @@ export default function RolloutLanesTab() {
     getRolloutLane,
     previewRolloutLane,
     createRolloutLane,
+    deleteRolloutLane,
     startRolloutLane,
     listRollouts,
     getRollout,
@@ -97,6 +103,7 @@ export default function RolloutLanesTab() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [deleteLaneId, setDeleteLaneId] = useState<string | null>(null);
   const [startLane, setStartLane] = useState<RolloutLane | null>(null);
   const [isPreparingLane, setIsPreparingLane] = useState(false);
   const [focusedRolloutId, setFocusedRolloutId] = useState<string | null>(null);
@@ -205,6 +212,20 @@ export default function RolloutLanesTab() {
     }
     return lanes.find((lane) => lane.id === setupLaneId);
   }, [lanes, loadedLane, setupLaneId]);
+  const laneToDelete = useMemo(() => {
+    if (!deleteLaneId) {
+      return undefined;
+    }
+    const aggregateLane = lanes.find((lane) => lane.id === deleteLaneId);
+    const detailedLane = loadedLane?.id === deleteLaneId ? loadedLane : undefined;
+    if (!aggregateLane) {
+      return detailedLane;
+    }
+    if (!detailedLane) {
+      return aggregateLane;
+    }
+    return detailedLane.revision >= aggregateLane.revision ? detailedLane : aggregateLane;
+  }, [deleteLaneId, lanes, loadedLane]);
   setupLaneRef.current = setupLane;
   const shouldPollSetupLane = Boolean(setupLane && !isInitialFirmwareReady(setupLane));
   const focusedRollout = focusedRolloutId ? rollouts.find((rollout) => rollout.id === focusedRolloutId) : undefined;
@@ -224,7 +245,7 @@ export default function RolloutLanesTab() {
     rows.find((row) => shouldMonitorRollout(row.latestRollout))?.latestRollout ??
     rows.find((row) => row.latestRollout && canRevertRollout(row.latestRollout))?.latestRollout;
   const monitoredLane = monitoredRollout ? laneForRollout(lanes, monitoredRollout.id) : undefined;
-  const canCreateLane = permissions.canManageChannels;
+  const canManageLanes = permissions.canManageChannels;
   const canStartLane = permissions.canManageChannels && permissions.canManage;
 
   const refreshMonitoredRollouts = useCallback(async () => {
@@ -343,6 +364,27 @@ export default function RolloutLanesTab() {
     },
     [updateSetupLaneParam],
   );
+
+  const handleDelete = useCallback(async () => {
+    if (!laneToDelete) {
+      return;
+    }
+    try {
+      await deleteRolloutLane({
+        laneId: laneToDelete.id,
+        expectedRevision: laneToDelete.revision,
+        idempotencyKey: deleteLaneIdempotencyKey(laneToDelete.id, laneToDelete.revision),
+        reason: "Delete rollout lane",
+      });
+      setDeleteLaneId(null);
+      if (setupLaneId === laneToDelete.id) {
+        updateSetupLaneParam(null);
+      }
+      pushToast({ message: `Deleted ${laneToDelete.label}`, status: STATUSES.success });
+    } catch {
+      // mutationError is rendered in the open dialog.
+    }
+  }, [deleteRolloutLane, laneToDelete, setupLaneId, updateSetupLaneParam]);
 
   useEffect(
     () => () => {
@@ -467,7 +509,7 @@ export default function RolloutLanesTab() {
             Deploy immutable releases while miners stay attached to one stable operator-facing lane.
           </div>
         </div>
-        {canCreateLane ? (
+        {canManageLanes ? (
           <Button
             text="Create lane"
             variant={variants.primary}
@@ -498,10 +540,17 @@ export default function RolloutLanesTab() {
         <RolloutLanesTable
           rows={rows}
           canStart={canStartLane}
+          canDelete={canManageLanes}
+          deletePermissionBlockedReason={
+            canManageLanes && !permissions.canRead
+              ? "Rollout read access is required to verify this lane is safe to delete."
+              : undefined
+          }
           isPreparingStart={isPreparingLane}
           onSetup={(lane) => void openSetup(lane)}
           onStart={(lane) => void prepareStart(lane)}
           onView={(rollout) => setModalRolloutId(rollout.id)}
+          onDelete={(lane) => setDeleteLaneId(lane.id)}
         />
       )}
 
@@ -550,6 +599,17 @@ export default function RolloutLanesTab() {
           error={mutationError}
           onDismiss={() => setStartLane(null)}
           onStart={(values) => void handleStart(values)}
+        />
+      ) : null}
+
+      {laneToDelete ? (
+        <DeleteRolloutLaneDialog
+          open
+          laneLabel={laneToDelete.label}
+          isSubmitting={isMutating}
+          error={mutationError}
+          onDismiss={() => setDeleteLaneId(null)}
+          onConfirm={() => void handleDelete()}
         />
       ) : null}
 

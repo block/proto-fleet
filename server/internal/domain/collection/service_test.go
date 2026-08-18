@@ -4172,6 +4172,9 @@ func TestService_AssignDevicesToChannel_OrgScopedAtomicMove(t *testing.T) {
 			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
 			Return(deviceIDs, nil),
 		mockStore.EXPECT().
+			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
+			Return(false, nil),
+		mockStore.EXPECT().
 			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
 			Return(nil, nil),
 		mockStore.EXPECT().
@@ -4225,6 +4228,33 @@ func TestService_AssignDevicesToChannel_MissingOrgDeviceWritesNothing(t *testing
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.True(t, fleeterror.IsNotFoundError(err))
+}
+
+func TestService_AssignDevicesToChannel_RejectsRolloutLaneTarget(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	targetChannelID := int64(77)
+	deviceIDs := []string{"d1"}
+	gomock.InOrder(
+		mockStore.EXPECT().
+			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
+			Return([]int64{77}, nil),
+		mockStore.EXPECT().
+			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
+			Return(deviceIDs, nil),
+		mockStore.EXPECT().
+			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
+			Return(true, nil),
+	)
+
+	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
+		OrgID:             testOrgID,
+		TargetChannelID:   &targetChannelID,
+		DeviceIdentifiers: deviceIDs,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 }
 
 func TestService_AssignDevicesToChannel_UnassignDoesNotTouchRackPlacement(t *testing.T) {

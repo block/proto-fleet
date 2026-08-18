@@ -238,6 +238,27 @@ func (q *Queries) GetFirmwareReleaseSet(ctx context.Context, arg GetFirmwareRele
 	return i, err
 }
 
+const isRolloutLaneChannel = `-- name: IsRolloutLaneChannel :one
+SELECT EXISTS (
+    SELECT 1
+    FROM rollout_lane_channel
+    WHERE org_id = $1
+      AND channel_id = $2
+)
+`
+
+type IsRolloutLaneChannelParams struct {
+	OrgID     int64
+	ChannelID int64
+}
+
+func (q *Queries) IsRolloutLaneChannel(ctx context.Context, arg IsRolloutLaneChannelParams) (bool, error) {
+	row := q.queryRow(ctx, q.isRolloutLaneChannelStmt, isRolloutLaneChannel, arg.OrgID, arg.ChannelID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listFirmwareReleaseTargets = `-- name: ListFirmwareReleaseTargets :many
 SELECT firmware_file_id, target_manufacturer, target_model, firmware_version, sha256
 FROM firmware_release_target

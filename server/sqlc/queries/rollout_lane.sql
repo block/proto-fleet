@@ -31,20 +31,159 @@ WHERE org_id = sqlc.arg('org_id')
 SELECT *
 FROM rollout_lane
 WHERE id = sqlc.arg('lane_id')
-  AND org_id = sqlc.arg('org_id');
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
 
 -- name: LockRolloutLane :one
 SELECT *
 FROM rollout_lane
 WHERE id = sqlc.arg('lane_id')
   AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
 FOR UPDATE;
 
 -- name: ListRolloutLanes :many
 SELECT *
 FROM rollout_lane
 WHERE org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
 ORDER BY label, id;
+
+-- name: LockRolloutLaneForArchive :one
+SELECT *
+FROM rollout_lane
+WHERE id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+FOR UPDATE;
+
+-- name: ListRolloutLaneMemberDeviceIDs :many
+SELECT DISTINCT device.id
+FROM rollout_lane_channel attachment
+JOIN device_set_membership membership
+  ON membership.device_set_id = attachment.channel_id
+ AND membership.org_id = attachment.org_id
+ AND membership.device_set_type = 'channel'
+JOIN device
+  ON device.id = membership.device_id
+ AND device.org_id = membership.org_id
+WHERE attachment.lane_id = sqlc.arg('lane_id')
+  AND attachment.org_id = sqlc.arg('org_id')
+ORDER BY device.id;
+
+-- name: LockRolloutLaneInitialAuthorities :many
+SELECT authority.id,
+       authority.revision,
+       authority.halted_at
+FROM channel_firmware_authority authority
+WHERE authority.org_id = sqlc.arg('org_id')
+  AND authority.authority_type = 'rollout_lane_initial'
+  AND authority.authority_reference = sqlc.arg('lane_id')::uuid::text
+ORDER BY authority.id
+FOR UPDATE;
+
+-- name: HasActiveRolloutLaneInitialWork :one
+SELECT EXISTS (
+    SELECT 1
+    FROM channel_firmware_authority authority
+    JOIN channel_firmware_enforcement enforcement
+      ON enforcement.authority_id = authority.id
+     AND enforcement.org_id = authority.org_id
+    WHERE authority.org_id = sqlc.arg('org_id')
+      AND authority.authority_type = 'rollout_lane_initial'
+      AND authority.authority_reference = sqlc.arg('lane_id')::uuid::text
+      AND enforcement.state IN (
+          'pending',
+          'held',
+          'dispatching',
+          'dispatched',
+          'verifying'
+      )
+);
+
+-- name: HasActiveRolloutLaneLinkedWork :one
+SELECT EXISTS (
+    SELECT 1
+    FROM rollout_lane_channel attachment
+    JOIN firmware_rollout rollout
+      ON rollout.id = attachment.rollout_id
+     AND rollout.org_id = attachment.org_id
+    WHERE attachment.lane_id = sqlc.arg('lane_id')
+      AND attachment.org_id = sqlc.arg('org_id')
+      AND (
+          rollout.state NOT IN (
+              'completed',
+              'completed_with_failures',
+              'aborted',
+              'reverted'
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM firmware_rollout_member member
+              WHERE member.rollout_id = rollout.id
+                AND member.org_id = rollout.org_id
+                AND member.owner_released_at IS NULL
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM firmware_rollout_control control
+              WHERE control.rollout_id = rollout.id
+                AND control.org_id = rollout.org_id
+                AND control.status = 'started'
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM channel_firmware_authority authority
+              WHERE authority.org_id = rollout.org_id
+                AND authority.id IN (
+                    rollout.forward_authority_id,
+                    rollout.revert_authority_id
+                )
+                AND authority.halted_at IS NULL
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM channel_firmware_enforcement enforcement
+              WHERE enforcement.org_id = rollout.org_id
+                AND enforcement.authority_id IN (
+                    rollout.forward_authority_id,
+                    rollout.revert_authority_id
+                )
+                AND enforcement.state IN (
+                    'pending',
+                    'held',
+                    'dispatching',
+                    'dispatched',
+                    'verifying'
+                )
+          )
+      )
+);
+
+-- name: RemoveRolloutLaneMemberships :many
+DELETE FROM device_set_membership membership
+USING rollout_lane_channel attachment
+WHERE attachment.lane_id = sqlc.arg('lane_id')
+  AND attachment.org_id = sqlc.arg('org_id')
+  AND membership.device_set_id = attachment.channel_id
+  AND membership.org_id = attachment.org_id
+  AND membership.device_set_type = 'channel'
+RETURNING membership.device_id;
+
+-- name: ArchiveRolloutLane :one
+UPDATE rollout_lane
+SET deleted_at = CURRENT_TIMESTAMP,
+    deleted_by_user_id = sqlc.arg('deleted_by_user_id'),
+    deleted_actor_type = sqlc.arg('deleted_actor_type'),
+    deleted_actor_credential_id = sqlc.narg('deleted_actor_credential_id'),
+    delete_reason = sqlc.arg('delete_reason'),
+    delete_idempotency_key = sqlc.arg('delete_idempotency_key'),
+    delete_fingerprint = sqlc.arg('delete_fingerprint'),
+    revision = revision + 1
+WHERE id = sqlc.arg('lane_id')
+  AND org_id = sqlc.arg('org_id')
+  AND revision = sqlc.arg('expected_revision')
+  AND deleted_at IS NULL
+RETURNING *;
 
 -- name: CreateRolloutLaneChannel :one
 INSERT INTO rollout_lane_channel (
@@ -117,7 +256,8 @@ JOIN rollout_lane_channel attachment
   ON attachment.lane_id = lane.id
  AND attachment.org_id = lane.org_id
 WHERE attachment.rollout_id = sqlc.arg('rollout_id')
-  AND attachment.org_id = sqlc.arg('org_id');
+  AND attachment.org_id = sqlc.arg('org_id')
+  AND lane.deleted_at IS NULL;
 
 -- name: LockBetweenChannelChannels :many
 SELECT channel.device_set_id
@@ -138,6 +278,16 @@ FROM device
 WHERE org_id = sqlc.arg('org_id')
   AND id = ANY(sqlc.arg('device_ids')::bigint[])
   AND deleted_at IS NULL
+ORDER BY device_identifier
+FOR UPDATE;
+
+-- name: LockRolloutLaneDevicesForArchive :many
+-- Archive must lock every persisted membership, including devices that were
+-- soft-deleted without removing their historical channel membership.
+SELECT id
+FROM device
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('device_ids')::bigint[])
 ORDER BY device_identifier
 FOR UPDATE;
 
@@ -291,6 +441,7 @@ LEFT JOIN channel_firmware_enforcement enforcement
  AND enforcement.org_id = authority.org_id
 WHERE authority.org_id = sqlc.arg('org_id')
   AND authority.authority_type = 'rollout_lane_initial'
+  AND lane.deleted_at IS NULL
 GROUP BY lane.id;
 
 -- name: ListRolloutLaneInitialEnforcementMembers :many

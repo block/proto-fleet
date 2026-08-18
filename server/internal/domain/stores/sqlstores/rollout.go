@@ -12,6 +12,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/rollout"
+	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
@@ -303,12 +304,44 @@ func (s *SQLRolloutStore) ApplyControl(
 	req rollout.ControlRequest,
 ) (rollout.ControlResult, error) {
 	result, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (rollout.ControlResult, error) {
+		identity, getErr := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{
+			RolloutID: req.RolloutID,
+			OrgID:     req.OrgID,
+		})
+		if getErr != nil {
+			return rollout.ControlResult{}, getErr
+		}
+		if identity.StrategyKey == betweenchannel.StrategyKey {
+			lane, laneErr := q.GetRolloutLaneForRollout(
+				ctx,
+				sqlc.GetRolloutLaneForRolloutParams{
+					RolloutID: uuid.NullUUID{UUID: req.RolloutID, Valid: true},
+					OrgID:     req.OrgID,
+				},
+			)
+			if laneErr != nil {
+				return rollout.ControlResult{}, laneErr
+			}
+			if _, laneErr = q.LockRolloutLane(
+				ctx,
+				sqlc.LockRolloutLaneParams{
+					LaneID: lane.ID,
+					OrgID:  req.OrgID,
+				},
+			); laneErr != nil {
+				return rollout.ControlResult{}, laneErr
+			}
+		}
+
 		current, lockErr := q.LockFirmwareRollout(ctx, sqlc.LockFirmwareRolloutParams{
 			RolloutID: req.RolloutID,
 			OrgID:     req.OrgID,
 		})
 		if lockErr != nil {
 			return rollout.ControlResult{}, lockErr
+		}
+		if current.StrategyKey != identity.StrategyKey {
+			return rollout.ControlResult{}, rollout.ErrRevisionConflict
 		}
 
 		existing, existingErr := q.GetFirmwareRolloutControlByKey(

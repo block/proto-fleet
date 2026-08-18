@@ -991,6 +991,24 @@ func (s *SQLCollectionStore) LockDevicesForChannelAssignment(
 	return ids, nil
 }
 
+func (s *SQLCollectionStore) IsRolloutLaneChannel(
+	ctx context.Context,
+	orgID int64,
+	channelID int64,
+) (bool, error) {
+	owned, err := s.GetQueries(ctx).IsRolloutLaneChannel(ctx, sqlc.IsRolloutLaneChannelParams{
+		OrgID:     orgID,
+		ChannelID: channelID,
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf(
+			"failed to check rollout-lane channel ownership: %v",
+			err,
+		)
+	}
+	return owned, nil
+}
+
 func (s *SQLCollectionStore) ListActiveRolloutOwnedDeviceIdentifiers(
 	ctx context.Context,
 	orgID int64,

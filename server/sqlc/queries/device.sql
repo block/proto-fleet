@@ -902,6 +902,7 @@ SELECT EXISTS (
     WHERE enforcement.org_id = sqlc.arg('org_id')
       AND enforcement.device_id = ANY(sqlc.arg('device_ids')::bigint[])
       AND authority.authority_type = 'rollout_lane_initial'
+      AND authority.halted_at IS NULL
       AND enforcement.state <> 'confirmed'
 );
 

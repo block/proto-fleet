@@ -43,6 +43,7 @@ type Querier interface {
 	AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error)
 	AnyFirmwareArtifactReferenced(ctx context.Context) (bool, error)
 	ApplyFirmwareRolloutTransition(ctx context.Context, arg ApplyFirmwareRolloutTransitionParams) (FirmwareRollout, error)
+	ArchiveRolloutLane(ctx context.Context, arg ArchiveRolloutLaneParams) (RolloutLane, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
 	// contains a device assigned to a different site) is enforced in the
@@ -830,6 +831,8 @@ type Querier interface {
 	GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams) (string, error)
 	GetUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
 	HaltChannelFirmwareAuthority(ctx context.Context, arg HaltChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error)
+	HasActiveRolloutLaneInitialWork(ctx context.Context, arg HasActiveRolloutLaneInitialWorkParams) (bool, error)
+	HasActiveRolloutLaneLinkedWork(ctx context.Context, arg HasActiveRolloutLaneLinkedWorkParams) (bool, error)
 	HasFirmwareRolloutSucceededMembers(ctx context.Context, arg HasFirmwareRolloutSucceededMembersParams) (bool, error)
 	HasUnconfirmedInitialRolloutLaneEnforcement(ctx context.Context, arg HasUnconfirmedInitialRolloutLaneEnforcementParams) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
@@ -889,6 +892,7 @@ type Querier interface {
 	InsertNotificationMetricSamples(ctx context.Context, arg InsertNotificationMetricSamplesParams) error
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
 	IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error)
+	IsRolloutLaneChannel(ctx context.Context, arg IsRolloutLaneChannelParams) (bool, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
 	// enforce the per-device single-writer rule.
 	ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int64) ([]string, error)
@@ -1193,6 +1197,7 @@ type Querier interface {
 	ListRolloutLaneChannels(ctx context.Context, arg ListRolloutLaneChannelsParams) ([]ListRolloutLaneChannelsRow, error)
 	ListRolloutLaneInitialEnforcementMembers(ctx context.Context, arg ListRolloutLaneInitialEnforcementMembersParams) ([]ListRolloutLaneInitialEnforcementMembersRow, error)
 	ListRolloutLaneInitialEnforcementStatuses(ctx context.Context, orgID int64) ([]ListRolloutLaneInitialEnforcementStatusesRow, error)
+	ListRolloutLaneMemberDeviceIDs(ctx context.Context, arg ListRolloutLaneMemberDeviceIDsParams) ([]int64, error)
 	ListRolloutLanes(ctx context.Context, orgID int64) ([]RolloutLane, error)
 	ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]ListScheduleIDStatusesRow, error)
 	ListSchedules(ctx context.Context, arg ListSchedulesParams) ([]ListSchedulesRow, error)
@@ -1323,6 +1328,11 @@ type Querier interface {
 	// device_set_rack row by lifecycle invariant.
 	LockRacksForReparent(ctx context.Context, arg LockRacksForReparentParams) ([]int64, error)
 	LockRolloutLane(ctx context.Context, arg LockRolloutLaneParams) (RolloutLane, error)
+	// Archive must lock every persisted membership, including devices that were
+	// soft-deleted without removing their historical channel membership.
+	LockRolloutLaneDevicesForArchive(ctx context.Context, arg LockRolloutLaneDevicesForArchiveParams) ([]int64, error)
+	LockRolloutLaneForArchive(ctx context.Context, arg LockRolloutLaneForArchiveParams) (RolloutLane, error)
+	LockRolloutLaneInitialAuthorities(ctx context.Context, arg LockRolloutLaneInitialAuthoritiesParams) ([]LockRolloutLaneInitialAuthoritiesRow, error)
 	LockSchedulePriority(ctx context.Context, dollar_1 string) error
 	// Row-locks the site so concurrent DeleteSite can't soft-delete it
 	// between the existence check and the cascade write. Returns the
@@ -1444,6 +1454,7 @@ type Querier interface {
 	// the changed set for activity site scope (#538). Equivalent affected-row
 	// count to the prior :execrows shape.
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
+	RemoveRolloutLaneMemberships(ctx context.Context, arg RemoveRolloutLaneMembershipsParams) ([]int64, error)
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
 	// The command queue has bounded per-message retries. Reopen the organization

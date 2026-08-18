@@ -5,6 +5,7 @@ import {
   canCompleteWithFailures,
   canRevertRollout,
   evaluateTargetCompatibility,
+  rolloutLaneDeleteBlockedReason,
   rolloutLaneStartBlockedReason,
   shouldMonitorRollout,
 } from "./betweenChannelUtils";
@@ -194,6 +195,35 @@ describe("between-channel rollout helpers", () => {
     expect(canRevertRollout(unsettled)).toBe(false);
     expect(shouldMonitorRollout(settled)).toBe(false);
     expect(canRevertRollout(settled)).toBe(true);
+  });
+
+  it("blocks lane deletion only while setup or rollout work is unsettled", () => {
+    const activeInitialLane = {
+      ...lane,
+      initialEnforcement: {
+        ...lane.initialEnforcement,
+        pendingCount: 1,
+        confirmedCount: 1,
+      },
+    };
+
+    expect(rolloutLaneDeleteBlockedReason(activeInitialLane, undefined)).toMatch(/initial firmware setup/i);
+    expect(rolloutLaneDeleteBlockedReason(lane, rolloutWithMembers("running", ["admitted"]))).toMatch(/rollout work/i);
+    expect(rolloutLaneDeleteBlockedReason(lane, rolloutWithMembers("aborted", ["admitted"]))).toMatch(/rollout work/i);
+    expect(rolloutLaneDeleteBlockedReason(lane, rolloutWithMembers("aborted", ["succeeded", "cancelled"]))).toBeNull();
+    expect(
+      rolloutLaneDeleteBlockedReason(
+        {
+          ...lane,
+          initialEnforcement: {
+            ...lane.initialEnforcement,
+            confirmedCount: 1,
+            attentionCount: 1,
+          },
+        },
+        undefined,
+      ),
+    ).toBeNull();
   });
 
   it("blocks a new rollout while members remain on a non-current lane channel", () => {

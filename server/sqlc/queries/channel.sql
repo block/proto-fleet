@@ -134,6 +134,14 @@ WHERE org_id = sqlc.arg('org_id')
 ORDER BY device_identifier
 FOR UPDATE;
 
+-- name: IsRolloutLaneChannel :one
+SELECT EXISTS (
+    SELECT 1
+    FROM rollout_lane_channel
+    WHERE org_id = sqlc.arg('org_id')
+      AND channel_id = sqlc.arg('channel_id')
+);
+
 -- name: RemoveDevicesFromAnyChannel :execrows
 DELETE FROM device_set_membership
 WHERE org_id = sqlc.arg('org_id')

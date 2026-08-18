@@ -20,6 +20,7 @@ var (
 	ErrCompatibility                          = errors.New("rollout lane release is incompatible")
 	ErrInitialEnforcementConfirmationRequired = errors.New("initial firmware enforcement confirmation required")
 	ErrInitialEnforcementActive               = errors.New("initial firmware enforcement is still active")
+	ErrLaneWorkActive                         = errors.New("rollout lane still has active work")
 )
 
 type ReleaseTarget struct {
@@ -123,6 +124,18 @@ type PreviewLaneRequest struct {
 	FirmwareFileIDs   []string
 	ReleaseTargets    []ReleaseTarget
 	DeviceIdentifiers []string
+}
+
+type DeleteLaneRequest struct {
+	OrgID              int64
+	LaneID             uuid.UUID
+	ExpectedRevision   int64
+	IdempotencyKey     string
+	RequestFingerprint string
+	Reason             string
+	ActorUserID        int64
+	ActorType          rollout.ActorType
+	ActorCredentialID  *string
 }
 
 type StartRolloutRequest struct {

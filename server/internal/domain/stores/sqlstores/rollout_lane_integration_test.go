@@ -1340,10 +1340,17 @@ func TestSQLDeviceStoreSoftDeleteRespectsInitialLaneEnforcement(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		state         string
+		archiveLane   bool
 		allowDeletion bool
 	}{
 		{name: "pending enforcement rejects deletion", state: "pending"},
 		{name: "attention-required enforcement rejects deletion", state: "attention_required"},
+		{
+			name:          "archived attention-required enforcement permits deletion",
+			state:         "attention_required",
+			archiveLane:   true,
+			allowDeletion: true,
+		},
 		{name: "confirmed enforcement permits deletion", state: "confirmed", allowDeletion: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -1378,6 +1385,16 @@ func TestSQLDeviceStoreSoftDeleteRespectsInitialLaneEnforcement(t *testing.T) {
 				  AND authority.authority_reference = $2
 			`, orgID, lane.ID.String(), test.state)
 			require.NoError(t, err)
+
+			if test.archiveLane {
+				require.NoError(
+					t,
+					laneService.DeleteLane(
+						t.Context(),
+						deleteLaneRequest(lane, orgID, actorID, "soft-delete-guard"),
+					),
+				)
+			}
 
 			deviceID, discoveredDeviceID := deviceAndDiscoveryIDs(
 				t,

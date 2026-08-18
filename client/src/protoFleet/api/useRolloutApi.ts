@@ -10,6 +10,7 @@ import {
   ContinueRolloutRequestSchema,
   CreateRolloutLaneRequestSchema,
   CreateRolloutRequestSchema,
+  DeleteRolloutLaneRequestSchema,
   GetRolloutLaneRequestSchema,
   GetRolloutRequestSchema,
   ListRolloutLanesRequestSchema,
@@ -109,6 +110,13 @@ export interface StartRolloutLaneInput extends RolloutRequestOptions {
   reason: string;
 }
 
+export interface DeleteRolloutLaneInput extends RolloutRequestOptions {
+  laneId: string;
+  expectedRevision: bigint;
+  idempotencyKey: string;
+  reason: string;
+}
+
 export interface StartRolloutLaneResult {
   lane: RolloutLane;
   rollout: RolloutRecord;
@@ -151,6 +159,7 @@ export interface UseRolloutApiResult {
   getRolloutLane: (options: GetRolloutLaneOptions) => Promise<RolloutLane>;
   previewRolloutLane: (input: PreviewRolloutLaneInput) => Promise<RolloutLanePreview>;
   createRolloutLane: (input: CreateRolloutLaneInput) => Promise<RolloutLane>;
+  deleteRolloutLane: (input: DeleteRolloutLaneInput) => Promise<void>;
   startRolloutLane: (input: StartRolloutLaneInput) => Promise<StartRolloutLaneResult>;
   listRollouts: (options?: ListRolloutsOptions) => Promise<RolloutRecord[]>;
   getRollout: (options: GetRolloutOptions) => Promise<RolloutRecord>;
@@ -670,6 +679,36 @@ export function useRolloutApi(): UseRolloutApiResult {
     [executeMutation],
   );
 
+  const deleteRolloutLane = useCallback(
+    (input: DeleteRolloutLaneInput) =>
+      executeMutation(
+        async () => {
+          await rolloutClient.deleteRolloutLane(
+            create(DeleteRolloutLaneRequestSchema, {
+              laneId: input.laneId,
+              expectedRevision: input.expectedRevision,
+              idempotencyKey: input.idempotencyKey,
+              reason: input.reason,
+            }),
+            rpcOptions(input.signal),
+          );
+          assertNotAborted(input.signal);
+          latestLaneListRequestIdRef.current += 1;
+          latestLaneGetRequestIdRef.current += 1;
+          setLane((current) => (current?.id === input.laneId ? null : current));
+          setLanes((current) =>
+            current.some((item) => item.id === input.laneId)
+              ? current.filter((item) => item.id !== input.laneId)
+              : current,
+          );
+          emitRolloutChanged();
+        },
+        input.signal,
+        "Couldn't delete rollout lane. Try again.",
+      ),
+    [executeMutation],
+  );
+
   const startRolloutLane = useCallback(
     async (input: StartRolloutLaneInput): Promise<StartRolloutLaneResult> => {
       const result = await runLaneMutation(
@@ -789,6 +828,7 @@ export function useRolloutApi(): UseRolloutApiResult {
       getRolloutLane,
       previewRolloutLane,
       createRolloutLane,
+      deleteRolloutLane,
       startRolloutLane,
       listRollouts,
       getRollout,
@@ -808,6 +848,7 @@ export function useRolloutApi(): UseRolloutApiResult {
       continueRollout,
       createRolloutLane,
       createRollout,
+      deleteRolloutLane,
       getRolloutLane,
       getRollout,
       isLoading,

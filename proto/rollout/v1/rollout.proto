@@ -11,6 +11,7 @@ service RolloutService {
     rpc CreateRolloutLane(CreateRolloutLaneRequest) returns (CreateRolloutLaneResponse);
     rpc GetRolloutLane(GetRolloutLaneRequest) returns (GetRolloutLaneResponse);
     rpc ListRolloutLanes(ListRolloutLanesRequest) returns (ListRolloutLanesResponse);
+    rpc DeleteRolloutLane(DeleteRolloutLaneRequest) returns (DeleteRolloutLaneResponse);
     rpc StartRolloutLane(StartRolloutLaneRequest) returns (StartRolloutLaneResponse);
     rpc CreateRollout(CreateRolloutRequest) returns (CreateRolloutResponse);
     rpc GetRollout(GetRolloutRequest) returns (GetRolloutResponse);
@@ -83,6 +84,15 @@ message ListRolloutLanesRequest {}
 message ListRolloutLanesResponse {
     repeated RolloutLane lanes = 1;
 }
+
+message DeleteRolloutLaneRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message DeleteRolloutLaneResponse {}
 
 message StartRolloutLaneRequest {
     string lane_id = 1 [(buf.validate.field).string.uuid = true];

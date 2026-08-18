@@ -63,6 +63,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.applyFirmwareRolloutTransitionStmt, err = db.PrepareContext(ctx, applyFirmwareRolloutTransition); err != nil {
 		return nil, fmt.Errorf("error preparing query ApplyFirmwareRolloutTransition: %w", err)
 	}
+	if q.archiveRolloutLaneStmt, err = db.PrepareContext(ctx, archiveRolloutLane); err != nil {
+		return nil, fmt.Errorf("error preparing query ArchiveRolloutLane: %w", err)
+	}
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
 	}
@@ -1062,6 +1065,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.haltChannelFirmwareAuthorityStmt, err = db.PrepareContext(ctx, haltChannelFirmwareAuthority); err != nil {
 		return nil, fmt.Errorf("error preparing query HaltChannelFirmwareAuthority: %w", err)
 	}
+	if q.hasActiveRolloutLaneInitialWorkStmt, err = db.PrepareContext(ctx, hasActiveRolloutLaneInitialWork); err != nil {
+		return nil, fmt.Errorf("error preparing query HasActiveRolloutLaneInitialWork: %w", err)
+	}
+	if q.hasActiveRolloutLaneLinkedWorkStmt, err = db.PrepareContext(ctx, hasActiveRolloutLaneLinkedWork); err != nil {
+		return nil, fmt.Errorf("error preparing query HasActiveRolloutLaneLinkedWork: %w", err)
+	}
 	if q.hasFirmwareRolloutSucceededMembersStmt, err = db.PrepareContext(ctx, hasFirmwareRolloutSucceededMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query HasFirmwareRolloutSucceededMembers: %w", err)
 	}
@@ -1118,6 +1127,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.isDeviceOwnedByFleetNodeStmt, err = db.PrepareContext(ctx, isDeviceOwnedByFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query IsDeviceOwnedByFleetNode: %w", err)
+	}
+	if q.isRolloutLaneChannelStmt, err = db.PrepareContext(ctx, isRolloutLaneChannel); err != nil {
+		return nil, fmt.Errorf("error preparing query IsRolloutLaneChannel: %w", err)
 	}
 	if q.listActiveCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailedDevicesByOrg: %w", err)
@@ -1359,6 +1371,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRolloutLaneInitialEnforcementStatusesStmt, err = db.PrepareContext(ctx, listRolloutLaneInitialEnforcementStatuses); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolloutLaneInitialEnforcementStatuses: %w", err)
 	}
+	if q.listRolloutLaneMemberDeviceIDsStmt, err = db.PrepareContext(ctx, listRolloutLaneMemberDeviceIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRolloutLaneMemberDeviceIDs: %w", err)
+	}
 	if q.listRolloutLanesStmt, err = db.PrepareContext(ctx, listRolloutLanes); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolloutLanes: %w", err)
 	}
@@ -1463,6 +1478,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockRolloutLaneStmt, err = db.PrepareContext(ctx, lockRolloutLane); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRolloutLane: %w", err)
+	}
+	if q.lockRolloutLaneDevicesForArchiveStmt, err = db.PrepareContext(ctx, lockRolloutLaneDevicesForArchive); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneDevicesForArchive: %w", err)
+	}
+	if q.lockRolloutLaneForArchiveStmt, err = db.PrepareContext(ctx, lockRolloutLaneForArchive); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneForArchive: %w", err)
+	}
+	if q.lockRolloutLaneInitialAuthoritiesStmt, err = db.PrepareContext(ctx, lockRolloutLaneInitialAuthorities); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRolloutLaneInitialAuthorities: %w", err)
 	}
 	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
@@ -1577,6 +1601,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.removeDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromDeviceSet: %w", err)
+	}
+	if q.removeRolloutLaneMembershipsStmt, err = db.PrepareContext(ctx, removeRolloutLaneMemberships); err != nil {
+		return nil, fmt.Errorf("error preparing query RemoveRolloutLaneMemberships: %w", err)
 	}
 	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
 		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
@@ -2060,6 +2087,11 @@ func (q *Queries) Close() error {
 	if q.applyFirmwareRolloutTransitionStmt != nil {
 		if cerr := q.applyFirmwareRolloutTransitionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing applyFirmwareRolloutTransitionStmt: %w", cerr)
+		}
+	}
+	if q.archiveRolloutLaneStmt != nil {
+		if cerr := q.archiveRolloutLaneStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing archiveRolloutLaneStmt: %w", cerr)
 		}
 	}
 	if q.assignBuildingToSiteStmt != nil {
@@ -3727,6 +3759,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing haltChannelFirmwareAuthorityStmt: %w", cerr)
 		}
 	}
+	if q.hasActiveRolloutLaneInitialWorkStmt != nil {
+		if cerr := q.hasActiveRolloutLaneInitialWorkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasActiveRolloutLaneInitialWorkStmt: %w", cerr)
+		}
+	}
+	if q.hasActiveRolloutLaneLinkedWorkStmt != nil {
+		if cerr := q.hasActiveRolloutLaneLinkedWorkStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasActiveRolloutLaneLinkedWorkStmt: %w", cerr)
+		}
+	}
 	if q.hasFirmwareRolloutSucceededMembersStmt != nil {
 		if cerr := q.hasFirmwareRolloutSucceededMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasFirmwareRolloutSucceededMembersStmt: %w", cerr)
@@ -3820,6 +3862,11 @@ func (q *Queries) Close() error {
 	if q.isDeviceOwnedByFleetNodeStmt != nil {
 		if cerr := q.isDeviceOwnedByFleetNodeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isDeviceOwnedByFleetNodeStmt: %w", cerr)
+		}
+	}
+	if q.isRolloutLaneChannelStmt != nil {
+		if cerr := q.isRolloutLaneChannelStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing isRolloutLaneChannelStmt: %w", cerr)
 		}
 	}
 	if q.listActiveCurtailedDevicesByOrgStmt != nil {
@@ -4222,6 +4269,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRolloutLaneInitialEnforcementStatusesStmt: %w", cerr)
 		}
 	}
+	if q.listRolloutLaneMemberDeviceIDsStmt != nil {
+		if cerr := q.listRolloutLaneMemberDeviceIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRolloutLaneMemberDeviceIDsStmt: %w", cerr)
+		}
+	}
 	if q.listRolloutLanesStmt != nil {
 		if cerr := q.listRolloutLanesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolloutLanesStmt: %w", cerr)
@@ -4395,6 +4447,21 @@ func (q *Queries) Close() error {
 	if q.lockRolloutLaneStmt != nil {
 		if cerr := q.lockRolloutLaneStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRolloutLaneStmt: %w", cerr)
+		}
+	}
+	if q.lockRolloutLaneDevicesForArchiveStmt != nil {
+		if cerr := q.lockRolloutLaneDevicesForArchiveStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneDevicesForArchiveStmt: %w", cerr)
+		}
+	}
+	if q.lockRolloutLaneForArchiveStmt != nil {
+		if cerr := q.lockRolloutLaneForArchiveStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneForArchiveStmt: %w", cerr)
+		}
+	}
+	if q.lockRolloutLaneInitialAuthoritiesStmt != nil {
+		if cerr := q.lockRolloutLaneInitialAuthoritiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRolloutLaneInitialAuthoritiesStmt: %w", cerr)
 		}
 	}
 	if q.lockSchedulePriorityStmt != nil {
@@ -4585,6 +4652,11 @@ func (q *Queries) Close() error {
 	if q.removeDevicesFromDeviceSetStmt != nil {
 		if cerr := q.removeDevicesFromDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing removeDevicesFromDeviceSetStmt: %w", cerr)
+		}
+	}
+	if q.removeRolloutLaneMembershipsStmt != nil {
+		if cerr := q.removeRolloutLaneMembershipsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing removeRolloutLaneMembershipsStmt: %w", cerr)
 		}
 	}
 	if q.renewFleetRuntimeLeaseStmt != nil {
@@ -5329,6 +5401,7 @@ type Queries struct {
 	allDevicesBelongToOrgStmt                                    *sql.Stmt
 	anyFirmwareArtifactReferencedStmt                            *sql.Stmt
 	applyFirmwareRolloutTransitionStmt                           *sql.Stmt
+	archiveRolloutLaneStmt                                       *sql.Stmt
 	assignBuildingToSiteStmt                                     *sql.Stmt
 	assignBuildingsToSiteBulkStmt                                *sql.Stmt
 	assignDevicesToBuildingStmt                                  *sql.Stmt
@@ -5662,6 +5735,8 @@ type Queries struct {
 	getUserRoleNameStmt                                          *sql.Stmt
 	getUsersForOrganizationStmt                                  *sql.Stmt
 	haltChannelFirmwareAuthorityStmt                             *sql.Stmt
+	hasActiveRolloutLaneInitialWorkStmt                          *sql.Stmt
+	hasActiveRolloutLaneLinkedWorkStmt                           *sql.Stmt
 	hasFirmwareRolloutSucceededMembersStmt                       *sql.Stmt
 	hasUnconfirmedInitialRolloutLaneEnforcementStmt              *sql.Stmt
 	hasUserStmt                                                  *sql.Stmt
@@ -5681,6 +5756,7 @@ type Queries struct {
 	insertNotificationMetricSamplesStmt                          *sql.Stmt
 	isBatchFinishedStmt                                          *sql.Stmt
 	isDeviceOwnedByFleetNodeStmt                                 *sql.Stmt
+	isRolloutLaneChannelStmt                                     *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                          *sql.Stmt
 	listActiveCurtailmentEventsStmt                              *sql.Stmt
 	listActiveCurtailmentTargetDevicesByOrgStmt                  *sql.Stmt
@@ -5761,6 +5837,7 @@ type Queries struct {
 	listRolloutLaneChannelsStmt                                  *sql.Stmt
 	listRolloutLaneInitialEnforcementMembersStmt                 *sql.Stmt
 	listRolloutLaneInitialEnforcementStatusesStmt                *sql.Stmt
+	listRolloutLaneMemberDeviceIDsStmt                           *sql.Stmt
 	listRolloutLanesStmt                                         *sql.Stmt
 	listScheduleIDStatusesStmt                                   *sql.Stmt
 	listSchedulesStmt                                            *sql.Stmt
@@ -5796,6 +5873,9 @@ type Queries struct {
 	lockRackPlacementForWriteStmt                                *sql.Stmt
 	lockRacksForReparentStmt                                     *sql.Stmt
 	lockRolloutLaneStmt                                          *sql.Stmt
+	lockRolloutLaneDevicesForArchiveStmt                         *sql.Stmt
+	lockRolloutLaneForArchiveStmt                                *sql.Stmt
+	lockRolloutLaneInitialAuthoritiesStmt                        *sql.Stmt
 	lockSchedulePriorityStmt                                     *sql.Stmt
 	lockSiteForWriteStmt                                         *sql.Stmt
 	markBetweenChannelMemberTerminalStmt                         *sql.Stmt
@@ -5834,6 +5914,7 @@ type Queries struct {
 	removeDevicesFromAnyChannelStmt                              *sql.Stmt
 	removeDevicesFromAnyRackStmt                                 *sql.Stmt
 	removeDevicesFromDeviceSetStmt                               *sql.Stmt
+	removeRolloutLaneMembershipsStmt                             *sql.Stmt
 	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
 	requestRigConfigReconciliationStmt                           *sql.Stmt
 	requeueRigConfigReconciliationAfterTerminalFailureStmt       *sql.Stmt
@@ -5991,6 +6072,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		allDevicesBelongToOrgStmt:                                    q.allDevicesBelongToOrgStmt,
 		anyFirmwareArtifactReferencedStmt:                            q.anyFirmwareArtifactReferencedStmt,
 		applyFirmwareRolloutTransitionStmt:                           q.applyFirmwareRolloutTransitionStmt,
+		archiveRolloutLaneStmt:                                       q.archiveRolloutLaneStmt,
 		assignBuildingToSiteStmt:                                     q.assignBuildingToSiteStmt,
 		assignBuildingsToSiteBulkStmt:                                q.assignBuildingsToSiteBulkStmt,
 		assignDevicesToBuildingStmt:                                  q.assignDevicesToBuildingStmt,
@@ -6324,6 +6406,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserRoleNameStmt:                                          q.getUserRoleNameStmt,
 		getUsersForOrganizationStmt:                                  q.getUsersForOrganizationStmt,
 		haltChannelFirmwareAuthorityStmt:                             q.haltChannelFirmwareAuthorityStmt,
+		hasActiveRolloutLaneInitialWorkStmt:                          q.hasActiveRolloutLaneInitialWorkStmt,
+		hasActiveRolloutLaneLinkedWorkStmt:                           q.hasActiveRolloutLaneLinkedWorkStmt,
 		hasFirmwareRolloutSucceededMembersStmt:                       q.hasFirmwareRolloutSucceededMembersStmt,
 		hasUnconfirmedInitialRolloutLaneEnforcementStmt:              q.hasUnconfirmedInitialRolloutLaneEnforcementStmt,
 		hasUserStmt:                                                q.hasUserStmt,
@@ -6343,6 +6427,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertNotificationMetricSamplesStmt:                        q.insertNotificationMetricSamplesStmt,
 		isBatchFinishedStmt:                                        q.isBatchFinishedStmt,
 		isDeviceOwnedByFleetNodeStmt:                               q.isDeviceOwnedByFleetNodeStmt,
+		isRolloutLaneChannelStmt:                                   q.isRolloutLaneChannelStmt,
 		listActiveCurtailedDevicesByOrgStmt:                        q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                            q.listActiveCurtailmentEventsStmt,
 		listActiveCurtailmentTargetDevicesByOrgStmt:                q.listActiveCurtailmentTargetDevicesByOrgStmt,
@@ -6423,6 +6508,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRolloutLaneChannelsStmt:                                q.listRolloutLaneChannelsStmt,
 		listRolloutLaneInitialEnforcementMembersStmt:               q.listRolloutLaneInitialEnforcementMembersStmt,
 		listRolloutLaneInitialEnforcementStatusesStmt:              q.listRolloutLaneInitialEnforcementStatusesStmt,
+		listRolloutLaneMemberDeviceIDsStmt:                         q.listRolloutLaneMemberDeviceIDsStmt,
 		listRolloutLanesStmt:                                       q.listRolloutLanesStmt,
 		listScheduleIDStatusesStmt:                                 q.listScheduleIDStatusesStmt,
 		listSchedulesStmt:                                          q.listSchedulesStmt,
@@ -6458,6 +6544,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockRackPlacementForWriteStmt:                              q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                   q.lockRacksForReparentStmt,
 		lockRolloutLaneStmt:                                        q.lockRolloutLaneStmt,
+		lockRolloutLaneDevicesForArchiveStmt:                       q.lockRolloutLaneDevicesForArchiveStmt,
+		lockRolloutLaneForArchiveStmt:                              q.lockRolloutLaneForArchiveStmt,
+		lockRolloutLaneInitialAuthoritiesStmt:                      q.lockRolloutLaneInitialAuthoritiesStmt,
 		lockSchedulePriorityStmt:                                   q.lockSchedulePriorityStmt,
 		lockSiteForWriteStmt:                                       q.lockSiteForWriteStmt,
 		markBetweenChannelMemberTerminalStmt:                       q.markBetweenChannelMemberTerminalStmt,
@@ -6496,6 +6585,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeDevicesFromAnyChannelStmt:                            q.removeDevicesFromAnyChannelStmt,
 		removeDevicesFromAnyRackStmt:                               q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                             q.removeDevicesFromDeviceSetStmt,
+		removeRolloutLaneMembershipsStmt:                           q.removeRolloutLaneMembershipsStmt,
 		renewFleetRuntimeLeaseStmt:                                 q.renewFleetRuntimeLeaseStmt,
 		requestRigConfigReconciliationStmt:                         q.requestRigConfigReconciliationStmt,
 		requeueRigConfigReconciliationAfterTerminalFailureStmt:     q.requeueRigConfigReconciliationAfterTerminalFailureStmt,

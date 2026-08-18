@@ -83,7 +83,7 @@ func (s *SQLRolloutLaneStore) CreateLane(
 			)
 			switch {
 			case getErr == nil:
-				if existing.CreateFingerprint != req.RequestFingerprint {
+				if existing.DeletedAt.Valid || existing.CreateFingerprint != req.RequestFingerprint {
 					return nil, betweenchannel.ErrIdempotencyConflict
 				}
 				return loadRolloutLane(txCtx, q, existing, true, nil)
@@ -249,7 +249,7 @@ func (s *SQLRolloutLaneStore) replayLaneCreate(
 	if err != nil {
 		return nil, err
 	}
-	if existing.CreateFingerprint != req.RequestFingerprint {
+	if existing.DeletedAt.Valid || existing.CreateFingerprint != req.RequestFingerprint {
 		return nil, betweenchannel.ErrIdempotencyConflict
 	}
 	return loadRolloutLane(ctx, q, existing, true, nil)
@@ -326,6 +326,200 @@ func (s *SQLRolloutLaneStore) ListLanes(
 		result = append(result, *lane)
 	}
 	return result, nil
+}
+
+func (s *SQLRolloutLaneStore) DeleteLane(
+	ctx context.Context,
+	req betweenchannel.DeleteLaneRequest,
+) error {
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		q := s.GetQueries(txCtx)
+		lane, lockErr := q.LockRolloutLaneForArchive(
+			txCtx,
+			sqlc.LockRolloutLaneForArchiveParams{
+				LaneID: req.LaneID,
+				OrgID:  req.OrgID,
+			},
+		)
+		if errors.Is(lockErr, sql.ErrNoRows) {
+			return betweenchannel.ErrLaneNotFound
+		}
+		if lockErr != nil {
+			return lockErr
+		}
+		if lane.DeletedAt.Valid {
+			if !lane.DeleteIdempotencyKey.Valid ||
+				lane.DeleteIdempotencyKey.String != req.IdempotencyKey {
+				return betweenchannel.ErrLaneNotFound
+			}
+			if lane.DeleteFingerprint.Valid &&
+				lane.DeleteFingerprint.String == req.RequestFingerprint {
+				return nil
+			}
+			return betweenchannel.ErrIdempotencyConflict
+		}
+		if lane.Revision != req.ExpectedRevision {
+			return betweenchannel.ErrLaneConflict
+		}
+
+		laneChannels, listErr := q.ListRolloutLaneChannels(
+			txCtx,
+			sqlc.ListRolloutLaneChannelsParams{
+				LaneID: req.LaneID,
+				OrgID:  req.OrgID,
+			},
+		)
+		if listErr != nil {
+			return listErr
+		}
+		channelIDs := make([]int64, 0, len(laneChannels))
+		for _, laneChannel := range laneChannels {
+			channelIDs = append(channelIDs, laneChannel.ChannelID)
+		}
+		lockedChannels, lockErr := q.LockBetweenChannelChannels(
+			txCtx,
+			sqlc.LockBetweenChannelChannelsParams{
+				OrgID:      req.OrgID,
+				ChannelIds: channelIDs,
+			},
+		)
+		if lockErr != nil {
+			return lockErr
+		}
+		if len(lockedChannels) != len(channelIDs) {
+			return betweenchannel.ErrLaneConflict
+		}
+
+		memberDeviceIDs, listErr := q.ListRolloutLaneMemberDeviceIDs(
+			txCtx,
+			sqlc.ListRolloutLaneMemberDeviceIDsParams{
+				LaneID: req.LaneID,
+				OrgID:  req.OrgID,
+			},
+		)
+		if listErr != nil {
+			return listErr
+		}
+		if len(memberDeviceIDs) > 0 {
+			lockedDevices, deviceLockErr := q.LockRolloutLaneDevicesForArchive(
+				txCtx,
+				sqlc.LockRolloutLaneDevicesForArchiveParams{
+					OrgID:     req.OrgID,
+					DeviceIds: memberDeviceIDs,
+				},
+			)
+			if deviceLockErr != nil {
+				return deviceLockErr
+			}
+			if len(lockedDevices) != len(memberDeviceIDs) {
+				return betweenchannel.ErrMembershipConflict
+			}
+		}
+
+		initialAuthorities, lockErr := q.LockRolloutLaneInitialAuthorities(
+			txCtx,
+			sqlc.LockRolloutLaneInitialAuthoritiesParams{
+				OrgID:  req.OrgID,
+				LaneID: req.LaneID,
+			},
+		)
+		if lockErr != nil {
+			return lockErr
+		}
+		initialActive, checkErr := q.HasActiveRolloutLaneInitialWork(
+			txCtx,
+			sqlc.HasActiveRolloutLaneInitialWorkParams{
+				OrgID:  req.OrgID,
+				LaneID: req.LaneID,
+			},
+		)
+		if checkErr != nil {
+			return checkErr
+		}
+		if initialActive {
+			return fmt.Errorf(
+				"%w: initial firmware setup must settle before deletion",
+				betweenchannel.ErrLaneWorkActive,
+			)
+		}
+		linkedActive, checkErr := q.HasActiveRolloutLaneLinkedWork(
+			txCtx,
+			sqlc.HasActiveRolloutLaneLinkedWorkParams{
+				LaneID: req.LaneID,
+				OrgID:  req.OrgID,
+			},
+		)
+		if checkErr != nil {
+			return checkErr
+		}
+		if linkedActive {
+			return fmt.Errorf(
+				"%w: rollout, revert, or finalizer work must settle before deletion",
+				betweenchannel.ErrLaneWorkActive,
+			)
+		}
+
+		for _, authority := range initialAuthorities {
+			if authority.HaltedAt.Valid {
+				continue
+			}
+			_, haltErr := q.HaltChannelFirmwareAuthority(
+				txCtx,
+				sqlc.HaltChannelFirmwareAuthorityParams{
+					AuthorityID:      authority.ID,
+					OrgID:            req.OrgID,
+					ExpectedRevision: authority.Revision,
+				},
+			)
+			if errors.Is(haltErr, sql.ErrNoRows) {
+				return betweenchannel.ErrLaneConflict
+			}
+			if haltErr != nil {
+				return haltErr
+			}
+		}
+		removed, removeErr := q.RemoveRolloutLaneMemberships(
+			txCtx,
+			sqlc.RemoveRolloutLaneMembershipsParams{
+				LaneID: req.LaneID,
+				OrgID:  req.OrgID,
+			},
+		)
+		if removeErr != nil {
+			return removeErr
+		}
+		if len(removed) != len(memberDeviceIDs) {
+			return betweenchannel.ErrMembershipConflict
+		}
+		_, archiveErr := q.ArchiveRolloutLane(
+			txCtx,
+			sqlc.ArchiveRolloutLaneParams{
+				DeletedByUserID: sql.NullInt64{Int64: req.ActorUserID, Valid: true},
+				DeletedActorType: sql.NullString{
+					String: persistedActorType(req.ActorType),
+					Valid:  true,
+				},
+				DeletedActorCredentialID: ptrToNullString(req.ActorCredentialID),
+				DeleteReason:             sql.NullString{String: req.Reason, Valid: true},
+				DeleteIdempotencyKey:     sql.NullString{String: req.IdempotencyKey, Valid: true},
+				DeleteFingerprint:        sql.NullString{String: req.RequestFingerprint, Valid: true},
+				LaneID:                   req.LaneID,
+				OrgID:                    req.OrgID,
+				ExpectedRevision:         req.ExpectedRevision,
+			},
+		)
+		if errors.Is(archiveErr, sql.ErrNoRows) {
+			return betweenchannel.ErrLaneConflict
+		}
+		return archiveErr
+	})
+	if err != nil {
+		if isUniqueViolationOn(err, "uq_rollout_lane_delete_idempotency") {
+			return betweenchannel.ErrIdempotencyConflict
+		}
+		return fmt.Errorf("delete rollout lane: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLRolloutLaneStore) StartRollout(

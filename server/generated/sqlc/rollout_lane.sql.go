@@ -21,7 +21,7 @@ SET current_channel_id = $1,
 WHERE id = $2
   AND org_id = $3
   AND current_channel_id = $4
-RETURNING id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at
+RETURNING id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
 `
 
 type AdvanceRolloutLaneCurrentChannelParams struct {
@@ -51,6 +51,78 @@ func (q *Queries) AdvanceRolloutLaneCurrentChannel(ctx context.Context, arg Adva
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeletedByUserID,
+		&i.DeletedActorType,
+		&i.DeletedActorCredentialID,
+		&i.DeleteReason,
+		&i.DeleteIdempotencyKey,
+		&i.DeleteFingerprint,
+	)
+	return i, err
+}
+
+const archiveRolloutLane = `-- name: ArchiveRolloutLane :one
+UPDATE rollout_lane
+SET deleted_at = CURRENT_TIMESTAMP,
+    deleted_by_user_id = $1,
+    deleted_actor_type = $2,
+    deleted_actor_credential_id = $3,
+    delete_reason = $4,
+    delete_idempotency_key = $5,
+    delete_fingerprint = $6,
+    revision = revision + 1
+WHERE id = $7
+  AND org_id = $8
+  AND revision = $9
+  AND deleted_at IS NULL
+RETURNING id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
+`
+
+type ArchiveRolloutLaneParams struct {
+	DeletedByUserID          sql.NullInt64
+	DeletedActorType         sql.NullString
+	DeletedActorCredentialID sql.NullString
+	DeleteReason             sql.NullString
+	DeleteIdempotencyKey     sql.NullString
+	DeleteFingerprint        sql.NullString
+	LaneID                   uuid.UUID
+	OrgID                    int64
+	ExpectedRevision         int64
+}
+
+func (q *Queries) ArchiveRolloutLane(ctx context.Context, arg ArchiveRolloutLaneParams) (RolloutLane, error) {
+	row := q.queryRow(ctx, q.archiveRolloutLaneStmt, archiveRolloutLane,
+		arg.DeletedByUserID,
+		arg.DeletedActorType,
+		arg.DeletedActorCredentialID,
+		arg.DeleteReason,
+		arg.DeleteIdempotencyKey,
+		arg.DeleteFingerprint,
+		arg.LaneID,
+		arg.OrgID,
+		arg.ExpectedRevision,
+	)
+	var i RolloutLane
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Label,
+		&i.Description,
+		&i.CurrentChannelID,
+		&i.Revision,
+		&i.IdempotencyKey,
+		&i.CreateFingerprint,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeletedByUserID,
+		&i.DeletedActorType,
+		&i.DeletedActorCredentialID,
+		&i.DeleteReason,
+		&i.DeleteIdempotencyKey,
+		&i.DeleteFingerprint,
 	)
 	return i, err
 }
@@ -791,7 +863,7 @@ VALUES (
     $7,
     $8
 )
-RETURNING id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at
+RETURNING id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
 `
 
 type CreateRolloutLaneParams struct {
@@ -829,6 +901,13 @@ func (q *Queries) CreateRolloutLane(ctx context.Context, arg CreateRolloutLanePa
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeletedByUserID,
+		&i.DeletedActorType,
+		&i.DeletedActorCredentialID,
+		&i.DeleteReason,
+		&i.DeleteIdempotencyKey,
+		&i.DeleteFingerprint,
 	)
 	return i, err
 }
@@ -1415,10 +1494,11 @@ func (q *Queries) GetNextRolloutLaneChannelPosition(ctx context.Context, arg Get
 }
 
 const getRolloutLane = `-- name: GetRolloutLane :one
-SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at
+SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
 FROM rollout_lane
 WHERE id = $1
   AND org_id = $2
+  AND deleted_at IS NULL
 `
 
 type GetRolloutLaneParams struct {
@@ -1441,12 +1521,19 @@ func (q *Queries) GetRolloutLane(ctx context.Context, arg GetRolloutLaneParams) 
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeletedByUserID,
+		&i.DeletedActorType,
+		&i.DeletedActorCredentialID,
+		&i.DeleteReason,
+		&i.DeleteIdempotencyKey,
+		&i.DeleteFingerprint,
 	)
 	return i, err
 }
 
 const getRolloutLaneByIdempotencyKey = `-- name: GetRolloutLaneByIdempotencyKey :one
-SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at
+SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
 FROM rollout_lane
 WHERE org_id = $1
   AND idempotency_key = $2
@@ -1472,6 +1559,13 @@ func (q *Queries) GetRolloutLaneByIdempotencyKey(ctx context.Context, arg GetRol
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeletedByUserID,
+		&i.DeletedActorType,
+		&i.DeletedActorCredentialID,
+		&i.DeleteReason,
+		&i.DeleteIdempotencyKey,
+		&i.DeleteFingerprint,
 	)
 	return i, err
 }
@@ -1507,13 +1601,14 @@ func (q *Queries) GetRolloutLaneChannelByStartKey(ctx context.Context, arg GetRo
 }
 
 const getRolloutLaneForRollout = `-- name: GetRolloutLaneForRollout :one
-SELECT lane.id, lane.org_id, lane.label, lane.description, lane.current_channel_id, lane.revision, lane.idempotency_key, lane.create_fingerprint, lane.created_by_user_id, lane.created_at, lane.updated_at
+SELECT lane.id, lane.org_id, lane.label, lane.description, lane.current_channel_id, lane.revision, lane.idempotency_key, lane.create_fingerprint, lane.created_by_user_id, lane.created_at, lane.updated_at, lane.deleted_at, lane.deleted_by_user_id, lane.deleted_actor_type, lane.deleted_actor_credential_id, lane.delete_reason, lane.delete_idempotency_key, lane.delete_fingerprint
 FROM rollout_lane lane
 JOIN rollout_lane_channel attachment
   ON attachment.lane_id = lane.id
  AND attachment.org_id = lane.org_id
 WHERE attachment.rollout_id = $1
   AND attachment.org_id = $2
+  AND lane.deleted_at IS NULL
 `
 
 type GetRolloutLaneForRolloutParams struct {
@@ -1536,6 +1631,13 @@ func (q *Queries) GetRolloutLaneForRollout(ctx context.Context, arg GetRolloutLa
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeletedByUserID,
+		&i.DeletedActorType,
+		&i.DeletedActorCredentialID,
+		&i.DeleteReason,
+		&i.DeleteIdempotencyKey,
+		&i.DeleteFingerprint,
 	)
 	return i, err
 }
@@ -1592,6 +1694,110 @@ func (q *Queries) GetRolloutLaneInitialEnforcementStatus(ctx context.Context, ar
 		&i.AttentionCount,
 	)
 	return i, err
+}
+
+const hasActiveRolloutLaneInitialWork = `-- name: HasActiveRolloutLaneInitialWork :one
+SELECT EXISTS (
+    SELECT 1
+    FROM channel_firmware_authority authority
+    JOIN channel_firmware_enforcement enforcement
+      ON enforcement.authority_id = authority.id
+     AND enforcement.org_id = authority.org_id
+    WHERE authority.org_id = $1
+      AND authority.authority_type = 'rollout_lane_initial'
+      AND authority.authority_reference = $2::uuid::text
+      AND enforcement.state IN (
+          'pending',
+          'held',
+          'dispatching',
+          'dispatched',
+          'verifying'
+      )
+)
+`
+
+type HasActiveRolloutLaneInitialWorkParams struct {
+	OrgID  int64
+	LaneID uuid.UUID
+}
+
+func (q *Queries) HasActiveRolloutLaneInitialWork(ctx context.Context, arg HasActiveRolloutLaneInitialWorkParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasActiveRolloutLaneInitialWorkStmt, hasActiveRolloutLaneInitialWork, arg.OrgID, arg.LaneID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasActiveRolloutLaneLinkedWork = `-- name: HasActiveRolloutLaneLinkedWork :one
+SELECT EXISTS (
+    SELECT 1
+    FROM rollout_lane_channel attachment
+    JOIN firmware_rollout rollout
+      ON rollout.id = attachment.rollout_id
+     AND rollout.org_id = attachment.org_id
+    WHERE attachment.lane_id = $1
+      AND attachment.org_id = $2
+      AND (
+          rollout.state NOT IN (
+              'completed',
+              'completed_with_failures',
+              'aborted',
+              'reverted'
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM firmware_rollout_member member
+              WHERE member.rollout_id = rollout.id
+                AND member.org_id = rollout.org_id
+                AND member.owner_released_at IS NULL
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM firmware_rollout_control control
+              WHERE control.rollout_id = rollout.id
+                AND control.org_id = rollout.org_id
+                AND control.status = 'started'
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM channel_firmware_authority authority
+              WHERE authority.org_id = rollout.org_id
+                AND authority.id IN (
+                    rollout.forward_authority_id,
+                    rollout.revert_authority_id
+                )
+                AND authority.halted_at IS NULL
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM channel_firmware_enforcement enforcement
+              WHERE enforcement.org_id = rollout.org_id
+                AND enforcement.authority_id IN (
+                    rollout.forward_authority_id,
+                    rollout.revert_authority_id
+                )
+                AND enforcement.state IN (
+                    'pending',
+                    'held',
+                    'dispatching',
+                    'dispatched',
+                    'verifying'
+                )
+          )
+      )
+)
+`
+
+type HasActiveRolloutLaneLinkedWorkParams struct {
+	LaneID uuid.UUID
+	OrgID  int64
+}
+
+func (q *Queries) HasActiveRolloutLaneLinkedWork(ctx context.Context, arg HasActiveRolloutLaneLinkedWorkParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasActiveRolloutLaneLinkedWorkStmt, hasActiveRolloutLaneLinkedWork, arg.LaneID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listActiveRolloutOwnedDeviceIdentifiers = `-- name: ListActiveRolloutOwnedDeviceIdentifiers :many
@@ -2160,6 +2366,7 @@ LEFT JOIN channel_firmware_enforcement enforcement
  AND enforcement.org_id = authority.org_id
 WHERE authority.org_id = $1
   AND authority.authority_type = 'rollout_lane_initial'
+  AND lane.deleted_at IS NULL
 GROUP BY lane.id
 `
 
@@ -2204,10 +2411,54 @@ func (q *Queries) ListRolloutLaneInitialEnforcementStatuses(ctx context.Context,
 	return items, nil
 }
 
+const listRolloutLaneMemberDeviceIDs = `-- name: ListRolloutLaneMemberDeviceIDs :many
+SELECT DISTINCT device.id
+FROM rollout_lane_channel attachment
+JOIN device_set_membership membership
+  ON membership.device_set_id = attachment.channel_id
+ AND membership.org_id = attachment.org_id
+ AND membership.device_set_type = 'channel'
+JOIN device
+  ON device.id = membership.device_id
+ AND device.org_id = membership.org_id
+WHERE attachment.lane_id = $1
+  AND attachment.org_id = $2
+ORDER BY device.id
+`
+
+type ListRolloutLaneMemberDeviceIDsParams struct {
+	LaneID uuid.UUID
+	OrgID  int64
+}
+
+func (q *Queries) ListRolloutLaneMemberDeviceIDs(ctx context.Context, arg ListRolloutLaneMemberDeviceIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.listRolloutLaneMemberDeviceIDsStmt, listRolloutLaneMemberDeviceIDs, arg.LaneID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRolloutLanes = `-- name: ListRolloutLanes :many
-SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at
+SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
 FROM rollout_lane
 WHERE org_id = $1
+  AND deleted_at IS NULL
 ORDER BY label, id
 `
 
@@ -2232,6 +2483,13 @@ func (q *Queries) ListRolloutLanes(ctx context.Context, orgID int64) ([]RolloutL
 			&i.CreatedByUserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.DeletedByUserID,
+			&i.DeletedActorType,
+			&i.DeletedActorCredentialID,
+			&i.DeleteReason,
+			&i.DeleteIdempotencyKey,
+			&i.DeleteFingerprint,
 		); err != nil {
 			return nil, err
 		}
@@ -2387,10 +2645,11 @@ func (q *Queries) LockBetweenChannelInitialDevices(ctx context.Context, arg Lock
 }
 
 const lockRolloutLane = `-- name: LockRolloutLane :one
-SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at
+SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
 FROM rollout_lane
 WHERE id = $1
   AND org_id = $2
+  AND deleted_at IS NULL
 FOR UPDATE
 `
 
@@ -2414,8 +2673,139 @@ func (q *Queries) LockRolloutLane(ctx context.Context, arg LockRolloutLaneParams
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeletedByUserID,
+		&i.DeletedActorType,
+		&i.DeletedActorCredentialID,
+		&i.DeleteReason,
+		&i.DeleteIdempotencyKey,
+		&i.DeleteFingerprint,
 	)
 	return i, err
+}
+
+const lockRolloutLaneDevicesForArchive = `-- name: LockRolloutLaneDevicesForArchive :many
+SELECT id
+FROM device
+WHERE org_id = $1
+  AND id = ANY($2::bigint[])
+ORDER BY device_identifier
+FOR UPDATE
+`
+
+type LockRolloutLaneDevicesForArchiveParams struct {
+	OrgID     int64
+	DeviceIds []int64
+}
+
+// Archive must lock every persisted membership, including devices that were
+// soft-deleted without removing their historical channel membership.
+func (q *Queries) LockRolloutLaneDevicesForArchive(ctx context.Context, arg LockRolloutLaneDevicesForArchiveParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockRolloutLaneDevicesForArchiveStmt, lockRolloutLaneDevicesForArchive, arg.OrgID, pq.Array(arg.DeviceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockRolloutLaneForArchive = `-- name: LockRolloutLaneForArchive :one
+SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
+FROM rollout_lane
+WHERE id = $1
+  AND org_id = $2
+FOR UPDATE
+`
+
+type LockRolloutLaneForArchiveParams struct {
+	LaneID uuid.UUID
+	OrgID  int64
+}
+
+func (q *Queries) LockRolloutLaneForArchive(ctx context.Context, arg LockRolloutLaneForArchiveParams) (RolloutLane, error) {
+	row := q.queryRow(ctx, q.lockRolloutLaneForArchiveStmt, lockRolloutLaneForArchive, arg.LaneID, arg.OrgID)
+	var i RolloutLane
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Label,
+		&i.Description,
+		&i.CurrentChannelID,
+		&i.Revision,
+		&i.IdempotencyKey,
+		&i.CreateFingerprint,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DeletedByUserID,
+		&i.DeletedActorType,
+		&i.DeletedActorCredentialID,
+		&i.DeleteReason,
+		&i.DeleteIdempotencyKey,
+		&i.DeleteFingerprint,
+	)
+	return i, err
+}
+
+const lockRolloutLaneInitialAuthorities = `-- name: LockRolloutLaneInitialAuthorities :many
+SELECT authority.id,
+       authority.revision,
+       authority.halted_at
+FROM channel_firmware_authority authority
+WHERE authority.org_id = $1
+  AND authority.authority_type = 'rollout_lane_initial'
+  AND authority.authority_reference = $2::uuid::text
+ORDER BY authority.id
+FOR UPDATE
+`
+
+type LockRolloutLaneInitialAuthoritiesParams struct {
+	OrgID  int64
+	LaneID uuid.UUID
+}
+
+type LockRolloutLaneInitialAuthoritiesRow struct {
+	ID       uuid.UUID
+	Revision int64
+	HaltedAt sql.NullTime
+}
+
+func (q *Queries) LockRolloutLaneInitialAuthorities(ctx context.Context, arg LockRolloutLaneInitialAuthoritiesParams) ([]LockRolloutLaneInitialAuthoritiesRow, error) {
+	rows, err := q.query(ctx, q.lockRolloutLaneInitialAuthoritiesStmt, lockRolloutLaneInitialAuthorities, arg.OrgID, arg.LaneID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockRolloutLaneInitialAuthoritiesRow
+	for rows.Next() {
+		var i LockRolloutLaneInitialAuthoritiesRow
+		if err := rows.Scan(&i.ID, &i.Revision, &i.HaltedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markBetweenChannelMemberTerminal = `-- name: MarkBetweenChannelMemberTerminal :one
@@ -2573,4 +2963,43 @@ func (q *Queries) MoveBetweenChannelRolloutToReview(ctx context.Context, arg Mov
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const removeRolloutLaneMemberships = `-- name: RemoveRolloutLaneMemberships :many
+DELETE FROM device_set_membership membership
+USING rollout_lane_channel attachment
+WHERE attachment.lane_id = $1
+  AND attachment.org_id = $2
+  AND membership.device_set_id = attachment.channel_id
+  AND membership.org_id = attachment.org_id
+  AND membership.device_set_type = 'channel'
+RETURNING membership.device_id
+`
+
+type RemoveRolloutLaneMembershipsParams struct {
+	LaneID uuid.UUID
+	OrgID  int64
+}
+
+func (q *Queries) RemoveRolloutLaneMemberships(ctx context.Context, arg RemoveRolloutLaneMembershipsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.removeRolloutLaneMembershipsStmt, removeRolloutLaneMemberships, arg.LaneID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_id int64
+		if err := rows.Scan(&device_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

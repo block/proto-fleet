@@ -177,6 +177,7 @@ var ProcedurePermissions = map[string]string{
 	rolloutv1connect.RolloutServiceListRolloutLanesProcedure:   authz.PermChannelRead,
 	rolloutv1connect.RolloutServicePreviewRolloutLaneProcedure: authz.PermChannelManage,
 	rolloutv1connect.RolloutServiceCreateRolloutLaneProcedure:  authz.PermChannelManage,
+	rolloutv1connect.RolloutServiceDeleteRolloutLaneProcedure:  authz.PermChannelManage,
 	rolloutv1connect.RolloutServiceStartRolloutLaneProcedure:   authz.PermRolloutManage,
 	rolloutv1connect.RolloutServiceGetRolloutProcedure:         authz.PermRolloutRead,
 	rolloutv1connect.RolloutServiceListRolloutsProcedure:       authz.PermRolloutRead,

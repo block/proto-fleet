@@ -44,6 +44,7 @@ type laneService interface {
 		initialEnforcementMembersUpdatedAfter *time.Time,
 	) (*betweenchannel.Lane, error)
 	ListLanes(ctx context.Context, orgID int64) ([]betweenchannel.Lane, error)
+	DeleteLane(ctx context.Context, req betweenchannel.DeleteLaneRequest) error
 	StartRollout(
 		ctx context.Context,
 		req betweenchannel.StartRolloutRequest,
@@ -200,6 +201,43 @@ func (h *Handler) ListRolloutLanes(
 		response.Lanes = append(response.Lanes, laneToProto(&lanes[index]))
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (h *Handler) DeleteRolloutLane(
+	ctx context.Context,
+	req *connect.Request[pb.DeleteRolloutLaneRequest],
+) (*connect.Response[pb.DeleteRolloutLaneResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
+	if err = h.laneService.DeleteLane(ctx, betweenchannel.DeleteLaneRequest{
+		OrgID:             info.OrganizationID,
+		LaneID:            laneID,
+		ExpectedRevision:  int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Overflow becomes negative and fails domain validation.
+		IdempotencyKey:    req.Msg.GetIdempotencyKey(),
+		Reason:            req.Msg.GetReason(),
+		ActorUserID:       info.UserID,
+		ActorType:         actorType,
+		ActorCredentialID: actorCredentialID,
+	}); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.DeleteRolloutLaneResponse{}), nil
 }
 
 func (h *Handler) StartRolloutLane(

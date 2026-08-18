@@ -175,6 +175,19 @@ test.describe("Between-channel firmware rollout", () => {
         await minersPage.validateMinerValue(ipAddress, "firmware", sourceVersion);
       }
     });
+
+    await test.step("Delete the settled lane and retain its history", async () => {
+      await settingsFirmwarePage.navigateToFirmwareSettings();
+      await settingsFirmwarePage.openRolloutLanesTab();
+      const deleteRequest = await settingsFirmwarePage.deleteRolloutLane(laneLabel);
+
+      test.expect(deleteRequest).toMatchObject({
+        reason: "Delete rollout lane",
+      });
+      test.expect(deleteRequest.laneId).toBeTruthy();
+      test.expect(deleteRequest.expectedRevision).toBeTruthy();
+      test.expect(deleteRequest.idempotencyKey).toBeTruthy();
+    });
   });
 
   // Fake Proto rigs resolve every accepted upload and expose no public post-upload

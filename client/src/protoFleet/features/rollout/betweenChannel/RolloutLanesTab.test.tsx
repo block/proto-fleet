@@ -8,6 +8,7 @@ import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import type { RolloutLane, RolloutMemberState, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 
 const listFirmwareFiles = vi.hoisted(() => vi.fn());
+const pushToastMock = vi.hoisted(() => vi.fn());
 const rolloutApi = vi.hoisted(() => ({
   lane: null as RolloutLane | null,
   lanes: [] as RolloutLane[],
@@ -27,6 +28,7 @@ const rolloutApi = vi.hoisted(() => ({
   getRolloutLane: vi.fn(),
   previewRolloutLane: vi.fn(),
   createRolloutLane: vi.fn(),
+  deleteRolloutLane: vi.fn(),
   startRolloutLane: vi.fn(),
   listRollouts: vi.fn(),
   getRollout: vi.fn(),
@@ -41,6 +43,7 @@ const rolloutApi = vi.hoisted(() => ({
 const capturedTable = vi.hoisted(() => ({
   onStart: null as ((lane: RolloutLane) => void) | null,
   onSetup: null as ((lane: RolloutLane) => void) | null,
+  onDelete: null as ((lane: RolloutLane) => void) | null,
 }));
 
 vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
@@ -51,22 +54,37 @@ vi.mock("@/protoFleet/api/useRolloutApi", () => ({
   useRolloutApi: () => rolloutApi,
 }));
 
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: pushToastMock,
+  STATUSES: {
+    error: "error",
+    success: "success",
+  },
+}));
+
 vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => ({
   default: ({
     rows,
     canStart,
+    canDelete,
+    deletePermissionBlockedReason,
     isPreparingStart,
     onSetup,
     onStart,
+    onDelete,
   }: {
     rows: Array<{ lane: RolloutLane }>;
     canStart: boolean;
+    canDelete: boolean;
+    deletePermissionBlockedReason?: string;
     isPreparingStart?: boolean;
     onSetup: (lane: RolloutLane) => void;
     onStart: (lane: RolloutLane) => void;
+    onDelete: (lane: RolloutLane) => void;
   }) => {
     capturedTable.onStart = onStart;
     capturedTable.onSetup = onSetup;
+    capturedTable.onDelete = onDelete;
     return (
       <div data-testid="rollout-lanes-table">
         {rows.map(({ lane }) => (
@@ -80,11 +98,48 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
                 Start {lane.label}
               </button>
             ) : null}
+            {canDelete ? (
+              <>
+                <button
+                  type="button"
+                  disabled={deletePermissionBlockedReason !== undefined}
+                  onClick={() => onDelete(lane)}
+                >
+                  Delete {lane.label}
+                </button>
+                {deletePermissionBlockedReason ? <span>{deletePermissionBlockedReason}</span> : null}
+              </>
+            ) : null}
           </div>
         ))}
       </div>
     );
   },
+}));
+
+vi.mock("@/protoFleet/features/rollout/betweenChannel/DeleteRolloutLaneDialog", () => ({
+  default: ({
+    laneLabel,
+    error,
+    onConfirm,
+    onDismiss,
+  }: {
+    laneLabel: string;
+    error?: string | null;
+    onConfirm: () => void;
+    onDismiss: () => void;
+  }) => (
+    <div>
+      <span>Delete dialog for {laneLabel}</span>
+      {error ? <span>{error}</span> : null}
+      <button type="button" onClick={onConfirm}>
+        Confirm delete lane
+      </button>
+      <button type="button" onClick={onDismiss}>
+        Cancel delete lane
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/protoFleet/features/rollout/betweenChannel/CreateRolloutLaneModal", () => ({
@@ -281,6 +336,7 @@ describe("RolloutLanesTab", () => {
     vi.clearAllMocks();
     capturedTable.onStart = null;
     capturedTable.onSetup = null;
+    capturedTable.onDelete = null;
     rolloutApi.lane = null;
     rolloutApi.lanes = [lane("lane-1", "Stable production")];
     rolloutApi.rollouts = [];
@@ -312,6 +368,8 @@ describe("RolloutLanesTab", () => {
       return result;
     });
     rolloutApi.completeRollout.mockImplementation(async () => rolloutApi.rollouts[0]);
+    rolloutApi.deleteRolloutLane.mockResolvedValue(undefined);
+    pushToastMock.mockReset();
     rolloutApi.previewRolloutLane.mockResolvedValue({
       targets: [],
       miners: [],
@@ -359,6 +417,19 @@ describe("RolloutLanesTab", () => {
     renderRolloutLanesTab();
 
     await waitFor(() => expect(listFirmwareFiles).toHaveBeenCalledTimes(1));
+  });
+
+  it("disables deletion for channel managers without rollout read access", async () => {
+    rolloutApi.permissions.canManageChannels = true;
+    rolloutApi.permissions.canRead = false;
+
+    renderRolloutLanesTab();
+
+    expect(await screen.findByRole("button", { name: "Delete Stable production" })).toBeDisabled();
+    expect(
+      screen.getByText("Rollout read access is required to verify this lane is safe to delete."),
+    ).toBeInTheDocument();
+    expect(rolloutApi.listRollouts).not.toHaveBeenCalled();
   });
 
   it("polls only active and unsettled rollout IDs while preserving history", async () => {
@@ -555,6 +626,122 @@ describe("RolloutLanesTab", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Close setup" }));
 
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/settings/firmware?site=alpha&tab=rolloutLanes");
+  });
+
+  it("successful deletion clears focused setup without an unconditional list refresh", async () => {
+    const user = userEvent.setup();
+    const selectedLane = lane("lane-selected", "Selected lane");
+    rolloutApi.lane = selectedLane;
+    rolloutApi.lanes = [selectedLane];
+    rolloutApi.permissions.canManageChannels = true;
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.getRolloutLane.mockResolvedValue(selectedLane);
+
+    renderRolloutLanesTab("/settings/firmware?site=alpha&tab=rolloutLanes&setupLane=lane-selected");
+    await user.click(await screen.findByRole("button", { name: "Delete Selected lane" }));
+    await user.click(screen.getByRole("button", { name: "Confirm delete lane" }));
+
+    await waitFor(() =>
+      expect(rolloutApi.deleteRolloutLane).toHaveBeenCalledWith(
+        expect.objectContaining({
+          laneId: selectedLane.id,
+          expectedRevision: selectedLane.revision,
+          reason: "Delete rollout lane",
+        }),
+      ),
+    );
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
+    expect(pushToastMock).toHaveBeenCalledWith({
+      message: "Deleted Selected lane",
+      status: "success",
+    });
+    expect(screen.queryByText("Delete dialog for Selected lane")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/settings/firmware?site=alpha&tab=rolloutLanes");
+  });
+
+  it("derives the delete key from the freshest lane revision", async () => {
+    const user = userEvent.setup();
+    const selectedLane = lane("lane-selected", "Selected lane");
+    rolloutApi.lane = selectedLane;
+    rolloutApi.lanes = [selectedLane];
+    rolloutApi.permissions.canManageChannels = true;
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.getRolloutLane.mockResolvedValue(selectedLane);
+    rolloutApi.deleteRolloutLane.mockRejectedValue(new Error("Rollout work is still active."));
+    const initialEntry = "/settings/firmware?site=alpha&tab=rolloutLanes&setupLane=lane-selected";
+
+    const view = renderRolloutLanesTab(initialEntry);
+    await user.click(await screen.findByRole("button", { name: "Delete Selected lane" }));
+    const refreshedLane = {
+      ...selectedLane,
+      label: "Updated selected lane",
+      revision: 2n,
+    };
+    rolloutApi.lane = refreshedLane;
+    rolloutApi.lanes = [refreshedLane];
+    view.rerender(<TestApp initialEntry={initialEntry} />);
+    expect(screen.getByText("Delete dialog for Updated selected lane")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirm delete lane" }));
+    await waitFor(() => expect(rolloutApi.deleteRolloutLane).toHaveBeenCalledTimes(1));
+    expect(rolloutApi.deleteRolloutLane.mock.calls[0][0].expectedRevision).toBe(2n);
+
+    rolloutApi.mutationError = "Rollout work is still active.";
+    const retriedLane = {
+      ...refreshedLane,
+      revision: 3n,
+    };
+    rolloutApi.lane = retriedLane;
+    rolloutApi.lanes = [retriedLane];
+    view.rerender(<TestApp initialEntry={initialEntry} />);
+    await user.click(screen.getByRole("button", { name: "Confirm delete lane" }));
+
+    await waitFor(() => expect(rolloutApi.deleteRolloutLane).toHaveBeenCalledTimes(2));
+    const firstKey = rolloutApi.deleteRolloutLane.mock.calls[0][0].idempotencyKey;
+    const retryKey = rolloutApi.deleteRolloutLane.mock.calls[1][0].idempotencyKey;
+    expect(firstKey).toBe(`delete-lane:${selectedLane.id}:2`);
+    expect(retryKey).toBe(`delete-lane:${selectedLane.id}:3`);
+    expect(rolloutApi.deleteRolloutLane.mock.calls[1][0].expectedRevision).toBe(3n);
+    expect(screen.getByText("Rollout work is still active.")).toBeInTheDocument();
+    expect(pushToastMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location-probe")).toHaveTextContent(initialEntry);
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays a lost successful deletion after reopening and removes the stale lane", async () => {
+    const user = userEvent.setup();
+    const selectedLane = lane("lane-selected", "Selected lane");
+    rolloutApi.lanes = [selectedLane];
+    rolloutApi.permissions.canManageChannels = true;
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.deleteRolloutLane
+      .mockRejectedValueOnce(new Error("Response lost after archive"))
+      .mockImplementationOnce(async () => {
+        rolloutApi.lanes = [];
+      });
+
+    renderRolloutLanesTab();
+    await user.click(await screen.findByRole("button", { name: "Delete Selected lane" }));
+    await user.click(screen.getByRole("button", { name: "Confirm delete lane" }));
+    await waitFor(() => expect(rolloutApi.deleteRolloutLane).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: "Cancel delete lane" }));
+
+    await user.click(screen.getByRole("button", { name: "Delete Selected lane" }));
+    await user.click(screen.getByRole("button", { name: "Confirm delete lane" }));
+
+    await waitFor(() => expect(rolloutApi.deleteRolloutLane).toHaveBeenCalledTimes(2));
+    const firstRequest = rolloutApi.deleteRolloutLane.mock.calls[0][0];
+    const replayRequest = rolloutApi.deleteRolloutLane.mock.calls[1][0];
+    expect(firstRequest.idempotencyKey).toBe(`delete-lane:${selectedLane.id}:${selectedLane.revision}`);
+    expect(replayRequest).toMatchObject({
+      expectedRevision: firstRequest.expectedRevision,
+      idempotencyKey: firstRequest.idempotencyKey,
+      reason: firstRequest.reason,
+    });
+    await waitFor(() => expect(screen.queryByText("Selected lane")).not.toBeInTheDocument());
+    expect(pushToastMock).toHaveBeenCalledWith({
+      message: "Deleted Selected lane",
+      status: "success",
+    });
   });
 
   it("keeps normal load error handling for an invalid URL-selected lane", async () => {

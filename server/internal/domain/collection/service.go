@@ -2288,6 +2288,22 @@ func (s *Service) AssignDevicesToChannel(
 		if len(uniqueIdentifiers(owned)) != len(uniqueIdentifiers(params.DeviceIdentifiers)) {
 			return nil, fleeterror.NewNotFoundError("one or more devices were not found in the organization")
 		}
+		if params.TargetChannelID != nil {
+			laneOwned, err := s.collectionStore.IsRolloutLaneChannel(
+				ctx,
+				params.OrgID,
+				targetChannelID,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if laneOwned {
+				return nil, fleeterror.NewFailedPreconditionErrorf(
+					"target channel %d is managed by a rollout lane and cannot accept direct assignments",
+					targetChannelID,
+				)
+			}
+		}
 		if err := s.rejectRolloutOwnedChannelAssignment(
 			ctx,
 			params.OrgID,

@@ -137,6 +137,17 @@ func (s *Service) ListLanes(ctx context.Context, orgID int64) ([]Lane, error) {
 	return lanes, nil
 }
 
+func (s *Service) DeleteLane(ctx context.Context, req DeleteLaneRequest) error {
+	if err := validateDeleteLaneRequest(req); err != nil {
+		return err
+	}
+	req.RequestFingerprint = fingerprintLaneDelete(req)
+	if err := s.store.DeleteLane(ctx, req); err != nil {
+		return mapStoreError(err)
+	}
+	return nil
+}
+
 func (s *Service) StartRollout(
 	ctx context.Context,
 	req StartRolloutRequest,
@@ -193,6 +204,36 @@ func validatePreviewLaneRequest(req PreviewLaneRequest) error {
 		return err
 	}
 	return validateIdentifiers(req.DeviceIdentifiers)
+}
+
+func validateDeleteLaneRequest(req DeleteLaneRequest) error {
+	if req.OrgID <= 0 || req.LaneID == uuid.Nil || req.ActorUserID <= 0 || req.ExpectedRevision <= 0 {
+		return fleeterror.NewInvalidArgumentError(
+			"organization, rollout lane, actor, and expected revision are required",
+		)
+	}
+	if err := rollout.ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
+	switch req.ActorType {
+	case "", rollout.ActorTypeUser:
+	case rollout.ActorTypeAPIKey:
+		if req.ActorCredentialID == nil {
+			return fleeterror.NewInvalidArgumentError(
+				"API key actor credential ID is required",
+			)
+		}
+	case rollout.ActorTypeSystem:
+		if req.ActorCredentialID != nil {
+			return fleeterror.NewInvalidArgumentError(
+				"system actor credential ID must be omitted",
+			)
+		}
+	}
+	if strings.TrimSpace(req.IdempotencyKey) == "" || strings.TrimSpace(req.Reason) == "" {
+		return fleeterror.NewInvalidArgumentError("idempotency key and reason are required")
+	}
+	return nil
 }
 
 func validateStartRolloutRequest(req StartRolloutRequest) error {
@@ -425,6 +466,27 @@ func fingerprintLaneStart(req StartRolloutRequest) (string, error) {
 	return cryptohash.Sha256Hex(string(encoded)), nil
 }
 
+func fingerprintLaneDelete(req DeleteLaneRequest) string {
+	actorType := req.ActorType
+	if actorType == "" {
+		actorType = rollout.ActorTypeUser
+	}
+	actorCredentialID := ""
+	if req.ActorCredentialID != nil {
+		actorCredentialID = *req.ActorCredentialID
+	}
+	payload := fmt.Sprintf(
+		"%s\n%d\n%s\n%d\n%s\n%s",
+		req.LaneID,
+		req.ExpectedRevision,
+		req.Reason,
+		req.ActorUserID,
+		actorType,
+		actorCredentialID,
+	)
+	return cryptohash.Sha256Hex(payload)
+}
+
 func sortedTargets(values []ReleaseTarget) []ReleaseTarget {
 	result := append([]ReleaseTarget(nil), values...)
 	sort.Slice(result, func(i, j int) bool {
@@ -448,7 +510,8 @@ func mapStoreError(err error) error {
 		errors.Is(err, ErrMembershipConflict),
 		errors.Is(err, ErrCompatibility),
 		errors.Is(err, ErrInitialEnforcementConfirmationRequired),
-		errors.Is(err, ErrInitialEnforcementActive):
+		errors.Is(err, ErrInitialEnforcementActive),
+		errors.Is(err, ErrLaneWorkActive):
 		return fleeterror.NewFailedPreconditionErrorf("%w", err)
 	case errors.Is(err, ErrIdempotencyConflict):
 		return fleeterror.NewAlreadyExistsErrorf("%w", err)

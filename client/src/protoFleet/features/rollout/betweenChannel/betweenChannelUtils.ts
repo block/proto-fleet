@@ -112,6 +112,16 @@ export function rolloutLaneStartBlockedReason(lane: RolloutLane, rollout: Rollou
   return null;
 }
 
+export function rolloutLaneDeleteBlockedReason(lane: RolloutLane, rollout: RolloutRecord | undefined): string | null {
+  if (hasActiveInitialEnforcement(lane)) {
+    return "Wait for initial firmware setup to finish before deleting this lane.";
+  }
+  if (shouldMonitorRollout(rollout)) {
+    return "Wait for rollout work to settle before deleting this lane.";
+  }
+  return null;
+}
+
 export function canCompleteWithFailures(rollout: RolloutRecord): boolean {
   return (
     rollout.state === "review" &&

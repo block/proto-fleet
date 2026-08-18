@@ -1,4 +1,7 @@
-import { rolloutLaneStartBlockedReason } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
+import {
+  rolloutLaneDeleteBlockedReason,
+  rolloutLaneStartBlockedReason,
+} from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import { firmwareTransitionDisplay } from "@/protoFleet/features/rollout/firmwareTransitionDisplay";
 import type { RolloutLane, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
@@ -15,10 +18,13 @@ export interface LaneTableRow {
 interface RolloutLanesTableProps {
   rows: LaneTableRow[];
   canStart: boolean;
+  canDelete?: boolean;
+  deletePermissionBlockedReason?: string;
   isPreparingStart?: boolean;
   onSetup: (lane: RolloutLane) => void;
   onStart: (lane: RolloutLane) => void;
   onView: (rollout: RolloutRecord) => void;
+  onDelete?: (lane: RolloutLane) => void;
 }
 
 type LaneColumn = "lane" | "release" | "members" | "initial" | "rollout" | "actions";
@@ -52,10 +58,13 @@ function rolloutStateLabel(state: RolloutRecord["state"]): string {
 export default function RolloutLanesTable({
   rows,
   canStart,
+  canDelete = false,
+  deletePermissionBlockedReason,
   isPreparingStart = false,
   onSetup,
   onStart,
   onView,
+  onDelete,
 }: RolloutLanesTableProps) {
   const colConfig: ColConfig<LaneTableRow, string, LaneColumn> = {
     lane: {
@@ -123,7 +132,9 @@ export default function RolloutLanesTable({
     },
     actions: {
       component: ({ lane, latestRollout }) => {
-        const blockedReason = rolloutLaneStartBlockedReason(lane, latestRollout);
+        const startBlockedReason = rolloutLaneStartBlockedReason(lane, latestRollout);
+        const deleteBlockedReason =
+          deletePermissionBlockedReason ?? rolloutLaneDeleteBlockedReason(lane, latestRollout);
         return (
           <div className="flex flex-col items-end gap-2">
             <div className="flex justify-end gap-2">
@@ -142,13 +153,26 @@ export default function RolloutLanesTable({
                   ariaLabel={`Start rollout for ${lane.label}`}
                   variant={variants.primary}
                   size={sizes.compact}
-                  disabled={isPreparingStart || blockedReason !== null}
+                  disabled={isPreparingStart || startBlockedReason !== null}
                   onClick={() => onStart(lane)}
                 />
               ) : null}
+              {canDelete && onDelete ? (
+                <Button
+                  text="Delete"
+                  ariaLabel={`Delete ${lane.label}`}
+                  variant={variants.danger}
+                  size={sizes.compact}
+                  disabled={deleteBlockedReason !== null}
+                  onClick={() => onDelete(lane)}
+                />
+              ) : null}
             </div>
-            {canStart && blockedReason ? (
-              <div className="max-w-64 text-right text-200 text-text-primary-70">{blockedReason}</div>
+            {canStart && startBlockedReason ? (
+              <div className="max-w-64 text-right text-200 text-text-primary-70">{startBlockedReason}</div>
+            ) : null}
+            {canDelete && deleteBlockedReason ? (
+              <div className="max-w-64 text-right text-200 text-text-primary-70">{deleteBlockedReason}</div>
             ) : null}
           </div>
         );

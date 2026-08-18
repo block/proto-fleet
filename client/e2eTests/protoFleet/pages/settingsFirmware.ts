@@ -12,6 +12,13 @@ type CreateLaneRequestBody = {
   deviceIdentifiers?: string[];
 };
 
+type DeleteLaneRequestBody = {
+  laneId?: string;
+  expectedRevision?: string;
+  idempotencyKey?: string;
+  reason?: string;
+};
+
 type RolloutApiMember = {
   state: string;
 };
@@ -132,6 +139,35 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(row).toBeVisible();
     await expect(row).toContainText(releaseText);
     await expect(row).toContainText(memberCount.toLocaleString());
+  }
+
+  async deleteRolloutLane(label: string): Promise<DeleteLaneRequestBody> {
+    const row = this.rolloutLaneRow(label);
+    await row.getByRole("button", { name: `Delete ${label}`, exact: true }).click();
+
+    const dialog = this.page.getByTestId("delete-rollout-lane-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Miners in this lane will become unmanaged.", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Rollout and release history will be retained.", { exact: true })).toBeVisible();
+
+    const deleteRequestPromise = this.page.waitForRequest(
+      (request) =>
+        request.method() === "POST" && request.url().includes("/rollout.v1.RolloutService/DeleteRolloutLane"),
+    );
+    const deleteResponsePromise = this.page.waitForResponse(
+      (response) =>
+        response.ok() &&
+        response.request().method() === "POST" &&
+        response.url().includes("/rollout.v1.RolloutService/DeleteRolloutLane"),
+    );
+    await dialog.getByRole("button", { name: "Delete lane", exact: true }).click();
+    const [deleteRequest] = await Promise.all([deleteRequestPromise, deleteResponsePromise]);
+    const requestBody = deleteRequest.postDataJSON() as DeleteLaneRequestBody;
+
+    await expect(dialog).toBeHidden();
+    await expect(row).toBeHidden();
+    await expect(this.page).toHaveURL(/\/settings\/firmware\?.*tab=rolloutLanes/);
+    return requestBody;
   }
 
   async startTwoBatchRollout(input: {

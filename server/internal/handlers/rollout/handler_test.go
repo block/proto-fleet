@@ -47,6 +47,13 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 			_, err := handler.ListRolloutLanes(ctx, connect.NewRequest(&pb.ListRolloutLanesRequest{}))
 			return err
 		}},
+		{"DeleteRolloutLane", func() error {
+			_, err := handler.DeleteRolloutLane(
+				ctx,
+				connect.NewRequest(&pb.DeleteRolloutLaneRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
 		{"StartRolloutLane", func() error {
 			_, err := handler.StartRolloutLane(ctx, connect.NewRequest(&pb.StartRolloutLaneRequest{LaneId: rolloutID}))
 			return err
@@ -103,6 +110,118 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 		})
 	}
+}
+
+func TestDeleteRolloutLaneUsesChannelManagePermissionAndSessionIdentity(t *testing.T) {
+	t.Parallel()
+
+	laneID := uuid.New()
+	laneService := &recordingLaneService{}
+	handler := NewHandler(nil, laneService)
+	request := connect.NewRequest(&pb.DeleteRolloutLaneRequest{
+		LaneId:           laneID.String(),
+		ExpectedRevision: 7,
+		IdempotencyKey:   "delete-lane-handler",
+		Reason:           "remove broken demo lane",
+	})
+
+	_, err := handler.DeleteRolloutLane(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelRead),
+		request,
+	)
+	assertPermissionDenied(t, err)
+
+	response, err := handler.DeleteRolloutLane(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelManage),
+		request,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	assert.Equal(t, int64(42), laneService.deleted.OrgID)
+	assert.Equal(t, int64(9), laneService.deleted.ActorUserID)
+	assert.Equal(t, rolloutDomain.ActorTypeUser, laneService.deleted.ActorType)
+	assert.Nil(t, laneService.deleted.ActorCredentialID)
+	assert.Equal(t, laneID, laneService.deleted.LaneID)
+	assert.Equal(t, int64(7), laneService.deleted.ExpectedRevision)
+	assert.Equal(t, "delete-lane-handler", laneService.deleted.IdempotencyKey)
+	assert.Equal(t, "remove broken demo lane", laneService.deleted.Reason)
+}
+
+func TestDeleteRolloutLaneDerivesAPIKeyActorIdentity(t *testing.T) {
+	t.Parallel()
+
+	laneService := &recordingLaneService{}
+	handler := NewHandler(nil, laneService)
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodAPIKey,
+		APIKeyID:       "lane-delete-key-77",
+		OrganizationID: 42,
+		UserID:         9,
+	})
+	ctx = middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  []string{authz.PermChannelManage},
+	}}))
+
+	_, err := handler.DeleteRolloutLane(
+		ctx,
+		connect.NewRequest(&pb.DeleteRolloutLaneRequest{
+			LaneId:           uuid.NewString(),
+			ExpectedRevision: 1,
+			IdempotencyKey:   "delete-lane-api-key",
+			Reason:           "automation cleanup",
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, rolloutDomain.ActorTypeAPIKey, laneService.deleted.ActorType)
+	require.NotNil(t, laneService.deleted.ActorCredentialID)
+	assert.Equal(t, "apikey:lane-delete-key-77", *laneService.deleted.ActorCredentialID)
+	assert.Equal(t, int64(9), laneService.deleted.ActorUserID)
+}
+
+func TestDeleteRolloutLanePreservesConflictCode(t *testing.T) {
+	t.Parallel()
+
+	laneService := &recordingLaneService{
+		deleteErr: fleeterror.NewAlreadyExistsError("delete idempotency conflict"),
+	}
+	handler := NewHandler(nil, laneService)
+	_, err := handler.DeleteRolloutLane(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelManage),
+		connect.NewRequest(&pb.DeleteRolloutLaneRequest{
+			LaneId:           uuid.NewString(),
+			ExpectedRevision: 1,
+			IdempotencyKey:   "delete-conflict",
+			Reason:           "remove lane",
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeAlreadyExists, fleetErr.GRPCCode)
+}
+
+func TestDeleteRolloutLanePreservesNotFoundCode(t *testing.T) {
+	t.Parallel()
+
+	laneService := &recordingLaneService{
+		deleteErr: fleeterror.NewNotFoundError("rollout lane not found"),
+	}
+	handler := NewHandler(nil, laneService)
+	_, err := handler.DeleteRolloutLane(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelManage),
+		connect.NewRequest(&pb.DeleteRolloutLaneRequest{
+			LaneId:           uuid.NewString(),
+			ExpectedRevision: 1,
+			IdempotencyKey:   "delete-missing",
+			Reason:           "remove lane",
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
 }
 
 func TestHandlerSeparatesReadManageAndControlPermissions(t *testing.T) {
@@ -309,6 +428,20 @@ type recordingRolloutService struct {
 	result   *rolloutDomain.Rollout
 	getOrgID int64
 	control  rolloutDomain.ControlRequest
+}
+
+type recordingLaneService struct {
+	laneService
+	deleted   betweenchannel.DeleteLaneRequest
+	deleteErr error
+}
+
+func (s *recordingLaneService) DeleteLane(
+	_ context.Context,
+	req betweenchannel.DeleteLaneRequest,
+) error {
+	s.deleted = req
+	return s.deleteErr
 }
 
 func (s *recordingRolloutService) Create(

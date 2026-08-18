@@ -89,6 +89,82 @@ describe("RolloutLanesTable", () => {
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeEnabled();
   });
 
+  it("shows destructive deletion only to channel managers", () => {
+    const onDelete = vi.fn();
+    const { rerender } = render(
+      <RolloutLanesTable
+        rows={rows}
+        canStart={false}
+        canDelete={false}
+        onSetup={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Delete Stable production" })).not.toBeInTheDocument();
+
+    rerender(
+      <RolloutLanesTable
+        rows={rows}
+        canStart={false}
+        canDelete
+        onSetup={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+    screen.getByRole("button", { name: "Delete Stable production" }).click();
+    expect(onDelete).toHaveBeenCalledWith(rows[0].lane);
+  });
+
+  it("disables deletion with a concise reason while rollout work is active", () => {
+    render(
+      <RolloutLanesTable
+        rows={[
+          {
+            ...rows[0],
+            latestRollout: {
+              ...abortedSplit,
+              state: "running",
+              members: [{ ...abortedSplit.members[0], state: "admitted" }],
+            },
+          },
+        ]}
+        canStart={false}
+        canDelete
+        onSetup={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Delete Stable production" })).toBeDisabled();
+    expect(screen.getByText("Wait for rollout work to settle before deleting this lane.")).toBeInTheDocument();
+  });
+
+  it("disables deletion when rollout visibility cannot establish safety", () => {
+    render(
+      <RolloutLanesTable
+        rows={rows}
+        canStart={false}
+        canDelete
+        deletePermissionBlockedReason="Rollout read access is required to verify this lane is safe to delete."
+        onSetup={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Delete Stable production" })).toBeDisabled();
+    expect(
+      screen.getByText("Rollout read access is required to verify this lane is safe to delete."),
+    ).toBeInTheDocument();
+  });
+
   it("lets an operator reopen initial firmware setup from the lane row", async () => {
     const onSetup = vi.fn();
     render(<RolloutLanesTable rows={rows} canStart={false} onSetup={onSetup} onStart={vi.fn()} onView={vi.fn()} />);

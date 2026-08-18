@@ -1872,6 +1872,7 @@ SELECT EXISTS (
     WHERE enforcement.org_id = $1
       AND enforcement.device_id = ANY($2::bigint[])
       AND authority.authority_type = 'rollout_lane_initial'
+      AND authority.halted_at IS NULL
       AND enforcement.state <> 'confirmed'
 )
 `

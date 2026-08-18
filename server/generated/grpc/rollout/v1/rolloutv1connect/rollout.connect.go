@@ -46,6 +46,9 @@ const (
 	// RolloutServiceListRolloutLanesProcedure is the fully-qualified name of the RolloutService's
 	// ListRolloutLanes RPC.
 	RolloutServiceListRolloutLanesProcedure = "/rollout.v1.RolloutService/ListRolloutLanes"
+	// RolloutServiceDeleteRolloutLaneProcedure is the fully-qualified name of the RolloutService's
+	// DeleteRolloutLane RPC.
+	RolloutServiceDeleteRolloutLaneProcedure = "/rollout.v1.RolloutService/DeleteRolloutLane"
 	// RolloutServiceStartRolloutLaneProcedure is the fully-qualified name of the RolloutService's
 	// StartRolloutLane RPC.
 	RolloutServiceStartRolloutLaneProcedure = "/rollout.v1.RolloutService/StartRolloutLane"
@@ -87,6 +90,7 @@ type RolloutServiceClient interface {
 	CreateRolloutLane(context.Context, *connect.Request[v1.CreateRolloutLaneRequest]) (*connect.Response[v1.CreateRolloutLaneResponse], error)
 	GetRolloutLane(context.Context, *connect.Request[v1.GetRolloutLaneRequest]) (*connect.Response[v1.GetRolloutLaneResponse], error)
 	ListRolloutLanes(context.Context, *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error)
+	DeleteRolloutLane(context.Context, *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error)
 	StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error)
 	CreateRollout(context.Context, *connect.Request[v1.CreateRolloutRequest]) (*connect.Response[v1.CreateRolloutResponse], error)
 	GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error)
@@ -128,6 +132,11 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 		listRolloutLanes: connect.NewClient[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse](
 			httpClient,
 			baseURL+RolloutServiceListRolloutLanesProcedure,
+			opts...,
+		),
+		deleteRolloutLane: connect.NewClient[v1.DeleteRolloutLaneRequest, v1.DeleteRolloutLaneResponse](
+			httpClient,
+			baseURL+RolloutServiceDeleteRolloutLaneProcedure,
 			opts...,
 		),
 		startRolloutLane: connect.NewClient[v1.StartRolloutLaneRequest, v1.StartRolloutLaneResponse](
@@ -194,6 +203,7 @@ type rolloutServiceClient struct {
 	createRolloutLane  *connect.Client[v1.CreateRolloutLaneRequest, v1.CreateRolloutLaneResponse]
 	getRolloutLane     *connect.Client[v1.GetRolloutLaneRequest, v1.GetRolloutLaneResponse]
 	listRolloutLanes   *connect.Client[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse]
+	deleteRolloutLane  *connect.Client[v1.DeleteRolloutLaneRequest, v1.DeleteRolloutLaneResponse]
 	startRolloutLane   *connect.Client[v1.StartRolloutLaneRequest, v1.StartRolloutLaneResponse]
 	createRollout      *connect.Client[v1.CreateRolloutRequest, v1.CreateRolloutResponse]
 	getRollout         *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
@@ -225,6 +235,11 @@ func (c *rolloutServiceClient) GetRolloutLane(ctx context.Context, req *connect.
 // ListRolloutLanes calls rollout.v1.RolloutService.ListRolloutLanes.
 func (c *rolloutServiceClient) ListRolloutLanes(ctx context.Context, req *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error) {
 	return c.listRolloutLanes.CallUnary(ctx, req)
+}
+
+// DeleteRolloutLane calls rollout.v1.RolloutService.DeleteRolloutLane.
+func (c *rolloutServiceClient) DeleteRolloutLane(ctx context.Context, req *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error) {
+	return c.deleteRolloutLane.CallUnary(ctx, req)
 }
 
 // StartRolloutLane calls rollout.v1.RolloutService.StartRolloutLane.
@@ -288,6 +303,7 @@ type RolloutServiceHandler interface {
 	CreateRolloutLane(context.Context, *connect.Request[v1.CreateRolloutLaneRequest]) (*connect.Response[v1.CreateRolloutLaneResponse], error)
 	GetRolloutLane(context.Context, *connect.Request[v1.GetRolloutLaneRequest]) (*connect.Response[v1.GetRolloutLaneResponse], error)
 	ListRolloutLanes(context.Context, *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error)
+	DeleteRolloutLane(context.Context, *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error)
 	StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error)
 	CreateRollout(context.Context, *connect.Request[v1.CreateRolloutRequest]) (*connect.Response[v1.CreateRolloutResponse], error)
 	GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error)
@@ -325,6 +341,11 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 	rolloutServiceListRolloutLanesHandler := connect.NewUnaryHandler(
 		RolloutServiceListRolloutLanesProcedure,
 		svc.ListRolloutLanes,
+		opts...,
+	)
+	rolloutServiceDeleteRolloutLaneHandler := connect.NewUnaryHandler(
+		RolloutServiceDeleteRolloutLaneProcedure,
+		svc.DeleteRolloutLane,
 		opts...,
 	)
 	rolloutServiceStartRolloutLaneHandler := connect.NewUnaryHandler(
@@ -392,6 +413,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceGetRolloutLaneHandler.ServeHTTP(w, r)
 		case RolloutServiceListRolloutLanesProcedure:
 			rolloutServiceListRolloutLanesHandler.ServeHTTP(w, r)
+		case RolloutServiceDeleteRolloutLaneProcedure:
+			rolloutServiceDeleteRolloutLaneHandler.ServeHTTP(w, r)
 		case RolloutServiceStartRolloutLaneProcedure:
 			rolloutServiceStartRolloutLaneHandler.ServeHTTP(w, r)
 		case RolloutServiceCreateRolloutProcedure:
@@ -437,6 +460,10 @@ func (UnimplementedRolloutServiceHandler) GetRolloutLane(context.Context, *conne
 
 func (UnimplementedRolloutServiceHandler) ListRolloutLanes(context.Context, *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRolloutLanes is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) DeleteRolloutLane(context.Context, *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.DeleteRolloutLane is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error) {

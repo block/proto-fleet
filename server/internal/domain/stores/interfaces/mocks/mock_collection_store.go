@@ -577,6 +577,21 @@ func (mr *MockCollectionStoreMockRecorder) GetRackSlots(ctx, collectionID, orgID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRackSlots", reflect.TypeOf((*MockCollectionStore)(nil).GetRackSlots), ctx, collectionID, orgID)
 }
 
+// IsRolloutLaneChannel mocks base method.
+func (m *MockCollectionStore) IsRolloutLaneChannel(ctx context.Context, orgID, channelID int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsRolloutLaneChannel", ctx, orgID, channelID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsRolloutLaneChannel indicates an expected call of IsRolloutLaneChannel.
+func (mr *MockCollectionStoreMockRecorder) IsRolloutLaneChannel(ctx, orgID, channelID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsRolloutLaneChannel", reflect.TypeOf((*MockCollectionStore)(nil).IsRolloutLaneChannel), ctx, orgID, channelID)
+}
+
 // ListActiveRolloutOwnedDeviceIdentifiers mocks base method.
 func (m *MockCollectionStore) ListActiveRolloutOwnedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
 	m.ctrl.T.Helper()

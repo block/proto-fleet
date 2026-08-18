@@ -20,6 +20,7 @@ type LaneStore interface {
 		initialEnforcementMembersUpdatedAfter *time.Time,
 	) (*Lane, error)
 	ListLanes(ctx context.Context, orgID int64) ([]Lane, error)
+	DeleteLane(ctx context.Context, req DeleteLaneRequest) error
 	StartRollout(ctx context.Context, req StartRolloutRequest) (StartRolloutResult, error)
 }
 

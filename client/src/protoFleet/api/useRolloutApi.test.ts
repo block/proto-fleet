@@ -16,12 +16,14 @@ import {
   RolloutSchema,
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 
 const rolloutClientMock = vi.hoisted(() => ({
   previewRolloutLane: vi.fn(),
   createRolloutLane: vi.fn(),
   getRolloutLane: vi.fn(),
   listRolloutLanes: vi.fn(),
+  deleteRolloutLane: vi.fn(),
   startRolloutLane: vi.fn(),
   createRollout: vi.fn(),
   getRollout: vi.fn(),
@@ -186,6 +188,92 @@ describe("useRolloutApi", () => {
     expect(rolloutClientMock.getRolloutLane.mock.calls[0][0]).toMatchObject({
       includeInitialEnforcementMembers: false,
     });
+  });
+
+  it("deletes a rollout lane and removes its aggregate and focused cache entries", async () => {
+    const deleted = protoLane();
+    const rolloutChanged = vi.fn();
+    window.addEventListener(ROLLOUT_CHANGED_EVENT, rolloutChanged);
+    rolloutClientMock.listRolloutLanes.mockResolvedValue({ lanes: [deleted] });
+    rolloutClientMock.getRolloutLane.mockResolvedValue({ lane: deleted });
+    rolloutClientMock.deleteRolloutLane.mockResolvedValue({});
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.listRolloutLanes();
+      await result.current.getRolloutLane({ laneId: deleted.laneId });
+    });
+    expect(result.current.lanes).toHaveLength(1);
+    expect(result.current.lane?.id).toBe(deleted.laneId);
+
+    await act(async () => {
+      await result.current.deleteRolloutLane({
+        laneId: deleted.laneId,
+        expectedRevision: deleted.revision,
+        idempotencyKey: "delete-lane-one",
+        reason: "Remove broken demo lane",
+      });
+    });
+
+    expect(rolloutClientMock.deleteRolloutLane.mock.calls[0][0]).toMatchObject({
+      laneId: deleted.laneId,
+      expectedRevision: deleted.revision,
+      idempotencyKey: "delete-lane-one",
+      reason: "Remove broken demo lane",
+    });
+    expect(result.current.lanes).toEqual([]);
+    expect(result.current.lane).toBeNull();
+    expect(rolloutChanged).toHaveBeenCalledTimes(1);
+    window.removeEventListener(ROLLOUT_CHANGED_EVENT, rolloutChanged);
+  });
+
+  it("preserves the lanes reference when deleting an already absent lane", async () => {
+    rolloutClientMock.deleteRolloutLane.mockResolvedValue({});
+    const { result } = renderHook(() => useRolloutApi());
+    const lanesBeforeDelete = result.current.lanes;
+
+    await act(async () => {
+      await result.current.deleteRolloutLane({
+        laneId: "already-absent",
+        expectedRevision: 1n,
+        idempotencyKey: "delete-absent-lane",
+        reason: "Replay completed deletion",
+      });
+    });
+
+    expect(result.current.lanes).toBe(lanesBeforeDelete);
+  });
+
+  it("removes a stale cached lane when a lost delete response is replayed", async () => {
+    const deleted = protoLane();
+    rolloutClientMock.listRolloutLanes.mockResolvedValue({ lanes: [deleted] });
+    rolloutClientMock.deleteRolloutLane
+      .mockRejectedValueOnce(new Error("Response lost after archive"))
+      .mockResolvedValueOnce({});
+    const { result } = renderHook(() => useRolloutApi());
+    const input = {
+      laneId: deleted.laneId,
+      expectedRevision: deleted.revision,
+      idempotencyKey: `delete-lane:${deleted.laneId}:${deleted.revision}`,
+      reason: "Delete rollout lane",
+    };
+
+    await act(async () => {
+      await result.current.listRolloutLanes();
+    });
+    await act(async () => {
+      await expect(result.current.deleteRolloutLane(input)).rejects.toThrow("Response lost after archive");
+    });
+    expect(result.current.lanes).toHaveLength(1);
+
+    await act(async () => {
+      await result.current.deleteRolloutLane(input);
+    });
+
+    expect(rolloutClientMock.deleteRolloutLane.mock.calls[0][0]).toEqual(
+      rolloutClientMock.deleteRolloutLane.mock.calls[1][0],
+    );
+    expect(result.current.lanes).toEqual([]);
   });
 
   it("preserves requested transition details when aggregate lane results refresh", async () => {
