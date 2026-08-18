@@ -72,7 +72,7 @@ const Dialog = ({
           <div className="flex flex-col gap-3">
             {loading ? (
               <div className="flex w-10 items-center justify-center rounded-lg bg-surface-5 py-2.5">
-                <ProgressCircular indeterminate className="text-text-primary" />
+                <ProgressCircular indeterminate />
               </div>
             ) : null}
             {!loading ? icon : null}
