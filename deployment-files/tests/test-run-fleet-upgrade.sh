@@ -109,25 +109,7 @@ enable_valid_alerts() {
 
 write_release_manifest() {
     local stage="$1"
-    local -a hasher=(sha256sum)
-    command -v sha256sum >/dev/null 2>&1 || hasher=(shasum -a 256)
-    (
-        cd "$stage" || exit 1
-        # Must exclude the same operator-owned paths as find_release_entries
-        # in run-fleet.sh.
-        find . -type f \
-            ! -path './.env' \
-            ! -path './.update-preflight-complete' \
-            ! -path './.update-preflight-complete.tmp.*' \
-            ! -path './.fleet-startup-complete' \
-            ! -path './.fleet-startup-complete.tmp.*' \
-            ! -path './client/nginx.conf' \
-            ! -path './ssl/*' \
-            ! -path './server/influx_config/.env' \
-            ! -path './ha/node.env' \
-            ! -path './deployment-manifest.sha256' \
-            -print0 | LC_ALL=C sort -z | xargs -0 "${hasher[@]}" > deployment-manifest.sha256
-    )
+    "$DEPLOY_DIR/scripts/create-release-manifest.sh" "$stage"
 }
 
 make_stage() {
@@ -1256,6 +1238,27 @@ done
 
 # A successful preflight validates and prepares images, but never stops or
 # starts the active stack. It records a same-directory activation marker.
+make_stage packaged-symlink
+ln -s base.yaml "$STAGE/server/monitoring/grafana/provisioning/datasources/packaged-symlink.yaml"
+if write_release_manifest "$STAGE"; then
+    fail "production manifest generation should reject packaged symlinks"
+else
+    pass "production manifest generation rejects packaged symlinks"
+fi
+
+make_stage packaged-generated-nginx
+cp "$STAGE/client/nginx.https.conf" "$STAGE/client/nginx.conf"
+write_release_manifest "$STAGE"
+assert_not_contains \
+    "packaged manifest excludes generated nginx config" \
+    "$STAGE/deployment-manifest.sha256" \
+    "  ./client/nginx.conf"
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "a production-generated manifest passes preflight with packaged nginx config"
+else
+    fail "packaged generated nginx config should stay outside the immutable release set"
+fi
+
 make_stage preflight-parent/deployment
 printf 'NO_TRAILING_NEWLINE=preserved' >> "$STAGE/.env"
 if ! preflight_env_owner=$(file_owner_group "$STAGE/.env"); then
