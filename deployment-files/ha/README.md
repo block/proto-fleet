@@ -87,6 +87,26 @@ The database-node commands return after the local HA service has started; the
 cluster keeps converging under systemd as the remaining nodes join. The
 `ha-c` command returns after Fleet is active and reachable through the VIP.
 
+### 3. Trust the public service CA
+
+When `ha-a` creates the cluster, it prints the SHA-256 fingerprint of the
+public service CA. After `ha-c` proves that the VIP is ready, it prints commands
+like these for the operator machine:
+
+```bash
+curl --insecure --fail --noproxy '*' --output proto-fleet-ha-service-ca.download https://10.40.0.50/proto-fleet-ha-service-ca.crt
+openssl x509 -in proto-fleet-ha-service-ca.download -out proto-fleet-ha-service-ca.crt
+rm proto-fleet-ha-service-ca.download
+openssl x509 -in proto-fleet-ha-service-ca.crt -noout -fingerprint -sha256
+```
+
+The initial download permits the cluster's private CA only for this request.
+Compare the displayed fingerprint with the value from the authenticated
+`ha-a` session before importing `proto-fleet-ha-service-ca.crt` into a browser
+or operating-system trust store. Import only that canonical certificate. The
+VIP exposes no private key or service credential, and the installer does not
+modify client trust stores.
+
 ### Installer behavior and failure handling
 
 The installer verifies the official archive checksum before executing the

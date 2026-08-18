@@ -25,6 +25,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	deps := testGuidedDependencies(source, input, &output, &prompts)
 	deps.operatorUsername = func() string { return "operator" }
 	var sshEvents []string
+	var expectedFingerprint string
 	deps.checkPeer = func(_ context.Context, localUser, target string) error {
 		require.Equal(t, "operator", localUser)
 		sshEvents = append(sshEvents, "check "+target)
@@ -34,6 +35,12 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 		require.Equal(t, "operator", localUser)
 		require.FileExists(t, bundlePath)
 		requireMode(t, bundlePath, 0o600)
+		if expectedFingerprint == "" {
+			bundle, err := readHostBundle(bundlePath)
+			require.NoError(t, err)
+			expectedFingerprint, err = serviceCAFingerprint(bundle.Secrets["service-ca.crt"])
+			require.NoError(t, err)
+		}
 		sshEvents = append(sshEvents, "transfer "+target)
 		return nil
 	}
@@ -84,6 +91,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.Contains(t, output.String(), "test -f /var/tmp/proto-fleet-ha-host.json")
 	require.Contains(t, output.String(), "releases/download/v0.2.10/install.sh")
 	require.NotContains(t, output.String(), "curl -fsSL https://fleet.proto.xyz/install.sh |")
+	require.Contains(t, output.String(), "Public service CA SHA-256 fingerprint: "+expectedFingerprint)
 	require.Equal(t, []string{
 		"check operator@" + testHostIPs[1],
 		"check operator@" + testHostIPs[2],
