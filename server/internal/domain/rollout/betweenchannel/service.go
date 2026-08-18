@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/rollout"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 )
 
@@ -41,12 +42,11 @@ func (f ReleaseTargetResolverFunc) ResolveReleaseTargets(
 	return f(ctx, firmwareFileIDs)
 }
 
-func NewService(store LaneStore, resolvers ...ReleaseTargetResolver) *Service {
-	service := &Service{store: store}
-	if len(resolvers) > 0 {
-		service.resolver = resolvers[0]
+func NewService(store LaneStore, resolver ReleaseTargetResolver) *Service {
+	return &Service{
+		store:    store,
+		resolver: resolver,
 	}
-	return service
 }
 
 func (s *Service) CreateLane(
@@ -361,7 +361,7 @@ func fingerprintLaneStart(req StartRolloutRequest) (string, error) {
 		Name            string
 		FirmwareFileIDs []string
 		ReleaseTargets  []ReleaseTarget
-		Batches         any
+		Batches         []rollout.CreateBatch
 		Reason          string
 		ActorUserID     int64
 	}{

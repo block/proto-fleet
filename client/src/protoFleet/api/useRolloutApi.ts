@@ -7,9 +7,7 @@ import {
   AdmitRolloutRequestSchema,
   CompleteRolloutRequestSchema,
   ContinueRolloutRequestSchema,
-  CreateRolloutBatchSchema,
   CreateRolloutLaneRequestSchema,
-  CreateRolloutMemberSchema,
   CreateRolloutRequestSchema,
   GetRolloutLaneRequestSchema,
   GetRolloutRequestSchema,
@@ -159,7 +157,7 @@ function createRolloutRequest(input: CreateRolloutInput) {
   return create(CreateRolloutRequestSchema, {
     name: input.name,
     strategyKey: input.strategyKey,
-    batches: createBatches(input.batches),
+    batches: input.batches,
     sourceChannelId: input.sourceChannelId,
     targetChannelId: input.targetChannelId,
     sourceReleaseSetId: input.sourceReleaseSetId,
@@ -170,22 +168,6 @@ function createRolloutRequest(input: CreateRolloutInput) {
     idempotencyKey: input.idempotencyKey,
     reason: input.reason,
   });
-}
-
-function createBatches(batches: CreateRolloutBatchInput[]) {
-  return batches.map((batch) =>
-    create(CreateRolloutBatchSchema, {
-      label: batch.label,
-      members: batch.members.map((member) =>
-        create(CreateRolloutMemberSchema, {
-          deviceIdentifier: member.deviceIdentifier,
-          sourceSnapshot: member.sourceSnapshot,
-          targetSnapshot: member.targetSnapshot,
-          revertSnapshot: member.revertSnapshot,
-        }),
-      ),
-    }),
-  );
 }
 
 async function hydrateRolloutLane(
@@ -466,27 +448,15 @@ export function useRolloutApi(): UseRolloutApiResult {
     [beginLoad, finishLoad, handleFailure],
   );
 
-  const runMutation = useCallback(
-    async (
-      request: () => Promise<RolloutMutationResponse>,
-      signal: AbortSignal | undefined,
-      fallbackMessage: string,
-    ) => {
+  const executeMutation = useCallback(
+    async <T>(operation: () => Promise<T>, signal: AbortSignal | undefined, fallbackMessage: string): Promise<T> => {
       assertNotAborted(signal);
       activeMutationCountRef.current += 1;
       setIsMutating(true);
       setMutationError(null);
 
       try {
-        const response = await request();
-        assertNotAborted(signal);
-        if (!response.rollout) {
-          throw new Error("Rollout mutation response was missing a rollout.");
-        }
-        const mappedRollout = mapRollout(response.rollout);
-        applyMutationResult(mappedRollout);
-        emitRolloutChanged();
-        return mappedRollout;
+        return await operation();
       } catch (error) {
         if (isAbortError(error, signal)) {
           throw error;
@@ -499,51 +469,60 @@ export function useRolloutApi(): UseRolloutApiResult {
         setIsMutating(activeMutationCountRef.current > 0);
       }
     },
-    [applyMutationResult, handleFailure],
+    [handleFailure],
+  );
+
+  const runRolloutMutation = useCallback(
+    (request: () => Promise<RolloutMutationResponse>, signal: AbortSignal | undefined, fallbackMessage: string) =>
+      executeMutation(
+        async () => {
+          const response = await request();
+          assertNotAborted(signal);
+          if (!response.rollout) {
+            throw new Error("Rollout mutation response was missing a rollout.");
+          }
+          const mappedRollout = mapRollout(response.rollout);
+          applyMutationResult(mappedRollout);
+          emitRolloutChanged();
+          return mappedRollout;
+        },
+        signal,
+        fallbackMessage,
+      ),
+    [applyMutationResult, executeMutation],
   );
 
   const createRollout = useCallback(
     (input: CreateRolloutInput) =>
-      runMutation(
+      runRolloutMutation(
         () => rolloutClient.createRollout(createRolloutRequest(input), rpcOptions(input.signal)),
         input.signal,
         "Failed to create rollout.",
       ),
-    [runMutation],
+    [runRolloutMutation],
   );
 
   const runLaneMutation = useCallback(
-    async <T>(
+    <T>(
       request: () => Promise<T>,
       signal: AbortSignal | undefined,
       fallbackMessage: string,
       mapResponse: (response: T) => Promise<RolloutLane>,
-    ) => {
-      assertNotAborted(signal);
-      activeMutationCountRef.current += 1;
-      setIsMutating(true);
-      setMutationError(null);
-      try {
-        const response = await request();
-        assertNotAborted(signal);
-        const mappedLane = await mapResponse(response);
-        assertNotAborted(signal);
-        applyLaneResult(mappedLane);
-        emitRolloutChanged();
-        return { response, lane: mappedLane };
-      } catch (error) {
-        if (isAbortError(error, signal)) {
-          throw error;
-        }
-        const resolvedError = handleFailure(error, fallbackMessage);
-        setMutationError(resolvedError.message);
-        throw resolvedError;
-      } finally {
-        activeMutationCountRef.current = Math.max(0, activeMutationCountRef.current - 1);
-        setIsMutating(activeMutationCountRef.current > 0);
-      }
-    },
-    [applyLaneResult, handleFailure],
+    ) =>
+      executeMutation(
+        async () => {
+          const response = await request();
+          assertNotAborted(signal);
+          const mappedLane = await mapResponse(response);
+          assertNotAborted(signal);
+          applyLaneResult(mappedLane);
+          emitRolloutChanged();
+          return { response, lane: mappedLane };
+        },
+        signal,
+        fallbackMessage,
+      ),
+    [applyLaneResult, executeMutation],
   );
 
   const createRolloutLane = useCallback(
@@ -583,7 +562,7 @@ export function useRolloutApi(): UseRolloutApiResult {
               laneId: input.laneId,
               name: input.name,
               firmwareFileIds: input.firmwareFileIds,
-              batches: createBatches(input.batches),
+              batches: input.batches,
               idempotencyKey: input.idempotencyKey,
               reason: input.reason,
             }),
@@ -610,7 +589,7 @@ export function useRolloutApi(): UseRolloutApiResult {
 
   const admitRollout = useCallback(
     (input: AdmitRolloutInput) =>
-      runMutation(
+      runRolloutMutation(
         () =>
           rolloutClient.admitRollout(
             create(AdmitRolloutRequestSchema, {
@@ -625,12 +604,12 @@ export function useRolloutApi(): UseRolloutApiResult {
         input.signal,
         "Failed to admit rollout batch.",
       ),
-    [runMutation],
+    [runRolloutMutation],
   );
 
   const runControl = useCallback(
     (operation: RolloutControlOperation, input: CompleteRolloutInput) =>
-      runMutation(
+      runRolloutMutation(
         () => {
           const request = {
             rolloutId: input.rolloutId,
@@ -663,7 +642,7 @@ export function useRolloutApi(): UseRolloutApiResult {
         input.signal,
         `Failed to ${operation} rollout.`,
       ),
-    [runMutation],
+    [runRolloutMutation],
   );
 
   const continueRollout = useCallback((input: RolloutControlInput) => runControl("continue", input), [runControl]);

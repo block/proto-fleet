@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 
-import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
+import { type FirmwareFileInfo, hasCompleteFirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
 import type { CreateRolloutBatchInput } from "@/protoFleet/api/useRolloutApi";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import {
   buildManualBatches,
   evaluateTargetCompatibility,
-  rolloutModelKey,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutLane, RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
@@ -37,14 +37,20 @@ interface StartRolloutLaneModalProps {
   onStart: (values: StartRolloutLaneValues) => void;
 }
 
+function hasCompleteFileTarget(file: FirmwareFileInfo): boolean {
+  return hasCompleteFirmwareTarget({
+    targetManufacturer: file.target_manufacturer,
+    targetModel: file.target_model,
+    firmwareVersion: file.firmware_version,
+  });
+}
+
 function defaultTargetFiles(lane: RolloutLane, files: FirmwareFileInfo[]): Record<string, string> {
   return Object.fromEntries(
     lane.currentReleaseTargets.flatMap((source) => {
-      const key = rolloutModelKey(source.targetManufacturer, source.targetModel);
+      const key = minerTargetKey(source.targetManufacturer, source.targetModel)!;
       const matching = files.filter(
-        (file) =>
-          rolloutModelKey(file.target_manufacturer, file.target_model) === key &&
-          Boolean(file.firmware_version?.trim()),
+        (file) => hasCompleteFileTarget(file) && minerTargetKey(file.target_manufacturer, file.target_model) === key,
       );
       const compatible =
         matching.find(
@@ -208,12 +214,11 @@ export default function StartRolloutLaneModal({
               </div>
             </div>
             {lane.currentReleaseTargets.map((source) => {
-              const key = rolloutModelKey(source.targetManufacturer, source.targetModel);
+              const key = minerTargetKey(source.targetManufacturer, source.targetModel)!;
               const options = files
                 .filter(
                   (file) =>
-                    rolloutModelKey(file.target_manufacturer, file.target_model) === key &&
-                    Boolean(file.firmware_version?.trim()),
+                    hasCompleteFileTarget(file) && minerTargetKey(file.target_manufacturer, file.target_model) === key,
                 )
                 .map((file) => ({
                   value: file.id,

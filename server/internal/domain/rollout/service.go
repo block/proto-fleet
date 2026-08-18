@@ -346,6 +346,8 @@ func NextState(
 	withFailures bool,
 ) (State, error) {
 	switch operation {
+	case ControlOperationCreate:
+		// Creation is not a control transition.
 	case ControlOperationAdmit:
 		if current == StateCreated || current == StateRunning || current == StateReview {
 			return StateRunning, nil

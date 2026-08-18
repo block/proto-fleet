@@ -28,7 +28,7 @@ func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 	db, orgID, deviceIDs := setupCollectionTestData(t, 2)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
-	laneService := betweenchannel.NewService(laneStore)
+	laneService := betweenchannel.NewService(laneStore, nil)
 	strategy := betweenchannel.NewStrategy(laneStore)
 	rolloutStore := sqlstores.NewSQLRolloutStore(db)
 	rolloutService := rollout.NewService(rolloutStore, strategy)
@@ -201,7 +201,7 @@ func TestRolloutLaneFinalizerAdvancesBatchesAndCompletesRollout(t *testing.T) {
 	db, orgID, deviceIDs := setupCollectionTestData(t, 2)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
-	laneService := betweenchannel.NewService(laneStore)
+	laneService := betweenchannel.NewService(laneStore, nil)
 	rolloutService := rollout.NewService(
 		sqlstores.NewSQLRolloutStore(db),
 		betweenchannel.NewStrategy(laneStore),
@@ -315,7 +315,7 @@ func TestRolloutLaneFinalizerCompletesFailedRevertWithoutMovingLane(t *testing.T
 	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
-	laneService := betweenchannel.NewService(laneStore)
+	laneService := betweenchannel.NewService(laneStore, nil)
 	rolloutService := rollout.NewService(
 		sqlstores.NewSQLRolloutStore(db),
 		betweenchannel.NewStrategy(laneStore),
@@ -408,7 +408,7 @@ func TestRolloutLaneAbortCompletesFullyCancelledBatch(t *testing.T) {
 	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
-	laneService := betweenchannel.NewService(laneStore)
+	laneService := betweenchannel.NewService(laneStore, nil)
 	rolloutService := rollout.NewService(
 		sqlstores.NewSQLRolloutStore(db),
 		betweenchannel.NewStrategy(laneStore),
@@ -477,7 +477,7 @@ func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
 	db, orgID, deviceIDs := setupCollectionTestData(t, 3)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
-	laneService := betweenchannel.NewService(laneStore)
+	laneService := betweenchannel.NewService(laneStore, nil)
 	rolloutService := rollout.NewService(
 		sqlstores.NewSQLRolloutStore(db),
 		betweenchannel.NewStrategy(laneStore),
@@ -626,7 +626,7 @@ func TestRolloutLaneManualMembershipMoveConflictsInsteadOfOverwriting(t *testing
 	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
-	laneService := betweenchannel.NewService(laneStore)
+	laneService := betweenchannel.NewService(laneStore, nil)
 	rolloutService := rollout.NewService(
 		sqlstores.NewSQLRolloutStore(db),
 		betweenchannel.NewStrategy(laneStore),
@@ -736,7 +736,7 @@ func TestRolloutLaneRejectsMissingAndNoopReleaseTargets(t *testing.T) {
 	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	store := sqlstores.NewSQLRolloutLaneStore(db)
-	service := betweenchannel.NewService(store)
+	service := betweenchannel.NewService(store, nil)
 
 	_, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
 		OrgID: orgID,
@@ -825,7 +825,7 @@ func TestRolloutLaneSortedChannelLocksAvoidOppositeDirectionDeadlock(t *testing.
 	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
 	actorID := testOrganizationUserID(t, db, orgID)
 	store := sqlstores.NewSQLRolloutLaneStore(db)
-	service := betweenchannel.NewService(store)
+	service := betweenchannel.NewService(store, nil)
 	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
 		OrgID:             orgID,
 		Label:             "Lock lane",
@@ -895,7 +895,7 @@ func TestRolloutLaneConcurrentCreateReplaysIdempotently(t *testing.T) {
 	}
 
 	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
-	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db))
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
 	request := betweenchannel.CreateLaneRequest{
 		OrgID:             orgID,
 		Label:             "Concurrent lane",

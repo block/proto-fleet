@@ -19,7 +19,6 @@ const lane: RolloutLane = {
   label: "Stable production",
   description: "",
   currentChannelId: 41n,
-  currentReleaseSetId: 7n,
   revision: 2n,
   channels: [],
   memberCount: 2,

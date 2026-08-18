@@ -10,6 +10,7 @@ import type {
   RolloutStrategy,
   RolloutTargetPhase,
 } from "./rolloutTypes";
+import { getRolloutActionEligibility } from "@/protoFleet/api/rolloutMappers";
 import { formatCurtailmentElapsedDuration as formatDuration } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import type { Segment } from "@/shared/components/CompositionBar";
 import type { TemperatureUnit } from "@/shared/features/preferences";
@@ -506,31 +507,6 @@ function cancelRemainingActionText(processType: RolloutProcessType): string {
   return processType === "curtailment" ? "Abort curtailment" : "Cancel remaining";
 }
 
-function rolloutStateEligibility(event: RolloutEvent) {
-  if (event.availableActions) {
-    return event.availableActions;
-  }
-
-  const state = event.state;
-  return {
-    admit: state === "created" || state === "running" || state === "review",
-    continue: state === "review" || state === "pausedAtPilotGate" || state === "pausedAtBatchReview",
-    pause: state === "running" || state === "inProgress" || state === "review",
-    resume: state === "paused",
-    abort:
-      state === "created" ||
-      state === "running" ||
-      state === "inProgress" ||
-      state === "paused" ||
-      state === "review" ||
-      state === "pausedAtPilotGate" ||
-      state === "pausedAtBatchReview" ||
-      state === "stabilizingTelemetry",
-    revert: state === "aborted" || state === "completed" || state === "completedWithFailures",
-    complete: state === "running" || state === "inProgress" || state === "review" || state === "reverting",
-  };
-}
-
 /**
  * Single source of truth for which lifecycle controls a rollout shows, given
  * its state + the available handlers. Ordering matches the card's top-right
@@ -542,7 +518,7 @@ export function rolloutLifecycleActions(
   handlers: RolloutLifecycleHandlers,
   options: RolloutLifecycleOptions = {},
 ): RolloutLifecycleAction[] {
-  const eligibility = rolloutStateEligibility(event);
+  const eligibility = event.availableActions ?? getRolloutActionEligibility(event.state);
   const isTerminal =
     event.state === "aborted" ||
     event.state === "completed" ||

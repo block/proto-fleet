@@ -1,5 +1,3 @@
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-
 import {
   type Rollout as ProtoRollout,
   type RolloutBatch as ProtoRolloutBatch,
@@ -13,6 +11,7 @@ import {
   RolloutMemberState as ProtoRolloutMemberState,
   RolloutState as ProtoRolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { timestampToIsoString } from "@/protoFleet/api/timestamps";
 import type {
   RolloutActionEligibility,
   RolloutBatch,
@@ -27,15 +26,10 @@ import type {
   RolloutLifecycleState,
   RolloutMember,
   RolloutMemberState,
-  RolloutProgress,
   RolloutRecord,
+  RolloutState,
   RolloutTargetPhase,
 } from "@/protoFleet/features/rollout/rolloutTypes";
-
-export interface MapRolloutOptions {
-  membershipProgress?: RolloutProgress;
-  convergenceProgress?: RolloutProgress;
-}
 
 export interface MapRolloutLaneDetails {
   memberCount?: number;
@@ -45,15 +39,6 @@ export interface MapRolloutLaneDetails {
 
 export interface MapRolloutToEventOptions {
   laneLabel?: string;
-}
-
-export function rolloutTimestampToIsoString(timestamp?: Timestamp): string | undefined {
-  if (!timestamp) {
-    return undefined;
-  }
-
-  const date = new Date(Number(timestamp.seconds) * 1000 + Math.floor(timestamp.nanos / 1_000_000));
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
 export function mapRolloutState(state: ProtoRolloutState): RolloutLifecycleState {
@@ -181,15 +166,23 @@ export function mapRolloutEvidencePhase(phase: ProtoRolloutEvidencePhase): Rollo
   }
 }
 
-export function getRolloutActionEligibility(state: RolloutLifecycleState): RolloutActionEligibility {
+export function getRolloutActionEligibility(state: RolloutState): RolloutActionEligibility {
   return {
     admit: state === "created" || state === "running" || state === "review",
-    continue: state === "review",
-    pause: state === "running" || state === "review",
+    continue: state === "review" || state === "pausedAtPilotGate" || state === "pausedAtBatchReview",
+    pause: state === "running" || state === "inProgress" || state === "review",
     resume: state === "paused",
-    abort: state === "created" || state === "running" || state === "paused" || state === "review",
+    abort:
+      state === "created" ||
+      state === "running" ||
+      state === "inProgress" ||
+      state === "paused" ||
+      state === "review" ||
+      state === "pausedAtPilotGate" ||
+      state === "pausedAtBatchReview" ||
+      state === "stabilizingTelemetry",
     revert: state === "aborted" || state === "completed" || state === "completedWithFailures",
-    complete: state === "running" || state === "review" || state === "reverting",
+    complete: state === "running" || state === "inProgress" || state === "review" || state === "reverting",
   };
 }
 
@@ -200,26 +193,24 @@ function mapRolloutLaneChannel(channel: ProtoRolloutLaneChannel): RolloutLaneCha
     position: channel.position,
     rolloutId: channel.rolloutId,
     current: channel.current,
-    createdAt: rolloutTimestampToIsoString(channel.createdAt),
+    createdAt: timestampToIsoString(channel.createdAt),
   };
 }
 
 export function mapRolloutLane(lane: ProtoRolloutLane, details: MapRolloutLaneDetails = {}): RolloutLane {
   const channels = lane.channels.map(mapRolloutLaneChannel);
-  const currentChannel = channels.find((channel) => channel.current || channel.channelId === lane.currentChannelId);
   return {
     id: lane.laneId,
     label: lane.label,
     description: lane.description,
     currentChannelId: lane.currentChannelId,
-    currentReleaseSetId: currentChannel?.releaseSetId,
     revision: lane.revision,
     channels,
     memberCount: details.memberCount ?? 0,
     memberIdentifiers: [...(details.memberIdentifiers ?? [])],
     currentReleaseTargets: [...(details.releaseTargets ?? [])],
-    createdAt: rolloutTimestampToIsoString(lane.createdAt),
-    updatedAt: rolloutTimestampToIsoString(lane.updatedAt),
+    createdAt: timestampToIsoString(lane.createdAt),
+    updatedAt: timestampToIsoString(lane.updatedAt),
   };
 }
 
@@ -227,9 +218,9 @@ function mapRolloutEvidence(evidence: ProtoRolloutEvidence): RolloutEvidence {
   return {
     id: evidence.evidenceId,
     phase: mapRolloutEvidencePhase(evidence.phase),
-    windowStart: rolloutTimestampToIsoString(evidence.windowStart),
-    windowEnd: rolloutTimestampToIsoString(evidence.windowEnd),
-    observedAt: rolloutTimestampToIsoString(evidence.observedAt),
+    windowStart: timestampToIsoString(evidence.windowStart),
+    windowEnd: timestampToIsoString(evidence.windowEnd),
+    observedAt: timestampToIsoString(evidence.observedAt),
     avgHashrateHs: evidence.avgHashrateHs,
     avgPowerW: evidence.avgPowerW,
     avgTemperatureC: evidence.avgTemperatureC,
@@ -252,8 +243,8 @@ function mapRolloutMember(member: ProtoRolloutMember): RolloutMember {
     enforcementId: member.enforcementId,
     commandBatchUuid: member.commandBatchUuid,
     lastError: member.lastError,
-    admittedAt: rolloutTimestampToIsoString(member.admittedAt),
-    settledAt: rolloutTimestampToIsoString(member.settledAt),
+    admittedAt: timestampToIsoString(member.admittedAt),
+    settledAt: timestampToIsoString(member.settledAt),
     evidence: member.evidence.map(mapRolloutEvidence),
   };
 }
@@ -279,11 +270,11 @@ function mapRolloutCause(cause: ProtoRolloutCause): RolloutCause {
     fromState: mapRolloutState(cause.fromState),
     toState: mapRolloutState(cause.toState),
     rolloutRevision: cause.rolloutRevision,
-    createdAt: rolloutTimestampToIsoString(cause.createdAt),
+    createdAt: timestampToIsoString(cause.createdAt),
   };
 }
 
-export function mapRollout(rollout: ProtoRollout, options: MapRolloutOptions = {}): RolloutRecord {
+export function mapRollout(rollout: ProtoRollout): RolloutRecord {
   const state = mapRolloutState(rollout.state);
   return {
     id: rollout.rolloutId,
@@ -299,19 +290,17 @@ export function mapRollout(rollout: ProtoRollout, options: MapRolloutOptions = {
     targetSnapshot: rollout.targetSnapshot,
     revertSnapshot: rollout.revertSnapshot,
     reason: rollout.reason,
-    startedAt: rolloutTimestampToIsoString(rollout.startedAt),
-    pausedAt: rolloutTimestampToIsoString(rollout.pausedAt),
-    abortedAt: rolloutTimestampToIsoString(rollout.abortedAt),
-    completedAt: rolloutTimestampToIsoString(rollout.completedAt),
-    revertingAt: rolloutTimestampToIsoString(rollout.revertingAt),
-    revertedAt: rolloutTimestampToIsoString(rollout.revertedAt),
-    createdAt: rolloutTimestampToIsoString(rollout.createdAt),
-    updatedAt: rolloutTimestampToIsoString(rollout.updatedAt),
+    startedAt: timestampToIsoString(rollout.startedAt),
+    pausedAt: timestampToIsoString(rollout.pausedAt),
+    abortedAt: timestampToIsoString(rollout.abortedAt),
+    completedAt: timestampToIsoString(rollout.completedAt),
+    revertingAt: timestampToIsoString(rollout.revertingAt),
+    revertedAt: timestampToIsoString(rollout.revertedAt),
+    createdAt: timestampToIsoString(rollout.createdAt),
+    updatedAt: timestampToIsoString(rollout.updatedAt),
     batches: rollout.batches.map(mapRolloutBatch),
     members: rollout.members.map(mapRolloutMember),
     causes: rollout.causes.map(mapRolloutCause),
-    membershipProgress: options.membershipProgress ? { ...options.membershipProgress } : undefined,
-    convergenceProgress: options.convergenceProgress ? { ...options.convergenceProgress } : undefined,
     availableActions: getRolloutActionEligibility(state),
   };
 }

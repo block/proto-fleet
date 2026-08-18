@@ -99,7 +99,7 @@ func (s *SQLChannelEnforcementStore) CreateEnforcement(
 	row, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (sqlc.GetChannelFirmwareEnforcementRow, error) {
 		created, err := q.CreateChannelFirmwareEnforcement(ctx, sqlc.CreateChannelFirmwareEnforcementParams{
 			CauseType:         params.CauseType,
-			CauseReference:    nullString(params.CauseReference),
+			CauseReference:    ptrToNullString(params.CauseReference),
 			DeviceID:          params.DeviceID,
 			ReleaseTargetID:   params.ReleaseTargetID,
 			AuthorityID:       params.AuthorityID,
@@ -211,7 +211,7 @@ func (s *SQLChannelEnforcementStore) Hold(
 			Reason:            sql.NullString{String: reason, Valid: reason != ""},
 			EnforcementID:     enforcement.ID,
 			ExpectedRevision:  enforcement.Revision,
-			ExpectedBatchUuid: batchUUID(enforcement.CommandBatchUUID),
+			ExpectedBatchUuid: emptyToNullString(enforcement.CommandBatchUUID),
 		})
 	})
 }
@@ -226,7 +226,7 @@ func (s *SQLChannelEnforcementStore) ReturnPending(
 			Reason:            sql.NullString{String: reason, Valid: reason != ""},
 			EnforcementID:     enforcement.ID,
 			ExpectedRevision:  enforcement.Revision,
-			ExpectedBatchUuid: batchUUID(enforcement.CommandBatchUUID),
+			ExpectedBatchUuid: emptyToNullString(enforcement.CommandBatchUUID),
 		})
 	})
 }
@@ -241,7 +241,7 @@ func (s *SQLChannelEnforcementStore) MarkDispatched(
 			EnqueuedAt:        sql.NullTime{Time: enqueuedAt, Valid: true},
 			EnforcementID:     enforcement.ID,
 			ExpectedRevision:  enforcement.Revision,
-			ExpectedBatchUuid: batchUUID(enforcement.CommandBatchUUID),
+			ExpectedBatchUuid: emptyToNullString(enforcement.CommandBatchUUID),
 		})
 	})
 }
@@ -282,7 +282,7 @@ func (s *SQLChannelEnforcementStore) MarkVerifying(
 			CommandCompletedAt: sql.NullTime{Time: commandCompletedAt, Valid: true},
 			EnforcementID:      enforcement.ID,
 			ExpectedRevision:   enforcement.Revision,
-			ExpectedBatchUuid:  batchUUID(enforcement.CommandBatchUUID),
+			ExpectedBatchUuid:  emptyToNullString(enforcement.CommandBatchUUID),
 		})
 	})
 }
@@ -299,7 +299,7 @@ func (s *SQLChannelEnforcementStore) RecordObservation(
 			ObservationError:   sql.NullString{String: observation.Error, Valid: observation.Error != ""},
 			EnforcementID:      enforcement.ID,
 			ExpectedRevision:   enforcement.Revision,
-			ExpectedBatchUuid:  batchUUID(enforcement.CommandBatchUUID),
+			ExpectedBatchUuid:  emptyToNullString(enforcement.CommandBatchUUID),
 		}
 		if observation.HashrateHS != nil {
 			params.HashrateHs = sql.NullFloat64{Float64: *observation.HashrateHS, Valid: true}
@@ -325,7 +325,7 @@ func (s *SQLChannelEnforcementStore) Confirm(
 			ConfirmedAt:       sql.NullTime{Time: observation.ObservedAt, Valid: true},
 			EnforcementID:     enforcement.ID,
 			ExpectedRevision:  enforcement.Revision,
-			ExpectedBatchUuid: batchUUID(enforcement.CommandBatchUUID),
+			ExpectedBatchUuid: emptyToNullString(enforcement.CommandBatchUUID),
 		})
 	})
 }
@@ -343,7 +343,7 @@ func (s *SQLChannelEnforcementStore) MarkAttentionRequired(
 			EnforcementID:       enforcement.ID,
 			ExpectedRevision:    enforcement.Revision,
 			ExpectedState:       string(enforcement.State),
-			ExpectedBatchUuid:   batchUUID(enforcement.CommandBatchUUID),
+			ExpectedBatchUuid:   emptyToNullString(enforcement.CommandBatchUUID),
 		})
 	})
 }
@@ -370,7 +370,7 @@ func authorityFromSQL(row sqlc.ChannelFirmwareAuthority) channel.Authority {
 		Type:            row.AuthorityType,
 		Reference:       row.AuthorityReference,
 		Revision:        row.Revision,
-		HaltedAt:        timePtr(row.HaltedAt),
+		HaltedAt:        nullTimeToPtr(row.HaltedAt),
 		CreatedByUserID: row.CreatedByUserID,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
@@ -460,7 +460,7 @@ func enforcementFromSQL(
 		DesiredFirmwareFileID:       row.DesiredFirmwareFileID,
 		DesiredFirmwareVersion:      row.DesiredFirmwareVersion,
 		CauseType:                   row.CauseType,
-		CauseReference:              stringPtr(row.CauseReference),
+		CauseReference:              nullStringToPtr(row.CauseReference),
 		AuthorityID:                 row.AuthorityID,
 		AuthorityRevision:           row.AuthorityRevision,
 		State:                       channel.EnforcementState(row.State),
@@ -468,54 +468,19 @@ func enforcementFromSQL(
 		CommandBatchUUID:            row.CommandBatchUuid.String,
 		Revision:                    row.Revision,
 		DesiredAt:                   row.DesiredAt,
-		HeldAt:                      timePtr(row.HeldAt),
-		ClaimedAt:                   timePtr(row.ClaimedAt),
-		EnqueuedAt:                  timePtr(row.EnqueuedAt),
-		CommandCompletedAt:          timePtr(row.CommandCompletedAt),
-		LastObservedFirmwareVersion: stringPtr(row.LastObservedFirmwareVersion),
-		FirmwareObservedAt:          timePtr(row.FirmwareObservedAt),
-		LastObservedHashrateHS:      float64Ptr(row.LastObservedHashrateHs),
-		HashingObservedAt:           timePtr(row.HashingObservedAt),
-		ConfirmedAt:                 timePtr(row.ConfirmedAt),
-		AttentionRequiredAt:         timePtr(row.AttentionRequiredAt),
-		LastError:                   stringPtr(row.LastError),
+		HeldAt:                      nullTimeToPtr(row.HeldAt),
+		ClaimedAt:                   nullTimeToPtr(row.ClaimedAt),
+		EnqueuedAt:                  nullTimeToPtr(row.EnqueuedAt),
+		CommandCompletedAt:          nullTimeToPtr(row.CommandCompletedAt),
+		LastObservedFirmwareVersion: nullStringToPtr(row.LastObservedFirmwareVersion),
+		FirmwareObservedAt:          nullTimeToPtr(row.FirmwareObservedAt),
+		LastObservedHashrateHS:      nullFloat64ToPtr(row.LastObservedHashrateHs),
+		HashingObservedAt:           nullTimeToPtr(row.HashingObservedAt),
+		ConfirmedAt:                 nullTimeToPtr(row.ConfirmedAt),
+		AttentionRequiredAt:         nullTimeToPtr(row.AttentionRequiredAt),
+		LastError:                   nullStringToPtr(row.LastError),
 		CreatedAt:                   row.CreatedAt,
 		UpdatedAt:                   row.UpdatedAt,
 		CreatedByUserID:             createdByUserID,
 	}
-}
-
-func batchUUID(value string) sql.NullString {
-	return sql.NullString{String: value, Valid: value != ""}
-}
-
-func nullString(value *string) sql.NullString {
-	if value == nil {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: *value, Valid: true}
-}
-
-func stringPtr(value sql.NullString) *string {
-	if !value.Valid {
-		return nil
-	}
-	result := value.String
-	return &result
-}
-
-func timePtr(value sql.NullTime) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	result := value.Time
-	return &result
-}
-
-func float64Ptr(value sql.NullFloat64) *float64 {
-	if !value.Valid {
-		return nil
-	}
-	result := value.Float64
-	return &result
 }

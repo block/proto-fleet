@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { TimestampSchema } from "@bufbuild/protobuf/wkt";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
   RolloutEvidencePhase,
@@ -13,6 +13,7 @@ import {
   RolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import {
+  getRolloutActionEligibility,
   mapRollout,
   mapRolloutLane,
   mapRolloutMemberState,
@@ -21,10 +22,7 @@ import {
   rolloutMemberStateToTargetPhase,
 } from "@/protoFleet/api/rolloutMappers";
 
-const timestamp = (iso: string) =>
-  create(TimestampSchema, {
-    seconds: BigInt(Math.floor(new Date(iso).getTime() / 1000)),
-  });
+const timestamp = (iso: string) => timestampFromDate(new Date(iso));
 
 describe("rollout mappers", () => {
   it("maps stable lane identity without exposing physical channel labels", () => {
@@ -63,7 +61,6 @@ describe("rollout mappers", () => {
       id: "15bc6181-07d8-45ac-8424-50b5e938b871",
       label: "Stable production",
       currentChannelId: 41n,
-      currentReleaseSetId: 7n,
       memberCount: 12,
       memberIdentifiers: ["miner-1", "miner-2"],
       currentReleaseTargets: [{ targetModel: "Alpha", firmwareVersion: "1.0.0" }],
@@ -146,21 +143,17 @@ describe("rollout mappers", () => {
     });
   });
 
-  it("keeps membership and convergence progress independent", () => {
-    const rollout = create(RolloutSchema, {
-      rolloutId: "2f214a71-f94e-4e5f-8daf-d36c71b72f6c",
-      name: "Firmware rollout",
-      strategyKey: "fixture-strategy",
-      state: RolloutState.RUNNING,
+  it("preserves fixture eligibility alongside server lifecycle states", () => {
+    expect(getRolloutActionEligibility("pausedAtPilotGate")).toMatchObject({
+      continue: true,
+      abort: true,
+      pause: false,
     });
-
-    const mapped = mapRollout(rollout, {
-      membershipProgress: { completed: 3, total: 10 },
-      convergenceProgress: { completed: 7, total: 10, attentionRequired: 1 },
+    expect(getRolloutActionEligibility("stabilizingTelemetry")).toMatchObject({
+      continue: false,
+      abort: true,
+      pause: false,
     });
-
-    expect(mapped.membershipProgress).toEqual({ completed: 3, total: 10 });
-    expect(mapped.convergenceProgress).toEqual({ completed: 7, total: 10, attentionRequired: 1 });
   });
 
   it("maps attention-required members to a non-retry presentation phase", () => {

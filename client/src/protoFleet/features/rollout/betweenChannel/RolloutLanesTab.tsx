@@ -79,13 +79,13 @@ export default function RolloutLanesTab() {
       return;
     }
     setPageError(null);
-    setIsLoadingFiles(true);
+    setIsLoadingFiles(permissions.canManageChannels);
     try {
       const requests: Promise<unknown>[] = [listRolloutLanes()];
       if (permissions.canRead) {
         requests.push(listRollouts());
       }
-      if (permissions.canManageChannels || permissions.canManage) {
+      if (permissions.canManageChannels) {
         requests.push(listFirmwareFiles().then(setFiles));
       }
       await Promise.all(requests);
@@ -98,7 +98,6 @@ export default function RolloutLanesTab() {
     listFirmwareFiles,
     listRolloutLanes,
     listRollouts,
-    permissions.canManage,
     permissions.canManageChannels,
     permissions.canRead,
     permissions.canReadChannels,

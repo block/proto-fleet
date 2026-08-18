@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildManualBatches, evaluateTargetCompatibility } from "./betweenChannelUtils";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type { RolloutLaneReleaseTarget } from "@/protoFleet/features/rollout/rolloutTypes";
 
 const sourceTargets: RolloutLaneReleaseTarget[] = [
@@ -50,10 +51,18 @@ const files = [
   },
 ];
 
+function targetKey(manufacturer: string, model: string): string {
+  const key = minerTargetKey(manufacturer, model);
+  if (key === null) {
+    throw new Error("Test target must be complete.");
+  }
+  return key;
+}
+
 describe("between-channel rollout helpers", () => {
   it("blocks a target that is missing a source model", () => {
     const rows = evaluateTargetCompatibility(sourceTargets, files, {
-      "proto\u0000alpha": "alpha-2",
+      [targetKey("Proto", "Alpha")]: "alpha-2",
     });
 
     expect(rows).toEqual([
@@ -64,8 +73,8 @@ describe("between-channel rollout helpers", () => {
 
   it("blocks a no-op target release", () => {
     const rows = evaluateTargetCompatibility(sourceTargets, files, {
-      "proto\u0000alpha": "alpha-1",
-      "proto\u0000beta": "beta-3",
+      [targetKey("Proto", "Alpha")]: "alpha-1",
+      [targetKey("Proto", "Beta")]: "beta-3",
     });
 
     expect(rows[0]).toMatchObject({

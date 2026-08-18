@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 
-import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
+import { type FirmwareFileInfo, hasCompleteFirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
-import { rolloutModelKey } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -44,15 +44,22 @@ export default function CreateRolloutLaneModal({
   const [showMinerSelection, setShowMinerSelection] = useState(false);
   const targetFiles = useMemo(
     () =>
-      files.filter(
-        (file) => file.target_manufacturer.trim() && file.target_model.trim() && (file.firmware_version?.trim() ?? ""),
+      files.filter((file) =>
+        hasCompleteFirmwareTarget({
+          targetManufacturer: file.target_manufacturer,
+          targetModel: file.target_model,
+          firmwareVersion: file.firmware_version,
+        }),
       ),
     [files],
   );
   const modelGroups = useMemo(() => {
     const groups = new Map<string, FirmwareFileInfo[]>();
     targetFiles.forEach((file) => {
-      const key = rolloutModelKey(file.target_manufacturer, file.target_model);
+      const key = minerTargetKey(file.target_manufacturer, file.target_model);
+      if (key === null) {
+        return;
+      }
       groups.set(key, [...(groups.get(key) ?? []), file]);
     });
     return [...groups.entries()];

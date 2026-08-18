@@ -160,7 +160,7 @@ func (s *SQLRolloutStore) Create(
 			sqlc.CreateFirmwareRolloutCauseParams{
 				RolloutID:       req.ID,
 				OrgID:           req.OrgID,
-				Operation:       "create",
+				Operation:       string(rollout.ControlOperationCreate),
 				Reason:          req.Reason,
 				ActorUserID:     req.ActorUserID,
 				ToState:         string(rollout.StateCreated),
@@ -427,6 +427,10 @@ func (s *SQLRolloutStore) ApplyControl(
 				}
 				forwardRevision = sql.NullInt64{Int64: authority.Revision, Valid: true}
 			}
+		case rollout.ControlOperationCreate,
+			rollout.ControlOperationPause,
+			rollout.ControlOperationResume:
+			// These operations do not change an authority revision.
 		}
 
 		nextResumeState := sql.NullString{}
@@ -1017,7 +1021,7 @@ func rolloutFromSQL(row sqlc.FirmwareRollout) rollout.Rollout {
 		Revision:                 row.Revision,
 		ForwardAuthorityID:       row.ForwardAuthorityID,
 		ForwardAuthorityRevision: row.ForwardAuthorityRevision,
-		RevertAuthorityID:        uuidPtr(row.RevertAuthorityID),
+		RevertAuthorityID:        nullUUIDToPtr(row.RevertAuthorityID),
 		RevertAuthorityRevision:  nullInt64ToPtr(row.RevertAuthorityRevision),
 		SourceChannelID:          nullInt64ToPtr(row.SourceChannelID),
 		TargetChannelID:          nullInt64ToPtr(row.TargetChannelID),
@@ -1028,12 +1032,12 @@ func rolloutFromSQL(row sqlc.FirmwareRollout) rollout.Rollout {
 		RevertSnapshot:           unmarshalSnapshot(row.RevertSnapshot),
 		Reason:                   row.Reason,
 		CreatedByUserID:          row.CreatedByUserID,
-		StartedAt:                timePtr(row.StartedAt),
-		PausedAt:                 timePtr(row.PausedAt),
-		AbortedAt:                timePtr(row.AbortedAt),
-		CompletedAt:              timePtr(row.CompletedAt),
-		RevertingAt:              timePtr(row.RevertingAt),
-		RevertedAt:               timePtr(row.RevertedAt),
+		StartedAt:                nullTimeToPtr(row.StartedAt),
+		PausedAt:                 nullTimeToPtr(row.PausedAt),
+		AbortedAt:                nullTimeToPtr(row.AbortedAt),
+		CompletedAt:              nullTimeToPtr(row.CompletedAt),
+		RevertingAt:              nullTimeToPtr(row.RevertingAt),
+		RevertedAt:               nullTimeToPtr(row.RevertedAt),
 		CreatedAt:                row.CreatedAt,
 		UpdatedAt:                row.UpdatedAt,
 	}
@@ -1068,11 +1072,11 @@ func memberFromListRow(row sqlc.ListFirmwareRolloutMembersRow) rollout.Member {
 		TargetSnapshot:   unmarshalSnapshot(row.TargetSnapshot),
 		RevertSnapshot:   unmarshalSnapshot(row.RevertSnapshot),
 		EnforcementID:    nullInt64ToPtr(row.EnforcementID),
-		CommandBatchUUID: stringPtr(row.CommandBatchUuid),
-		LastError:        stringPtr(row.LastError),
-		AdmittedAt:       timePtr(row.AdmittedAt),
-		SettledAt:        timePtr(row.SettledAt),
-		OwnerReleasedAt:  timePtr(row.OwnerReleasedAt),
+		CommandBatchUUID: nullStringToPtr(row.CommandBatchUuid),
+		LastError:        nullStringToPtr(row.LastError),
+		AdmittedAt:       nullTimeToPtr(row.AdmittedAt),
+		SettledAt:        nullTimeToPtr(row.SettledAt),
+		OwnerReleasedAt:  nullTimeToPtr(row.OwnerReleasedAt),
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
 	}
@@ -1093,11 +1097,11 @@ func memberFromSQL(row sqlc.FirmwareRolloutMember, deviceIdentifier string) roll
 		TargetSnapshot:   unmarshalSnapshot(row.TargetSnapshot),
 		RevertSnapshot:   unmarshalSnapshot(row.RevertSnapshot),
 		EnforcementID:    nullInt64ToPtr(row.EnforcementID),
-		CommandBatchUUID: stringPtr(row.CommandBatchUuid),
-		LastError:        stringPtr(row.LastError),
-		AdmittedAt:       timePtr(row.AdmittedAt),
-		SettledAt:        timePtr(row.SettledAt),
-		OwnerReleasedAt:  timePtr(row.OwnerReleasedAt),
+		CommandBatchUUID: nullStringToPtr(row.CommandBatchUuid),
+		LastError:        nullStringToPtr(row.LastError),
+		AdmittedAt:       nullTimeToPtr(row.AdmittedAt),
+		SettledAt:        nullTimeToPtr(row.SettledAt),
+		OwnerReleasedAt:  nullTimeToPtr(row.OwnerReleasedAt),
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,
 	}
@@ -1112,10 +1116,10 @@ func evidenceFromSQL(row sqlc.FirmwareRolloutEvidence) rollout.Evidence {
 		Phase:           rollout.EvidencePhase(row.Phase),
 		WindowStart:     row.WindowStart,
 		WindowEnd:       row.WindowEnd,
-		ObservedAt:      timePtr(row.ObservedAt),
-		AvgHashrateHS:   float64Ptr(row.AvgHashrateHs),
-		AvgPowerW:       float64Ptr(row.AvgPowerW),
-		AvgTemperatureC: float64Ptr(row.AvgTemperatureC),
+		ObservedAt:      nullTimeToPtr(row.ObservedAt),
+		AvgHashrateHS:   nullFloat64ToPtr(row.AvgHashrateHs),
+		AvgPowerW:       nullFloat64ToPtr(row.AvgPowerW),
+		AvgTemperatureC: nullFloat64ToPtr(row.AvgTemperatureC),
 		ErrorCount:      nullInt64ToPtr(row.ErrorCount),
 		SampleCount:     nullInt64ToPtr(row.SampleCount),
 		CreatedAt:       row.CreatedAt,
@@ -1128,7 +1132,7 @@ func causeFromSQL(row sqlc.FirmwareRolloutCause) rollout.Cause {
 		ID:              row.ID,
 		RolloutID:       row.RolloutID,
 		MemberID:        nullInt64ToPtr(row.MemberID),
-		ControlID:       uuidPtr(row.ControlID),
+		ControlID:       nullUUIDToPtr(row.ControlID),
 		OrgID:           row.OrgID,
 		Operation:       rollout.ControlOperation(row.Operation),
 		Reason:          row.Reason,
@@ -1152,7 +1156,7 @@ func controlFromSQL(row sqlc.FirmwareRolloutControl) rollout.Control {
 		ExpectedRevision:   row.ExpectedRevision,
 		ResultingRevision:  row.ResultingRevision,
 		Status:             rollout.ControlStatus(row.Status),
-		ErrorMessage:       stringPtr(row.ErrorMessage),
+		ErrorMessage:       nullStringToPtr(row.ErrorMessage),
 		CreatedByUserID:    row.CreatedByUserID,
 		CreatedAt:          row.CreatedAt,
 		UpdatedAt:          row.UpdatedAt,
@@ -1198,14 +1202,6 @@ func unmarshalSnapshot(value json.RawMessage) map[string]any {
 		return map[string]any{}
 	}
 	return result
-}
-
-func uuidPtr(value uuid.NullUUID) *uuid.UUID {
-	if !value.Valid {
-		return nil
-	}
-	result := value.UUID
-	return &result
 }
 
 func statePtr(value sql.NullString) *rollout.State {

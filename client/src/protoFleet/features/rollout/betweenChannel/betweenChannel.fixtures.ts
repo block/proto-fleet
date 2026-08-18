@@ -44,7 +44,6 @@ export const stableProductionLane: RolloutLane = {
   label: "Stable production",
   description: "Production firmware lane",
   currentChannelId: 41n,
-  currentReleaseSetId: 7n,
   revision: 2n,
   channels: [
     {

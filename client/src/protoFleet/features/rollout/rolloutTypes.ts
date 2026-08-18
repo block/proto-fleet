@@ -174,7 +174,6 @@ export interface RolloutLane {
   label: string;
   description: string;
   currentChannelId: bigint;
-  currentReleaseSetId?: bigint;
   revision: bigint;
   channels: RolloutLaneChannel[];
   memberCount: number;
@@ -210,8 +209,6 @@ export interface RolloutRecord {
   batches: RolloutBatch[];
   members: RolloutMember[];
   causes: RolloutCause[];
-  membershipProgress?: RolloutProgress;
-  convergenceProgress?: RolloutProgress;
   availableActions: RolloutActionEligibility;
 }
 

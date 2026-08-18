@@ -64,6 +64,7 @@ const (
 type ControlOperation string
 
 const (
+	ControlOperationCreate   ControlOperation = "create"
 	ControlOperationAdmit    ControlOperation = "admit"
 	ControlOperationContinue ControlOperation = "continue"
 	ControlOperationPause    ControlOperation = "pause"

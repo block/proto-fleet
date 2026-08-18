@@ -335,16 +335,10 @@ func evidencePhaseToProto(value rolloutDomain.EvidencePhase) pb.RolloutEvidenceP
 }
 
 func snapshotFromProto(value *structpb.Struct) map[string]any {
-	if value == nil {
-		return map[string]any{}
-	}
 	return value.AsMap()
 }
 
 func snapshotToProto(value map[string]any) *structpb.Struct {
-	if value == nil {
-		value = map[string]any{}
-	}
 	result, err := structpb.NewStruct(value)
 	if err != nil {
 		return &structpb.Struct{}

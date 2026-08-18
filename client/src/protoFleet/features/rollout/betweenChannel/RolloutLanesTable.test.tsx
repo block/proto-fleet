@@ -11,7 +11,6 @@ const rows: LaneTableRow[] = [
       label: "Stable production",
       description: "Production firmware",
       currentChannelId: 41n,
-      currentReleaseSetId: 7n,
       revision: 2n,
       channels: [],
       memberCount: 12,

@@ -324,6 +324,81 @@ describe("useRolloutApi", () => {
     });
   });
 
+  it("keeps mutation state active until concurrent rollout and lane mutations settle", async () => {
+    const rolloutResponse = deferred<{ rollout: ReturnType<typeof protoRollout> }>();
+    const laneResponse = deferred<{ lane: ReturnType<typeof protoLane> }>();
+    rolloutClientMock.createRollout.mockReturnValue(rolloutResponse.promise);
+    rolloutClientMock.createRolloutLane.mockReturnValue(laneResponse.promise);
+    const { result } = renderHook(() => useRolloutApi());
+
+    let rolloutRequest!: Promise<unknown>;
+    let laneRequest!: Promise<unknown>;
+    act(() => {
+      rolloutRequest = result.current.createRollout({
+        name: "Firmware rollout",
+        strategyKey: "strategy-a",
+        batches: [],
+        idempotencyKey: "create-one",
+        reason: "Controlled deployment",
+      });
+      laneRequest = result.current.createRolloutLane({
+        label: "Stable production",
+        description: "Production firmware lane",
+        firmwareFileIds: ["file-alpha"],
+        deviceIdentifiers: ["miner-1", "miner-2"],
+        idempotencyKey: "create-lane-one",
+      });
+    });
+    expect(result.current.isMutating).toBe(true);
+
+    await act(async () => {
+      rolloutResponse.resolve({ rollout: protoRollout("created", RolloutState.CREATED) });
+      await rolloutRequest;
+    });
+    expect(result.current.isMutating).toBe(true);
+
+    await act(async () => {
+      laneResponse.resolve({ lane: protoLane() });
+      await laneRequest;
+    });
+    expect(result.current.isMutating).toBe(false);
+  });
+
+  it("preserves mutation auth errors and cancellation handling", async () => {
+    const permissionError = new ConnectError("permission denied", Code.PermissionDenied);
+    rolloutClientMock.createRollout.mockRejectedValueOnce(permissionError);
+    const pendingResponse = deferred<{ rollout: ReturnType<typeof protoRollout> }>();
+    rolloutClientMock.createRollout.mockReturnValueOnce(pendingResponse.promise);
+    const controller = new AbortController();
+    const { result } = renderHook(() => useRolloutApi());
+    const input = {
+      name: "Firmware rollout",
+      strategyKey: "strategy-a",
+      batches: [],
+      idempotencyKey: "create-one",
+      reason: "Controlled deployment",
+    };
+
+    await act(async () => {
+      await expect(result.current.createRollout(input)).rejects.toThrow("permission denied");
+    });
+    expect(handleAuthErrorsMock).toHaveBeenCalledWith({ error: permissionError });
+    expect(result.current.mutationError).toBe("permission denied");
+
+    let request!: Promise<unknown>;
+    act(() => {
+      request = result.current.createRollout({ ...input, signal: controller.signal });
+    });
+    controller.abort();
+    pendingResponse.resolve({ rollout: protoRollout("cancelled") });
+    await act(async () => {
+      await expect(request).rejects.toMatchObject({ name: "AbortError" });
+    });
+    expect(result.current.mutationError).toBeNull();
+    expect(handleAuthErrorsMock).toHaveBeenCalledTimes(1);
+    expect(result.current.isMutating).toBe(false);
+  });
+
   it("does not let a stale list response replace newer state", async () => {
     const stale = deferred<{ rollouts: ReturnType<typeof protoRollout>[] }>();
     rolloutClientMock.listRollouts

@@ -1,5 +1,6 @@
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { CreateRolloutBatchInput, CreateRolloutMemberInput } from "@/protoFleet/api/useRolloutApi";
+import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type {
   RolloutLaneReleaseTarget,
   RolloutRecord,
@@ -12,10 +13,8 @@ export interface TargetCompatibilityRow {
   key: string;
   manufacturer: string;
   model: string;
-  sourceFileId: string;
   sourceVersion: string;
   targetFileId?: string;
-  targetFilename?: string;
   targetVersion?: string;
   status: TargetCompatibilityStatus;
 }
@@ -24,10 +23,6 @@ export interface ManualBatchConfig {
   strategy: Extract<RolloutStrategy, "batched" | "pilotThenContinue">;
   batchSize?: number;
   pilotSize?: number;
-}
-
-export function rolloutModelKey(manufacturer: string, model: string): string {
-  return `${manufacturer.trim().toLowerCase()}\u0000${model.trim().toLowerCase()}`;
 }
 
 export function isActiveRollout(rollout: RolloutRecord | undefined): boolean {
@@ -47,7 +42,7 @@ export function evaluateTargetCompatibility(
 ): TargetCompatibilityRow[] {
   const fileById = new Map(files.map((file) => [file.id, file]));
   return sourceTargets.map((source) => {
-    const key = rolloutModelKey(source.targetManufacturer, source.targetModel);
+    const key = minerTargetKey(source.targetManufacturer, source.targetModel)!;
     const target = fileById.get(selectedFileByModel[key] ?? "");
     const targetVersion = target?.firmware_version?.trim();
     const noOp =
@@ -58,10 +53,8 @@ export function evaluateTargetCompatibility(
       key,
       manufacturer: source.targetManufacturer,
       model: source.targetModel,
-      sourceFileId: source.firmwareFileId,
       sourceVersion: source.firmwareVersion,
       targetFileId: target?.id,
-      targetFilename: target?.filename,
       targetVersion,
       status: !target ? "missing" : noOp ? "noOp" : "compatible",
     };
