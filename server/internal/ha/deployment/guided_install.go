@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -216,6 +219,18 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if err := prepareInstallBundles(exportDir, metadata); err != nil {
 		return fmt.Errorf("bundle generation failed; partial exports remain at %s: %w", exportDir, err)
 	}
+	haABundle := filepath.Join(exportDir, hostBundleName("ha-a"))
+	bundle, err := readHostBundle(haABundle)
+	if err != nil {
+		return fmt.Errorf("read generated ha-a bundle; bundle exports remain at %s: %w", exportDir, err)
+	}
+	fingerprint, err := serviceCAFingerprint(bundle.Secrets["service-ca.crt"])
+	if err != nil {
+		return fmt.Errorf("fingerprint public service CA; bundle exports remain at %s: %w", exportDir, err)
+	}
+	if err := writeInstallerOutput(deps.output, "Public service CA SHA-256 fingerprint: %s\n", fingerprint); err != nil {
+		return err
+	}
 	peers := []struct {
 		role    string
 		address string
@@ -237,7 +252,6 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 		}
 	}
 
-	haABundle := filepath.Join(exportDir, hostBundleName("ha-a"))
 	if err := installPreparedHost(ctx, source, haABundle, release, true, deps); err != nil {
 		return err
 	}
@@ -440,6 +454,20 @@ func decodeHostBundle(contents []byte) (preparedHostBundle, error) {
 		return preparedHostBundle{}, errors.New("host bundle rejected: etcd root password is only valid for ha-a")
 	}
 	return bundle, nil
+}
+
+func serviceCAFingerprint(contents []byte) (string, error) {
+	block, _ := pem.Decode(contents)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return "", errors.New("host bundle contains an invalid public service CA")
+	}
+	digest := sha256.Sum256(block.Bytes)
+	encoded := strings.ToUpper(hex.EncodeToString(digest[:]))
+	pairs := make([]string, 0, len(encoded)/2)
+	for index := 0; index < len(encoded); index += 2 {
+		pairs = append(pairs, encoded[index:index+2])
+	}
+	return strings.Join(pairs, ":"), nil
 }
 
 func validateBundleMetadata(metadata bundleMetadata) error {

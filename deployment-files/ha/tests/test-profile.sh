@@ -133,8 +133,11 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "target: /etc/nginx/ssl/cert.pem"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.key"
     assert_contains "$rendered" "target: /etc/nginx/ssl/key.pem"
+    assert_contains "$rendered" "target: /usr/share/nginx/html/proto-fleet-ha-service-ca.crt"
+    assert_contains "${HA_DIR}/fleet-compose.yaml" '${HA_SECRETS_DIR}/service-ca.crt:/usr/share/nginx/html/proto-fleet-ha-service-ca.crt:ro'
+    assert_not_contains "${HA_DIR}/fleet-compose.yaml" '.key:/usr/share/nginx/html/'
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
-    [[ "$secret_mount_count" -eq 4 ]] || fail "Fleet services must mount only their required HA secret files"
+    [[ "$secret_mount_count" -eq 5 ]] || fail "Fleet services must mount only their required HA secret files"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
     assert_not_contains "$rendered" "/run/proto-fleet-updater"
 

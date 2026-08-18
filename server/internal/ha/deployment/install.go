@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -647,7 +648,8 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 		}
 	}
 	for _, name := range copiedSecretFiles(config) {
-		if err := placeFile(ctx, deps, "install HA secret "+name, filepath.Join(config.SecretsDir, name), filepath.Join(configRoot, name), "0600"); err != nil {
+		mode := fmt.Sprintf("%04o", secretFileMode(name))
+		if err := placeFile(ctx, deps, "install HA secret "+name, filepath.Join(config.SecretsDir, name), filepath.Join(configRoot, name), mode); err != nil {
 			return err
 		}
 	}
@@ -894,6 +896,7 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 		}
 		if state == "active" && deps.vipReady(ctx, config) {
 			fmt.Println("[final readiness] Fleet is reachable through the virtual IP")
+			printPublicCAInstructions(os.Stdout, config.VirtualIP)
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -901,6 +904,22 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 		}
 		deps.sleep(2 * time.Second)
 	}
+}
+
+func printPublicCAInstructions(output io.Writer, virtualIP string) {
+	_, _ = fmt.Fprintf(output, `
+On your operator machine, download the public service CA:
+  curl --insecure --fail --noproxy '*' --output proto-fleet-ha-service-ca.download https://%s/proto-fleet-ha-service-ca.crt
+
+Write only the verified certificate to the file you will import:
+  openssl x509 -in proto-fleet-ha-service-ca.download -out proto-fleet-ha-service-ca.crt
+  rm proto-fleet-ha-service-ca.download
+
+Display its SHA-256 fingerprint:
+  openssl x509 -in proto-fleet-ha-service-ca.crt -noout -fingerprint -sha256
+
+Compare it with the fingerprint printed by ha-a. Import only proto-fleet-ha-service-ca.crt.
+`, virtualIP)
 }
 
 func probeInstalledActiveVIP(ctx context.Context, config NodeConfig) bool {

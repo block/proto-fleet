@@ -25,6 +25,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	deps := testGuidedDependencies(source, input, &output, &prompts)
 	deps.operatorUsername = func() string { return "operator" }
 	var sshEvents []string
+	var expectedFingerprint string
 	deps.checkPeer = func(_ context.Context, localUser, target string) error {
 		require.Equal(t, "operator", localUser)
 		sshEvents = append(sshEvents, "check "+target)
@@ -34,6 +35,12 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 		require.Equal(t, "operator", localUser)
 		require.FileExists(t, bundlePath)
 		requireMode(t, bundlePath, 0o600)
+		if expectedFingerprint == "" {
+			bundle, err := readHostBundle(bundlePath)
+			require.NoError(t, err)
+			expectedFingerprint, err = serviceCAFingerprint(bundle.Secrets["service-ca.crt"])
+			require.NoError(t, err)
+		}
 		sshEvents = append(sshEvents, "transfer "+target)
 		return nil
 	}
@@ -84,6 +91,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.Contains(t, output.String(), "test -f /var/tmp/proto-fleet-ha-host.json")
 	require.Contains(t, output.String(), "releases/download/v0.2.10/install.sh")
 	require.NotContains(t, output.String(), "curl -fsSL https://fleet.proto.xyz/install.sh |")
+	require.Contains(t, output.String(), "Public service CA SHA-256 fingerprint: "+expectedFingerprint)
 	require.Equal(t, []string{
 		"check operator@" + testHostIPs[1],
 		"check operator@" + testHostIPs[2],
@@ -93,6 +101,29 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-a")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-b")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-c")))
+}
+
+func TestServiceCAFingerprintMatchesOpenSSL(t *testing.T) {
+	// Arrange
+	const certificate = `-----BEGIN CERTIFICATE-----
+MIIBoTCCAUegAwIBAgIUXLAXgfn7OuXjkUfB2NO7RzuV25UwCgYIKoZIzj0EAwIw
+JjEkMCIGA1UEAwwbUHJvdG8gRmxlZXQgdGVzdCBzZXJ2aWNlIENBMB4XDTI2MDgx
+ODIxNTgyOVoXDTM2MDgxNTIxNTgyOVowJjEkMCIGA1UEAwwbUHJvdG8gRmxlZXQg
+dGVzdCBzZXJ2aWNlIENBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMRNxVvQt
+K6p55t4/fA9/wapZwOrPVqANtGHEPhTKo+2PqqBTccydn1Xn6vp0xi/6eONi1er3
+R0wwLDNMKKUsTaNTMFEwHQYDVR0OBBYEFLWxZhcDBioJ+WxBjThpXsInI0LUMB8G
+A1UdIwQYMBaAFLWxZhcDBioJ+WxBjThpXsInI0LUMA8GA1UdEwEB/wQFMAMBAf8w
+CgYIKoZIzj0EAwIDSAAwRQIhANLd2j3ndHOTdvuP3OQamgqu2vgcntLR2RVshe/S
+ebCBAiACqqak+Din9945lq0fFYzfw1ybLTC+HvyDSRCMT1bk0A==
+-----END CERTIFICATE-----
+`
+
+	// Act
+	fingerprint, err := serviceCAFingerprint([]byte(certificate))
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "43:0C:7C:D7:B8:4B:1C:47:AA:D0:0B:78:CF:DA:A6:AD:CC:54:CD:A3:B3:BD:66:DF:8D:4D:83:E0:CC:96:38:1B", fingerprint)
 }
 
 func TestGuidedInstallUsesPeerSSHUsernameOverride(t *testing.T) {
