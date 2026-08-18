@@ -3,13 +3,12 @@
 import io
 import json
 import subprocess
-import unittest
 import tempfile
+import unittest
 import zipfile
 from pathlib import Path
 
 import evaluate_review_policy as policy
-
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows"
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "review-policy.json"
@@ -58,12 +57,21 @@ class ReviewPolicyTest(unittest.TestCase):
         cancel_expression = workflow["concurrency"]["cancel-in-progress"]
 
         self.assertIn("format('ignored-{0}', github.run_id)", group_expression)
-        self.assertIn("github.event.pull_request.head.sha || github.event.workflow_run.head_sha", group_expression)
-        self.assertIn("github.event.check_run.app.slug == 'github-actions'", cancel_expression)
+        self.assertIn(
+            "github.event.pull_request.head.sha || github.event.workflow_run.head_sha",
+            group_expression,
+        )
+        self.assertIn(
+            "github.event.check_run.app.slug == 'github-actions'", cancel_expression
+        )
         self.assertIn("github.event.action == 'rerequested'", cancel_expression)
-        self.assertIn("github.event.check_suite.app.slug == 'github-actions'", cancel_expression)
+        self.assertIn(
+            "github.event.check_suite.app.slug == 'github-actions'", cancel_expression
+        )
         self.assertIn("github.event.context == 'Review Policy'", cancel_expression)
-        self.assertIn("github.event.context == 'Review Policy Advisory'", cancel_expression)
+        self.assertIn(
+            "github.event.context == 'Review Policy Advisory'", cancel_expression
+        )
         self.assertIn("github.event.review.state == 'commented'", cancel_expression)
 
     def test_workflow_publishes_pending_status_for_cancelled_evaluation(self):
@@ -72,12 +80,16 @@ class ReviewPolicyTest(unittest.TestCase):
         publish_step = publish_job["steps"][0]
         script = publish_step["with"]["script"]
 
-        self.assertEqual(publish_job["if"], "always() && needs.evaluate.outputs.found == 'true'")
+        self.assertEqual(
+            publish_job["if"], "always() && needs.evaluate.outputs.found == 'true'"
+        )
         self.assertEqual(
             publish_job["concurrency"]["group"],
             "review-policy-publish-${{ needs.evaluate.outputs.head_sha }}",
         )
-        self.assertEqual(publish_step["env"]["EVALUATE_RESULT"], "${{ needs.evaluate.result }}")
+        self.assertEqual(
+            publish_step["env"]["EVALUATE_RESULT"], "${{ needs.evaluate.result }}"
+        )
         self.assertIn("existingRunId > currentRunId", script)
         self.assertIn("evaluationCancelled ? 'pending'", script)
         self.assertIn(
@@ -97,31 +109,173 @@ class ReviewPolicyTest(unittest.TestCase):
             label_job["concurrency"]["group"],
             "review-policy-label-${{ needs.evaluate.outputs.head_sha }}",
         )
-        self.assertEqual(label_job["permissions"], {"issues": "write", "pull-requests": "write"})
+        self.assertEqual(
+            label_job["permissions"], {"issues": "write", "pull-requests": "write"}
+        )
 
-    def test_workflow_keeps_fail_closed_non_cancelled_failures(self):
+    def test_workflow_uses_default_branch_policy_for_stacked_prs(self):
         workflow_text = read_workflow("review-policy.yml")
         workflow = load_workflow("review-policy.yml")
         publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
+        evaluate_outputs = workflow["jobs"]["evaluate"]["outputs"]
+        evaluate_steps = workflow["jobs"]["evaluate"]["steps"]
         classifier_step = next(
+            step for step in evaluate_steps if step.get("id") == "ai_classifier"
+        )
+        mode_index, mode_step = next(
+            (index, step)
+            for index, step in enumerate(evaluate_steps)
+            if step.get("id") == "policy_mode"
+        )
+        checkout_step = next(
             step
-            for step in workflow["jobs"]["evaluate"]["steps"]
-            if step.get("id") == "ai_classifier"
+            for step in evaluate_steps
+            if step.get("name") == "Checkout trusted default-branch policy"
+        )
+        checkout_index = evaluate_steps.index(checkout_step)
+        config_index, config_step = next(
+            (index, step)
+            for index, step in enumerate(evaluate_steps)
+            if step.get("id") == "policy_config"
         )
 
-        self.assertIn('exit 1', workflow_text)
-        self.assertIn("got base ref ${BASE_REF}.", workflow_text)
-        self.assertEqual(publish_env["DECISION"], "${{ needs.evaluate.outputs.decision || 'needs-human-review' }}")
-        self.assertEqual(publish_env["PASSED"], "${{ needs.evaluate.outputs.passed || 'false' }}")
-        self.assertEqual(publish_env["ENFORCED"], "${{ needs.evaluate.outputs.enforced || 'true' }}")
+        self.assertIn(
+            "core.setOutput('default_branch', pr.base.repo.default_branch)",
+            workflow_text,
+        )
+        self.assertNotIn("core.setOutput('trusted_base'", workflow_text)
+        self.assertLess(mode_index, checkout_index)
+        self.assertGreater(config_index, checkout_index)
+        self.assertEqual(mode_step["if"], "steps.pr.outputs.found == 'true'")
+        self.assertNotIn("POLICY_ROOT", mode_step["env"])
+        self.assertEqual(
+            config_step["env"]["STACKED_ADVISORY"],
+            "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}",
+        )
+        self.assertEqual(
+            checkout_step["with"]["ref"], "${{ steps.pr.outputs.default_branch }}"
+        )
+        self.assertNotIn(
+            "Review policy only evaluates PRs based on the repository default branch",
+            workflow_text,
+        )
+        self.assertIn(
+            "Using review policy code from the trusted default branch", workflow_text
+        )
+        self.assertIn(
+            "REVIEW_BASE_SHA: ${{ steps.pr.outputs.base_sha }}", workflow_text
+        )
+        self.assertIn(
+            "REVIEW_POLICY_ENFORCED: ${{ steps.policy_config.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}",
+            workflow_text,
+        )
+        self.assertNotIn('--base-ref "$BASE_REF"', workflow_text)
+        self.assertNotIn('--default-branch "$DEFAULT_BRANCH"', workflow_text)
+        self.assertIn('enforced="${REVIEW_POLICY_ENFORCED}"', workflow_text)
+        self.assertEqual(
+            evaluate_outputs["enforced"],
+            "${{ steps.evaluate_policy.outputs.enforced || steps.policy_config.outputs.enforced || steps.bootstrap_policy.outputs.enforced || steps.policy_mode.outputs.enforced || 'true' }}",
+        )
+        self.assertEqual(
+            evaluate_outputs["stacked_advisory"],
+            "${{ steps.policy_mode.outputs.stacked_advisory || 'false' }}",
+        )
+        self.assertEqual(
+            evaluate_outputs["config_enforced"],
+            "${{ steps.policy_config.outputs.config_enforced || 'true' }}",
+        )
+        self.assertEqual(
+            evaluate_outputs["policy_source_available"],
+            "${{ steps.policy_source.outputs.available || 'false' }}",
+        )
+        self.assertIn("stacked_advisory=true", workflow_text)
+        self.assertEqual(
+            publish_env["DECISION"],
+            "${{ needs.evaluate.outputs.decision || 'needs-human-review' }}",
+        )
+        self.assertEqual(
+            publish_env["PASSED"], "${{ needs.evaluate.outputs.passed || 'false' }}"
+        )
+        self.assertEqual(
+            publish_env["ENFORCED"], "${{ needs.evaluate.outputs.enforced || 'true' }}"
+        )
         self.assertEqual(classifier_step["timeout-minutes"], 10)
+        self.assertIn(
+            "Tiny non-sensitive server utility changes are eligible",
+            classifier_step["with"]["prompt"],
+        )
+
+    def test_workflow_invalidates_enforced_status_for_enforced_stacked_advisory(self):
+        workflow_text = read_workflow("review-policy.yml")
+        workflow = load_workflow("review-policy.yml")
+        publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
+
+        self.assertEqual(
+            publish_env["CONFIG_ENFORCED"],
+            "${{ needs.evaluate.outputs.config_enforced || 'true' }}",
+        )
+        self.assertEqual(
+            publish_env["STACKED_ADVISORY"],
+            "${{ needs.evaluate.outputs.stacked_advisory || 'false' }}",
+        )
+        self.assertEqual(
+            publish_env["POLICY_SOURCE_AVAILABLE"],
+            "${{ needs.evaluate.outputs.policy_source_available || 'false' }}",
+        )
+        self.assertIn("function hasNewerStatusRun(contextName)", workflow_text)
+        self.assertIn("if (!hasNewerStatusRun('Review Policy'))", workflow_text)
+        self.assertIn("context: 'Review Policy'", workflow_text)
+        self.assertIn("state: enforcedAdvisoryState", workflow_text)
+        self.assertIn(
+            "Stacked PR result is advisory; default-branch PR must pass Review Policy.",
+            workflow_text,
+        )
+        self.assertIn(
+            "enforcedAdvisoryState = stackedAdvisory ? 'pending' : 'failure'",
+            workflow_text,
+        )
+        self.assertIn(
+            "Stacked PR policy source unavailable; default-branch PR must pass Review Policy.",
+            workflow_text,
+        )
+        self.assertIn(
+            "Review Policy is advisory; see Review Policy Advisory.", workflow_text
+        )
+        self.assertIn(
+            "Trusted Review Policy source unavailable; human review required.",
+            workflow_text,
+        )
+
+    def test_workflow_label_sync_is_bound_to_base_and_head(self):
+        workflow_text = read_workflow("review-policy.yml")
+        workflow = load_workflow("review-policy.yml")
+        label_env = workflow["jobs"]["sync-label"]["steps"][0]["env"]
+
+        self.assertEqual(
+            label_env["BASE_SHA"], "${{ needs.evaluate.outputs.base_sha }}"
+        )
+        self.assertEqual(
+            label_env["HEAD_SHA"], "${{ needs.evaluate.outputs.head_sha }}"
+        )
+        self.assertIn(
+            "Missing evaluated base SHA for review policy label sync", workflow_text
+        )
+        self.assertIn(
+            "pr.head.sha !== headSha || pr.base.sha !== baseSha", workflow_text
+        )
+        self.assertIn(
+            "Skipping stale Review Policy label sync for ${baseSha}...${headSha}",
+            workflow_text,
+        )
 
     def test_path_matches_double_star_root_file(self):
         self.assertTrue(policy.path_matches("package.json", "**/package.json"))
         self.assertTrue(policy.path_matches("client/package.json", "**/package.json"))
 
     def test_path_matches_directory_prefix(self):
-        self.assertTrue(policy.path_matches(".github/workflows/review-policy.yml", ".github/**"))
+        self.assertTrue(
+            policy.path_matches(".github/workflows/review-policy.yml", ".github/**")
+        )
         self.assertTrue(policy.path_matches("server", "server/**"))
         self.assertTrue(policy.path_matches("server/main.go", "server/**"))
 
@@ -152,6 +306,32 @@ class ReviewPolicyTest(unittest.TestCase):
             [".github/workflows/review-policy.yml", "server/main.go"],
         )
 
+    def test_denied_paths_honors_explicit_exceptions(self):
+        files = [
+            {"filename": "deployment-files/README.md"},
+            {"filename": "deployment-files/ha/QUALIFICATION.md"},
+            {"filename": "deployment-files/docker-compose.yaml"},
+            {
+                "filename": "deployment-files/ha/README.md",
+                "previous_filename": "deployment-files/ha/install.sh",
+            },
+        ]
+
+        self.assertEqual(
+            policy.denied_paths(
+                files,
+                ["deployment-files/**"],
+                ["deployment-files/*.md", "deployment-files/**/*.md"],
+            ),
+            ["deployment-files/docker-compose.yaml", "deployment-files/ha/install.sh"],
+        )
+
+    def test_effective_enforcement_honors_workflow_override(self):
+        self.assertFalse(policy.effective_enforcement(False, None))
+        self.assertTrue(policy.effective_enforcement(True, None))
+        self.assertFalse(policy.effective_enforcement(True, "false"))
+        self.assertTrue(policy.effective_enforcement(False, "true"))
+
     def test_low_risk_config_allows_small_server_app_changes_to_reach_classifier(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
         files = [
@@ -162,6 +342,37 @@ class ReviewPolicyTest(unittest.TestCase):
         ]
 
         self.assertEqual(policy.denied_paths(files, deny_paths), [])
+
+    def test_low_risk_config_allows_deployment_markdown_docs_to_reach_classifier(self):
+        low_risk = load_policy_config()["low_risk"]
+        files = [
+            {"filename": "deployment-files/README.md"},
+            {"filename": "deployment-files/ha/QUALIFICATION.md"},
+        ]
+
+        self.assertEqual(
+            policy.denied_paths(
+                files, low_risk["deny_paths"], low_risk["deny_path_exceptions"]
+            ),
+            [],
+        )
+
+    def test_low_risk_config_keeps_deployment_runtime_files_denied(self):
+        low_risk = load_policy_config()["low_risk"]
+        files = [
+            {"filename": "deployment-files/docker-compose.yaml"},
+            {"filename": "deployment-files/ha/scripts/install.sh"},
+        ]
+
+        self.assertEqual(
+            policy.denied_paths(
+                files, low_risk["deny_paths"], low_risk["deny_path_exceptions"]
+            ),
+            [
+                "deployment-files/docker-compose.yaml",
+                "deployment-files/ha/scripts/install.sh",
+            ],
+        )
 
     def test_low_risk_config_keeps_sensitive_server_paths_denied(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
@@ -247,10 +458,14 @@ class ReviewPolicyTest(unittest.TestCase):
 
     def test_classifier_rejects_embedded_json(self):
         with self.assertRaisesRegex(policy.PolicyError, "exactly one JSON object"):
-            policy.load_classifier('warning\n{"risk":"low","confidence":0.9,"requires_human_review":false,"reasons":[]}')
+            policy.load_classifier(
+                'warning\n{"risk":"low","confidence":0.9,"requires_human_review":false,"reasons":[]}'
+            )
 
     def test_classifier_rejects_non_finite_confidence(self):
-        classifier = policy.load_classifier('{"risk":"low","confidence":NaN,"requires_human_review":false,"reasons":[]}')
+        classifier = policy.load_classifier(
+            '{"risk":"low","confidence":NaN,"requires_human_review":false,"reasons":[]}'
+        )
         allowed, reasons = policy.classifier_allows_low_risk(classifier, 0.85)
         self.assertFalse(allowed)
         self.assertIn("AI classifier confidence must be a finite number", reasons)
@@ -288,24 +503,104 @@ class ReviewPolicyTest(unittest.TestCase):
             },
         )
 
-        self.assertIn("client/src/foo.ts has 81 changed lines, exceeds per-file limit 80", blockers)
-        self.assertIn("client/src/foo.ts adds blocked content: adds process execution or shell-out code", blockers)
-        self.assertIn("client/src/opaque.bin diff content is unavailable for deterministic content checks", blockers)
+        self.assertIn(
+            "client/src/foo.ts has 81 changed lines, exceeds per-file limit 80",
+            blockers,
+        )
+        self.assertIn(
+            "client/src/foo.ts adds blocked content: adds process execution or shell-out code",
+            blockers,
+        )
+        self.assertIn(
+            "client/src/opaque.bin diff content is unavailable for deterministic content checks",
+            blockers,
+        )
         self.assertEqual(len(blockers), 3)
+
+    def test_deterministic_content_blockers_allows_larger_test_files(self):
+        files = [
+            {
+                "filename": "server/internal/domain/alerts/grafana_client.go",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+const safe = true",
+            },
+            {
+                "filename": "server/internal/domain/alerts/grafana_client_test.go",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+func TestSafe(t *testing.T) {}",
+            },
+            {
+                "filename": "test/helpers/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "tests/helpers/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "__tests__/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+            {
+                "filename": "e2etests/policy_fixture.ts",
+                "additions": 95,
+                "deletions": 0,
+                "patch": "@@\n+export const fixture = true;",
+            },
+        ]
+
+        blockers = policy.deterministic_content_blockers(
+            files,
+            {
+                "max_file_changes": 80,
+                "max_test_file_changes": 120,
+                "content_deny_added_patterns": [],
+            },
+        )
+
+        self.assertEqual(
+            blockers,
+            [
+                "server/internal/domain/alerts/grafana_client.go has 95 changed lines, exceeds per-file limit 80"
+            ],
+        )
 
     def test_low_risk_preflight_blocks_before_classifier(self):
         original_paginate = policy.github_paginate
         original_request = policy.github_request
         original_trusted_author_reasons = policy.trusted_author_reasons
         try:
+
             def fake_paginate(path, token):
                 if path.endswith("/files"):
                     return [
-                        {"filename": ".github/workflows/review-policy.yml", "additions": 2, "deletions": 1},
-                        {"filename": "docs/readme.md", "additions": 300, "deletions": 0},
+                        {
+                            "filename": ".github/workflows/review-policy.yml",
+                            "additions": 2,
+                            "deletions": 1,
+                        },
+                        {
+                            "filename": "docs/readme.md",
+                            "additions": 300,
+                            "deletions": 0,
+                        },
                     ]
                 if path.endswith("/commits"):
-                    return [{"sha": "abc123", "author": {"login": "author"}, "committer": {"login": "author"}}]
+                    return [
+                        {
+                            "sha": "abc123",
+                            "author": {"login": "author"},
+                            "committer": {"login": "author"},
+                        }
+                    ]
                 if path.endswith("/commits/abc123/pulls"):
                     return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
                 return []
@@ -315,9 +610,11 @@ class ReviewPolicyTest(unittest.TestCase):
                 "state": "open",
                 "head": {"sha": "abc123"},
             }
-            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
-                False,
-                [f"author @{author} is not in trusted_authors"],
+            policy.trusted_author_reasons = (
+                lambda author, trusted_authors, owner, token: (
+                    False,
+                    [f"author @{author} is not in trusted_authors"],
+                )
             )
             result = policy.evaluate_low_risk_preflight(
                 config={
@@ -343,7 +640,10 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertFalse(result["eligible"])
         self.assertIn("author @author is not in trusted_authors", result["blockers"])
         self.assertIn("303 changed lines exceeds limit 200", result["blockers"])
-        self.assertIn("denied paths changed: .github/workflows/review-policy.yml", result["blockers"])
+        self.assertIn(
+            "denied paths changed: .github/workflows/review-policy.yml",
+            result["blockers"],
+        )
 
     def test_shared_head_pr_blockers_fail_closed_for_multiple_open_prs(self):
         original = policy.github_paginate
@@ -353,27 +653,39 @@ class ReviewPolicyTest(unittest.TestCase):
                 {"number": 456, "state": "open", "head": {"sha": "abc123"}},
                 {"number": 789, "state": "closed", "head": {"sha": "abc123"}},
             ]
-            blockers = policy.shared_head_pr_blockers("block", "proto-fleet", 123, "abc123", "token")
+            blockers = policy.shared_head_pr_blockers(
+                "block", "proto-fleet", 123, "abc123", "token"
+            )
         finally:
             policy.github_paginate = original
 
-        self.assertEqual(blockers, ["current head SHA is shared by multiple open PRs: #123, #456"])
+        self.assertEqual(
+            blockers, ["current head SHA is shared by multiple open PRs: #123, #456"]
+        )
 
     def test_trusted_author_reasons_accepts_team_membership(self):
         original = policy.is_team_member
         try:
             policy.is_team_member = lambda owner, team_slug, username, token: (
-                owner == "block" and team_slug == "proto-fleet-dev" and username == "member"
+                owner == "block"
+                and team_slug == "proto-fleet-dev"
+                and username == "member"
             )
-            trusted, reasons = policy.trusted_author_reasons("member", ["@block/proto-fleet-dev"], "block", "token")
+            trusted, reasons = policy.trusted_author_reasons(
+                "member", ["@block/proto-fleet-dev"], "block", "token"
+            )
         finally:
             policy.is_team_member = original
 
         self.assertTrue(trusted)
-        self.assertEqual(reasons, ["author @member is a member of @block/proto-fleet-dev"])
+        self.assertEqual(
+            reasons, ["author @member is a member of @block/proto-fleet-dev"]
+        )
 
     def test_trusted_author_reasons_accepts_case_insensitive_login(self):
-        trusted, reasons = policy.trusted_author_reasons("AnkitGoswami", ["ankitgoswami"], "block", "token")
+        trusted, reasons = policy.trusted_author_reasons(
+            "AnkitGoswami", ["ankitgoswami"], "block", "token"
+        )
 
         self.assertTrue(trusted)
         self.assertEqual(reasons, ["author @AnkitGoswami is explicitly trusted"])
@@ -381,13 +693,21 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_trusted_head_contributor_reasons_blocks_untrusted_committers(self):
         original = policy.trusted_author_reasons
         try:
-            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
-                author == "trusted",
-                [f"author @{author} is explicitly trusted"] if author == "trusted" else [f"author @{author} is not in trusted_authors"],
+            policy.trusted_author_reasons = (
+                lambda author, trusted_authors, owner, token: (
+                    author == "trusted",
+                    [f"author @{author} is explicitly trusted"]
+                    if author == "trusted"
+                    else [f"author @{author} is not in trusted_authors"],
+                )
             )
             ok, reasons, blockers = policy.trusted_head_contributor_reasons(
                 [
-                    {"sha": "abc123", "author": {"login": "trusted"}, "committer": {"login": "untrusted"}},
+                    {
+                        "sha": "abc123",
+                        "author": {"login": "trusted"},
+                        "committer": {"login": "untrusted"},
+                    },
                     {"sha": "def456", "author": None, "committer": None},
                 ],
                 ["trusted"],
@@ -400,7 +720,10 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(reasons, ["head contributor @trusted is trusted"])
         self.assertIn("head contributor @untrusted is not in trusted_authors", blockers)
-        self.assertIn("current head has commits without GitHub-linked authors or committers: def456", blockers)
+        self.assertIn(
+            "current head has commits without GitHub-linked authors or committers: def456",
+            blockers,
+        )
 
     def test_trusted_workflow_actor_reasons_requires_trusted_authenticated_actor(self):
         original_workflow_runs = policy.latest_workflow_runs
@@ -409,16 +732,21 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
                 ".github/workflows/pr-gate.yml": {"actor": {"login": "untrusted"}},
             }
-            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
-                author == "trusted",
-                [f"author @{author} trust checked"],
+            policy.trusted_author_reasons = (
+                lambda author, trusted_authors, owner, token: (
+                    author == "trusted",
+                    [f"author @{author} trust checked"],
+                )
             )
             ok, reasons, blockers = policy.trusted_workflow_actor_reasons(
                 "block",
                 "proto-fleet",
                 "abc123",
                 ["trusted"],
-                {"workflow_path": ".github/workflows/pr-gate.yml", "event": "pull_request"},
+                {
+                    "workflow_path": ".github/workflows/pr-gate.yml",
+                    "event": "pull_request",
+                },
                 "token",
             )
         finally:
@@ -427,14 +755,27 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertEqual(reasons, [])
-        self.assertEqual(blockers, ["authenticated workflow actor @untrusted is not in trusted_authors"])
+        self.assertEqual(
+            blockers,
+            ["authenticated workflow actor @untrusted is not in trusted_authors"],
+        )
 
     def test_latest_check_runs_tie_breaks_on_id(self):
         original = policy.github_paginate_key
         try:
             policy.github_paginate_key = lambda path, token, key: [
-                {"name": "Gate", "started_at": "2026-01-01T00:00:00Z", "id": 1, "conclusion": "failure"},
-                {"name": "Gate", "started_at": "2026-01-01T00:00:00Z", "id": 2, "conclusion": "success"},
+                {
+                    "name": "Gate",
+                    "started_at": "2026-01-01T00:00:00Z",
+                    "id": 1,
+                    "conclusion": "failure",
+                },
+                {
+                    "name": "Gate",
+                    "started_at": "2026-01-01T00:00:00Z",
+                    "id": 2,
+                    "conclusion": "success",
+                },
             ]
             latest = policy.latest_check_runs("block", "proto-fleet", "abc123", "token")
         finally:
@@ -506,7 +847,11 @@ class ReviewPolicyTest(unittest.TestCase):
         original_statuses = policy.latest_commit_statuses
         try:
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {
-                "DCO Check": {"status": "completed", "conclusion": "success", "app": {"slug": "block-dco-check"}},
+                "DCO Check": {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "app": {"slug": "block-dco-check"},
+                },
             }
             policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {
                 "Legacy": {"state": "success", "creator": {"login": "trusted-bot"}},
@@ -517,9 +862,21 @@ class ReviewPolicyTest(unittest.TestCase):
                 "proto-fleet",
                 "abc123",
                 [
-                    {"name": "DCO Check", "type": "check_run", "app_slug": "block-dco-check"},
-                    {"name": "Legacy", "type": "commit_status", "creator": "trusted-bot"},
-                    {"name": "External", "type": "commit_status", "creator": "external-ci"},
+                    {
+                        "name": "DCO Check",
+                        "type": "check_run",
+                        "app_slug": "block-dco-check",
+                    },
+                    {
+                        "name": "Legacy",
+                        "type": "commit_status",
+                        "creator": "trusted-bot",
+                    },
+                    {
+                        "name": "External",
+                        "type": "commit_status",
+                        "creator": "external-ci",
+                    },
                 ],
                 "token",
             )
@@ -610,7 +967,10 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.latest_workflow_runs = original_workflow_runs
 
         self.assertFalse(ok)
-        self.assertIn("required workflow 'PR Gate' name is 'Attacker Gate', expected 'PR Gate'", blockers)
+        self.assertIn(
+            "required workflow 'PR Gate' name is 'Attacker Gate', expected 'PR Gate'",
+            blockers,
+        )
 
     def test_latest_workflow_runs_tie_breaks_on_id(self):
         original = policy.github_paginate_key
@@ -641,7 +1001,9 @@ class ReviewPolicyTest(unittest.TestCase):
                     "conclusion": "success",
                 },
             ]
-            latest = policy.latest_workflow_runs("block", "proto-fleet", "abc123", "pull_request", "token")
+            latest = policy.latest_workflow_runs(
+                "block", "proto-fleet", "abc123", "pull_request", "token"
+            )
         finally:
             policy.github_paginate_key = original
 
@@ -652,7 +1014,11 @@ class ReviewPolicyTest(unittest.TestCase):
         original_statuses = policy.latest_commit_statuses
         try:
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {
-                "DCO Check": {"status": "completed", "conclusion": "success", "app": {"slug": "block-dco-check"}},
+                "DCO Check": {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "app": {"slug": "block-dco-check"},
+                },
             }
             policy.latest_commit_statuses = lambda owner, repo, head_sha, token: {
                 "Legacy": {"state": "success", "creator": {"login": "trusted-bot"}},
@@ -664,7 +1030,11 @@ class ReviewPolicyTest(unittest.TestCase):
                 [
                     "Gate",
                     {"name": "DCO Check", "type": "check_run"},
-                    {"name": "security-review", "type": "github_actions", "event": "pull_request"},
+                    {
+                        "name": "security-review",
+                        "type": "github_actions",
+                        "event": "pull_request",
+                    },
                     {
                         "name": "PR Gate",
                         "type": "github_actions_workflow",
@@ -680,8 +1050,13 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("required check 'Gate' uses legacy unvalidated config", blockers)
-        self.assertIn("required check 'DCO Check' is missing trusted app_slug", blockers)
-        self.assertIn("required check 'security-review' is missing trusted workflow_path", blockers)
+        self.assertIn(
+            "required check 'DCO Check' is missing trusted app_slug", blockers
+        )
+        self.assertIn(
+            "required check 'security-review' is missing trusted workflow_path",
+            blockers,
+        )
         self.assertIn("required workflow 'PR Gate' is missing trusted event", blockers)
         self.assertIn("required status 'Legacy' is missing trusted creator", blockers)
 
@@ -689,10 +1064,22 @@ class ReviewPolicyTest(unittest.TestCase):
         original = policy.github_paginate
         try:
             policy.github_paginate = lambda path, token: [
-                {"context": "DCO Check", "created_at": "2026-01-01T00:00:00Z", "id": 1, "state": "failure"},
-                {"context": "DCO Check", "created_at": "2026-01-01T00:00:00Z", "id": 2, "state": "success"},
+                {
+                    "context": "DCO Check",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "id": 1,
+                    "state": "failure",
+                },
+                {
+                    "context": "DCO Check",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "id": 2,
+                    "state": "success",
+                },
             ]
-            latest = policy.latest_commit_statuses("block", "proto-fleet", "abc123", "token")
+            latest = policy.latest_commit_statuses(
+                "block", "proto-fleet", "abc123", "token"
+            )
         finally:
             policy.github_paginate = original
 
@@ -700,10 +1087,14 @@ class ReviewPolicyTest(unittest.TestCase):
 
     def test_extract_run_id(self):
         self.assertEqual(
-            policy.extract_run_id("https://github.com/block/proto-fleet/actions/runs/123/job/456"),
+            policy.extract_run_id(
+                "https://github.com/block/proto-fleet/actions/runs/123/job/456"
+            ),
             "123",
         )
-        self.assertIsNone(policy.extract_run_id("https://github.com/block/proto-fleet/runs/123"))
+        self.assertIsNone(
+            policy.extract_run_id("https://github.com/block/proto-fleet/runs/123")
+        )
 
     def test_extract_security_risk_validates_workflow_run_identity(self):
         original_paginate_key = policy.github_paginate_key
@@ -713,14 +1104,17 @@ class ReviewPolicyTest(unittest.TestCase):
         with zipfile.ZipFile(archive_bytes, "w") as archive:
             archive.writestr(
                 "codex-security-review-result.json",
-                json.dumps({
-                    "head_sha": "abc123",
-                    "commit_range": "base123...abc123",
-                    "run_id": "123",
-                    "overall_risk": "LOW",
-                }),
+                json.dumps(
+                    {
+                        "head_sha": "abc123",
+                        "commit_range": "base123...abc123",
+                        "run_id": "123",
+                        "overall_risk": "LOW",
+                    }
+                ),
             )
         try:
+
             def fake_paginate_key(path, token, key):
                 if "/commits/" in path:
                     return [
@@ -731,7 +1125,13 @@ class ReviewPolicyTest(unittest.TestCase):
                         }
                     ]
                 if "/actions/runs/123/artifacts" in path:
-                    return [{"id": 999, "name": "codex-security-review-result", "expired": False}]
+                    return [
+                        {
+                            "id": 999,
+                            "name": "codex-security-review-result",
+                            "expired": False,
+                        }
+                    ]
                 return []
 
             policy.github_paginate_key = fake_paginate_key
@@ -767,14 +1167,17 @@ class ReviewPolicyTest(unittest.TestCase):
         with zipfile.ZipFile(archive_bytes, "w") as archive:
             archive.writestr(
                 "codex-security-review-result.json",
-                json.dumps({
-                    "head_sha": "abc123",
-                    "commit_range": "oldbase...abc123",
-                    "run_id": "123",
-                    "overall_risk": "LOW",
-                }),
+                json.dumps(
+                    {
+                        "head_sha": "abc123",
+                        "commit_range": "oldbase...abc123",
+                        "run_id": "123",
+                        "overall_risk": "LOW",
+                    }
+                ),
             )
         try:
+
             def fake_paginate_key(path, token, key):
                 if "/commits/" in path:
                     return [
@@ -785,7 +1188,13 @@ class ReviewPolicyTest(unittest.TestCase):
                         }
                     ]
                 if "/actions/runs/123/artifacts" in path:
-                    return [{"id": 999, "name": "codex-security-review-result", "expired": False}]
+                    return [
+                        {
+                            "id": 999,
+                            "name": "codex-security-review-result",
+                            "expired": False,
+                        }
+                    ]
                 return []
 
             policy.github_paginate_key = fake_paginate_key
@@ -811,7 +1220,10 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.github_download = original_download
 
         self.assertIsNone(risk)
-        self.assertIn("Codex security-review result artifact is stale for this PR base/head range", blockers)
+        self.assertIn(
+            "Codex security-review result artifact is stale for this PR base/head range",
+            blockers,
+        )
 
     def test_extract_security_risk_rejects_non_string_risk(self):
         original_paginate_key = policy.github_paginate_key
@@ -821,14 +1233,17 @@ class ReviewPolicyTest(unittest.TestCase):
         with zipfile.ZipFile(archive_bytes, "w") as archive:
             archive.writestr(
                 "codex-security-review-result.json",
-                json.dumps({
-                    "head_sha": "abc123",
-                    "commit_range": "base123...abc123",
-                    "run_id": "123",
-                    "overall_risk": None,
-                }),
+                json.dumps(
+                    {
+                        "head_sha": "abc123",
+                        "commit_range": "base123...abc123",
+                        "run_id": "123",
+                        "overall_risk": None,
+                    }
+                ),
             )
         try:
+
             def fake_paginate_key(path, token, key):
                 if "/commits/" in path:
                     return [
@@ -839,7 +1254,13 @@ class ReviewPolicyTest(unittest.TestCase):
                         }
                     ]
                 if "/actions/runs/123/artifacts" in path:
-                    return [{"id": 999, "name": "codex-security-review-result", "expired": False}]
+                    return [
+                        {
+                            "id": 999,
+                            "name": "codex-security-review-result",
+                            "expired": False,
+                        }
+                    ]
                 return []
 
             policy.github_paginate_key = fake_paginate_key
@@ -865,12 +1286,16 @@ class ReviewPolicyTest(unittest.TestCase):
             policy.github_download = original_download
 
         self.assertIsNone(risk)
-        self.assertIn("Codex security-review result artifact is missing or invalid overall_risk", blockers)
+        self.assertIn(
+            "Codex security-review result artifact is missing or invalid overall_risk",
+            blockers,
+        )
 
     def test_extract_security_risk_rejects_forged_workflow_run(self):
         original_paginate_key = policy.github_paginate_key
         original_request = policy.github_request
         try:
+
             def fake_paginate_key(path, token, key):
                 if "/commits/" in path:
                     return [
@@ -917,6 +1342,7 @@ class ReviewPolicyTest(unittest.TestCase):
         original_latest_check_runs = policy.latest_check_runs
         original_workflow_runs = policy.latest_workflow_runs
         try:
+
             def fake_paginate(path, token):
                 if path.endswith("/commits/abc123/pulls"):
                     return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
@@ -930,7 +1356,13 @@ class ReviewPolicyTest(unittest.TestCase):
                         }
                     ]
                 if path.endswith("/commits"):
-                    return [{"sha": "abc123", "author": {"login": "author"}, "committer": {"login": "author"}}]
+                    return [
+                        {
+                            "sha": "abc123",
+                            "author": {"login": "author"},
+                            "committer": {"login": "author"},
+                        }
+                    ]
                 if path.endswith("/reviews"):
                     return []
                 return []
@@ -941,14 +1373,23 @@ class ReviewPolicyTest(unittest.TestCase):
                 "head": {"sha": "abc123"},
                 "base": {"sha": "base123"},
             }
-            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
-                True,
-                [f"author @{author} is explicitly trusted"],
+            policy.trusted_author_reasons = (
+                lambda author, trusted_authors, owner, token: (
+                    True,
+                    [f"author @{author} is explicitly trusted"],
+                )
             )
-            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (True, [])
-            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
-                "LOW",
-                [],
+            policy.check_statuses = (
+                lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (
+                    True,
+                    [],
+                )
+            )
+            policy.extract_security_risk = (
+                lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
+                    "LOW",
+                    [],
+                )
             )
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
@@ -1008,6 +1449,7 @@ class ReviewPolicyTest(unittest.TestCase):
         original_latest_check_runs = policy.latest_check_runs
         original_workflow_runs = policy.latest_workflow_runs
         try:
+
             def fake_paginate(path, token):
                 if path.endswith("/commits/abc123/pulls"):
                     return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
@@ -1021,7 +1463,13 @@ class ReviewPolicyTest(unittest.TestCase):
                         }
                     ]
                 if path.endswith("/commits"):
-                    return [{"sha": "abc123", "author": {"login": "author"}, "committer": {"login": "author"}}]
+                    return [
+                        {
+                            "sha": "abc123",
+                            "author": {"login": "author"},
+                            "committer": {"login": "author"},
+                        }
+                    ]
                 if path.endswith("/reviews"):
                     return [
                         {
@@ -1040,14 +1488,23 @@ class ReviewPolicyTest(unittest.TestCase):
                 "base": {"sha": "base123"},
             }
             policy.reviewer_has_authority = lambda owner, repo, username, token: True
-            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
-                True,
-                [f"author @{author} is explicitly trusted"],
+            policy.trusted_author_reasons = (
+                lambda author, trusted_authors, owner, token: (
+                    True,
+                    [f"author @{author} is explicitly trusted"],
+                )
             )
-            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (True, [])
-            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
-                "LOW",
-                [],
+            policy.check_statuses = (
+                lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (
+                    True,
+                    [],
+                )
+            )
+            policy.extract_security_risk = (
+                lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
+                    "LOW",
+                    [],
+                )
             )
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
@@ -1096,7 +1553,9 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertTrue(result.passed)
         self.assertEqual(result.decision, "trusted-author-low-risk")
-        self.assertIn("current authorized human approvals: reviewer", result.human_review_reasons)
+        self.assertIn(
+            "current authorized human approvals: reviewer", result.human_review_reasons
+        )
 
     def test_evaluate_policy_blocks_human_approval_with_unknown_commit_identity(self):
         original_paginate = policy.github_paginate
@@ -1108,11 +1567,19 @@ class ReviewPolicyTest(unittest.TestCase):
         original_latest_check_runs = policy.latest_check_runs
         original_workflow_runs = policy.latest_workflow_runs
         try:
+
             def fake_paginate(path, token):
                 if path.endswith("/commits/abc123/pulls"):
                     return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
                 if path.endswith("/files"):
-                    return [{"filename": "client/src/foo.ts", "additions": 1, "deletions": 0, "patch": "@@\n+const x = 1"}]
+                    return [
+                        {
+                            "filename": "client/src/foo.ts",
+                            "additions": 1,
+                            "deletions": 0,
+                            "patch": "@@\n+const x = 1",
+                        }
+                    ]
                 if path.endswith("/commits"):
                     return [{"sha": "def456", "author": None, "committer": None}]
                 if path.endswith("/reviews"):
@@ -1134,14 +1601,23 @@ class ReviewPolicyTest(unittest.TestCase):
                 "base": {"sha": "base123"},
             }
             policy.reviewer_has_authority = lambda owner, repo, username, token: True
-            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
-                True,
-                [f"author @{author} is explicitly trusted"],
+            policy.trusted_author_reasons = (
+                lambda author, trusted_authors, owner, token: (
+                    True,
+                    [f"author @{author} is explicitly trusted"],
+                )
             )
-            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (True, [])
-            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
-                "LOW",
-                [],
+            policy.check_statuses = (
+                lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (
+                    True,
+                    [],
+                )
+            )
+            policy.extract_security_risk = (
+                lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
+                    "LOW",
+                    [],
+                )
             )
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
@@ -1190,7 +1666,10 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertFalse(result.passed)
         self.assertEqual(result.decision, "needs-human-review")
-        self.assertIn("current head has commits without GitHub-linked authors or committers: def456", result.reasons)
+        self.assertIn(
+            "current head has commits without GitHub-linked authors or committers: def456",
+            result.reasons,
+        )
 
     def test_evaluate_policy_blocks_stale_pr_head(self):
         original_request = policy.github_request
@@ -1233,7 +1712,9 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertFalse(result.passed)
         self.assertEqual(result.decision, "needs-human-review")
-        self.assertEqual(result.reasons, ["pull request #123 head is newhead, expected abc123"])
+        self.assertEqual(
+            result.reasons, ["pull request #123 head is newhead, expected abc123"]
+        )
 
     def test_evaluate_policy_ignores_authenticated_actor_approval(self):
         original_paginate = policy.github_paginate
@@ -1245,13 +1726,27 @@ class ReviewPolicyTest(unittest.TestCase):
         original_latest_check_runs = policy.latest_check_runs
         original_workflow_runs = policy.latest_workflow_runs
         try:
+
             def fake_paginate(path, token):
                 if path.endswith("/commits/abc123/pulls"):
                     return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
                 if path.endswith("/files"):
-                    return [{"filename": "client/src/foo.ts", "additions": 1, "deletions": 0, "patch": "@@\n+const x = 1"}]
+                    return [
+                        {
+                            "filename": "client/src/foo.ts",
+                            "additions": 1,
+                            "deletions": 0,
+                            "patch": "@@\n+const x = 1",
+                        }
+                    ]
                 if path.endswith("/commits"):
-                    return [{"sha": "abc123", "author": {"login": "author"}, "committer": {"login": "author"}}]
+                    return [
+                        {
+                            "sha": "abc123",
+                            "author": {"login": "author"},
+                            "committer": {"login": "author"},
+                        }
+                    ]
                 if path.endswith("/reviews"):
                     return [
                         {
@@ -1271,14 +1766,23 @@ class ReviewPolicyTest(unittest.TestCase):
                 "base": {"sha": "base123"},
             }
             policy.reviewer_has_authority = lambda owner, repo, username, token: True
-            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
-                True,
-                [f"author @{author} is explicitly trusted"],
+            policy.trusted_author_reasons = (
+                lambda author, trusted_authors, owner, token: (
+                    True,
+                    [f"author @{author} is explicitly trusted"],
+                )
             )
-            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (True, [])
-            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
-                "LOW",
-                [],
+            policy.check_statuses = (
+                lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (
+                    True,
+                    [],
+                )
+            )
+            policy.extract_security_risk = (
+                lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
+                    "LOW",
+                    [],
+                )
             )
             policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
             policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
@@ -1328,12 +1832,17 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.decision, "needs-human-review")
         self.assertIn("0 current human approval(s), need 1", result.reasons)
-        self.assertIn("ignored approvals from PR contributors: pusher", result.human_review_reasons)
+        self.assertIn(
+            "ignored approvals from PR contributors: pusher",
+            result.human_review_reasons,
+        )
 
     def test_human_review_state_ignores_unauthorized_approvals(self):
         original = policy.reviewer_has_authority
         try:
-            policy.reviewer_has_authority = lambda owner, repo, username, token: username == "member"
+            policy.reviewer_has_authority = lambda owner, repo, username, token: (
+                username == "member"
+            )
             reviews = [
                 {
                     "user": {"login": "outsider", "type": "User"},
@@ -1436,6 +1945,7 @@ class ReviewPolicyTest(unittest.TestCase):
         original = policy.reviewer_has_authority
         calls = []
         try:
+
             def fake_reviewer_has_authority(owner, repo, username, token):
                 calls.append(username)
                 return True
@@ -1498,11 +2008,27 @@ class ReviewPolicyTest(unittest.TestCase):
                     "submitted_at": "2026-01-01T00:00:01Z",
                 },
             ]
-            approved_ok, _approved_reasons, approved_blockers = policy.human_review_state(
-                approved_reviews, "abc123", "author", 1, "block", "proto-fleet", "token"
+            approved_ok, _approved_reasons, approved_blockers = (
+                policy.human_review_state(
+                    approved_reviews,
+                    "abc123",
+                    "author",
+                    1,
+                    "block",
+                    "proto-fleet",
+                    "token",
+                )
             )
-            dismissed_ok, _dismissed_reasons, dismissed_blockers = policy.human_review_state(
-                dismissed_reviews, "abc123", "author", 1, "block", "proto-fleet", "token"
+            dismissed_ok, _dismissed_reasons, dismissed_blockers = (
+                policy.human_review_state(
+                    dismissed_reviews,
+                    "abc123",
+                    "author",
+                    1,
+                    "block",
+                    "proto-fleet",
+                    "token",
+                )
             )
         finally:
             policy.reviewer_has_authority = original

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
@@ -169,6 +170,19 @@ func serveFleetRuntime(
 	}
 }
 
+// stopRuntimeJobGroupAfterRun avoids repeating cleanup already completed by a fatal HA abort.
+func stopRuntimeJobGroupAfterRun(
+	runErr error,
+	group runtimeJobGroupStopper,
+	commandExecution runtimejobs.Lifecycle,
+	timeout time.Duration,
+) {
+	if errors.Is(runErr, ha.ErrRuntimeAborted) {
+		return
+	}
+	stopRuntimeJobGroup(group, commandExecution, timeout)
+}
+
 // stopRuntimeJobGroup gives the group one graceful-shutdown budget. Command
 // execution receives a final independent budget because its activation is
 // detached from group cancellation to preserve shutdown ordering.
@@ -199,9 +213,11 @@ type runtimeJobLifecycles struct {
 	curtailmentReconciler     runtimejobs.Lifecycle
 	channelEnforcement        runtimejobs.Lifecycle
 	curtailmentMQTTSubscriber runtimejobs.Lifecycle
+	curtailmentRigConfig      runtimejobs.Lifecycle
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
+	releaseChecker            runtimejobs.Lifecycle
 }
 
 func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) {
@@ -233,6 +249,7 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
 		{name: "channel-enforcement", lifecycle: lifecycles.channelEnforcement},
 		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
+		{name: "curtailment-rig-config", lifecycle: lifecycles.curtailmentRigConfig},
 	}
 	for _, job := range required {
 		if err := add(job.name, job.lifecycle); err != nil {
@@ -249,6 +266,11 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 	}
 	if lifecycles.systemMonitoring != nil {
 		if err := add("system-monitoring", lifecycles.systemMonitoring); err != nil {
+			return nil, err
+		}
+	}
+	if lifecycles.releaseChecker != nil {
+		if err := add("release-checker", lifecycles.releaseChecker); err != nil {
 			return nil, err
 		}
 	}

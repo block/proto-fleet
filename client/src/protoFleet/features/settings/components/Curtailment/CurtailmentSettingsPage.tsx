@@ -2,6 +2,7 @@ import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo,
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
+import { getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -42,7 +43,7 @@ import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
+import Callout, { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Card, { cardType } from "@/shared/components/Card";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -61,6 +62,8 @@ const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
 const RESPONSE_PROFILES_DESCRIPTION = "Saved configurations that define how much power to shed and how to restore it.";
 const SOURCES_DESCRIPTION = "MaestroOS MQTT brokers that publish curtailment signals.";
+const PROTO_RIG_FALLBACK_DESCRIPTION =
+  "Proto rigs can use compatible TCP MaestroOS sources as a local fallback. Fleet also sends commands to all targeted miners, confirms curtailment, tracks progress, and restores them.";
 const SOURCE_CONNECTION_FAILURE_MESSAGE =
   "We couldn't connect with your source. Review your source details and try again.";
 const MAX_BROKER_PORT = 65_535;
@@ -238,33 +241,10 @@ function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): s
 }
 
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
-  if (values.minerSelectionMode === "all") {
-    return getResponseProfileScopeLabelForActionType(values.actionType);
-  }
-
-  const siteIds = getSelectedResponseProfileSiteIds(values);
-  if (values.siteSelection === "allSites") {
-    return "All sites";
-  }
-
-  const minerCount = values.deviceIdentifiers.length;
-  const siteSummary =
-    siteIds.length === 1
-      ? getResponseProfileSiteNameForId(values, siteIds[0]) || `Site ${siteIds[0]}`
-      : `${siteIds.length} sites`;
-  if (values.siteSelection === "site" && siteIds.length > 0 && minerCount > 0) {
-    return `${siteSummary} + ${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
-  }
-
-  if (values.siteSelection === "site" && siteIds.length > 0) {
-    return siteSummary;
-  }
-
-  if (minerCount > 0) {
-    return `${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
-  }
-
-  return getResponseProfileScopeLabelForActionType(values.actionType);
+  return getCurtailmentScopeSummary(values, {
+    fallbackLabel: getResponseProfileScopeLabelForActionType(values.actionType),
+    getSiteLabel: (siteId) => getResponseProfileSiteNameForId(values, siteId),
+  });
 }
 
 function uniqueNonEmptyStrings(values: readonly string[]): string[] {
@@ -830,7 +810,9 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
+          ariaLabel={profile.isReadOnly ? "Editing topology-scoped profiles is not available yet" : "Edit"}
           className="!h-8 !px-3 !py-0"
+          disabled={profile.isReadOnly}
           onClick={() => onEdit(profile)}
           testId={`response-profile-edit-${profile.id}`}
         />
@@ -1659,7 +1641,17 @@ export function CurtailmentSettingsContent({
 
   return (
     <div className="flex flex-col gap-14" data-testid="settings-curtailment-page">
-      <SettingsPageHeader title="Curtailment" description={CURTAILMENT_PAGE_DESCRIPTION} />
+      <div className="flex flex-col gap-6">
+        <SettingsPageHeader title="Curtailment" description={CURTAILMENT_PAGE_DESCRIPTION} />
+
+        <Callout
+          intent={intents.information}
+          prefixIcon={<Info width={iconSizes.medium} />}
+          subtitle={PROTO_RIG_FALLBACK_DESCRIPTION}
+          testId="proto-rig-curtailment-fallback-notice"
+          title="Proto rig fallback"
+        />
+      </div>
 
       <section className="curtailment-settings__section">
         <SectionHeader

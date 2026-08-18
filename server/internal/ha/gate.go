@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 )
 
 var ErrNotActive = errors.New("Fleet is not active")
@@ -46,17 +48,21 @@ func (g *Gate) Admit(ctx context.Context) (context.Context, func(), error) {
 	active.admissions++
 	g.mu.Unlock()
 
-	requestCtx, cancel := context.WithCancel(ctx)
-	stop := context.AfterFunc(active.ctx, cancel)
+	activeOnlyCtx, cancelActiveOnly := context.WithCancel(active.ctx)
+	requestCtx, cancelRequest := context.WithCancel(
+		admissionctx.WithActiveLifetime(ctx, activeOnlyCtx),
+	)
+	stopRequest := context.AfterFunc(activeOnlyCtx, cancelRequest)
 	var releaseOnce sync.Once
 	release := func() {
 		releaseOnce.Do(func() {
-			stop()
-			cancel()
+			stopRequest()
+			cancelRequest()
+			cancelActiveOnly()
 			g.release(active)
 		})
 	}
-	if active.ctx.Err() != nil {
+	if activeOnlyCtx.Err() != nil {
 		release()
 		return nil, nil, ErrNotActive
 	}

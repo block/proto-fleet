@@ -47,6 +47,16 @@ export class HomePage extends BasePage {
     await this.clickButton("Authenticate");
   }
 
+  async dismissCompleteSetupIfVisible() {
+    const dismissButton = this.page.getByRole("button", { name: "Dismiss complete setup", exact: true });
+    if (!(await dismissButton.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await dismissButton.click();
+    await expect(dismissButton).toBeHidden();
+  }
+
   async validateAuthenticateMinersModalTitle() {
     await this.validateTitleInModal("Authenticate miners");
   }

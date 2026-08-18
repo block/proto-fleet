@@ -100,6 +100,17 @@ func (s *SQLBuildingStore) ListBuildings(ctx context.Context, filter models.List
 	return out, nil
 }
 
+func (s *SQLBuildingStore) ListBuildingNamesBySite(ctx context.Context, orgID, siteID int64) ([]string, error) {
+	names, err := s.GetQueries(ctx).ListBuildingNamesBySite(ctx, sqlc.ListBuildingNamesBySiteParams{
+		OrgID:  orgID,
+		SiteID: sql.NullInt64{Int64: siteID, Valid: true},
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list building names: %v", err)
+	}
+	return names, nil
+}
+
 func (s *SQLBuildingStore) UpdateBuilding(ctx context.Context, params models.UpdateParams) (*models.Building, error) {
 	if err := s.GetQueries(ctx).UpdateBuilding(ctx, sqlc.UpdateBuildingParams{
 		Name:                  params.Name,

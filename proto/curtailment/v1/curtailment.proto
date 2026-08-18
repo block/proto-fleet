@@ -237,32 +237,36 @@ enum CurtailmentTargetPhase {
 // ScopeWholeOrg selects every miner in the caller organization.
 message ScopeWholeOrg {}
 
-// ScopeDeviceSets selects miners in device sets.
-message ScopeDeviceSets {
-    repeated string device_set_ids = 1 [(buf.validate.field).repeated = {
-        min_items: 1
-        items: { string: { min_len: 1 } }
-    }];
+// ScopeBuilding selects miners assigned directly to a building or to one of
+// its racks.
+message ScopeBuilding {
+    int64 building_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
 // ScopeDeviceList selects explicit device identifiers.
 message ScopeDeviceList {
     repeated string device_identifiers = 1 [(buf.validate.field).repeated = {
         min_items: 1
+        max_items: 10000
         items: { string: { min_len: 1 } }
     }];
 }
 
-// CurtailmentScope is a composable selector. Multiple entries are unioned by
-// the backend and deduplicated before command dispatch.
+// CurtailmentScope is a terminal selector. Repeated entries may select multiple
+// values of the same terminal type; mixing selector cases is invalid.
 message CurtailmentScope {
+    reserved 2;
+    reserved "device_set_ids";
+
     oneof scope {
         option (buf.validate.oneof).required = true;
 
         ScopeWholeOrg   whole_org          = 1;
-        ScopeDeviceSets device_set_ids     = 2;
         ScopeDeviceList device_identifiers = 3;
         ScopeSite       site               = 4;
+        ScopeBuilding   building           = 5;
+        ScopeRack       rack               = 6;
+        ScopeGroup      group              = 7;
     }
 }
 
@@ -296,6 +300,9 @@ message FullFleetParams {}
 
 // CurtailmentEvent is the full event returned by Get/List/Start RPCs.
 message CurtailmentEvent {
+    reserved 8;
+    reserved "device_set_ids";
+
     // Stable external event identifier.
     string event_uuid = 1;
 
@@ -308,12 +315,11 @@ message CurtailmentEvent {
     // Original request scope and mode params.
     oneof scope {
         ScopeWholeOrg   whole_org           = 7;
-        ScopeDeviceSets device_set_ids      = 8;
         ScopeDeviceList device_identifiers  = 9;
         ScopeSite       site                = 25;
     }
-    // New clients should read scopes. Legacy oneof fields remain populated
-    // when an event was started with a singular selector.
+    // Clients should read scopes. Singular oneof fields remain populated when
+    // an event was started with one whole-org, site, or explicit-miner selector.
     repeated CurtailmentScope scopes = 35;
     oneof mode_params {
         FixedKwParams      fixed_kw       = 10;
@@ -330,6 +336,10 @@ message CurtailmentEvent {
     bool   include_maintenance        = 18;
     bool   force_include_maintenance  = 19;
     bool   force_include_all_paired_miners = 44;
+
+    // Version of the executable scope representation persisted for this
+    // event. Zero identifies the pre-versioned site/miner contract.
+    uint32 scope_schema_version = 52 [(buf.validate.field).uint32.lte = 1];
 
     // Facility fans claimed for this event. These settings are stamped at
     // Start so later response-profile edits cannot change an active sequence.
@@ -467,11 +477,14 @@ message SkippedCandidate {
 // PreviewCurtailmentPlan
 
 message PreviewCurtailmentPlanRequest {
+    reserved 2;
+    reserved "device_set_ids";
+
     // Keep these CEL validators in sync with supported v1 request shapes.
     option (buf.validate.message).cel = {
         id: "scope_required"
-        message: "set scopes or exactly one legacy scope"
-        expression: "(this.scopes.size() > 0) != (has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site))"
+        message: "set scopes or exactly one singular scope"
+        expression: "(this.scopes.size() > 0) != (has(this.whole_org) || has(this.device_identifiers) || has(this.site))"
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
@@ -491,11 +504,10 @@ message PreviewCurtailmentPlanRequest {
 
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
-        ScopeDeviceSets device_set_ids      = 2;
         ScopeDeviceList device_identifiers  = 3;
         ScopeSite       site                = 27;
     }
-    repeated CurtailmentScope scopes = 29;
+    repeated CurtailmentScope scopes = 29 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
@@ -547,6 +559,10 @@ message PreviewCurtailmentPlanRequest {
     // UNAVAILABLE state until maintenance clears.
     bool force_include_all_paired_miners = 30;
 
+    // New topology selectors require version 1. Zero keeps current site/miner
+    // callers valid while the server-first rollout is in progress.
+    uint32 scope_schema_version = 31 [(buf.validate.field).uint32.lte = 1];
+
     reserved 11 to 23;
 }
 
@@ -580,11 +596,14 @@ message PreviewCurtailmentPlanResponse {
 // StartCurtailment
 
 message StartCurtailmentRequest {
+    reserved 2;
+    reserved "device_set_ids";
+
     // Keep these CEL validators in sync with supported v1 request shapes.
     option (buf.validate.message).cel = {
         id: "scope_required"
-        message: "set scopes or exactly one legacy scope"
-        expression: "(this.scopes.size() > 0) != (has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers) || has(this.site))"
+        message: "set scopes or exactly one singular scope"
+        expression: "(this.scopes.size() > 0) != (has(this.whole_org) || has(this.device_identifiers) || has(this.site))"
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
@@ -609,11 +628,10 @@ message StartCurtailmentRequest {
 
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
-        ScopeDeviceSets device_set_ids      = 2;
         ScopeDeviceList device_identifiers  = 3;
         ScopeSite       site                = 28;
     }
-    repeated CurtailmentScope scopes = 36;
+    repeated CurtailmentScope scopes = 36 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
@@ -691,6 +709,10 @@ message StartCurtailmentRequest {
     }];
     uint32 fan_off_delay_sec = 39 [(buf.validate.field).uint32.lte = 3600];
     uint32 fan_restore_delay_sec = 40 [(buf.validate.field).uint32.lte = 3600];
+
+    // New topology selectors require version 1. Zero keeps current site/miner
+    // callers valid while the server-first rollout is in progress.
+    uint32 scope_schema_version = 41 [(buf.validate.field).uint32.lte = 1];
 
     // Idempotency and trigger attribution. max_len=256 matches DB varchar.
     string idempotency_key    = 30 [(buf.validate.field).string.max_len = 256];  // unique per (org, key) when non-empty
@@ -869,6 +891,9 @@ message ForceReleaseCurtailmentOwnershipResponse {
 }
 
 message IngestCurtailmentSignalRequest {
+    reserved 11;
+    reserved "device_set_ids_override";
+
     // Provider identifier; must match a registered adapter. max_len is
     // intentionally tighter than StartCurtailmentRequest.external_source
     // (256) — provider names are short identifiers ("ercot-qse",
@@ -893,7 +918,6 @@ message IngestCurtailmentSignalRequest {
     // Optional scope override; adapter picks the default when unset.
     oneof scope_override {
         ScopeWholeOrg   whole_org_override          = 10;
-        ScopeDeviceSets device_set_ids_override     = 11;
         ScopeDeviceList device_identifiers_override = 12;
     }
 
@@ -1079,9 +1103,8 @@ message CurtailmentResponseProfile {
 
     // Unset site means the profile applies to the whole org.
     ScopeSite site = 3;
-    // New clients should read scopes. Empty scopes preserve legacy whole-org
-    // semantics unless site is populated.
-    repeated CurtailmentScope scopes = 17;
+    // Executable terminal selector. Repeated entries share one selector type.
+    repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode mode = 4;
     CurtailmentStrategy strategy = 5;
@@ -1121,6 +1144,10 @@ message CurtailmentResponseProfile {
     // Delay after facility fans turn on before miners begin restoring.
     uint32 fan_restore_delay_sec = 23 [(buf.validate.field).uint32.lte = 3600];
 
+    // Version of the executable scope representation persisted for this
+    // profile. Zero identifies the pre-versioned site/miner contract.
+    uint32 scope_schema_version = 24 [(buf.validate.field).uint32.lte = 1];
+
     google.protobuf.Timestamp created_at = 20;
     google.protobuf.Timestamp updated_at = 21;
 }
@@ -1141,6 +1168,11 @@ message GetCurtailmentResponseProfileResponse {
 
 message CreateCurtailmentResponseProfileRequest {
     option (buf.validate.message).cel = {
+        id: "scope_required"
+        message: "set scopes or site"
+        expression: "(this.scopes.size() > 0) != has(this.site)"
+    };
+    option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
         message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
         expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 8 && !has(this.fixed_kw))"
@@ -1159,9 +1191,8 @@ message CreateCurtailmentResponseProfileRequest {
     string profile_name = 1 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
     // Unset site means the profile applies to the whole org.
     ScopeSite site = 2;
-    // Empty scopes preserve legacy whole-org semantics unless site is
-    // populated. When set, scopes replaces site.
-    repeated CurtailmentScope scopes = 17;
+    // Required unless site is populated; scopes replaces site when set.
+    repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode mode = 3 [(buf.validate.field).enum = {
         defined_only: true
@@ -1206,6 +1237,7 @@ message CreateCurtailmentResponseProfileRequest {
     }];
     uint32 fan_off_delay_sec = 22 [(buf.validate.field).uint32.lte = 3600];
     uint32 fan_restore_delay_sec = 23 [(buf.validate.field).uint32.lte = 3600];
+    uint32 scope_schema_version = 24 [(buf.validate.field).uint32.lte = 1];
 }
 
 message CreateCurtailmentResponseProfileResponse {
@@ -1213,6 +1245,11 @@ message CreateCurtailmentResponseProfileResponse {
 }
 
 message UpdateCurtailmentResponseProfileRequest {
+    option (buf.validate.message).cel = {
+        id: "scope_required"
+        message: "set scopes or site"
+        expression: "(this.scopes.size() > 0) != has(this.site)"
+    };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
         message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw; FULL_FLEET=8 -> none)"
@@ -1233,9 +1270,8 @@ message UpdateCurtailmentResponseProfileRequest {
     string profile_name = 2 [(buf.validate.field).string = { min_len: 1, max_len: 64 }];
     // Unset site means the profile applies to the whole org.
     ScopeSite site = 3;
-    // Empty scopes preserve legacy whole-org semantics unless site is
-    // populated. When set, scopes replaces site.
-    repeated CurtailmentScope scopes = 17;
+    // Required unless site is populated; scopes replaces site when set.
+    repeated CurtailmentScope scopes = 17 [(buf.validate.field).repeated.max_items = 1024];
 
     CurtailmentMode mode = 4 [(buf.validate.field).enum = {
         defined_only: true
@@ -1284,6 +1320,7 @@ message UpdateCurtailmentResponseProfileRequest {
     // generated before those fields existed cannot clear them accidentally.
     // True replaces all three settings; empty IDs and zero delays clear them.
     bool replace_facility_fan_settings = 24;
+    uint32 scope_schema_version = 25 [(buf.validate.field).uint32.lte = 1];
 }
 
 message UpdateCurtailmentResponseProfileResponse {
@@ -1391,4 +1428,14 @@ message CurtailmentTargetSiteCoverage {
     uint32 target_count         = 2;
     uint32 mapped_target_count  = 3;
     uint32 unknown_target_count = 4;
+}
+
+// ScopeRack selects miners in a rack's live membership.
+message ScopeRack {
+    int64 rack_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+// ScopeGroup selects miners in a group's live membership.
+message ScopeGroup {
+    int64 group_id = 1 [(buf.validate.field).int64.gt = 0];
 }

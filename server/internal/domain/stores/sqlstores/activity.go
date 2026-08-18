@@ -22,11 +22,16 @@ import (
 // pgErrCodeUniqueViolation is PostgreSQL's SQLSTATE for unique_violation.
 const pgErrCodeUniqueViolation = "23505"
 
-// completedBatchUniqueIndex is the partial unique index on
-// (batch_id, event_type) scoped to '%.completed' rows. We only swallow
-// unique-violation errors coming from this specific index so that a future
-// constraint added to activity_log cannot be accidentally swallowed too.
-const completedBatchUniqueIndex = "uq_activity_log_batch_completed"
+const (
+	// completedBatchUniqueIndex is the partial unique index on
+	// (batch_id, event_type) scoped to '%.completed' rows.
+	completedBatchUniqueIndex = "uq_activity_log_batch_completed"
+	// activityEventIDUniqueConstraint is the table constraint backing event_id.
+	// Explicit idempotency keys derive a stable event ID and only collisions on
+	// this constraint are safe to treat as successful retries.
+	activityEventIDUniqueConstraint = "activity_log_event_id_key"
+	activityIdempotencyNamePrefix   = "https://github.com/block/proto-fleet/activity/"
+)
 
 var _ interfaces.ActivityStore = &SQLActivityStore{}
 
@@ -41,7 +46,7 @@ func NewSQLActivityStore(conn *sql.DB) *SQLActivityStore {
 }
 
 func (s *SQLActivityStore) Insert(ctx context.Context, event *models.Event) error {
-	eventID, err := uuid.NewV7()
+	eventID, err := newActivityEventID(event)
 	if err != nil {
 		return fmt.Errorf("generating activity event ID: %w", err)
 	}
@@ -72,12 +77,31 @@ func (s *SQLActivityStore) Insert(ctx context.Context, event *models.Event) erro
 		MemberSiteIds:    event.MemberSiteIDs,
 		MemberUnassigned: event.TouchesUnassigned,
 	})
-	if err != nil && isCompletedBatchDuplicate(event, err) {
-		// A concurrent finalizer retry already wrote this completion row;
-		// treat it as success so retries are no-ops.
-		return nil
+	if err != nil {
+		if isCompletedBatchDuplicate(event, err) {
+			// A concurrent finalizer retry already wrote this completion row;
+			// treat it as success so retries are no-ops.
+			return nil
+		}
+		if isIdempotencyKeyDuplicate(event, err) {
+			// The same explicitly keyed activity was already recorded. The
+			// existing row is the durable result of this retry.
+			return nil
+		}
 	}
 	return err
+}
+
+func newActivityEventID(event *models.Event) (uuid.UUID, error) {
+	if event != nil && event.IdempotencyKey != "" {
+		name := activityIdempotencyNamePrefix + event.IdempotencyKey
+		return uuid.NewSHA1(uuid.NameSpaceURL, []byte(name)), nil
+	}
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("generate UUIDv7: %w", err)
+	}
+	return eventID, nil
 }
 
 // isCompletedBatchDuplicate reports whether err is the unique_violation raised
@@ -91,6 +115,19 @@ func isCompletedBatchDuplicate(event *models.Event, err error) bool {
 		return false
 	}
 	return pgErr.Code == pgErrCodeUniqueViolation && pgErr.ConstraintName == completedBatchUniqueIndex
+}
+
+// isIdempotencyKeyDuplicate reports whether an explicitly keyed activity
+// collided with the deterministic event_id written by an earlier attempt.
+func isIdempotencyKeyDuplicate(event *models.Event, err error) bool {
+	if event == nil || event.IdempotencyKey == "" {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == pgErrCodeUniqueViolation && pgErr.ConstraintName == activityEventIDUniqueConstraint
 }
 
 func (s *SQLActivityStore) List(ctx context.Context, filter models.Filter) ([]models.Entry, error) {

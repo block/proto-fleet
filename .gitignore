@@ -40,6 +40,12 @@ tests/plugin-contract/bin/
 
 # Generated nginx config (copied from nginx.http.conf or nginx.https.conf by run-fleet.sh)
 deployment-files/client/nginx.conf
+# Successful upgrade preflight marker, consumed after activation.
+deployment-files/.update-preflight-complete
+
+# Local HA bootstrap artifacts
+deployment-files/ha/fleet-ha
+deployment-files/ha/node.env
 
 # proto-python-gen package artifacts
 packages/proto-python-gen/.venv

@@ -114,63 +114,6 @@ func (mr *MockMessageQueueMockRecorder) IsBatchFinished(ctx, commandBatchLogUUID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBatchFinished", reflect.TypeOf((*MockMessageQueue)(nil).IsBatchFinished), ctx, commandBatchLogUUID)
 }
 
-// IsBatchProcessing mocks base method.
-func (m *MockMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogUUID string) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsBatchProcessing", ctx, commandBatchLogUUID)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// IsBatchProcessing indicates an expected call of IsBatchProcessing.
-func (mr *MockMessageQueueMockRecorder) IsBatchProcessing(ctx, commandBatchLogUUID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBatchProcessing", reflect.TypeOf((*MockMessageQueue)(nil).IsBatchProcessing), ctx, commandBatchLogUUID)
-}
-
-// MarkFailed mocks base method.
-func (m *MockMessageQueue) MarkFailed(ctx context.Context, messageID int64, errorInfo string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkFailed", ctx, messageID, errorInfo)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkFailed indicates an expected call of MarkFailed.
-func (mr *MockMessageQueueMockRecorder) MarkFailed(ctx, messageID, errorInfo any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFailed", reflect.TypeOf((*MockMessageQueue)(nil).MarkFailed), ctx, messageID, errorInfo)
-}
-
-// MarkPermanentlyFailed mocks base method.
-func (m *MockMessageQueue) MarkPermanentlyFailed(ctx context.Context, messageID int64, errorInfo string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkPermanentlyFailed", ctx, messageID, errorInfo)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkPermanentlyFailed indicates an expected call of MarkPermanentlyFailed.
-func (mr *MockMessageQueueMockRecorder) MarkPermanentlyFailed(ctx, messageID, errorInfo any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkPermanentlyFailed", reflect.TypeOf((*MockMessageQueue)(nil).MarkPermanentlyFailed), ctx, messageID, errorInfo)
-}
-
-// MarkSuccess mocks base method.
-func (m *MockMessageQueue) MarkSuccess(ctx context.Context, messageID int64) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkSuccess", ctx, messageID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkSuccess indicates an expected call of MarkSuccess.
-func (mr *MockMessageQueueMockRecorder) MarkSuccess(ctx, messageID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSuccess", reflect.TypeOf((*MockMessageQueue)(nil).MarkSuccess), ctx, messageID)
-}
-
 // MaxFailureRetries mocks base method.
 func (m *MockMessageQueue) MaxFailureRetries() int32 {
 	m.ctrl.T.Helper()

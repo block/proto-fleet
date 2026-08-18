@@ -32,6 +32,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -89,6 +90,16 @@ type firmwareStatusDevice struct {
 
 func (d firmwareStatusDevice) GetFirmwareUpdateStatus(context.Context) (*sdk.FirmwareUpdateStatus, error) {
 	return d.status, d.err
+}
+
+type curtailmentConfigDevice struct {
+	sdk.Device
+	config sdk.CurtailmentConfig
+}
+
+func (d *curtailmentConfigDevice) ApplyCurtailmentConfig(_ context.Context, config sdk.CurtailmentConfig) error {
+	d.config = config
+	return nil
 }
 
 // withTarget stamps a standard descriptor onto a command built with just an action.
@@ -570,6 +581,50 @@ func encryptedPasswordUpdateAction(t *testing.T, currentPassword, newPassword st
 	})
 	require.NoError(t, err)
 	return &pb.UpdateMinerPasswordAction{EncryptedPasswordUpdate: encrypted}, privateKey
+}
+
+func TestNewCurtailmentConfigCommandDecryptsDeviceBoundConfig(t *testing.T) {
+	publicKey, privateKey, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	want := sdk.CurtailmentConfig{
+		Enabled:    true,
+		FailPolicy: "closed",
+		NATSURL:    "nats://localhost:4222",
+		Providers:  []sdk.CurtailmentProviderConfig{{Name: "maestro", Enabled: true}},
+	}
+	encrypted, err := curtailmentconfig.Encrypt(publicKey, "dev-1", want)
+	require.NoError(t, err)
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_ApplyCurtailmentConfig{
+		ApplyCurtailmentConfig: &pb.ApplyCurtailmentConfigAction{EncryptedConfig: encrypted},
+	}})
+
+	got, err := newCurtailmentConfigCommand(privateKey, command.GetTarget(), command)
+	require.NoError(t, err)
+	device := &curtailmentConfigDevice{}
+	_, err = got.run(t.Context(), device)
+	require.NoError(t, err)
+	assert.Equal(t, want, device.config)
+
+	command.Target.DeviceIdentifier = "other-device"
+	_, err = newCurtailmentConfigCommand(privateKey, command.GetTarget(), command)
+	require.Error(t, err)
+}
+
+func TestNewCurtailmentConfigCommandRequiresDecryptionKey(t *testing.T) {
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_ApplyCurtailmentConfig{
+		ApplyCurtailmentConfig: &pb.ApplyCurtailmentConfigAction{EncryptedConfig: &pb.NodeEncryptedPayload{}},
+	}})
+
+	_, err := newCurtailmentConfigCommand(nil, command.GetTarget(), command)
+	require.Error(t, err)
+}
+
+func TestCurtailmentConfigCommandRejectsUnsupportedDevice(t *testing.T) {
+	device := mocks.NewMockDevice(gomock.NewController(t))
+	command := &curtailmentConfigCommand{}
+
+	_, err := command.run(t.Context(), device)
+	require.Error(t, err)
 }
 
 func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *testing.T) {

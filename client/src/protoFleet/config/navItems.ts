@@ -206,6 +206,15 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     requiredPermission: "serverlog:read",
   },
   {
+    path: "/settings/updates",
+    label: "Updates",
+    parent: "/settings",
+    section: "Admin",
+    // The page's backing RPCs (GetUpdateStatus, SetReleaseChannel) are
+    // server-gated on instance:update, so gate the nav entry to match.
+    requiredPermission: "instance:update",
+  },
+  {
     path: "/settings/preferences",
     label: "Preferences",
     parent: "/settings",

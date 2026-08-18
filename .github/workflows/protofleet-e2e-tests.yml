@@ -5,13 +5,29 @@ on:
     # Run daily at 6 AM UTC on main branch
     - cron: "0 6 * * *"
   workflow_dispatch:
+    inputs:
+      run_scope:
+        description: Which Proto Fleet E2E slice to run
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - smoke
   workflow_call:
+    inputs:
+      run_scope:
+        description: Which Proto Fleet E2E slice to run
+        required: false
+        default: smoke
+        type: string
 
 jobs:
   detect-specs:
     runs-on: ubuntu-latest
     outputs:
       specs: ${{ steps.detect.outputs.specs }}
+      target_tag: ${{ steps.detect.outputs.target_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -20,16 +36,42 @@ jobs:
 
       - name: Detect spec files
         id: detect
+        env:
+          RUN_SCOPE: ${{ inputs.run_scope }}
         run: |
           cd client/e2eTests/protoFleet/spec
+
+          if [ -z "$RUN_SCOPE" ]; then
+            RUN_SCOPE="all"
+          fi
 
           # Setup specs (NN-*.spec.ts) run automatically as Playwright project
           # dependencies in every shard. onboardingVisual.spec.ts runs in its
           # own fresh-env job, so only the remaining target specs are sharded.
-          SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '(^[0-9]{2}-.*\.spec\.ts$|^onboardingVisual\.spec\.ts$)' || true) | jq -R . | jq -cs .)
+          ALL_TARGET_SPECS=$(find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '(^[0-9]{2}-.*\.spec\.ts$|^onboardingVisual\.spec\.ts$)' || true)
+
+          if [ "$RUN_SCOPE" = "smoke" ]; then
+            SPEC_FILES=$(printf '%s\n' "$ALL_TARGET_SPECS" | while IFS= read -r spec; do
+              if [ -n "$spec" ] && grep -q '@smoke' "$spec"; then
+                printf '%s\n' "$spec"
+              fi
+            done | jq -R . | jq -cs .)
+            TARGET_TAG="@smoke"
+          else
+            SPEC_FILES=$(printf '%s\n' "$ALL_TARGET_SPECS" | jq -R . | jq -cs .)
+            TARGET_TAG=""
+          fi
+
+          if [ "$RUN_SCOPE" = "smoke" ] && [ "$SPEC_FILES" = "[]" ]; then
+            echo "No @smoke-tagged ProtoFleet specs were detected."
+            exit 1
+          fi
 
           echo "specs=${SPEC_FILES}" >> "$GITHUB_OUTPUT"
+          echo "target_tag=${TARGET_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Run scope: ${RUN_SCOPE}"
           echo "Detected specs: ${SPEC_FILES}"
+          echo "Target tag: ${TARGET_TAG:-<none>}"
 
   build:
     name: Build client and plugins
@@ -270,6 +312,7 @@ jobs:
           MATRIX_PROJECT: ${{ matrix.project }}
           MATRIX_SHARD: ${{ matrix.shard }}
           SPECS_JSON: ${{ needs.detect-specs.outputs.specs }}
+          TARGET_TAG: ${{ needs.detect-specs.outputs.target_tag }}
         run: |
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
@@ -297,9 +340,15 @@ jobs:
           echo "Specs for shard ${MATRIX_SHARD}:"
           printf '  - %s\n' "${SHARD_SPECS[@]}"
 
+          PLAYWRIGHT_ARGS=(--project="$MATRIX_PROJECT" --reporter=blob)
+          if [ -n "$TARGET_TAG" ]; then
+            PLAYWRIGHT_ARGS+=(--grep "$TARGET_TAG")
+          fi
+          PLAYWRIGHT_ARGS+=("${SHARD_SPECS[@]}")
+
           PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${MATRIX_PROJECT}-shard-${MATRIX_SHARD}.zip" \
           PWTEST_BLOB_DO_NOT_REMOVE=1 \
-          npx playwright test --project="$MATRIX_PROJECT" --reporter=blob "${SHARD_SPECS[@]}"
+          npx playwright test "${PLAYWRIGHT_ARGS[@]}"
 
           echo "Blob reports created:"
           find blob-report -maxdepth 2 -type f -print | sort || true
@@ -350,7 +399,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 

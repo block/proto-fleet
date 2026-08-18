@@ -98,6 +98,13 @@ type CollectionStore interface {
 	// firmware release set in the same organization.
 	CreateChannelExtension(ctx context.Context, params CreateChannelExtensionParams) error
 
+	// ListTakenLabels returns the subset of labels already used by a live
+	// collection of this type in the org. Bulk create calls it to report
+	// collisions per row instead of surfacing one opaque AlreadyExists from
+	// the unique index. Labels are unique per (org, type), so this is
+	// deliberately not scoped to a site or building.
+	ListTakenLabels(ctx context.Context, orgID int64, collectionType pb.CollectionType, labels []string) ([]string, error)
+
 	// GetCollection retrieves a collection by ID with its device count.
 	GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error)
 

@@ -40,16 +40,29 @@ interface ManageRacksModalProps {
   // `showSiteFilter: !scope`.
   allSites: boolean;
   buildingName: string;
-  // Rack IDs currently in the building's working set. The modal seeds its
-  // selection with these so the operator sees the current state and can
-  // add / remove in one flow.
+  // Rack IDs currently assigned to the building. The modal seeds its selection
+  // with these so the operator sees the current state and can add / remove in
+  // one flow, and diffs against them to gate Save.
   initialSelectedRackIds: bigint[];
   onDismiss: () => void;
-  // Returns the delta against initialSelectedRackIds. `delta.reassigned` reports
-  // the added racks that are being reparented so the host can gate the reparent
-  // confirm before committing. Computed against the items-by-id accumulator
-  // (every rack seen across pages / select-all), NOT just the current page.
+  // Save. Returns the delta against initialSelectedRackIds. `delta.reassigned`
+  // reports the added racks that are being reparented so the host can gate the
+  // reparent confirm before committing. Computed against the items-by-id
+  // accumulator (every rack seen across pages / select-all), NOT just the
+  // current page. This modal owns building membership, so the host persists the
+  // delta here rather than staging it for a later save.
   onConfirm: (delta: RackSelectionDelta) => void;
+  // In-flight signal from the host's write, mirrored into the CTA.
+  saving?: boolean;
+  // Hands off to the full rack-create flow instead of picking an existing rack.
+  // Leaving this way abandons the pending selection: Save is what commits it, so
+  // nothing was written. Omitted = no create affordance.
+  //
+  // Two callbacks rather than one with a variant argument, because a host that
+  // hasn't wired the batch RPC can't offer the second: presence of each prop is
+  // what decides whether its button renders.
+  onCreateNewLaunch?: () => void;
+  onCreateMultipleLaunch?: () => void;
 }
 
 const PAGE_SIZE = 50;
@@ -88,6 +101,9 @@ const ManageRacksModal = ({
   initialSelectedRackIds,
   onDismiss,
   onConfirm,
+  saving = false,
+  onCreateNewLaunch,
+  onCreateMultipleLaunch,
 }: ManageRacksModalProps) => {
   const { listRacks } = useDeviceSets();
   const { listBuildingsBySite, listBuildings } = useBuildings();
@@ -562,18 +578,37 @@ const ManageRacksModal = ({
     };
   }, [showAssigned]);
 
+  // The exact membership change Save would write — note it isn't a plain
+  // set-difference (seeded ids the response omitted are excluded on purpose;
+  // see computeRackSelectionDelta), so comparing selections directly would read
+  // as a change with nothing to send.
+  //
+  // null while the delta isn't computable: during a footer "Select all" fetch
+  // the selection/accumulator aren't final, so committing would drop the
+  // pending additions. A placement-facet conflict is a *loaded* empty view (no
+  // fetch runs, so pageItems stays undefined) — Save must still work there so
+  // Select-none-then-Save can clear the current racks; the accumulator holds
+  // the seeds + preserved selections the delta needs.
+  //
+  // accumulatorRef mutates in step with pageItems / selectedItems (page loads
+  // update the former, select-all the latter), so these deps keep it fresh.
+  const delta = useMemo(() => {
+    if (selectingAll) return null;
+    if (pageItems === undefined && !placementFacetConflict) return null;
+    return computeRackSelectionDelta([...accumulatorRef.current.values()], initialSelectedRackIds, selectedItems);
+  }, [pageItems, placementFacetConflict, selectingAll, selectedItems, initialSelectedRackIds]);
+
   const handleConfirm = useCallback(() => {
-    // Guard against confirming mid-load: while a footer "Select all" fetch is in
-    // flight the selection/accumulator aren't final, so committing would drop the
-    // pending additions (Continue is also disabled then). A placement-facet
-    // conflict is a *loaded* empty view (no fetch runs, so pageItems stays
-    // undefined) — Continue must still work there so Select-none-then-Continue
-    // can clear the current racks; the accumulator holds the seeds + preserved
-    // selections needed for the delta.
-    if (selectingAll) return;
-    if (pageItems === undefined && !placementFacetConflict) return;
-    onConfirm(computeRackSelectionDelta([...accumulatorRef.current.values()], initialSelectedRackIds, selectedItems));
-  }, [pageItems, placementFacetConflict, selectingAll, selectedItems, initialSelectedRackIds, onConfirm]);
+    if (!delta) return;
+    // Nothing to write. AssignRacksToBuilding would report a membership change
+    // it didn't make, so close instead — reviewing the list and keeping it
+    // as-is is a legitimate outcome, not an error.
+    if (delta.added.length === 0 && delta.removed.length === 0) {
+      onDismiss();
+      return;
+    }
+    onConfirm(delta);
+  }, [delta, onConfirm, onDismiss]);
 
   // Footer "Select all" (offered only with the toggle off — see below) selects
   // every ELIGIBLE rack across all pages, not just the visible page. Server
@@ -654,15 +689,49 @@ const ManageRacksModal = ({
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
       bodyClassName="flex flex-1 min-h-0 flex-col"
-      onDismiss={onDismiss}
+      onDismiss={saving ? undefined : onDismiss}
       divider={false}
       testId="manage-racks-modal"
       buttons={[
+        // ButtonGroup sorts the primary button last, so these land to the left
+        // of Save. Named for what they open rather than a generic "New rack" —
+        // each preselects its side of the create modal's Single / Multiple
+        // toggle, so the label is the whole affordance.
+        ...(onCreateNewLaunch
+          ? [
+              {
+                text: "Create rack",
+                variant: variants.secondary,
+                onClick: onCreateNewLaunch,
+                disabled: saving,
+                dismissModalOnClick: false,
+                testId: "manage-racks-modal-create-new",
+              },
+            ]
+          : []),
+        ...(onCreateMultipleLaunch
+          ? [
+              {
+                text: "Create multiple racks",
+                variant: variants.secondary,
+                onClick: onCreateMultipleLaunch,
+                disabled: saving,
+                dismissModalOnClick: false,
+                testId: "manage-racks-modal-create-multiple",
+              },
+            ]
+          : []),
         {
-          text: "Continue",
+          // "Save" because this is where membership is written
+          // (AssignRacksToBuilding), not a step on the way to a later commit.
+          text: saving ? "Saving…" : "Save",
           variant: "primary",
           onClick: handleConfirm,
-          disabled: selectingAll,
+          // Only the in-flight guard, plus the not-computable cases where
+          // `delta` is null (select-all in flight, list not loaded) — a click
+          // there could only misread the selection. The no-change case closes in
+          // handleConfirm instead.
+          disabled: saving || delta === null,
           dismissModalOnClick: false,
           testId: "manage-racks-modal-confirm",
         },

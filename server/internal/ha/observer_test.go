@@ -104,7 +104,10 @@ func TestPatroniHTTPClientDialsValidatedPostgresAddress(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/primary", r.URL.Path)
 		require.Equal(t, expectedHost, r.Host)
-		writeJSON(t, w, map[string]any{"role": "primary", "timeline": 7})
+		writeJSON(t, w, map[string]any{
+			"role":     "primary",
+			"timeline": 7,
+		})
 	}))
 	t.Cleanup(server.Close)
 
@@ -120,7 +123,10 @@ func TestPatroniHTTPClientDialsValidatedPostgresAddress(t *testing.T) {
 		serverURL.Hostname(),
 	)
 	require.NoError(t, err)
-	require.Equal(t, PatroniIdentity{Role: "primary", Timeline: 7}, identity)
+	require.Equal(t, PatroniIdentity{
+		Role:     "primary",
+		Timeline: 7,
+	}, identity)
 }
 
 func TestObserverAcceptsStableBoundWriter(t *testing.T) {
@@ -164,7 +170,10 @@ func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
 		return []string{"172.30.0.12"}, nil
 	}
 	observer.patroni = fakePatroniReader{
-		identity:      PatroniIdentity{Role: "primary", Timeline: 7},
+		identity: PatroniIdentity{
+			Role:     "primary",
+			Timeline: 7,
+		},
 		calls:         &calls,
 		serverAddress: &patroniServerAddress,
 	}
@@ -205,8 +214,11 @@ func TestObserverRunsActionInsideDCSValidationBracket(t *testing.T) {
 		return []string{"172.30.0.12"}, nil
 	}
 	observer.patroni = fakePatroniReader{
-		identity: PatroniIdentity{Role: "primary", Timeline: 7},
-		calls:    &calls,
+		identity: PatroniIdentity{
+			Role:     "primary",
+			Timeline: 7,
+		},
+		calls: &calls,
 	}
 
 	_, err := observer.ObserveAndRun(
@@ -375,14 +387,45 @@ func TestObserverRejectsPostgresReplica(t *testing.T) {
 }
 
 func TestObserverRejectsTimelineMismatch(t *testing.T) {
-	observer := validObserver([]DCSSnapshot{validDCSSnapshot()})
+	observer := validObserver([]DCSSnapshot{validDCSSnapshot(), validDCSSnapshot()})
+	observer.patroni = fakePatroniReader{identity: PatroniIdentity{
+		Role:     "primary",
+		Timeline: 8,
+	}}
+
+	observed, err := observer.Observe(t.Context())
+	require.ErrorIs(t, err, ErrTimelineMismatch)
+	require.Equal(t, "cluster-a", observed.DCSClusterID)
+	require.EqualValues(t, 41, observed.WriterGeneration)
+	require.Zero(t, observed.DCSProofDeadline)
+}
+
+func TestObserverRejectsTimelineMismatchWhenDCSWriterChanges(t *testing.T) {
+	second := validDCSSnapshot()
+	second.WriterGeneration++
+	observer := validObserver([]DCSSnapshot{validDCSSnapshot(), second})
 	observer.patroni = fakePatroniReader{identity: PatroniIdentity{
 		Role:     "primary",
 		Timeline: 8,
 	}}
 
 	_, err := observer.Observe(t.Context())
-	require.ErrorIs(t, err, ErrTimelineMismatch)
+	require.ErrorIs(t, err, ErrWriterChanged)
+}
+
+func TestObserverRejectsExpiredLeaderLeaseBeforeTimelineMismatch(t *testing.T) {
+	observer := validObserver([]DCSSnapshot{validDCSSnapshot(), validDCSSnapshot()})
+	dcs, ok := observer.dcs.(*fakeDCSReader)
+	require.True(t, ok)
+	dcs.leaseTTL = 0
+	observer.patroni = fakePatroniReader{identity: PatroniIdentity{
+		Role:     "primary",
+		Timeline: 8,
+	}}
+
+	observed, err := observer.Observe(t.Context())
+	require.ErrorIs(t, err, ErrLeaderLeaseExpired)
+	require.Equal(t, WriterObservation{}, observed)
 }
 
 func TestObserverRejectsNonPrimaryPatroniMember(t *testing.T) {

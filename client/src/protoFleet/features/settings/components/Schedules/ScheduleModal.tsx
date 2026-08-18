@@ -914,7 +914,7 @@ const ScheduleModal = ({
           selectedSiteIds={values.siteTargetIds}
           scope={scope}
           onDismiss={() => setShowSiteSelectionModal(false)}
-          onSave={(siteTargetIds) => {
+          onSave={({ siteIds: siteTargetIds }) => {
             setNextValues((current) => ({ ...current, siteTargetIds }));
             setShowSiteSelectionModal(false);
           }}

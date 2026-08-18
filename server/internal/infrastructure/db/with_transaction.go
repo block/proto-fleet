@@ -100,6 +100,31 @@ func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q sqlc
 	return withTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
 
+// WithTransactionTimeout bounds the complete operation, including retries, and
+// applies the same limit inside each transaction.
+func WithTransactionTimeout[T any](ctx context.Context, db *sql.DB, timeout time.Duration, action func(q sqlc.Querier) (T, error)) (T, error) {
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return WithTransaction(timeoutCtx, db, func(q sqlc.Querier) (T, error) {
+		var zero T
+		if err := q.SetLocalTransactionTimeout(
+			timeoutCtx,
+			timeout.Milliseconds(),
+		); err != nil {
+			return zero, err
+		}
+		return action(q)
+	})
+}
+
+func WithTransactionTimeoutNoResult(ctx context.Context, db *sql.DB, timeout time.Duration, action func(q sqlc.Querier) error) error {
+	_, err := WithTransactionTimeout(ctx, db, timeout, func(q sqlc.Querier) (struct{}, error) {
+		return struct{}{}, action(q)
+	})
+	return err
+}
+
 func withTransactionNoResultWithRetry(ctx context.Context, db *sql.DB, action func(q sqlc.Querier) error, config RetryConfig, txOpts *sql.TxOptions) error {
 	_, err := withTransactionWithRetry(ctx, db, func(sq sqlc.Querier) (any, error) {
 		var emptyResult any

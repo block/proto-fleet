@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -102,7 +103,12 @@ var ProcedurePermissions = map[string]string{
 	// site:manage entry is the primary gate; when the caller opts into
 	// force_clear_conflicting_rack_membership the handler adds an inline
 	// rack:manage check (mirrors AssignDevicesToBuilding).
-	buildingsv1connect.BuildingServiceCreateBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceCreateBuildingProcedure: authz.PermSiteManage,
+	// CreateBuildings takes no rack/device seed, so unlike CreateBuilding
+	// there is no rack:manage escalation to gate. The handler authorizes
+	// against the request's target site (ResourceContext{SiteID}), which
+	// site_id always carries for bulk create.
+	buildingsv1connect.BuildingServiceCreateBuildingsProcedure:       authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceAssignRacksToBuildingProcedure: authz.PermSiteManage,
@@ -214,6 +220,7 @@ var ProcedurePermissions = map[string]string{
 	device_setv1connect.DeviceSetServiceAddDevicesToGroupProcedure:        authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceRemoveDevicesFromGroupProcedure:   authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceSaveRackProcedure:                 authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceCreateRacksProcedure:              authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceAssignDevicesToRackProcedure:      authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceSetRackSlotPositionProcedure:      authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceClearRackSlotPositionProcedure:    authz.PermRackManage,
@@ -310,6 +317,7 @@ var ProcedurePermissions = map[string]string{
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.HistoryServiceListAlertsProcedure:                        authz.PermAlertRead,
+	alertsv1connect.HistoryServiceListActiveAlertGroupsProcedure:             authz.PermAlertRead,
 
 	// OnboardingService — fleet-init status. Other onboarding procedures
 	// are unauthenticated (covered by UnauthenticatedProcedures).
@@ -380,6 +388,14 @@ var ProcedurePermissions = map[string]string{
 	// TelemetryService — fleet:read for combined-metrics surfaces.
 	telemetryv1connect.TelemetryServiceGetCombinedMetricsProcedure:          authz.PermFleetRead,
 	telemetryv1connect.TelemetryServiceStreamCombinedMetricUpdatesProcedure: authz.PermFleetRead,
+
+	// InstanceUpdateService — release visibility, channel selection, and host upgrade
+	// control share one instance-administration key.
+	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure:    authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure:  authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure:     authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure:   authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure: authz.PermInstanceUpdate,
 }
 
 // ProceduresPendingMigration lists authenticated Connect procedures that

@@ -10,13 +10,7 @@ test.describe("Proto Fleet - Onboarding", () => {
 
   test("Onboard the admin user @setup", async ({ authPage }) => {
     await test.step("Create credentials", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickContinue();
-    });
-
-    await test.step("Validate admin is logged in", async () => {
-      await authPage.validateLoggedIn();
+      await authPage.completeInitialSetupOrLogin(testConfig.users.admin.username, testConfig.users.admin.password);
     });
   });
 

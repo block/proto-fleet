@@ -211,14 +211,11 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
         ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
         : `${selectedSiteIds.length} selected sites`;
   const siteLabel = `from ${selectedSiteLabel}`;
-  if (selectedSiteIds.length > 0 && selectedMinerCount > 0) {
-    return `${siteLabel} and selected miners`;
-  }
-  if (selectedSiteIds.length > 0) {
-    return siteLabel;
-  }
-  if (selectedMinerCount > 0) {
+  if (values.scopeType === "explicitMiners" && selectedMinerCount > 0) {
     return formatSelectedMinerScopeLabel(selectedMinerCount);
+  }
+  if (values.scopeType === "site" && selectedSiteIds.length > 0) {
+    return siteLabel;
   }
 
   switch (values.scopeType) {

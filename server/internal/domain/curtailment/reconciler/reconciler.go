@@ -141,6 +141,7 @@ type Reconciler struct {
 }
 
 var _ runtimejobs.Lifecycle = (*Reconciler)(nil)
+var _ runtimejobs.Aborter = (*Reconciler)(nil)
 
 // Option configures a Reconciler at construction time.
 type Option func(*Reconciler)
@@ -277,6 +278,20 @@ func (r *Reconciler) Stop(ctx context.Context) error {
 			workCancel()
 		}
 		return fmt.Errorf("curtailment reconciler: stop: %w", ctx.Err())
+	}
+}
+
+// Abort immediately cancels admission and detached work before a fatal exit.
+func (r *Reconciler) Abort() {
+	r.mu.Lock()
+	loopCancel := r.loopCancel
+	workCancel := r.workCancel
+	r.mu.Unlock()
+	if loopCancel != nil {
+		loopCancel()
+	}
+	if workCancel != nil {
+		workCancel()
 	}
 }
 
@@ -1451,7 +1466,7 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 			return interfaces.ListCandidatesParams{}, false
 		}
 		return interfaces.ListCandidatesParams{SiteIDs: scope.SiteIDs}, true
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+	case models.ScopeTypeDeviceList:
 		return interfaces.ListCandidatesParams{}, false
 	default:
 		return interfaces.ListCandidatesParams{}, false

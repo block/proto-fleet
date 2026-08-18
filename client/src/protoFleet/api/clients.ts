@@ -18,6 +18,7 @@ import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanageme
 import { FleetNodeAdminService } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
 import { InfrastructureService } from "@/protoFleet/api/generated/infrastructure/v1/infrastructure_pb";
+import { InstanceUpdateService } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
@@ -57,6 +58,7 @@ const alertChannelClient = createClient(AlertChannelService, transport);
 const alertRuleClient = createClient(AlertRuleService, transport);
 const alertMaintenanceWindowClient = createClient(AlertMaintenanceWindowService, transport);
 const alertHistoryClient = createClient(AlertHistoryService, transport);
+const instanceUpdateClient = createClient(InstanceUpdateService, transport);
 
 export {
   alertChannelClient,
@@ -85,5 +87,6 @@ export {
   siteMapClient,
   sitesClient,
   telemetryClient,
+  instanceUpdateClient,
   foremanImportClient,
 };

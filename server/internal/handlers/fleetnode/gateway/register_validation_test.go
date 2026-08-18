@@ -96,3 +96,14 @@ func TestUpdateMinerPasswordActionValidation_AllowsEncryptedPayload(t *testing.T
 	// Assert
 	require.NoError(t, err)
 }
+
+func TestApplyCurtailmentConfigActionValidation_RequiresEncryptedPayload(t *testing.T) {
+	t.Parallel()
+
+	// Act
+	err := protovalidate.Validate(&pb.ApplyCurtailmentConfigAction{})
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "encrypted_config")
+}

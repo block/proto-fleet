@@ -687,6 +687,27 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailReque
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
+func (s *DriverGRPCServer) ApplyCurtailmentConfig(ctx context.Context, req *pb.ApplyCurtailmentConfigRequest) (*emptypb.Empty, error) {
+	if req == nil || req.Ref == nil || req.Config == nil {
+		return nil, grpcStatusError("missing device ref or curtailment config", codes.InvalidArgument, "missing device ref or curtailment config")
+	}
+	s.mu.RLock()
+	device, exists := s.devices[req.Ref.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	}
+
+	configurator, ok := device.(DeviceCurtailmentConfigurator)
+	if !ok {
+		return nil, grpcStatusError("device does not support curtailment configuration", codes.Unimplemented, "device does not support curtailment configuration")
+	}
+
+	err := configurator.ApplyCurtailmentConfig(ctx, curtailmentConfigFromProto(req.Config))
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
+}
+
 func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTimeSeriesDataRequest) (*pb.GetTimeSeriesDataResponse, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.Ref.DeviceId]
@@ -1226,6 +1247,76 @@ func (d *DeviceGRPCClient) Uncurtail(ctx context.Context, _ UncurtailRequest) er
 		Ref: &pb.DeviceRef{DeviceId: d.deviceID},
 	})
 	return err
+}
+
+func (d *DeviceGRPCClient) ApplyCurtailmentConfig(ctx context.Context, config CurtailmentConfig) error {
+	_, err := d.client.ApplyCurtailmentConfig(ctx, &pb.ApplyCurtailmentConfigRequest{
+		Ref:    &pb.DeviceRef{DeviceId: d.deviceID},
+		Config: curtailmentConfigToProto(config),
+	})
+	return err
+}
+
+func curtailmentConfigFromProto(config *pb.CurtailmentConfig) CurtailmentConfig {
+	if config == nil {
+		return CurtailmentConfig{}
+	}
+	providers := make([]CurtailmentProviderConfig, 0, len(config.Providers))
+	for _, provider := range config.Providers {
+		if provider == nil {
+			continue
+		}
+		providers = append(providers, CurtailmentProviderConfig{
+			Name:             provider.Name,
+			Type:             provider.Type,
+			Enabled:          provider.Enabled,
+			Brokers:          append([]string(nil), provider.Brokers...),
+			Port:             provider.Port,
+			Username:         provider.Username,
+			Password:         provider.Password,
+			Topic:            provider.Topic,
+			QOS:              provider.Qos,
+			StaleAfter:       provider.StaleAfter,
+			ReconnectBackoff: provider.ReconnectBackoff,
+		})
+	}
+	return CurtailmentConfig{
+		Enabled:               config.Enabled,
+		FailPolicy:            config.FailPolicy,
+		RestorePolicy:         config.RestorePolicy,
+		NATSURL:               config.NatsUrl,
+		MCDDGRPCAddress:       config.McddGrpcAddress,
+		StatusPublishInterval: config.StatusPublishInterval,
+		Providers:             providers,
+	}
+}
+
+func curtailmentConfigToProto(config CurtailmentConfig) *pb.CurtailmentConfig {
+	providers := make([]*pb.CurtailmentProviderConfig, 0, len(config.Providers))
+	for _, provider := range config.Providers {
+		providers = append(providers, &pb.CurtailmentProviderConfig{
+			Name:             provider.Name,
+			Type:             provider.Type,
+			Enabled:          provider.Enabled,
+			Brokers:          append([]string(nil), provider.Brokers...),
+			Port:             provider.Port,
+			Username:         provider.Username,
+			Password:         provider.Password,
+			Topic:            provider.Topic,
+			Qos:              provider.QOS,
+			StaleAfter:       provider.StaleAfter,
+			ReconnectBackoff: provider.ReconnectBackoff,
+		})
+	}
+	return &pb.CurtailmentConfig{
+		Enabled:               config.Enabled,
+		FailPolicy:            config.FailPolicy,
+		RestorePolicy:         config.RestorePolicy,
+		NatsUrl:               config.NATSURL,
+		McddGrpcAddress:       config.MCDDGRPCAddress,
+		StatusPublishInterval: config.StatusPublishInterval,
+		Providers:             providers,
+	}
 }
 
 func (d *DeviceGRPCClient) TryGetWebViewURL(ctx context.Context) (string, bool, error) {

@@ -16,11 +16,13 @@ import (
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	buildingsmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -809,6 +811,11 @@ func TestSaveRack_PlacementRequiresSiteManage(t *testing.T) {
 
 	// Has rack:manage but NOT site:manage.
 	ctx := ctxWithPerms(authz.PermRackManage)
+	// The escalation resolves the building's parent site before the check;
+	// site:manage is absent everywhere, so the site it resolves to is
+	// immaterial to the denial.
+	buildingSite := int64(9)
+	h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, int64(7)).Return(&buildingSite, nil)
 	req := connect.NewRequest(&dspb.SaveRackRequest{
 		Label:          "Rack",
 		RackInfo:       &dspb.RackInfo{BuildingId: ptrInt64Local(7)},
@@ -867,6 +874,8 @@ func TestCreateDeviceSet_PlacementRequiresSiteManage(t *testing.T) {
 
 	// Has rack:manage but NOT site:manage.
 	ctx := ctxWithPerms(authz.PermRackManage)
+	buildingSite := int64(9)
+	h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, int64(7)).Return(&buildingSite, nil)
 	req := connect.NewRequest(&dspb.CreateDeviceSetRequest{
 		Label: "Rack",
 		TypeDetails: &dspb.CreateDeviceSetRequest_RackInfo{
@@ -879,6 +888,57 @@ func TestCreateDeviceSet_PlacementRequiresSiteManage(t *testing.T) {
 	var fe fleeterror.FleetError
 	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestCreateDeviceSet_SiteLessBuildingRequiresSiteManage pins that a placement
+// whose destination resolves to no site (a site-less building) still requires
+// site:manage: the check falls back to org scope rather than being skipped, so
+// a rack:manage-only caller cannot place a rack through a site-less building.
+func TestCreateDeviceSet_SiteLessBuildingRequiresSiteManage(t *testing.T) {
+	const siteLessBuilding = int64(7)
+	rack := func() *dspb.RackInfo {
+		return &dspb.RackInfo{
+			BuildingId:  ptrInt64Local(siteLessBuilding),
+			Rows:        4,
+			Columns:     8,
+			OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		}
+	}
+
+	t.Run("rack:manage-only caller is denied", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := ctxWithPerms(authz.PermRackManage)
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil)
+
+		_, err := h.handler.CreateDeviceSet(ctx, connect.NewRequest(&dspb.CreateDeviceSetRequest{
+			Type:        dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+			Label:       "Rack",
+			TypeDetails: &dspb.CreateDeviceSetRequest_RackInfo{RackInfo: rack()},
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	t.Run("org-wide site:manage caller is admitted past authorization", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := ctxWithPerms(authz.PermRackManage, authz.PermSiteManage)
+		// authz resolves the building (site-less) and the org-scoped site:manage
+		// check passes; the service is then entered and stopped at the building
+		// lock with a sentinel, proving the placement was admitted.
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil).Times(2)
+		sentinel := fleeterror.NewInternalError("reached service")
+		h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, siteLessBuilding).Return(sentinel)
+
+		_, err := h.handler.CreateDeviceSet(ctx, connect.NewRequest(&dspb.CreateDeviceSetRequest{
+			Type:        dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+			Label:       "Rack",
+			TypeDetails: &dspb.CreateDeviceSetRequest_RackInfo{RackInfo: rack()},
+		}))
+		require.ErrorIs(t, err, sentinel)
+	})
 }
 
 // TestAssignDevicesToRack_HappyPathAssigns covers the assign branch:
@@ -902,6 +962,9 @@ func TestAssignDevicesToRack_HappyPathAssigns(t *testing.T) {
 		h.collectionStore.EXPECT().
 			GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&collectionpb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		h.collectionStore.EXPECT().
+			GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+			Return(&collectionpb.RackInfo{Rows: 10, Columns: 10}, nil),
 		h.collectionStore.EXPECT().
 			RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).
 			Return(int64(2), nil),
@@ -956,6 +1019,93 @@ func TestAssignDevicesToRack_UnassignBranch(t *testing.T) {
 	assert.Equal(t, int64(0), resp.Msg.AssignedCount)
 	assert.Equal(t, int64(1), resp.Msg.RemovedCount)
 	assert.Equal(t, int64(0), resp.Msg.SiteReassignedCount)
+}
+
+// TestAssignDevicesToRack_CarriesSlotAssignments pins the wire→domain
+// mapping for the placement half of the delta: slot_assignments must reach
+// the store as real slot writes in the same call that moves membership.
+// That is what lets the rack modals persist a placement edit without
+// SaveRack's replace-all member set.
+func TestAssignDevicesToRack_CarriesSlotAssignments(t *testing.T) {
+	h := newTestHandler(t)
+
+	targetRackID := int64(42)
+	rackSite := int64(7)
+	deviceIDs := []string{"d1", "d2"}
+
+	h.collectionStore.EXPECT().
+		LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+		Return([]int64{targetRackID}, nil)
+	h.collectionStore.EXPECT().
+		LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &rackSite}, nil)
+	h.collectionStore.EXPECT().
+		GetCollection(gomock.Any(), testOrgID, targetRackID).
+		Return(&collectionpb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	h.collectionStore.EXPECT().
+		GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+		Return(&collectionpb.RackInfo{Rows: 4, Columns: 4}, nil)
+	h.collectionStore.EXPECT().
+		RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+		Return(int64(0), nil)
+	h.collectionStore.EXPECT().
+		AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+		Return(int64(2), nil)
+	// Both devices are members after the insert, which is what lets the
+	// slot writes below proceed.
+	h.collectionStore.EXPECT().
+		GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
+		Return(map[string]*int64{"d1": nil, "d2": nil}, nil)
+	h.collectionStore.EXPECT().
+		CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+		Return(int64(0), nil)
+	h.collectionStore.EXPECT().
+		CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+		Return(int64(0), nil)
+	// Nothing on the grid yet, so (1,2) is free.
+	h.collectionStore.EXPECT().
+		GetRackSlots(gomock.Any(), targetRackID, testOrgID).
+		Return(nil, nil)
+	// d1 is placed at (1,2). d2 is named with no position, so it is cleared
+	// and left off the grid — the wire form of "in the rack, unplaced".
+	h.collectionStore.EXPECT().ClearRackSlotPosition(gomock.Any(), targetRackID, "d1", testOrgID).Return(nil)
+	h.collectionStore.EXPECT().ClearRackSlotPosition(gomock.Any(), targetRackID, "d2", testOrgID).Return(nil)
+	h.collectionStore.EXPECT().
+		SetRackSlotPosition(gomock.Any(), targetRackID, "d1", int32(1), int32(2), testOrgID).
+		Return(nil)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   &targetRackID,
+		DeviceSelector: deviceListSelector(deviceIDs...),
+		SlotAssignments: []*dspb.RackSlot{
+			{DeviceIdentifier: "d1", Position: &dspb.RackSlotPosition{Row: 1, Column: 2}},
+			{DeviceIdentifier: "d2"},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), resp.Msg.AssignedCount)
+}
+
+// TestAssignDevicesToRack_RejectsSlotOutsideSelector confirms the handler
+// forwards enough for the domain to reject a slot naming a device the
+// caller never asked to assign — it would have no membership row to hang
+// off. Rejected before any store call.
+func TestAssignDevicesToRack_RejectsSlotOutsideSelector(t *testing.T) {
+	h := newTestHandler(t)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   ptrInt64Local(42),
+		DeviceSelector: deviceListSelector("d1"),
+		SlotAssignments: []*dspb.RackSlot{{
+			DeviceIdentifier: "stranger",
+			Position:         &dspb.RackSlotPosition{Row: 0, Column: 0},
+		}},
+	}))
+	require.Error(t, err)
+	require.Nil(t, resp)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
 }
 
 // TestAssignDevicesToRack_RejectsAllDevicesSelector confirms that the
@@ -1396,4 +1546,439 @@ func TestChannelRPCsRequireChannelPermissionsRatherThanRackPermissions(t *testin
 		}),
 	)
 	requirePermissionDenied(t, err)
+}
+
+// --- CreateRacks (bulk) ---
+
+func newRackRow(label string) *dspb.NewRack {
+	return &dspb.NewRack{
+		Label:       label,
+		Rows:        4,
+		Columns:     3,
+		OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT,
+		CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+	}
+}
+
+// TestCreateRacks_HappyPath confirms the handler translates the batch into the
+// domain's params, creates one rack per row, and converts the created racks
+// back into device_set.v1 types.
+func TestCreateRacks_HappyPath(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	h.collectionStore.EXPECT().
+		ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, []string{"R-001", "R-002"}).
+		Return(nil, nil)
+	var nextID int64
+	h.collectionStore.EXPECT().
+		CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any(), "").
+		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType, label, _ string) (*collectionpb.DeviceCollection, error) {
+			nextID++
+			return &collectionpb.DeviceCollection{
+				Id:    nextID,
+				Label: label,
+				Type:  collectionpb.CollectionType_COLLECTION_TYPE_RACK,
+			}, nil
+		}).Times(2)
+	h.collectionStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p interfaces.CreateRackExtensionParams) error {
+			// The row's geometry, not a default.
+			assert.Equal(t, int32(4), p.Rows)
+			assert.Equal(t, int32(3), p.Columns)
+			return nil
+		}).Times(2)
+
+	resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		Racks: []*dspb.NewRack{newRackRow("R-001"), newRackRow("R-002")},
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetErrors())
+	require.Len(t, resp.Msg.GetRacks(), 2)
+	assert.Equal(t, "R-001", resp.Msg.GetRacks()[0].GetLabel())
+	assert.Equal(t, dspb.DeviceSetType_DEVICE_SET_TYPE_RACK, resp.Msg.GetRacks()[0].GetType())
+	assert.Equal(t, int32(3), resp.Msg.GetRacks()[0].GetRackInfo().GetColumns())
+}
+
+// TestCreateRacks_ReturnsPerRowErrorsAndNoRacks confirms a collision travels on
+// the wire as an errors list rather than a transport failure, and that nothing
+// was created.
+func TestCreateRacks_ReturnsPerRowErrorsAndNoRacks(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	// A batch duplicate is still checked against the org, so one response can
+	// carry every offending row; no label is taken here, so the in-batch
+	// collision is the only rejection.
+	h.collectionStore.EXPECT().
+		ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return(nil, nil)
+
+	resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		Racks: []*dspb.NewRack{newRackRow("R-001"), newRackRow("R-001")},
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetRacks())
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Equal(t, int32(1), resp.Msg.GetErrors()[0].GetIndex())
+	assert.Equal(t, "R-001", resp.Msg.GetErrors()[0].GetLabel())
+	assert.Equal(t,
+		dspb.PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_BATCH,
+		resp.Msg.GetErrors()[0].GetReason())
+}
+
+// TestCreateRacks_ReportsOrgWideLabelCollision confirms the org-scoped reason
+// reaches the wire: the offending rack may live in another site entirely, which
+// is exactly why the client can't pre-check it.
+func TestCreateRacks_ReportsOrgWideLabelCollision(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	h.collectionStore.EXPECT().
+		ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return([]string{"R-002"}, nil)
+	// No CreateCollection: the whole batch rolls back.
+
+	resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		Racks: []*dspb.NewRack{newRackRow("R-001"), newRackRow("R-002")},
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetRacks())
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Equal(t,
+		dspb.PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_ORG,
+		resp.Msg.GetErrors()[0].GetReason())
+}
+
+// TestCreateRacks_RequiresRackManage confirms the base gate.
+func TestCreateRacks_RequiresRackManage(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackRead)
+
+	_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		Racks: []*dspb.NewRack{newRackRow("R-001")},
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestCreateRacks_PlacementRequiresSiteManage mirrors SaveRack: dropping racks
+// into a building is a site-management action, so rack:manage alone can create
+// only unplaced racks. Rejected before any store write.
+func TestCreateRacks_PlacementRequiresSiteManage(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackManage)
+	buildingSite := int64(9)
+	h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, int64(7)).Return(&buildingSite, nil)
+
+	_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		BuildingId: ptrInt64Local(7),
+		Racks:      []*dspb.NewRack{newRackRow("R-001")},
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestCreateRacks_authorizesPlacementAgainstTargetSite pins the scope of the
+// site:manage escalation. A request that names a site authorizes against that
+// site, so a site-scoped manager is admitted at their own site and denied
+// elsewhere. Creating unplaced racks needs no site:manage at all.
+func TestCreateRacks_authorizesPlacementAgainstTargetSite(t *testing.T) {
+	siteID := int64(42)
+
+	t.Run("site-scoped manager is admitted at their own site", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(42, authz.PermSiteManage))
+
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, siteID).Return(nil)
+		h.collectionStore.EXPECT().
+			ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+			Return(nil, nil)
+		h.collectionStore.EXPECT().
+			CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "R-001", "").
+			Return(&collectionpb.DeviceCollection{Id: 1, Label: "R-001"}, nil)
+		h.collectionStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+
+		resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+			SiteId: &siteID,
+			Racks:  []*dspb.NewRack{newRackRow("R-001")},
+		}))
+		require.NoError(t, err)
+		assert.Len(t, resp.Msg.GetRacks(), 1)
+	})
+
+	t.Run("site-scoped manager is denied at another site", func(t *testing.T) {
+		h := newTestHandler(t)
+		// site:manage at site 7 only; the request targets site 42. No store
+		// expectations: this must be denied before any write.
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(7, authz.PermSiteManage))
+
+		_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+			SiteId: &siteID,
+			Racks:  []*dspb.NewRack{newRackRow("R-001")},
+		}))
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	})
+}
+
+// TestCreateRacks_BuildingOnlyPlacementNarrowsToResolvedSite pins that a
+// building-only placement (no site_id) authorizes site:manage against the
+// building's parent site, not org scope. Vegas is site 99; Building 7 is in it.
+func TestCreateRacks_BuildingOnlyPlacementNarrowsToResolvedSite(t *testing.T) {
+	const vegas = int64(99)
+	const building7 = int64(7)
+
+	// Org-wide site:manage narrowed away at Vegas by a Vegas-only role lacking
+	// site:manage. Naming a building in Vegas must not slip past the check.
+	t.Run("org admin narrowed out of the site is denied via a building there", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage, authz.PermSiteManage),
+			handlerstest.SiteAssignment(vegas, authz.PermRackRead))
+
+		// The only store call is the authz peek; denial happens before any write.
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building7).Return(ptrInt64Local(vegas), nil)
+
+		_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+			BuildingId: ptrInt64Local(building7),
+			Racks:      []*dspb.NewRack{newRackRow("R-001")},
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	// Mirror case: a Vegas-only manager (site:manage at Vegas, nowhere else) is
+	// admitted once Building 7 resolves to Vegas, and the create proceeds.
+	t.Run("site-scoped manager is admitted via a building in their site", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(vegas, authz.PermSiteManage))
+
+		// Authz peek, then the service's canonical peek + locked re-read.
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building7).Return(ptrInt64Local(vegas), nil).Times(3)
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, vegas).Return(nil)
+		h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, building7).Return(nil)
+		// Ungridded building (capacity 0) skips the per-building cap check.
+		h.buildingStore.EXPECT().GetBuilding(gomock.Any(), testOrgID, building7).
+			Return(&buildingsmodels.Building{ID: building7, Aisles: 0, RacksPerAisle: 0}, nil)
+		h.collectionStore.EXPECT().
+			ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+			Return(nil, nil)
+		h.collectionStore.EXPECT().
+			CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "R-001", "").
+			Return(&collectionpb.DeviceCollection{Id: 1, Label: "R-001"}, nil)
+		h.collectionStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+
+		resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+			BuildingId: ptrInt64Local(building7),
+			Racks:      []*dspb.NewRack{newRackRow("R-001")},
+		}))
+		require.NoError(t, err)
+		assert.Len(t, resp.Msg.GetRacks(), 1)
+	})
+}
+
+// TestSaveRack_PlacementNarrowsToTargetSite confirms SaveRack narrows the
+// placement escalation to the target site (not org scope): both an explicit
+// site_id and a building-only placement deny an org admin narrowed out of that
+// site.
+func TestSaveRack_PlacementNarrowsToTargetSite(t *testing.T) {
+	const vegas = int64(99)
+
+	// Narrowed out of Vegas, naming the site directly.
+	t.Run("explicit site_id is denied for a narrowed-out org admin", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage, authz.PermSiteManage),
+			handlerstest.SiteAssignment(vegas, authz.PermRackRead))
+
+		_, err := h.handler.SaveRack(ctx, connect.NewRequest(&dspb.SaveRackRequest{
+			Label:          "Rack",
+			RackInfo:       &dspb.RackInfo{SiteId: ptrInt64Local(vegas)},
+			DeviceSelector: deviceListSelector(),
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	// Same admin, same site, but reached through a building in Vegas.
+	t.Run("building-only placement is denied for a narrowed-out org admin", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage, authz.PermSiteManage),
+			handlerstest.SiteAssignment(vegas, authz.PermRackRead))
+
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, int64(7)).Return(ptrInt64Local(vegas), nil)
+
+		_, err := h.handler.SaveRack(ctx, connect.NewRequest(&dspb.SaveRackRequest{
+			Label:          "Rack",
+			RackInfo:       &dspb.RackInfo{BuildingId: ptrInt64Local(7)},
+			DeviceSelector: deviceListSelector(),
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+}
+
+// TestUpdateDeviceSet_MoveAuthorizesSourceAndDestination is the source-site
+// regression: moving an existing rack must require site:manage at the rack's
+// CURRENT site as well as the destination, so a manager of only the
+// destination can't pull a rack out of a site they don't manage.
+func TestUpdateDeviceSet_MoveAuthorizesSourceAndDestination(t *testing.T) {
+	const rackID = int64(500)
+	const siteA = int64(11) // rack's current site
+	const siteB = int64(22) // destination
+
+	t.Run("destination-only manager cannot move a rack out of an unmanaged source", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(siteB, authz.PermSiteManage))
+		// The rack currently lives in site A; the move targets site B. Only the
+		// source lookup runs — the source check denies before any write.
+		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).
+			Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, nil)
+		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+
+		_, err := h.handler.UpdateDeviceSet(ctx, connect.NewRequest(&dspb.UpdateDeviceSetRequest{
+			DeviceSetId: rackID,
+			TypeDetails: &dspb.UpdateDeviceSetRequest_RackInfo{RackInfo: &dspb.RackInfo{SiteId: ptrInt64Local(siteB)}},
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	t.Run("manager of both source and destination is admitted past authorization", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(siteA, authz.PermSiteManage),
+			handlerstest.SiteAssignment(siteB, authz.PermSiteManage))
+		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).
+			Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, nil)
+		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+		// Authorization passes; the service is entered and stopped at its first
+		// store read with a sentinel, proving the move was admitted.
+		sentinel := fleeterror.NewInternalError("reached service")
+		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, sentinel)
+
+		_, err := h.handler.UpdateDeviceSet(ctx, connect.NewRequest(&dspb.UpdateDeviceSetRequest{
+			DeviceSetId: rackID,
+			TypeDetails: &dspb.UpdateDeviceSetRequest_RackInfo{RackInfo: &dspb.RackInfo{
+				SiteId:      ptrInt64Local(siteB),
+				Rows:        4,
+				Columns:     8,
+				OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			}},
+		}))
+		require.ErrorIs(t, err, sentinel)
+	})
+}
+
+// TestUpdateDeviceSet_MoveIntoSiteLessBuildingRequiresOrgSiteManage pins that a
+// move INTO a site-less building requires org-scoped site:manage even when the
+// caller manages the rack's current site, matching AssignRacksToBuilding — a
+// source-site-only manager can't slip a rack into a site-less building.
+func TestUpdateDeviceSet_MoveIntoSiteLessBuildingRequiresOrgSiteManage(t *testing.T) {
+	const rackID = int64(500)
+	const siteA = int64(11)           // rack's current site
+	const siteLessBuilding = int64(7) // destination building with no site
+
+	t.Run("source-site-only manager is denied", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(siteA, authz.PermSiteManage))
+		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).
+			Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, nil)
+		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil)
+
+		_, err := h.handler.UpdateDeviceSet(ctx, connect.NewRequest(&dspb.UpdateDeviceSetRequest{
+			DeviceSetId: rackID,
+			TypeDetails: &dspb.UpdateDeviceSetRequest_RackInfo{RackInfo: &dspb.RackInfo{BuildingId: ptrInt64Local(siteLessBuilding)}},
+		}))
+		require.Error(t, err)
+		var fe fleeterror.FleetError
+		require.ErrorAs(t, err, &fe)
+		assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+	})
+
+	t.Run("org-wide site:manage manager is admitted past authorization", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := ctxWithPerms(authz.PermRackManage, authz.PermSiteManage)
+		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).
+			Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, nil)
+		h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+			Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+		h.collectionStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, siteLessBuilding).Return(nil, nil)
+		// Authorization passes (source siteA + org-scope); the service is entered
+		// and stopped at its first store read with a sentinel.
+		sentinel := fleeterror.NewInternalError("reached service")
+		h.collectionStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, rackID).Return(collectionpb.CollectionType_COLLECTION_TYPE_RACK, sentinel)
+
+		_, err := h.handler.UpdateDeviceSet(ctx, connect.NewRequest(&dspb.UpdateDeviceSetRequest{
+			DeviceSetId: rackID,
+			TypeDetails: &dspb.UpdateDeviceSetRequest_RackInfo{RackInfo: &dspb.RackInfo{
+				BuildingId:  ptrInt64Local(siteLessBuilding),
+				Rows:        4,
+				Columns:     8,
+				OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			}},
+		}))
+		require.ErrorIs(t, err, sentinel)
+	})
+}
+
+// TestSaveRack_UpdateMoveAuthorizesSourceSite mirrors the UpdateDeviceSet
+// regression on the SaveRack update path: a SaveRack that names an existing
+// rack (device_set_id set) is a move, so it must authorize the rack's current
+// site, not only the destination.
+func TestSaveRack_UpdateMoveAuthorizesSourceSite(t *testing.T) {
+	const rackID = int64(500)
+	const siteA = int64(11)
+	const siteB = int64(22)
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+		handlerstest.OrgAssignment(authz.PermRackManage),
+		handlerstest.SiteAssignment(siteB, authz.PermSiteManage))
+	h.collectionStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+		Return(&collectionpb.RackInfo{SiteId: ptrInt64Local(siteA)}, nil)
+
+	_, err := h.handler.SaveRack(ctx, connect.NewRequest(&dspb.SaveRackRequest{
+		DeviceSetId:    ptrInt64Local(rackID),
+		Label:          "Rack",
+		RackInfo:       &dspb.RackInfo{SiteId: ptrInt64Local(siteB)},
+		DeviceSelector: deviceListSelector(),
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }

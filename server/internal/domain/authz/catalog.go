@@ -96,6 +96,10 @@ const (
 
 	// role — custom role + ADMIN/FIELD_TECH editing.
 	PermRoleManage = "role:manage"
+
+	// instance — server-instance administration: seeing release update
+	// prompts, changing the release channel, and triggering upgrades.
+	PermInstanceUpdate = "instance:update"
 )
 
 // Resource identifiers used to group catalog entries for the admin UI
@@ -118,6 +122,7 @@ const (
 	ResourceAPIKey      = "apikey"
 	ResourceUser        = "user"
 	ResourceRole        = "role"
+	ResourceInstance    = "instance"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -193,6 +198,8 @@ var catalog = []CatalogEntry{
 	{PermUserManage, "Create, deactivate, reset passwords, and reassign roles for users in the organization.", ResourceUser},
 
 	{PermRoleManage, "Create, edit, and delete custom roles, and view all roles and permissions. Built-in roles cannot be modified.", ResourceRole},
+
+	{PermInstanceUpdate, "See available server updates, change the release channel, and apply server upgrades.", ResourceInstance},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The

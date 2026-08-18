@@ -36,7 +36,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("/settings/network");
+    expect(window.location.href).toBe(`${mockLocation.origin}/settings/network`);
   });
 
   it("redirects to home page when no from parameter exists", () => {
@@ -44,7 +44,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("/");
+    expect(window.location.href).toBe(`${mockLocation.origin}/`);
   });
 
   it("redirects to home page when from parameter is empty", () => {
@@ -52,7 +52,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("/");
+    expect(window.location.href).toBe(`${mockLocation.origin}/`);
   });
 
   it("handles complex paths with query parameters", () => {
@@ -60,7 +60,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("/miners?filter=active");
+    expect(window.location.href).toBe(`${mockLocation.origin}/miners?filter=active`);
   });
 
   it("preserves hash fragments in redirect URL", () => {
@@ -68,7 +68,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("/settings#security");
+    expect(window.location.href).toBe(`${mockLocation.origin}/settings#security`);
   });
 
   it("handles paths with query parameters and hash fragments", () => {
@@ -76,7 +76,7 @@ describe("redirectFromFleetDown", () => {
 
     redirectFromFleetDown();
 
-    expect(window.location.href).toBe("/miners?filter=active#details");
+    expect(window.location.href).toBe(`${mockLocation.origin}/miners?filter=active#details`);
   });
 
   // Security tests
@@ -86,7 +86,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("prevents redirect to protocol-relative URLs", () => {
@@ -94,7 +94,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("prevents redirect to JavaScript URLs", () => {
@@ -102,7 +102,33 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("/");
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
+    });
+
+    it("prevents redirect via backslash protocol-relative URLs", () => {
+      // Browsers normalize "\" to "/", so "/\evil.com" navigates to "//evil.com"
+      window.location.search = "?from=%2F%5Cevil.com";
+
+      redirectFromFleetDown();
+
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
+    });
+
+    it("prevents redirect via mixed slash-backslash URLs", () => {
+      // "/\/evil.com" also normalizes to a protocol-relative external URL
+      window.location.search = "?from=%2F%5C%2Fevil.com";
+
+      redirectFromFleetDown();
+
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
+    });
+
+    it("prevents redirect when path contains any backslash", () => {
+      window.location.search = "?from=%2Fminers%5Cpath";
+
+      redirectFromFleetDown();
+
+      expect(window.location.href).toBe(`${mockLocation.origin}/`);
     });
 
     it("allows valid relative paths", () => {
@@ -110,7 +136,7 @@ describe("redirectFromFleetDown", () => {
 
       redirectFromFleetDown();
 
-      expect(window.location.href).toBe("/settings");
+      expect(window.location.href).toBe(`${mockLocation.origin}/settings`);
     });
   });
 });

@@ -118,10 +118,10 @@ func TestRuleConfigMappingRejectsMissingTemplate(t *testing.T) {
 
 // Unknown routing must be unset on the wire — serializing it as DEFAULT would invite the client to overwrite the real policy.
 func TestRuleToProtoOmitsUnknownRouting(t *testing.T) {
-	out := ruleToProto(alerts.Rule{ID: "r", RoutingUnknown: true})
+	out := ruleToProto(alerts.Rule{ID: "r", RoutingUnknown: true}, true)
 	assert.Nil(t, out.Routing)
 
-	out = ruleToProto(alerts.Rule{ID: "r"})
+	out = ruleToProto(alerts.Rule{ID: "r"}, true)
 	require.NotNil(t, out.Routing, "a readable rule always carries an explicit mode")
 	assert.Equal(t, alertsv1.RoutingMode_ROUTING_MODE_DEFAULT, out.Routing.Mode)
 }

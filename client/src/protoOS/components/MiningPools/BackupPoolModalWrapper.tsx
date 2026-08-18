@@ -36,6 +36,7 @@ const BackupPoolModalWrapper = ({
       onDelete={onDelete}
       usernameLabel="Username (optional)"
       usernameRequired={false}
+      standaloneV2AuthorityKey
       usernameHelperText={
         <>
           To add a worker name, add a period after the username followed by the worker name.

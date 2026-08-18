@@ -546,6 +546,9 @@ describe("CurtailmentSettingsPage", () => {
       ),
     ).toBeVisible();
     expect(screen.getByText("Response profiles")).toBeVisible();
+    expect(screen.getByTestId("proto-rig-curtailment-fallback-notice")).toHaveTextContent(
+      "Proto rigs can use compatible TCP MaestroOS sources as a local fallback",
+    );
     expect(screen.getByRole("button", { name: "About response profiles" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Create profile" })).toBeEnabled();
     expect(screen.getByText("Sources")).toBeVisible();
@@ -1263,6 +1266,25 @@ describe("CurtailmentSettingsPage", () => {
     const noSignalLabel = screen.getByText("No signal");
     expect(noSignalLabel.previousElementSibling).toHaveClass("h-2", "w-2", "rounded-full", "bg-intent-critical-fill");
     expect(document.querySelector(".curtailment-source-health")).not.toBeInTheDocument();
+  });
+
+  it("renders topology-scoped response profiles without enabling the incomplete editor", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "topology-profile",
+      name: "Building response",
+      scope: "2 buildings",
+      formValues: undefined,
+      isReadOnly: true,
+    };
+
+    render(<CurtailmentSettingsContent initialResponseProfiles={[topologyProfile]} />);
+
+    const card = getResponseProfileCard("Building response");
+    expect(within(card).getByText("2 buildings")).toBeVisible();
+    expect(
+      within(card).getByRole("button", { name: "Editing topology-scoped profiles is not available yet" }),
+    ).toBeDisabled();
   });
 
   it("renders provided automations with enabled and disabled rows", () => {

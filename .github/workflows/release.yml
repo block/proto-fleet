@@ -107,6 +107,27 @@ jobs:
       - name: List all release assets
         run: find /tmp/release-assets -type f | sort
 
+      - name: Verify deployment bundle checksums
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          cd /tmp/release-assets/bundles
+          for arch in amd64 arm64; do
+            bundle="proto-fleet-${VERSION}-${arch}.tar.gz"
+            if [[ ! -f "$bundle" || ! -f "$bundle.sha256" ]]; then
+              echo "::error::Missing deployment bundle or checksum for $arch"
+              exit 1
+            fi
+            # Bind both the digest and filename; sha256sum -c trusts the
+            # filename stored inside the sidecar.
+            expected_sidecar="$RUNNER_TEMP/proto-fleet-${arch}.sha256"
+            sha256sum "$bundle" > "$expected_sidecar"
+            if ! cmp -s "$expected_sidecar" "$bundle.sha256"; then
+              echo "::error::Deployment bundle checksum is not bound to $bundle"
+              exit 1
+            fi
+          done
+
       - name: Create or refresh draft release and upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,6 +138,7 @@ jobs:
           shopt -s failglob
           files=(
             /tmp/release-assets/bundles/proto-fleet-"$TAG_NAME"-*.tar.gz
+            /tmp/release-assets/bundles/proto-fleet-"$TAG_NAME"-*.tar.gz.sha256
             /tmp/release-assets/windows/installer.exe
             /tmp/release-assets/windows/uninstall.exe
             /tmp/release-assets/server/proto-fleet-server-"$TAG_NAME"-*.tar.gz

@@ -23,6 +23,14 @@ import (
 
 func newZeroTargetDispatchTestService(t *testing.T, conn *sql.DB) *command.Service {
 	t.Helper()
+	return newDispatchIntegrationTestService(t, conn, queue.NewDatabaseMessageQueue(&queue.Config{
+		DequeLimit:        10,
+		MaxFailureRetries: 1,
+	}, conn))
+}
+
+func newDispatchIntegrationTestService(t *testing.T, conn *sql.DB, messageQueue queue.MessageQueue) *command.Service {
+	t.Helper()
 
 	commandConfig := &command.Config{
 		MaxWorkers:                       1,
@@ -33,11 +41,6 @@ func newZeroTargetDispatchTestService(t *testing.T, conn *sql.DB) *command.Servi
 		StuckMessageTimeout:              time.Hour,
 		ReaperInterval:                   time.Hour,
 	}
-	queueConfig := &queue.Config{
-		DequeLimit:        10,
-		MaxFailureRetries: 1,
-	}
-	messageQueue := queue.NewDatabaseMessageQueue(queueConfig, conn)
 	executionCtx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 

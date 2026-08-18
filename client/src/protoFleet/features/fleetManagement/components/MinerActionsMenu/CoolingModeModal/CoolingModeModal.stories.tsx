@@ -66,5 +66,5 @@ export const ImmersionCooled = () => (
 
 // Testing dismiss behavior
 export const DismissBehavior = () => (
-  <StoryWrapper infoMessage="Click 'Done' without selecting an option, click outside the modal, or press ESC to dismiss. The onDismiss action will be logged." />
+  <StoryWrapper infoMessage="Click 'Done' without selecting an option, or press ESC to dismiss. The onDismiss action will be logged." />
 );

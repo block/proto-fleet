@@ -379,6 +379,14 @@ type AlertRoutePolicy struct {
 	UpdatedAt time.Time
 }
 
+type AlertRuleConfig struct {
+	OrgID     int64
+	RuleUid   string
+	Config    json.RawMessage
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
@@ -649,6 +657,18 @@ type CurtailmentResponseProfile struct {
 	FacilityFanDeviceIds        []int64
 	FanOffDelaySec              int32
 	FanRestoreDelaySec          int32
+}
+
+type CurtailmentRigConfigReconciliation struct {
+	OrganizationID     int64
+	RequestedBy        int64
+	DesiredGeneration  int64
+	EnqueuedGeneration int64
+	RetryAt            time.Time
+	LeaseExpiresAt     sql.NullTime
+	LastError          sql.NullString
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type CurtailmentTarget struct {
@@ -1051,6 +1071,15 @@ type FleetActiveOrganization struct {
 	OrganizationID string
 }
 
+type FleetDevicePlacement struct {
+	OrgID      int64
+	DeviceID   string
+	SiteID     sql.NullInt64
+	BuildingID sql.NullInt64
+	RackID     sql.NullInt64
+	GroupID    sql.NullInt64
+}
+
 type FleetMetricRollup90 struct {
 	Bucket                time.Time
 	OrgID                 int64
@@ -1313,6 +1342,12 @@ type RackSlot struct {
 	Row         int32
 	Col         int32
 	CreatedAt   time.Time
+}
+
+type ReleaseChannelSetting struct {
+	OrganizationID int64
+	Channel        string
+	UpdatedAt      time.Time
 }
 
 type Role struct {

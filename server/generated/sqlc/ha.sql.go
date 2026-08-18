@@ -131,6 +131,57 @@ func (q *Queries) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleet
 	return i, err
 }
 
+const classifyFleetRuntimeLeaseAcquisition = `-- name: ClassifyFleetRuntimeLeaseAcquisition :one
+WITH lease_context AS (
+    SELECT
+        clock_timestamp() AS database_time,
+        (
+            NOT connected.in_recovery
+            AND connected.server_address = $4::TEXT
+            AND connected.server_port = $5::INTEGER
+            AND connected.timeline = $6::BIGINT
+        ) AS writer_matches
+    FROM connected_postgres_identity AS connected
+)
+SELECT CASE
+    WHEN NOT lease_context.writer_matches THEN 'writer_mismatch'
+    WHEN current_lease.lease_name IS NULL THEN 'unavailable'
+    WHEN current_lease.dcs_cluster_id IS DISTINCT FROM $1 THEN 'cluster_mismatch'
+    WHEN current_lease.highest_writer_generation IS DISTINCT FROM $2 THEN 'writer_changed'
+    WHEN
+        current_lease.holder_id IS DISTINCT FROM $3
+        AND current_lease.expires_at > lease_context.database_time
+    THEN 'contended'
+    ELSE 'unavailable'
+END::TEXT AS acquisition_result
+FROM lease_context
+LEFT JOIN fleet_runtime_lease AS current_lease
+    ON current_lease.lease_name = 'fleet-active'
+`
+
+type ClassifyFleetRuntimeLeaseAcquisitionParams struct {
+	DcsClusterID     string
+	WriterGeneration int64
+	HolderID         uuid.UUID
+	ServerAddress    string
+	ServerPort       int32
+	Timeline         int64
+}
+
+func (q *Queries) ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error) {
+	row := q.queryRow(ctx, q.classifyFleetRuntimeLeaseAcquisitionStmt, classifyFleetRuntimeLeaseAcquisition,
+		arg.DcsClusterID,
+		arg.WriterGeneration,
+		arg.HolderID,
+		arg.ServerAddress,
+		arg.ServerPort,
+		arg.Timeline,
+	)
+	var acquisition_result string
+	err := row.Scan(&acquisition_result)
+	return acquisition_result, err
+}
+
 const getConnectedPostgresIdentity = `-- name: GetConnectedPostgresIdentity :one
 SELECT
     server_address,
@@ -148,6 +199,35 @@ func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPo
 		&i.ServerPort,
 		&i.InRecovery,
 		&i.Timeline,
+	)
+	return i, err
+}
+
+const getHAProfileDatabaseIdentity = `-- name: GetHAProfileDatabaseIdentity :one
+SELECT
+    current_user::TEXT AS database_user,
+    current_database()::TEXT AS database_name,
+    COALESCE(database_role.rolsuper, FALSE)::BOOLEAN AS is_superuser,
+    current_setting('proto_fleet.source_commit')::TEXT AS source_commit
+FROM pg_catalog.pg_roles AS database_role
+WHERE database_role.rolname = current_user
+`
+
+type GetHAProfileDatabaseIdentityRow struct {
+	DatabaseUser string
+	DatabaseName string
+	IsSuperuser  bool
+	SourceCommit string
+}
+
+func (q *Queries) GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error) {
+	row := q.queryRow(ctx, q.getHAProfileDatabaseIdentityStmt, getHAProfileDatabaseIdentity)
+	var i GetHAProfileDatabaseIdentityRow
+	err := row.Scan(
+		&i.DatabaseUser,
+		&i.DatabaseName,
+		&i.IsSuperuser,
+		&i.SourceCommit,
 	)
 	return i, err
 }
