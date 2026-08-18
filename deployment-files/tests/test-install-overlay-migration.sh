@@ -1493,6 +1493,35 @@ else
   fail "active or enabled updater state should make fallback fatal"
 fi
 
+# HA mode extracts into its private download workspace and invokes the
+# packaged operator with the protected, pre-positioned peer bundle. The
+# ordinary installer path remains covered by the migration cases above.
+if (
+  release_root="$TEST_TMP/ha-release-fixture"
+  mkdir -p "$release_root/deployment/ha"
+  cat > "$release_root/deployment/ha/fleet-ha" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$HA_TEST_LOG"
+EOF
+  chmod 755 "$release_root/deployment/ha/fleet-ha"
+  tar_path="$TEST_TMP/proto-fleet-v0.2.10-arm64.tar.gz"
+  tar -czf "$tar_path" -C "$release_root" deployment
+  HA_TEST_LOG="$TEST_TMP/ha-invocation"
+  export HA_TEST_LOG
+  HA_BUNDLE_PATH="$TEST_TMP/proto-fleet-ha-host.json"
+  printf '%s' '{"prepared":true}' > "$HA_BUNDLE_PATH"
+  chmod 600 "$HA_BUNDLE_PATH"
+  stat() { printf '600\n'; }
+  download_dir="$TEST_TMP/ha-download"
+  mkdir -m 700 "$download_dir"
+  run_ha_install "$tar_path" "$download_dir" \
+    && grep -Fxq "install $HA_BUNDLE_PATH" "$HA_TEST_LOG"
+); then
+  pass "HA install invokes the packaged operator with the prepared peer bundle"
+else
+  fail "HA install should use the verified archive and prepared peer bundle"
+fi
+
 if [ "$FAILURES" -ne 0 ]; then
   echo "$FAILURES failure(s)"
   exit 1
