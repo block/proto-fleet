@@ -20,7 +20,8 @@ const permissionsMock = vi.hoisted(() => ({
 }));
 const useActivityMock = vi.hoisted(() => vi.fn());
 const usePagedAlertsMock = vi.hoisted(() => vi.fn());
-const alertsEnabledMock = vi.hoisted(() => ({ current: true, resolved: true }));
+const alertsEnabledMock = vi.hoisted(() => ({ current: true, resolved: true, failing: false }));
+const filtersEventTypesMock = vi.hoisted(() => ({ current: [] as { eventType: string }[] }));
 const exportCsvMock = vi.hoisted(() => vi.fn());
 const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as ActiveSite }));
 
@@ -32,7 +33,11 @@ vi.mock("@/protoFleet/store", () => ({
 }));
 
 vi.mock("@/protoFleet/features/alerts/api/useAlertsEnabled", () => ({
-  useAlertsEnabledState: () => ({ enabled: alertsEnabledMock.current, resolved: alertsEnabledMock.resolved }),
+  useAlertsEnabledState: () => ({
+    enabled: alertsEnabledMock.current,
+    resolved: alertsEnabledMock.resolved,
+    failing: alertsEnabledMock.failing,
+  }),
 }));
 
 vi.mock("@/protoFleet/features/alerts/api/usePagedAlerts", async (importActual) => ({
@@ -63,7 +68,10 @@ vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) =>
 // The presentational children pull in their own dependency trees; stub them so
 // these tests isolate permission gating and filter wiring.
 vi.mock("@/protoFleet/features/activity/components/ActivityFilters", () => ({
-  default: ({ actions }: { actions?: ReactNode }) => <div data-testid="activity-filters">{actions}</div>,
+  default: ({ actions, eventTypes }: { actions?: ReactNode; eventTypes: { eventType: string }[] }) => {
+    filtersEventTypesMock.current = eventTypes;
+    return <div data-testid="activity-filters">{actions}</div>;
+  },
 }));
 
 vi.mock("@/protoFleet/features/activity/components/ActivityTable", () => ({
@@ -99,6 +107,8 @@ describe("ActivityPage", () => {
     permissionsMock.current = { "activity:read": true, "alert:read": true };
     alertsEnabledMock.current = true;
     alertsEnabledMock.resolved = true;
+    alertsEnabledMock.failing = false;
+    filtersEventTypesMock.current = [];
     activeSiteMock.current = { kind: "all" };
     listFilter = undefined;
     exportFilter = undefined;
@@ -173,6 +183,19 @@ describe("ActivityPage", () => {
       expect(screen.queryByText(/alerts aren't enabled on this server/i)).not.toBeInTheDocument();
       expect(screen.queryByTestId("activity-table")).not.toBeInTheDocument();
     });
+
+    it("tells alert-only viewers when the probe keeps failing instead of spinning forever", () => {
+      permissionsMock.current = { "alert:read": true };
+      alertsEnabledMock.current = false;
+      alertsEnabledMock.resolved = false;
+      alertsEnabledMock.failing = true;
+
+      renderActivityRoute();
+
+      expect(screen.getByText(/can't be loaded right now/i)).toBeInTheDocument();
+      expect(screen.queryByText(/alerts aren't enabled on this server/i)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("activity-table")).not.toBeInTheDocument();
+    });
   });
 
   describe("site scope", () => {
@@ -242,6 +265,7 @@ describe("ActivityPage", () => {
 
       expect(pagedAlertsEnabled()).toBe(true);
       expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9,act-old");
+      expect(filtersEventTypesMock.current.some((option) => option.eventType === "alert")).toBe(true);
     });
 
     it("keeps the alert feed off without alert:read", () => {
@@ -268,7 +292,7 @@ describe("ActivityPage", () => {
       expect(pagedAlertsEnabled()).toBe(false);
     });
 
-    it("suppresses the denial error when the org-scoped read is denied", () => {
+    it("degrades a denied org-scoped read to a visible partial-data note, not a silent omission", () => {
       // The hook clears its own rows and cursor on denial, so denied arrives with an empty feed.
       usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ error: "permission denied", denied: true }));
 
@@ -276,6 +300,8 @@ describe("ActivityPage", () => {
 
       expect(screen.getByTestId("activity-table").textContent).toBe("");
       expect(screen.queryByText("permission denied")).not.toBeInTheDocument();
+      expect(screen.getByText(/alert history is unavailable/i)).toBeInTheDocument();
+      expect(filtersEventTypesMock.current.some((option) => option.eventType === "alert")).toBe(false);
     });
 
     it("surfaces the denial error for an alert-only viewer with no fallback feed", () => {

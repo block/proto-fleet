@@ -91,7 +91,11 @@ const ActivityPageContent = () => {
   // Alert history is org-scoped (no site filter on ListAlerts) and gated behind its own permission, so the
   // merged feed only carries alerts on the org-wide route for viewers the alerts feature is on for.
   const canReadAlerts = useHasPermission("alert:read");
-  const { enabled: alertsEnabled, resolved: alertsProbeResolved } = useAlertsEnabledState();
+  const {
+    enabled: alertsEnabled,
+    resolved: alertsProbeResolved,
+    failing: alertsProbeFailing,
+  } = useAlertsEnabledState();
   const alertsAvailable = canReadAlerts && alertsEnabled;
   const orgWideScope = activeSite.kind === "all";
   const canViewAlerts = alertsAvailable && orgWideScope;
@@ -108,12 +112,15 @@ const ActivityPageContent = () => {
     () => mergeAlertEntries(activities, hasMore, alertEntries, alerts.hasMore),
     [activities, hasMore, alertEntries, alerts.hasMore],
   );
+  // A denied org-scoped read (alert:read revoked mid-session) is tracked on the underlying feed, not the
+  // filter-swapped view, so the partial-data note below persists even while a filter excludes alerts.
+  const alertsDenied = canViewAlerts && alertFeed.denied;
   const typeOptions = useMemo(
-    () => (canViewAlerts ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
-    [canViewAlerts, eventTypes],
+    () => (canViewAlerts && !alertsDenied ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
+    [alertsDenied, canViewAlerts, eventTypes],
   );
-  // A denied org-scoped read (alert:read revoked mid-session) degrades to an empty feed — the hook
-  // already cleared its rows and cursor — but only when the activity feed remains as a fallback;
+  // The denial degrades to an activity-only feed — the hook already cleared its rows and cursor, and the
+  // persistent note below says the alert history is missing — but only when activity remains as a fallback;
   // an alert-only viewer gets the access error, not a page that claims there is no activity.
   const feedError = error ?? (alerts.denied && canReadActivity ? null : alerts.error);
   const feedHasMore = hasMore || alerts.hasMore;
@@ -151,12 +158,22 @@ const ActivityPageContent = () => {
 
   // An alert-only viewer on a deployment without the alerts feature has no feed at all; say so rather
   // than presenting a permanently empty table — but until the probe answers, "not enabled" only means
-  // "unknown", so show loading, not a false claim.
+  // "unknown", so show loading, not a false claim. A failing probe bounds that wait: the viewer gets an
+  // actionable message instead of an indefinite spinner while retries continue in the background.
   const noFeed = !canReadActivity && !alertsEnabled;
   if (noFeed && alertsProbeResolved) {
     return (
       <div className="flex h-full items-center justify-center p-10 text-center text-text-primary-50">
         Alert history isn't available because alerts aren't enabled on this server.
+      </div>
+    );
+  }
+
+  if (noFeed && alertsProbeFailing) {
+    return (
+      <div className="flex h-full items-center justify-center p-10 text-center text-text-primary-50">
+        Alert history can't be loaded right now because the server isn't responding. Retrying automatically — you can
+        also reload the page.
       </div>
     );
   }
@@ -207,6 +224,11 @@ const ActivityPageContent = () => {
         {alertsAvailable && !orgWideScope ? (
           <p className="pb-4 text-200 text-text-primary-50">
             Alert history is organization-wide and appears only on the all-sites activity feed.
+          </p>
+        ) : null}
+        {alertsDenied && canReadActivity ? (
+          <p className="pb-4 text-200 text-text-primary-50">
+            Alert history is unavailable because your alert access was denied — this feed shows activity only.
           </p>
         ) : null}
       </div>

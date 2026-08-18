@@ -51,6 +51,8 @@ export interface AlertsEnabledState {
   enabled: boolean;
   // False only while no probe has answered yet: "not enabled" then means "unknown", not "off".
   resolved: boolean;
+  // True once a probe has failed while unresolved, bounded by the probe deadline; retries continue and clear it.
+  failing: boolean;
 }
 
 /**
@@ -64,6 +66,7 @@ export function useAlertsEnabledState(): AlertsEnabledState {
   // reads a cached "disabled" rather than re-probing.
   const [enabled, setEnabled] = useState<boolean>((cache ?? false) || ALERTS_ENABLED);
   const [resolved, setResolved] = useState<boolean>(cache !== null || ALERTS_ENABLED);
+  const [failing, setFailing] = useState(false);
   // No short-circuit on an already-cached answer: effects run after the render that seeded state, so another
   // consumer's probe can answer in between, and returning on it would leave the initializer's "disabled" to
   // outlive the answer and hide the alerts surface for this mount's whole life. A cached answer costs no
@@ -78,8 +81,10 @@ export function useAlertsEnabledState(): AlertsEnabledState {
       if (answer !== null) {
         setEnabled(answer || ALERTS_ENABLED);
         setResolved(true);
+        setFailing(false);
         return;
       }
+      setFailing(true);
       retryId = setTimeout(() => void probe(Math.min(retryMs * 2, PROBE_RETRY_MAX_MS)), retryMs);
     };
 
@@ -89,7 +94,7 @@ export function useAlertsEnabledState(): AlertsEnabledState {
       if (retryId !== null) clearTimeout(retryId);
     };
   }, []);
-  return { enabled, resolved };
+  return { enabled, resolved, failing };
 }
 
 // The common consumer shape: chrome that hides the alerts surface treats "unknown" the same as "off".
