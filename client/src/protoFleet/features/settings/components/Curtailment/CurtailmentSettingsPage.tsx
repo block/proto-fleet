@@ -2,7 +2,7 @@ import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo,
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
-import { getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
+import { type CurtailmentScopeSelection, getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -162,6 +162,10 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   name: "",
   actionType: "fullFleet",
   targetKw: "",
+  scopeType: "wholeOrg",
+  buildingTargetIds: [],
+  rackTargetIds: [],
+  groupTargetIds: [],
   deviceIdentifiers: [],
   minerSelectionMode: "subset",
   siteSelection: "none",
@@ -328,6 +332,16 @@ function createResponseProfileId(name: string, existingProfiles: ResponseProfile
   return candidate;
 }
 
+function cloneTopologyTargetIds(
+  values: Pick<CurtailmentScopeSelection, "buildingTargetIds" | "rackTargetIds" | "groupTargetIds">,
+) {
+  return {
+    buildingTargetIds: [...(values.buildingTargetIds ?? [])],
+    rackTargetIds: [...(values.rackTargetIds ?? [])],
+    groupTargetIds: [...(values.groupTargetIds ?? [])],
+  };
+}
+
 function createResponseProfileFromFormValues(
   values: ResponseProfileFormValues,
   existingProfiles: ResponseProfile[],
@@ -340,6 +354,7 @@ function createResponseProfileFromFormValues(
     ...values,
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected
@@ -384,6 +399,7 @@ function removeResponseProfileScope(values: ResponseProfileFormValues): Response
 
   return {
     ...values,
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected
@@ -412,6 +428,10 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     name: profile.name,
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
+    scopeType: "wholeOrg",
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
     deviceIdentifiers: [],
     minerSelectionMode: "subset",
     siteSelection: "none",
@@ -471,13 +491,15 @@ function createCurtailmentFormValuesFromResponseProfile(
         : "none";
 
   return {
-    scopeType: hasAllMinersSelected
-      ? "wholeOrg"
-      : deviceIdentifiers.length > 0
-        ? "explicitMiners"
-        : siteIds.length > 0
-          ? "site"
-          : "wholeOrg",
+    scopeType:
+      values.scopeType ??
+      (hasAllMinersSelected
+        ? "wholeOrg"
+        : deviceIdentifiers.length > 0
+          ? "explicitMiners"
+          : siteIds.length > 0
+            ? "site"
+            : "wholeOrg"),
     scopeId: hasAllMinersSelected
       ? "whole-org"
       : siteIds.length > 0
@@ -491,6 +513,7 @@ function createCurtailmentFormValuesFromResponseProfile(
     siteId,
     siteIds,
     siteNamesById,
+    ...cloneTopologyTargetIds(values),
     deviceSetIds: [],
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
@@ -551,6 +574,8 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
+    scopeType: values.scopeType === "deviceSet" ? undefined : values.scopeType,
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected ? "allSites" : values.siteSelection,

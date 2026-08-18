@@ -1,5 +1,6 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { type CurtailmentTerminalScopeType, parseCurtailmentTargetId } from "@/protoFleet/api/curtailmentScopes";
 import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -13,10 +14,7 @@ import {
   curtailmentNumericFieldLimits,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import {
-  parseCurtailmentSiteId,
-  supportsAllPairedTargeting,
-} from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import { supportsAllPairedTargeting } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import FacilityFanSelectionModal, {
   type FacilityFanDeviceOption,
   type FacilityFanSelectionValue,
@@ -41,7 +39,7 @@ import Select from "@/shared/components/Select";
 import { positions } from "@/shared/constants";
 
 export type CurtailmentPriority = "normal" | "emergency";
-export type CurtailmentScopeType = "wholeOrg" | "site" | "deviceSet" | "explicitMiners";
+export type CurtailmentScopeType = CurtailmentTerminalScopeType | "deviceSet";
 export type CurtailmentSiteSelection = "none" | "allSites" | "site";
 export type CurtailmentMinerSelectionMode = "subset" | "all";
 export type ResponseProfileId = string;
@@ -58,6 +56,9 @@ export interface CurtailmentFormValues {
   siteId?: string;
   siteIds?: string[];
   siteNamesById?: Record<string, string>;
+  buildingTargetIds?: string[];
+  rackTargetIds?: string[];
+  groupTargetIds?: string[];
   deviceSetIds: string[];
   deviceIdentifiers: string[];
   minerSelectionMode?: CurtailmentMinerSelectionMode;
@@ -215,6 +216,9 @@ const defaultValues: CurtailmentFormValues = {
   siteId: "",
   siteIds: [],
   siteNamesById: {},
+  buildingTargetIds: [],
+  rackTargetIds: [],
+  groupTargetIds: [],
   deviceSetIds: [],
   deviceIdentifiers: [],
   minerSelectionMode: "subset",
@@ -262,7 +266,7 @@ const getValidSiteScopeId = (siteId?: string): string | undefined => {
     return undefined;
   }
 
-  const parsedSiteId = parseCurtailmentSiteId(normalizedSiteId);
+  const parsedSiteId = parseCurtailmentTargetId(normalizedSiteId);
   return parsedSiteId?.toString() === normalizedSiteId ? normalizedSiteId : undefined;
 };
 

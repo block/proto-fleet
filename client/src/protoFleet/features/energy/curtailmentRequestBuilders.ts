@@ -1,13 +1,13 @@
 import { create } from "@bufbuild/protobuf";
 
 import {
-  createDeviceCurtailmentScope,
-  createSiteCurtailmentScope,
-  createWholeOrgCurtailmentScope,
+  buildCurtailmentScopes,
+  curtailmentScopeSchemaVersion,
+  type CurtailmentScopeSelection,
   normalizeCurtailmentSelectionValues,
+  parseCurtailmentTargetId,
 } from "@/protoFleet/api/curtailmentScopes";
 import {
-  type CurtailmentScope,
   type FixedKwParams,
   FixedKwParamsSchema,
   CurtailmentLevel as ProtoCurtailmentLevel,
@@ -31,6 +31,7 @@ type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1]
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
   | "scopes"
+  | "scopeSchemaVersion"
   | "mode"
   | "strategy"
   | "level"
@@ -73,18 +74,6 @@ const fanRestoreDelayOptions: OptionalUint32FieldOptions = {
   label: "fan restore delay",
   max: curtailmentNumericFieldLimits.fanDelaySec,
 };
-const maxInt64 = 9_223_372_036_854_775_807n;
-const baseTenIntegerPattern = /^[0-9]+$/;
-
-export function parseCurtailmentSiteId(value: string | undefined): bigint | undefined {
-  const trimmed = value?.trim() ?? "";
-  if (!baseTenIntegerPattern.test(trimmed)) {
-    return undefined;
-  }
-
-  const parsed = BigInt(trimmed);
-  return parsed > 0n && parsed <= maxInt64 ? parsed : undefined;
-}
 
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
@@ -173,66 +162,12 @@ function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   });
 }
 
-type CurtailmentScopeValues = Pick<
-  CurtailmentSubmitValues,
-  "scopeType" | "siteSelection" | "siteId" | "siteIds" | "deviceSetIds" | "deviceIdentifiers" | "minerSelectionMode"
->;
-
-function getSelectedSiteIds(
-  values: CurtailmentScopeValues,
-  siteSelection: CurtailmentScopeValues["siteSelection"],
-): string[] {
-  if (siteSelection !== "site" && siteSelection !== "allSites") {
-    return [];
-  }
-
-  const siteIds =
-    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [];
-  return normalizeCurtailmentSelectionValues(siteIds);
-}
-
-export function buildCurtailmentScopes(values: CurtailmentScopeValues): CurtailmentScope[] | undefined {
-  const siteSelection = values.siteSelection ?? (values.scopeType === "site" ? "site" : "none");
-  if (values.minerSelectionMode === "all") {
-    return [createWholeOrgCurtailmentScope()];
-  }
-
-  if (values.scopeType === "explicitMiners") {
-    const deviceIdentifiers = normalizeCurtailmentSelectionValues(values.deviceIdentifiers);
-    if (deviceIdentifiers.length === 0) {
-      return undefined;
-    }
-    return [createDeviceCurtailmentScope(deviceIdentifiers)];
-  }
-
-  if (values.scopeType === "site" && (siteSelection === "site" || siteSelection === "allSites")) {
-    const siteIds: bigint[] = [];
-    for (const siteIdValue of getSelectedSiteIds(values, siteSelection)) {
-      const siteId = parseCurtailmentSiteId(siteIdValue);
-      if (siteId === undefined) {
-        return undefined;
-      }
-      siteIds.push(siteId);
-    }
-    if (siteIds.length === 0) {
-      return undefined;
-    }
-    return siteIds.map(createSiteCurtailmentScope);
-  }
-
-  if (values.scopeType === "deviceSet") {
-    return undefined;
-  }
-
-  return [createWholeOrgCurtailmentScope()];
-}
-
 // All-paired targeting requires a closed-loop scope (whole org or sites).
 // The policy's durable-ownership loop (release on unpair, reopen on re-pair)
 // does not run for explicit miner selections, and the server rejects the
 // combination.
 export function supportsAllPairedTargeting(
-  values: CurtailmentScopeValues & Pick<CurtailmentSubmitValues, "curtailmentMode">,
+  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
 ): boolean {
   if (values.curtailmentMode !== "fullFleet") {
     return false;
@@ -253,7 +188,7 @@ export function supportsAllPairedTargeting(
 // miners" — it would silently keep the admin-gated maintenance inclusion with
 // nothing in the UI showing it.
 export function buildForceInclusionFields(
-  values: CurtailmentScopeValues & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
+  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
 ): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
   const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
   // The proto validator requires include_maintenance == force_include_maintenance.
@@ -285,6 +220,7 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
 
   return {
     scopes,
+    scopeSchemaVersion: curtailmentScopeSchemaVersion,
     ...fixedKwModeFields,
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
@@ -307,7 +243,7 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
   const facilityFanDeviceIds = [
     ...new Set(
       normalizeCurtailmentSelectionValues(values.facilityFanDeviceIds ?? []).map((value) => {
-        const id = parseCurtailmentSiteId(value);
+        const id = parseCurtailmentTargetId(value);
         if (id === undefined) {
           throw new Error("Facility fan IDs must be positive integers.");
         }
