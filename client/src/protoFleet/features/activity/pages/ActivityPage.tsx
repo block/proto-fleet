@@ -117,6 +117,8 @@ const ActivityPageContent = () => {
   // A denied org-scoped read (alert:read revoked mid-session) is tracked on the underlying feed, not the
   // filter-swapped view, so the partial-data note below persists even while a filter excludes alerts.
   const alertsDenied = canViewAlerts && alertFeed.denied;
+  // Failing implies unresolved (a successful probe clears it); the guard keeps the note gone once answered.
+  const alertsProbeDown = canReadAlerts && alertsProbeFailing && !alertsProbeResolved;
   const typeOptions = useMemo(
     () => (canViewAlerts && !alertsDenied ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
     [alertsDenied, canViewAlerts, eventTypes],
@@ -231,6 +233,12 @@ const ActivityPageContent = () => {
         {alertsDenied && canReadActivity ? (
           <p className="pb-4 text-200 text-text-primary-50">
             Alert history is unavailable because your alert access was denied — this feed shows activity only.
+          </p>
+        ) : null}
+        {alertsProbeDown && orgWideScope ? (
+          <p className="pb-4 text-200 text-text-primary-50">
+            Alert history can't be loaded right now because the server isn't responding, so this feed may be missing
+            alert events. Retrying automatically.
           </p>
         ) : null}
       </div>

@@ -197,6 +197,17 @@ describe("ActivityPage", () => {
       expect(screen.queryByTestId("activity-table")).not.toBeInTheDocument();
     });
 
+    it("warns dual-permission viewers that the feed may be missing alerts while the probe fails", () => {
+      alertsEnabledMock.current = false;
+      alertsEnabledMock.resolved = false;
+      alertsEnabledMock.failing = true;
+
+      renderActivityRoute();
+
+      expect(screen.getByTestId("activity-table")).toBeInTheDocument();
+      expect(screen.getByText(/may be missing alert events/i)).toBeInTheDocument();
+    });
+
     it("tells alert-only viewers when the probe keeps failing instead of spinning forever", () => {
       permissionsMock.current = { "alert:read": true };
       alertsEnabledMock.current = false;
