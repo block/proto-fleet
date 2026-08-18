@@ -3,6 +3,8 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
+  FirmwareTransitionMinerSchema,
+  FirmwareTransitionState,
   RolloutEvidencePhase,
   RolloutEvidenceSchema,
   RolloutLaneChannelSchema,
@@ -45,8 +47,28 @@ describe("rollout mappers", () => {
         totalCount: 12,
         pendingCount: 2,
         updatingCount: 1,
+        verifyingCount: 1,
         confirmedCount: 8,
-        attentionCount: 1,
+        attentionCount: 0,
+        members: [
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-1",
+            manufacturer: "Proto",
+            model: "Alpha",
+            latestObservedFirmwareVersion: "1.0.0",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.VERIFYING,
+            updatedAt: timestamp("2026-08-18T00:59:00Z"),
+          }),
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-2",
+            manufacturer: "Proto",
+            model: "Alpha",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.NEEDS_ATTENTION,
+            lastError: "Firmware identity could not be confirmed",
+          }),
+        ],
       }),
       updatedAt: timestamp("2026-08-18T01:00:00Z"),
     });
@@ -76,8 +98,23 @@ describe("rollout mappers", () => {
         totalCount: 12,
         pendingCount: 2,
         updatingCount: 1,
+        verifyingCount: 1,
         confirmedCount: 8,
-        attentionCount: 1,
+        attentionCount: 0,
+        members: [
+          {
+            deviceIdentifier: "miner-1",
+            latestObservedFirmwareVersion: "1.0.0",
+            state: "verifying",
+            updatedAt: timestamp("2026-08-18T00:59:00Z"),
+          },
+          {
+            deviceIdentifier: "miner-2",
+            latestObservedFirmwareVersion: undefined,
+            state: "needsAttention",
+            lastError: "Firmware identity could not be confirmed",
+          },
+        ],
       },
       updatedAt: "2026-08-18T01:00:00.000Z",
     });

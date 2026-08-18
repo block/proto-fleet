@@ -13,8 +13,10 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/channel"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
+	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -247,6 +249,60 @@ func TestStateFromProtoTreatsUnspecifiedAsUnknown(t *testing.T) {
 
 	assert.Empty(t, state)
 	assert.False(t, ok)
+}
+
+func TestLaneTranslationIncludesFirmwareTransitionDetails(t *testing.T) {
+	t.Parallel()
+
+	updatedAt := time.Date(2026, time.August, 18, 12, 0, 0, 0, time.UTC)
+	translated := laneToProto(&betweenchannel.Lane{
+		InitialEnforcement: betweenchannel.InitialEnforcementStatus{
+			TotalCount:     2,
+			VerifyingCount: 1,
+			AttentionCount: 1,
+			Members: []channel.FirmwareTransitionMiner{
+				{
+					DeviceIdentifier:              "miner-verifying",
+					Manufacturer:                  "Proto",
+					Model:                         "Alpha",
+					LatestObservedFirmwareVersion: "2.0.0",
+					TargetFirmwareVersion:         "2.0.0",
+					State:                         channel.FirmwareTransitionVerifying,
+					UpdatedAt:                     updatedAt,
+				},
+				{
+					DeviceIdentifier:      "miner-attention",
+					Manufacturer:          "Proto",
+					Model:                 "Beta",
+					TargetFirmwareVersion: "3.0.0",
+					State:                 channel.FirmwareTransitionNeedsAttention,
+					LastError:             "Firmware identity could not be confirmed",
+					UpdatedAt:             updatedAt,
+				},
+			},
+		},
+	})
+
+	assert.Equal(t, uint32(1), translated.GetInitialEnforcement().GetVerifyingCount())
+	require.Len(t, translated.GetInitialEnforcement().GetMembers(), 2)
+	assert.Equal(
+		t,
+		pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_VERIFYING,
+		translated.GetInitialEnforcement().GetMembers()[0].GetState(),
+	)
+	assert.Equal(t, "2.0.0", translated.GetInitialEnforcement().GetMembers()[0].GetLatestObservedFirmwareVersion())
+	assert.Equal(t, updatedAt, translated.GetInitialEnforcement().GetMembers()[0].GetUpdatedAt().AsTime())
+	assert.Nil(t, translated.GetInitialEnforcement().GetMembers()[1].LatestObservedFirmwareVersion)
+	assert.Equal(
+		t,
+		pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_NEEDS_ATTENTION,
+		translated.GetInitialEnforcement().GetMembers()[1].GetState(),
+	)
+	assert.Equal(
+		t,
+		"Firmware identity could not be confirmed",
+		translated.GetInitialEnforcement().GetMembers()[1].GetLastError(),
+	)
 }
 
 type recordingRolloutService struct {

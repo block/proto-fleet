@@ -20,8 +20,10 @@ const rows: LaneTableRow[] = [
         totalCount: 12,
         pendingCount: 0,
         updatingCount: 0,
-        confirmedCount: 11,
-        attentionCount: 1,
+        verifyingCount: 0,
+        confirmedCount: 12,
+        attentionCount: 0,
+        members: [],
       },
       currentReleaseTargets: [
         {
@@ -71,20 +73,29 @@ const abortedSplit: RolloutRecord = {
 
 describe("RolloutLanesTable", () => {
   it("shows stable lane release and membership to read-only operators", () => {
-    render(<RolloutLanesTable rows={rows} canStart={false} onStart={vi.fn()} onView={vi.fn()} />);
+    render(<RolloutLanesTable rows={rows} canStart={false} onSetup={vi.fn()} onStart={vi.fn()} onView={vi.fn()} />);
 
     expect(screen.getByText("Stable production")).toBeInTheDocument();
     expect(screen.getByText("Alpha 1.0.0")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
-    expect(screen.getByText("11 confirmed")).toBeInTheDocument();
-    expect(screen.getByText("1 attention")).toBeInTheDocument();
+    expect(screen.getByText("12 confirmed")).toBeInTheDocument();
+    expect(screen.getByText("0 needs attention")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start rollout/i })).not.toBeInTheDocument();
   });
 
   it("shows lane start only to managers", () => {
-    render(<RolloutLanesTable rows={rows} canStart onStart={vi.fn()} onView={vi.fn()} />);
+    render(<RolloutLanesTable rows={rows} canStart onSetup={vi.fn()} onStart={vi.fn()} onView={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeEnabled();
+  });
+
+  it("lets an operator reopen initial firmware setup from the lane row", async () => {
+    const onSetup = vi.fn();
+    render(<RolloutLanesTable rows={rows} canStart={false} onSetup={onSetup} onStart={vi.fn()} onView={vi.fn()} />);
+
+    screen.getByRole("button", { name: "View initial firmware setup for Stable production" }).click();
+
+    expect(onSetup).toHaveBeenCalledWith(rows[0].lane);
   });
 
   it("disables start and explains how to resolve an aborted lane split", () => {
@@ -92,6 +103,7 @@ describe("RolloutLanesTable", () => {
       <RolloutLanesTable
         rows={[{ ...rows[0], latestRollout: abortedSplit }]}
         canStart
+        onSetup={vi.fn()}
         onStart={vi.fn()}
         onView={vi.fn()}
       />,
@@ -102,7 +114,9 @@ describe("RolloutLanesTable", () => {
   });
 
   it("disables every start action while fresh lane preparation is in progress", () => {
-    render(<RolloutLanesTable rows={rows} canStart isPreparingStart onStart={vi.fn()} onView={vi.fn()} />);
+    render(
+      <RolloutLanesTable rows={rows} canStart isPreparingStart onSetup={vi.fn()} onStart={vi.fn()} onView={vi.fn()} />,
+    );
 
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
   });
@@ -114,8 +128,10 @@ describe("RolloutLanesTable", () => {
         totalCount: 12,
         pendingCount: 2,
         updatingCount: 3,
-        confirmedCount: 7,
+        verifyingCount: 1,
+        confirmedCount: 6,
         attentionCount: 0,
+        members: [],
       },
     };
 
@@ -123,6 +139,7 @@ describe("RolloutLanesTable", () => {
       <RolloutLanesTable
         rows={[{ id: activeLane.id, lane: activeLane }]}
         canStart
+        onSetup={vi.fn()}
         onStart={vi.fn()}
         onView={vi.fn()}
       />,
@@ -130,7 +147,32 @@ describe("RolloutLanesTable", () => {
 
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
     expect(
-      screen.getByText("Wait for initial firmware enforcement to settle before starting a rollout."),
+      screen.getByText("Wait for initial firmware setup to finish before starting a rollout."),
     ).toBeInTheDocument();
+  });
+
+  it("blocks rollout start until every initial member is confirmed", () => {
+    const attentionLane = {
+      ...rows[0].lane,
+      initialEnforcement: {
+        ...rows[0].lane.initialEnforcement,
+        confirmedCount: 11,
+        attentionCount: 1,
+      },
+    };
+
+    render(
+      <RolloutLanesTable
+        rows={[{ id: attentionLane.id, lane: attentionLane }]}
+        canStart
+        onSetup={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
+    expect(screen.getByText("Resolve miners that need attention before starting a rollout.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
   });
 });

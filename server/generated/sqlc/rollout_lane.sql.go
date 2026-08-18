@@ -432,36 +432,6 @@ func (q *Queries) CompleteSettledBetweenChannelBatches(ctx context.Context, arg 
 	return result.RowsAffected()
 }
 
-const countActiveRolloutLaneInitialEnforcements = `-- name: CountActiveRolloutLaneInitialEnforcements :one
-SELECT COUNT(*)::bigint
-FROM channel_firmware_authority authority
-JOIN channel_firmware_enforcement enforcement
-  ON enforcement.authority_id = authority.id
- AND enforcement.org_id = authority.org_id
-WHERE authority.org_id = $1
-  AND authority.authority_type = 'rollout_lane_initial'
-  AND authority.authority_reference = $2::uuid::text
-  AND enforcement.state IN (
-      'pending',
-      'held',
-      'dispatching',
-      'dispatched',
-      'verifying'
-  )
-`
-
-type CountActiveRolloutLaneInitialEnforcementsParams struct {
-	OrgID  int64
-	LaneID uuid.UUID
-}
-
-func (q *Queries) CountActiveRolloutLaneInitialEnforcements(ctx context.Context, arg CountActiveRolloutLaneInitialEnforcementsParams) (int64, error) {
-	row := q.queryRow(ctx, q.countActiveRolloutLaneInitialEnforcementsStmt, countActiveRolloutLaneInitialEnforcements, arg.OrgID, arg.LaneID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const countBetweenChannelAdmittedBatchMembers = `-- name: CountBetweenChannelAdmittedBatchMembers :one
 SELECT COUNT(*)::bigint
 FROM firmware_rollout_member
@@ -1576,8 +1546,11 @@ SELECT COUNT(enforcement.id)::bigint AS total_count,
            WHERE enforcement.state IN ('pending', 'held')
        )::bigint AS pending_count,
        COUNT(enforcement.id) FILTER (
-           WHERE enforcement.state IN ('dispatching', 'dispatched', 'verifying')
+           WHERE enforcement.state IN ('dispatching', 'dispatched')
        )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'verifying'
+       )::bigint AS verifying_count,
        COUNT(enforcement.id) FILTER (
            WHERE enforcement.state = 'confirmed'
        )::bigint AS confirmed_count,
@@ -1602,6 +1575,7 @@ type GetRolloutLaneInitialEnforcementStatusRow struct {
 	TotalCount     int64
 	PendingCount   int64
 	UpdatingCount  int64
+	VerifyingCount int64
 	ConfirmedCount int64
 	AttentionCount int64
 }
@@ -1613,6 +1587,7 @@ func (q *Queries) GetRolloutLaneInitialEnforcementStatus(ctx context.Context, ar
 		&i.TotalCount,
 		&i.PendingCount,
 		&i.UpdatingCount,
+		&i.VerifyingCount,
 		&i.ConfirmedCount,
 		&i.AttentionCount,
 	)
@@ -2079,6 +2054,85 @@ func (q *Queries) ListRolloutLaneChannels(ctx context.Context, arg ListRolloutLa
 	return items, nil
 }
 
+const listRolloutLaneInitialEnforcementMembers = `-- name: ListRolloutLaneInitialEnforcementMembers :many
+SELECT device.device_identifier,
+       COALESCE(discovered.manufacturer, '') AS manufacturer,
+       COALESCE(discovered.model, '') AS model,
+       enforcement.last_observed_firmware_version,
+       enforcement.desired_firmware_version AS target_firmware_version,
+       enforcement.state,
+       enforcement.last_error,
+       enforcement.updated_at
+FROM channel_firmware_authority authority
+JOIN channel_firmware_enforcement enforcement
+  ON enforcement.authority_id = authority.id
+ AND enforcement.org_id = authority.org_id
+JOIN device
+  ON device.id = enforcement.device_id
+ AND device.org_id = enforcement.org_id
+LEFT JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
+WHERE authority.org_id = $1
+  AND authority.authority_type = 'rollout_lane_initial'
+  AND authority.authority_reference = $2::uuid::text
+  AND (
+      $3::timestamptz IS NULL
+      OR enforcement.updated_at > $3::timestamptz
+  )
+ORDER BY device.device_identifier
+`
+
+type ListRolloutLaneInitialEnforcementMembersParams struct {
+	OrgID               int64
+	LaneID              uuid.UUID
+	MembersUpdatedAfter sql.NullTime
+}
+
+type ListRolloutLaneInitialEnforcementMembersRow struct {
+	DeviceIdentifier            string
+	Manufacturer                string
+	Model                       string
+	LastObservedFirmwareVersion sql.NullString
+	TargetFirmwareVersion       string
+	State                       string
+	LastError                   sql.NullString
+	UpdatedAt                   time.Time
+}
+
+func (q *Queries) ListRolloutLaneInitialEnforcementMembers(ctx context.Context, arg ListRolloutLaneInitialEnforcementMembersParams) ([]ListRolloutLaneInitialEnforcementMembersRow, error) {
+	rows, err := q.query(ctx, q.listRolloutLaneInitialEnforcementMembersStmt, listRolloutLaneInitialEnforcementMembers, arg.OrgID, arg.LaneID, arg.MembersUpdatedAfter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRolloutLaneInitialEnforcementMembersRow
+	for rows.Next() {
+		var i ListRolloutLaneInitialEnforcementMembersRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.Manufacturer,
+			&i.Model,
+			&i.LastObservedFirmwareVersion,
+			&i.TargetFirmwareVersion,
+			&i.State,
+			&i.LastError,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRolloutLaneInitialEnforcementStatuses = `-- name: ListRolloutLaneInitialEnforcementStatuses :many
 SELECT lane.id AS lane_id,
        COUNT(enforcement.id)::bigint AS total_count,
@@ -2086,8 +2140,11 @@ SELECT lane.id AS lane_id,
            WHERE enforcement.state IN ('pending', 'held')
        )::bigint AS pending_count,
        COUNT(enforcement.id) FILTER (
-           WHERE enforcement.state IN ('dispatching', 'dispatched', 'verifying')
+           WHERE enforcement.state IN ('dispatching', 'dispatched')
        )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'verifying'
+       )::bigint AS verifying_count,
        COUNT(enforcement.id) FILTER (
            WHERE enforcement.state = 'confirmed'
        )::bigint AS confirmed_count,
@@ -2111,6 +2168,7 @@ type ListRolloutLaneInitialEnforcementStatusesRow struct {
 	TotalCount     int64
 	PendingCount   int64
 	UpdatingCount  int64
+	VerifyingCount int64
 	ConfirmedCount int64
 	AttentionCount int64
 }
@@ -2129,6 +2187,7 @@ func (q *Queries) ListRolloutLaneInitialEnforcementStatuses(ctx context.Context,
 			&i.TotalCount,
 			&i.PendingCount,
 			&i.UpdatingCount,
+			&i.VerifyingCount,
 			&i.ConfirmedCount,
 			&i.AttentionCount,
 		); err != nil {

@@ -9,6 +9,7 @@ import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components
 import {
   buildManualBatches,
   evaluateTargetCompatibility,
+  isInitialFirmwareReady,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutLane, RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
@@ -112,7 +113,12 @@ export default function StartRolloutLaneModal({
     batches.every((batch) => batch.members.length > 0) &&
     batches.reduce((count, batch) => count + batch.members.length, 0) === lane.memberCount;
   const canStart =
-    name.trim().length > 0 && reason.trim().length > 0 && hasFreshMembership && compatibilityReady && hasValidBatchPlan;
+    name.trim().length > 0 &&
+    reason.trim().length > 0 &&
+    isInitialFirmwareReady(lane) &&
+    hasFreshMembership &&
+    compatibilityReady &&
+    hasValidBatchPlan;
   const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [
     {
       text: isSubmitting ? "Starting..." : "Start rollout",

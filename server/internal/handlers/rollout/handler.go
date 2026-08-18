@@ -2,6 +2,7 @@ package rollout
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -35,7 +36,13 @@ type laneService interface {
 		req betweenchannel.PreviewLaneRequest,
 	) (betweenchannel.InitialEnforcementPreview, error)
 	CreateLane(ctx context.Context, req betweenchannel.CreateLaneRequest) (*betweenchannel.Lane, error)
-	GetLane(ctx context.Context, orgID int64, laneID uuid.UUID) (*betweenchannel.Lane, error)
+	GetLane(
+		ctx context.Context,
+		orgID int64,
+		laneID uuid.UUID,
+		includeInitialEnforcementMembers bool,
+		initialEnforcementMembersUpdatedAfter *time.Time,
+	) (*betweenchannel.Lane, error)
 	ListLanes(ctx context.Context, orgID int64) ([]betweenchannel.Lane, error)
 	StartRollout(
 		ctx context.Context,
@@ -140,7 +147,23 @@ func (h *Handler) GetRolloutLane(
 	if err != nil {
 		return nil, err
 	}
-	lane, err := h.laneService.GetLane(ctx, info.OrganizationID, laneID)
+	var membersUpdatedAfter *time.Time
+	if value := req.Msg.GetInitialEnforcementMembersUpdatedAfter(); value != nil {
+		if err = value.CheckValid(); err != nil {
+			return nil, fleeterror.NewInvalidArgumentError(
+				"initial_enforcement_members_updated_after must be a valid timestamp",
+			)
+		}
+		parsed := value.AsTime()
+		membersUpdatedAfter = &parsed
+	}
+	lane, err := h.laneService.GetLane(
+		ctx,
+		info.OrganizationID,
+		laneID,
+		req.Msg.GetIncludeInitialEnforcementMembers(),
+		membersUpdatedAfter,
+	)
 	if err != nil {
 		return nil, err
 	}

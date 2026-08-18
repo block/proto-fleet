@@ -1,4 +1,5 @@
 import {
+  FirmwareTransitionState as ProtoFirmwareTransitionState,
   InitialFirmwareMatchStatus as ProtoInitialFirmwareMatchStatus,
   type Rollout as ProtoRollout,
   type RolloutBatch as ProtoRolloutBatch,
@@ -15,6 +16,7 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { timestampToIsoString } from "@/protoFleet/api/timestamps";
 import type {
+  FirmwareTransitionState,
   RolloutActionEligibility,
   RolloutBatch,
   RolloutBatchState,
@@ -134,6 +136,23 @@ export function mapInitialFirmwareStatus(
   }
 }
 
+function mapFirmwareTransitionState(state: ProtoFirmwareTransitionState): FirmwareTransitionState {
+  switch (state) {
+    case ProtoFirmwareTransitionState.PENDING:
+      return "pending";
+    case ProtoFirmwareTransitionState.UPDATING:
+      return "updating";
+    case ProtoFirmwareTransitionState.VERIFYING:
+      return "verifying";
+    case ProtoFirmwareTransitionState.CONFIRMED:
+      return "confirmed";
+    case ProtoFirmwareTransitionState.NEEDS_ATTENTION:
+    case ProtoFirmwareTransitionState.UNSPECIFIED:
+    default:
+      return "needsAttention";
+  }
+}
+
 export function rolloutMemberStateToTargetPhase(state: RolloutMemberState): RolloutTargetPhase {
   switch (state) {
     case "pending":
@@ -231,8 +250,20 @@ export function mapRolloutLane(lane: ProtoRolloutLane, details: MapRolloutLaneDe
       totalCount: lane.initialEnforcement?.totalCount ?? 0,
       pendingCount: lane.initialEnforcement?.pendingCount ?? 0,
       updatingCount: lane.initialEnforcement?.updatingCount ?? 0,
+      verifyingCount: lane.initialEnforcement?.verifyingCount ?? 0,
       confirmedCount: lane.initialEnforcement?.confirmedCount ?? 0,
       attentionCount: lane.initialEnforcement?.attentionCount ?? 0,
+      members:
+        lane.initialEnforcement?.members.map((miner) => ({
+          deviceIdentifier: miner.deviceIdentifier,
+          manufacturer: miner.manufacturer,
+          model: miner.model,
+          latestObservedFirmwareVersion: miner.latestObservedFirmwareVersion,
+          targetFirmwareVersion: miner.targetFirmwareVersion,
+          state: mapFirmwareTransitionState(miner.state),
+          lastError: miner.lastError,
+          updatedAt: miner.updatedAt,
+        })) ?? [],
     },
     createdAt: timestampToIsoString(lane.createdAt),
     updatedAt: timestampToIsoString(lane.updatedAt),

@@ -1,4 +1,5 @@
 import { rolloutLaneStartBlockedReason } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
+import { firmwareTransitionDisplay } from "@/protoFleet/features/rollout/firmwareTransitionDisplay";
 import type { RolloutLane, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -15,6 +16,7 @@ interface RolloutLanesTableProps {
   rows: LaneTableRow[];
   canStart: boolean;
   isPreparingStart?: boolean;
+  onSetup: (lane: RolloutLane) => void;
   onStart: (lane: RolloutLane) => void;
   onView: (rollout: RolloutRecord) => void;
 }
@@ -51,6 +53,7 @@ export default function RolloutLanesTable({
   rows,
   canStart,
   isPreparingStart = false,
+  onSetup,
   onStart,
   onView,
 }: RolloutLanesTableProps) {
@@ -76,12 +79,29 @@ export default function RolloutLanesTable({
     },
     initial: {
       component: ({ lane }) => (
-        <div className="grid gap-0.5 text-200 text-text-primary-70">
-          <span>{lane.initialEnforcement.pendingCount.toLocaleString()} pending</span>
-          <span>{lane.initialEnforcement.updatingCount.toLocaleString()} updating</span>
-          <span>{lane.initialEnforcement.confirmedCount.toLocaleString()} confirmed</span>
-          <span>{lane.initialEnforcement.attentionCount.toLocaleString()} attention</span>
-        </div>
+        <button
+          type="button"
+          className="grid gap-0.5 text-left text-200 text-text-primary-70 underline-offset-2 hover:underline"
+          aria-label={`View initial firmware setup for ${lane.label}`}
+          onClick={() => onSetup(lane)}
+        >
+          <span>
+            {lane.initialEnforcement.pendingCount.toLocaleString()} {firmwareTransitionDisplay.pending.countLabel}
+          </span>
+          <span>
+            {lane.initialEnforcement.updatingCount.toLocaleString()} {firmwareTransitionDisplay.updating.countLabel}
+          </span>
+          <span>
+            {lane.initialEnforcement.verifyingCount.toLocaleString()} {firmwareTransitionDisplay.verifying.countLabel}
+          </span>
+          <span>
+            {lane.initialEnforcement.confirmedCount.toLocaleString()} {firmwareTransitionDisplay.confirmed.countLabel}
+          </span>
+          <span>
+            {lane.initialEnforcement.attentionCount.toLocaleString()}{" "}
+            {firmwareTransitionDisplay.needsAttention.countLabel}
+          </span>
+        </button>
       ),
       width: "w-36",
     },

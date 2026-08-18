@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { create, type JsonObject } from "@bufbuild/protobuf";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import { deviceSetClient, rolloutClient } from "@/protoFleet/api/clients";
 import {
@@ -53,6 +54,9 @@ export interface GetRolloutOptions extends RolloutRequestOptions {
 
 export interface GetRolloutLaneOptions extends RolloutRequestOptions {
   laneId: string;
+  includeDeviceSetMembers?: boolean;
+  includeInitialEnforcementMembers?: boolean;
+  initialEnforcementMembersUpdatedAfter?: Timestamp;
 }
 
 export interface CreateRolloutMemberInput {
@@ -191,7 +195,7 @@ function createRolloutRequest(input: CreateRolloutInput) {
 async function hydrateRolloutLane(
   lane: ProtoRolloutLane,
   signal?: AbortSignal,
-  includeMembers = false,
+  includeDeviceSetMembers = false,
 ): Promise<RolloutLane> {
   assertNotAborted(signal);
   if (lane.currentChannelId <= 0n) {
@@ -215,7 +219,7 @@ async function hydrateRolloutLane(
     sha256: target.sha256,
   }));
   const memberIdentifiers: string[] = [];
-  if (includeMembers) {
+  if (includeDeviceSetMembers) {
     let pageToken = "";
     do {
       const response = await deviceSetClient.listDeviceSetMembers(
@@ -237,6 +241,47 @@ async function hydrateRolloutLane(
     memberIdentifiers,
     releaseTargets,
   });
+}
+
+function preserveDetailedLaneState(existing: RolloutLane | undefined, aggregate: RolloutLane): RolloutLane {
+  if (!existing) {
+    return aggregate;
+  }
+  return {
+    ...aggregate,
+    memberIdentifiers:
+      aggregate.memberIdentifiers.length > 0 ? aggregate.memberIdentifiers : existing.memberIdentifiers,
+    initialEnforcement: {
+      ...aggregate.initialEnforcement,
+      members:
+        aggregate.initialEnforcement.members.length > 0
+          ? aggregate.initialEnforcement.members
+          : existing.initialEnforcement.members,
+    },
+  };
+}
+
+function mergeTransitionMemberUpdates(existing: RolloutLane | undefined, incoming: RolloutLane): RolloutLane {
+  if (!existing || existing.id !== incoming.id) {
+    return incoming;
+  }
+  const incomingByIdentifier = new Map(
+    incoming.initialEnforcement.members.map((member) => [member.deviceIdentifier, member]),
+  );
+  const existingIdentifiers = new Set(existing.initialEnforcement.members.map((member) => member.deviceIdentifier));
+  return {
+    ...incoming,
+    memberIdentifiers: incoming.memberIdentifiers.length > 0 ? incoming.memberIdentifiers : existing.memberIdentifiers,
+    initialEnforcement: {
+      ...incoming.initialEnforcement,
+      members: [
+        ...existing.initialEnforcement.members.map(
+          (member) => incomingByIdentifier.get(member.deviceIdentifier) ?? member,
+        ),
+        ...incoming.initialEnforcement.members.filter((member) => !existingIdentifiers.has(member.deviceIdentifier)),
+      ],
+    },
+  };
 }
 
 export function useRolloutApi(): UseRolloutApiResult {
@@ -296,8 +341,10 @@ export function useRolloutApi(): UseRolloutApiResult {
     });
   }, []);
 
-  const applyLaneResult = useCallback((nextLane: RolloutLane) => {
-    setLane(nextLane);
+  const applyLaneResult = useCallback((nextLane: RolloutLane, mergeTransitionMembers = false) => {
+    setLane((current) =>
+      mergeTransitionMembers ? mergeTransitionMemberUpdates(current ?? undefined, nextLane) : nextLane,
+    );
     setLanes((current) => {
       const existing = current.findIndex((item) => item.id === nextLane.id);
       if (existing === -1) {
@@ -306,7 +353,13 @@ export function useRolloutApi(): UseRolloutApiResult {
       if (current[existing].revision > nextLane.revision) {
         return current;
       }
-      return current.map((item, index) => (index === existing ? nextLane : item));
+      return current.map((item, index) =>
+        index === existing && mergeTransitionMembers
+          ? mergeTransitionMemberUpdates(item, nextLane)
+          : index === existing
+            ? nextLane
+            : item,
+      );
     });
   }, []);
 
@@ -324,7 +377,10 @@ export function useRolloutApi(): UseRolloutApiResult {
         const mapped = await Promise.all(response.lanes.map((item) => hydrateRolloutLane(item, signal)));
         assertNotAborted(signal);
         if (requestId === latestLaneListRequestIdRef.current) {
-          setLanes(mapped);
+          setLanes((current) => {
+            const currentById = new Map(current.map((item) => [item.id, item]));
+            return mapped.map((item) => preserveDetailedLaneState(currentById.get(item.id), item));
+          });
         }
         return mapped;
       } catch (error) {
@@ -348,23 +404,33 @@ export function useRolloutApi(): UseRolloutApiResult {
   );
 
   const getRolloutLane = useCallback(
-    async ({ laneId, signal }: GetRolloutLaneOptions) => {
+    async ({
+      laneId,
+      includeDeviceSetMembers = false,
+      includeInitialEnforcementMembers = false,
+      initialEnforcementMembersUpdatedAfter,
+      signal,
+    }: GetRolloutLaneOptions) => {
       assertNotAborted(signal);
       const requestId = ++latestLaneGetRequestIdRef.current;
       beginLoad();
       setLoadError(null);
       try {
         const response = await rolloutClient.getRolloutLane(
-          create(GetRolloutLaneRequestSchema, { laneId }),
+          create(GetRolloutLaneRequestSchema, {
+            laneId,
+            includeInitialEnforcementMembers,
+            initialEnforcementMembersUpdatedAfter,
+          }),
           rpcOptions(signal),
         );
         if (!response.lane) {
           throw new Error("Rollout lane response was missing a lane.");
         }
-        const mapped = await hydrateRolloutLane(response.lane, signal, true);
+        const mapped = await hydrateRolloutLane(response.lane, signal, includeDeviceSetMembers);
         assertNotAborted(signal);
         if (requestId === latestLaneGetRequestIdRef.current) {
-          applyLaneResult(mapped);
+          applyLaneResult(mapped, initialEnforcementMembersUpdatedAfter !== undefined);
         }
         return mapped;
       } catch (error) {

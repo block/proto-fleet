@@ -1862,6 +1862,32 @@ func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedD
 	return count, err
 }
 
+const hasUnconfirmedInitialRolloutLaneEnforcement = `-- name: HasUnconfirmedInitialRolloutLaneEnforcement :one
+SELECT EXISTS (
+    SELECT 1
+    FROM channel_firmware_enforcement enforcement
+    JOIN channel_firmware_authority authority
+      ON authority.id = enforcement.authority_id
+     AND authority.org_id = enforcement.org_id
+    WHERE enforcement.org_id = $1
+      AND enforcement.device_id = ANY($2::bigint[])
+      AND authority.authority_type = 'rollout_lane_initial'
+      AND enforcement.state <> 'confirmed'
+)
+`
+
+type HasUnconfirmedInitialRolloutLaneEnforcementParams struct {
+	OrgID     int64
+	DeviceIds []int64
+}
+
+func (q *Queries) HasUnconfirmedInitialRolloutLaneEnforcement(ctx context.Context, arg HasUnconfirmedInitialRolloutLaneEnforcementParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasUnconfirmedInitialRolloutLaneEnforcementStmt, hasUnconfirmedInitialRolloutLaneEnforcement, arg.OrgID, pq.Array(arg.DeviceIds))
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertDevice = `-- name: InsertDevice :one
 INSERT INTO device (
     org_id,
@@ -2026,6 +2052,50 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockDevicesForSoftDelete = `-- name: LockDevicesForSoftDelete :many
+SELECT device.id
+FROM device
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+WHERE device.device_identifier = ANY($1::text[])
+  AND device.org_id = $2
+  AND device.deleted_at IS NULL
+ORDER BY device.device_identifier
+FOR UPDATE OF device, discovered
+`
+
+type LockDevicesForSoftDeleteParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+// Locks live target device and discovery rows before deletion checks or mutations.
+// The join, ordering, and lock list match LockBetweenChannelInitialDevices so lane
+// creation and deletion acquire shared rows in the same order.
+func (q *Queries) LockDevicesForSoftDelete(ctx context.Context, arg LockDevicesForSoftDeleteParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockDevicesForSoftDeleteStmt, lockDevicesForSoftDelete, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

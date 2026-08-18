@@ -65,8 +65,10 @@ type InitialEnforcementStatus struct {
 	TotalCount     int32
 	PendingCount   int32
 	UpdatingCount  int32
+	VerifyingCount int32
 	ConfirmedCount int32
 	AttentionCount int32
+	Members        []channel.FirmwareTransitionMiner
 }
 
 type DeviceTransition struct {

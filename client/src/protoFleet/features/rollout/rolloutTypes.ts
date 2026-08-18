@@ -1,4 +1,5 @@
 import type { JsonObject } from "@bufbuild/protobuf";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 /** Shared vocabulary for API-backed and fixture-driven rollout UI. */
 
@@ -182,13 +183,32 @@ export interface RolloutLanePreview {
   unknownCount: number;
 }
 
-export interface RolloutLaneInitialEnforcementStatus {
+export type FirmwareTransitionState = "pending" | "updating" | "verifying" | "confirmed" | "needsAttention";
+
+/** Model-neutral firmware movement for one miner. */
+export interface FirmwareTransitionMiner {
+  deviceIdentifier: string;
+  manufacturer: string;
+  model: string;
+  latestObservedFirmwareVersion?: string;
+  targetFirmwareVersion: string;
+  state: FirmwareTransitionState;
+  lastError?: string;
+  updatedAt?: Timestamp;
+}
+
+/** Aggregate and per-miner firmware movement shared by setup and rollout flows. */
+export interface FirmwareTransitionProgress {
   totalCount: number;
   pendingCount: number;
   updatingCount: number;
+  verifyingCount: number;
   confirmedCount: number;
   attentionCount: number;
+  members: FirmwareTransitionMiner[];
 }
+
+export type RolloutLaneInitialEnforcementStatus = FirmwareTransitionProgress;
 
 /** One physical version channel in a stable operator-facing lane. */
 export interface RolloutLaneChannel {

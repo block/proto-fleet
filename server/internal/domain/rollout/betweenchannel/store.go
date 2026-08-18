@@ -2,6 +2,7 @@ package betweenchannel
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -11,7 +12,13 @@ import (
 type LaneStore interface {
 	PreviewLane(ctx context.Context, req PreviewLaneRequest) (InitialEnforcementPreview, error)
 	CreateLane(ctx context.Context, req CreateLaneRequest) (*Lane, error)
-	GetLane(ctx context.Context, orgID int64, laneID uuid.UUID) (*Lane, error)
+	GetLane(
+		ctx context.Context,
+		orgID int64,
+		laneID uuid.UUID,
+		includeInitialEnforcementMembers bool,
+		initialEnforcementMembersUpdatedAfter *time.Time,
+	) (*Lane, error)
 	ListLanes(ctx context.Context, orgID int64) ([]Lane, error)
 	StartRollout(ctx context.Context, req StartRolloutRequest) (StartRolloutResult, error)
 }

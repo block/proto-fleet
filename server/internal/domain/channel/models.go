@@ -36,6 +36,27 @@ func (s EnforcementState) IsTerminal() bool {
 	}
 }
 
+type FirmwareTransitionState string
+
+const (
+	FirmwareTransitionPending        FirmwareTransitionState = "pending"
+	FirmwareTransitionUpdating       FirmwareTransitionState = "updating"
+	FirmwareTransitionVerifying      FirmwareTransitionState = "verifying"
+	FirmwareTransitionConfirmed      FirmwareTransitionState = "confirmed"
+	FirmwareTransitionNeedsAttention FirmwareTransitionState = "needs_attention"
+)
+
+type FirmwareTransitionMiner struct {
+	DeviceIdentifier              string
+	Manufacturer                  string
+	Model                         string
+	LatestObservedFirmwareVersion string
+	TargetFirmwareVersion         string
+	State                         FirmwareTransitionState
+	LastError                     string
+	UpdatedAt                     time.Time
+}
+
 type Authority struct {
 	ID              uuid.UUID
 	OrgID           int64

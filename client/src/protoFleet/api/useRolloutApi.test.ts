@@ -1,11 +1,15 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
+  FirmwareTransitionMinerSchema,
+  FirmwareTransitionState,
   InitialFirmwareMatchStatus,
   RolloutLaneChannelSchema,
+  RolloutLaneInitialEnforcementStatusSchema,
   RolloutLanePreviewMinerSchema,
   RolloutLanePreviewSchema,
   RolloutLaneSchema,
@@ -134,7 +138,11 @@ describe("useRolloutApi", () => {
       });
     });
     await act(async () => {
-      await result.current.getRolloutLane({ laneId: "15bc6181-07d8-45ac-8424-50b5e938b871" });
+      await result.current.getRolloutLane({
+        laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+        includeDeviceSetMembers: true,
+        includeInitialEnforcementMembers: true,
+      });
     });
 
     expect(rolloutClientMock.listRolloutLanes).toHaveBeenCalledTimes(1);
@@ -147,6 +155,7 @@ describe("useRolloutApi", () => {
     });
     expect(rolloutClientMock.getRolloutLane.mock.calls[0][0]).toMatchObject({
       laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+      includeInitialEnforcementMembers: true,
     });
     expect(result.current.lane).toMatchObject({
       label: "Stable production",
@@ -155,6 +164,134 @@ describe("useRolloutApi", () => {
       currentReleaseTargets: [{ firmwareFileId: "file-alpha", firmwareVersion: "1.0.0" }],
     });
     expect(deviceSetClientMock.listDeviceSetMembers).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips full device-set membership unless a lane load requests it", async () => {
+    rolloutClientMock.getRolloutLane.mockResolvedValue({ lane: protoLane() });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.getRolloutLane({
+        laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+        includeDeviceSetMembers: false,
+        includeInitialEnforcementMembers: false,
+      });
+    });
+
+    expect(deviceSetClientMock.listDeviceSetMembers).not.toHaveBeenCalled();
+    expect(result.current.lane).toMatchObject({
+      memberCount: 2,
+      memberIdentifiers: [],
+    });
+    expect(rolloutClientMock.getRolloutLane.mock.calls[0][0]).toMatchObject({
+      includeInitialEnforcementMembers: false,
+    });
+  });
+
+  it("preserves requested transition details when aggregate lane results refresh", async () => {
+    const detailed = create(RolloutLaneSchema, {
+      ...protoLane(),
+      initialEnforcement: create(RolloutLaneInitialEnforcementStatusSchema, {
+        totalCount: 1,
+        pendingCount: 1,
+        members: [
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-1",
+            manufacturer: "Proto",
+            model: "Alpha",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.PENDING,
+          }),
+        ],
+      }),
+    });
+    rolloutClientMock.getRolloutLane.mockResolvedValue({ lane: detailed });
+    rolloutClientMock.listRolloutLanes.mockResolvedValue({ lanes: [protoLane()] });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.getRolloutLane({
+        laneId: detailed.laneId,
+        includeInitialEnforcementMembers: true,
+      });
+      await result.current.listRolloutLanes();
+    });
+
+    expect(result.current.lanes[0].initialEnforcement.members).toEqual([
+      expect.objectContaining({ deviceIdentifier: "miner-1", state: "pending" }),
+    ]);
+  });
+
+  it("sends a member watermark and merges changed transition rows", async () => {
+    const firstUpdatedAt = "2026-08-18T12:00:00.000Z";
+    const secondUpdatedAt = "2026-08-18T12:00:05.000Z";
+    const firstTimestamp = timestampFromDate(new Date(firstUpdatedAt));
+    const secondTimestamp = timestampFromDate(new Date(secondUpdatedAt));
+    const initial = create(RolloutLaneSchema, {
+      ...protoLane(),
+      initialEnforcement: create(RolloutLaneInitialEnforcementStatusSchema, {
+        totalCount: 2,
+        pendingCount: 2,
+        members: [
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-1",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.PENDING,
+            updatedAt: firstTimestamp,
+          }),
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-2",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.PENDING,
+            updatedAt: firstTimestamp,
+          }),
+        ],
+      }),
+    });
+    const incremental = create(RolloutLaneSchema, {
+      ...protoLane(),
+      initialEnforcement: create(RolloutLaneInitialEnforcementStatusSchema, {
+        totalCount: 2,
+        pendingCount: 1,
+        updatingCount: 1,
+        members: [
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-2",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.UPDATING,
+            updatedAt: secondTimestamp,
+          }),
+        ],
+      }),
+    });
+    rolloutClientMock.getRolloutLane
+      .mockResolvedValueOnce({ lane: initial })
+      .mockResolvedValueOnce({ lane: incremental });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.getRolloutLane({
+        laneId: initial.laneId,
+        includeInitialEnforcementMembers: true,
+      });
+      await result.current.getRolloutLane({
+        laneId: initial.laneId,
+        includeInitialEnforcementMembers: true,
+        initialEnforcementMembersUpdatedAfter: firstTimestamp,
+      });
+    });
+
+    expect(rolloutClientMock.getRolloutLane.mock.calls[1][0].initialEnforcementMembersUpdatedAfter).toEqual(
+      firstTimestamp,
+    );
+    expect(result.current.lane?.initialEnforcement).toMatchObject({
+      pendingCount: 1,
+      updatingCount: 1,
+      members: [
+        { deviceIdentifier: "miner-1", state: "pending", updatedAt: firstTimestamp },
+        { deviceIdentifier: "miner-2", state: "updating", updatedAt: secondTimestamp },
+      ],
+    });
   });
 
   it("previews initial convergence and sends confirmation only on confirmed create", async () => {

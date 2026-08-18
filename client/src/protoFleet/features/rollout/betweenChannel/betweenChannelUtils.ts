@@ -80,12 +80,23 @@ function hasMemberOutsideCurrentChannel(lane: RolloutLane, rollout: RolloutRecor
 }
 
 export function hasActiveInitialEnforcement(lane: RolloutLane): boolean {
-  return lane.initialEnforcement.pendingCount > 0 || lane.initialEnforcement.updatingCount > 0;
+  const { totalCount, confirmedCount, attentionCount } = lane.initialEnforcement;
+  return totalCount > confirmedCount + attentionCount;
+}
+
+export function isInitialFirmwareReady(lane: RolloutLane): boolean {
+  return (
+    lane.initialEnforcement.totalCount > 0 &&
+    lane.initialEnforcement.confirmedCount === lane.initialEnforcement.totalCount
+  );
 }
 
 export function rolloutLaneStartBlockedReason(lane: RolloutLane, rollout: RolloutRecord | undefined): string | null {
-  if (hasActiveInitialEnforcement(lane)) {
-    return "Wait for initial firmware enforcement to settle before starting a rollout.";
+  if (lane.initialEnforcement.attentionCount > 0) {
+    return "Resolve miners that need attention before starting a rollout.";
+  }
+  if (!isInitialFirmwareReady(lane)) {
+    return "Wait for initial firmware setup to finish before starting a rollout.";
   }
   if (!rollout) {
     return null;

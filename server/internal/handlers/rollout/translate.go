@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
+	"github.com/block/proto-fleet/server/internal/domain/channel"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
 	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
@@ -78,9 +79,30 @@ func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
 			TotalCount:     nonNegativeUint32(input.InitialEnforcement.TotalCount),
 			PendingCount:   nonNegativeUint32(input.InitialEnforcement.PendingCount),
 			UpdatingCount:  nonNegativeUint32(input.InitialEnforcement.UpdatingCount),
+			VerifyingCount: nonNegativeUint32(input.InitialEnforcement.VerifyingCount),
 			ConfirmedCount: nonNegativeUint32(input.InitialEnforcement.ConfirmedCount),
 			AttentionCount: nonNegativeUint32(input.InitialEnforcement.AttentionCount),
+			Members: make(
+				[]*pb.FirmwareTransitionMiner,
+				0,
+				len(input.InitialEnforcement.Members),
+			),
 		},
+	}
+	for _, miner := range input.InitialEnforcement.Members {
+		result.InitialEnforcement.Members = append(
+			result.InitialEnforcement.Members,
+			&pb.FirmwareTransitionMiner{
+				DeviceIdentifier:              miner.DeviceIdentifier,
+				Manufacturer:                  miner.Manufacturer,
+				Model:                         miner.Model,
+				LatestObservedFirmwareVersion: optionalString(miner.LatestObservedFirmwareVersion),
+				TargetFirmwareVersion:         miner.TargetFirmwareVersion,
+				State:                         firmwareTransitionStateToProto(miner.State),
+				LastError:                     optionalString(miner.LastError),
+				UpdatedAt:                     timestamppb.New(miner.UpdatedAt),
+			},
+		)
 	}
 	for _, inputChannel := range input.Channels {
 		channel := &pb.RolloutLaneChannel{
@@ -97,6 +119,25 @@ func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
 		result.Channels = append(result.Channels, channel)
 	}
 	return result
+}
+
+func firmwareTransitionStateToProto(
+	state channel.FirmwareTransitionState,
+) pb.FirmwareTransitionState {
+	switch state {
+	case channel.FirmwareTransitionPending:
+		return pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_PENDING
+	case channel.FirmwareTransitionUpdating:
+		return pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_UPDATING
+	case channel.FirmwareTransitionVerifying:
+		return pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_VERIFYING
+	case channel.FirmwareTransitionConfirmed:
+		return pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_CONFIRMED
+	case channel.FirmwareTransitionNeedsAttention:
+		return pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_NEEDS_ATTENTION
+	default:
+		return pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_UNSPECIFIED
+	}
 }
 
 func lanePreviewToProto(input betweenchannel.InitialEnforcementPreview) *pb.RolloutLanePreview {

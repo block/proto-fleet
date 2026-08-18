@@ -245,8 +245,11 @@ SELECT COUNT(enforcement.id)::bigint AS total_count,
            WHERE enforcement.state IN ('pending', 'held')
        )::bigint AS pending_count,
        COUNT(enforcement.id) FILTER (
-           WHERE enforcement.state IN ('dispatching', 'dispatched', 'verifying')
+           WHERE enforcement.state IN ('dispatching', 'dispatched')
        )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'verifying'
+       )::bigint AS verifying_count,
        COUNT(enforcement.id) FILTER (
            WHERE enforcement.state = 'confirmed'
        )::bigint AS confirmed_count,
@@ -268,8 +271,11 @@ SELECT lane.id AS lane_id,
            WHERE enforcement.state IN ('pending', 'held')
        )::bigint AS pending_count,
        COUNT(enforcement.id) FILTER (
-           WHERE enforcement.state IN ('dispatching', 'dispatched', 'verifying')
+           WHERE enforcement.state IN ('dispatching', 'dispatched')
        )::bigint AS updating_count,
+       COUNT(enforcement.id) FILTER (
+           WHERE enforcement.state = 'verifying'
+       )::bigint AS verifying_count,
        COUNT(enforcement.id) FILTER (
            WHERE enforcement.state = 'confirmed'
        )::bigint AS confirmed_count,
@@ -287,22 +293,34 @@ WHERE authority.org_id = sqlc.arg('org_id')
   AND authority.authority_type = 'rollout_lane_initial'
 GROUP BY lane.id;
 
--- name: CountActiveRolloutLaneInitialEnforcements :one
-SELECT COUNT(*)::bigint
+-- name: ListRolloutLaneInitialEnforcementMembers :many
+SELECT device.device_identifier,
+       COALESCE(discovered.manufacturer, '') AS manufacturer,
+       COALESCE(discovered.model, '') AS model,
+       enforcement.last_observed_firmware_version,
+       enforcement.desired_firmware_version AS target_firmware_version,
+       enforcement.state,
+       enforcement.last_error,
+       enforcement.updated_at
 FROM channel_firmware_authority authority
 JOIN channel_firmware_enforcement enforcement
   ON enforcement.authority_id = authority.id
  AND enforcement.org_id = authority.org_id
+JOIN device
+  ON device.id = enforcement.device_id
+ AND device.org_id = enforcement.org_id
+LEFT JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+ AND discovered.deleted_at IS NULL
 WHERE authority.org_id = sqlc.arg('org_id')
   AND authority.authority_type = 'rollout_lane_initial'
   AND authority.authority_reference = sqlc.arg('lane_id')::uuid::text
-  AND enforcement.state IN (
-      'pending',
-      'held',
-      'dispatching',
-      'dispatched',
-      'verifying'
-  );
+  AND (
+      sqlc.narg('members_updated_after')::timestamptz IS NULL
+      OR enforcement.updated_at > sqlc.narg('members_updated_after')::timestamptz
+  )
+ORDER BY device.device_identifier;
 
 -- name: ListRolloutLaneChannelTransitions :many
 SELECT device.id AS device_id,

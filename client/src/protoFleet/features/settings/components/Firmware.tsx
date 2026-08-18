@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import clsx from "clsx";
 import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import RolloutLanesTab from "@/protoFleet/features/rollout/betweenChannel/RolloutLanesTab";
@@ -353,11 +354,26 @@ const FirmwareFilesTab = () => {
 type FirmwareTab = "files" | "rolloutLanes";
 
 const Firmware = () => {
-  const [activeTab, setActiveTab] = useState<FirmwareTab>("files");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab: FirmwareTab = searchParams.get("tab") === "rolloutLanes" ? "rolloutLanes" : "files";
+  const handleTabSelect = useCallback(
+    (id: string) => {
+      const nextParams = new URLSearchParams(searchParams);
+      if (id === "rolloutLanes") {
+        nextParams.set("tab", "rolloutLanes");
+      } else {
+        nextParams.delete("tab");
+        nextParams.delete("setupLane");
+      }
+      setSearchParams(nextParams, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
   return (
     <div className="flex flex-col gap-6">
       <SettingsPageHeader title="Firmware" description={FIRMWARE_PAGE_DESCRIPTION} />
-      <TabStrip activeId={activeTab} onSelect={(id) => setActiveTab(id as FirmwareTab)} ariaLabel="Firmware sections">
+      <TabStrip activeId={activeTab} onSelect={handleTabSelect} ariaLabel="Firmware sections">
         <TabStripItem id="files" label="Files" />
         <TabStripItem id="rolloutLanes" label="Rollout lanes" />
       </TabStrip>

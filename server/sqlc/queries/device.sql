@@ -877,6 +877,34 @@ WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: LockDevicesForSoftDelete :many
+-- Locks live target device and discovery rows before deletion checks or mutations.
+-- The join, ordering, and lock list match LockBetweenChannelInitialDevices so lane
+-- creation and deletion acquire shared rows in the same order.
+SELECT device.id
+FROM device
+JOIN discovered_device discovered
+  ON discovered.id = device.discovered_device_id
+ AND discovered.org_id = device.org_id
+WHERE device.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND device.org_id = sqlc.arg('org_id')
+  AND device.deleted_at IS NULL
+ORDER BY device.device_identifier
+FOR UPDATE OF device, discovered;
+
+-- name: HasUnconfirmedInitialRolloutLaneEnforcement :one
+SELECT EXISTS (
+    SELECT 1
+    FROM channel_firmware_enforcement enforcement
+    JOIN channel_firmware_authority authority
+      ON authority.id = enforcement.authority_id
+     AND authority.org_id = enforcement.org_id
+    WHERE enforcement.org_id = sqlc.arg('org_id')
+      AND enforcement.device_id = ANY(sqlc.arg('device_ids')::bigint[])
+      AND authority.authority_type = 'rollout_lane_initial'
+      AND enforcement.state <> 'confirmed'
+);
+
 -- name: DeleteMinerCredentialsForDeviceIdentifiers :execrows
 -- Deletes miner credentials for devices that are being removed from the fleet.
 DELETE FROM miner_credentials mc

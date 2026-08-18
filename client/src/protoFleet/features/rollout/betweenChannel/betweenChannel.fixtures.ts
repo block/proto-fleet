@@ -59,8 +59,10 @@ export const stableProductionLane: RolloutLane = {
     totalCount: 3,
     pendingCount: 0,
     updatingCount: 0,
+    verifyingCount: 0,
     confirmedCount: 3,
     attentionCount: 0,
+    members: [],
   },
   currentReleaseTargets: [
     {

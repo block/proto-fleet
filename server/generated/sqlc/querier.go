@@ -266,7 +266,6 @@ type Querier interface {
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
 	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
-	CountActiveRolloutLaneInitialEnforcements(ctx context.Context, arg CountActiveRolloutLaneInitialEnforcementsParams) (int64, error)
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the
 	// pagination total never disagrees with the rendered feed (or the CSV export,
@@ -832,6 +831,7 @@ type Querier interface {
 	GetUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
 	HaltChannelFirmwareAuthority(ctx context.Context, arg HaltChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error)
 	HasFirmwareRolloutSucceededMembers(ctx context.Context, arg HasFirmwareRolloutSucceededMembersParams) (bool, error)
+	HasUnconfirmedInitialRolloutLaneEnforcement(ctx context.Context, arg HasUnconfirmedInitialRolloutLaneEnforcementParams) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	HoldChannelFirmwareEnforcement(ctx context.Context, arg HoldChannelFirmwareEnforcementParams) (int64, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
@@ -1191,6 +1191,7 @@ type Querier interface {
 	ListRolesWithDetailsForOrg(ctx context.Context, organizationID sql.NullInt64) ([]ListRolesWithDetailsForOrgRow, error)
 	ListRolloutLaneChannelTransitions(ctx context.Context, arg ListRolloutLaneChannelTransitionsParams) ([]ListRolloutLaneChannelTransitionsRow, error)
 	ListRolloutLaneChannels(ctx context.Context, arg ListRolloutLaneChannelsParams) ([]ListRolloutLaneChannelsRow, error)
+	ListRolloutLaneInitialEnforcementMembers(ctx context.Context, arg ListRolloutLaneInitialEnforcementMembersParams) ([]ListRolloutLaneInitialEnforcementMembersRow, error)
 	ListRolloutLaneInitialEnforcementStatuses(ctx context.Context, orgID int64) ([]ListRolloutLaneInitialEnforcementStatusesRow, error)
 	ListRolloutLanes(ctx context.Context, orgID int64) ([]RolloutLane, error)
 	ListScheduleIDStatuses(ctx context.Context, orgID int64) ([]ListScheduleIDStatusesRow, error)
@@ -1269,6 +1270,10 @@ type Querier interface {
 	// atomic against a concurrent reassign. Empty result means none of the
 	// identifiers exist; the caller still wants the lock side-effect.
 	LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error)
+	// Locks live target device and discovery rows before deletion checks or mutations.
+	// The join, ordering, and lock list match LockBetweenChannelInitialDevices so lane
+	// creation and deletion acquire shared rows in the same order.
+	LockDevicesForSoftDelete(ctx context.Context, arg LockDevicesForSoftDeleteParams) ([]int64, error)
 	LockFirmwareRollout(ctx context.Context, arg LockFirmwareRolloutParams) (FirmwareRollout, error)
 	LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error)
 	// Canonical serialization point for device moves/deletes and response-profile

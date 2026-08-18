@@ -70,6 +70,8 @@ message CreateRolloutLaneResponse {
 
 message GetRolloutLaneRequest {
     string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    bool include_initial_enforcement_members = 2;
+    google.protobuf.Timestamp initial_enforcement_members_updated_after = 3;
 }
 
 message GetRolloutLaneResponse {
@@ -418,4 +420,26 @@ message RolloutLaneInitialEnforcementStatus {
     uint32 updating_count = 3;
     uint32 confirmed_count = 4;
     uint32 attention_count = 5;
+    uint32 verifying_count = 6;
+    repeated FirmwareTransitionMiner members = 7;
+}
+
+enum FirmwareTransitionState {
+    FIRMWARE_TRANSITION_STATE_UNSPECIFIED = 0;
+    FIRMWARE_TRANSITION_STATE_PENDING = 1;
+    FIRMWARE_TRANSITION_STATE_UPDATING = 2;
+    FIRMWARE_TRANSITION_STATE_VERIFYING = 3;
+    FIRMWARE_TRANSITION_STATE_CONFIRMED = 4;
+    FIRMWARE_TRANSITION_STATE_NEEDS_ATTENTION = 5;
+}
+
+message FirmwareTransitionMiner {
+    string device_identifier = 1;
+    string manufacturer = 2;
+    string model = 3;
+    optional string latest_observed_firmware_version = 4;
+    string target_firmware_version = 5;
+    FirmwareTransitionState state = 6;
+    optional string last_error = 7;
+    google.protobuf.Timestamp updated_at = 8;
 }

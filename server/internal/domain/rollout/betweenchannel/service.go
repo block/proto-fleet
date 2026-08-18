@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -104,13 +105,21 @@ func (s *Service) GetLane(
 	ctx context.Context,
 	orgID int64,
 	laneID uuid.UUID,
+	includeInitialEnforcementMembers bool,
+	initialEnforcementMembersUpdatedAfter *time.Time,
 ) (*Lane, error) {
 	if orgID <= 0 || laneID == uuid.Nil {
 		return nil, fleeterror.NewInvalidArgumentError(
 			"organization and rollout lane IDs are required",
 		)
 	}
-	lane, err := s.store.GetLane(ctx, orgID, laneID)
+	lane, err := s.store.GetLane(
+		ctx,
+		orgID,
+		laneID,
+		includeInitialEnforcementMembers,
+		initialEnforcementMembersUpdatedAfter,
+	)
 	if err != nil {
 		return nil, mapStoreError(err)
 	}

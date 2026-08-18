@@ -86,7 +86,7 @@ func (s *SQLRolloutLaneStore) CreateLane(
 				if existing.CreateFingerprint != req.RequestFingerprint {
 					return nil, betweenchannel.ErrIdempotencyConflict
 				}
-				return loadRolloutLane(txCtx, q, existing)
+				return loadRolloutLane(txCtx, q, existing, true, nil)
 			case !errors.Is(getErr, sql.ErrNoRows):
 				return nil, getErr
 			}
@@ -210,7 +210,7 @@ func (s *SQLRolloutLaneStore) CreateLane(
 			if enforcementCount != int64(len(req.DeviceIdentifiers)) {
 				return nil, betweenchannel.ErrMembershipConflict
 			}
-			return loadRolloutLane(txCtx, q, laneRow)
+			return loadRolloutLane(txCtx, q, laneRow, true, nil)
 		},
 	)
 	if err != nil {
@@ -252,13 +252,15 @@ func (s *SQLRolloutLaneStore) replayLaneCreate(
 	if existing.CreateFingerprint != req.RequestFingerprint {
 		return nil, betweenchannel.ErrIdempotencyConflict
 	}
-	return loadRolloutLane(ctx, q, existing)
+	return loadRolloutLane(ctx, q, existing, true, nil)
 }
 
 func (s *SQLRolloutLaneStore) GetLane(
 	ctx context.Context,
 	orgID int64,
 	laneID uuid.UUID,
+	includeInitialEnforcementMembers bool,
+	initialEnforcementMembersUpdatedAfter *time.Time,
 ) (*betweenchannel.Lane, error) {
 	row, err := s.GetQueries(ctx).GetRolloutLane(
 		ctx,
@@ -270,7 +272,13 @@ func (s *SQLRolloutLaneStore) GetLane(
 	if err != nil {
 		return nil, fmt.Errorf("get rollout lane: %w", err)
 	}
-	lane, err := loadRolloutLane(ctx, s.GetQueries(ctx), row)
+	lane, err := loadRolloutLane(
+		ctx,
+		s.GetQueries(ctx),
+		row,
+		includeInitialEnforcementMembers,
+		initialEnforcementMembersUpdatedAfter,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("load rollout lane: %w", err)
 	}
@@ -295,13 +303,14 @@ func (s *SQLRolloutLaneStore) ListLanes(
 		len(statusRows),
 	)
 	for _, status := range statusRows {
-		initialStatusByLane[status.LaneID] = initialEnforcementStatus(
-			status.TotalCount,
-			status.PendingCount,
-			status.UpdatingCount,
-			status.ConfirmedCount,
-			status.AttentionCount,
-		)
+		initialStatusByLane[status.LaneID] = initialEnforcementStatus(initialEnforcementCounts{
+			Total:     status.TotalCount,
+			Pending:   status.PendingCount,
+			Updating:  status.UpdatingCount,
+			Verifying: status.VerifyingCount,
+			Confirmed: status.ConfirmedCount,
+			Attention: status.AttentionCount,
+		})
 	}
 	result := make([]betweenchannel.Lane, 0, len(rows))
 	for _, row := range rows {
@@ -370,7 +379,7 @@ func (s *SQLRolloutLaneStore) StartRollout(
 				if rolloutErr != nil {
 					return nil, rolloutErr
 				}
-				loadedLane, laneErr := loadRolloutLane(txCtx, q, laneRow)
+				loadedLane, laneErr := loadRolloutLane(txCtx, q, laneRow, false, nil)
 				return &betweenchannel.StartRolloutResult{
 					Lane:    loadedLane,
 					Rollout: loadedRollout,
@@ -378,9 +387,9 @@ func (s *SQLRolloutLaneStore) StartRollout(
 			case !errors.Is(getErr, sql.ErrNoRows):
 				return nil, getErr
 			}
-			activeInitial, countErr := q.CountActiveRolloutLaneInitialEnforcements(
+			initialStatus, countErr := q.GetRolloutLaneInitialEnforcementStatus(
 				txCtx,
-				sqlc.CountActiveRolloutLaneInitialEnforcementsParams{
+				sqlc.GetRolloutLaneInitialEnforcementStatusParams{
 					OrgID:  req.OrgID,
 					LaneID: req.LaneID,
 				},
@@ -388,11 +397,12 @@ func (s *SQLRolloutLaneStore) StartRollout(
 			if countErr != nil {
 				return nil, countErr
 			}
-			if activeInitial > 0 {
+			unconfirmedInitial := initialStatus.TotalCount - initialStatus.ConfirmedCount
+			if unconfirmedInitial > 0 {
 				return nil, fmt.Errorf(
-					"%w: %d miners have not settled",
+					"%w: %d miners are not confirmed",
 					betweenchannel.ErrInitialEnforcementActive,
-					activeInitial,
+					unconfirmedInitial,
 				)
 			}
 
@@ -550,7 +560,7 @@ func (s *SQLRolloutLaneStore) StartRollout(
 			if loadErr != nil {
 				return nil, loadErr
 			}
-			loadedLane, loadErr := loadRolloutLane(txCtx, q, laneRow)
+			loadedLane, loadErr := loadRolloutLane(txCtx, q, laneRow, false, nil)
 			if loadErr != nil {
 				return nil, loadErr
 			}
@@ -1512,6 +1522,8 @@ func loadRolloutLane(
 	ctx context.Context,
 	q sqlc.Querier,
 	row sqlc.RolloutLane,
+	includeTransitionMembers bool,
+	transitionMembersUpdatedAfter *time.Time,
 ) (*betweenchannel.Lane, error) {
 	status, err := q.GetRolloutLaneInitialEnforcementStatus(
 		ctx,
@@ -1523,17 +1535,33 @@ func loadRolloutLane(
 	if err != nil {
 		return nil, err
 	}
+	initialStatus := initialEnforcementStatus(initialEnforcementCounts{
+		Total:     status.TotalCount,
+		Pending:   status.PendingCount,
+		Updating:  status.UpdatingCount,
+		Verifying: status.VerifyingCount,
+		Confirmed: status.ConfirmedCount,
+		Attention: status.AttentionCount,
+	})
+	if includeTransitionMembers {
+		members, membersErr := q.ListRolloutLaneInitialEnforcementMembers(
+			ctx,
+			sqlc.ListRolloutLaneInitialEnforcementMembersParams{
+				OrgID:               row.OrgID,
+				LaneID:              row.ID,
+				MembersUpdatedAfter: ptrToNullTime(transitionMembersUpdatedAfter),
+			},
+		)
+		if membersErr != nil {
+			return nil, membersErr
+		}
+		initialStatus.Members = firmwareTransitionMiners(members)
+	}
 	return loadRolloutLaneWithInitialStatus(
 		ctx,
 		q,
 		row,
-		initialEnforcementStatus(
-			status.TotalCount,
-			status.PendingCount,
-			status.UpdatingCount,
-			status.ConfirmedCount,
-			status.AttentionCount,
-		),
+		initialStatus,
 	)
 }
 
@@ -1583,19 +1611,59 @@ func loadRolloutLaneWithInitialStatus(
 	return result, nil
 }
 
-func initialEnforcementStatus(
-	total int64,
-	pending int64,
-	updating int64,
-	confirmed int64,
-	attention int64,
-) betweenchannel.InitialEnforcementStatus {
+type initialEnforcementCounts struct {
+	Total     int64
+	Pending   int64
+	Updating  int64
+	Verifying int64
+	Confirmed int64
+	Attention int64
+}
+
+func initialEnforcementStatus(counts initialEnforcementCounts) betweenchannel.InitialEnforcementStatus {
 	return betweenchannel.InitialEnforcementStatus{
-		TotalCount:     int32(total),     //nolint:gosec // Lane creation caps membership at 10,000.
-		PendingCount:   int32(pending),   //nolint:gosec // Lane creation caps membership at 10,000.
-		UpdatingCount:  int32(updating),  //nolint:gosec // Lane creation caps membership at 10,000.
-		ConfirmedCount: int32(confirmed), //nolint:gosec // Lane creation caps membership at 10,000.
-		AttentionCount: int32(attention), //nolint:gosec // Lane creation caps membership at 10,000.
+		TotalCount:     int32(counts.Total),     //nolint:gosec // Lane creation caps membership at 10,000.
+		PendingCount:   int32(counts.Pending),   //nolint:gosec // Lane creation caps membership at 10,000.
+		UpdatingCount:  int32(counts.Updating),  //nolint:gosec // Lane creation caps membership at 10,000.
+		VerifyingCount: int32(counts.Verifying), //nolint:gosec // Lane creation caps membership at 10,000.
+		ConfirmedCount: int32(counts.Confirmed), //nolint:gosec // Lane creation caps membership at 10,000.
+		AttentionCount: int32(counts.Attention), //nolint:gosec // Lane creation caps membership at 10,000.
+	}
+}
+
+func firmwareTransitionMiners(
+	rows []sqlc.ListRolloutLaneInitialEnforcementMembersRow,
+) []channel.FirmwareTransitionMiner {
+	result := make([]channel.FirmwareTransitionMiner, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, channel.FirmwareTransitionMiner{
+			DeviceIdentifier:              row.DeviceIdentifier,
+			Manufacturer:                  row.Manufacturer,
+			Model:                         row.Model,
+			LatestObservedFirmwareVersion: row.LastObservedFirmwareVersion.String,
+			TargetFirmwareVersion:         row.TargetFirmwareVersion,
+			State:                         firmwareTransitionState(channel.EnforcementState(row.State)),
+			LastError:                     row.LastError.String,
+			UpdatedAt:                     row.UpdatedAt,
+		})
+	}
+	return result
+}
+
+func firmwareTransitionState(state channel.EnforcementState) channel.FirmwareTransitionState {
+	switch state {
+	case channel.EnforcementStatePending, channel.EnforcementStateHeld:
+		return channel.FirmwareTransitionPending
+	case channel.EnforcementStateDispatching, channel.EnforcementStateDispatched:
+		return channel.FirmwareTransitionUpdating
+	case channel.EnforcementStateVerifying:
+		return channel.FirmwareTransitionVerifying
+	case channel.EnforcementStateConfirmed:
+		return channel.FirmwareTransitionConfirmed
+	case channel.EnforcementStateAttentionRequired, channel.EnforcementStateCancelled:
+		return channel.FirmwareTransitionNeedsAttention
+	default:
+		return channel.FirmwareTransitionNeedsAttention
 	}
 }
 
