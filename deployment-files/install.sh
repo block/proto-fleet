@@ -1551,7 +1551,6 @@ run_ha_install() {
   local download_dir="$2"
   local release_dir="${download_dir%/}/ha-release"
   local fleet_ha
-  local bundle_path=""
 
   mkdir -m 700 "$release_dir"
   tar --no-same-owner -xzf "$tar_path" -C "$release_dir"
@@ -1566,8 +1565,8 @@ run_ha_install() {
       echo "❌ Prepared HA host bundle must be a regular file: $HA_BUNDLE_PATH" >&2
       return 1
     fi
-    local bundle_mode
-    bundle_mode=$(stat -c '%a' "$HA_BUNDLE_PATH") || {
+    local bundle_owner bundle_mode
+    read -r bundle_owner bundle_mode <<< "$(install_path_metadata "$HA_BUNDLE_PATH")" || {
       echo "❌ Could not inspect prepared HA host bundle: $HA_BUNDLE_PATH" >&2
       return 1
     }
@@ -1576,19 +1575,13 @@ run_ha_install() {
       return 1
     fi
     if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_UID:-}" ]; then
-      local bundle_owner
-      bundle_owner=$(stat -c '%u' "$HA_BUNDLE_PATH") || return 1
       if [ "$bundle_owner" != "$SUDO_UID" ] && [ "$bundle_owner" != "0" ]; then
         echo "❌ Prepared HA host bundle is not owned by the invoking administrator: $HA_BUNDLE_PATH" >&2
         return 1
       fi
       chown 0:0 "$HA_BUNDLE_PATH"
     fi
-    bundle_path="$HA_BUNDLE_PATH"
-  fi
-
-  if [ -n "$bundle_path" ]; then
-    "$fleet_ha" install "$bundle_path"
+    "$fleet_ha" install "$HA_BUNDLE_PATH"
     return
   fi
   if [ ! -r /dev/tty ]; then
