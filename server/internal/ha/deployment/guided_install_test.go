@@ -46,7 +46,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 		return hostIdentity{address: testHostIPs[0], networkInterface: "enp1s0"}, nil
 	}
 	deps.interfaceForIP = func(string) (string, error) { return "enp1s0", nil }
-	deps.makeExportDir = func(string) (string, error) {
+	deps.makeExportDir = func() (string, error) {
 		return exportDir, os.Mkdir(exportDir, 0o700)
 	}
 	deps.inspect = func(_ context.Context, _ string, config NodeConfig) (installedDependencies, error) {
@@ -102,7 +102,7 @@ func TestGuidedInstallUsesPeerSSHUsernameOverride(t *testing.T) {
 	input := strings.NewReader(testHostIPs[1] + "\n" + testHostIPs[2] + "\n" + testVirtualIP + "\npeer-admin\nINSTALL\n")
 	deps := testGuidedDependencies(source, input, &bytes.Buffer{}, &bytes.Buffer{})
 	deps.operatorUsername = func() string { return "operator" }
-	deps.makeExportDir = func(string) (string, error) { return exportDir, os.Mkdir(exportDir, 0o700) }
+	deps.makeExportDir = func() (string, error) { return exportDir, os.Mkdir(exportDir, 0o700) }
 	var targets []string
 	deps.checkPeer = func(_ context.Context, localUser, target string) error {
 		require.Equal(t, "operator", localUser)
@@ -134,7 +134,7 @@ func TestGuidedInstallRetainsExportsWhenPeerTransferFails(t *testing.T) {
 	input := strings.NewReader(testHostIPs[1] + "\n" + testHostIPs[2] + "\n" + testVirtualIP + "\n\nINSTALL\n")
 	deps := testGuidedDependencies(source, input, &bytes.Buffer{}, &bytes.Buffer{})
 	deps.operatorUsername = func() string { return "operator" }
-	deps.makeExportDir = func(string) (string, error) { return exportDir, os.Mkdir(exportDir, 0o700) }
+	deps.makeExportDir = func() (string, error) { return exportDir, os.Mkdir(exportDir, 0o700) }
 	deps.checkPeer = func(context.Context, string, string) error { return nil }
 	deps.transferBundle = func(_ context.Context, _, target, _ string) error {
 		if target == "operator@"+testHostIPs[2] {
@@ -167,12 +167,14 @@ func TestBundleExportDirectoryIsOutsideRelease(t *testing.T) {
 	require.NoError(t, os.Mkdir(source, 0o700))
 
 	// Act
-	exportDir, err := makeBundleExportDir(source)
+	exportDir, err := makeBundleExportDir()
 
 	// Assert
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, os.RemoveAll(exportDir)) })
-	require.Equal(t, parent, filepath.Dir(exportDir))
+	relative, err := filepath.Rel(parent, exportDir)
+	require.NoError(t, err)
+	require.True(t, relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 	info, err := os.Stat(exportDir)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0o700), info.Mode().Perm())
@@ -371,7 +373,7 @@ func testGuidedDependencies(source string, input *strings.Reader, output, prompt
 			return hostIdentity{address: testHostIPs[0], networkInterface: "eth0"}, nil
 		},
 		interfaceForIP:   func(string) (string, error) { return "eth0", nil },
-		makeExportDir:    func(string) (string, error) { return os.MkdirTemp("", "fleet-ha-test-exports-") },
+		makeExportDir:    func() (string, error) { return os.MkdirTemp("", "fleet-ha-test-exports-") },
 		operatorUsername: func() string { return "operator" },
 		checkPeer:        func(context.Context, string, string) error { return nil },
 		transferBundle:   func(context.Context, string, string, string) error { return nil },
