@@ -49,6 +49,8 @@ services:
       - "fleet-api:127.0.0.1"
     environment:
       HA_NODE_IP: "${HA_NODE_IP}"
+      HA_DB_A_IP: "${HA_DB_A_IP}"
+      HA_DB_B_IP: "${HA_DB_B_IP}"
       GRAFANA_DB_NAME: "fleet"
       GRAFANA_DB_USERNAME: "grafana_ha_ro"
       GF_SERVER_HTTP_ADDR: "127.0.0.1"

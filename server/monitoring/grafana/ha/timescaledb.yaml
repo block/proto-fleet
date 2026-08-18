@@ -5,7 +5,9 @@ datasources:
     uid: protofleet-timescaledb
     type: postgres
     access: proxy
-    url: ${HA_NODE_IP}:5432
+    # Grafana 13's pgx datasource parses this as one shared port with ordered
+    # host fallbacks, matching Fleet's no-proxy HA database path.
+    url: ${HA_DB_A_IP},${HA_DB_B_IP}:5432
     user: ${GRAFANA_DB_USERNAME}
     secureJsonData:
       password: ${GRAFANA_DB_PASSWORD}

@@ -175,20 +175,22 @@ minutes, creates the **HA Failover Readiness Degraded** alert for every active
 organization.
 
 Grafana remains standalone on each host and listens only on
-`127.0.0.1:3030`. Both instances evaluate the replicated metric table, but
-each posts its webhook to the local Fleet API; only the active Fleet runtime
-accepts and delivers it. Configure an alert channel in Proto Fleet as usual.
-No Datadog integration or separate HA monitoring service is required.
+`127.0.0.1:3030`. Both instances use the same ordered two-host PostgreSQL
+datasource, so either Patroni member can serve the replicated metric table.
+Each Grafana posts its webhook to the local Fleet API; only the active Fleet
+runtime accepts and delivers it. Configure an alert channel in Proto Fleet as
+usual. No Datadog integration or separate HA monitoring service is required.
 
 Only the file-provisioned HA readiness rule is identical on both hosts.
 Grafana silences, UI-created rules, and other SQLite-backed Grafana state stay
 local to one host and do not follow Fleet ownership during failover.
 
 Alerting is deliberately best-effort and does not replace the operator status
-contract. If Fleet, the active host's Grafana, or its local PostgreSQL is
-unavailable, notification may be delayed until an evaluator and active Fleet
-delivery path are available on the same host. Use `fleet-ha status` for the
-authoritative current reason codes.
+contract. If the active host's local PostgreSQL is unavailable, Grafana falls
+back to the peer PostgreSQL member. A complete PostgreSQL outage or loss of the
+active host's Grafana or Fleet delivery path can still delay notification until
+an evaluator and active Fleet delivery path are available on the same host. Use
+`fleet-ha status` for the authoritative current reason codes.
 
 ## Update a passive Fleet host
 

@@ -150,6 +150,8 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "target: /etc/nginx/ssl/key.pem"
     assert_contains "$rendered" "GF_SERVER_HTTP_ADDR: 127.0.0.1"
     assert_contains "$rendered" "GF_SERVER_HTTP_PORT: \"3030\""
+    assert_contains "$rendered" "HA_DB_A_IP: 10.40.0.11"
+    assert_contains "$rendered" "HA_DB_B_IP: 10.40.0.12"
     assert_contains "$rendered" "image: grafana/grafana:13.0@sha256:e78917cdd3336d0d679d345b2e6d0f60a0fe85ed7ac3882b68f089fdb6ff2ace"
     assert_contains "$rendered" "GRAFANA_DB_USERNAME: grafana_ha_ro"
     assert_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD: test-grafana-admin-password"
@@ -157,6 +159,7 @@ test_fleet_ha_contract() {
     assert_not_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-rules.yaml"
     assert_contains "$rendered" "target: /etc/grafana/proto-fleet-ha/service-ca.crt"
     assert_contains "$rendered" "/api/v1/provisioning/alert-rules/protofleet-ha-readiness"
+    assert_contains "${release_dir}/server/monitoring/grafana/ha/timescaledb.yaml" 'url: ${HA_DB_A_IP},${HA_DB_B_IP}:5432'
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
     [[ "$secret_mount_count" -eq 6 ]] || fail "Fleet services must mount only their required HA secret files"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
