@@ -2,8 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 import { useCoolingStatus } from "./useCoolingStatus";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 import { useAuthRetry, useMinerStore } from "@/protoOS/store";
+import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const mockGetCoolingStatus = vi.fn();
@@ -37,7 +37,15 @@ describe("useCoolingStatus", () => {
       },
     });
     (useAuthRetry as Mock).mockReturnValue(
-      async ({ request, onSuccess, onError }: { request: (params: object) => Promise<void>; onSuccess: () => void; onError: (error: unknown) => void }) => {
+      async ({
+        request,
+        onSuccess,
+        onError,
+      }: {
+        request: (params: object) => Promise<void>;
+        onSuccess: () => void;
+        onError: (error: unknown) => void;
+      }) => {
         try {
           await request({});
           onSuccess();

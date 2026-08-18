@@ -104,7 +104,8 @@ export class MdkV1Adapter implements MinerAdapter {
 
   async getTimeSeries(request: TimeSeriesQuery, params: AdapterRequestOptions = {}) {
     const needsHashboardIdentity =
-      request.levels.some((level) => level.type === "asic") && !request.levels.some((level) => level.type === "hashboard");
+      request.levels.some((level) => level.type === "asic") &&
+      !request.levels.some((level) => level.type === "hashboard");
     const levels = needsHashboardIdentity
       ? [...request.levels, { type: "hashboard" as const, fields: ["hashrate" as const] }]
       : request.levels;
