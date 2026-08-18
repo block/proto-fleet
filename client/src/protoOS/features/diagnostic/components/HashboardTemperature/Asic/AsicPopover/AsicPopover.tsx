@@ -4,7 +4,7 @@ import AsicPopoverRow from "./AsicPopoverRow";
 import { convertTelemetryHashrateToChartData, convertTelemetryTemperatureToChartData } from "./utility";
 import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
 import { AsicData, convertAndFormatMeasurement, formatValue } from "@/protoOS/store";
-import { useIntervalMs, useTemperatureUnit } from "@/protoOS/store";
+import { useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants.ts";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -22,21 +22,20 @@ interface AsicPopoverProps {
 
 const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverProps) => {
   const temperatureUnit = useTemperatureUnit();
-  const intervalMs = useIntervalMs();
   const layout = useHashboardLayout();
 
   // Convert telemetry data to chart format
   const { temperatureData, hashrateData } = useMemo(() => {
     const temperatureData = asic.temperature?.timeSeries
-      ? convertTelemetryTemperatureToChartData(asic.temperature.timeSeries, intervalMs)
+      ? convertTelemetryTemperatureToChartData(asic.temperature.timeSeries, asic.temperature.timeSeries.bucketSizeMs)
       : [];
 
     const hashrateData = asic.hashrate?.timeSeries
-      ? convertTelemetryHashrateToChartData(asic.hashrate.timeSeries, intervalMs)
+      ? convertTelemetryHashrateToChartData(asic.hashrate.timeSeries, asic.hashrate.timeSeries.bucketSizeMs)
       : [];
 
     return { temperatureData, hashrateData };
-  }, [asic.temperature, asic.hashrate, intervalMs]);
+  }, [asic.temperature, asic.hashrate]);
 
   const hashRateValue = hashrateData.length ? hashrateData[hashrateData.length - 1].value : 0;
 

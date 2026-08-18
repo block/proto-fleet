@@ -560,6 +560,8 @@ export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
   }
 
   for (const psu of wire.psus ?? []) {
+    // MDK v1 telemetry indexes physical PSU positions from zero, while hardware
+    // inventory exposes the corresponding physical slots from one.
     const slot = psu.index + 1;
     const id = getPsuId(slot);
     const normalized: PsuTelemetry = { componentId: id };

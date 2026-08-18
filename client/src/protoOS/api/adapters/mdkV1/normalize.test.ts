@@ -14,7 +14,7 @@ import {
   normalizeV1TimeSeries,
 } from "./normalize";
 import { MetricUnit, PerformanceMode } from "@/protoOS/api/generatedApi";
-import { getAsicId } from "@/protoOS/store";
+import { getAsicId, getPsuId } from "@/protoOS/store";
 import { asHashboardId, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 
 describe("MDK v1 normalization", () => {
@@ -118,6 +118,29 @@ describe("MDK v1 normalization", () => {
     expect(board?.temperature).toBeUndefined();
     expect(board?.inletTemperature?.latest?.value).toBe(40);
     expect(board?.outletTemperature?.latest?.value).toBe(70);
+  });
+
+  it("maps a zero-based PSU index to its one-based physical slot", () => {
+    const hardware = normalizeV1Hardware(
+      { "psus-info": [{ psu_sn: "PSU-2", slot: 2 }] },
+      { deviceId: "device:rig", profile: "r2" },
+    );
+    const telemetry = normalizeV1Telemetry({
+      timestamp: "2026-08-17T00:00:00Z",
+      psus: [
+        {
+          index: 1,
+          serial_number: "PSU-2",
+          voltage: { input: 240, output: 12, unit: MetricUnit.V },
+          current: { input: 10, output: 200, unit: MetricUnit.A },
+          power: { input: 2_400, output: 2_300, unit: MetricUnit.W },
+          temperature: { ambient: 35, average: 45, hotspot: 60, unit: MetricUnit.ValueC },
+        },
+      ],
+    });
+
+    expect(hardware.psus.has(getPsuId(2))).toBe(true);
+    expect(telemetry.psus.get(getPsuId(2))?.inputVoltage?.latest?.value).toBe(240);
   });
 
   it("does not attribute ASIC history through ambiguous hashboard indexes", () => {

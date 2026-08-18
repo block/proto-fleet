@@ -46,9 +46,9 @@ export const convertAndFormatTemperature = (
  */
 export const convertTelemetryTemperatureToChartData = (
   metric: MetricTimeSeries,
-  intervalMs: number = 60000, // Default 1 minute intervals
+  intervalMs: number | undefined,
 ): ChartData[] => {
-  if (!metric?.values?.length) return [];
+  if (!metric?.values?.length || intervalMs === undefined) return [];
 
   return metric.values.map((value, index) => ({
     datetime: Math.floor((metric.startTime + index * intervalMs) / 1000), // Convert to seconds
@@ -61,9 +61,9 @@ export const convertTelemetryTemperatureToChartData = (
  */
 export const convertTelemetryHashrateToChartData = (
   metric: MetricTimeSeries,
-  intervalMs: number = 60000, // Default 1 minute intervals
+  intervalMs: number | undefined,
 ): ChartData[] => {
-  if (!metric?.values?.length) return [];
+  if (!metric?.values?.length || intervalMs === undefined) return [];
 
   return metric.values.map((value, index) => ({
     datetime: Math.floor((metric.startTime + index * intervalMs) / 1000), // Convert to seconds

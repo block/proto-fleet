@@ -34,6 +34,7 @@ const metric = (value?: NormalizedMetric): MetricTelemetry | undefined => {
           values: points.map((point) => point.value),
           startTime: points[0]?.timestampMs ?? 0,
           endTime: points[points.length - 1]?.timestampMs ?? 0,
+          bucketSizeMs: value.timeSeries.bucketSizeMs,
         }
       : undefined,
   };

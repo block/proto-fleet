@@ -62,7 +62,6 @@ export {
   useFansTelemetry,
   useFanTelemetry,
   useCoolingMode,
-  useIntervalMs,
 } from "./hooks/useTelemetry";
 
 export {

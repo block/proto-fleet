@@ -47,6 +47,7 @@ export interface MetricTimeSeries {
   values: Value[];
   startTime: number;
   endTime: number;
+  bucketSizeMs?: number;
 }
 
 export type Measurement = {

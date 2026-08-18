@@ -6,7 +6,7 @@ import { asComponentId, ROOT_MODULE_ID, ROOT_MODULE_KEY } from "../contract";
 import useMinerStore from "../useMinerStore";
 import { getAsicId } from "../utils/getAsicId";
 import { useHashboardsHardware, useMinerHardware } from "./useHardware";
-import { useMiner, useMinerHashboardAsics } from "./useMiner";
+import { useChartDataForMetric, useMiner, useMinerHashboardAsics } from "./useMiner";
 import { useErrors } from "./useMinerStatus";
 import { useFansTelemetry, useMinerTelemetry } from "./useTelemetry";
 import { MetricUnit } from "@/protoOS/api/generatedApi";
@@ -146,5 +146,37 @@ describe("useMiner", () => {
         temperature: { latest: { value: 72, units: "°C" } },
       }),
     ]);
+  });
+
+  it("does not fabricate chart timestamps when bucket metadata is absent", () => {
+    useMinerStore.getState().hardware.setHashboards([{ serial: "HB-1", slot: 1 }]);
+    useMinerStore.getState().telemetry.mergeTelemetry({
+      resourceByScope: new Map(),
+      rollupsByEntity: new Map([
+        [
+          ROOT_MODULE_KEY,
+          {
+            hashrate: {
+              timeSeries: {
+                points: [
+                  { timestampMs: 1_000, value: 90 },
+                  { timestampMs: 2_000, value: 100 },
+                ],
+              },
+            },
+          },
+        ],
+      ]),
+      hashboards: new Map(),
+      asics: new Map(),
+      psus: new Map(),
+      fans: new Map(),
+      coolingModeByOwner: new Map(),
+      asicLoadByHashboard: new Map(),
+    });
+
+    const { result } = renderHook(() => useChartDataForMetric("hashrate"));
+
+    expect(result.current.chartData).toEqual([]);
   });
 });

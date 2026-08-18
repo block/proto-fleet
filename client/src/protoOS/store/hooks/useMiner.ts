@@ -232,7 +232,7 @@ export const useChartDataForMetric = (
   const hashboardsTelemetry = useMinerStore((state) => state.telemetry.hashboards);
   const hardware = useMinerStore((state) => state.hardware);
   const intervalMs = useMinerStore(
-    (state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY)?.[metricName]?.timeSeries?.bucketSizeMs ?? 900_000,
+    (state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY)?.[metricName]?.timeSeries?.bucketSizeMs,
   );
   const duration = useMinerStore((state) => state.ui.duration);
 
@@ -244,7 +244,7 @@ export const useChartDataForMetric = (
     if (!miner) return { chartData: [], chartLines: [] };
 
     const minerMetric = miner[metricName]?.timeSeries;
-    if (!minerMetric?.values.length) return { chartData: [], chartLines: [] };
+    if (!minerMetric?.values.length || intervalMs === undefined) return { chartData: [], chartLines: [] };
 
     // Get hashboards associated with this miner
     const minerHashboards = miner.hashboards

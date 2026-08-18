@@ -56,7 +56,3 @@ export const useFanTelemetry = (slot: number) => {
   return useMemo(() => (value ? fanTelemetryView(value) : undefined), [value]);
 };
 export const useCoolingMode = () => useMinerStore((state) => state.telemetry.coolingModeByOwner.get(ROOT_MODULE_KEY));
-export const useIntervalMs = () =>
-  useMinerStore(
-    (state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY)?.hashrate?.timeSeries?.bucketSizeMs ?? 900_000,
-  );
