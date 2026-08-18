@@ -56,8 +56,12 @@ From the operator machine, run the public installer on `ha-a`. Replace the SSH
 destination with the user and address for that host:
 
 ```bash
-ssh -t admin@10.40.0.11 'curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- --ha'
+ssh -A -t admin@10.40.0.11 'curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- --ha'
 ```
+
+`-A` lets the installer use the operator's SSH agent for the peer checks. It
+can be omitted when the peers use password authentication or a key already
+available on `ha-a`.
 
 The wizard asks for the `ha-b` address, `ha-c` address, VIP, and the SSH
 username shared by the peer hosts. It derives `ha-a`'s local address and
