@@ -1238,13 +1238,39 @@ done
 
 # A successful preflight validates and prepares images, but never stops or
 # starts the active stack. It records a same-directory activation marker.
+empty_deployment="$TMP_DIR/empty-deployment"
+empty_manifest_log="$TMP_DIR/empty-manifest.log"
+mkdir -p "$empty_deployment"
+if write_release_manifest "$empty_deployment" > "$empty_manifest_log" 2>&1; then
+    fail "production manifest generation should reject an empty immutable file set"
+else
+    pass "production manifest generation rejects an empty immutable file set"
+fi
+assert_contains \
+    "empty immutable file set is diagnosed" \
+    "$empty_manifest_log" \
+    "contains no immutable release files"
+[ ! -e "$empty_deployment/deployment-manifest.sha256" ] || \
+    fail "failed empty manifest generation should not create a manifest"
+
 make_stage packaged-symlink
 ln -s base.yaml "$STAGE/server/monitoring/grafana/provisioning/datasources/packaged-symlink.yaml"
-if write_release_manifest "$STAGE"; then
+ln -s base.yaml "$STAGE/server/monitoring/grafana/provisioning/datasources/packaged-symlink-2.yaml"
+unsupported_manifest_log="$TMP_DIR/unsupported-manifest.log"
+if write_release_manifest "$STAGE" > "$unsupported_manifest_log" 2>&1; then
     fail "production manifest generation should reject packaged symlinks"
 else
     pass "production manifest generation rejects packaged symlinks"
 fi
+for unsupported_entry in \
+    "./server/monitoring/grafana/provisioning/datasources/packaged-symlink.yaml" \
+    "./server/monitoring/grafana/provisioning/datasources/packaged-symlink-2.yaml"; do
+    if grep -qxF "  $unsupported_entry" "$unsupported_manifest_log"; then
+        pass "unsupported manifest entry is indented: $unsupported_entry"
+    else
+        fail "unsupported manifest entry is not indented: $unsupported_entry"
+    fi
+done
 
 make_stage packaged-generated-nginx
 cp "$STAGE/client/nginx.https.conf" "$STAGE/client/nginx.conf"
