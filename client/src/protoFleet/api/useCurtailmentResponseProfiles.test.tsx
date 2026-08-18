@@ -300,14 +300,15 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
-  it("rejects missing target state instead of defaulting a profile to whole org", async () => {
+  it("rejects an empty target state instead of defaulting a profile to whole org", async () => {
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
 
     await expect(
       act(async () => {
         await result.current.createResponseProfile({
           ...fixedKwFormValues,
-          scopeType: undefined,
+          scopeType: "building",
+          buildingTargetIds: [],
           minerSelectionMode: "subset",
         });
       }),

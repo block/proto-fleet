@@ -104,22 +104,29 @@ function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): Curtailmen
 function mapCurtailmentEventScopeToFormValues(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
-): Pick<
-  CurtailmentSubmitValues,
-  | "scopeType"
-  | "scopeId"
-  | "siteSelection"
-  | "siteId"
-  | "siteIds"
-  | "siteNamesById"
-  | "buildingTargetIds"
-  | "rackTargetIds"
-  | "groupTargetIds"
-  | "deviceSetIds"
-  | "deviceIdentifiers"
-> {
+):
+  | Pick<
+      CurtailmentSubmitValues,
+      | "scopeType"
+      | "scopeId"
+      | "siteSelection"
+      | "siteId"
+      | "siteIds"
+      | "siteNamesById"
+      | "buildingTargetIds"
+      | "rackTargetIds"
+      | "groupTargetIds"
+      | "deviceSetIds"
+      | "deviceIdentifiers"
+    >
+  | undefined {
   if (event.scopes.length > 0) {
-    const scope = parseCurtailmentTerminalScopes(event.scopes);
+    let scope;
+    try {
+      scope = parseCurtailmentTerminalScopes(event.scopes);
+    } catch {
+      return undefined;
+    }
     const scopeFields = getCurtailmentScopeFormFields(scope);
     const siteId = scopeFields.siteIds[0] ?? "";
     const siteNamesById = Object.fromEntries(
@@ -195,13 +202,17 @@ function mapCurtailmentEventScopeToFormValues(
 export function mapCurtailmentEventToFormValues(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
-): CurtailmentSubmitValues {
+): CurtailmentSubmitValues | undefined {
   const fixedKwTarget = getFixedKwTarget(event);
   const fixedKwTolerance = getFixedKwTolerance(event);
   const hasCurtailBatchSize = (event.curtailBatchSize ?? 0) > 0;
+  const scopeValues = mapCurtailmentEventScopeToFormValues(event, options);
+  if (!scopeValues) {
+    return undefined;
+  }
 
   return {
-    ...mapCurtailmentEventScopeToFormValues(event, options),
+    ...scopeValues,
     responseProfileId: "customPlan",
     curtailmentMode: mapCurtailmentModeToFormValue(event),
     minerSelectionStrategy: "leastEfficientFirst",

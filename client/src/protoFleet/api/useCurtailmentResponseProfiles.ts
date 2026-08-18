@@ -67,7 +67,6 @@ interface UseCurtailmentResponseProfilesOptions {
 
 type ResponseProfileScopeValues = Pick<
   ResponseProfileFormValues,
-  | "scopeType"
   | "siteSelection"
   | "siteId"
   | "siteName"
@@ -79,6 +78,7 @@ type ResponseProfileScopeValues = Pick<
   | "deviceIdentifiers"
   | "minerSelectionMode"
 > & {
+  scopeType?: ResponseProfileFormValues["scopeType"];
   readOnlyScopeSummary?: string;
 };
 
@@ -207,28 +207,31 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
   const targetSummary =
     actionType === "fixedKwReduction" && fixedKw !== undefined ? `${formatKw(fixedKw)} kW target` : "100% reduction";
 
-  const formValues: ResponseProfileFormValues = {
-    name: profile.profileName,
-    actionType,
-    ...scopeFormValues,
-    targetKw,
-    selectionStrategy: "leastEfficientFirst",
-    restoreBehavior,
-    minDurationSec: "",
-    maxDurationSec: "",
-    curtailBatchSize: numberToInputValue(profile.curtailBatchSize),
-    curtailBatchIntervalSec: curtailBatchIntervalInputValue(profile),
-    restoreBatchSize: numberToNonNegativeInputValue(profile.restoreBatchSize),
-    restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
-    facilityFanDeviceIds: profile.facilityFanDeviceIds.map((id) => id.toString()),
-    fanOffDelaySec: numberToNonNegativeInputValue(profile.fanOffDelaySec),
-    fanRestoreDelaySec: numberToNonNegativeInputValue(profile.fanRestoreDelaySec),
-    responseDeadlineMinutes,
-    includeMaintenance: profile.includeMaintenance,
-    forceIncludeAllPairedMiners: profile.forceIncludeAllPairedMiners,
-  };
+  const formValues: ResponseProfileFormValues | undefined = scopeFormValues.scopeType
+    ? {
+        name: profile.profileName,
+        actionType,
+        ...scopeFormValues,
+        scopeType: scopeFormValues.scopeType,
+        targetKw,
+        selectionStrategy: "leastEfficientFirst",
+        restoreBehavior,
+        minDurationSec: "",
+        maxDurationSec: "",
+        curtailBatchSize: numberToInputValue(profile.curtailBatchSize),
+        curtailBatchIntervalSec: curtailBatchIntervalInputValue(profile),
+        restoreBatchSize: numberToNonNegativeInputValue(profile.restoreBatchSize),
+        restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
+        facilityFanDeviceIds: profile.facilityFanDeviceIds.map((id) => id.toString()),
+        fanOffDelaySec: numberToNonNegativeInputValue(profile.fanOffDelaySec),
+        fanRestoreDelaySec: numberToNonNegativeInputValue(profile.fanRestoreDelaySec),
+        responseDeadlineMinutes,
+        includeMaintenance: profile.includeMaintenance,
+        forceIncludeAllPairedMiners: profile.forceIncludeAllPairedMiners,
+      }
+    : undefined;
   const mergedFormValues =
-    cachedFormValues && !readOnlyScopeSummary
+    formValues && cachedFormValues && !readOnlyScopeSummary
       ? {
           ...formValues,
           ...cachedFormValues,
@@ -239,7 +242,14 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
           fanRestoreDelaySec: formValues.fanRestoreDelaySec,
         }
       : formValues;
-  const scope = readOnlyScopeSummary ?? getResponseProfileScopeSummary(mergedFormValues, profile.mode);
+  let scope: string;
+  if (readOnlyScopeSummary) {
+    scope = readOnlyScopeSummary;
+  } else if (mergedFormValues) {
+    scope = getResponseProfileScopeSummary(mergedFormValues, profile.mode);
+  } else {
+    throw new Error("Response profile scope is required");
+  }
 
   return {
     id: profile.profileId.toString(),

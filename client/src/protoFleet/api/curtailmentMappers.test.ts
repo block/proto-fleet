@@ -6,6 +6,7 @@ import {
   CurtailmentEventSchema,
   CurtailmentScopeSchema,
   ScopeBuildingSchema,
+  ScopeRackSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 describe("mapCurtailmentEventToFormValues", () => {
@@ -29,5 +30,18 @@ describe("mapCurtailmentEventToFormValues", () => {
         deviceIdentifiers: [],
       }),
     );
+  });
+
+  it("fails closed when an event contains mixed scope types", () => {
+    const scopes = [
+      create(CurtailmentScopeSchema, {
+        scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+      }),
+      create(CurtailmentScopeSchema, {
+        scope: { case: "rack", value: create(ScopeRackSchema, { rackId: 8n }) },
+      }),
+    ];
+
+    expect(mapCurtailmentEventToFormValues(create(CurtailmentEventSchema, { scopes }))).toBeUndefined();
   });
 });

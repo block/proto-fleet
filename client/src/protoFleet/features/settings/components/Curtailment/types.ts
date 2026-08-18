@@ -48,10 +48,10 @@ export type ResponseProfileFormValues = {
   name: string;
   actionType: ResponseProfileActionType;
   targetKw: string;
-  scopeType?: ResponseProfileScopeType;
-  buildingTargetIds?: string[];
-  rackTargetIds?: string[];
-  groupTargetIds?: string[];
+  scopeType: ResponseProfileScopeType;
+  buildingTargetIds: string[];
+  rackTargetIds: string[];
+  groupTargetIds: string[];
   deviceIdentifiers: string[];
   minerSelectionMode?: ResponseProfileMinerSelectionMode;
   siteSelection?: ResponseProfileSiteSelection;

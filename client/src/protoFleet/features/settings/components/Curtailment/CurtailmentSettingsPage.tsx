@@ -553,6 +553,9 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
+  if (values.scopeType === "deviceSet") {
+    throw new Error("Unsupported curtailment target scope.");
+  }
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds =
     hasAllMinersSelected || (values.siteSelection !== "site" && values.siteSelection !== "allSites")
@@ -574,7 +577,7 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
-    scopeType: values.scopeType === "deviceSet" ? undefined : values.scopeType,
+    scopeType: values.scopeType,
     ...cloneTopologyTargetIds(values),
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
