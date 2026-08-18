@@ -167,8 +167,8 @@ The Docker repository setup follows the official instructions for
 
 ## Log-based HA alerts
 
-No additional monitor service is required. The existing `fleet-api` process on
-both database hosts writes structured HA events to its normal container log:
+No additional monitor service is required. The existing `fleet-api` processes on
+both database hosts write structured HA events to their normal container logs:
 
 | `ha_event` | Level | Meaning |
 | --- | --- | --- |

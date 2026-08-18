@@ -414,7 +414,7 @@ func (c *Coordinator) activate(
 	failover := ownership.Token.LeaseEpoch > 1
 	c.mu.Unlock()
 	if failover {
-		c.logger.Warn(
+		go c.logger.Warn(
 			"HA failover ownership activated",
 			haEventAttribute, haEventFailover,
 			"writer_generation", ownership.Token.WriterGeneration,

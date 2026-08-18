@@ -66,6 +66,14 @@ func TestCoordinatorLogsFailoverAfterInitialLease(t *testing.T) {
 	ownership.Token.LeaseEpoch = 2
 	require.NoError(t, coordinator.activate(t.Context(), ownership, now, now.Add(time.Second)))
 
+	require.Eventually(t, func() bool {
+		for _, record := range logs.Snapshot(logging.SnapshotOptions{}).Records {
+			if logAttr(record, haEventAttribute) == haEventFailover {
+				return true
+			}
+		}
+		return false
+	}, time.Second, time.Millisecond)
 	record := requireHAEvent(t, logs, haEventFailover)
 	require.Equal(t, slog.LevelWarn, record.Level)
 	require.Equal(t, "41", logAttr(record, "writer_generation"))
