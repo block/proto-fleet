@@ -59,6 +59,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -89,6 +90,7 @@ import (
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
+	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	sitemapDomain "github.com/block/proto-fleet/server/internal/domain/sitemap"
 	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
@@ -122,6 +124,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
+	rolloutHandler "github.com/block/proto-fleet/server/internal/handlers/rollout"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
 	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
 	sitemapHandler "github.com/block/proto-fleet/server/internal/handlers/sitemap"
@@ -173,6 +176,7 @@ var reflectEnabledServices = []string{
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
+	rolloutv1connect.RolloutServiceName,
 }
 
 func start(config *Config) error {
@@ -479,6 +483,10 @@ func start(config *Config) error {
 
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
 	channelEnforcementStore := sqlstores.NewSQLChannelEnforcementStore(conn)
+	rolloutStore := sqlstores.NewSQLRolloutStore(conn)
+	// Read APIs remain available without an admission strategy. Create, admit,
+	// and revert fail closed until a strategy is registered.
+	rolloutSvc := rolloutDomain.NewService(rolloutStore)
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
 	facilityFanController := curtailmentDomain.NewFacilityFanController(
 		infrastructureStore,
@@ -721,6 +729,7 @@ func start(config *Config) error {
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
+	mux.Handle(rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

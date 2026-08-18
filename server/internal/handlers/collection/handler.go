@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -26,9 +27,71 @@ func NewHandler(svc *collection.Service) *Handler {
 	}
 }
 
+func requireAnyCollectionRead(ctx context.Context) (*session.Info, error) {
+	return middleware.RequireAnyPermission(
+		ctx,
+		[]string{authz.PermRackRead, authz.PermChannelRead},
+		authz.ResourceContext{},
+	)
+}
+
+func requireAnyCollectionManage(ctx context.Context) (*session.Info, error) {
+	return middleware.RequireAnyPermission(
+		ctx,
+		[]string{authz.PermRackManage, authz.PermChannelManage},
+		authz.ResourceContext{},
+	)
+}
+
+func requireCollectionListRead(
+	ctx context.Context,
+	collectionType pb.CollectionType,
+) (*session.Info, error) {
+	if collectionType == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
+		return middleware.RequirePermission(
+			ctx,
+			authz.PermChannelRead,
+			authz.ResourceContext{},
+		)
+	}
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermRackRead,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if collectionType == pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED {
+		if _, err := middleware.RequirePermission(
+			ctx,
+			authz.PermChannelRead,
+			authz.ResourceContext{},
+		); err != nil {
+			return nil, err
+		}
+	}
+	return info, nil
+}
+
+func collectionReadPermission(collectionType pb.CollectionType) string {
+	if collectionType == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
+		return authz.PermChannelRead
+	}
+	return authz.PermRackRead
+}
+
+func collectionManagePermission(collectionType pb.CollectionType) string {
+	if collectionType == pb.CollectionType_COLLECTION_TYPE_CHANNEL {
+		return authz.PermChannelManage
+	}
+	return authz.PermRackManage
+}
+
 // CreateCollection creates a new collection.
 func (h *Handler) CreateCollection(ctx context.Context, r *connect.Request[pb.CreateCollectionRequest]) (*connect.Response[pb.CreateCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	permission := collectionManagePermission(r.Msg.GetType())
+	if _, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 	// Creating a rack under a site/building persists that placement, so mirror
@@ -49,11 +112,18 @@ func (h *Handler) CreateCollection(ctx context.Context, r *connect.Request[pb.Cr
 
 // GetCollection retrieves a collection by ID.
 func (h *Handler) GetCollection(ctx context.Context, r *connect.Request[pb.GetCollectionRequest]) (*connect.Response[pb.GetCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireAnyCollectionRead(ctx); err != nil {
 		return nil, err
 	}
 	result, err := h.collectionSvc.GetCollection(ctx, r.Msg)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(
+		ctx,
+		collectionReadPermission(result.Collection.Type),
+		authz.ResourceContext{},
+	); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(result), nil
@@ -61,7 +131,20 @@ func (h *Handler) GetCollection(ctx context.Context, r *connect.Request[pb.GetCo
 
 // UpdateCollection updates a collection's label and/or description.
 func (h *Handler) UpdateCollection(ctx context.Context, r *connect.Request[pb.UpdateCollectionRequest]) (*connect.Response[pb.UpdateCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	if _, err := requireAnyCollectionManage(ctx); err != nil {
+		return nil, err
+	}
+	existing, err := h.collectionSvc.GetCollection(ctx, &pb.GetCollectionRequest{
+		CollectionId: r.Msg.GetCollectionId(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(
+		ctx,
+		collectionManagePermission(existing.Collection.Type),
+		authz.ResourceContext{},
+	); err != nil {
 		return nil, err
 	}
 	// UpdateCollection now persists a rack's placement (site/building) when
@@ -83,7 +166,20 @@ func (h *Handler) UpdateCollection(ctx context.Context, r *connect.Request[pb.Up
 
 // DeleteCollection soft-deletes a collection.
 func (h *Handler) DeleteCollection(ctx context.Context, r *connect.Request[pb.DeleteCollectionRequest]) (*connect.Response[pb.DeleteCollectionResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	if _, err := requireAnyCollectionManage(ctx); err != nil {
+		return nil, err
+	}
+	existing, err := h.collectionSvc.GetCollection(ctx, &pb.GetCollectionRequest{
+		CollectionId: r.Msg.GetCollectionId(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(
+		ctx,
+		collectionManagePermission(existing.Collection.Type),
+		authz.ResourceContext{},
+	); err != nil {
 		return nil, err
 	}
 	result, err := h.collectionSvc.DeleteCollection(ctx, r.Msg)
@@ -95,7 +191,7 @@ func (h *Handler) DeleteCollection(ctx context.Context, r *connect.Request[pb.De
 
 // ListCollections returns all collections for the organization.
 func (h *Handler) ListCollections(ctx context.Context, r *connect.Request[pb.ListCollectionsRequest]) (*connect.Response[pb.ListCollectionsResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireCollectionListRead(ctx, r.Msg.GetType()); err != nil {
 		return nil, err
 	}
 	result, err := h.collectionSvc.ListCollections(ctx, r.Msg)
@@ -107,7 +203,20 @@ func (h *Handler) ListCollections(ctx context.Context, r *connect.Request[pb.Lis
 
 // ListCollectionMembers returns all members of a collection.
 func (h *Handler) ListCollectionMembers(ctx context.Context, r *connect.Request[pb.ListCollectionMembersRequest]) (*connect.Response[pb.ListCollectionMembersResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireAnyCollectionRead(ctx); err != nil {
+		return nil, err
+	}
+	existing, err := h.collectionSvc.GetCollection(ctx, &pb.GetCollectionRequest{
+		CollectionId: r.Msg.GetCollectionId(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequirePermission(
+		ctx,
+		collectionReadPermission(existing.Collection.Type),
+		authz.ResourceContext{},
+	); err != nil {
 		return nil, err
 	}
 	result, err := h.collectionSvc.ListCollectionMembers(ctx, r.Msg)
@@ -119,7 +228,7 @@ func (h *Handler) ListCollectionMembers(ctx context.Context, r *connect.Request[
 
 // GetDeviceCollections returns all collections a device belongs to.
 func (h *Handler) GetDeviceCollections(ctx context.Context, r *connect.Request[pb.GetDeviceCollectionsRequest]) (*connect.Response[pb.GetDeviceCollectionsResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireCollectionListRead(ctx, r.Msg.GetType()); err != nil {
 		return nil, err
 	}
 	result, err := h.collectionSvc.GetDeviceCollections(ctx, r.Msg)
@@ -167,8 +276,23 @@ func (h *Handler) GetRackSlots(ctx context.Context, r *connect.Request[pb.GetRac
 
 // GetCollectionStats returns aggregated telemetry stats for collections.
 func (h *Handler) GetCollectionStats(ctx context.Context, r *connect.Request[pb.GetCollectionStatsRequest]) (*connect.Response[pb.GetCollectionStatsResponse], error) {
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := requireAnyCollectionRead(ctx); err != nil {
 		return nil, err
+	}
+	for _, collectionID := range r.Msg.GetCollectionIds() {
+		existing, err := h.collectionSvc.GetCollection(ctx, &pb.GetCollectionRequest{
+			CollectionId: collectionID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if _, err := middleware.RequirePermission(
+			ctx,
+			collectionReadPermission(existing.Collection.Type),
+			authz.ResourceContext{},
+		); err != nil {
+			return nil, err
+		}
 	}
 	result, err := h.collectionSvc.GetCollectionStats(ctx, r.Msg)
 	if err != nil {

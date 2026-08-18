@@ -721,6 +721,14 @@ func ctxWithPerms(perms ...string) context.Context {
 	}}))
 }
 
+func requirePermissionDenied(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
 func ctxWithAssignments(assignments ...authz.Assignment) context.Context {
 	ctx := authn.SetInfo(context.Background(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -1346,4 +1354,46 @@ func TestGetFirmwareReleaseSet_ReturnsSnapshot(t *testing.T) {
 	assert.Equal(t, int64(91), response.Msg.ReleaseSet.Id)
 	require.Len(t, response.Msg.ReleaseSet.Targets, 1)
 	assert.Equal(t, "firmware-1", response.Msg.ReleaseSet.Targets[0].FirmwareFileId)
+}
+
+func TestChannelRPCsRequireChannelPermissionsRatherThanRackPermissions(t *testing.T) {
+	h := newTestHandler(t)
+	channelID := int64(77)
+
+	_, err := h.handler.CreateDeviceSet(
+		ctxWithPerms(authz.PermRackManage),
+		connect.NewRequest(&dspb.CreateDeviceSetRequest{
+			Type: dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL,
+		}),
+	)
+	requirePermissionDenied(t, err)
+
+	_, err = h.handler.ListDeviceSets(
+		ctxWithPerms(authz.PermRackRead),
+		connect.NewRequest(&dspb.ListDeviceSetsRequest{
+			Type: dspb.DeviceSetType_DEVICE_SET_TYPE_CHANNEL,
+		}),
+	)
+	requirePermissionDenied(t, err)
+
+	_, err = h.handler.CreateFirmwareReleaseSet(
+		ctxWithPerms(authz.PermRackManage),
+		connect.NewRequest(&dspb.CreateFirmwareReleaseSetRequest{}),
+	)
+	requirePermissionDenied(t, err)
+
+	_, err = h.handler.GetFirmwareReleaseSet(
+		ctxWithPerms(authz.PermRackRead),
+		connect.NewRequest(&dspb.GetFirmwareReleaseSetRequest{ReleaseSetId: 91}),
+	)
+	requirePermissionDenied(t, err)
+
+	_, err = h.handler.AssignDevicesToChannel(
+		ctxWithPerms(authz.PermRackManage),
+		connect.NewRequest(&dspb.AssignDevicesToChannelRequest{
+			TargetChannelId: &channelID,
+			DeviceSelector:  deviceListSelector("device-1"),
+		}),
+	)
+	requirePermissionDenied(t, err)
 }

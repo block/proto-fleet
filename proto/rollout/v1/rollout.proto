@@ -1,0 +1,277 @@
+syntax = "proto3";
+
+package rollout.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+service RolloutService {
+    rpc CreateRollout(CreateRolloutRequest) returns (CreateRolloutResponse);
+    rpc GetRollout(GetRolloutRequest) returns (GetRolloutResponse);
+    rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse);
+    rpc AdmitRollout(AdmitRolloutRequest) returns (AdmitRolloutResponse);
+    rpc ContinueRollout(ContinueRolloutRequest) returns (ContinueRolloutResponse);
+    rpc PauseRollout(PauseRolloutRequest) returns (PauseRolloutResponse);
+    rpc ResumeRollout(ResumeRolloutRequest) returns (ResumeRolloutResponse);
+    rpc AbortRollout(AbortRolloutRequest) returns (AbortRolloutResponse);
+    rpc RevertRollout(RevertRolloutRequest) returns (RevertRolloutResponse);
+    rpc CompleteRollout(CompleteRolloutRequest) returns (CompleteRolloutResponse);
+}
+
+enum RolloutState {
+    ROLLOUT_STATE_UNSPECIFIED = 0;
+    ROLLOUT_STATE_CREATED = 1;
+    ROLLOUT_STATE_RUNNING = 2;
+    ROLLOUT_STATE_PAUSED = 3;
+    ROLLOUT_STATE_REVIEW = 4;
+    ROLLOUT_STATE_ABORTED = 5;
+    ROLLOUT_STATE_COMPLETED = 6;
+    ROLLOUT_STATE_COMPLETED_WITH_FAILURES = 7;
+    ROLLOUT_STATE_REVERTING = 8;
+    ROLLOUT_STATE_REVERTED = 9;
+}
+
+enum RolloutBatchState {
+    ROLLOUT_BATCH_STATE_UNSPECIFIED = 0;
+    ROLLOUT_BATCH_STATE_PENDING = 1;
+    ROLLOUT_BATCH_STATE_ADMITTED = 2;
+    ROLLOUT_BATCH_STATE_COMPLETED = 3;
+    ROLLOUT_BATCH_STATE_CANCELLED = 4;
+}
+
+enum RolloutMemberState {
+    ROLLOUT_MEMBER_STATE_UNSPECIFIED = 0;
+    ROLLOUT_MEMBER_STATE_PENDING = 1;
+    ROLLOUT_MEMBER_STATE_ADMITTED = 2;
+    ROLLOUT_MEMBER_STATE_SUCCEEDED = 3;
+    ROLLOUT_MEMBER_STATE_FAILED = 4;
+    ROLLOUT_MEMBER_STATE_ATTENTION_REQUIRED = 5;
+    ROLLOUT_MEMBER_STATE_CANCELLED = 6;
+    ROLLOUT_MEMBER_STATE_REVERTING = 7;
+    ROLLOUT_MEMBER_STATE_REVERTED = 8;
+}
+
+enum RolloutEvidencePhase {
+    ROLLOUT_EVIDENCE_PHASE_UNSPECIFIED = 0;
+    ROLLOUT_EVIDENCE_PHASE_BASELINE = 1;
+    ROLLOUT_EVIDENCE_PHASE_POST = 2;
+}
+
+message Rollout {
+    string rollout_id = 1;
+    string name = 2;
+    string strategy_key = 3;
+    RolloutState state = 4;
+    uint64 revision = 5;
+
+    optional int64 source_channel_id = 10;
+    optional int64 target_channel_id = 11;
+    optional int64 source_release_set_id = 12;
+    optional int64 target_release_set_id = 13;
+    google.protobuf.Struct source_snapshot = 14;
+    google.protobuf.Struct target_snapshot = 15;
+    google.protobuf.Struct revert_snapshot = 16;
+
+    string reason = 20;
+    google.protobuf.Timestamp started_at = 21;
+    google.protobuf.Timestamp paused_at = 22;
+    google.protobuf.Timestamp aborted_at = 23;
+    google.protobuf.Timestamp completed_at = 24;
+    google.protobuf.Timestamp reverting_at = 25;
+    google.protobuf.Timestamp reverted_at = 26;
+    google.protobuf.Timestamp created_at = 27;
+    google.protobuf.Timestamp updated_at = 28;
+
+    repeated RolloutBatch batches = 30;
+    repeated RolloutMember members = 31;
+    repeated RolloutCause causes = 32;
+}
+
+message RolloutBatch {
+    int64 batch_id = 1;
+    uint32 position = 2;
+    string label = 3;
+    RolloutBatchState state = 4;
+    uint64 revision = 5;
+    repeated RolloutMember members = 6;
+}
+
+message RolloutMember {
+    int64 member_id = 1;
+    int64 batch_id = 2;
+    string device_identifier = 3;
+    uint32 position = 4;
+    RolloutMemberState state = 5;
+    uint64 revision = 6;
+    google.protobuf.Struct source_snapshot = 7;
+    google.protobuf.Struct target_snapshot = 8;
+    google.protobuf.Struct revert_snapshot = 9;
+    optional int64 enforcement_id = 10;
+    optional string command_batch_uuid = 11;
+    optional string last_error = 12;
+    google.protobuf.Timestamp admitted_at = 13;
+    google.protobuf.Timestamp settled_at = 14;
+    repeated RolloutEvidence evidence = 15;
+}
+
+message RolloutEvidence {
+    int64 evidence_id = 1;
+    RolloutEvidencePhase phase = 2;
+    google.protobuf.Timestamp window_start = 3;
+    google.protobuf.Timestamp window_end = 4;
+    google.protobuf.Timestamp observed_at = 5;
+    optional double avg_hashrate_hs = 6;
+    optional double avg_power_w = 7;
+    optional double avg_temperature_c = 8;
+    optional int64 error_count = 9;
+    optional int64 sample_count = 10;
+}
+
+message RolloutCause {
+    int64 cause_id = 1;
+    optional int64 member_id = 2;
+    string operation = 3;
+    string reason = 4;
+    int64 actor_user_id = 5;
+    RolloutState from_state = 6;
+    RolloutState to_state = 7;
+    uint64 rollout_revision = 8;
+    google.protobuf.Timestamp created_at = 9;
+}
+
+message CreateRolloutMember {
+    string device_identifier = 1 [(buf.validate.field).string.min_len = 1];
+    google.protobuf.Struct source_snapshot = 2;
+    google.protobuf.Struct target_snapshot = 3;
+    google.protobuf.Struct revert_snapshot = 4;
+}
+
+message CreateRolloutBatch {
+    string label = 1 [(buf.validate.field).string.max_len = 128];
+    repeated CreateRolloutMember members = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+    }];
+}
+
+message CreateRolloutRequest {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    string strategy_key = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    repeated CreateRolloutBatch batches = 3 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 1000
+    }];
+    optional int64 source_channel_id = 4 [(buf.validate.field).int64.gt = 0];
+    optional int64 target_channel_id = 5 [(buf.validate.field).int64.gt = 0];
+    optional int64 source_release_set_id = 6 [(buf.validate.field).int64.gt = 0];
+    optional int64 target_release_set_id = 7 [(buf.validate.field).int64.gt = 0];
+    google.protobuf.Struct source_snapshot = 8;
+    google.protobuf.Struct target_snapshot = 9;
+    google.protobuf.Struct revert_snapshot = 10;
+    string idempotency_key = 11 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 12 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message CreateRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message GetRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message ListRolloutsRequest {
+    repeated RolloutState states = 1 [(buf.validate.field).repeated = {
+        unique: true
+        max_items: 9
+        items: {enum: {defined_only: true}}
+    }];
+}
+
+message ListRolloutsResponse {
+    repeated Rollout rollouts = 1;
+}
+
+message AdmitRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+    int64 batch_id = 2 [(buf.validate.field).int64.gt = 0];
+    uint64 expected_revision = 3 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message AdmitRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message ContinueRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message ContinueRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message PauseRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message PauseRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message ResumeRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message ResumeRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message AbortRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message AbortRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message RevertRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message RevertRolloutResponse {
+    Rollout rollout = 1;
+}
+
+message CompleteRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    string idempotency_key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 4 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    bool with_failures = 5;
+}
+
+message CompleteRolloutResponse {
+    Rollout rollout = 1;
+}

@@ -925,6 +925,123 @@ type FirmwareReleaseTarget struct {
 	CreatedAt          time.Time
 }
 
+type FirmwareRollout struct {
+	ID                       uuid.UUID
+	OrgID                    int64
+	Name                     string
+	StrategyKey              string
+	State                    string
+	ResumeState              sql.NullString
+	Revision                 int64
+	ForwardAuthorityID       uuid.UUID
+	ForwardAuthorityRevision int64
+	RevertAuthorityID        uuid.NullUUID
+	RevertAuthorityRevision  sql.NullInt64
+	SourceChannelID          sql.NullInt64
+	TargetChannelID          sql.NullInt64
+	SourceReleaseSetID       sql.NullInt64
+	TargetReleaseSetID       sql.NullInt64
+	SourceSnapshot           json.RawMessage
+	TargetSnapshot           json.RawMessage
+	RevertSnapshot           json.RawMessage
+	IdempotencyKey           string
+	CreateFingerprint        string
+	Reason                   string
+	CreatedByUserID          int64
+	StartedAt                sql.NullTime
+	PausedAt                 sql.NullTime
+	AbortedAt                sql.NullTime
+	CompletedAt              sql.NullTime
+	RevertingAt              sql.NullTime
+	RevertedAt               sql.NullTime
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+type FirmwareRolloutBatch struct {
+	ID        int64
+	RolloutID uuid.UUID
+	OrgID     int64
+	Position  int32
+	Label     string
+	State     string
+	Revision  int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type FirmwareRolloutCause struct {
+	ID              int64
+	RolloutID       uuid.UUID
+	MemberID        sql.NullInt64
+	ControlID       uuid.NullUUID
+	OrgID           int64
+	Operation       string
+	Reason          string
+	ActorUserID     int64
+	FromState       sql.NullString
+	ToState         string
+	RolloutRevision int64
+	CreatedAt       time.Time
+}
+
+type FirmwareRolloutControl struct {
+	ID                 uuid.UUID
+	RolloutID          uuid.UUID
+	OrgID              int64
+	BatchID            sql.NullInt64
+	Operation          string
+	IdempotencyKey     string
+	RequestFingerprint string
+	ExpectedRevision   int64
+	ResultingRevision  int64
+	Status             string
+	ErrorMessage       sql.NullString
+	CreatedByUserID    int64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type FirmwareRolloutEvidence struct {
+	ID              int64
+	RolloutID       uuid.UUID
+	MemberID        int64
+	OrgID           int64
+	Phase           string
+	WindowStart     time.Time
+	WindowEnd       time.Time
+	ObservedAt      sql.NullTime
+	AvgHashrateHs   sql.NullFloat64
+	AvgPowerW       sql.NullFloat64
+	AvgTemperatureC sql.NullFloat64
+	ErrorCount      sql.NullInt64
+	SampleCount     sql.NullInt64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type FirmwareRolloutMember struct {
+	ID               int64
+	RolloutID        uuid.UUID
+	BatchID          int64
+	OrgID            int64
+	DeviceID         int64
+	Position         int32
+	State            string
+	Revision         int64
+	SourceSnapshot   json.RawMessage
+	TargetSnapshot   json.RawMessage
+	RevertSnapshot   json.RawMessage
+	EnforcementID    sql.NullInt64
+	CommandBatchUuid sql.NullString
+	LastError        sql.NullString
+	AdmittedAt       sql.NullTime
+	SettledAt        sql.NullTime
+	OwnerReleasedAt  sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type FleetActiveOrganization struct {
 	OrganizationID string
 }

@@ -39,6 +39,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.adminTerminateCurtailmentEventStmt, err = db.PrepareContext(ctx, adminTerminateCurtailmentEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query AdminTerminateCurtailmentEvent: %w", err)
 	}
+	if q.admitFirmwareRolloutBatchStmt, err = db.PrepareContext(ctx, admitFirmwareRolloutBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query AdmitFirmwareRolloutBatch: %w", err)
+	}
+	if q.admitFirmwareRolloutMembersStmt, err = db.PrepareContext(ctx, admitFirmwareRolloutMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query AdmitFirmwareRolloutMembers: %w", err)
+	}
 	if q.advanceChannelFirmwareAuthorityRevisionStmt, err = db.PrepareContext(ctx, advanceChannelFirmwareAuthorityRevision); err != nil {
 		return nil, fmt.Errorf("error preparing query AdvanceChannelFirmwareAuthorityRevision: %w", err)
 	}
@@ -50,6 +56,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.anyFirmwareArtifactReferencedStmt, err = db.PrepareContext(ctx, anyFirmwareArtifactReferenced); err != nil {
 		return nil, fmt.Errorf("error preparing query AnyFirmwareArtifactReferenced: %w", err)
+	}
+	if q.applyFirmwareRolloutTransitionStmt, err = db.PrepareContext(ctx, applyFirmwareRolloutTransition); err != nil {
+		return nil, fmt.Errorf("error preparing query ApplyFirmwareRolloutTransition: %w", err)
 	}
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
@@ -101,6 +110,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.cancelPendingEnrollmentStmt, err = db.PrepareContext(ctx, cancelPendingEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelPendingEnrollment: %w", err)
+	}
+	if q.cancelPendingFirmwareRolloutBatchesStmt, err = db.PrepareContext(ctx, cancelPendingFirmwareRolloutBatches); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelPendingFirmwareRolloutBatches: %w", err)
+	}
+	if q.cancelPendingFirmwareRolloutMembersStmt, err = db.PrepareContext(ctx, cancelPendingFirmwareRolloutMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelPendingFirmwareRolloutMembers: %w", err)
+	}
+	if q.captureFirmwareRolloutEvidenceStmt, err = db.PrepareContext(ctx, captureFirmwareRolloutEvidence); err != nil {
+		return nil, fmt.Errorf("error preparing query CaptureFirmwareRolloutEvidence: %w", err)
 	}
 	if q.cascadeAddedDeviceBuildingsStmt, err = db.PrepareContext(ctx, cascadeAddedDeviceBuildings); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeAddedDeviceBuildings: %w", err)
@@ -164,6 +182,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.closeStaleErrorsStmt, err = db.PrepareContext(ctx, closeStaleErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CloseStaleErrors: %w", err)
+	}
+	if q.completeFirmwareRolloutBatchesStmt, err = db.PrepareContext(ctx, completeFirmwareRolloutBatches); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteFirmwareRolloutBatches: %w", err)
+	}
+	if q.completeFirmwareRolloutRevertMembersStmt, err = db.PrepareContext(ctx, completeFirmwareRolloutRevertMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteFirmwareRolloutRevertMembers: %w", err)
 	}
 	if q.confirmChannelFirmwareEnforcementStmt, err = db.PrepareContext(ctx, confirmChannelFirmwareEnforcement); err != nil {
 		return nil, fmt.Errorf("error preparing query ConfirmChannelFirmwareEnforcement: %w", err)
@@ -266,6 +290,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createFirmwareReleaseTargetStmt, err = db.PrepareContext(ctx, createFirmwareReleaseTarget); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFirmwareReleaseTarget: %w", err)
+	}
+	if q.createFirmwareRolloutStmt, err = db.PrepareContext(ctx, createFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRollout: %w", err)
+	}
+	if q.createFirmwareRolloutBatchesStmt, err = db.PrepareContext(ctx, createFirmwareRolloutBatches); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutBatches: %w", err)
+	}
+	if q.createFirmwareRolloutCauseStmt, err = db.PrepareContext(ctx, createFirmwareRolloutCause); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutCause: %w", err)
+	}
+	if q.createFirmwareRolloutControlStmt, err = db.PrepareContext(ctx, createFirmwareRolloutControl); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutControl: %w", err)
+	}
+	if q.createFirmwareRolloutMembersStmt, err = db.PrepareContext(ctx, createFirmwareRolloutMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFirmwareRolloutMembers: %w", err)
 	}
 	if q.createFleetNodeStmt, err = db.PrepareContext(ctx, createFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFleetNode: %w", err)
@@ -392,6 +431,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.findDevicesWithSiteOrBuildingStmt, err = db.PrepareContext(ctx, findDevicesWithSiteOrBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDevicesWithSiteOrBuilding: %w", err)
+	}
+	if q.finishFirmwareRolloutControlStmt, err = db.PrepareContext(ctx, finishFirmwareRolloutControl); err != nil {
+		return nil, fmt.Errorf("error preparing query FinishFirmwareRolloutControl: %w", err)
 	}
 	if q.firmwareArtifactReferencedStmt, err = db.PrepareContext(ctx, firmwareArtifactReferenced); err != nil {
 		return nil, fmt.Errorf("error preparing query FirmwareArtifactReferenced: %w", err)
@@ -656,6 +698,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getFirmwareReleaseSetStmt, err = db.PrepareContext(ctx, getFirmwareReleaseSet); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFirmwareReleaseSet: %w", err)
+	}
+	if q.getFirmwareRolloutStmt, err = db.PrepareContext(ctx, getFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRollout: %w", err)
+	}
+	if q.getFirmwareRolloutBatchForControlStmt, err = db.PrepareContext(ctx, getFirmwareRolloutBatchForControl); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutBatchForControl: %w", err)
+	}
+	if q.getFirmwareRolloutByIdempotencyKeyStmt, err = db.PrepareContext(ctx, getFirmwareRolloutByIdempotencyKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutByIdempotencyKey: %w", err)
+	}
+	if q.getFirmwareRolloutControlStmt, err = db.PrepareContext(ctx, getFirmwareRolloutControl); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutControl: %w", err)
+	}
+	if q.getFirmwareRolloutControlByKeyStmt, err = db.PrepareContext(ctx, getFirmwareRolloutControlByKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFirmwareRolloutControlByKey: %w", err)
 	}
 	if q.getFleetMetricRollupCoverageStmt, err = db.PrepareContext(ctx, getFleetMetricRollupCoverage); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFleetMetricRollupCoverage: %w", err)
@@ -1041,6 +1098,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFirmwareReleaseTargetsBySetIDsStmt, err = db.PrepareContext(ctx, listFirmwareReleaseTargetsBySetIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFirmwareReleaseTargetsBySetIDs: %w", err)
 	}
+	if q.listFirmwareRolloutBatchesStmt, err = db.PrepareContext(ctx, listFirmwareRolloutBatches); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutBatches: %w", err)
+	}
+	if q.listFirmwareRolloutCausesStmt, err = db.PrepareContext(ctx, listFirmwareRolloutCauses); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutCauses: %w", err)
+	}
+	if q.listFirmwareRolloutEvidenceStmt, err = db.PrepareContext(ctx, listFirmwareRolloutEvidence); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutEvidence: %w", err)
+	}
+	if q.listFirmwareRolloutMembersStmt, err = db.PrepareContext(ctx, listFirmwareRolloutMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRolloutMembers: %w", err)
+	}
+	if q.listFirmwareRolloutsStmt, err = db.PrepareContext(ctx, listFirmwareRollouts); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFirmwareRollouts: %w", err)
+	}
 	if q.listFleetNodeDeviceIDsForRevocationStmt, err = db.PrepareContext(ctx, listFleetNodeDeviceIDsForRevocation); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodeDeviceIDsForRevocation: %w", err)
 	}
@@ -1170,6 +1242,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
 	}
+	if q.lockFirmwareRolloutStmt, err = db.PrepareContext(ctx, lockFirmwareRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFirmwareRollout: %w", err)
+	}
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
 	}
@@ -1215,6 +1290,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.markCommandBatchProcessingStmt, err = db.PrepareContext(ctx, markCommandBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchProcessing: %w", err)
 	}
+	if q.moveFirmwareRolloutToReviewAfterControlFailureStmt, err = db.PrepareContext(ctx, moveFirmwareRolloutToReviewAfterControlFailure); err != nil {
+		return nil, fmt.Errorf("error preparing query MoveFirmwareRolloutToReviewAfterControlFailure: %w", err)
+	}
 	if q.negateSchedulePrioritiesStmt, err = db.PrepareContext(ctx, negateSchedulePriorities); err != nil {
 		return nil, fmt.Errorf("error preparing query NegateSchedulePriorities: %w", err)
 	}
@@ -1226,6 +1304,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.pauseActiveScheduleStmt, err = db.PrepareContext(ctx, pauseActiveSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query PauseActiveSchedule: %w", err)
+	}
+	if q.prepareFirmwareRolloutMembersForRevertStmt, err = db.PrepareContext(ctx, prepareFirmwareRolloutMembersForRevert); err != nil {
+		return nil, fmt.Errorf("error preparing query PrepareFirmwareRolloutMembersForRevert: %w", err)
 	}
 	if q.prunePermissionsOutsideKeysStmt, err = db.PrepareContext(ctx, prunePermissionsOutsideKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query PrunePermissionsOutsideKeys: %w", err)
@@ -1271,6 +1352,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
+	}
+	if q.releaseFirmwareRolloutOwnersStmt, err = db.PrepareContext(ctx, releaseFirmwareRolloutOwners); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseFirmwareRolloutOwners: %w", err)
 	}
 	if q.releaseUndispatchedAllPairedTargetsForRestoreStmt, err = db.PrepareContext(ctx, releaseUndispatchedAllPairedTargetsForRestore); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseUndispatchedAllPairedTargetsForRestore: %w", err)
@@ -1539,6 +1623,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateDiscoveredDeviceFirmwareVersionStmt, err = db.PrepareContext(ctx, updateDiscoveredDeviceFirmwareVersion); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDiscoveredDeviceFirmwareVersion: %w", err)
 	}
+	if q.updateFirmwareRolloutMemberStmt, err = db.PrepareContext(ctx, updateFirmwareRolloutMember); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateFirmwareRolloutMember: %w", err)
+	}
 	if q.updateFleetNodeLastSeenAtStmt, err = db.PrepareContext(ctx, updateFleetNodeLastSeenAt); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateFleetNodeLastSeenAt: %w", err)
 	}
@@ -1689,6 +1776,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing adminTerminateCurtailmentEventStmt: %w", cerr)
 		}
 	}
+	if q.admitFirmwareRolloutBatchStmt != nil {
+		if cerr := q.admitFirmwareRolloutBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing admitFirmwareRolloutBatchStmt: %w", cerr)
+		}
+	}
+	if q.admitFirmwareRolloutMembersStmt != nil {
+		if cerr := q.admitFirmwareRolloutMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing admitFirmwareRolloutMembersStmt: %w", cerr)
+		}
+	}
 	if q.advanceChannelFirmwareAuthorityRevisionStmt != nil {
 		if cerr := q.advanceChannelFirmwareAuthorityRevisionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing advanceChannelFirmwareAuthorityRevisionStmt: %w", cerr)
@@ -1707,6 +1804,11 @@ func (q *Queries) Close() error {
 	if q.anyFirmwareArtifactReferencedStmt != nil {
 		if cerr := q.anyFirmwareArtifactReferencedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing anyFirmwareArtifactReferencedStmt: %w", cerr)
+		}
+	}
+	if q.applyFirmwareRolloutTransitionStmt != nil {
+		if cerr := q.applyFirmwareRolloutTransitionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing applyFirmwareRolloutTransitionStmt: %w", cerr)
 		}
 	}
 	if q.assignBuildingToSiteStmt != nil {
@@ -1792,6 +1894,21 @@ func (q *Queries) Close() error {
 	if q.cancelPendingEnrollmentStmt != nil {
 		if cerr := q.cancelPendingEnrollmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cancelPendingEnrollmentStmt: %w", cerr)
+		}
+	}
+	if q.cancelPendingFirmwareRolloutBatchesStmt != nil {
+		if cerr := q.cancelPendingFirmwareRolloutBatchesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelPendingFirmwareRolloutBatchesStmt: %w", cerr)
+		}
+	}
+	if q.cancelPendingFirmwareRolloutMembersStmt != nil {
+		if cerr := q.cancelPendingFirmwareRolloutMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelPendingFirmwareRolloutMembersStmt: %w", cerr)
+		}
+	}
+	if q.captureFirmwareRolloutEvidenceStmt != nil {
+		if cerr := q.captureFirmwareRolloutEvidenceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing captureFirmwareRolloutEvidenceStmt: %w", cerr)
 		}
 	}
 	if q.cascadeAddedDeviceBuildingsStmt != nil {
@@ -1897,6 +2014,16 @@ func (q *Queries) Close() error {
 	if q.closeStaleErrorsStmt != nil {
 		if cerr := q.closeStaleErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing closeStaleErrorsStmt: %w", cerr)
+		}
+	}
+	if q.completeFirmwareRolloutBatchesStmt != nil {
+		if cerr := q.completeFirmwareRolloutBatchesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeFirmwareRolloutBatchesStmt: %w", cerr)
+		}
+	}
+	if q.completeFirmwareRolloutRevertMembersStmt != nil {
+		if cerr := q.completeFirmwareRolloutRevertMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeFirmwareRolloutRevertMembersStmt: %w", cerr)
 		}
 	}
 	if q.confirmChannelFirmwareEnforcementStmt != nil {
@@ -2067,6 +2194,31 @@ func (q *Queries) Close() error {
 	if q.createFirmwareReleaseTargetStmt != nil {
 		if cerr := q.createFirmwareReleaseTargetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createFirmwareReleaseTargetStmt: %w", cerr)
+		}
+	}
+	if q.createFirmwareRolloutStmt != nil {
+		if cerr := q.createFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.createFirmwareRolloutBatchesStmt != nil {
+		if cerr := q.createFirmwareRolloutBatchesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutBatchesStmt: %w", cerr)
+		}
+	}
+	if q.createFirmwareRolloutCauseStmt != nil {
+		if cerr := q.createFirmwareRolloutCauseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutCauseStmt: %w", cerr)
+		}
+	}
+	if q.createFirmwareRolloutControlStmt != nil {
+		if cerr := q.createFirmwareRolloutControlStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutControlStmt: %w", cerr)
+		}
+	}
+	if q.createFirmwareRolloutMembersStmt != nil {
+		if cerr := q.createFirmwareRolloutMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFirmwareRolloutMembersStmt: %w", cerr)
 		}
 	}
 	if q.createFleetNodeStmt != nil {
@@ -2277,6 +2429,11 @@ func (q *Queries) Close() error {
 	if q.findDevicesWithSiteOrBuildingStmt != nil {
 		if cerr := q.findDevicesWithSiteOrBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findDevicesWithSiteOrBuildingStmt: %w", cerr)
+		}
+	}
+	if q.finishFirmwareRolloutControlStmt != nil {
+		if cerr := q.finishFirmwareRolloutControlStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing finishFirmwareRolloutControlStmt: %w", cerr)
 		}
 	}
 	if q.firmwareArtifactReferencedStmt != nil {
@@ -2717,6 +2874,31 @@ func (q *Queries) Close() error {
 	if q.getFirmwareReleaseSetStmt != nil {
 		if cerr := q.getFirmwareReleaseSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFirmwareReleaseSetStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutStmt != nil {
+		if cerr := q.getFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutBatchForControlStmt != nil {
+		if cerr := q.getFirmwareRolloutBatchForControlStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutBatchForControlStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutByIdempotencyKeyStmt != nil {
+		if cerr := q.getFirmwareRolloutByIdempotencyKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutByIdempotencyKeyStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutControlStmt != nil {
+		if cerr := q.getFirmwareRolloutControlStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutControlStmt: %w", cerr)
+		}
+	}
+	if q.getFirmwareRolloutControlByKeyStmt != nil {
+		if cerr := q.getFirmwareRolloutControlByKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFirmwareRolloutControlByKeyStmt: %w", cerr)
 		}
 	}
 	if q.getFleetMetricRollupCoverageStmt != nil {
@@ -3359,6 +3541,31 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFirmwareReleaseTargetsBySetIDsStmt: %w", cerr)
 		}
 	}
+	if q.listFirmwareRolloutBatchesStmt != nil {
+		if cerr := q.listFirmwareRolloutBatchesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutBatchesStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutCausesStmt != nil {
+		if cerr := q.listFirmwareRolloutCausesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutCausesStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutEvidenceStmt != nil {
+		if cerr := q.listFirmwareRolloutEvidenceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutEvidenceStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutMembersStmt != nil {
+		if cerr := q.listFirmwareRolloutMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutMembersStmt: %w", cerr)
+		}
+	}
+	if q.listFirmwareRolloutsStmt != nil {
+		if cerr := q.listFirmwareRolloutsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFirmwareRolloutsStmt: %w", cerr)
+		}
+	}
 	if q.listFleetNodeDeviceIDsForRevocationStmt != nil {
 		if cerr := q.listFleetNodeDeviceIDsForRevocationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetNodeDeviceIDsForRevocationStmt: %w", cerr)
@@ -3574,6 +3781,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockDevicesForReassignStmt: %w", cerr)
 		}
 	}
+	if q.lockFirmwareRolloutStmt != nil {
+		if cerr := q.lockFirmwareRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFirmwareRolloutStmt: %w", cerr)
+		}
+	}
 	if q.lockFleetNodeByIDStmt != nil {
 		if cerr := q.lockFleetNodeByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
@@ -3649,6 +3861,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing markCommandBatchProcessingStmt: %w", cerr)
 		}
 	}
+	if q.moveFirmwareRolloutToReviewAfterControlFailureStmt != nil {
+		if cerr := q.moveFirmwareRolloutToReviewAfterControlFailureStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing moveFirmwareRolloutToReviewAfterControlFailureStmt: %w", cerr)
+		}
+	}
 	if q.negateSchedulePrioritiesStmt != nil {
 		if cerr := q.negateSchedulePrioritiesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing negateSchedulePrioritiesStmt: %w", cerr)
@@ -3667,6 +3884,11 @@ func (q *Queries) Close() error {
 	if q.pauseActiveScheduleStmt != nil {
 		if cerr := q.pauseActiveScheduleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing pauseActiveScheduleStmt: %w", cerr)
+		}
+	}
+	if q.prepareFirmwareRolloutMembersForRevertStmt != nil {
+		if cerr := q.prepareFirmwareRolloutMembersForRevertStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing prepareFirmwareRolloutMembersForRevertStmt: %w", cerr)
 		}
 	}
 	if q.prunePermissionsOutsideKeysStmt != nil {
@@ -3742,6 +3964,11 @@ func (q *Queries) Close() error {
 	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
 		if cerr := q.refreshOpenErrorsLastSeenByDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
+		}
+	}
+	if q.releaseFirmwareRolloutOwnersStmt != nil {
+		if cerr := q.releaseFirmwareRolloutOwnersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseFirmwareRolloutOwnersStmt: %w", cerr)
 		}
 	}
 	if q.releaseUndispatchedAllPairedTargetsForRestoreStmt != nil {
@@ -4189,6 +4416,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateDiscoveredDeviceFirmwareVersionStmt: %w", cerr)
 		}
 	}
+	if q.updateFirmwareRolloutMemberStmt != nil {
+		if cerr := q.updateFirmwareRolloutMemberStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateFirmwareRolloutMemberStmt: %w", cerr)
+		}
+	}
 	if q.updateFleetNodeLastSeenAtStmt != nil {
 		if cerr := q.updateFleetNodeLastSeenAtStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateFleetNodeLastSeenAtStmt: %w", cerr)
@@ -4433,10 +4665,13 @@ type Queries struct {
 	addDevicesToDeviceSetStmt                                    *sql.Stmt
 	adminResetUserPasswordStmt                                   *sql.Stmt
 	adminTerminateCurtailmentEventStmt                           *sql.Stmt
+	admitFirmwareRolloutBatchStmt                                *sql.Stmt
+	admitFirmwareRolloutMembersStmt                              *sql.Stmt
 	advanceChannelFirmwareAuthorityRevisionStmt                  *sql.Stmt
 	advanceFleetMetricRollupProgressStmt                         *sql.Stmt
 	allDevicesBelongToOrgStmt                                    *sql.Stmt
 	anyFirmwareArtifactReferencedStmt                            *sql.Stmt
+	applyFirmwareRolloutTransitionStmt                           *sql.Stmt
 	assignBuildingToSiteStmt                                     *sql.Stmt
 	assignBuildingsToSiteBulkStmt                                *sql.Stmt
 	assignDevicesToBuildingStmt                                  *sql.Stmt
@@ -4454,6 +4689,9 @@ type Queries struct {
 	bumpCurtailmentTargetRetryStmt                               *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                             *sql.Stmt
 	cancelPendingEnrollmentStmt                                  *sql.Stmt
+	cancelPendingFirmwareRolloutBatchesStmt                      *sql.Stmt
+	cancelPendingFirmwareRolloutMembersStmt                      *sql.Stmt
+	captureFirmwareRolloutEvidenceStmt                           *sql.Stmt
 	cascadeAddedDeviceBuildingsStmt                              *sql.Stmt
 	cascadeAddedDeviceSitesStmt                                  *sql.Stmt
 	cascadeDevicesSiteForBuildingStmt                            *sql.Stmt
@@ -4475,6 +4713,8 @@ type Queries struct {
 	clearRackSlotPositionStmt                                    *sql.Stmt
 	clearRolePermissionsStmt                                     *sql.Stmt
 	closeStaleErrorsStmt                                         *sql.Stmt
+	completeFirmwareRolloutBatchesStmt                           *sql.Stmt
+	completeFirmwareRolloutRevertMembersStmt                     *sql.Stmt
 	confirmChannelFirmwareEnforcementStmt                        *sql.Stmt
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
@@ -4509,6 +4749,11 @@ type Queries struct {
 	createDeviceSetStmt                                          *sql.Stmt
 	createFirmwareReleaseSetStmt                                 *sql.Stmt
 	createFirmwareReleaseTargetStmt                              *sql.Stmt
+	createFirmwareRolloutStmt                                    *sql.Stmt
+	createFirmwareRolloutBatchesStmt                             *sql.Stmt
+	createFirmwareRolloutCauseStmt                               *sql.Stmt
+	createFirmwareRolloutControlStmt                             *sql.Stmt
+	createFirmwareRolloutMembersStmt                             *sql.Stmt
 	createFleetNodeStmt                                          *sql.Stmt
 	createFleetNodeApiKeyStmt                                    *sql.Stmt
 	createInfrastructureDeviceStmt                               *sql.Stmt
@@ -4551,6 +4796,7 @@ type Queries struct {
 	findDevicesInBuildingLessPlacedRacksStmt                     *sql.Stmt
 	findDevicesInSiteLessRacksStmt                               *sql.Stmt
 	findDevicesWithSiteOrBuildingStmt                            *sql.Stmt
+	finishFirmwareRolloutControlStmt                             *sql.Stmt
 	firmwareArtifactReferencedStmt                               *sql.Stmt
 	firmwareReleaseSetBelongsToOrgStmt                           *sql.Stmt
 	forceReleaseCurtailmentEventStmt                             *sql.Stmt
@@ -4639,6 +4885,11 @@ type Queries struct {
 	getFilteredDeviceIdentifiersStmt                             *sql.Stmt
 	getFilteredDeviceIdsStmt                                     *sql.Stmt
 	getFirmwareReleaseSetStmt                                    *sql.Stmt
+	getFirmwareRolloutStmt                                       *sql.Stmt
+	getFirmwareRolloutBatchForControlStmt                        *sql.Stmt
+	getFirmwareRolloutByIdempotencyKeyStmt                       *sql.Stmt
+	getFirmwareRolloutControlStmt                                *sql.Stmt
+	getFirmwareRolloutControlByKeyStmt                           *sql.Stmt
 	getFleetMetricRollupCoverageStmt                             *sql.Stmt
 	getFleetNodeByIDStmt                                         *sql.Stmt
 	getFleetNodeByIDUnscopedStmt                                 *sql.Stmt
@@ -4767,6 +5018,11 @@ type Queries struct {
 	listExistingDeviceIdentifiersStmt                            *sql.Stmt
 	listFirmwareReleaseTargetsStmt                               *sql.Stmt
 	listFirmwareReleaseTargetsBySetIDsStmt                       *sql.Stmt
+	listFirmwareRolloutBatchesStmt                               *sql.Stmt
+	listFirmwareRolloutCausesStmt                                *sql.Stmt
+	listFirmwareRolloutEvidenceStmt                              *sql.Stmt
+	listFirmwareRolloutMembersStmt                               *sql.Stmt
+	listFirmwareRolloutsStmt                                     *sql.Stmt
 	listFleetNodeDeviceIDsForRevocationStmt                      *sql.Stmt
 	listFleetNodeDevicesStmt                                     *sql.Stmt
 	listFleetNodeDiscoveredDevicesStmt                           *sql.Stmt
@@ -4810,6 +5066,7 @@ type Queries struct {
 	lockCurtailmentScopeForWriteStmt                             *sql.Stmt
 	lockDevicesForChannelAssignmentStmt                          *sql.Stmt
 	lockDevicesForReassignStmt                                   *sql.Stmt
+	lockFirmwareRolloutStmt                                      *sql.Stmt
 	lockFleetNodeByIDStmt                                        *sql.Stmt
 	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
 	lockInfrastructureDevicesBySiteForWriteStmt                  *sql.Stmt
@@ -4825,10 +5082,12 @@ type Queries struct {
 	markCommandBatchFinishedStmt                                 *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt                    *sql.Stmt
 	markCommandBatchProcessingStmt                               *sql.Stmt
+	moveFirmwareRolloutToReviewAfterControlFailureStmt           *sql.Stmt
 	negateSchedulePrioritiesStmt                                 *sql.Stmt
 	pairDeviceToFleetNodeStmt                                    *sql.Stmt
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
+	prepareFirmwareRolloutMembersForRevertStmt                   *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
 	queryComponentKeysWithErrorsStmt                             *sql.Stmt
 	queryDeviceIDsWithErrorsStmt                                 *sql.Stmt
@@ -4844,6 +5103,7 @@ type Queries struct {
 	recordChannelFirmwareObservationStmt                         *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
+	releaseFirmwareRolloutOwnersStmt                             *sql.Stmt
 	releaseUndispatchedAllPairedTargetsForRestoreStmt            *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
 	removeDevicesFromAnyChannelStmt                              *sql.Stmt
@@ -4933,6 +5193,7 @@ type Queries struct {
 	updateDeviceWorkerNameStmt                                   *sql.Stmt
 	updateDeviceWorkerNamePoolSyncStatusByIDStmt                 *sql.Stmt
 	updateDiscoveredDeviceFirmwareVersionStmt                    *sql.Stmt
+	updateFirmwareRolloutMemberStmt                              *sql.Stmt
 	updateFleetNodeLastSeenAtStmt                                *sql.Stmt
 	updateInfrastructureDeviceStmt                               *sql.Stmt
 	updateLastLoginStmt                                          *sql.Stmt
@@ -4984,10 +5245,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		addDevicesToDeviceSetStmt:          q.addDevicesToDeviceSetStmt,
 		adminResetUserPasswordStmt:         q.adminResetUserPasswordStmt,
 		adminTerminateCurtailmentEventStmt: q.adminTerminateCurtailmentEventStmt,
+		admitFirmwareRolloutBatchStmt:      q.admitFirmwareRolloutBatchStmt,
+		admitFirmwareRolloutMembersStmt:    q.admitFirmwareRolloutMembersStmt,
 		advanceChannelFirmwareAuthorityRevisionStmt:                  q.advanceChannelFirmwareAuthorityRevisionStmt,
 		advanceFleetMetricRollupProgressStmt:                         q.advanceFleetMetricRollupProgressStmt,
 		allDevicesBelongToOrgStmt:                                    q.allDevicesBelongToOrgStmt,
 		anyFirmwareArtifactReferencedStmt:                            q.anyFirmwareArtifactReferencedStmt,
+		applyFirmwareRolloutTransitionStmt:                           q.applyFirmwareRolloutTransitionStmt,
 		assignBuildingToSiteStmt:                                     q.assignBuildingToSiteStmt,
 		assignBuildingsToSiteBulkStmt:                                q.assignBuildingsToSiteBulkStmt,
 		assignDevicesToBuildingStmt:                                  q.assignDevicesToBuildingStmt,
@@ -5005,6 +5269,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		bumpCurtailmentTargetRetryStmt:                               q.bumpCurtailmentTargetRetryStmt,
 		cancelEnrollmentForFleetNodeStmt:                             q.cancelEnrollmentForFleetNodeStmt,
 		cancelPendingEnrollmentStmt:                                  q.cancelPendingEnrollmentStmt,
+		cancelPendingFirmwareRolloutBatchesStmt:                      q.cancelPendingFirmwareRolloutBatchesStmt,
+		cancelPendingFirmwareRolloutMembersStmt:                      q.cancelPendingFirmwareRolloutMembersStmt,
+		captureFirmwareRolloutEvidenceStmt:                           q.captureFirmwareRolloutEvidenceStmt,
 		cascadeAddedDeviceBuildingsStmt:                              q.cascadeAddedDeviceBuildingsStmt,
 		cascadeAddedDeviceSitesStmt:                                  q.cascadeAddedDeviceSitesStmt,
 		cascadeDevicesSiteForBuildingStmt:                            q.cascadeDevicesSiteForBuildingStmt,
@@ -5026,6 +5293,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearRackSlotPositionStmt:                                    q.clearRackSlotPositionStmt,
 		clearRolePermissionsStmt:                                     q.clearRolePermissionsStmt,
 		closeStaleErrorsStmt:                                         q.closeStaleErrorsStmt,
+		completeFirmwareRolloutBatchesStmt:                           q.completeFirmwareRolloutBatchesStmt,
+		completeFirmwareRolloutRevertMembersStmt:                     q.completeFirmwareRolloutRevertMembersStmt,
 		confirmChannelFirmwareEnforcementStmt:                        q.confirmChannelFirmwareEnforcementStmt,
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
@@ -5060,6 +5329,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createDeviceSetStmt:                                          q.createDeviceSetStmt,
 		createFirmwareReleaseSetStmt:                                 q.createFirmwareReleaseSetStmt,
 		createFirmwareReleaseTargetStmt:                              q.createFirmwareReleaseTargetStmt,
+		createFirmwareRolloutStmt:                                    q.createFirmwareRolloutStmt,
+		createFirmwareRolloutBatchesStmt:                             q.createFirmwareRolloutBatchesStmt,
+		createFirmwareRolloutCauseStmt:                               q.createFirmwareRolloutCauseStmt,
+		createFirmwareRolloutControlStmt:                             q.createFirmwareRolloutControlStmt,
+		createFirmwareRolloutMembersStmt:                             q.createFirmwareRolloutMembersStmt,
 		createFleetNodeStmt:                                          q.createFleetNodeStmt,
 		createFleetNodeApiKeyStmt:                                    q.createFleetNodeApiKeyStmt,
 		createInfrastructureDeviceStmt:                               q.createInfrastructureDeviceStmt,
@@ -5102,6 +5376,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		findDevicesInBuildingLessPlacedRacksStmt:                     q.findDevicesInBuildingLessPlacedRacksStmt,
 		findDevicesInSiteLessRacksStmt:                               q.findDevicesInSiteLessRacksStmt,
 		findDevicesWithSiteOrBuildingStmt:                            q.findDevicesWithSiteOrBuildingStmt,
+		finishFirmwareRolloutControlStmt:                             q.finishFirmwareRolloutControlStmt,
 		firmwareArtifactReferencedStmt:                               q.firmwareArtifactReferencedStmt,
 		firmwareReleaseSetBelongsToOrgStmt:                           q.firmwareReleaseSetBelongsToOrgStmt,
 		forceReleaseCurtailmentEventStmt:                             q.forceReleaseCurtailmentEventStmt,
@@ -5190,6 +5465,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFilteredDeviceIdentifiersStmt:                             q.getFilteredDeviceIdentifiersStmt,
 		getFilteredDeviceIdsStmt:                                     q.getFilteredDeviceIdsStmt,
 		getFirmwareReleaseSetStmt:                                    q.getFirmwareReleaseSetStmt,
+		getFirmwareRolloutStmt:                                       q.getFirmwareRolloutStmt,
+		getFirmwareRolloutBatchForControlStmt:                        q.getFirmwareRolloutBatchForControlStmt,
+		getFirmwareRolloutByIdempotencyKeyStmt:                       q.getFirmwareRolloutByIdempotencyKeyStmt,
+		getFirmwareRolloutControlStmt:                                q.getFirmwareRolloutControlStmt,
+		getFirmwareRolloutControlByKeyStmt:                           q.getFirmwareRolloutControlByKeyStmt,
 		getFleetMetricRollupCoverageStmt:                             q.getFleetMetricRollupCoverageStmt,
 		getFleetNodeByIDStmt:                                         q.getFleetNodeByIDStmt,
 		getFleetNodeByIDUnscopedStmt:                                 q.getFleetNodeByIDUnscopedStmt,
@@ -5318,6 +5598,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listExistingDeviceIdentifiersStmt:                            q.listExistingDeviceIdentifiersStmt,
 		listFirmwareReleaseTargetsStmt:                               q.listFirmwareReleaseTargetsStmt,
 		listFirmwareReleaseTargetsBySetIDsStmt:                       q.listFirmwareReleaseTargetsBySetIDsStmt,
+		listFirmwareRolloutBatchesStmt:                               q.listFirmwareRolloutBatchesStmt,
+		listFirmwareRolloutCausesStmt:                                q.listFirmwareRolloutCausesStmt,
+		listFirmwareRolloutEvidenceStmt:                              q.listFirmwareRolloutEvidenceStmt,
+		listFirmwareRolloutMembersStmt:                               q.listFirmwareRolloutMembersStmt,
+		listFirmwareRolloutsStmt:                                     q.listFirmwareRolloutsStmt,
 		listFleetNodeDeviceIDsForRevocationStmt:                      q.listFleetNodeDeviceIDsForRevocationStmt,
 		listFleetNodeDevicesStmt:                                     q.listFleetNodeDevicesStmt,
 		listFleetNodeDiscoveredDevicesStmt:                           q.listFleetNodeDiscoveredDevicesStmt,
@@ -5361,6 +5646,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentScopeForWriteStmt:                             q.lockCurtailmentScopeForWriteStmt,
 		lockDevicesForChannelAssignmentStmt:                          q.lockDevicesForChannelAssignmentStmt,
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
+		lockFirmwareRolloutStmt:                                      q.lockFirmwareRolloutStmt,
 		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
 		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
 		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
@@ -5376,10 +5662,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markCommandBatchFinishedStmt:                                 q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:                    q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                               q.markCommandBatchProcessingStmt,
+		moveFirmwareRolloutToReviewAfterControlFailureStmt:           q.moveFirmwareRolloutToReviewAfterControlFailureStmt,
 		negateSchedulePrioritiesStmt:                                 q.negateSchedulePrioritiesStmt,
 		pairDeviceToFleetNodeStmt:                                    q.pairDeviceToFleetNodeStmt,
 		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
+		prepareFirmwareRolloutMembersForRevertStmt:                   q.prepareFirmwareRolloutMembersForRevertStmt,
 		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
 		queryComponentKeysWithErrorsStmt:                             q.queryComponentKeysWithErrorsStmt,
 		queryDeviceIDsWithErrorsStmt:                                 q.queryDeviceIDsWithErrorsStmt,
@@ -5395,6 +5683,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordChannelFirmwareObservationStmt:                         q.recordChannelFirmwareObservationStmt,
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
+		releaseFirmwareRolloutOwnersStmt:                             q.releaseFirmwareRolloutOwnersStmt,
 		releaseUndispatchedAllPairedTargetsForRestoreStmt:            q.releaseUndispatchedAllPairedTargetsForRestoreStmt,
 		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromAnyChannelStmt:                              q.removeDevicesFromAnyChannelStmt,
@@ -5484,6 +5773,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDeviceWorkerNameStmt:                                   q.updateDeviceWorkerNameStmt,
 		updateDeviceWorkerNamePoolSyncStatusByIDStmt:                 q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
 		updateDiscoveredDeviceFirmwareVersionStmt:                    q.updateDiscoveredDeviceFirmwareVersionStmt,
+		updateFirmwareRolloutMemberStmt:                              q.updateFirmwareRolloutMemberStmt,
 		updateFleetNodeLastSeenAtStmt:                                q.updateFleetNodeLastSeenAtStmt,
 		updateInfrastructureDeviceStmt:                               q.updateInfrastructureDeviceStmt,
 		updateLastLoginStmt:                                          q.updateLastLoginStmt,
