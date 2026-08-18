@@ -771,6 +771,25 @@ describe("Updates", () => {
     expect(screen.getByRole("button", { name: "Copy install command" })).toBeDisabled();
   });
 
+  it("closes manual install when the host reports an operation", async () => {
+    mockGetUpdateStatus.mockResolvedValue(buildStatus());
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("button", { name: "Install manually" }));
+    expect(await page.findByTestId("manual-install-modal")).toBeInTheDocument();
+
+    upgradeHookMock.current = {
+      ...upgradeHookMock.current,
+      operation: buildOperation(UpgradePhase.FAILED, {
+        recoveryCommand: "cd /opt/proto-fleet/deployment && ./run-fleet.sh --skip-build",
+      }),
+    };
+    page.rerender(<Updates />);
+
+    expect(await page.findByTestId("upgrade-operation-modal")).toBeInTheDocument();
+    await waitFor(() => expect(page.queryByTestId("manual-install-modal")).not.toBeInTheDocument());
+  });
+
   it("shows an error toast when copying the install command fails", async () => {
     mockGetUpdateStatus.mockResolvedValue(buildStatus());
     mockCopyToClipboard.mockRejectedValue(new Error("copy failed"));

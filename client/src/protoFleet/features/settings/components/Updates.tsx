@@ -314,6 +314,15 @@ const Updates = () => {
   }, [authSessionIdentity, upgrade.operation, upgrade.operationStatusPending]);
 
   useEffect(() => {
+    // Once the host exposes an operation, its detail dialog is authoritative.
+    // Do not let a previously opened generic manual-install dialog cover it or
+    // expose a stale command while an outcome is being handled.
+    if (upgrade.operation) {
+      setManualInstallModalOpen(false);
+    }
+  }, [upgrade.operation]);
+
+  useEffect(() => {
     const hadOperation = hadSurfacedOperation.current;
     hadSurfacedOperation.current = Boolean(upgrade.operation);
     // Polling can remove the surfaced operation when another session durably
