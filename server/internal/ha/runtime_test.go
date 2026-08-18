@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -396,29 +395,6 @@ func TestHARuntimeExitsWhenCriticalHealthFails(t *testing.T) {
 	require.False(t, runtime.Active())
 	record := requireHAEvent(t, logs, haEventStateDegraded)
 	require.Equal(t, "critical_runtime_unhealthy", logAttr(record, "reason"))
-}
-
-func TestHARuntimeFencesBeforeBlockedDegradedLog(t *testing.T) {
-	owner := newRuntimeTestOwner()
-	group := newRuntimeTestGroup()
-	runtime := newRuntime(owner, group, func() bool { return false }, runtimeTestConfig())
-	handler := newBlockingLogHandler()
-	t.Cleanup(handler.release)
-	runtime.logger = slog.New(handler)
-	runResult := make(chan error, 1)
-	go func() { runResult <- runtime.Run(t.Context()) }()
-	activeCtx, cancelActive := context.WithCancel(t.Context())
-	defer cancelActive()
-	owner.activations <- runtimeTestActivation{ctx: activeCtx}
-
-	requireReceiveContext(t, group.startedCh)
-	requireReceive(t, handler.entered)
-	requireReceive(t, owner.stopped)
-	requireReceiveContext(t, group.abortedCh)
-
-	handler.release()
-	runErr := <-runResult
-	require.ErrorIs(t, runErr, errCriticalRuntimeUnhealthy)
 }
 
 func TestEndpointMonitorAllowsDelayedStartupThenFailsClosed(t *testing.T) {

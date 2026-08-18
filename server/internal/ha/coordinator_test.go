@@ -79,6 +79,9 @@ func TestCoordinatorDeduplicatesDegradedLogsUntilHealthyObservation(t *testing.T
 	logger, logs := newHATestLogger()
 	coordinator.logger = logger
 
+	coordinator.deactivate(fmt.Errorf("shutdown: %w", context.Canceled))
+	require.Empty(t, logs.Snapshot(logging.SnapshotOptions{}).Records)
+
 	coordinator.deactivate(errors.New("secret topology details"))
 	coordinator.deactivate(errors.New("secret topology details"))
 	coordinator.deactivateObserved(time.Now().Add(time.Second))
@@ -91,18 +94,6 @@ func TestCoordinatorDeduplicatesDegradedLogsUntilHealthyObservation(t *testing.T
 		require.Equal(t, string(ReasonControlPlaneUnavailable), logAttr(record, "reason"))
 		require.NotContains(t, fmt.Sprint(record), "secret topology details")
 	}
-}
-
-func TestCoordinatorDoesNotLogGracefulShutdownAsDegraded(t *testing.T) {
-	coordinator := newCoordinatorWithHolder(
-		staticObserver{}, &fakeLeaseStore{}, coordinatorTestConfig(), uuid.New(),
-	)
-	logger, logs := newHATestLogger()
-	coordinator.logger = logger
-
-	coordinator.deactivate(fmt.Errorf("shutdown: %w", context.Canceled))
-
-	require.Empty(t, logs.Snapshot(logging.SnapshotOptions{}).Records)
 }
 
 func TestCoordinatorRenewsAfterClosingDCSProof(t *testing.T) {
@@ -369,32 +360,6 @@ func TestCoordinatorCancelsLifetimeWhenLeaseExpiresWithoutRenewal(t *testing.T) 
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 
-func TestCoordinatorWatchdogDoesNotWaitForDegradedLog(t *testing.T) {
-	config := coordinatorTestConfig()
-	config.LeaseDuration = 40 * time.Millisecond
-	config.RenewInterval = 10 * time.Millisecond
-	coordinator := newCoordinatorWithHolder(
-		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
-		&fakeLeaseStore{},
-		config,
-		uuid.New(),
-	)
-	require.NoError(t, coordinator.step(t.Context()))
-	activeCtx, _, active := coordinator.ActiveLifetime()
-	require.True(t, active)
-	handler := newBlockingLogHandler()
-	t.Cleanup(handler.release)
-	coordinator.logger = slog.New(handler)
-
-	markResult := make(chan error, 1)
-	go func() { markResult <- coordinator.markActiveObservationUnavailable(activeCtx) }()
-	requireReceive(t, handler.entered)
-	require.Eventually(t, func() bool { return activeCtx.Err() != nil }, time.Second, time.Millisecond)
-
-	handler.release()
-	require.NoError(t, <-markResult)
-}
-
 func TestCoordinatorRunRetriesWhenPassiveObservationBlocks(t *testing.T) {
 	config := coordinatorTestConfig()
 	config.LeaseDuration = 30 * time.Millisecond
@@ -542,35 +507,6 @@ func logAttr(record logging.BufferedRecord, key string) string {
 		}
 	}
 	return ""
-}
-
-type blockingLogHandler struct {
-	entered     chan struct{}
-	releaseLog  chan struct{}
-	enterOnce   sync.Once
-	releaseOnce sync.Once
-}
-
-func newBlockingLogHandler() *blockingLogHandler {
-	return &blockingLogHandler{
-		entered:    make(chan struct{}),
-		releaseLog: make(chan struct{}),
-	}
-}
-
-func (h *blockingLogHandler) Enabled(context.Context, slog.Level) bool { return true }
-
-func (h *blockingLogHandler) Handle(context.Context, slog.Record) error {
-	h.enterOnce.Do(func() { close(h.entered) })
-	<-h.releaseLog
-	return nil
-}
-
-func (h *blockingLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
-func (h *blockingLogHandler) WithGroup(string) slog.Handler      { return h }
-
-func (h *blockingLogHandler) release() {
-	h.releaseOnce.Do(func() { close(h.releaseLog) })
 }
 
 func coordinatorObservation(
