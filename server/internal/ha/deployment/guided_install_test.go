@@ -103,6 +103,29 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-c")))
 }
 
+func TestServiceCAFingerprintMatchesOpenSSL(t *testing.T) {
+	// Arrange
+	const certificate = `-----BEGIN CERTIFICATE-----
+MIIBoTCCAUegAwIBAgIUXLAXgfn7OuXjkUfB2NO7RzuV25UwCgYIKoZIzj0EAwIw
+JjEkMCIGA1UEAwwbUHJvdG8gRmxlZXQgdGVzdCBzZXJ2aWNlIENBMB4XDTI2MDgx
+ODIxNTgyOVoXDTM2MDgxNTIxNTgyOVowJjEkMCIGA1UEAwwbUHJvdG8gRmxlZXQg
+dGVzdCBzZXJ2aWNlIENBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMRNxVvQt
+K6p55t4/fA9/wapZwOrPVqANtGHEPhTKo+2PqqBTccydn1Xn6vp0xi/6eONi1er3
+R0wwLDNMKKUsTaNTMFEwHQYDVR0OBBYEFLWxZhcDBioJ+WxBjThpXsInI0LUMB8G
+A1UdIwQYMBaAFLWxZhcDBioJ+WxBjThpXsInI0LUMA8GA1UdEwEB/wQFMAMBAf8w
+CgYIKoZIzj0EAwIDSAAwRQIhANLd2j3ndHOTdvuP3OQamgqu2vgcntLR2RVshe/S
+ebCBAiACqqak+Din9945lq0fFYzfw1ybLTC+HvyDSRCMT1bk0A==
+-----END CERTIFICATE-----
+`
+
+	// Act
+	fingerprint, err := serviceCAFingerprint([]byte(certificate))
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "43:0C:7C:D7:B8:4B:1C:47:AA:D0:0B:78:CF:DA:A6:AD:CC:54:CD:A3:B3:BD:66:DF:8D:4D:83:E0:CC:96:38:1B", fingerprint)
+}
+
 func TestGuidedInstallUsesPeerSSHUsernameOverride(t *testing.T) {
 	// Arrange
 	source := testGuidedRelease(t, "v0.2.10", "abc123")

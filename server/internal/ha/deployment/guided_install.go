@@ -222,11 +222,11 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	haABundle := filepath.Join(exportDir, hostBundleName("ha-a"))
 	bundle, err := readHostBundle(haABundle)
 	if err != nil {
-		return err
+		return fmt.Errorf("read generated ha-a bundle; bundle exports remain at %s: %w", exportDir, err)
 	}
 	fingerprint, err := serviceCAFingerprint(bundle.Secrets["service-ca.crt"])
 	if err != nil {
-		return err
+		return fmt.Errorf("fingerprint public service CA; bundle exports remain at %s: %w", exportDir, err)
 	}
 	if err := writeInstallerOutput(deps.output, "Public service CA SHA-256 fingerprint: %s\n", fingerprint); err != nil {
 		return err
