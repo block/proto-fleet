@@ -17,6 +17,38 @@ This simulator allows the fleet management system to be tested without physical 
 - Error injection via environment variables
 - REST API for both ProtoFleet plugin and ProtoOS dashboard
 
+### Firmware Update Simulation
+
+Firmware uploads move through `downloaded`, `installing`, and `installed`.
+Rebooting after `installed` promotes the staged version to the running version.
+A second upload is rejected while any update is pending.
+
+The simulator detects an uploaded version in this order:
+
+1. A semantic version in the filename, such as `protoos-1.4.4.swu`.
+2. A marker in the first 64 KiB of the file:
+   - `firmware_version=1.4.4`
+   - `{"firmware_version":"1.4.4"}`
+   - A line containing only `1.4.4` or `v1.4.4`
+3. A one-patch increment from the currently running version.
+
+Fake uploads are streamed with a 512 MiB request limit. Only the version scan
+prefix is retained in memory.
+
+Tests can set the one-shot outcome for the next update through the fake-only
+`PUT /fake-api/v1/test/firmware-update/outcome` endpoint. Set
+`FAKE_RIG_ENABLE_TEST_CONTROLS=true` to register this endpoint, then authenticate
+with a bearer token issued by `/api/v1/auth/login`. The endpoint is unavailable
+by default.
+
+```json
+{"outcome":"success"}
+```
+
+Supported outcomes are `success`, `error`, and `attention`. Both failure
+outcomes expose the real API's `error` update state with a deterministic error
+message. This endpoint is not part of the real device API.
+
 ## Usage
 
 ### Running Directly
@@ -39,6 +71,7 @@ docker run -p 8080:8080 fake-proto-rig
 | `HTTP_PORT` | Port to listen on | `8080` |
 | `SERIAL_NUMBER` | Device serial number | `PROTO-SIM-<uuid>` |
 | `MAC_ADDRESS` | Device MAC address | Generated from instance ID |
+| `FAKE_RIG_ENABLE_TEST_CONTROLS` | Enable authenticated fake-only test control endpoints | `false` |
 
 ### Error Injection
 

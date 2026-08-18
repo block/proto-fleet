@@ -272,10 +272,14 @@ type MinerState struct {
 	TelemetryEnabled bool
 
 	// Firmware update simulation
-	FWUpdateStatus    string // "current", "downloading", "downloaded", "installing", "installed"
-	FWCurrentVersion  string // running firmware version; initialized to defaultFirmwareVersion
-	FWNewVersion      string // staged version after a successful upload; promoted to current on reboot
-	FWPreviousVersion string // set after reboot following a firmware update
+	FWUpdateStatus      string // "current", "downloading", "downloaded", "installing", "installed", "error"
+	FWCurrentVersion    string // running firmware version; initialized to defaultFirmwareVersion
+	FWNewVersion        string // staged version after a successful upload; promoted to current on reboot
+	FWPreviousVersion   string // set after reboot following a firmware update
+	FWUpdateError       string // deterministic error exposed when the active fake update fails
+	FWUpdateSequence    uint64 // invalidates stale lifecycle goroutines after reboot or a new update
+	FWUpdateOutcome     string // outcome consumed by the active update
+	FWNextUpdateOutcome string // one-shot fake test control; reset to success when consumed
 
 	// Reboot simulation
 	Rebooting bool
@@ -331,6 +335,7 @@ func NewMinerState(serialNumber, macAddress string) *MinerState {
 		Pools:                make([]*Pool, 0),
 		PoolNames:            make(map[uint32]string),
 		FWCurrentVersion:     defaultFirmwareVersion,
+		FWNextUpdateOutcome:  firmwareUpdateOutcomeSuccess,
 		CurtailmentConfigVal: defaultCurtailmentConfig(),
 		StartTime:            time.Now(),
 	}

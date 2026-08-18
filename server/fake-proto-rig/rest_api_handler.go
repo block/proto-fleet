@@ -7,10 +7,12 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math/big"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,11 +24,28 @@ import (
 )
 
 const (
-	minPasswordLength      = 8
-	maxLocateLEDOnTimeSecs = 300
+	minPasswordLength                    = 8
+	maxLocateLEDOnTimeSecs               = 300
+	firmwareVersionScanLimit       int64 = 64 * 1024
+	maxFirmwareUploadBytes         int64 = 512 * 1024 * 1024
+	maxTestControlRequestBytes     int64 = 1024
+	defaultFirmwareStepDelay             = 1 * time.Second
+	defaultFirmwareInstallDelay          = 2 * time.Second
+	fakeRigEnableTestControlsEnv         = "FAKE_RIG_ENABLE_TEST_CONTROLS"
+	firmwareUpdateOutcomeSuccess         = "success"
+	firmwareUpdateOutcomeError           = "error"
+	firmwareUpdateOutcomeAttention       = "attention"
+	firmwareUpdateFailureMessage         = "Simulated firmware update failure"
+	firmwareUpdateAttentionMessage       = "Simulated firmware update requires attention"
 )
 
 var firmwareFilenameVersionRE = regexp.MustCompile(`(?:^|[^0-9.])v?([0-9]+\.[0-9]+\.[0-9]+)(?:$|[^0-9.]|\.[A-Za-z])`)
+
+var firmwareContentVersionREs = []*regexp.Regexp{
+	regexp.MustCompile(`(?:^|[^[:alnum:]_])firmware_version[[:space:]]*=[[:space:]]*v?([0-9]+\.[0-9]+\.[0-9]+)(?:$|[^0-9.])`),
+	regexp.MustCompile(`"firmware_version"[[:space:]]*:[[:space:]]*"v?([0-9]+\.[0-9]+\.[0-9]+)"`),
+	regexp.MustCompile(`(?m)^[ \t]*v?([0-9]+\.[0-9]+\.[0-9]+)[ \t]*\r?$`),
+}
 
 var secp256k1FieldPrime = func() *big.Int {
 	prime, ok := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
@@ -205,14 +224,34 @@ func firmwareVersionFromFilename(filename string) (string, bool) {
 	return matches[1], true
 }
 
-func stagedFirmwareVersion(filename, currentVersion string) string {
-	if version, ok := firmwareVersionFromFilename(filename); ok {
-		return version
+func firmwareVersionFromContent(content io.Reader) (string, bool, error) {
+	prefix, err := io.ReadAll(io.LimitReader(content, firmwareVersionScanLimit))
+	if err != nil {
+		return "", false, fmt.Errorf("read firmware version prefix: %w", err)
 	}
-	return nextFirmwareVersion(currentVersion)
+
+	for _, expression := range firmwareContentVersionREs {
+		matches := expression.FindSubmatch(prefix)
+		if len(matches) == 2 {
+			return string(matches[1]), true, nil
+		}
+	}
+	return "", false, nil
 }
 
-func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion string) UpdateStatus {
+func explicitFirmwareVersion(filename string, content io.Reader) (string, bool, error) {
+	if version, ok := firmwareVersionFromFilename(filename); ok {
+		return version, true, nil
+	}
+	if version, ok, err := firmwareVersionFromContent(content); err != nil {
+		return "", false, err
+	} else if ok {
+		return version, true, nil
+	}
+	return "", false, nil
+}
+
+func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion, updateError string) UpdateStatus {
 	updateStatus := UpdateStatus{
 		Status:          status,
 		CurrentVersion:  currentVersion,
@@ -232,6 +271,12 @@ func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion
 	case "installed":
 		message := "Reboot required"
 		updateStatus.Message = &message
+	case "error":
+		message := "Update failed"
+		updateStatus.Message = &message
+		if updateError != "" {
+			updateStatus.Error = &updateError
+		}
 	}
 
 	if newVersion != "" {
@@ -611,16 +656,24 @@ type PSUTelemetry struct {
 
 // RESTApiHandler handles REST API requests
 type RESTApiHandler struct {
-	state               *MinerState
-	locateTimerMu       sync.Mutex
-	cancelLocateTimer   func()
-	scheduleLocateClear func(time.Duration, func()) func()
+	state                *MinerState
+	testControlsEnabled  bool
+	locateTimerMu        sync.Mutex
+	cancelLocateTimer    func()
+	scheduleLocateClear  func(time.Duration, func()) func()
+	firmwareUploadLimit  int64
+	firmwareStepDelay    time.Duration
+	firmwareInstallDelay time.Duration
 }
 
 // NewRESTApiHandler creates a new REST API handler
 func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 	return &RESTApiHandler{
-		state: state,
+		state:                state,
+		testControlsEnabled:  getEnvBool(fakeRigEnableTestControlsEnv, false),
+		firmwareUploadLimit:  maxFirmwareUploadBytes,
+		firmwareStepDelay:    defaultFirmwareStepDelay,
+		firmwareInstallDelay: defaultFirmwareInstallDelay,
 		scheduleLocateClear: func(duration time.Duration, callback func()) func() {
 			timer := time.AfterFunc(duration, callback)
 			return func() {
@@ -641,6 +694,14 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 //   - Everything else: auth requirements still apply, but default_password_active
 //     does not block the route.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
+	if h.testControlsEnabled {
+		// This authenticated test-control route is intentionally outside the real device API.
+		mux.HandleFunc(
+			"/fake-api/v1/test/firmware-update/outcome",
+			h.requireBearerAuth(h.handleFakeFirmwareUpdateOutcome),
+		)
+	}
+
 	// Pools: auth required, not blocked by default_password_active per firmware.
 	// Fleet onboarding configures pools before the operator changes the password.
 	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.handlePools))
@@ -1587,6 +1648,7 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 	fwCurrentVersion := h.state.FWCurrentVersion
 	fwPreviousVersion := h.state.FWPreviousVersion
 	fwNewVersion := h.state.FWNewVersion
+	fwUpdateError := h.state.FWUpdateError
 	h.state.mu.RUnlock()
 	if fwStatus == "" {
 		fwStatus = "current"
@@ -1611,7 +1673,13 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 				GitHash:  "abc123def456",
 				Hostname: h.state.Hostname,
 			},
-			SWUpdateState: buildSystemUpdateStatus(fwStatus, fwCurrentVersion, fwPreviousVersion, fwNewVersion),
+			SWUpdateState: buildSystemUpdateStatus(
+				fwStatus,
+				fwCurrentVersion,
+				fwPreviousVersion,
+				fwNewVersion,
+				fwUpdateError,
+			),
 			MiningDriverSW: &SWInfo{
 				Name:    "mcdd",
 				Version: fwCurrentVersion,
@@ -1660,9 +1728,12 @@ func (h *RESTApiHandler) handleReboot(w http.ResponseWriter, r *http.Request) {
 	if h.state.FWUpdateStatus == "installed" && h.state.FWNewVersion != "" {
 		h.state.FWPreviousVersion = h.state.FWCurrentVersion
 		h.state.FWCurrentVersion = h.state.FWNewVersion
-		h.state.FWNewVersion = ""
 	}
+	h.state.FWNewVersion = ""
 	h.state.FWUpdateStatus = "current"
+	h.state.FWUpdateError = ""
+	h.state.FWUpdateOutcome = ""
+	h.state.FWUpdateSequence++
 	h.state.Rebooting = true
 	h.state.mu.Unlock()
 
@@ -1798,88 +1869,210 @@ func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *RESTApiHandler) startFirmwareDownloadLifecycle() {
-	go func() {
-		time.Sleep(1 * time.Second)
+func isFirmwareUpdatePending(status string) bool {
+	switch status {
+	case "downloading", "downloaded", "installing", "installed":
+		return true
+	default:
+		return false
+	}
+}
 
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+// beginFirmwareUpdateLocked starts a new lifecycle and consumes the one-shot
+// fake outcome. The caller must hold h.state.mu.
+func (h *RESTApiHandler) beginFirmwareUpdateLocked(status, newVersion string) uint64 {
+	outcome := h.state.FWNextUpdateOutcome
+	switch outcome {
+	case firmwareUpdateOutcomeError, firmwareUpdateOutcomeAttention:
+	default:
+		outcome = firmwareUpdateOutcomeSuccess
+	}
+
+	h.state.FWNextUpdateOutcome = firmwareUpdateOutcomeSuccess
+	h.state.FWUpdateOutcome = outcome
+	h.state.FWUpdateError = ""
+	h.state.FWUpdateStatus = status
+	h.state.FWNewVersion = newVersion
+	h.state.FWUpdateSequence++
+	return h.state.FWUpdateSequence
+}
+
+func (h *RESTApiHandler) transitionFirmwareStatus(sequence uint64, from, to string) bool {
+	h.state.mu.Lock()
+	defer h.state.mu.Unlock()
+
+	if h.state.Rebooting ||
+		h.state.FWUpdateSequence != sequence ||
+		h.state.FWUpdateStatus != from {
+		return false
+	}
+	h.state.FWUpdateStatus = to
+	return true
+}
+
+func (h *RESTApiHandler) completeFirmwareInstall(sequence uint64) {
+	time.Sleep(h.firmwareInstallDelay)
+
+	h.state.mu.Lock()
+	if h.state.Rebooting ||
+		h.state.FWUpdateSequence != sequence ||
+		h.state.FWUpdateStatus != "installing" {
+		h.state.mu.Unlock()
+		return
+	}
+
+	switch h.state.FWUpdateOutcome {
+	case firmwareUpdateOutcomeError:
+		h.state.FWUpdateStatus = "error"
+		h.state.FWUpdateError = firmwareUpdateFailureMessage
+	case firmwareUpdateOutcomeAttention:
+		h.state.FWUpdateStatus = "error"
+		h.state.FWUpdateError = firmwareUpdateAttentionMessage
+	default:
+		h.state.FWUpdateStatus = "installed"
+		h.state.FWUpdateError = ""
+	}
+	status := h.state.FWUpdateStatus
+	h.state.mu.Unlock()
+
+	if status == "installed" {
+		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
+		return
+	}
+	log.Printf("[FAKE-RIG] Firmware update status: %s", status)
+}
+
+func (h *RESTApiHandler) startFirmwareUploadLifecycle(sequence uint64) {
+	go func() {
+		time.Sleep(h.firmwareStepDelay)
+		if !h.transitionFirmwareStatus(sequence, "downloaded", "installing") {
 			return
 		}
-		h.state.FWUpdateStatus = "downloaded"
-		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: installing")
+		h.completeFirmwareInstall(sequence)
+	}()
+}
+
+func (h *RESTApiHandler) startFirmwareOTALifecycle(sequence uint64) {
+	go func() {
+		time.Sleep(h.firmwareStepDelay)
+		if !h.transitionFirmwareStatus(sequence, "downloading", "downloaded") {
+			return
+		}
 		log.Printf("[FAKE-RIG] Firmware update status: downloaded")
+
+		time.Sleep(h.firmwareStepDelay)
+		if !h.transitionFirmwareStatus(sequence, "downloaded", "installing") {
+			return
+		}
+		log.Printf("[FAKE-RIG] Firmware update status: installing")
+		h.completeFirmwareInstall(sequence)
 	}()
 }
 
-func (h *RESTApiHandler) startFirmwareOTALifecycle() {
-	go func() {
-		time.Sleep(1 * time.Second)
-
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
-			return
-		}
-		h.state.FWUpdateStatus = "installing"
-		h.state.mu.Unlock()
-		log.Printf("[FAKE-RIG] Firmware update status: installing")
-
-		time.Sleep(2 * time.Second)
-
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
-			return
-		}
-		h.state.FWUpdateStatus = "installed"
-		h.state.mu.Unlock()
-		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
-	}()
+func (h *RESTApiHandler) startFirmwareInstallLifecycle(sequence uint64) {
+	go h.completeFirmwareInstall(sequence)
 }
 
-func (h *RESTApiHandler) startFirmwareInstallLifecycle(fromDownloaded bool) {
-	go func() {
-		if fromDownloaded {
-			time.Sleep(1 * time.Second)
-		}
+var errFirmwareUploadTooLarge = errors.New("firmware upload is too large")
 
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
-			return
-		}
-		h.state.FWUpdateStatus = "installing"
-		h.state.mu.Unlock()
-		log.Printf("[FAKE-RIG] Firmware update status: installing")
+type firmwareUpload struct {
+	body   io.Reader
+	reader *multipart.Reader
+	file   *multipart.Part
+}
 
-		time.Sleep(2 * time.Second)
+func normalizeFirmwareUploadError(err error) error {
+	if err == nil {
+		return nil
+	}
 
-		h.state.mu.Lock()
-		if h.state.Rebooting {
-			h.state.FWUpdateStatus = "current"
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
-			return
+	var maxBytesError *http.MaxBytesError
+	if errors.As(err, &maxBytesError) {
+		return fmt.Errorf("%w: %v", errFirmwareUploadTooLarge, err)
+	}
+	return err
+}
+
+func readFirmwareUploadPart(w http.ResponseWriter, r *http.Request, limit int64) (*firmwareUpload, error) {
+	if r.ContentLength > limit {
+		return nil, fmt.Errorf(
+			"%w: declared content length %d exceeds %d bytes",
+			errFirmwareUploadTooLarge,
+			r.ContentLength,
+			limit,
+		)
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return nil, fmt.Errorf("parse multipart upload: %w", err)
+	}
+
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			return nil, fmt.Errorf("missing file part")
 		}
-		h.state.FWUpdateStatus = "installed"
-		h.state.mu.Unlock()
-		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
-	}()
+		if nextErr != nil {
+			return nil, fmt.Errorf("read multipart upload: %w", normalizeFirmwareUploadError(nextErr))
+		}
+		if part.FormName() == "file" && part.FileName() != "" {
+			return &firmwareUpload{
+				body:   r.Body,
+				reader: reader,
+				file:   part,
+			}, nil
+		}
+		if closeErr := part.Close(); closeErr != nil {
+			return nil, fmt.Errorf("skip multipart field: %w", normalizeFirmwareUploadError(closeErr))
+		}
+	}
+}
+
+func consumeFirmwareUpload(upload *firmwareUpload) error {
+	if _, err := io.Copy(io.Discard, upload.file); err != nil {
+		_ = upload.file.Close()
+		return fmt.Errorf("read firmware file: %w", normalizeFirmwareUploadError(err))
+	}
+	if err := upload.file.Close(); err != nil {
+		return fmt.Errorf("close firmware file: %w", normalizeFirmwareUploadError(err))
+	}
+
+	for {
+		part, err := upload.reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read trailing multipart part: %w", normalizeFirmwareUploadError(err))
+		}
+		if _, err := io.Copy(io.Discard, part); err != nil {
+			_ = part.Close()
+			return fmt.Errorf("read trailing multipart data: %w", normalizeFirmwareUploadError(err))
+		}
+		if err := part.Close(); err != nil {
+			return fmt.Errorf("close trailing multipart part: %w", normalizeFirmwareUploadError(err))
+		}
+	}
+
+	if _, err := io.Copy(io.Discard, upload.body); err != nil {
+		return fmt.Errorf("read multipart body through EOF: %w", normalizeFirmwareUploadError(err))
+	}
+	return nil
+}
+
+func (h *RESTApiHandler) writeFirmwareUploadError(w http.ResponseWriter, err error, malformedMessage string) {
+	if errors.Is(err, errFirmwareUploadTooLarge) {
+		h.writeError(
+			w,
+			http.StatusRequestEntityTooLarge,
+			"REQUEST_TOO_LARGE",
+			"Firmware upload exceeds the 512 MiB limit",
+		)
+		return
+	}
+	h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", malformedMessage)
 }
 
 func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1903,22 +2096,26 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			currentVersion = defaultFirmwareVersion
 		}
 
-		if h.state.FWNewVersion == "" {
-			h.state.FWNewVersion = nextFirmwareVersion(currentVersion)
-		}
-
 		installFromDownloaded := h.state.FWUpdateStatus == "downloaded"
+		var sequence uint64
 		if installFromDownloaded {
 			h.state.FWUpdateStatus = "installing"
+			if h.state.FWUpdateSequence == 0 {
+				h.state.FWUpdateSequence++
+			}
+			if h.state.FWUpdateOutcome == "" {
+				h.state.FWUpdateOutcome = firmwareUpdateOutcomeSuccess
+			}
+			sequence = h.state.FWUpdateSequence
 		} else {
-			h.state.FWUpdateStatus = "downloading"
+			sequence = h.beginFirmwareUpdateLocked("downloading", nextFirmwareVersion(currentVersion))
 		}
 		h.state.mu.Unlock()
 
 		if installFromDownloaded {
-			h.startFirmwareInstallLifecycle(true)
+			h.startFirmwareInstallLifecycle(sequence)
 		} else {
-			h.startFirmwareOTALifecycle()
+			h.startFirmwareOTALifecycle(sequence)
 		}
 		h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Update started"})
 	case http.MethodPut:
@@ -1935,47 +2132,110 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			h.writeJSON(w, http.StatusServiceUnavailable, MessageResponse{Message: "System reboot is in progress."})
 			return
 		}
-		// Reject re-uploads whenever an update is pending (downloaded/installing)
-		// OR has already completed install and is awaiting reboot. Treating
-		// "installed" as in-progress prevents a second upload from clobbering
-		// FWUpdateStatus/FWNewVersion and causing handleReboot to skip promotion.
-		switch h.state.FWUpdateStatus {
-		case "downloading", "downloaded", "installing", "installed":
+		if isFirmwareUpdatePending(h.state.FWUpdateStatus) {
 			h.state.mu.Unlock()
 			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
 			return
 		}
 		h.state.mu.Unlock()
 
-		file, header, err := r.FormFile("file")
+		upload, err := readFirmwareUploadPart(w, r, h.firmwareUploadLimit)
 		if err != nil {
-			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
+			h.writeFirmwareUploadError(w, err, "Missing or invalid 'file' field in multipart form")
 			return
 		}
-		defer file.Close()
+
+		file := upload.file
+		filename := file.FileName()
+		explicitVersion, hasExplicitVersion, err := explicitFirmwareVersion(filename, file)
+		if err != nil {
+			_ = file.Close()
+			h.writeFirmwareUploadError(w, normalizeFirmwareUploadError(err), "Unable to inspect firmware upload")
+			return
+		}
+		if err := consumeFirmwareUpload(upload); err != nil {
+			h.writeFirmwareUploadError(w, err, "Unable to read complete firmware upload")
+			return
+		}
 
 		h.state.mu.Lock()
-		switch h.state.FWUpdateStatus {
-		case "downloading", "downloaded", "installing", "installed":
+		if h.state.Rebooting {
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusServiceUnavailable, MessageResponse{Message: "System reboot is in progress."})
+			return
+		}
+		if isFirmwareUpdatePending(h.state.FWUpdateStatus) {
 			h.state.mu.Unlock()
 			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
 			return
 		}
-		currentVersion := h.state.FWCurrentVersion
-		if currentVersion == "" {
-			currentVersion = defaultFirmwareVersion
+		newVersion := explicitVersion
+		if !hasExplicitVersion {
+			currentVersion := h.state.FWCurrentVersion
+			if currentVersion == "" {
+				currentVersion = defaultFirmwareVersion
+			}
+			newVersion = nextFirmwareVersion(currentVersion)
 		}
-		h.state.FWUpdateStatus = "downloading"
-		h.state.FWNewVersion = stagedFirmwareVersion(header.Filename, currentVersion)
+		sequence := h.beginFirmwareUpdateLocked("downloaded", newVersion)
 		h.state.mu.Unlock()
 
-		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
-		h.startFirmwareOTALifecycle()
+		log.Printf("Firmware upload received: filename=%s", filename)
+		h.startFirmwareUploadLifecycle(sequence)
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 	}
+}
+
+func (h *RESTApiHandler) handleFakeFirmwareUpdateOutcome(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	var request struct {
+		Outcome string `json:"outcome"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxTestControlRequestBytes)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&request); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			h.writeError(w, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "Request body is too large")
+			return
+		}
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			h.writeError(w, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "Request body is too large")
+			return
+		}
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Request body must contain exactly one JSON value")
+		return
+	}
+
+	outcome := strings.ToLower(strings.TrimSpace(request.Outcome))
+	switch outcome {
+	case firmwareUpdateOutcomeSuccess, firmwareUpdateOutcomeError, firmwareUpdateOutcomeAttention:
+	default:
+		h.writeError(
+			w,
+			http.StatusUnprocessableEntity,
+			"INVALID_REQUEST",
+			"outcome must be success, error, or attention",
+		)
+		return
+	}
+
+	h.state.mu.Lock()
+	h.state.FWNextUpdateOutcome = outcome
+	h.state.mu.Unlock()
+	h.writeJSON(w, http.StatusOK, map[string]string{"next_outcome": outcome})
 }
 
 func (h *RESTApiHandler) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
