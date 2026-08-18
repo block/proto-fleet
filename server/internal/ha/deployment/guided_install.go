@@ -572,14 +572,14 @@ const remoteBundleInstallCommand = `set -eu; umask 077; tmp=$(mktemp /var/tmp/pr
 
 func runSSH(ctx context.Context, localUsername string, input io.Reader, args ...string) error {
 	name := "ssh"
-	commandArgs := args
+	commandArgs := append([]string{"-o", "ConnectTimeout=10"}, args...)
 	if os.Geteuid() == 0 && localUsername != "" && localUsername != "root" {
 		name = "sudo"
 		commandArgs = []string{"-H", "-u", localUsername}
 		if socket := os.Getenv("SSH_AUTH_SOCK"); socket != "" {
 			commandArgs = append(commandArgs, "env", "SSH_AUTH_SOCK="+socket)
 		}
-		commandArgs = append(commandArgs, "ssh")
+		commandArgs = append(commandArgs, "ssh", "-o", "ConnectTimeout=10")
 		commandArgs = append(commandArgs, args...)
 	}
 	command := exec.CommandContext(ctx, name, commandArgs...)

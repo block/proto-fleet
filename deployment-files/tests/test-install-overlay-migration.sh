@@ -81,6 +81,18 @@ make_install() {
   : > "$root/deployment/docker-compose.tracing.yaml"
 }
 
+make_ha_release_archive() {
+  local release_root="$1"
+  local tar_path="$2"
+  mkdir -p "$release_root/deployment/ha"
+  cat > "$release_root/deployment/ha/fleet-ha" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$HA_TEST_LOG"
+EOF
+  chmod 755 "$release_root/deployment/ha/fleet-ha"
+  tar -czf "$tar_path" -C "$release_root" deployment
+}
+
 # Defaults consumed by the docker test double. Individual cases override only
 # the state they need.
 FAKE_IDS="fleet-container"
@@ -1498,28 +1510,51 @@ fi
 # ordinary installer path remains covered by the migration cases above.
 if (
   release_root="$TEST_TMP/ha-release-fixture"
-  mkdir -p "$release_root/deployment/ha"
-  cat > "$release_root/deployment/ha/fleet-ha" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$*" > "$HA_TEST_LOG"
-EOF
-  chmod 755 "$release_root/deployment/ha/fleet-ha"
   tar_path="$TEST_TMP/proto-fleet-v0.2.10-arm64.tar.gz"
-  tar -czf "$tar_path" -C "$release_root" deployment
+  make_ha_release_archive "$release_root" "$tar_path"
   HA_TEST_LOG="$TEST_TMP/ha-invocation"
   export HA_TEST_LOG
   HA_BUNDLE_PATH="$TEST_TMP/proto-fleet-ha-host.json"
   printf '%s' '{"prepared":true}' > "$HA_BUNDLE_PATH"
   chmod 600 "$HA_BUNDLE_PATH"
+  FAKE_UID=0
+  SUDO_UID=1000
   stat() { printf '1000 600\n'; }
+  chown() { printf '%s\n' "$*" > "$TEST_TMP/ha-chown"; }
   download_dir="$TEST_TMP/ha-download"
   mkdir -m 700 "$download_dir"
   run_ha_install "$tar_path" "$download_dir" \
-    && grep -Fxq "install $HA_BUNDLE_PATH" "$HA_TEST_LOG"
+    && grep -Fxq "install $HA_BUNDLE_PATH" "$HA_TEST_LOG" \
+    && grep -Fxq "0:0 $HA_BUNDLE_PATH" "$TEST_TMP/ha-chown"
 ); then
-  pass "HA install invokes the packaged operator with the prepared peer bundle"
+  pass "sudo HA installs accept the invoking administrator's prepared peer bundle"
 else
-  fail "HA install should use the verified archive and prepared peer bundle"
+  fail "sudo HA install rejected the invoking administrator's prepared peer bundle"
+fi
+
+if (
+  release_root="$TEST_TMP/ha-foreign-release-fixture"
+  tar_path="$TEST_TMP/proto-fleet-v0.2.10-foreign-arm64.tar.gz"
+  make_ha_release_archive "$release_root" "$tar_path"
+  HA_TEST_LOG="$TEST_TMP/ha-foreign-invocation"
+  export HA_TEST_LOG
+  HA_BUNDLE_PATH="$TEST_TMP/proto-fleet-ha-foreign-host.json"
+  printf '%s' '{"prepared":true}' > "$HA_BUNDLE_PATH"
+  chmod 600 "$HA_BUNDLE_PATH"
+  FAKE_UID=0
+  unset SUDO_UID
+  stat() { printf '1234 600\n'; }
+  download_dir="$TEST_TMP/ha-foreign-download"
+  mkdir -m 700 "$download_dir"
+  ! run_ha_install "$tar_path" "$download_dir" \
+    > /dev/null 2> "$TEST_TMP/ha-foreign-owner.err" \
+    && grep -q 'not owned by the invoking administrator' \
+      "$TEST_TMP/ha-foreign-owner.err" \
+    && [ ! -e "$HA_TEST_LOG" ]
+); then
+  pass "direct-root HA installs reject prepared peer bundles owned by another user"
+else
+  fail "direct-root HA install trusted an unrelated prepared peer bundle owner"
 fi
 
 if [ "$FAILURES" -ne 0 ]; then

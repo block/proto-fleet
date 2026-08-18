@@ -1565,7 +1565,7 @@ run_ha_install() {
       echo "❌ Prepared HA host bundle must be a regular file: $HA_BUNDLE_PATH" >&2
       return 1
     fi
-    local bundle_owner bundle_mode
+    local bundle_owner bundle_mode trusted_uid
     read -r bundle_owner bundle_mode <<< "$(install_path_metadata "$HA_BUNDLE_PATH")" || {
       echo "❌ Could not inspect prepared HA host bundle: $HA_BUNDLE_PATH" >&2
       return 1
@@ -1574,11 +1574,15 @@ run_ha_install() {
       echo "❌ Prepared HA host bundle must have mode 0600: $HA_BUNDLE_PATH" >&2
       return 1
     fi
-    if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_UID:-}" ]; then
-      if [ "$bundle_owner" != "$SUDO_UID" ] && [ "$bundle_owner" != "0" ]; then
-        echo "❌ Prepared HA host bundle is not owned by the invoking administrator: $HA_BUNDLE_PATH" >&2
-        return 1
-      fi
+    trusted_uid=$(install_admin_uid) || {
+      echo "❌ Could not determine the invoking installation administrator." >&2
+      return 1
+    }
+    if [ "$bundle_owner" != "$trusted_uid" ] && [ "$bundle_owner" != "0" ]; then
+      echo "❌ Prepared HA host bundle is not owned by the invoking administrator: $HA_BUNDLE_PATH" >&2
+      return 1
+    fi
+    if [ "$(id -u)" -eq 0 ]; then
       chown 0:0 "$HA_BUNDLE_PATH"
     fi
     "$fleet_ha" install "$HA_BUNDLE_PATH"
