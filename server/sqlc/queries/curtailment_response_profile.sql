@@ -11,9 +11,9 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id');
 
 -- name: LockCurtailmentResponseProfileAutomationMutation :exec
--- Serializes profile fan changes with automation create/update/enable. Both
--- sides re-read their compatibility condition after acquiring this lock so a
--- concurrent pair cannot commit an automation binding to a fan profile.
+-- Serializes profile changes with automation create/update/enable. Both sides
+-- re-read their compatibility conditions after acquiring this lock so a
+-- concurrent pair cannot commit an invalid automation binding.
 SELECT pg_advisory_xact_lock(
     hashtextextended(
         'curtailment_response_profile_automation:'

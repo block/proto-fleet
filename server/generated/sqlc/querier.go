@@ -1162,9 +1162,9 @@ type Querier interface {
 	// The row lock turns the authorization snapshot into an insert-time invariant:
 	// a concurrent move/delete must wait until this transaction commits.
 	LockCurtailmentFanDevicesForWrite(ctx context.Context, arg LockCurtailmentFanDevicesForWriteParams) ([]LockCurtailmentFanDevicesForWriteRow, error)
-	// Serializes profile fan changes with automation create/update/enable. Both
-	// sides re-read their compatibility condition after acquiring this lock so a
-	// concurrent pair cannot commit an automation binding to a fan profile.
+	// Serializes profile changes with automation create/update/enable. Both sides
+	// re-read their compatibility conditions after acquiring this lock so a
+	// concurrent pair cannot commit an invalid automation binding.
 	LockCurtailmentResponseProfileAutomationMutation(ctx context.Context, arg LockCurtailmentResponseProfileAutomationMutationParams) error
 	// Serialize hierarchy start checks by org so conflict detection and event
 	// insertion happen under one database-backed critical section.

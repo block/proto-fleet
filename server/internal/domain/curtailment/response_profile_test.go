@@ -598,6 +598,30 @@ func TestResponseProfileService_UpdateAllowsFacilityFansWhenProfileHasAutomation
 	assert.Equal(t, []int64{31}, store.updated.FacilityFanDeviceIDs)
 }
 
+func TestResponseProfileService_UpdateRejectsTopologyScopeWhenProfileHasAutomationRules(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	store.automationRuleCount = 1
+
+	_, err := NewResponseProfileService(store).Update(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			ID:          101,
+			OrgID:       42,
+			ProfileName: "Automated building shed",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+			ScopeJSON:   []byte(`{"scope_schema_version":1,"building_ids":[7]}`),
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "topology-scoped response profiles cannot be used by automation")
+	assert.Nil(t, store.updated)
+}
+
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {
 	t.Parallel()
 

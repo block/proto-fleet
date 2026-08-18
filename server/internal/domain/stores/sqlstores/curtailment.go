@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sort"
@@ -253,6 +254,9 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfile, error) {
 		if err := lockResponseProfileAutomationMutation(ctx, q, profile.OrgID, profile.ID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		if err := rejectTopologyProfileWithAutomationRules(ctx, q, profile); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		if err := lockResponseProfileSitesForWrite(
@@ -860,10 +864,64 @@ func requireResponseProfileForAutomation(
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to get response profile during automation mutation: %v", err)
 	}
+	hasTopology, err := responseProfileScopeHasTopology(profile.ScopeJson)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("invalid response profile scope during automation mutation: %v", err)
+	}
+	if hasTopology {
+		return fleeterror.NewFailedPreconditionError(
+			"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported",
+		)
+	}
 	if !responseProfileFanSettingsMatch(profile, expectedFanSettings) {
 		return fleeterror.NewFailedPreconditionError("curtailment response profile changed before automation rule save; retry")
 	}
 	return nil
+}
+
+func rejectTopologyProfileWithAutomationRules(
+	ctx context.Context,
+	q sqlc.Querier,
+	profile models.ResponseProfile,
+) error {
+	hasTopology, err := responseProfileScopeHasTopology(profile.ScopeJSON)
+	if err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("invalid curtailment response profile scope_json: %v", err)
+	}
+	if !hasTopology {
+		return nil
+	}
+	count, err := q.CountCurtailmentAutomationRulesByResponseProfile(
+		ctx,
+		sqlc.CountCurtailmentAutomationRulesByResponseProfileParams{
+			OrgID:             profile.OrgID,
+			ResponseProfileID: profile.ID,
+		},
+	)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to count automation rules for response profile: %v", err)
+	}
+	if count == 0 {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionError(
+		"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported; update the automation rules first",
+	)
+}
+
+func responseProfileScopeHasTopology(scopeJSON []byte) (bool, error) {
+	if len(scopeJSON) == 0 {
+		return false, nil
+	}
+	var payload struct {
+		BuildingIDs []int64 `json:"building_ids"`
+		RackIDs     []int64 `json:"rack_ids"`
+		GroupIDs    []int64 `json:"group_ids"`
+	}
+	if err := json.Unmarshal(scopeJSON, &payload); err != nil {
+		return false, fmt.Errorf("decode response profile scope: %w", err)
+	}
+	return len(payload.BuildingIDs) > 0 || len(payload.RackIDs) > 0 || len(payload.GroupIDs) > 0, nil
 }
 
 func responseProfileFanSettingsMatch(

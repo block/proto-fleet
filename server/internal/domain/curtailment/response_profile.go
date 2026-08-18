@@ -143,6 +143,9 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateTopologyProfileAutomationBinding(ctx, profile); err != nil {
+		return nil, err
+	}
 	return s.store.UpdateResponseProfile(
 		ctx,
 		profile,
@@ -150,6 +153,29 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 		req.ExpectedSiteID,
 		req.ExpectedScopeJSON,
 		req.ExpectedFacilityFanSettings,
+	)
+}
+
+func (s *ResponseProfileService) validateTopologyProfileAutomationBinding(
+	ctx context.Context,
+	profile models.ResponseProfile,
+) error {
+	scope, err := ResponseProfileScope(profile)
+	if err != nil {
+		return err
+	}
+	if !hasTopologySelectors(scope) {
+		return nil
+	}
+	count, err := s.store.CountAutomationRulesByResponseProfile(ctx, profile.OrgID, profile.ID)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionError(
+		"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported; update the automation rules first",
 	)
 }
 
