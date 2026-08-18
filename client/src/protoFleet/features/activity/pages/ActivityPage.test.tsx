@@ -25,6 +25,9 @@ const filtersEventTypesMock = vi.hoisted(() => ({ current: [] as { eventType: st
 const filtersOnScopesChangeMock = vi.hoisted(() => ({
   current: undefined as ((scopes: string[]) => void) | undefined,
 }));
+const filtersOnTypesChangeMock = vi.hoisted(() => ({
+  current: undefined as ((types: string[]) => void) | undefined,
+}));
 const exportCsvMock = vi.hoisted(() => vi.fn());
 const activeSiteMock = vi.hoisted(() => ({ current: { kind: "all" } as ActiveSite }));
 
@@ -75,13 +78,16 @@ vi.mock("@/protoFleet/features/activity/components/ActivityFilters", () => ({
     actions,
     eventTypes,
     onScopesChange,
+    onTypesChange,
   }: {
     actions?: ReactNode;
     eventTypes: { eventType: string }[];
     onScopesChange: (scopes: string[]) => void;
+    onTypesChange: (types: string[]) => void;
   }) => {
     filtersEventTypesMock.current = eventTypes;
     filtersOnScopesChangeMock.current = onScopesChange;
+    filtersOnTypesChangeMock.current = onTypesChange;
     return <div data-testid="activity-filters">{actions}</div>;
   },
 }));
@@ -122,6 +128,7 @@ describe("ActivityPage", () => {
     alertsEnabledMock.failing = false;
     filtersEventTypesMock.current = [];
     filtersOnScopesChangeMock.current = undefined;
+    filtersOnTypesChangeMock.current = undefined;
     activeSiteMock.current = { kind: "all" };
     listFilter = undefined;
     exportFilter = undefined;
@@ -290,6 +297,66 @@ describe("ActivityPage", () => {
       expect(pagedAlertsEnabled()).toBe(true);
       expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9,act-old");
       expect(filtersEventTypesMock.current.some((option) => option.eventType === "alert")).toBe(true);
+    });
+
+    it("withholds early-arriving activities until the alert feed's first page lands", () => {
+      useActivityMock.mockReturnValue({
+        activities: [
+          create(ActivityEntrySchema, {
+            eventId: "act-new",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:30Z")),
+          }),
+          create(ActivityEntrySchema, {
+            eventId: "act-old",
+            createdAt: timestampFromDate(new Date("2026-08-01T00:00:00Z")),
+          }),
+        ],
+        totalCount: 2,
+        isLoading: false,
+        error: null,
+        hasMore: false,
+        loadMore: vi.fn(),
+        refresh: vi.fn(),
+      });
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ loading: true }));
+
+      const { rerender } = render(<ActivityPage />);
+
+      // Rendering the resolved activities now would show act-old only to hide it once the alert
+      // cursor arrives, so the initial spinner covers both feeds' first responses.
+      expect(screen.queryByTestId("activity-table")).not.toBeInTheDocument();
+
+      usePagedAlertsMock.mockReturnValue(
+        buildPagedAlertsResult({
+          items: [buildAlertHistoryEntry({ id: "9", received_at: "2026-08-01T00:00:20Z" })],
+          hasMore: true,
+        }),
+      );
+      rerender(<ActivityPage />);
+
+      expect(screen.getByTestId("activity-table").textContent).toBe("act-new,alert-9");
+    });
+
+    it("stops applying a selected Alerts pseudo-type once the org-scoped read is denied", () => {
+      const { rerender } = render(<ActivityPage />);
+      act(() => filtersOnTypesChangeMock.current?.(["alert"]));
+      expect(listFilter?.eventTypes).toEqual(["alert"]);
+
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ error: "permission denied", denied: true }));
+      rerender(<ActivityPage />);
+
+      // The Alerts option is gone, so its stale selection must not keep filtering activities to none.
+      expect(listFilter?.eventTypes).toEqual([]);
+    });
+
+    it("ignores activity-only filters for an alert-only viewer instead of hiding the alert feed", () => {
+      permissionsMock.current = { "alert:read": true };
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ items: [alertItem] }));
+
+      render(<ActivityPage />);
+      act(() => filtersOnTypesChangeMock.current?.(["login"]));
+
+      expect(screen.getByTestId("activity-table").textContent).toBe("alert-9");
     });
 
     it("does not hold activities back behind scope-filtered alert rows", () => {

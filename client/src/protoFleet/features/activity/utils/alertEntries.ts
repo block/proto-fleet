@@ -68,14 +68,16 @@ const entryTimeMs = (entry: ActivityEntry): number => (entry.createdAt ? timesta
 
 // A two-pointer interleave that keeps each feed in its own pagination order (the alert cursor pages by
 // id, which timestamps only approximate) and pauses at an unexhausted feed's end, so previously shown
-// rows never move and "load more" only appends.
+// rows never move and "load more" only appends. An empty feed that still has pages (its first request
+// hasn't answered) holds everything back for the same reason: rendering rows its response may predate
+// would show entries only to remove them.
 export function mergeAlertEntries(
   activities: ActivityEntry[],
   activitiesHaveMore: boolean,
   alertEntries: ActivityEntry[],
   alertsHaveMore: boolean,
 ): ActivityEntry[] {
-  if (alertEntries.length === 0) return activities;
+  if (alertEntries.length === 0 && !alertsHaveMore) return activities;
   const merged: ActivityEntry[] = [];
   let i = 0;
   let j = 0;

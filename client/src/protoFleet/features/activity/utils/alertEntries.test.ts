@@ -124,7 +124,11 @@ describe("mergeAlertEntries", () => {
     expect(ids(full).slice(0, partial.length)).toEqual(ids(partial));
   });
 
-  it("returns activities untouched when no alerts are loaded", () => {
-    expect(mergeAlertEntries(activities, true, [], true)).toBe(activities);
+  it("returns activities untouched when the alert feed is exhausted and empty", () => {
+    expect(mergeAlertEntries(activities, true, [], false)).toBe(activities);
+  });
+
+  it("holds everything back while an empty alert feed still has pages", () => {
+    expect(mergeAlertEntries(activities, false, [], true)).toEqual([]);
   });
 });

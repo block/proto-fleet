@@ -12,6 +12,7 @@ import ActivityFilters from "@/protoFleet/features/activity/components/ActivityF
 import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
 import {
   activityEntryFromAlert,
+  ALERT_EVENT_TYPE,
   ALERT_TYPE_OPTION,
   alertEntryMatchesScopes,
   alertsMatchFilter,
@@ -65,30 +66,9 @@ const ActivityPageContent = () => {
     [debouncedSetSearch],
   );
 
-  const filter = useMemo(
-    () =>
-      create(ActivityFilterSchema, {
-        eventTypes: selectedTypes,
-        scopeTypes: selectedScopes,
-        userIds: selectedUsers,
-        searchText: debouncedSearchText,
-        siteIds: scopeFilter.siteIds,
-        includeUnassigned: scopeFilter.includeUnassigned,
-      }),
-    [selectedTypes, selectedScopes, selectedUsers, debouncedSearchText, scopeFilter],
-  );
-
   // Each feed is fetched only under its own read permission, mirroring the server's per-RPC gates,
   // so an alert:read-only viewer still gets the history feed without firing denied activity RPCs.
   const canReadActivity = useHasPermission("activity:read");
-  const { activities, totalCount, isLoading, error, hasMore, loadMore } = useActivity({
-    filter,
-    pageSize: PAGE_SIZE,
-    enabled: canReadActivity,
-  });
-  const { exportCsv, isExportingCsv } = useExportActivity();
-  const { eventTypes, scopeTypes, users } = useActivityFilterOptions({ enabled: canReadActivity });
-
   // Alert history is org-scoped (no site filter on ListAlerts) and gated behind its own permission, so the
   // merged feed only carries alerts on the org-wide route for viewers the alerts feature is on for.
   const canReadAlerts = useHasPermission("alert:read");
@@ -100,28 +80,63 @@ const ActivityPageContent = () => {
   const alertsAvailable = canReadAlerts && alertsEnabled;
   const orgWideScope = activeSite.kind === "all";
   const canViewAlerts = alertsAvailable && orgWideScope;
-  const includeAlerts = canViewAlerts && alertsMatchFilter(filter);
 
   // Fetch on the stable gate so filter toggles hide/show loaded alerts instead of refetching them.
   const alertFeed = usePagedAlerts({}, "Failed to load alert history", { enabled: canViewAlerts });
-  const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
-  const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
-  // Scope filtering runs on the merged output: the merge must see every loaded alert row so its pause
-  // barrier stays the real pagination frontier — filtering first would hold activities back behind
-  // rows the scope filter had already hidden, since alerts.hasMore describes the unfiltered feed.
-  const entries = useMemo(() => {
-    const merged = mergeAlertEntries(activities, hasMore, alertEntries, alerts.hasMore);
-    if (filter.scopeTypes.length === 0) return merged;
-    return merged.filter((entry) => !isAlertEntry(entry) || alertEntryMatchesScopes(entry, filter));
-  }, [activities, hasMore, alertEntries, alerts.hasMore, filter]);
   // A denied org-scoped read (alert:read revoked mid-session) is tracked on the underlying feed, not the
   // filter-swapped view, so the partial-data note below persists even while a filter excludes alerts.
   const alertsDenied = canViewAlerts && alertFeed.denied;
   // Failing implies unresolved (a successful probe clears it); the guard keeps the note gone once answered.
   const alertsProbeDown = canReadAlerts && alertsProbeFailing && !alertsProbeResolved;
+  // The Alerts filter option is offered exactly while this holds, so the pseudo-type applies on the same term.
+  const alertsSelectable = canViewAlerts && !alertsDenied;
+
+  // Selections that outlive their surface (a grant revoked mid-session, a scope or probe change) go inert
+  // here rather than riding along as invisible filters that silently empty the remaining feed.
+  const filter = useMemo(() => {
+    const types = alertsSelectable ? selectedTypes : selectedTypes.filter((t) => t !== ALERT_EVENT_TYPE);
+    return create(ActivityFilterSchema, {
+      eventTypes: canReadActivity ? types : types.filter((t) => t === ALERT_EVENT_TYPE),
+      scopeTypes: selectedScopes,
+      userIds: canReadActivity ? selectedUsers : [],
+      searchText: canReadActivity ? debouncedSearchText : "",
+      siteIds: scopeFilter.siteIds,
+      includeUnassigned: scopeFilter.includeUnassigned,
+    });
+  }, [
+    alertsSelectable,
+    canReadActivity,
+    selectedTypes,
+    selectedScopes,
+    selectedUsers,
+    debouncedSearchText,
+    scopeFilter,
+  ]);
+
+  const { activities, totalCount, isLoading, error, hasMore, loadMore } = useActivity({
+    filter,
+    pageSize: PAGE_SIZE,
+    enabled: canReadActivity,
+  });
+  const { exportCsv, isExportingCsv } = useExportActivity();
+  const { eventTypes, scopeTypes, users } = useActivityFilterOptions({ enabled: canReadActivity });
+
+  const includeAlerts = canViewAlerts && alertsMatchFilter(filter);
+  const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
+  const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
+  // Scope filtering runs on the merged output: the merge must see every loaded alert row so its pause
+  // barrier stays the real pagination frontier — filtering first would hold activities back behind
+  // rows the scope filter had already hidden, since alerts.hasMore describes the unfiltered feed.
+  // A feed still answering its current request counts as unexhausted so rows its response may predate
+  // are withheld up front instead of rendered and then re-hidden mid-load.
+  const entries = useMemo(() => {
+    const merged = mergeAlertEntries(activities, hasMore || isLoading, alertEntries, alerts.hasMore || alerts.loading);
+    if (filter.scopeTypes.length === 0) return merged;
+    return merged.filter((entry) => !isAlertEntry(entry) || alertEntryMatchesScopes(entry, filter));
+  }, [activities, hasMore, isLoading, alertEntries, alerts.hasMore, alerts.loading, filter]);
   const typeOptions = useMemo(
-    () => (canViewAlerts && !alertsDenied ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
-    [alertsDenied, canViewAlerts, eventTypes],
+    () => (alertsSelectable ? [...eventTypes, ALERT_TYPE_OPTION] : eventTypes),
+    [alertsSelectable, eventTypes],
   );
   // The denial degrades to an activity-only feed — the hook already cleared its rows and cursor, and the
   // persistent note below says the alert history is missing — but only when activity remains as a fallback;
