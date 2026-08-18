@@ -72,6 +72,18 @@ func (q *retryingQuerier) AdminTerminateCurtailmentEvent(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) AdvanceChannelFirmwareAuthorityRevision(ctx context.Context, arg AdvanceChannelFirmwareAuthorityRevisionParams) (ChannelFirmwareAuthority, error) {
+	var result ChannelFirmwareAuthority
+	err := q.retrier.RetryQuery(ctx, "AdvanceChannelFirmwareAuthorityRevision", func() error {
+		callResult, callErr := q.next.AdvanceChannelFirmwareAuthorityRevision(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AdvanceFleetMetricRollupProgress(ctx context.Context, arg AdvanceFleetMetricRollupProgressParams) error {
 	return q.retrier.RetryQuery(ctx, "AdvanceFleetMetricRollupProgress", func() error {
 		return q.next.AdvanceFleetMetricRollupProgress(ctx, arg)
@@ -408,6 +420,18 @@ func (q *retryingQuerier) ClaimAllPairedPolicyTargets(ctx context.Context, arg C
 	return result, err
 }
 
+func (q *retryingQuerier) ClaimChannelFirmwareEnforcement(ctx context.Context, arg ClaimChannelFirmwareEnforcementParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ClaimChannelFirmwareEnforcement", func() error {
+		callResult, callErr := q.next.ClaimChannelFirmwareEnforcement(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]CurtailmentTarget, error) {
 	var result []CurtailmentTarget
 	err := q.retrier.RetryQuery(ctx, "ClaimClosedLoopFullFleetTargets", func() error {
@@ -508,6 +532,18 @@ func (q *retryingQuerier) CloseStaleErrors(ctx context.Context, arg CloseStaleEr
 	var result sql.Result
 	err := q.retrier.RetryQuery(ctx, "CloseStaleErrors", func() error {
 		callResult, callErr := q.next.CloseStaleErrors(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ConfirmChannelFirmwareEnforcement(ctx context.Context, arg ConfirmChannelFirmwareEnforcementParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ConfirmChannelFirmwareEnforcement", func() error {
+		callResult, callErr := q.next.ConfirmChannelFirmwareEnforcement(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -814,6 +850,30 @@ func (q *retryingQuerier) CreateChannelExtension(ctx context.Context, arg Create
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CreateChannelExtension", func() error {
 		callResult, callErr := q.next.CreateChannelExtension(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateChannelFirmwareAuthority(ctx context.Context, arg CreateChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error) {
+	var result ChannelFirmwareAuthority
+	err := q.retrier.RetryQuery(ctx, "CreateChannelFirmwareAuthority", func() error {
+		callResult, callErr := q.next.CreateChannelFirmwareAuthority(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (ChannelFirmwareEnforcement, error) {
+	var result ChannelFirmwareEnforcement
+	err := q.retrier.RetryQuery(ctx, "CreateChannelFirmwareEnforcement", func() error {
+		callResult, callErr := q.next.CreateChannelFirmwareEnforcement(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1666,6 +1726,30 @@ func (q *retryingQuerier) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuilt
 	var result Role
 	err := q.retrier.RetryQuery(ctx, "GetBuiltinRoleForOrg", func() error {
 		callResult, callErr := q.next.GetBuiltinRoleForOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetChannelFirmwareCommandOutcome(ctx context.Context, arg GetChannelFirmwareCommandOutcomeParams) (GetChannelFirmwareCommandOutcomeRow, error) {
+	var result GetChannelFirmwareCommandOutcomeRow
+	err := q.retrier.RetryQuery(ctx, "GetChannelFirmwareCommandOutcome", func() error {
+		callResult, callErr := q.next.GetChannelFirmwareCommandOutcome(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetChannelFirmwareEnforcement(ctx context.Context, id int64) (GetChannelFirmwareEnforcementRow, error) {
+	var result GetChannelFirmwareEnforcementRow
+	err := q.retrier.RetryQuery(ctx, "GetChannelFirmwareEnforcement", func() error {
+		callResult, callErr := q.next.GetChannelFirmwareEnforcement(ctx, id)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2538,10 +2622,10 @@ func (q *retryingQuerier) GetMaxPriority(ctx context.Context, orgID int64) (int3
 	return result, err
 }
 
-func (q *retryingQuerier) GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error) {
+func (q *retryingQuerier) GetMessagesToProcess(ctx context.Context, dequeueLimit int32) ([]GetMessagesToProcessRow, error) {
 	var result []GetMessagesToProcessRow
 	err := q.retrier.RetryQuery(ctx, "GetMessagesToProcess", func() error {
-		callResult, callErr := q.next.GetMessagesToProcess(ctx, arg)
+		callResult, callErr := q.next.GetMessagesToProcess(ctx, dequeueLimit)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3186,10 +3270,34 @@ func (q *retryingQuerier) GetUsersForOrganization(ctx context.Context, organizat
 	return result, err
 }
 
+func (q *retryingQuerier) HaltChannelFirmwareAuthority(ctx context.Context, arg HaltChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error) {
+	var result ChannelFirmwareAuthority
+	err := q.retrier.RetryQuery(ctx, "HaltChannelFirmwareAuthority", func() error {
+		callResult, callErr := q.next.HaltChannelFirmwareAuthority(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) HasUser(ctx context.Context) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "HasUser", func() error {
 		callResult, callErr := q.next.HasUser(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) HoldChannelFirmwareEnforcement(ctx context.Context, arg HoldChannelFirmwareEnforcementParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "HoldChannelFirmwareEnforcement", func() error {
+		callResult, callErr := q.next.HoldChannelFirmwareEnforcement(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3526,6 +3634,30 @@ func (q *retryingQuerier) ListBuiltinRolesForOrg(ctx context.Context, organizati
 	var result []Role
 	err := q.retrier.RetryQuery(ctx, "ListBuiltinRolesForOrg", func() error {
 		callResult, callErr := q.next.ListBuiltinRolesForOrg(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListChannelFirmwareEnforcementsForReconcile(ctx context.Context, reconcileLimit int32) ([]ListChannelFirmwareEnforcementsForReconcileRow, error) {
+	var result []ListChannelFirmwareEnforcementsForReconcileRow
+	err := q.retrier.RetryQuery(ctx, "ListChannelFirmwareEnforcementsForReconcile", func() error {
+		callResult, callErr := q.next.ListChannelFirmwareEnforcementsForReconcile(ctx, reconcileLimit)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListChannelManagedDeviceIdentifiers(ctx context.Context, arg ListChannelManagedDeviceIdentifiersParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListChannelManagedDeviceIdentifiers", func() error {
+		callResult, callErr := q.next.ListChannelManagedDeviceIdentifiers(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4398,6 +4530,42 @@ func (q *retryingQuerier) LockSiteForWrite(ctx context.Context, arg LockSiteForW
 	return result, err
 }
 
+func (q *retryingQuerier) MarkChannelFirmwareEnforcementAttentionRequired(ctx context.Context, arg MarkChannelFirmwareEnforcementAttentionRequiredParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "MarkChannelFirmwareEnforcementAttentionRequired", func() error {
+		callResult, callErr := q.next.MarkChannelFirmwareEnforcementAttentionRequired(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) MarkChannelFirmwareEnforcementDispatched(ctx context.Context, arg MarkChannelFirmwareEnforcementDispatchedParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "MarkChannelFirmwareEnforcementDispatched", func() error {
+		callResult, callErr := q.next.MarkChannelFirmwareEnforcementDispatched(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) MarkChannelFirmwareEnforcementVerifying(ctx context.Context, arg MarkChannelFirmwareEnforcementVerifyingParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "MarkChannelFirmwareEnforcementVerifying", func() error {
+		callResult, callErr := q.next.MarkChannelFirmwareEnforcementVerifying(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) MarkCommandBatchFinished(ctx context.Context, uuid string) error {
 	return q.retrier.RetryQuery(ctx, "MarkCommandBatchFinished", func() error {
 		return q.next.MarkCommandBatchFinished(ctx, uuid)
@@ -4596,6 +4764,18 @@ func (q *retryingQuerier) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx 
 	return result, err
 }
 
+func (q *retryingQuerier) RecordChannelFirmwareObservation(ctx context.Context, arg RecordChannelFirmwareObservationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RecordChannelFirmwareObservation", func() error {
+		callResult, callErr := q.next.RecordChannelFirmwareObservation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "RecordCurtailPendingDispatch", func() error {
@@ -4726,6 +4906,18 @@ func (q *retryingQuerier) ResumePausedSchedule(ctx context.Context, arg ResumePa
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ResumePausedSchedule", func() error {
 		callResult, callErr := q.next.ResumePausedSchedule(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ReturnChannelFirmwareEnforcementPending(ctx context.Context, arg ReturnChannelFirmwareEnforcementPendingParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReturnChannelFirmwareEnforcementPending", func() error {
+		callResult, callErr := q.next.ReturnChannelFirmwareEnforcementPending(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

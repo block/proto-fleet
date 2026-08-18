@@ -50,6 +50,7 @@ func seedProcessingMessage(t *testing.T, conn *sql.DB, batchUUID string, deviceI
 			DeviceID:            deviceID,
 			Status:              sqlc.QueueStatusEnumPROCESSING,
 			RetryCount:          0,
+			MaxAttempts:         5,
 			Payload:             pqtype.NullRawMessage{Valid: false},
 		})
 	})
@@ -125,9 +126,8 @@ func TestMarkQueueMessageStatusTransitions(t *testing.T) {
 		// Act — same query as markQueueMessageStatus with retryable error
 		result, err := db2.WithTransaction(context.Background(), conn, func(q sqlc.Querier) (sql.Result, error) {
 			return q.UpdateMessageAfterFailure(context.Background(), sqlc.UpdateMessageAfterFailureParams{
-				ID:         msgID,
-				RetryCount: 5, // MaxFailureRetries = 5, retry_count starts at 0
-				ErrorInfo:  sql.NullString{String: "temporary failure", Valid: true},
+				ID:        msgID,
+				ErrorInfo: sql.NullString{String: "temporary failure", Valid: true},
 			})
 		})
 
@@ -136,6 +136,32 @@ func TestMarkQueueMessageStatusTransitions(t *testing.T) {
 		rowsAffected, _ := result.RowsAffected()
 		assert.Equal(t, int64(1), rowsAffected)
 		assert.Equal(t, sqlc.QueueStatusEnumPENDING, queryQueueStatus(t, conn, msgID))
+	})
+
+	t.Run("channel enforcement attempt ceiling fails after one worker attempt", func(t *testing.T) {
+		conn, dbService, user := setupMarkStatusTest(t)
+		device := dbService.CreateDevice(user.OrganizationID, "proto")
+		batchUUID := "mark-status-channel-one-attempt"
+		seedBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
+		msgID := seedProcessingMessage(t, conn, batchUUID, device.DatabaseID)
+		_, err := conn.ExecContext(
+			t.Context(),
+			"UPDATE queue_message SET max_attempts = 1 WHERE id = $1",
+			msgID,
+		)
+		require.NoError(t, err)
+
+		result, err := db2.WithTransaction(t.Context(), conn, func(q sqlc.Querier) (sql.Result, error) {
+			return q.UpdateMessageAfterFailure(t.Context(), sqlc.UpdateMessageAfterFailureParams{
+				ID:        msgID,
+				ErrorInfo: sql.NullString{String: "ambiguous upload failure", Valid: true},
+			})
+		})
+
+		require.NoError(t, err)
+		rowsAffected, _ := result.RowsAffected()
+		assert.Equal(t, int64(1), rowsAffected)
+		assert.Equal(t, sqlc.QueueStatusEnumFAILED, queryQueueStatus(t, conn, msgID))
 	})
 
 	t.Run("permanent failure sets FAILED", func(t *testing.T) {
@@ -177,6 +203,7 @@ func TestMarkQueueMessageStatusTransitions(t *testing.T) {
 				DeviceID:            device.DatabaseID,
 				Status:              sqlc.QueueStatusEnumFAILED,
 				RetryCount:          0,
+				MaxAttempts:         5,
 				Payload:             pqtype.NullRawMessage{Valid: false},
 			})
 		})
@@ -342,6 +369,7 @@ func TestAtomicQueueStatusAndDeviceLog(t *testing.T) {
 				DeviceID:            device.DatabaseID,
 				Status:              sqlc.QueueStatusEnumFAILED,
 				RetryCount:          0,
+				MaxAttempts:         5,
 				Payload:             pqtype.NullRawMessage{Valid: false},
 			})
 		})

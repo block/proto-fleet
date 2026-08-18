@@ -69,6 +69,7 @@ import (
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
+	channelReconciler "github.com/block/proto-fleet/server/internal/domain/channel/reconciler"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
@@ -477,6 +478,7 @@ func start(config *Config) error {
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
+	channelEnforcementStore := sqlstores.NewSQLChannelEnforcementStore(conn)
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
 	facilityFanController := curtailmentDomain.NewFacilityFanController(
 		infrastructureStore,
@@ -509,6 +511,9 @@ func start(config *Config) error {
 	// CurtailmentActiveFilter blocks non-curtailment commands on locked
 	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
+	// ChannelManagedFilter runs after curtailment so curtailment keeps
+	// precedence. The channel actor bypasses only this firmware gate.
+	commandSvc.RegisterFilter(commandDomain.NewChannelManagedFilter(channelEnforcementStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
 
@@ -523,6 +528,12 @@ func start(config *Config) error {
 		// telemetry service's read-only seam (shared worker pool, no
 		// persistence side effects).
 		curtailmentReconciler.WithConfirmationSampler(telemetryService),
+	)
+	channelEnforcementRec := channelReconciler.New(
+		config.Channel,
+		channelEnforcementStore,
+		commandSvc,
+		telemetryService,
 	)
 
 	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
@@ -628,6 +639,7 @@ func start(config *Config) error {
 		commandExecution:          executionService,
 		scheduleProcessor:         scheduleProcessor,
 		curtailmentReconciler:     curtailmentRec,
+		channelEnforcement:        channelEnforcementRec,
 		curtailmentMQTTSubscriber: mqttSubscriber,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,

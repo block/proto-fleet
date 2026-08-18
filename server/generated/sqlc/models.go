@@ -414,6 +414,50 @@ type Building struct {
 	DeletedAt             sql.NullTime
 }
 
+type ChannelFirmwareAuthority struct {
+	ID                 uuid.UUID
+	OrgID              int64
+	AuthorityType      string
+	AuthorityReference string
+	Revision           int64
+	HaltedAt           sql.NullTime
+	CreatedByUserID    int64
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type ChannelFirmwareEnforcement struct {
+	ID                          int64
+	OrgID                       int64
+	DeviceID                    int64
+	DesiredReleaseSetID         int64
+	DesiredReleaseTargetID      int64
+	DesiredFirmwareFileID       string
+	DesiredFirmwareVersion      string
+	CauseType                   string
+	CauseReference              sql.NullString
+	AuthorityID                 uuid.UUID
+	AuthorityRevision           int64
+	State                       string
+	AttemptCount                int32
+	CommandBatchUuid            sql.NullString
+	Revision                    int64
+	DesiredAt                   time.Time
+	HeldAt                      sql.NullTime
+	ClaimedAt                   sql.NullTime
+	EnqueuedAt                  sql.NullTime
+	CommandCompletedAt          sql.NullTime
+	LastObservedFirmwareVersion sql.NullString
+	FirmwareObservedAt          sql.NullTime
+	LastObservedHashrateHs      sql.NullFloat64
+	HashingObservedAt           sql.NullTime
+	ConfirmedAt                 sql.NullTime
+	AttentionRequiredAt         sql.NullTime
+	LastError                   sql.NullString
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+}
+
 type CommandBatchLog struct {
 	ID             int64
 	Uuid           string
@@ -1138,6 +1182,7 @@ type QueueMessage struct {
 	Payload             pqtype.NullRawMessage
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	MaxAttempts         int32
 }
 
 type RackSlot struct {

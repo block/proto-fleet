@@ -33,6 +33,7 @@ type Querier interface {
 	// forced termination. Zero-row return lets the caller route active,
 	// in-flight, and already-terminal cases.
 	AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error)
+	AdvanceChannelFirmwareAuthorityRevision(ctx context.Context, arg AdvanceChannelFirmwareAuthorityRevisionParams) (ChannelFirmwareAuthority, error)
 	AdvanceFleetMetricRollupProgress(ctx context.Context, arg AdvanceFleetMetricRollupProgressParams) error
 	// Returns true if all provided device identifiers belong to the specified organization.
 	// Used for authorization checks - fails fast if any device is not owned by the org.
@@ -181,6 +182,10 @@ type Querier interface {
 	// as DISPATCHING. Same-event RELEASED rows may be reopened during a recurtail;
 	// other same-event rows and cross-event conflicts are no-ops.
 	ClaimAllPairedPolicyTargets(ctx context.Context, arg ClaimAllPairedPolicyTargetsParams) (int64, error)
+	// Authority is locked before the enforcement row. Halt/revision updates lock
+	// the same authority row, so only a claim committed before the control change
+	// can proceed.
+	ClaimChannelFirmwareEnforcement(ctx context.Context, arg ClaimChannelFirmwareEnforcementParams) (int64, error)
 	// Closed-loop FULL_FLEET dispatch claim. Locks the parent event so
 	// Stop/AdminTerminate and dynamic target claims serialize on lifecycle state.
 	// Same-event duplicates and cross-event target conflicts are no-ops; the
@@ -231,6 +236,7 @@ type Querier interface {
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
+	ConfirmChannelFirmwareEnforcement(ctx context.Context, arg ConfirmChannelFirmwareEnforcementParams) (int64, error)
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on
@@ -300,6 +306,8 @@ type Querier interface {
 	// cascade-unassign on site delete cannot collide.
 	CreateBuilding(ctx context.Context, arg CreateBuildingParams) (Building, error)
 	CreateChannelExtension(ctx context.Context, arg CreateChannelExtensionParams) (int64, error)
+	CreateChannelFirmwareAuthority(ctx context.Context, arg CreateChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error)
+	CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (ChannelFirmwareEnforcement, error)
 	// organization_id is captured from the caller's session so downstream
 	// org-scoped queries (e.g. GetBatchHeaderForOrg) can filter directly on the
 	// batch's owning organization rather than joining through user_organization.
@@ -489,6 +497,8 @@ type Querier interface {
 	// The (org, builtin_key) pair is unique among live rows via the
 	// partial index uq_role_org_builtin_key.
 	GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleForOrgParams) (Role, error)
+	GetChannelFirmwareCommandOutcome(ctx context.Context, arg GetChannelFirmwareCommandOutcomeParams) (GetChannelFirmwareCommandOutcomeRow, error)
+	GetChannelFirmwareEnforcement(ctx context.Context, id int64) (GetChannelFirmwareEnforcementRow, error)
 	GetChannelInfo(ctx context.Context, arg GetChannelInfoParams) (int64, error)
 	GetChannelInfoBatch(ctx context.Context, arg GetChannelInfoBatchParams) ([]GetChannelInfoBatchRow, error)
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
@@ -626,7 +636,7 @@ type Querier interface {
 	GetMQTTSourceConfigByOrg(ctx context.Context, arg GetMQTTSourceConfigByOrgParams) (CurtailmentMqttSourceConfig, error)
 	GetMQTTSourceStateByID(ctx context.Context, sourceConfigID int64) (CurtailmentMqttSourceState, error)
 	GetMaxPriority(ctx context.Context, orgID int64) (int32, error)
-	GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error)
+	GetMessagesToProcess(ctx context.Context, dequeueLimit int32) ([]GetMessagesToProcessRow, error)
 	GetMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (MinerCredential, error)
 	// Zone / building filters are not handled by this static query;
 	// callers with those filters route to executeModelGroupsDynamicQuery.
@@ -751,7 +761,9 @@ type Querier interface {
 	GetUserRoleInOrganization(ctx context.Context, arg GetUserRoleInOrganizationParams) (Role, error)
 	GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams) (string, error)
 	GetUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
+	HaltChannelFirmwareAuthority(ctx context.Context, arg HaltChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error)
 	HasUser(ctx context.Context) (bool, error)
+	HoldChannelFirmwareEnforcement(ctx context.Context, arg HoldChannelFirmwareEnforcementParams) (int64, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
 	// types lets the Go layer detect idempotent re-inserts via pq unique_violation.
 	//
@@ -888,6 +900,8 @@ type Querier interface {
 	// by the startup reconciler (which iterates orgs) and by the
 	// onboarding hook that seeds built-ins for a new org.
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
+	ListChannelFirmwareEnforcementsForReconcile(ctx context.Context, reconcileLimit int32) ([]ListChannelFirmwareEnforcementsForReconcileRow, error)
+	ListChannelManagedDeviceIdentifiers(ctx context.Context, arg ListChannelManagedDeviceIdentifiersParams) ([]string, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
 	// Per-device state for the selector. Returns every in-scope device;
 	// service applies skip-reason attribution. nil power/hash = stale
@@ -1201,6 +1215,9 @@ type Querier interface {
 	// between the existence check and the cascade write. Returns the
 	// site id when alive; sql.ErrNoRows when soft-deleted or missing.
 	LockSiteForWrite(ctx context.Context, arg LockSiteForWriteParams) (int64, error)
+	MarkChannelFirmwareEnforcementAttentionRequired(ctx context.Context, arg MarkChannelFirmwareEnforcementAttentionRequiredParams) (int64, error)
+	MarkChannelFirmwareEnforcementDispatched(ctx context.Context, arg MarkChannelFirmwareEnforcementDispatchedParams) (int64, error)
+	MarkChannelFirmwareEnforcementVerifying(ctx context.Context, arg MarkChannelFirmwareEnforcementVerifyingParams) (int64, error)
 	MarkCommandBatchFinished(ctx context.Context, uuid string) error
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) error
 	MarkCommandBatchProcessing(ctx context.Context, uuid string) error
@@ -1263,6 +1280,7 @@ type Querier interface {
 	// Late samples must not resurrect devices moved to UNPAIRED,
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
+	RecordChannelFirmwareObservation(ctx context.Context, arg RecordChannelFirmwareObservationParams) (int64, error)
 	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
 	// ============================================================================
 	// Error Lifecycle Management
@@ -1320,6 +1338,7 @@ type Querier interface {
 	// hide fans that remained off after a failed restore command.
 	ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
+	ReturnChannelFirmwareEnforcementPending(ctx context.Context, arg ReturnChannelFirmwareEnforcementPendingParams) (int64, error)
 	RevertScheduleToActive(ctx context.Context, id int64) error
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error
 	RevokeApiKey(ctx context.Context, arg RevokeApiKeyParams) (int64, error)

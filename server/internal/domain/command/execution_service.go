@@ -605,15 +605,17 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q sqlc.Q
 		})
 		terminal = true
 	default:
-		maxRetries := es.messageQueue.MaxFailureRetries()
+		maxAttempts := message.MaxAttempts
+		if maxAttempts <= 0 {
+			maxAttempts = es.messageQueue.MaxFailureRetries()
+		}
 		result, err = q.UpdateMessageAfterFailure(ctx, sqlc.UpdateMessageAfterFailureParams{
-			ID:         message.ID,
-			RetryCount: maxRetries,
-			ErrorInfo:  sql.NullString{String: workerError.Error(), Valid: true},
+			ID:        message.ID,
+			ErrorInfo: sql.NullString{String: workerError.Error(), Valid: true},
 		})
-		// Mirrors the SQL CASE: retry_count + 1 >= maxRetries leaves the row FAILED
+		// Mirrors the SQL CASE: retry_count + 1 >= max_attempts leaves the row FAILED
 		// (terminal); otherwise it goes back to PENDING for another attempt.
-		terminal = message.RetryCount+1 >= maxRetries
+		terminal = message.RetryCount+1 >= maxAttempts
 	}
 
 	if err != nil {

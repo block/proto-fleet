@@ -5,6 +5,7 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
+    max_attempts,
     payload
 ) VALUES (
      $1,
@@ -12,7 +13,8 @@ INSERT INTO queue_message (
      $3,
      $4,
      $5,
-     $6
+     $6,
+     $7
 );
 
 -- name: UpdateMessageStatus :execresult
@@ -25,13 +27,13 @@ WHERE id = $2
 -- name: UpdateMessageAfterFailure :execresult
 UPDATE queue_message
 SET status = CASE
-        WHEN retry_count + 1 >= $1 THEN 'FAILED'::queue_status_enum
+        WHEN retry_count + 1 >= max_attempts THEN 'FAILED'::queue_status_enum
         ELSE 'PENDING'::queue_status_enum
         END,
     retry_count = retry_count + 1,
-    error_info = $2,
+    error_info = $1,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $3
+WHERE id = $2
   AND status = 'PROCESSING';
 
 -- name: UpdateMessagePermanentlyFailed :execresult
@@ -51,12 +53,13 @@ WHERE id = $1
 
 -- name: GetMessagesToProcess :many
 SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
-       m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
+       m.retry_count, m.max_attempts, m.error_info, m.payload,
+       m.created_at, m.updated_at,
        d.org_id
 FROM queue_message m
 JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
-  AND m.retry_count < $1
+  AND m.retry_count < m.max_attempts
   AND NOT EXISTS (
     SELECT 1
     FROM queue_message earlier
@@ -65,7 +68,7 @@ WHERE m.status = 'PENDING'
       AND earlier.created_at < m.created_at
 )
 ORDER BY m.created_at
-LIMIT $2;
+LIMIT sqlc.arg('dequeue_limit');
 
 -- name: ReapStuckProcessingMessages :many
 WITH stuck AS (

@@ -54,6 +54,7 @@ func createStuckMessage(t *testing.T, conn *sql.DB, batchUUID string, deviceID i
 			DeviceID:            deviceID,
 			Status:              sqlc.QueueStatusEnumPROCESSING,
 			RetryCount:          0,
+			MaxAttempts:         5,
 			Payload:             pqtype.NullRawMessage{Valid: false},
 		})
 	})
@@ -120,6 +121,9 @@ func (n *noopMessageQueue) Enqueue(_ context.Context, _ string, _ commandtype.Ty
 	return nil
 }
 func (n *noopMessageQueue) EnqueueMany(_ context.Context, _ string, _ commandtype.Type, _ []queue.EnqueueMessage) error {
+	return nil
+}
+func (n *noopMessageQueue) EnqueueCommandBatch(_ context.Context, _ queue.CommandBatch) error {
 	return nil
 }
 func (n *noopMessageQueue) Dequeue(ctx context.Context, _ int32) ([]queue.Message, error) {
@@ -226,6 +230,7 @@ func TestReaperIntegration(t *testing.T) {
 				DeviceID:            device.DatabaseID,
 				Status:              sqlc.QueueStatusEnumSUCCESS,
 				RetryCount:          0,
+				MaxAttempts:         5,
 				Payload:             pqtype.NullRawMessage{Valid: false},
 			})
 		})

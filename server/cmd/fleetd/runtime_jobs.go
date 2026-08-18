@@ -197,6 +197,7 @@ type runtimeJobLifecycles struct {
 	commandExecution          runtimejobs.Lifecycle
 	scheduleProcessor         runtimejobs.Lifecycle
 	curtailmentReconciler     runtimejobs.Lifecycle
+	channelEnforcement        runtimejobs.Lifecycle
 	curtailmentMQTTSubscriber runtimejobs.Lifecycle
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
@@ -230,6 +231,7 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		{name: "command-execution", lifecycle: commandExecution},
 		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
+		{name: "channel-enforcement", lifecycle: lifecycles.channelEnforcement},
 		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
 	}
 	for _, job := range required {

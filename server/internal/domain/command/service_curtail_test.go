@@ -49,6 +49,18 @@ func (f *fakeMessageQueue) EnqueueMany(_ context.Context, batchUUID string, ct c
 	return f.enqueueReturnError
 }
 
+func (f *fakeMessageQueue) EnqueueCommandBatch(_ context.Context, batch queue.CommandBatch) error {
+	f.enqueueCalls++
+	f.lastBatchUUID = batch.Identifier
+	f.lastCommandType = batch.CommandType
+	f.lastDeviceIDs = f.lastDeviceIDs[:0]
+	for _, message := range batch.Messages {
+		f.lastDeviceIDs = append(f.lastDeviceIDs, message.DeviceID)
+		f.lastPayload = message.Payload
+	}
+	return f.enqueueReturnError
+}
+
 func (f *fakeMessageQueue) Dequeue(context.Context, int32) ([]queue.Message, error) {
 	panic("Dequeue not used")
 }

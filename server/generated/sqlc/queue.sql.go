@@ -32,6 +32,7 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
+    max_attempts,
     payload
 ) VALUES (
      $1,
@@ -39,7 +40,8 @@ INSERT INTO queue_message (
      $3,
      $4,
      $5,
-     $6
+     $6,
+     $7
 )
 `
 
@@ -49,6 +51,7 @@ type CreateQueueMessageParams struct {
 	DeviceID            int64
 	Status              QueueStatusEnum
 	RetryCount          int32
+	MaxAttempts         int32
 	Payload             pqtype.NullRawMessage
 }
 
@@ -59,6 +62,7 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 		arg.DeviceID,
 		arg.Status,
 		arg.RetryCount,
+		arg.MaxAttempts,
 		arg.Payload,
 	)
 	return err
@@ -66,12 +70,13 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
 SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
-       m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
+       m.retry_count, m.max_attempts, m.error_info, m.payload,
+       m.created_at, m.updated_at,
        d.org_id
 FROM queue_message m
 JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
-  AND m.retry_count < $1
+  AND m.retry_count < m.max_attempts
   AND NOT EXISTS (
     SELECT 1
     FROM queue_message earlier
@@ -80,13 +85,8 @@ WHERE m.status = 'PENDING'
       AND earlier.created_at < m.created_at
 )
 ORDER BY m.created_at
-LIMIT $2
+LIMIT $1
 `
-
-type GetMessagesToProcessParams struct {
-	RetryCount int32
-	Limit      int32
-}
 
 type GetMessagesToProcessRow struct {
 	ID                  int64
@@ -95,6 +95,7 @@ type GetMessagesToProcessRow struct {
 	CommandType         string
 	Status              QueueStatusEnum
 	RetryCount          int32
+	MaxAttempts         int32
 	ErrorInfo           sql.NullString
 	Payload             pqtype.NullRawMessage
 	CreatedAt           time.Time
@@ -102,8 +103,8 @@ type GetMessagesToProcessRow struct {
 	OrgID               int64
 }
 
-func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error) {
-	rows, err := q.query(ctx, q.getMessagesToProcessStmt, getMessagesToProcess, arg.RetryCount, arg.Limit)
+func (q *Queries) GetMessagesToProcess(ctx context.Context, dequeueLimit int32) ([]GetMessagesToProcessRow, error) {
+	rows, err := q.query(ctx, q.getMessagesToProcessStmt, getMessagesToProcess, dequeueLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +119,7 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 			&i.CommandType,
 			&i.Status,
 			&i.RetryCount,
+			&i.MaxAttempts,
 			&i.ErrorInfo,
 			&i.Payload,
 			&i.CreatedAt,
@@ -304,24 +306,23 @@ func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuck
 const updateMessageAfterFailure = `-- name: UpdateMessageAfterFailure :execresult
 UPDATE queue_message
 SET status = CASE
-        WHEN retry_count + 1 >= $1 THEN 'FAILED'::queue_status_enum
+        WHEN retry_count + 1 >= max_attempts THEN 'FAILED'::queue_status_enum
         ELSE 'PENDING'::queue_status_enum
         END,
     retry_count = retry_count + 1,
-    error_info = $2,
+    error_info = $1,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $3
+WHERE id = $2
   AND status = 'PROCESSING'
 `
 
 type UpdateMessageAfterFailureParams struct {
-	RetryCount int32
-	ErrorInfo  sql.NullString
-	ID         int64
+	ErrorInfo sql.NullString
+	ID        int64
 }
 
 func (q *Queries) UpdateMessageAfterFailure(ctx context.Context, arg UpdateMessageAfterFailureParams) (sql.Result, error) {
-	return q.exec(ctx, q.updateMessageAfterFailureStmt, updateMessageAfterFailure, arg.RetryCount, arg.ErrorInfo, arg.ID)
+	return q.exec(ctx, q.updateMessageAfterFailureStmt, updateMessageAfterFailure, arg.ErrorInfo, arg.ID)
 }
 
 const updateMessagePermanentlyFailed = `-- name: UpdateMessagePermanentlyFailed :execresult

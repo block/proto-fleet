@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,9 +17,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	queueMocks "github.com/block/proto-fleet/server/internal/infrastructure/queue/mocks"
 )
 
@@ -371,4 +374,91 @@ func TestProcessCommand_FirmwareUpdateHoldsMetadataLeaseThroughDispatch(t *testi
 	require.NotNil(t, outcome.result)
 	assert.Equal(t, "batch-1", outcome.result.BatchIdentifier)
 	require.NoError(t, <-updateDone)
+}
+
+func TestChannelFirmwareUpdateAtomicallyEnqueuesOneAttempt(t *testing.T) {
+	t.Chdir(t.TempDir())
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	fileID, err := filesService.SaveFirmwareFile(
+		"update.swu",
+		strings.NewReader("firmware"),
+		files.FirmwareMetadata{
+			TargetManufacturer: "Proto",
+			TargetModel:        "Rig",
+			FirmwareVersion:    "2.0.0",
+		},
+	)
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	deviceStore := storeMocks.NewMockDeviceStore(ctrl)
+	messageQueue := queueMocks.NewMockMessageQueue(ctrl)
+	deviceStore.EXPECT().GetDevicePropertiesForRename(
+		gomock.Any(),
+		int64(7),
+		[]string{"device-1"},
+		false,
+	).Return([]stores.DeviceRenameProperties{{
+		DeviceIdentifier: "device-1",
+		Manufacturer:     "Proto",
+		Model:            "Rig",
+	}}, nil)
+	messageQueue.EXPECT().EnqueueCommandBatch(
+		gomock.Any(),
+		gomock.Any(),
+	).DoAndReturn(func(_ context.Context, batch queue.CommandBatch) error {
+		assert.Equal(t, "batch-channel-1", batch.Identifier)
+		assert.Equal(t, commandtype.FirmwareUpdate, batch.CommandType)
+		assert.Equal(t, int64(7), batch.OrgID)
+		assert.Equal(t, int32(1), batch.MaxAttempts)
+		require.Len(t, batch.Messages, 1)
+		assert.Equal(t, int64(101), batch.Messages[0].DeviceID)
+		assert.Equal(t, dto.FirmwareUpdatePayload{FirmwareFileID: fileID}, batch.Messages[0].Payload)
+		return nil
+	})
+
+	svc := &Service{
+		config:           &Config{},
+		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
+		messageQueue:     messageQueue,
+		filesService:     filesService,
+		deviceStore:      deviceStore,
+		resolveDevicesOverride: func(_ context.Context, identifiers []string) ([]resolvedDevice, error) {
+			return []resolvedDevice{{id: 101, identifier: identifiers[0]}}, nil
+		},
+		startStatusUpdateRoutineOverride: func(string, onFinishedCallbackFunc) {},
+	}
+	info, err := session.GetInfo(manualSessionCtx(7))
+	require.NoError(t, err)
+	actorInfo := *info
+	actorInfo.Actor = session.ActorChannelEnforcement
+	ctx := authn.SetInfo(t.Context(), &actorInfo)
+
+	result, err := svc.ChannelFirmwareUpdate(
+		ctx,
+		includeSelector("device-1"),
+		fileID,
+		"batch-channel-1",
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "batch-channel-1", result.BatchIdentifier)
+	assert.Equal(t, 1, result.DispatchedCount)
+}
+
+func TestChannelFirmwareUpdateRejectsNonEnforcementActor(t *testing.T) {
+	svc := &Service{}
+
+	result, err := svc.ChannelFirmwareUpdate(
+		manualSessionCtx(7),
+		includeSelector("device-1"),
+		"firmware-1",
+		"batch-channel-1",
+	)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Nil(t, result)
 }

@@ -119,6 +119,11 @@ type Command struct {
 	payload        interface{}
 }
 
+type processCommandOptions struct {
+	commandBatchIdentifier string
+	queueMaxAttempts       int32
+}
+
 // NewService creates a new command service instance
 func NewService(config *Config, conn *sql.DB, executionService *ExecutionService, messageQueue queue.MessageQueue, statusService *StatusService, encryptService *encrypt.Service, filesService *files.Service, deviceStore stores.DeviceStore, userStore stores.UserStore, credentialsVerifier UserCredentialsVerifier, telemetryListener TelemetryListener, capabilitiesProvider CapabilitiesProvider, activitySvc *activity.Service) *Service {
 	return &Service{
@@ -173,6 +178,8 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 		return activitymodels.ActorScheduler
 	case session.ActorCurtailment:
 		return activitymodels.ActorCurtailment
+	case session.ActorChannelEnforcement:
+		return activitymodels.ActorSystem
 	}
 	return ""
 }
@@ -318,6 +325,11 @@ func preflightBlockedMessage(requestedCount int, skipped []SkippedDevice) string
 		return fmt.Sprintf(
 			"command blocked: %d of %d %s %s part of an active curtailment event",
 			len(skipped), requestedCount, deviceNoun, verb)
+	}
+	if skipsOnlyFromFilter(skipped, ChannelManagedFilterName) {
+		return fmt.Sprintf(
+			"firmware update blocked: %d of %d device(s) are managed by a software channel",
+			len(skipped), requestedCount)
 	}
 	return fmt.Sprintf(
 		"command blocked: %d of %d device(s) excluded by preflight filters",
@@ -845,6 +857,14 @@ func commandPayloadRedacted(kind string) map[string]any {
 // enqueues work. External callers fail on skips; internal callers may inspect
 // CommandResult.Skipped.
 func (s *Service) processCommand(ctx context.Context, command *Command) (*CommandResult, error) {
+	return s.processCommandWithOptions(ctx, command, processCommandOptions{})
+}
+
+func (s *Service) processCommandWithOptions(
+	ctx context.Context,
+	command *Command,
+	options processCommandOptions,
+) (*CommandResult, error) {
 	if !s.executionService.IsRunning() {
 		return nil, fleeterror.NewNotActiveError()
 	}
@@ -948,6 +968,44 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 			return &CommandResult{Skipped: skipped}, nil
 		}
 		return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
+	}
+
+	if options.commandBatchIdentifier != "" {
+		queueMessages := queuePayloads
+		if len(queueMessages) == 0 {
+			queueMessages = make([]queue.EnqueueMessage, 0, len(deviceIDs))
+			for _, deviceID := range deviceIDs {
+				queueMessages = append(queueMessages, queue.EnqueueMessage{
+					DeviceID: deviceID,
+					Payload:  command.payload,
+				})
+			}
+		}
+		err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+			return s.messageQueue.EnqueueCommandBatch(workCtx, queue.CommandBatch{
+				Identifier:  options.commandBatchIdentifier,
+				CommandType: command.commandType,
+				CreatedBy:   info.UserID,
+				OrgID:       info.OrganizationID,
+				LogPayload:  payloadBytes,
+				Messages:    queueMessages,
+				MaxAttempts: options.queueMaxAttempts,
+			})
+		})
+		if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+			return nil, enqueueUncertain(
+				fleeterror.NewInternalError("command execution service stopped during atomic enqueue"))
+		}
+		if err != nil {
+			return nil, enqueueUncertain(
+				fleeterror.NewInternalErrorf("atomically enqueue command batch: %v", err))
+		}
+		return &CommandResult{
+			BatchIdentifier:             options.commandBatchIdentifier,
+			DispatchedCount:             len(deviceIDs),
+			Skipped:                     skipped,
+			DispatchedDeviceIdentifiers: dispatchedIdentifiers,
+		}, nil
 	}
 
 	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes, len(deviceIDs))
@@ -1499,6 +1557,7 @@ func (s *Service) enqueueWorkerNameReapplyMessages(
 				DeviceID:            deviceIDsByIdentifier[deviceIdentifier],
 				Status:              sqlc.QueueStatusEnumPENDING,
 				RetryCount:          0,
+				MaxAttempts:         s.messageQueue.MaxFailureRetries(),
 				Payload:             pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: true},
 			}); err != nil {
 				return fleeterror.NewInternalErrorf("failed to enqueue worker-name reapply message: %v", err)
@@ -1554,6 +1613,48 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, err
 	}
 	s.finalizeDispatch(ctx, result, "firmware_update", "Update firmware")
+	return result, nil
+}
+
+const channelFirmwareQueueMaxAttempts int32 = 1
+
+// ChannelFirmwareUpdate is the only channel-managed firmware dispatch path.
+// Its command batch and queue message become durable atomically, and the queue
+// permits exactly one worker attempt.
+func (s *Service) ChannelFirmwareUpdate(
+	ctx context.Context,
+	deviceSelector *pb.DeviceSelector,
+	firmwareFileID string,
+	commandBatchIdentifier string,
+) (*CommandResult, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+	}
+	if info.Actor != session.ActorChannelEnforcement {
+		return nil, fleeterror.NewFailedPreconditionError(
+			"channel firmware updates require the channel enforcement actor")
+	}
+	if strings.TrimSpace(commandBatchIdentifier) == "" {
+		return nil, fleeterror.NewInvalidArgumentError("command batch identifier is required")
+	}
+	if _, err := s.filesService.GetFirmwareFilePath(firmwareFileID); err != nil {
+		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
+	}
+
+	payload := dto.FirmwareUpdatePayload{FirmwareFileID: firmwareFileID}
+	result, err := s.processCommandWithOptions(ctx, &Command{
+		commandType:    commandtype.FirmwareUpdate,
+		deviceSelector: deviceSelector,
+		payload:        payload,
+	}, processCommandOptions{
+		commandBatchIdentifier: commandBatchIdentifier,
+		queueMaxAttempts:       channelFirmwareQueueMaxAttempts,
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.finalizeDispatch(ctx, result, "firmware_update", "Update channel firmware")
 	return result, nil
 }
 
