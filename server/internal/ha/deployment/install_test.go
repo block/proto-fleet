@@ -246,7 +246,7 @@ func TestInitialStartCleansUpFailedWitnessService(t *testing.T) {
 		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			call := strings.Join(append([]string{name}, args...), " ")
 			calls = append(calls, call)
-			if call == "sudo systemctl is-failed proto-fleet-ha.service" {
+			if call == "sudo systemctl is-active proto-fleet-ha.service" {
 				return []byte("failed\n"), nil
 			}
 			return nil, nil
@@ -263,6 +263,39 @@ func TestInitialStartCleansUpFailedWitnessService(t *testing.T) {
 	require.ErrorContains(t, err, "proto-fleet-ha.service failed")
 	require.NotErrorIs(t, err, errInstallConverging)
 	require.Contains(t, strings.Join(calls, "\n"), "sudo systemctl disable --now proto-fleet-ha.service")
+}
+
+func TestInitialStartWaitsForWitnessServiceToBecomeActive(t *testing.T) {
+	// Arrange
+	config := NodeConfig{NodeName: "ha-c", NodeIP: testHostIPs[2], WitnessIP: testHostIPs[2]}
+	stateChecks := 0
+	vipChecks := 0
+	deps := installDependencies{
+		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			if strings.Join(append([]string{name}, args...), " ") != "sudo systemctl is-active proto-fleet-ha.service" {
+				return nil, nil
+			}
+			stateChecks++
+			if stateChecks == 1 {
+				return []byte("activating\n"), nil
+			}
+			return []byte("active\n"), nil
+		},
+		localReady: func(context.Context, NodeConfig) error { return nil },
+		vipReady: func(context.Context, NodeConfig) bool {
+			vipChecks++
+			return true
+		},
+		sleep: func(time.Duration) {},
+	}
+
+	// Act
+	err := initialStart(t.Context(), config, deps)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, 2, stateChecks)
+	require.Equal(t, 1, vipChecks)
 }
 
 func TestInitialStartCleansUpWhenLocalEtcdDoesNotStart(t *testing.T) {
