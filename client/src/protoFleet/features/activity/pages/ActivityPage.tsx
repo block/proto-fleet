@@ -113,7 +113,15 @@ const ActivityPageContent = () => {
     scopeFilter,
   ]);
 
-  const { activities, totalCount, isLoading, error, hasMore, loadMore } = useActivity({
+  const {
+    activities,
+    totalCount,
+    isLoading,
+    error,
+    denied: activityDenied,
+    hasMore,
+    loadMore,
+  } = useActivity({
     filter,
     pageSize: PAGE_SIZE,
     enabled: canReadActivity,
@@ -121,7 +129,9 @@ const ActivityPageContent = () => {
   const { exportCsv, isExportingCsv } = useExportActivity();
   const { eventTypes, scopeTypes, users } = useActivityFilterOptions({ enabled: canReadActivity });
 
-  const includeAlerts = canViewAlerts && alertsMatchFilter(filter);
+  // A server-side activity denial leaves the activity-only criteria (user, search, other types) with no
+  // feed to apply to, so they must not also exclude the still-authorized alert feed.
+  const includeAlerts = canViewAlerts && (activityDenied || alertsMatchFilter(filter));
   const alerts = includeAlerts ? alertFeed : EMPTY_PAGED_ALERTS;
   const alertEntries = useMemo(() => alerts.items.map(activityEntryFromAlert), [alerts.items]);
   // Scope filtering runs on the merged output: the merge must see every loaded alert row so its pause

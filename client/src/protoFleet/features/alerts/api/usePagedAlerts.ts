@@ -75,6 +75,9 @@ export function usePagedAlerts(
       retryTimerRef.current = null;
     }
   }, []);
+  // The scheduled retry dereferences this at fire time (useActivity's fetchRef pattern), so it calls the
+  // current loadPage without the callback closing over itself.
+  const loadPageRef = useRef<(pageCursor?: string) => Promise<void>>(async () => {});
 
   // A cursor appends, no cursor replaces: the first page of a newly mounted table.
   const loadPage = useCallback(
@@ -113,7 +116,7 @@ export function usePagedAlerts(
               // merged feed keeps treating the empty feed as exhausted rather than re-blocking on it.
               const delay = retryDelayRef.current;
               retryDelayRef.current = Math.min(delay * 2, FIRST_PAGE_RETRY_MAX_MS);
-              retryTimerRef.current = setTimeout(() => void loadPage(), delay);
+              retryTimerRef.current = setTimeout(() => void loadPageRef.current(), delay);
             }
             setError(getErrorMessage(e, errorFallback));
           },
@@ -126,6 +129,10 @@ export function usePagedAlerts(
     },
     [activeOnly, alertName, clearRetry, errorFallback, handleAuthErrors, ruleGroup],
   );
+
+  useEffect(() => {
+    loadPageRef.current = loadPage;
+  }, [loadPage]);
 
   useEffect(() => {
     if (!enabled) {

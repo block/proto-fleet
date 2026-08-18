@@ -359,6 +359,29 @@ describe("ActivityPage", () => {
       expect(screen.getByTestId("activity-table").textContent).toBe("alert-9");
     });
 
+    it("keeps the alert feed when activity-only filters outlive a server-side activity denial", () => {
+      // The cached client permission still enables the hook; the server denies and the hook reports it.
+      useActivityMock.mockImplementation(({ filter }: { filter?: ActivityFilter }) => {
+        listFilter = filter;
+        return {
+          activities: [],
+          totalCount: 0,
+          isLoading: false,
+          error: "permission denied",
+          denied: true,
+          hasMore: false,
+          loadMore: vi.fn(),
+          refresh: vi.fn(),
+        };
+      });
+      usePagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ items: [alertItem] }));
+
+      render(<ActivityPage />);
+      act(() => filtersOnTypesChangeMock.current?.(["login"]));
+
+      expect(screen.getByTestId("activity-table").textContent).toBe("alert-9");
+    });
+
     it("does not hold activities back behind scope-filtered alert rows", () => {
       useActivityMock.mockReturnValue({
         activities: [

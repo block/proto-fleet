@@ -220,6 +220,7 @@ describe("useActivity", () => {
 
     expect(mockHandleAuthErrors).toHaveBeenCalledWith(expect.objectContaining({ error: testError }));
     expect(result.current.error).toBeTruthy();
+    expect(result.current.denied).toBe(false);
     expect(result.current.activities).toHaveLength(0);
   });
 
@@ -240,6 +241,7 @@ describe("useActivity", () => {
 
     await waitFor(() => expect(result.current.error).toBeTruthy());
     // The stale next-page token must not keep the feed resumable or hold the merged feed's barrier.
+    expect(result.current.denied).toBe(true);
     expect(result.current.activities).toHaveLength(0);
     expect(result.current.hasMore).toBe(false);
     expect(result.current.totalCount).toBe(0);

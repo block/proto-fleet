@@ -7,7 +7,7 @@ import {
   ActivityFilterSchema,
 } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
+import { isAuthOrPermissionError, isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface UseActivityParams {
@@ -22,6 +22,9 @@ interface UseActivityResult {
   totalCount: number;
   isLoading: boolean;
   error: string | null;
+  // Denial sets error too; the flag lets a caller with another feed keep it usable (activity:read was
+  // revoked server-side while the client's cached permission still enables this hook).
+  denied: boolean;
   hasMore: boolean;
   loadMore: () => void;
   refresh: () => void;
@@ -34,6 +37,8 @@ export function useActivity({ filter, pageSize = 50, enabled = true }: UseActivi
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sticky across the retry cycle: only a successful request clears it, so callers don't flicker.
+  const [denied, setDenied] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [pageToken, setPageToken] = useState("");
 
@@ -65,6 +70,7 @@ export function useActivity({ filter, pageSize = 50, enabled = true }: UseActivi
 
         setPageToken(nextPageToken);
         setHasMore(nextPageToken !== "");
+        setDenied(false);
       } catch (err) {
         if (requestId !== requestIdRef.current) return;
         handleAuthErrors({
@@ -77,6 +83,7 @@ export function useActivity({ filter, pageSize = 50, enabled = true }: UseActivi
               setTotalCount(0);
               setPageToken("");
               setHasMore(false);
+              setDenied(isPermissionDeniedError(e));
             }
             setError(getErrorMessage(e, "Failed to load activities"));
           },
@@ -178,6 +185,7 @@ export function useActivity({ filter, pageSize = 50, enabled = true }: UseActivi
     totalCount,
     isLoading: enabled && isLoading,
     error: enabled ? error : null,
+    denied: enabled && denied,
     hasMore,
     loadMore,
     refresh,
