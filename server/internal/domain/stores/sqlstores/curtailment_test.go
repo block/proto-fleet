@@ -241,6 +241,24 @@ func TestBuildCurtailmentTopologyScopeCoverage(t *testing.T) {
 		assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	})
 
+	t.Run("rack with unavailable building site is not treated as mismatched", func(t *testing.T) {
+		t.Parallel()
+		coverage, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{8},
+			[]curtailmentTopologyCoverageRow{
+				{
+					selectorID:     8,
+					resourceSiteID: validSite(11),
+					buildingID:     validDevice(3),
+				},
+			},
+			"racks",
+			assignedResourceRules,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, []int64{11}, coverage.SiteIDs)
+	})
+
 	t.Run("missing rack takes precedence over site mismatch", func(t *testing.T) {
 		t.Parallel()
 		_, err := buildCurtailmentTopologyScopeCoverage(

@@ -283,7 +283,7 @@ func (s *ResponseProfileService) validateResponseProfileScope(ctx context.Contex
 	if listCandidatesFilterHasTopology(filter) {
 		resolver, ok := s.store.(interfaces.CurtailmentTopologyScopeStore)
 		if !ok {
-			return fleeterror.NewUnimplementedError("curtailment topology scope resolver is not configured")
+			return fleeterror.NewInternalError("curtailment topology scope resolver is not configured")
 		}
 		_, err = resolver.ResolveCurtailmentTopologyScope(ctx, filter)
 		return err

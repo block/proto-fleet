@@ -2135,7 +2135,8 @@ func buildCurtailmentTopologyScopeCoverage(
 	for _, row := range rows {
 		if row.selectorID > 0 {
 			selectorHasMembers[row.selectorID] = selectorHasMembers[row.selectorID] || row.selectorHasMembers
-			if mismatchedRackID == 0 && row.buildingID.Valid && row.resourceSiteID != row.buildingSiteID {
+			if mismatchedRackID == 0 && row.buildingID.Valid && row.resourceSiteID.Valid &&
+				row.buildingSiteID.Valid && row.resourceSiteID.Int64 != row.buildingSiteID.Int64 {
 				mismatchedRackID = row.selectorID
 			}
 			if rules.requireAssignedResource {

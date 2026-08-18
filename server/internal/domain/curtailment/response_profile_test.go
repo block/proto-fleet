@@ -348,6 +348,32 @@ func TestResponseProfileService_CreateRejectsMissingTopologyResource(t *testing.
 	assert.Nil(t, store.created)
 }
 
+func TestResponseProfileService_CreateReturnsInternalWhenTopologyResolverIsMissing(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	storeWithoutTopology := struct {
+		interfaces.ResponseProfileStore
+	}{ResponseProfileStore: store}
+
+	_, err := NewResponseProfileService(storeWithoutTopology).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Building shed",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+			ScopeJSON:   []byte(`{"scope_schema_version":1,"building_ids":[7]}`),
+		},
+	})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, fleeterror.NewInternalError("").GRPCCode, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "topology scope resolver is not configured")
+}
+
 func TestResponseProfileService_CreateEnforcesResolvedMinerLimit(t *testing.T) {
 	t.Parallel()
 
