@@ -885,15 +885,15 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 		return nil
 	}
 	for {
+		if state, _ := systemdUnitState(ctx, deps, "is-failed", "proto-fleet-ha.service"); state == "failed" {
+			return stopIncompleteHA(ctx, deps, errors.New("proto-fleet-ha.service failed; inspect journalctl -u proto-fleet-ha.service"), false)
+		}
 		if deps.vipReady(ctx, config) {
 			fmt.Println("[final readiness] Fleet is reachable through the virtual IP")
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
-		}
-		if state, _ := systemdUnitState(ctx, deps, "is-failed", "proto-fleet-ha.service"); state == "failed" {
-			return stopIncompleteHA(ctx, deps, errors.New("proto-fleet-ha.service failed; inspect journalctl -u proto-fleet-ha.service"), false)
 		}
 		deps.sleep(2 * time.Second)
 	}

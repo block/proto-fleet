@@ -33,7 +33,7 @@ stable LAN address is supported.
 ## Install
 
 The installer targets dedicated apt/systemd hosts on amd64 or arm64 with a
-4096-byte page size and the base `sudo` and `iproute2` packages:
+4096-byte page size and the base `sudo`, `curl`, and `iproute2` packages:
 
 - Debian 12 or 13
 - Ubuntu 22.04 or 24.04

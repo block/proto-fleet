@@ -71,7 +71,7 @@ type guidedInstallDependencies struct {
 	sourceRoot       func() (string, error)
 	primaryIdentity  func(context.Context, string) (hostIdentity, error)
 	interfaceForIP   func(string) (string, error)
-	makeExportDir    func(string) (string, error)
+	makeExportDir    func() (string, error)
 	operatorUsername func() string
 	checkPeer        func(context.Context, string, string) error
 	transferBundle   func(context.Context, string, string, string) error
@@ -108,7 +108,8 @@ func defaultGuidedInstallDependencies() guidedInstallDependencies {
 		makeExportDir:    makeBundleExportDir,
 		operatorUsername: invokingUsername,
 		checkPeer: func(ctx context.Context, localUsername, target string) error {
-			return runSSH(ctx, localUsername, nil, target, "true")
+			return runSSH(ctx, localUsername, nil, target,
+				`command -v curl >/dev/null 2>&1 || { echo "curl is required for Proto Fleet HA installation" >&2; exit 1; }`)
 		},
 		transferBundle: func(ctx context.Context, localUsername, target, bundlePath string) error {
 			bundle, err := os.Open(bundlePath)
@@ -208,7 +209,7 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if err := writeInstallerOutput(deps.output, "[bundle generation] Creating protected host bundles...\n"); err != nil {
 		return err
 	}
-	exportDir, err := deps.makeExportDir(source)
+	exportDir, err := deps.makeExportDir()
 	if err != nil {
 		return err
 	}
@@ -247,8 +248,8 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	return printPeerInstallCommands(deps.output, peerUsername, metadata)
 }
 
-func makeBundleExportDir(source string) (string, error) {
-	dir, err := os.MkdirTemp(filepath.Dir(source), "proto-fleet-ha-bundles-")
+func makeBundleExportDir() (string, error) {
+	dir, err := os.MkdirTemp("", "proto-fleet-ha-bundles-")
 	if err != nil {
 		return "", fmt.Errorf("create protected bundle export directory: %w", err)
 	}

@@ -246,13 +246,13 @@ func TestInitialStartCleansUpFailedWitnessService(t *testing.T) {
 		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			call := strings.Join(append([]string{name}, args...), " ")
 			calls = append(calls, call)
-			if call == "systemctl is-failed proto-fleet-ha.service" {
+			if call == "sudo systemctl is-failed proto-fleet-ha.service" {
 				return []byte("failed\n"), nil
 			}
 			return nil, nil
 		},
 		localReady: func(context.Context, NodeConfig) error { return nil },
-		vipReady:   func(context.Context, NodeConfig) bool { return false },
+		vipReady:   func(context.Context, NodeConfig) bool { return true },
 		sleep:      func(time.Duration) {},
 	}
 
