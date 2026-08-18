@@ -201,11 +201,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.closeStaleErrorsStmt, err = db.PrepareContext(ctx, closeStaleErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CloseStaleErrors: %w", err)
 	}
+	if q.completeBetweenChannelRolloutStmt, err = db.PrepareContext(ctx, completeBetweenChannelRollout); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteBetweenChannelRollout: %w", err)
+	}
 	if q.completeFirmwareRolloutBatchesStmt, err = db.PrepareContext(ctx, completeFirmwareRolloutBatches); err != nil {
 		return nil, fmt.Errorf("error preparing query CompleteFirmwareRolloutBatches: %w", err)
 	}
 	if q.completeFirmwareRolloutRevertMembersStmt, err = db.PrepareContext(ctx, completeFirmwareRolloutRevertMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query CompleteFirmwareRolloutRevertMembers: %w", err)
+	}
+	if q.completeSettledBetweenChannelBatchStmt, err = db.PrepareContext(ctx, completeSettledBetweenChannelBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteSettledBetweenChannelBatch: %w", err)
+	}
+	if q.completeSettledBetweenChannelBatchesStmt, err = db.PrepareContext(ctx, completeSettledBetweenChannelBatches); err != nil {
+		return nil, fmt.Errorf("error preparing query CompleteSettledBetweenChannelBatches: %w", err)
 	}
 	if q.confirmChannelFirmwareEnforcementStmt, err = db.PrepareContext(ctx, confirmChannelFirmwareEnforcement); err != nil {
 		return nil, fmt.Errorf("error preparing query ConfirmChannelFirmwareEnforcement: %w", err)
@@ -569,6 +578,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getBetweenChannelFinalizationForUpdateStmt, err = db.PrepareContext(ctx, getBetweenChannelFinalizationForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBetweenChannelFinalizationForUpdate: %w", err)
+	}
+	if q.getBetweenChannelForwardSettlementStmt, err = db.PrepareContext(ctx, getBetweenChannelForwardSettlement); err != nil {
+		return nil, fmt.Errorf("error preparing query GetBetweenChannelForwardSettlement: %w", err)
+	}
+	if q.getBetweenChannelRevertSettlementStmt, err = db.PrepareContext(ctx, getBetweenChannelRevertSettlement); err != nil {
+		return nil, fmt.Errorf("error preparing query GetBetweenChannelRevertSettlement: %w", err)
 	}
 	if q.getBuildingStmt, err = db.PrepareContext(ctx, getBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBuilding: %w", err)
@@ -1401,6 +1416,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.markCommandBatchProcessingStmt, err = db.PrepareContext(ctx, markCommandBatchProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchProcessing: %w", err)
 	}
+	if q.moveBetweenChannelRolloutToReviewStmt, err = db.PrepareContext(ctx, moveBetweenChannelRolloutToReview); err != nil {
+		return nil, fmt.Errorf("error preparing query MoveBetweenChannelRolloutToReview: %w", err)
+	}
 	if q.moveFirmwareRolloutToReviewAfterControlFailureStmt, err = db.PrepareContext(ctx, moveFirmwareRolloutToReviewAfterControlFailure); err != nil {
 		return nil, fmt.Errorf("error preparing query MoveFirmwareRolloutToReviewAfterControlFailure: %w", err)
 	}
@@ -2172,6 +2190,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing closeStaleErrorsStmt: %w", cerr)
 		}
 	}
+	if q.completeBetweenChannelRolloutStmt != nil {
+		if cerr := q.completeBetweenChannelRolloutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeBetweenChannelRolloutStmt: %w", cerr)
+		}
+	}
 	if q.completeFirmwareRolloutBatchesStmt != nil {
 		if cerr := q.completeFirmwareRolloutBatchesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing completeFirmwareRolloutBatchesStmt: %w", cerr)
@@ -2180,6 +2203,16 @@ func (q *Queries) Close() error {
 	if q.completeFirmwareRolloutRevertMembersStmt != nil {
 		if cerr := q.completeFirmwareRolloutRevertMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing completeFirmwareRolloutRevertMembersStmt: %w", cerr)
+		}
+	}
+	if q.completeSettledBetweenChannelBatchStmt != nil {
+		if cerr := q.completeSettledBetweenChannelBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeSettledBetweenChannelBatchStmt: %w", cerr)
+		}
+	}
+	if q.completeSettledBetweenChannelBatchesStmt != nil {
+		if cerr := q.completeSettledBetweenChannelBatchesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing completeSettledBetweenChannelBatchesStmt: %w", cerr)
 		}
 	}
 	if q.confirmChannelFirmwareEnforcementStmt != nil {
@@ -2785,6 +2818,16 @@ func (q *Queries) Close() error {
 	if q.getBetweenChannelFinalizationForUpdateStmt != nil {
 		if cerr := q.getBetweenChannelFinalizationForUpdateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getBetweenChannelFinalizationForUpdateStmt: %w", cerr)
+		}
+	}
+	if q.getBetweenChannelForwardSettlementStmt != nil {
+		if cerr := q.getBetweenChannelForwardSettlementStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getBetweenChannelForwardSettlementStmt: %w", cerr)
+		}
+	}
+	if q.getBetweenChannelRevertSettlementStmt != nil {
+		if cerr := q.getBetweenChannelRevertSettlementStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getBetweenChannelRevertSettlementStmt: %w", cerr)
 		}
 	}
 	if q.getBuildingStmt != nil {
@@ -4172,6 +4215,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing markCommandBatchProcessingStmt: %w", cerr)
 		}
 	}
+	if q.moveBetweenChannelRolloutToReviewStmt != nil {
+		if cerr := q.moveBetweenChannelRolloutToReviewStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing moveBetweenChannelRolloutToReviewStmt: %w", cerr)
+		}
+	}
 	if q.moveFirmwareRolloutToReviewAfterControlFailureStmt != nil {
 		if cerr := q.moveFirmwareRolloutToReviewAfterControlFailureStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing moveFirmwareRolloutToReviewAfterControlFailureStmt: %w", cerr)
@@ -5055,8 +5103,11 @@ type Queries struct {
 	clearRackSlotPositionStmt                                    *sql.Stmt
 	clearRolePermissionsStmt                                     *sql.Stmt
 	closeStaleErrorsStmt                                         *sql.Stmt
+	completeBetweenChannelRolloutStmt                            *sql.Stmt
 	completeFirmwareRolloutBatchesStmt                           *sql.Stmt
 	completeFirmwareRolloutRevertMembersStmt                     *sql.Stmt
+	completeSettledBetweenChannelBatchStmt                       *sql.Stmt
+	completeSettledBetweenChannelBatchesStmt                     *sql.Stmt
 	confirmChannelFirmwareEnforcementStmt                        *sql.Stmt
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
@@ -5178,6 +5229,8 @@ type Queries struct {
 	getBatchStatusAndDeviceCountsStmt                            *sql.Stmt
 	getBetweenChannelCompletionCountsStmt                        *sql.Stmt
 	getBetweenChannelFinalizationForUpdateStmt                   *sql.Stmt
+	getBetweenChannelForwardSettlementStmt                       *sql.Stmt
+	getBetweenChannelRevertSettlementStmt                        *sql.Stmt
 	getBuildingStmt                                              *sql.Stmt
 	getBuildingSiteStmt                                          *sql.Stmt
 	getBuildingSiteIDStmt                                        *sql.Stmt
@@ -5455,6 +5508,7 @@ type Queries struct {
 	markCommandBatchFinishedStmt                                 *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt                    *sql.Stmt
 	markCommandBatchProcessingStmt                               *sql.Stmt
+	moveBetweenChannelRolloutToReviewStmt                        *sql.Stmt
 	moveFirmwareRolloutToReviewAfterControlFailureStmt           *sql.Stmt
 	negateSchedulePrioritiesStmt                                 *sql.Stmt
 	pairDeviceToFleetNodeStmt                                    *sql.Stmt
@@ -5677,8 +5731,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearRackSlotPositionStmt:                                    q.clearRackSlotPositionStmt,
 		clearRolePermissionsStmt:                                     q.clearRolePermissionsStmt,
 		closeStaleErrorsStmt:                                         q.closeStaleErrorsStmt,
+		completeBetweenChannelRolloutStmt:                            q.completeBetweenChannelRolloutStmt,
 		completeFirmwareRolloutBatchesStmt:                           q.completeFirmwareRolloutBatchesStmt,
 		completeFirmwareRolloutRevertMembersStmt:                     q.completeFirmwareRolloutRevertMembersStmt,
+		completeSettledBetweenChannelBatchStmt:                       q.completeSettledBetweenChannelBatchStmt,
+		completeSettledBetweenChannelBatchesStmt:                     q.completeSettledBetweenChannelBatchesStmt,
 		confirmChannelFirmwareEnforcementStmt:                        q.confirmChannelFirmwareEnforcementStmt,
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
@@ -5800,6 +5857,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBatchStatusAndDeviceCountsStmt:                            q.getBatchStatusAndDeviceCountsStmt,
 		getBetweenChannelCompletionCountsStmt:                        q.getBetweenChannelCompletionCountsStmt,
 		getBetweenChannelFinalizationForUpdateStmt:                   q.getBetweenChannelFinalizationForUpdateStmt,
+		getBetweenChannelForwardSettlementStmt:                       q.getBetweenChannelForwardSettlementStmt,
+		getBetweenChannelRevertSettlementStmt:                        q.getBetweenChannelRevertSettlementStmt,
 		getBuildingStmt:                                              q.getBuildingStmt,
 		getBuildingSiteStmt:                                          q.getBuildingSiteStmt,
 		getBuildingSiteIDStmt:                                        q.getBuildingSiteIDStmt,
@@ -6077,6 +6136,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		markCommandBatchFinishedStmt:                                 q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:                    q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                               q.markCommandBatchProcessingStmt,
+		moveBetweenChannelRolloutToReviewStmt:                        q.moveBetweenChannelRolloutToReviewStmt,
 		moveFirmwareRolloutToReviewAfterControlFailureStmt:           q.moveFirmwareRolloutToReviewAfterControlFailureStmt,
 		negateSchedulePrioritiesStmt:                                 q.negateSchedulePrioritiesStmt,
 		pairDeviceToFleetNodeStmt:                                    q.pairDeviceToFleetNodeStmt,

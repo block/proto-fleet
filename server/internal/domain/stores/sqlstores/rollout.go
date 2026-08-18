@@ -513,6 +513,15 @@ func (s *SQLRolloutStore) ApplyControl(
 			); updateErr != nil {
 				return rollout.ControlResult{}, updateErr
 			}
+			if _, updateErr = q.CompleteSettledBetweenChannelBatches(
+				ctx,
+				sqlc.CompleteSettledBetweenChannelBatchesParams{
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
+				},
+			); updateErr != nil {
+				return rollout.ControlResult{}, updateErr
+			}
 		}
 		if targetState == rollout.StateReverting {
 			if _, updateErr = q.PrepareFirmwareRolloutMembersForRevert(

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -98,7 +99,7 @@ func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 	firstEnforcement := enforcementByID(t, db, *firstMember.EnforcementID)
 	assert.Equal(t, channelDomain.EnforcementStatePending, firstEnforcement.State)
 
-	admitted, err = rolloutService.Admit(t.Context(), rollout.AdmitRequest{
+	_, err = rolloutService.Admit(t.Context(), rollout.AdmitRequest{
 		OrgID:            orgID,
 		RolloutID:        started.Rollout.ID,
 		BatchID:          started.Rollout.Batches[1].ID,
@@ -123,12 +124,24 @@ func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 	finalized, err := laneStore.Finalize(t.Context(), finalizations[0])
 	require.NoError(t, err)
 	assert.Equal(t, betweenchannel.FinalizationOutcomeMoved, finalized.Outcome)
+	assert.True(t, finalized.ProjectActivity)
 	assert.Equal(t, targetChannelID, deviceChannel(t, db, orgID, deviceIDs[0]))
-	_, err = laneStore.Finalize(t.Context(), finalizations[0])
+	replayedFinalization, err := laneStore.Finalize(t.Context(), finalizations[0])
 	require.NoError(t, err)
+	assert.False(t, replayedFinalization.ProjectActivity)
 
 	persisted, err = rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
 	require.NoError(t, err)
+	assert.Equal(t, rollout.StateReview, persisted.State)
+	_, err = rolloutService.Continue(t.Context(), rollout.AdmitRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: persisted.Revision,
+		IdempotencyKey:   "continue-without-pending-batch",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.Error(t, err)
 	secondMember := memberByIdentifier(t, persisted, deviceIDs[1])
 	require.NotNil(t, secondMember.EnforcementID)
 	attentionEnforcement(t, db, *secondMember.EnforcementID)
@@ -139,22 +152,14 @@ func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sourceChannelID, deviceChannel(t, db, orgID, deviceIDs[1]))
 
-	completed, err := rolloutService.Complete(t.Context(), rollout.ControlRequest{
-		OrgID:            orgID,
-		RolloutID:        started.Rollout.ID,
-		ExpectedRevision: admitted.Revision,
-		IdempotencyKey:   "complete-with-attention",
-		Reason:           "integration test",
-		ActorUserID:      actorID,
-		WithFailures:     true,
-	})
+	completed, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rollout.StateCompletedWithFailures, completed.State)
 	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
 	require.NoError(t, err)
 	assert.Equal(t, targetChannelID, lane.CurrentChannelID)
 
-	reverting, err := rolloutService.Revert(t.Context(), rollout.ControlRequest{
+	_, err = rolloutService.Revert(t.Context(), rollout.ControlRequest{
 		OrgID:            orgID,
 		RolloutID:        started.Rollout.ID,
 		ExpectedRevision: completed.Revision,
@@ -180,19 +185,288 @@ func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sourceChannelID, deviceChannel(t, db, orgID, deviceIDs[0]))
 
-	reverted, err := rolloutService.Complete(t.Context(), rollout.ControlRequest{
-		OrgID:            orgID,
-		RolloutID:        started.Rollout.ID,
-		ExpectedRevision: reverting.Revision,
-		IdempotencyKey:   "complete-revert",
-		Reason:           "integration test",
-		ActorUserID:      actorID,
-	})
+	reverted, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rollout.StateReverted, reverted.State)
 	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
 	require.NoError(t, err)
 	assert.Equal(t, sourceChannelID, lane.CurrentChannelID)
+}
+
+func TestRolloutLaneFinalizerAdvancesBatchesAndCompletesRollout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupCollectionTestData(t, 2)
+	actorID := testOrganizationUserID(t, db, orgID)
+	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
+	laneService := betweenchannel.NewService(laneStore)
+	rolloutService := rollout.NewService(
+		sqlstores.NewSQLRolloutStore(db),
+		betweenchannel.NewStrategy(laneStore),
+	)
+	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Automatic progression lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "1")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "automatic-progression-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	started, err := laneService.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Automatic progression target",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "2")},
+		Batches: []rollout.CreateBatch{
+			{Label: "canary", Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}}},
+			{Label: "fleet", Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[1]}}},
+		},
+		IdempotencyKey: "automatic-progression-start",
+		Reason:         "integration test",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+
+	_, err = rolloutService.Admit(t.Context(), rollout.AdmitRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		BatchID:          started.Rollout.Batches[0].ID,
+		ExpectedRevision: started.Rollout.Revision,
+		IdempotencyKey:   "automatic-progression-admit-canary",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	admitted, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	canary := memberByIdentifier(t, admitted, deviceIDs[0])
+	require.NotNil(t, canary.EnforcementID)
+	confirmEnforcement(t, db, *canary.EnforcementID)
+	finalizations, err := laneStore.ListFinalizations(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, finalizations, 1)
+	_, err = laneStore.Finalize(t.Context(), finalizations[0])
+	require.NoError(t, err)
+
+	review, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	require.Equal(t, rollout.StateReview, review.State)
+	require.Equal(t, rollout.BatchStateCompleted, review.Batches[0].State)
+	require.Equal(t, rollout.BatchStatePending, review.Batches[1].State)
+
+	running, err := rolloutService.Continue(t.Context(), rollout.AdmitRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: review.Revision,
+		IdempotencyKey:   "automatic-progression-continue",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, rollout.StateRunning, running.State)
+	running, err = rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+
+	fleet := memberByIdentifier(t, running, deviceIDs[1])
+	require.NotNil(t, fleet.EnforcementID)
+	confirmEnforcement(t, db, *fleet.EnforcementID)
+	finalizations, err = laneStore.ListFinalizations(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, finalizations, 1)
+	_, err = laneStore.Finalize(t.Context(), finalizations[0])
+	require.NoError(t, err)
+
+	completed, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	require.Equal(t, rollout.StateCompleted, completed.State)
+	require.Equal(t, rollout.BatchStateCompleted, completed.Batches[1].State)
+	require.True(t, authorityHalted(t, db, completed.ForwardAuthorityID))
+	for _, member := range completed.Members {
+		require.NotNil(t, member.OwnerReleasedAt)
+	}
+	require.Equal(t, int64(1), rolloutCauseCount(t, db, orgID, started.Rollout.ID, "complete"))
+	replayed, err := laneStore.Finalize(t.Context(), finalizations[0])
+	require.NoError(t, err)
+	require.False(t, replayed.ProjectActivity)
+	require.Equal(t, int64(1), rolloutCauseCount(t, db, orgID, started.Rollout.ID, "complete"))
+	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
+	require.NoError(t, err)
+	require.Equal(t, *started.Rollout.TargetChannelID, lane.CurrentChannelID)
+
+	_, err = rolloutService.Continue(t.Context(), rollout.AdmitRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: completed.Revision,
+		IdempotencyKey:   "automatic-progression-no-pending",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.Error(t, err)
+}
+
+func TestRolloutLaneFinalizerCompletesFailedRevertWithoutMovingLane(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
+	laneService := betweenchannel.NewService(laneStore)
+	rolloutService := rollout.NewService(
+		sqlstores.NewSQLRolloutStore(db),
+		betweenchannel.NewStrategy(laneStore),
+	)
+	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Failed revert lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "3")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "failed-revert-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	started, err := laneService.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Failed revert target",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "4")},
+		Batches: []rollout.CreateBatch{{
+			Label:   "all",
+			Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+		}},
+		IdempotencyKey: "failed-revert-start",
+		Reason:         "integration test",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+	_, err = rolloutService.Admit(t.Context(), rollout.AdmitRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		BatchID:          started.Rollout.Batches[0].ID,
+		ExpectedRevision: started.Rollout.Revision,
+		IdempotencyKey:   "failed-revert-admit",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	current, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	member := memberByIdentifier(t, current, deviceIDs[0])
+	require.NotNil(t, member.EnforcementID)
+	confirmEnforcement(t, db, *member.EnforcementID)
+	finalizations, err := laneStore.ListFinalizations(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, finalizations, 1)
+	_, err = laneStore.Finalize(t.Context(), finalizations[0])
+	require.NoError(t, err)
+
+	completed, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	require.Equal(t, rollout.StateCompleted, completed.State)
+	_, err = rolloutService.Revert(t.Context(), rollout.ControlRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: completed.Revision,
+		IdempotencyKey:   "failed-revert-start-revert",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	reverting, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	member = memberByIdentifier(t, reverting, deviceIDs[0])
+	require.NotNil(t, member.EnforcementID)
+	attentionEnforcement(t, db, *member.EnforcementID)
+	finalizations, err = laneStore.ListFinalizations(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, finalizations, 1)
+	_, err = laneStore.Finalize(t.Context(), finalizations[0])
+	require.NoError(t, err)
+
+	failed, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	require.Equal(t, rollout.StateCompletedWithFailures, failed.State)
+	require.NotNil(t, failed.RevertAuthorityID)
+	require.True(t, authorityHalted(t, db, *failed.RevertAuthorityID))
+	member = memberByIdentifier(t, failed, deviceIDs[0])
+	require.Equal(t, rollout.MemberStateAttentionRequired, member.State)
+	require.NotNil(t, member.OwnerReleasedAt)
+	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
+	require.NoError(t, err)
+	require.Equal(t, *started.Rollout.TargetChannelID, lane.CurrentChannelID)
+}
+
+func TestRolloutLaneAbortCompletesFullyCancelledBatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
+	laneService := betweenchannel.NewService(laneStore)
+	rolloutService := rollout.NewService(
+		sqlstores.NewSQLRolloutStore(db),
+		betweenchannel.NewStrategy(laneStore),
+	)
+	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Cancelled batch lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "5")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "cancelled-batch-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	started, err := laneService.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Cancelled batch target",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "6")},
+		Batches: []rollout.CreateBatch{{
+			Label:   "all",
+			Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+		}},
+		IdempotencyKey: "cancelled-batch-start",
+		Reason:         "integration test",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+	admitted, err := rolloutService.Admit(t.Context(), rollout.AdmitRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		BatchID:          started.Rollout.Batches[0].ID,
+		ExpectedRevision: started.Rollout.Revision,
+		IdempotencyKey:   "cancelled-batch-admit",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	aborted, err := rolloutService.Abort(t.Context(), rollout.ControlRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: admitted.Revision,
+		IdempotencyKey:   "cancelled-batch-abort",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, rollout.StateAborted, aborted.State)
+	aborted, err = rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	require.Equal(t, rollout.BatchStateCompleted, aborted.Batches[0].State)
+	require.Equal(t, rollout.MemberStateCancelled, aborted.Members[0].State)
+	require.NotNil(t, aborted.Members[0].OwnerReleasedAt)
+	finalizations, err := laneStore.ListFinalizations(t.Context(), 10)
+	require.NoError(t, err)
+	require.Empty(t, finalizations)
+	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
+	require.NoError(t, err)
+	require.Equal(t, *started.Rollout.SourceChannelID, lane.CurrentChannelID)
 }
 
 func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
@@ -336,6 +610,12 @@ func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
 	_, err = laneStore.Finalize(t.Context(), finalizations[0])
 	require.NoError(t, err)
 	assert.Equal(t, *started.Rollout.TargetChannelID, deviceChannel(t, db, orgID, deviceIDs[0]))
+	persisted, err = rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	assert.Equal(t, rollout.StateAborted, persisted.State)
+	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
+	require.NoError(t, err)
+	assert.Equal(t, *started.Rollout.SourceChannelID, lane.CurrentChannelID)
 }
 
 func TestRolloutLaneManualMembershipMoveConflictsInsteadOfOverwriting(t *testing.T) {
@@ -374,7 +654,7 @@ func TestRolloutLaneManualMembershipMoveConflictsInsteadOfOverwriting(t *testing
 		ActorUserID:    actorID,
 	})
 	require.NoError(t, err)
-	admitted, err := rolloutService.Admit(t.Context(), rollout.AdmitRequest{
+	_, err = rolloutService.Admit(t.Context(), rollout.AdmitRequest{
 		OrgID:            orgID,
 		RolloutID:        started.Rollout.ID,
 		BatchID:          started.Rollout.Batches[0].ID,
@@ -393,14 +673,7 @@ func TestRolloutLaneManualMembershipMoveConflictsInsteadOfOverwriting(t *testing
 	require.Len(t, finalizations, 1)
 	_, err = laneStore.Finalize(t.Context(), finalizations[0])
 	require.NoError(t, err)
-	completed, err := rolloutService.Complete(t.Context(), rollout.ControlRequest{
-		OrgID:            orgID,
-		RolloutID:        started.Rollout.ID,
-		ExpectedRevision: admitted.Revision,
-		IdempotencyKey:   "conflict-complete",
-		Reason:           "integration test",
-		ActorUserID:      actorID,
-	})
+	completed, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
 	require.NoError(t, err)
 
 	collectionStore := newCollectionStore(db)
@@ -760,4 +1033,34 @@ func attentionEnforcement(t *testing.T, db *sql.DB, enforcementID int64) {
 		WHERE id = $1
 	`, enforcementID)
 	require.NoError(t, err)
+}
+
+func authorityHalted(t *testing.T, db *sql.DB, authorityID uuid.UUID) bool {
+	t.Helper()
+	var halted bool
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT halted_at IS NOT NULL
+		FROM channel_firmware_authority
+		WHERE id = $1
+	`, authorityID).Scan(&halted))
+	return halted
+}
+
+func rolloutCauseCount(
+	t *testing.T,
+	db *sql.DB,
+	orgID int64,
+	rolloutID uuid.UUID,
+	operation string,
+) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM firmware_rollout_cause
+		WHERE org_id = $1
+		  AND rollout_id = $2
+		  AND operation = $3
+	`, orgID, rolloutID, operation).Scan(&count))
+	return count
 }

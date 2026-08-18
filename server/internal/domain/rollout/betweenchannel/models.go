@@ -101,23 +101,29 @@ type CompletionStatus struct {
 }
 
 type Finalization struct {
-	MemberID           int64
-	RolloutID          uuid.UUID
-	OrgID              int64
-	DeviceID           int64
-	DeviceIdentifier   string
-	MemberState        rollout.MemberState
-	MemberRevision     int64
-	EnforcementID      int64
-	EnforcementState   channel.EnforcementState
-	AuthorityID        uuid.UUID
-	LastError          string
-	ForwardAuthorityID uuid.UUID
-	RevertAuthorityID  *uuid.UUID
-	SourceChannelID    int64
-	TargetChannelID    int64
-	LaneID             uuid.UUID
-	CurrentChannelID   int64
+	MemberID                 int64
+	RolloutID                uuid.UUID
+	OrgID                    int64
+	BatchID                  int64
+	DeviceID                 int64
+	DeviceIdentifier         string
+	MemberState              rollout.MemberState
+	MemberRevision           int64
+	EnforcementID            int64
+	EnforcementState         channel.EnforcementState
+	AuthorityID              uuid.UUID
+	LastError                string
+	RolloutState             rollout.State
+	RolloutRevision          int64
+	ForwardAuthorityID       uuid.UUID
+	ForwardAuthorityRevision int64
+	RevertAuthorityID        *uuid.UUID
+	RevertAuthorityRevision  *int64
+	CreatedByUserID          int64
+	SourceChannelID          int64
+	TargetChannelID          int64
+	LaneID                   uuid.UUID
+	CurrentChannelID         int64
 }
 
 type FinalizationOutcome string
@@ -131,5 +137,6 @@ const (
 
 type FinalizationResult struct {
 	Finalization
-	Outcome FinalizationOutcome
+	Outcome         FinalizationOutcome
+	ProjectActivity bool
 }

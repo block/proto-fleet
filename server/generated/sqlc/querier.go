@@ -248,8 +248,11 @@ type Querier interface {
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
+	CompleteBetweenChannelRollout(ctx context.Context, arg CompleteBetweenChannelRolloutParams) (FirmwareRollout, error)
 	CompleteFirmwareRolloutBatches(ctx context.Context, arg CompleteFirmwareRolloutBatchesParams) (int64, error)
 	CompleteFirmwareRolloutRevertMembers(ctx context.Context, arg CompleteFirmwareRolloutRevertMembersParams) (int64, error)
+	CompleteSettledBetweenChannelBatch(ctx context.Context, arg CompleteSettledBetweenChannelBatchParams) (CompleteSettledBetweenChannelBatchRow, error)
+	CompleteSettledBetweenChannelBatches(ctx context.Context, arg CompleteSettledBetweenChannelBatchesParams) (int64, error)
 	ConfirmChannelFirmwareEnforcement(ctx context.Context, arg ConfirmChannelFirmwareEnforcementParams) (int64, error)
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
@@ -519,6 +522,8 @@ type Querier interface {
 	GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string) (GetBatchStatusAndDeviceCountsRow, error)
 	GetBetweenChannelCompletionCounts(ctx context.Context, arg GetBetweenChannelCompletionCountsParams) (GetBetweenChannelCompletionCountsRow, error)
 	GetBetweenChannelFinalizationForUpdate(ctx context.Context, arg GetBetweenChannelFinalizationForUpdateParams) (GetBetweenChannelFinalizationForUpdateRow, error)
+	GetBetweenChannelForwardSettlement(ctx context.Context, arg GetBetweenChannelForwardSettlementParams) (GetBetweenChannelForwardSettlementRow, error)
+	GetBetweenChannelRevertSettlement(ctx context.Context, arg GetBetweenChannelRevertSettlementParams) (GetBetweenChannelRevertSettlementRow, error)
 	GetBuilding(ctx context.Context, arg GetBuildingParams) (GetBuildingRow, error)
 	// Returns the building's parent site_id, excluding soft-deleted rows.
 	GetBuildingSite(ctx context.Context, arg GetBuildingSiteParams) (sql.NullInt64, error)
@@ -1283,6 +1288,7 @@ type Querier interface {
 	MarkCommandBatchFinished(ctx context.Context, uuid string) error
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) error
 	MarkCommandBatchProcessing(ctx context.Context, uuid string) error
+	MoveBetweenChannelRolloutToReview(ctx context.Context, arg MoveBetweenChannelRolloutToReviewParams) (FirmwareRollout, error)
 	MoveFirmwareRolloutToReviewAfterControlFailure(ctx context.Context, arg MoveFirmwareRolloutToReviewAfterControlFailureParams) (int64, error)
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)

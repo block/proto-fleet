@@ -232,6 +232,206 @@ func (q *Queries) CaptureBetweenChannelBatchBaseline(ctx context.Context, arg Ca
 	return result.RowsAffected()
 }
 
+const completeBetweenChannelRollout = `-- name: CompleteBetweenChannelRollout :one
+UPDATE firmware_rollout
+SET state = $1,
+    resume_state = NULL,
+    forward_authority_revision = COALESCE(
+        $2,
+        forward_authority_revision
+    ),
+    revert_authority_revision = COALESCE(
+        $3,
+        revert_authority_revision
+    ),
+    completed_at = CASE
+        WHEN $1 IN ('completed', 'completed_with_failures')
+            THEN CURRENT_TIMESTAMP
+        ELSE completed_at
+    END,
+    reverted_at = CASE
+        WHEN $1 = 'reverted'
+            THEN CURRENT_TIMESTAMP
+        ELSE reverted_at
+    END,
+    revision = revision + 1
+WHERE id = $4
+  AND org_id = $5
+  AND revision = $6
+  AND state = $7
+RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+`
+
+type CompleteBetweenChannelRolloutParams struct {
+	TargetState              string
+	ForwardAuthorityRevision sql.NullInt64
+	RevertAuthorityRevision  sql.NullInt64
+	RolloutID                uuid.UUID
+	OrgID                    int64
+	ExpectedRevision         int64
+	ExpectedState            string
+}
+
+func (q *Queries) CompleteBetweenChannelRollout(ctx context.Context, arg CompleteBetweenChannelRolloutParams) (FirmwareRollout, error) {
+	row := q.queryRow(ctx, q.completeBetweenChannelRolloutStmt, completeBetweenChannelRollout,
+		arg.TargetState,
+		arg.ForwardAuthorityRevision,
+		arg.RevertAuthorityRevision,
+		arg.RolloutID,
+		arg.OrgID,
+		arg.ExpectedRevision,
+		arg.ExpectedState,
+	)
+	var i FirmwareRollout
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.StrategyKey,
+		&i.State,
+		&i.ResumeState,
+		&i.Revision,
+		&i.ForwardAuthorityID,
+		&i.ForwardAuthorityRevision,
+		&i.RevertAuthorityID,
+		&i.RevertAuthorityRevision,
+		&i.SourceChannelID,
+		&i.TargetChannelID,
+		&i.SourceReleaseSetID,
+		&i.TargetReleaseSetID,
+		&i.SourceSnapshot,
+		&i.TargetSnapshot,
+		&i.RevertSnapshot,
+		&i.IdempotencyKey,
+		&i.CreateFingerprint,
+		&i.Reason,
+		&i.CreatedByUserID,
+		&i.StartedAt,
+		&i.PausedAt,
+		&i.AbortedAt,
+		&i.CompletedAt,
+		&i.RevertingAt,
+		&i.RevertedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const completeSettledBetweenChannelBatch = `-- name: CompleteSettledBetweenChannelBatch :one
+WITH completed AS (
+    UPDATE firmware_rollout_batch batch
+    SET state = 'completed',
+        revision = batch.revision + 1
+    WHERE batch.id = $1
+      AND batch.rollout_id = $2
+      AND batch.org_id = $3
+      AND batch.state = 'admitted'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM firmware_rollout_member member
+          WHERE member.batch_id = batch.id
+            AND member.rollout_id = batch.rollout_id
+            AND member.org_id = batch.org_id
+            AND member.state NOT IN (
+                'succeeded',
+                'failed',
+                'attention_required',
+                'cancelled'
+            )
+      )
+    RETURNING batch.id, batch.rollout_id, batch.org_id, batch.position, batch.label, batch.state, batch.revision, batch.created_at, batch.updated_at
+)
+SELECT completed.id, completed.rollout_id, completed.org_id, completed.position, completed.label, completed.state, completed.revision, completed.created_at, completed.updated_at,
+       NOT EXISTS (
+           SELECT 1
+           FROM firmware_rollout_batch later
+           WHERE later.rollout_id = completed.rollout_id
+             AND later.org_id = completed.org_id
+             AND later.position > completed.position
+       ) AS is_final_batch
+FROM completed
+`
+
+type CompleteSettledBetweenChannelBatchParams struct {
+	BatchID   int64
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+type CompleteSettledBetweenChannelBatchRow struct {
+	ID           int64
+	RolloutID    uuid.UUID
+	OrgID        int64
+	Position     int32
+	Label        string
+	State        string
+	Revision     int64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	IsFinalBatch bool
+}
+
+func (q *Queries) CompleteSettledBetweenChannelBatch(ctx context.Context, arg CompleteSettledBetweenChannelBatchParams) (CompleteSettledBetweenChannelBatchRow, error) {
+	row := q.queryRow(ctx, q.completeSettledBetweenChannelBatchStmt, completeSettledBetweenChannelBatch, arg.BatchID, arg.RolloutID, arg.OrgID)
+	var i CompleteSettledBetweenChannelBatchRow
+	err := row.Scan(
+		&i.ID,
+		&i.RolloutID,
+		&i.OrgID,
+		&i.Position,
+		&i.Label,
+		&i.State,
+		&i.Revision,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IsFinalBatch,
+	)
+	return i, err
+}
+
+const completeSettledBetweenChannelBatches = `-- name: CompleteSettledBetweenChannelBatches :execrows
+UPDATE firmware_rollout_batch batch
+SET state = 'completed',
+    revision = batch.revision + 1
+WHERE batch.rollout_id = $1
+  AND batch.org_id = $2
+  AND batch.state = 'admitted'
+  AND EXISTS (
+      SELECT 1
+      FROM firmware_rollout rollout
+      WHERE rollout.id = batch.rollout_id
+        AND rollout.org_id = batch.org_id
+        AND rollout.strategy_key = 'between_channel'
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM firmware_rollout_member member
+      WHERE member.batch_id = batch.id
+        AND member.rollout_id = batch.rollout_id
+        AND member.org_id = batch.org_id
+        AND member.state NOT IN (
+            'succeeded',
+            'failed',
+            'attention_required',
+            'cancelled'
+        )
+  )
+`
+
+type CompleteSettledBetweenChannelBatchesParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) CompleteSettledBetweenChannelBatches(ctx context.Context, arg CompleteSettledBetweenChannelBatchesParams) (int64, error) {
+	result, err := q.exec(ctx, q.completeSettledBetweenChannelBatchesStmt, completeSettledBetweenChannelBatches, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countBetweenChannelAdmittedBatchMembers = `-- name: CountBetweenChannelAdmittedBatchMembers :one
 SELECT COUNT(*)::bigint
 FROM firmware_rollout_member
@@ -865,6 +1065,7 @@ const getBetweenChannelFinalizationForUpdate = `-- name: GetBetweenChannelFinali
 SELECT member.id AS member_id,
        member.rollout_id,
        member.org_id,
+       member.batch_id,
        member.device_id,
        device.device_identifier,
        member.state AS member_state,
@@ -873,8 +1074,13 @@ SELECT member.id AS member_id,
        enforcement.state AS enforcement_state,
        enforcement.authority_id,
        enforcement.last_error,
+       rollout.state AS rollout_state,
+       rollout.revision AS rollout_revision,
        rollout.forward_authority_id,
+       rollout.forward_authority_revision,
        rollout.revert_authority_id,
+       rollout.revert_authority_revision,
+       rollout.created_by_user_id,
        rollout.source_channel_id,
        rollout.target_channel_id,
        lane.id AS lane_id,
@@ -907,23 +1113,29 @@ type GetBetweenChannelFinalizationForUpdateParams struct {
 }
 
 type GetBetweenChannelFinalizationForUpdateRow struct {
-	MemberID           int64
-	RolloutID          uuid.UUID
-	OrgID              int64
-	DeviceID           int64
-	DeviceIdentifier   string
-	MemberState        string
-	MemberRevision     int64
-	EnforcementID      int64
-	EnforcementState   string
-	AuthorityID        uuid.UUID
-	LastError          sql.NullString
-	ForwardAuthorityID uuid.UUID
-	RevertAuthorityID  uuid.NullUUID
-	SourceChannelID    sql.NullInt64
-	TargetChannelID    sql.NullInt64
-	LaneID             uuid.UUID
-	CurrentChannelID   int64
+	MemberID                 int64
+	RolloutID                uuid.UUID
+	OrgID                    int64
+	BatchID                  int64
+	DeviceID                 int64
+	DeviceIdentifier         string
+	MemberState              string
+	MemberRevision           int64
+	EnforcementID            int64
+	EnforcementState         string
+	AuthorityID              uuid.UUID
+	LastError                sql.NullString
+	RolloutState             string
+	RolloutRevision          int64
+	ForwardAuthorityID       uuid.UUID
+	ForwardAuthorityRevision int64
+	RevertAuthorityID        uuid.NullUUID
+	RevertAuthorityRevision  sql.NullInt64
+	CreatedByUserID          int64
+	SourceChannelID          sql.NullInt64
+	TargetChannelID          sql.NullInt64
+	LaneID                   uuid.UUID
+	CurrentChannelID         int64
 }
 
 func (q *Queries) GetBetweenChannelFinalizationForUpdate(ctx context.Context, arg GetBetweenChannelFinalizationForUpdateParams) (GetBetweenChannelFinalizationForUpdateRow, error) {
@@ -933,6 +1145,7 @@ func (q *Queries) GetBetweenChannelFinalizationForUpdate(ctx context.Context, ar
 		&i.MemberID,
 		&i.RolloutID,
 		&i.OrgID,
+		&i.BatchID,
 		&i.DeviceID,
 		&i.DeviceIdentifier,
 		&i.MemberState,
@@ -941,13 +1154,107 @@ func (q *Queries) GetBetweenChannelFinalizationForUpdate(ctx context.Context, ar
 		&i.EnforcementState,
 		&i.AuthorityID,
 		&i.LastError,
+		&i.RolloutState,
+		&i.RolloutRevision,
 		&i.ForwardAuthorityID,
+		&i.ForwardAuthorityRevision,
 		&i.RevertAuthorityID,
+		&i.RevertAuthorityRevision,
+		&i.CreatedByUserID,
 		&i.SourceChannelID,
 		&i.TargetChannelID,
 		&i.LaneID,
 		&i.CurrentChannelID,
 	)
+	return i, err
+}
+
+const getBetweenChannelForwardSettlement = `-- name: GetBetweenChannelForwardSettlement :one
+SELECT COUNT(*)::bigint AS total_members,
+       COUNT(*) FILTER (
+           WHERE member.state IN (
+               'succeeded',
+               'failed',
+               'attention_required',
+               'cancelled'
+           )
+       )::bigint AS terminal_members,
+       COUNT(*) FILTER (
+           WHERE member.state <> 'succeeded'
+       )::bigint AS failed_members,
+       (
+           SELECT COUNT(*)::bigint
+           FROM firmware_rollout_batch batch
+           WHERE batch.rollout_id = $1
+             AND batch.org_id = $2
+             AND batch.state <> 'completed'
+       ) AS incomplete_batches
+FROM firmware_rollout_member member
+WHERE member.rollout_id = $1
+  AND member.org_id = $2
+`
+
+type GetBetweenChannelForwardSettlementParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+type GetBetweenChannelForwardSettlementRow struct {
+	TotalMembers      int64
+	TerminalMembers   int64
+	FailedMembers     int64
+	IncompleteBatches int64
+}
+
+func (q *Queries) GetBetweenChannelForwardSettlement(ctx context.Context, arg GetBetweenChannelForwardSettlementParams) (GetBetweenChannelForwardSettlementRow, error) {
+	row := q.queryRow(ctx, q.getBetweenChannelForwardSettlementStmt, getBetweenChannelForwardSettlement, arg.RolloutID, arg.OrgID)
+	var i GetBetweenChannelForwardSettlementRow
+	err := row.Scan(
+		&i.TotalMembers,
+		&i.TerminalMembers,
+		&i.FailedMembers,
+		&i.IncompleteBatches,
+	)
+	return i, err
+}
+
+const getBetweenChannelRevertSettlement = `-- name: GetBetweenChannelRevertSettlement :one
+SELECT COUNT(*) FILTER (
+           WHERE member.revert_selected_at IS NOT NULL
+       )::bigint AS selected_members,
+       COUNT(*) FILTER (
+           WHERE member.revert_selected_at IS NOT NULL
+             AND member.state IN (
+                 'reverted',
+                 'failed',
+                 'attention_required',
+                 'cancelled'
+             )
+       )::bigint AS terminal_members,
+       COUNT(*) FILTER (
+           WHERE member.revert_selected_at IS NOT NULL
+             AND member.state <> 'reverted'
+       )::bigint AS failed_members
+FROM firmware_rollout_member member
+WHERE member.rollout_id = $1
+  AND member.org_id = $2
+`
+
+type GetBetweenChannelRevertSettlementParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+type GetBetweenChannelRevertSettlementRow struct {
+	SelectedMembers int64
+	TerminalMembers int64
+	FailedMembers   int64
+}
+
+func (q *Queries) GetBetweenChannelRevertSettlement(ctx context.Context, arg GetBetweenChannelRevertSettlementParams) (GetBetweenChannelRevertSettlementRow, error) {
+	row := q.queryRow(ctx, q.getBetweenChannelRevertSettlementStmt, getBetweenChannelRevertSettlement, arg.RolloutID, arg.OrgID)
+	var i GetBetweenChannelRevertSettlementRow
+	err := row.Scan(&i.SelectedMembers, &i.TerminalMembers, &i.FailedMembers)
 	return i, err
 }
 
@@ -1294,6 +1601,7 @@ const listBetweenChannelFinalizations = `-- name: ListBetweenChannelFinalization
 SELECT member.id AS member_id,
        member.rollout_id,
        member.org_id,
+       member.batch_id,
        member.device_id,
        device.device_identifier,
        member.state AS member_state,
@@ -1302,8 +1610,13 @@ SELECT member.id AS member_id,
        enforcement.state AS enforcement_state,
        enforcement.authority_id,
        enforcement.last_error,
+       rollout.state AS rollout_state,
+       rollout.revision AS rollout_revision,
        rollout.forward_authority_id,
+       rollout.forward_authority_revision,
        rollout.revert_authority_id,
+       rollout.revert_authority_revision,
+       rollout.created_by_user_id,
        rollout.source_channel_id,
        rollout.target_channel_id,
        lane.id AS lane_id,
@@ -1349,23 +1662,29 @@ LIMIT $1
 `
 
 type ListBetweenChannelFinalizationsRow struct {
-	MemberID           int64
-	RolloutID          uuid.UUID
-	OrgID              int64
-	DeviceID           int64
-	DeviceIdentifier   string
-	MemberState        string
-	MemberRevision     int64
-	EnforcementID      int64
-	EnforcementState   string
-	AuthorityID        uuid.UUID
-	LastError          sql.NullString
-	ForwardAuthorityID uuid.UUID
-	RevertAuthorityID  uuid.NullUUID
-	SourceChannelID    sql.NullInt64
-	TargetChannelID    sql.NullInt64
-	LaneID             uuid.UUID
-	CurrentChannelID   int64
+	MemberID                 int64
+	RolloutID                uuid.UUID
+	OrgID                    int64
+	BatchID                  int64
+	DeviceID                 int64
+	DeviceIdentifier         string
+	MemberState              string
+	MemberRevision           int64
+	EnforcementID            int64
+	EnforcementState         string
+	AuthorityID              uuid.UUID
+	LastError                sql.NullString
+	RolloutState             string
+	RolloutRevision          int64
+	ForwardAuthorityID       uuid.UUID
+	ForwardAuthorityRevision int64
+	RevertAuthorityID        uuid.NullUUID
+	RevertAuthorityRevision  sql.NullInt64
+	CreatedByUserID          int64
+	SourceChannelID          sql.NullInt64
+	TargetChannelID          sql.NullInt64
+	LaneID                   uuid.UUID
+	CurrentChannelID         int64
 }
 
 func (q *Queries) ListBetweenChannelFinalizations(ctx context.Context, finalizeLimit int32) ([]ListBetweenChannelFinalizationsRow, error) {
@@ -1381,6 +1700,7 @@ func (q *Queries) ListBetweenChannelFinalizations(ctx context.Context, finalizeL
 			&i.MemberID,
 			&i.RolloutID,
 			&i.OrgID,
+			&i.BatchID,
 			&i.DeviceID,
 			&i.DeviceIdentifier,
 			&i.MemberState,
@@ -1389,8 +1709,13 @@ func (q *Queries) ListBetweenChannelFinalizations(ctx context.Context, finalizeL
 			&i.EnforcementState,
 			&i.AuthorityID,
 			&i.LastError,
+			&i.RolloutState,
+			&i.RolloutRevision,
 			&i.ForwardAuthorityID,
+			&i.ForwardAuthorityRevision,
 			&i.RevertAuthorityID,
+			&i.RevertAuthorityRevision,
+			&i.CreatedByUserID,
 			&i.SourceChannelID,
 			&i.TargetChannelID,
 			&i.LaneID,
@@ -1808,4 +2133,60 @@ func (q *Queries) MarkBetweenChannelRevertMembershipConflicts(ctx context.Contex
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const moveBetweenChannelRolloutToReview = `-- name: MoveBetweenChannelRolloutToReview :one
+UPDATE firmware_rollout
+SET state = 'review',
+    resume_state = NULL,
+    revision = revision + 1
+WHERE id = $1
+  AND org_id = $2
+  AND revision = $3
+  AND state = 'running'
+RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+`
+
+type MoveBetweenChannelRolloutToReviewParams struct {
+	RolloutID        uuid.UUID
+	OrgID            int64
+	ExpectedRevision int64
+}
+
+func (q *Queries) MoveBetweenChannelRolloutToReview(ctx context.Context, arg MoveBetweenChannelRolloutToReviewParams) (FirmwareRollout, error) {
+	row := q.queryRow(ctx, q.moveBetweenChannelRolloutToReviewStmt, moveBetweenChannelRolloutToReview, arg.RolloutID, arg.OrgID, arg.ExpectedRevision)
+	var i FirmwareRollout
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.StrategyKey,
+		&i.State,
+		&i.ResumeState,
+		&i.Revision,
+		&i.ForwardAuthorityID,
+		&i.ForwardAuthorityRevision,
+		&i.RevertAuthorityID,
+		&i.RevertAuthorityRevision,
+		&i.SourceChannelID,
+		&i.TargetChannelID,
+		&i.SourceReleaseSetID,
+		&i.TargetReleaseSetID,
+		&i.SourceSnapshot,
+		&i.TargetSnapshot,
+		&i.RevertSnapshot,
+		&i.IdempotencyKey,
+		&i.CreateFingerprint,
+		&i.Reason,
+		&i.CreatedByUserID,
+		&i.StartedAt,
+		&i.PausedAt,
+		&i.AbortedAt,
+		&i.CompletedAt,
+		&i.RevertingAt,
+		&i.RevertedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

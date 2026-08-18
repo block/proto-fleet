@@ -481,6 +481,7 @@ WHERE member.rollout_id = sqlc.arg('rollout_id')
 SELECT member.id AS member_id,
        member.rollout_id,
        member.org_id,
+       member.batch_id,
        member.device_id,
        device.device_identifier,
        member.state AS member_state,
@@ -489,8 +490,13 @@ SELECT member.id AS member_id,
        enforcement.state AS enforcement_state,
        enforcement.authority_id,
        enforcement.last_error,
+       rollout.state AS rollout_state,
+       rollout.revision AS rollout_revision,
        rollout.forward_authority_id,
+       rollout.forward_authority_revision,
        rollout.revert_authority_id,
+       rollout.revert_authority_revision,
+       rollout.created_by_user_id,
        rollout.source_channel_id,
        rollout.target_channel_id,
        lane.id AS lane_id,
@@ -538,6 +544,7 @@ LIMIT sqlc.arg('finalize_limit');
 SELECT member.id AS member_id,
        member.rollout_id,
        member.org_id,
+       member.batch_id,
        member.device_id,
        device.device_identifier,
        member.state AS member_state,
@@ -546,8 +553,13 @@ SELECT member.id AS member_id,
        enforcement.state AS enforcement_state,
        enforcement.authority_id,
        enforcement.last_error,
+       rollout.state AS rollout_state,
+       rollout.revision AS rollout_revision,
        rollout.forward_authority_id,
+       rollout.forward_authority_revision,
        rollout.revert_authority_id,
+       rollout.revert_authority_revision,
+       rollout.created_by_user_id,
        rollout.source_channel_id,
        rollout.target_channel_id,
        lane.id AS lane_id,
@@ -684,6 +696,153 @@ WHERE id = sqlc.arg('member_id')
   AND revision = sqlc.arg('expected_revision')
   AND state = sqlc.arg('expected_state')
   AND owner_released_at IS NULL
+RETURNING *;
+
+-- name: CompleteSettledBetweenChannelBatch :one
+WITH completed AS (
+    UPDATE firmware_rollout_batch batch
+    SET state = 'completed',
+        revision = batch.revision + 1
+    WHERE batch.id = sqlc.arg('batch_id')
+      AND batch.rollout_id = sqlc.arg('rollout_id')
+      AND batch.org_id = sqlc.arg('org_id')
+      AND batch.state = 'admitted'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM firmware_rollout_member member
+          WHERE member.batch_id = batch.id
+            AND member.rollout_id = batch.rollout_id
+            AND member.org_id = batch.org_id
+            AND member.state NOT IN (
+                'succeeded',
+                'failed',
+                'attention_required',
+                'cancelled'
+            )
+      )
+    RETURNING batch.*
+)
+SELECT completed.*,
+       NOT EXISTS (
+           SELECT 1
+           FROM firmware_rollout_batch later
+           WHERE later.rollout_id = completed.rollout_id
+             AND later.org_id = completed.org_id
+             AND later.position > completed.position
+       ) AS is_final_batch
+FROM completed;
+
+-- name: CompleteSettledBetweenChannelBatches :execrows
+UPDATE firmware_rollout_batch batch
+SET state = 'completed',
+    revision = batch.revision + 1
+WHERE batch.rollout_id = sqlc.arg('rollout_id')
+  AND batch.org_id = sqlc.arg('org_id')
+  AND batch.state = 'admitted'
+  AND EXISTS (
+      SELECT 1
+      FROM firmware_rollout rollout
+      WHERE rollout.id = batch.rollout_id
+        AND rollout.org_id = batch.org_id
+        AND rollout.strategy_key = 'between_channel'
+  )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM firmware_rollout_member member
+      WHERE member.batch_id = batch.id
+        AND member.rollout_id = batch.rollout_id
+        AND member.org_id = batch.org_id
+        AND member.state NOT IN (
+            'succeeded',
+            'failed',
+            'attention_required',
+            'cancelled'
+        )
+  );
+
+-- name: MoveBetweenChannelRolloutToReview :one
+UPDATE firmware_rollout
+SET state = 'review',
+    resume_state = NULL,
+    revision = revision + 1
+WHERE id = sqlc.arg('rollout_id')
+  AND org_id = sqlc.arg('org_id')
+  AND revision = sqlc.arg('expected_revision')
+  AND state = 'running'
+RETURNING *;
+
+-- name: GetBetweenChannelForwardSettlement :one
+SELECT COUNT(*)::bigint AS total_members,
+       COUNT(*) FILTER (
+           WHERE member.state IN (
+               'succeeded',
+               'failed',
+               'attention_required',
+               'cancelled'
+           )
+       )::bigint AS terminal_members,
+       COUNT(*) FILTER (
+           WHERE member.state <> 'succeeded'
+       )::bigint AS failed_members,
+       (
+           SELECT COUNT(*)::bigint
+           FROM firmware_rollout_batch batch
+           WHERE batch.rollout_id = sqlc.arg('rollout_id')
+             AND batch.org_id = sqlc.arg('org_id')
+             AND batch.state <> 'completed'
+       ) AS incomplete_batches
+FROM firmware_rollout_member member
+WHERE member.rollout_id = sqlc.arg('rollout_id')
+  AND member.org_id = sqlc.arg('org_id');
+
+-- name: GetBetweenChannelRevertSettlement :one
+SELECT COUNT(*) FILTER (
+           WHERE member.revert_selected_at IS NOT NULL
+       )::bigint AS selected_members,
+       COUNT(*) FILTER (
+           WHERE member.revert_selected_at IS NOT NULL
+             AND member.state IN (
+                 'reverted',
+                 'failed',
+                 'attention_required',
+                 'cancelled'
+             )
+       )::bigint AS terminal_members,
+       COUNT(*) FILTER (
+           WHERE member.revert_selected_at IS NOT NULL
+             AND member.state <> 'reverted'
+       )::bigint AS failed_members
+FROM firmware_rollout_member member
+WHERE member.rollout_id = sqlc.arg('rollout_id')
+  AND member.org_id = sqlc.arg('org_id');
+
+-- name: CompleteBetweenChannelRollout :one
+UPDATE firmware_rollout
+SET state = sqlc.arg('target_state'),
+    resume_state = NULL,
+    forward_authority_revision = COALESCE(
+        sqlc.narg('forward_authority_revision'),
+        forward_authority_revision
+    ),
+    revert_authority_revision = COALESCE(
+        sqlc.narg('revert_authority_revision'),
+        revert_authority_revision
+    ),
+    completed_at = CASE
+        WHEN sqlc.arg('target_state') IN ('completed', 'completed_with_failures')
+            THEN CURRENT_TIMESTAMP
+        ELSE completed_at
+    END,
+    reverted_at = CASE
+        WHEN sqlc.arg('target_state') = 'reverted'
+            THEN CURRENT_TIMESTAMP
+        ELSE reverted_at
+    END,
+    revision = revision + 1
+WHERE id = sqlc.arg('rollout_id')
+  AND org_id = sqlc.arg('org_id')
+  AND revision = sqlc.arg('expected_revision')
+  AND state = sqlc.arg('expected_state')
 RETURNING *;
 
 -- name: CancelHaltedBetweenChannelEnforcement :execrows

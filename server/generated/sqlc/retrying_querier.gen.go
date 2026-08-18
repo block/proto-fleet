@@ -684,6 +684,18 @@ func (q *retryingQuerier) CloseStaleErrors(ctx context.Context, arg CloseStaleEr
 	return result, err
 }
 
+func (q *retryingQuerier) CompleteBetweenChannelRollout(ctx context.Context, arg CompleteBetweenChannelRolloutParams) (FirmwareRollout, error) {
+	var result FirmwareRollout
+	err := q.retrier.RetryQuery(ctx, "CompleteBetweenChannelRollout", func() error {
+		callResult, callErr := q.next.CompleteBetweenChannelRollout(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CompleteFirmwareRolloutBatches(ctx context.Context, arg CompleteFirmwareRolloutBatchesParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CompleteFirmwareRolloutBatches", func() error {
@@ -700,6 +712,30 @@ func (q *retryingQuerier) CompleteFirmwareRolloutRevertMembers(ctx context.Conte
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CompleteFirmwareRolloutRevertMembers", func() error {
 		callResult, callErr := q.next.CompleteFirmwareRolloutRevertMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CompleteSettledBetweenChannelBatch(ctx context.Context, arg CompleteSettledBetweenChannelBatchParams) (CompleteSettledBetweenChannelBatchRow, error) {
+	var result CompleteSettledBetweenChannelBatchRow
+	err := q.retrier.RetryQuery(ctx, "CompleteSettledBetweenChannelBatch", func() error {
+		callResult, callErr := q.next.CompleteSettledBetweenChannelBatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CompleteSettledBetweenChannelBatches(ctx context.Context, arg CompleteSettledBetweenChannelBatchesParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CompleteSettledBetweenChannelBatches", func() error {
+		callResult, callErr := q.next.CompleteSettledBetweenChannelBatches(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2074,6 +2110,30 @@ func (q *retryingQuerier) GetBetweenChannelFinalizationForUpdate(ctx context.Con
 	var result GetBetweenChannelFinalizationForUpdateRow
 	err := q.retrier.RetryQuery(ctx, "GetBetweenChannelFinalizationForUpdate", func() error {
 		callResult, callErr := q.next.GetBetweenChannelFinalizationForUpdate(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetBetweenChannelForwardSettlement(ctx context.Context, arg GetBetweenChannelForwardSettlementParams) (GetBetweenChannelForwardSettlementRow, error) {
+	var result GetBetweenChannelForwardSettlementRow
+	err := q.retrier.RetryQuery(ctx, "GetBetweenChannelForwardSettlement", func() error {
+		callResult, callErr := q.next.GetBetweenChannelForwardSettlement(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetBetweenChannelRevertSettlement(ctx context.Context, arg GetBetweenChannelRevertSettlementParams) (GetBetweenChannelRevertSettlementRow, error) {
+	var result GetBetweenChannelRevertSettlementRow
+	err := q.retrier.RetryQuery(ctx, "GetBetweenChannelRevertSettlement", func() error {
+		callResult, callErr := q.next.GetBetweenChannelRevertSettlement(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5326,6 +5386,18 @@ func (q *retryingQuerier) MarkCommandBatchProcessing(ctx context.Context, uuid s
 	return q.retrier.RetryQuery(ctx, "MarkCommandBatchProcessing", func() error {
 		return q.next.MarkCommandBatchProcessing(ctx, uuid)
 	})
+}
+
+func (q *retryingQuerier) MoveBetweenChannelRolloutToReview(ctx context.Context, arg MoveBetweenChannelRolloutToReviewParams) (FirmwareRollout, error) {
+	var result FirmwareRollout
+	err := q.retrier.RetryQuery(ctx, "MoveBetweenChannelRolloutToReview", func() error {
+		callResult, callErr := q.next.MoveBetweenChannelRolloutToReview(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) MoveFirmwareRolloutToReviewAfterControlFailure(ctx context.Context, arg MoveFirmwareRolloutToReviewAfterControlFailureParams) (int64, error) {

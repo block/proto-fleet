@@ -164,7 +164,7 @@ func (f *Finalizer) projectActivity(
 	ctx context.Context,
 	result FinalizationResult,
 ) {
-	if f.activity == nil {
+	if f.activity == nil || !result.ProjectActivity {
 		return
 	}
 	orgID := result.OrgID
