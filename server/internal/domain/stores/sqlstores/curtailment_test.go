@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -165,17 +166,218 @@ func TestNormalizeListCandidatesParams(t *testing.T) {
 		OrgID:             7,
 		DeviceIdentifiers: []string{},
 		SiteIDs:           []int64{},
+		BuildingIDs:       []int64{},
+		RackIDs:           []int64{},
+		GroupIDs:          []int64{},
 	})
 	assert.Nil(t, empty.DeviceIdentifiers, "empty slices must bind as SQL NULL so they match whole-org")
 	assert.Nil(t, empty.SiteIDs, "empty site slices must bind as SQL NULL so they match whole-org")
+	assert.Nil(t, empty.BuildingIDs)
+	assert.Nil(t, empty.RackIDs)
+	assert.Nil(t, empty.GroupIDs)
 
 	nonEmpty := normalizeListCandidatesParams(interfaces.ListCandidatesParams{
 		OrgID:             7,
 		DeviceIdentifiers: []string{"miner-1"},
 		SiteIDs:           []int64{3},
+		BuildingIDs:       []int64{4},
+		RackIDs:           []int64{5},
+		GroupIDs:          []int64{6},
 	})
 	assert.Equal(t, []string{"miner-1"}, nonEmpty.DeviceIdentifiers)
 	assert.Equal(t, []int64{3}, nonEmpty.SiteIDs)
+	assert.Equal(t, []int64{4}, nonEmpty.BuildingIDs)
+	assert.Equal(t, []int64{5}, nonEmpty.RackIDs)
+	assert.Equal(t, []int64{6}, nonEmpty.GroupIDs)
+}
+
+func TestBuildCurtailmentTopologyScopeCoverage(t *testing.T) {
+	t.Parallel()
+
+	validSite := func(id int64) sql.NullInt64 { return sql.NullInt64{Int64: id, Valid: true} }
+	validDevice := func(id int64) sql.NullInt64 { return sql.NullInt64{Int64: id, Valid: true} }
+	assignedResourceRules := curtailmentTopologyCoverageRules{requireAssignedResource: true}
+	groupRules := curtailmentTopologyCoverageRules{emptyResourceIsUnbounded: true}
+
+	t.Run("assigned empty building uses its owning site", func(t *testing.T) {
+		t.Parallel()
+		coverage, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{7},
+			[]curtailmentTopologyCoverageRow{{selectorID: 7, resourceSiteID: validSite(11)}},
+			"buildings",
+			assignedResourceRules,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, []int64{11}, coverage.SiteIDs)
+		assert.False(t, coverage.RequireOrgWide)
+	})
+
+	t.Run("unassigned rack requires org-wide coverage", func(t *testing.T) {
+		t.Parallel()
+		coverage, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{8},
+			[]curtailmentTopologyCoverageRow{{selectorID: 8}},
+			"racks",
+			assignedResourceRules,
+		)
+		require.NoError(t, err)
+		assert.True(t, coverage.RequireOrgWide)
+	})
+
+	t.Run("rack and building site mismatch is rejected", func(t *testing.T) {
+		t.Parallel()
+		_, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{8},
+			[]curtailmentTopologyCoverageRow{{
+				selectorID:     8,
+				resourceSiteID: validSite(11),
+				buildingID:     validDevice(3),
+				buildingSiteID: validSite(12),
+			}},
+			"racks",
+			assignedResourceRules,
+		)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	})
+
+	t.Run("rack with unavailable building site is not treated as mismatched", func(t *testing.T) {
+		t.Parallel()
+		coverage, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{8},
+			[]curtailmentTopologyCoverageRow{
+				{
+					selectorID:     8,
+					resourceSiteID: validSite(11),
+					buildingID:     validDevice(3),
+				},
+			},
+			"racks",
+			assignedResourceRules,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, []int64{11}, coverage.SiteIDs)
+	})
+
+	t.Run("missing rack takes precedence over site mismatch", func(t *testing.T) {
+		t.Parallel()
+		_, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{8, 9},
+			[]curtailmentTopologyCoverageRow{{
+				selectorID:     8,
+				resourceSiteID: validSite(11),
+				buildingID:     validDevice(3),
+				buildingSiteID: validSite(12),
+			}},
+			"racks",
+			assignedResourceRules,
+		)
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsNotFoundError(err))
+		assert.Contains(t, err.Error(), "9")
+	})
+
+	t.Run("empty group requires org-wide coverage", func(t *testing.T) {
+		t.Parallel()
+		coverage, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{9},
+			[]curtailmentTopologyCoverageRow{{selectorID: 9}},
+			"groups",
+			groupRules,
+		)
+		require.NoError(t, err)
+		assert.True(t, coverage.RequireOrgWide)
+	})
+
+	t.Run("group coverage includes every member site", func(t *testing.T) {
+		t.Parallel()
+		coverage, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{9},
+			[]curtailmentTopologyCoverageRow{
+				{selectorID: 9, selectorHasMembers: true},
+				{memberSiteID: validSite(12), memberDeviceID: validDevice(1)},
+				{memberSiteID: validSite(11), memberDeviceID: validDevice(2)},
+				{memberSiteID: validSite(12), memberDeviceID: validDevice(3)},
+			},
+			"groups",
+			groupRules,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, []int64{11, 12}, coverage.SiteIDs)
+		assert.False(t, coverage.RequireOrgWide)
+	})
+
+	t.Run("unassigned member requires org-wide coverage", func(t *testing.T) {
+		t.Parallel()
+		coverage, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{9},
+			[]curtailmentTopologyCoverageRow{
+				{selectorID: 9, selectorHasMembers: true},
+				{memberDeviceID: validDevice(1)},
+			},
+			"groups",
+			groupRules,
+		)
+		require.NoError(t, err)
+		assert.True(t, coverage.RequireOrgWide)
+	})
+
+	t.Run("missing selector is not found", func(t *testing.T) {
+		t.Parallel()
+		_, err := buildCurtailmentTopologyScopeCoverage(
+			[]int64{9, 10},
+			[]curtailmentTopologyCoverageRow{{selectorID: 9}},
+			"groups",
+			groupRules,
+		)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsNotFoundError(err))
+		assert.Contains(t, err.Error(), "10")
+	})
+
+	t.Run("resolved miner limit accepts exact bound and rejects overflow", func(t *testing.T) {
+		t.Parallel()
+		rows := make([]curtailmentTopologyCoverageRow, 1, interfaces.CurtailmentResolvedMinerMax+2)
+		rows[0] = curtailmentTopologyCoverageRow{selectorID: 9, selectorHasMembers: true}
+		for i := 1; i <= interfaces.CurtailmentResolvedMinerMax; i++ {
+			rows = append(rows, curtailmentTopologyCoverageRow{
+				memberDeviceID: validDevice(int64(i)),
+				memberSiteID:   validSite(11),
+			})
+		}
+
+		_, err := buildCurtailmentTopologyScopeCoverage([]int64{9}, rows, "groups", groupRules)
+		require.NoError(t, err)
+
+		rows = append(rows, curtailmentTopologyCoverageRow{
+			memberDeviceID: validDevice(interfaces.CurtailmentResolvedMinerMax + 1),
+			memberSiteID:   validSite(11),
+		})
+		_, err = buildCurtailmentTopologyScopeCoverage([]int64{9}, rows, "groups", groupRules)
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodeResourceExhausted, fleetErr.GRPCCode)
+	})
+
+	t.Run("missing selector takes precedence over resolved miner overflow", func(t *testing.T) {
+		t.Parallel()
+		rows := make([]curtailmentTopologyCoverageRow, 1, interfaces.CurtailmentResolvedMinerMax+2)
+		rows[0] = curtailmentTopologyCoverageRow{selectorID: 9, selectorHasMembers: true}
+		for i := 1; i <= interfaces.CurtailmentResolvedMinerMax+1; i++ {
+			rows = append(rows, curtailmentTopologyCoverageRow{
+				memberDeviceID: validDevice(int64(i)),
+				memberSiteID:   validSite(11),
+			})
+		}
+
+		_, err := buildCurtailmentTopologyScopeCoverage([]int64{9, 10}, rows, "groups", groupRules)
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsNotFoundError(err))
+		assert.Contains(t, err.Error(), "10")
+	})
 }
 
 func TestResponseProfileSiteIDsForLock(t *testing.T) {

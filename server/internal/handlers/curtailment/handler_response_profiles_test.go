@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
@@ -1020,6 +1021,13 @@ func (s *handlerResponseProfileStore) GetResponseProfile(_ context.Context, _ in
 		}
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+}
+
+func (*handlerResponseProfileStore) ListCandidates(
+	context.Context,
+	interfaces.ListCandidatesParams,
+) ([]*models.Candidate, error) {
+	return nil, nil
 }
 
 func (s *handlerResponseProfileStore) ListResponseProfileDeviceSites(_ context.Context, _ int64, deviceIdentifiers []string) (map[string]*int64, error) {

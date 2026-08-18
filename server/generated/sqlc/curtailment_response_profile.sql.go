@@ -378,9 +378,9 @@ type LockCurtailmentResponseProfileAutomationMutationParams struct {
 	ProfileID int64
 }
 
-// Serializes profile fan changes with automation create/update/enable. Both
-// sides re-read their compatibility condition after acquiring this lock so a
-// concurrent pair cannot commit an automation binding to a fan profile.
+// Serializes profile changes with automation create/update/enable. Both sides
+// re-read their compatibility conditions after acquiring this lock so a
+// concurrent pair cannot commit an invalid automation binding.
 func (q *Queries) LockCurtailmentResponseProfileAutomationMutation(ctx context.Context, arg LockCurtailmentResponseProfileAutomationMutationParams) error {
 	_, err := q.exec(ctx, q.lockCurtailmentResponseProfileAutomationMutationStmt, lockCurtailmentResponseProfileAutomationMutation, arg.OrgID, arg.ProfileID)
 	return err

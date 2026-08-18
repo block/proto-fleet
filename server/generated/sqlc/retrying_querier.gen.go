@@ -3600,6 +3600,18 @@ func (q *retryingQuerier) ListCurtailmentAutomationRulesByOrg(ctx context.Contex
 	return result, err
 }
 
+func (q *retryingQuerier) ListCurtailmentBuildingScopeCoverage(ctx context.Context, arg ListCurtailmentBuildingScopeCoverageParams) ([]ListCurtailmentBuildingScopeCoverageRow, error) {
+	var result []ListCurtailmentBuildingScopeCoverageRow
+	err := q.retrier.RetryQuery(ctx, "ListCurtailmentBuildingScopeCoverage", func() error {
+		callResult, callErr := q.next.ListCurtailmentBuildingScopeCoverage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error) {
 	var result []ListCurtailmentCandidatesByOrgRow
 	err := q.retrier.RetryQuery(ctx, "ListCurtailmentCandidatesByOrg", func() error {
@@ -3616,6 +3628,30 @@ func (q *retryingQuerier) ListCurtailmentEventsForOrg(ctx context.Context, arg L
 	var result []ListCurtailmentEventsForOrgRow
 	err := q.retrier.RetryQuery(ctx, "ListCurtailmentEventsForOrg", func() error {
 		callResult, callErr := q.next.ListCurtailmentEventsForOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListCurtailmentGroupScopeCoverage(ctx context.Context, arg ListCurtailmentGroupScopeCoverageParams) ([]ListCurtailmentGroupScopeCoverageRow, error) {
+	var result []ListCurtailmentGroupScopeCoverageRow
+	err := q.retrier.RetryQuery(ctx, "ListCurtailmentGroupScopeCoverage", func() error {
+		callResult, callErr := q.next.ListCurtailmentGroupScopeCoverage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListCurtailmentRackScopeCoverage(ctx context.Context, arg ListCurtailmentRackScopeCoverageParams) ([]ListCurtailmentRackScopeCoverageRow, error) {
+	var result []ListCurtailmentRackScopeCoverageRow
+	err := q.retrier.RetryQuery(ctx, "ListCurtailmentRackScopeCoverage", func() error {
+		callResult, callErr := q.next.ListCurtailmentRackScopeCoverage(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

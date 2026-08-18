@@ -492,6 +492,15 @@ func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdm
 	if profile == nil {
 		return nil
 	}
+	scope, err := ResponseProfileScope(*profile)
+	if err != nil {
+		return err
+	}
+	if hasTopologySelectors(scope) {
+		return fleeterror.NewFailedPreconditionError(
+			"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported",
+		)
+	}
 	if canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
 		return nil
 	}

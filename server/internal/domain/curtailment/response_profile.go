@@ -143,6 +143,9 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateTopologyProfileAutomationBinding(ctx, profile); err != nil {
+		return nil, err
+	}
 	return s.store.UpdateResponseProfile(
 		ctx,
 		profile,
@@ -150,6 +153,29 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 		req.ExpectedSiteID,
 		req.ExpectedScopeJSON,
 		req.ExpectedFacilityFanSettings,
+	)
+}
+
+func (s *ResponseProfileService) validateTopologyProfileAutomationBinding(
+	ctx context.Context,
+	profile models.ResponseProfile,
+) error {
+	scope, err := ResponseProfileScope(profile)
+	if err != nil {
+		return err
+	}
+	if !hasTopologySelectors(scope) {
+		return nil
+	}
+	count, err := s.store.CountAutomationRulesByResponseProfile(ctx, profile.OrgID, profile.ID)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionError(
+		"topology-scoped response profiles cannot be used by automation until topology curtailment execution is supported; update the automation rules first",
 	)
 }
 
@@ -215,6 +241,12 @@ func (s *ResponseProfileService) validateAndNormalize(
 			return models.ResponseProfile{}, nil, fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
 		}
 	}
+	if err := validateResponseProfileBehavior(profile, req.CanUseAdminControls); err != nil {
+		return models.ResponseProfile{}, nil, err
+	}
+	if err := s.validateResponseProfileScope(ctx, profile.OrgID, scope); err != nil {
+		return models.ResponseProfile{}, nil, err
+	}
 	var infrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice
 	var existingFacilityFanDeviceIDs []int64
 	if allowLegacyFacilityFans {
@@ -239,10 +271,32 @@ func (s *ResponseProfileService) validateAndNormalize(
 	}
 	profile.ScopeJSON = scopeJSON
 	profile.SiteID = responseProfileLegacySiteID(scope)
-	if err := validateResponseProfileBehavior(profile, req.CanUseAdminControls); err != nil {
-		return models.ResponseProfile{}, nil, err
-	}
 	return profile, infrastructureDevices, nil
+}
+
+func (s *ResponseProfileService) validateResponseProfileScope(ctx context.Context, orgID int64, scope Scope) error {
+	filter, err := resolveScope(scope)
+	if err != nil {
+		return err
+	}
+	filter.OrgID = orgID
+	if listCandidatesFilterHasTopology(filter) {
+		resolver, ok := s.store.(interfaces.CurtailmentTopologyScopeStore)
+		if !ok {
+			return fleeterror.NewInternalError("curtailment topology scope resolver is not configured")
+		}
+		_, err = resolver.ResolveCurtailmentTopologyScope(ctx, filter)
+		return err
+	}
+	if len(filter.DeviceIdentifiers) > 0 {
+		return nil
+	}
+	filter.ResultLimit = ScopeResolvedMinerMax + 1
+	candidates, err := s.store.ListCandidates(ctx, filter)
+	if err != nil {
+		return err
+	}
+	return validateResolvedMinerCount(len(candidates))
 }
 
 func (s *ResponseProfileService) validateFacilityFanDevices(
