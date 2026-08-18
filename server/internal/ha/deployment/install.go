@@ -674,6 +674,12 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 	if err := placeFile(ctx, deps, "install Fleet base environment", baseEnv, filepath.Join(configRoot, "base.env"), "0600"); err != nil {
 		return err
 	}
+	if config.isDatabaseNode() {
+		if err := sudoStep(ctx, deps, "record HA Grafana volume ownership",
+			"install", "-o", "root", "-g", "root", "-m", "0600", "/dev/null", haGrafanaVolumeOwnershipMarker); err != nil {
+			return err
+		}
+	}
 	for sourceName, target := range map[string]string{
 		"proto-fleet-ha.service":          serviceUnit,
 		"proto-fleet-ha-firewall.service": firewallUnit,

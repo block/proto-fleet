@@ -76,6 +76,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	require.NotContains(t, joined, "fleet-ha status")
 	require.Contains(t, joined, "sudo install -D -o root -g root -m 0644 "+filepath.Join(secrets, "service-ca.crt")+" "+filepath.Join(configRoot, "service-ca.crt"))
 	require.Contains(t, joined, "sudo install -D -o root -g root -m 0600 "+filepath.Join(secrets, "fleet-client.key")+" "+filepath.Join(configRoot, "fleet-client.key"))
+	require.Contains(t, joined, "sudo install -o root -g root -m 0600 /dev/null "+haGrafanaVolumeOwnershipMarker)
 }
 
 func TestInstallRejectsExistingNftablesInputFilteringBeforeConfiguration(t *testing.T) {

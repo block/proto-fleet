@@ -78,6 +78,29 @@ func TestUninstallPurgeDeletesPersistentStateLast(t *testing.T) {
 	require.Greater(t, config, data)
 }
 
+func TestUninstallPurgePreservesUnownedGrafanaVolume(t *testing.T) {
+	// Arrange
+	var calls []string
+	deps := testUninstallDependencies(t, testUninstallNodeConfig("ha-a"), &calls)
+	lstat := deps.lstat
+	deps.lstat = func(path string) (os.FileInfo, error) {
+		if path == haGrafanaVolumeOwnershipMarker {
+			return nil, os.ErrNotExist
+		}
+		return lstat(path)
+	}
+
+	// Act
+	err := uninstall(t.Context(), true, deps)
+
+	// Assert
+	require.NoError(t, err)
+	joined := strings.Join(calls, "\n")
+	require.NotContains(t, joined, "volume rm --force "+haGrafanaVolume)
+	require.Contains(t, joined, "rm -rf -- "+dataRoot)
+	require.Contains(t, joined, "rm -rf -- "+configRoot)
+}
+
 func TestUninstallWitnessSkipsDatabaseServices(t *testing.T) {
 	// Arrange
 	var calls []string
@@ -206,7 +229,8 @@ func testUninstallDependencies(t *testing.T, config NodeConfig, calls *[]string)
 	installed := map[string]bool{
 		serviceUnit: true, firewallUnit: true, nftablesDropIn: true, dockerDropIn: true,
 		infrastructureCompose: true, installRoot + "/ha/fleet-ha": true,
-		keepalivedConfig: config.isDatabaseNode(), keepalivedOverride: config.isDatabaseNode(),
+		haGrafanaVolumeOwnershipMarker: config.isDatabaseNode(),
+		keepalivedConfig:               config.isDatabaseNode(), keepalivedOverride: config.isDatabaseNode(),
 		keepalivedHealthCheck: config.isDatabaseNode(), updaterDropIn: config.isDatabaseNode(),
 		haUpdaterDropIn: config.isDatabaseNode(), updaterBinary: config.isDatabaseNode(),
 		updaterUnit: config.isDatabaseNode(), updaterEnvironment: config.isDatabaseNode(),

@@ -14,7 +14,10 @@ import (
 
 const installedNodeEnvironment = configRoot + "/node.env"
 
-const haGrafanaVolume = fleetComposeProject + "_grafana-data"
+const (
+	haGrafanaVolume                = fleetComposeProject + "_grafana-data"
+	haGrafanaVolumeOwnershipMarker = configRoot + "/grafana-volume-owned"
+)
 
 type uninstallDependencies struct {
 	input        io.Reader
@@ -45,6 +48,13 @@ func uninstall(ctx context.Context, purgeData bool, deps uninstallDependencies) 
 	config, err := validateUninstall(ctx, deps)
 	if err != nil {
 		return err
+	}
+	removeGrafanaState := false
+	if purgeData && config.isDatabaseNode() {
+		removeGrafanaState, err = ownsHAGrafanaVolume(deps)
+		if err != nil {
+			return err
+		}
 	}
 	if err := printUninstallSummary(deps.output, config, purgeData); err != nil {
 		return err
@@ -79,7 +89,7 @@ func uninstall(ctx context.Context, purgeData bool, deps uninstallDependencies) 
 	if err := deps.stopServices(ctx, installedNodeEnvironment); err != nil {
 		return fmt.Errorf("stop installed HA containers: %w", err)
 	}
-	if purgeData && config.isDatabaseNode() {
+	if removeGrafanaState {
 		if err := removeHAGrafanaVolume(ctx, deps); err != nil {
 			return err
 		}
@@ -234,6 +244,20 @@ func removeHAGrafanaVolume(ctx context.Context, deps uninstallDependencies) erro
 		return nil
 	}
 	return fmt.Errorf("remove HA Grafana state: %s", commandError(output, err))
+}
+
+func ownsHAGrafanaVolume(deps uninstallDependencies) (bool, error) {
+	info, err := deps.lstat(haGrafanaVolumeOwnershipMarker)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect HA Grafana ownership marker: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("HA Grafana ownership marker must be a regular file: %s", haGrafanaVolumeOwnershipMarker)
+	}
+	return true, nil
 }
 
 func removeHAArtifacts(ctx context.Context, deps uninstallDependencies, databaseNode bool) error {
