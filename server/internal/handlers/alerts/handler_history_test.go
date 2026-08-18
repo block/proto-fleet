@@ -252,6 +252,11 @@ func TestDeviceLessTemplateSummariesVisibleWithoutMinerRead(t *testing.T) {
 			alertName: "Metric Ingest Stalled",
 			summary:   "Proto Fleet metric ingest has stalled.",
 		},
+		{
+			template:  string(alerts.RuleTemplateHAReadiness),
+			alertName: "HA Failover Readiness Degraded",
+			summary:   "Proto Fleet HA is not ready to fail over safely.",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.template, func(t *testing.T) {

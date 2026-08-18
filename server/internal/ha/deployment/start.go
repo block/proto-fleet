@@ -67,7 +67,7 @@ func StartInstalledServices(ctx context.Context, envPath, rootPasswordFile strin
 	if err := RunCompose(ctx, []string{"--env-file", envPath, "--file", infrastructureCompose, "--profile", "database", "up", "-d", "--no-build", "--pull", "never", "patroni"}); err != nil {
 		return fmt.Errorf("start Patroni: %w", err)
 	}
-	if err := RunCompose(ctx, fleetComposeArgs("up", "-d", "--no-build", "--pull", "never", "fleet-api", "fleet-client")); err != nil {
+	if err := RunCompose(ctx, fleetApplicationComposeArgs("up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60")); err != nil {
 		return fmt.Errorf("start Fleet: %w", err)
 	}
 	return nil

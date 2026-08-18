@@ -10,9 +10,31 @@ import (
 
 const localDockerHost = "unix:///var/run/docker.sock"
 
+func fleetApplicationComposeArgs(operation string, flags ...string) []string {
+	return fleetApplicationComposeArgsAt(installRoot, operation, flags...)
+}
+
+func fleetApplicationComposeArgsAt(root, operation string, flags ...string) []string {
+	args := slices.Clone(flags)
+	args = append(args, "fleet-api", "fleet-client", "grafana")
+	return fleetComposeArgsAt(root, operation, args...)
+}
+
 // RunCompose prevents parent variables from overriding generated HA identity and secrets.
 func RunCompose(ctx context.Context, args []string) error {
-	protected := []string{"AUTH_CLIENT_SECRET_KEY", "COMPOSE_PROJECT_NAME", "DB_DSN", "ENCRYPT_SERVICE_MASTER_KEY"}
+	protected := []string{
+		"AUTH_CLIENT_SECRET_KEY",
+		"COMPOSE_PROJECT_NAME",
+		"DB_DSN",
+		"ENCRYPT_SERVICE_MASTER_KEY",
+		"FLEET_ALERTS_ENABLED",
+		"FLEET_ALERTS_GRAFANA_TOKEN",
+		"FLEET_ALERTS_GRAFANA_URL",
+		"FLEET_ALERTS_WEBHOOK_TOKEN",
+		"GRAFANA_ADMIN_PASSWORD",
+		"GRAFANA_DB_PASSWORD",
+		"GRAFANA_SECRET_KEY",
+	}
 	for key := range allowedEnvKeys {
 		protected = append(protected, key)
 	}

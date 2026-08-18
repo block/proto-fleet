@@ -3,6 +3,7 @@ package deployment
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,13 +48,26 @@ type ControlStatus struct {
 }
 
 func Status(ctx context.Context, envPath string) (StatusReport, error) {
+	return statusWithDatabase(ctx, envPath, nil)
+}
+
+// StatusWithDatabase runs the same operator-facing control check while
+// reusing fleet-api's existing database pool for the writer observation.
+func StatusWithDatabase(ctx context.Context, envPath string, conn *sql.DB) (StatusReport, error) {
+	if conn == nil {
+		return StatusReport{}, errors.New("HA status requires a database connection")
+	}
+	return statusWithDatabase(ctx, envPath, conn)
+}
+
+func statusWithDatabase(ctx context.Context, envPath string, conn *sql.DB) (StatusReport, error) {
 	client, cleanup := newProbeHTTPClient(nil, nil)
 	defer cleanup()
 	report, err := readLocalStatus(ctx, client, localHAStatusURL)
 	if err != nil {
 		return StatusReport{}, err
 	}
-	return checkControlPath(ctx, envPath, report)
+	return checkControlPath(ctx, envPath, report, conn)
 }
 
 func readLocalStatus(ctx context.Context, client *http.Client, endpoint string) (StatusReport, error) {
@@ -78,7 +92,7 @@ func readLocalStatus(ctx context.Context, client *http.Client, endpoint string) 
 	return StatusReport{Runtime: status}, nil
 }
 
-func checkControlPath(ctx context.Context, envPath string, report StatusReport) (StatusReport, error) {
+func checkControlPath(ctx context.Context, envPath string, report StatusReport, conn *sql.DB) (StatusReport, error) {
 	config, err := loadNodeConfig(envPath)
 	if err != nil {
 		return StatusReport{}, err
@@ -126,7 +140,7 @@ func checkControlPath(ctx context.Context, envPath string, report StatusReport) 
 		primary, synchronous = patroniRoles(ctx, tlsConfig, config)
 	})
 	probes.Go(func() {
-		writerReady = writerObservationReady(ctx, etcdConfig, config)
+		writerReady = writerObservationReady(ctx, etcdConfig, config, conn)
 	})
 	probes.Go(func() {
 		client, cleanup := newProbeHTTPClient(tlsConfig, nil)
@@ -313,26 +327,29 @@ func matchingFleetVersions(statuses []fleetHostStatus) bool {
 	return len(statuses) == 2 && statuses[0].version != "" && statuses[0].version == statuses[1].version
 }
 
-func writerObservationReady(ctx context.Context, etcdConfig clientv3.Config, config NodeConfig) bool {
-	values, err := loadFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile))
-	if err != nil {
-		return false
-	}
+func writerObservationReady(ctx context.Context, etcdConfig clientv3.Config, config NodeConfig, conn *sql.DB) bool {
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	dsn, err := hostProbeDSN(values["DB_DSN"], config.SecretsDir)
-	if err != nil {
-		return false
+	if conn == nil {
+		values, err := loadFleetEnvironment(filepath.Join(config.SecretsDir, fleetEnvironmentFile))
+		if err != nil {
+			return false
+		}
+		dsn, err := hostProbeDSN(values["DB_DSN"], config.SecretsDir)
+		if err != nil {
+			return false
+		}
+		opened, err := db.ConnectToDatabase(&db.Config{
+			ExplicitDSN:  dsn,
+			MaxOpenConns: 1,
+			MaxIdleConns: 1,
+		})
+		if err != nil {
+			return false
+		}
+		defer opened.Close()
+		conn = opened
 	}
-	conn, err := db.ConnectToDatabase(&db.Config{
-		ExplicitDSN:  dsn,
-		MaxOpenConns: 1,
-		MaxIdleConns: 1,
-	})
-	if err != nil {
-		return false
-	}
-	defer conn.Close()
 	pinned, err := conn.Conn(probeCtx)
 	if err != nil {
 		return false

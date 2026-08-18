@@ -81,6 +81,12 @@ const (
 	// wedged. The Fleet Heartbeat Stale rule alerts on it.
 	MetricSystemHeartbeat = "fleet_system_heartbeat"
 
+	// MetricHAFailoverReady mirrors fleet-ha status control.failover_ready: 1
+	// means every HA redundancy and control-path check is healthy, 0 means at
+	// least one part of the cluster is degraded. It is host-scoped and emitted
+	// only by the active Fleet runtime.
+	MetricHAFailoverReady = "fleet_ha_failover_ready"
+
 	// MetricMQTTSourceConnected is a per-source gauge: 1 when the MQTT
 	// curtailment source has at least one broker connection subscribed to its
 	// signal topic, 0 when it cannot receive curtailment signals. Labelled
@@ -168,6 +174,7 @@ var AllMetricNames = []string{
 	MetricSystemMemoryUsedPercent,
 	MetricSystemDiskUsedPercent,
 	MetricSystemHeartbeat,
+	MetricHAFailoverReady,
 	MetricMQTTSourceConnected,
 	MetricMQTTCurtailmentActive,
 	MetricCurtailmentFanRestoreFailed,

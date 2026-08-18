@@ -407,7 +407,9 @@ func parseOSRelease(contents string) map[string]string {
 
 func validateRelease(source string, readFile func(string) ([]byte, error)) error {
 	required := []string{
-		"version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/fleet.tar.gz", "images/timescaledb.tar.gz",
+		"version.txt", "docker-compose.yaml", "docker-compose.alerts.yaml", "server/docker-compose.base.yaml", "images/fleet.tar.gz", "images/timescaledb.tar.gz",
+		"server/monitoring/grafana/grafana.ini", "server/monitoring/grafana/provisioning/alerting/notification-policies.yaml",
+		"server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml", "server/monitoring/grafana/ha/timescaledb.yaml",
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/nginx.https.conf", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"updater/proto-fleet-updater", "updater/proto-fleet-updater.service",
@@ -783,6 +785,10 @@ func prepareImages(ctx context.Context, source string, config NodeConfig, deps i
 		return fmt.Errorf("pull etcd image: %s", commandError(output, err))
 	}
 	if config.isDatabaseNode() {
+		pullArgs := fleetComposeArgs("pull", "grafana")
+		if output, err := deps.run(ctx, "sudo", append([]string{filepath.Join(installRoot, "ha", "fleet-ha"), "compose"}, pullArgs...)...); err != nil {
+			return fmt.Errorf("pull Grafana image: %s", commandError(output, err))
+		}
 		for _, archive := range []string{"timescaledb.tar.gz", "fleet.tar.gz"} {
 			if output, err := deps.run(ctx, "sudo", "docker", "load", "--input", filepath.Join(installRoot, "images", archive)); err != nil {
 				return fmt.Errorf("load release images from %s: %s", archive, commandError(output, err))
@@ -925,6 +931,7 @@ func fleetComposeArgsAt(root, operation string, services ...string) []string {
 		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
 		"--env-file", filepath.Join(configRoot, "node.env"),
 		"--file", filepath.Join(root, "docker-compose.yaml"),
+		"--file", filepath.Join(root, "docker-compose.alerts.yaml"),
 		"--file", filepath.Join(root, "ha", "fleet-compose.yaml"), operation,
 	}
 	return append(args, services...)
