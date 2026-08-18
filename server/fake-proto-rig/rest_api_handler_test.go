@@ -7,12 +7,15 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -2945,6 +2948,250 @@ func newFirmwareUploadRequest(t *testing.T, filename, content string) *http.Requ
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	return req
+}
+
+func TestHandleUpdate_PutConsumesCompleteStreamBeforeResponding(t *testing.T) {
+	tests := []struct {
+		name             string
+		filename         string
+		contentVersion   string
+		wantVersion      string
+		pauseAfterHeader bool
+	}{
+		{
+			name:           "content version",
+			filename:       "protoos-update.swu",
+			contentVersion: "3.4.5",
+			wantVersion:    "3.4.5",
+		},
+		{
+			name:             "filename version wins",
+			filename:         "protoos-2.4.6.swu",
+			contentVersion:   "9.9.9",
+			wantVersion:      "2.4.6",
+			pauseAfterHeader: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.mu.Lock()
+			state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+			state.mu.Unlock()
+
+			h := NewRESTApiHandler(state)
+			h.firmwareStepDelay = time.Hour
+
+			uploadReader, uploadWriter := io.Pipe()
+			multipartWriter := multipart.NewWriter(uploadWriter)
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", uploadReader)
+			req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+			rr := httptest.NewRecorder()
+
+			streamPaused := make(chan struct{})
+			resumeStream := make(chan struct{})
+			writerDone := make(chan error, 1)
+			go func() {
+				part, err := multipartWriter.CreateFormFile("file", tt.filename)
+				if err != nil {
+					_ = uploadWriter.CloseWithError(err)
+					writerDone <- err
+					return
+				}
+
+				if tt.pauseAfterHeader {
+					close(streamPaused)
+					<-resumeStream
+				}
+
+				marker := "firmware_version=" + tt.contentVersion + "\n"
+				prefix := marker + strings.Repeat("x", int(firmwareVersionScanLimit)-len(marker))
+				if _, err = io.WriteString(part, prefix); err != nil {
+					_ = uploadWriter.CloseWithError(err)
+					writerDone <- err
+					return
+				}
+
+				if !tt.pauseAfterHeader {
+					close(streamPaused)
+					<-resumeStream
+				}
+
+				if _, err = io.WriteString(part, strings.Repeat("y", int(4*firmwareVersionScanLimit))); err != nil {
+					_ = uploadWriter.CloseWithError(err)
+					writerDone <- err
+					return
+				}
+				if err = multipartWriter.Close(); err != nil {
+					_ = uploadWriter.CloseWithError(err)
+					writerDone <- err
+					return
+				}
+				writerDone <- uploadWriter.Close()
+			}()
+
+			handlerDone := make(chan struct{})
+			go func() {
+				h.handleUpdate(rr, req)
+				_ = uploadReader.Close()
+				close(handlerDone)
+			}()
+
+			select {
+			case <-streamPaused:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for the upload stream to pause")
+			}
+
+			respondedEarly := false
+			select {
+			case <-handlerDone:
+				respondedEarly = true
+			case <-time.After(50 * time.Millisecond):
+			}
+
+			state.mu.RLock()
+			statusBeforeCompletion := state.FWUpdateStatus
+			versionBeforeCompletion := state.FWNewVersion
+			outcomeBeforeCompletion := state.FWNextUpdateOutcome
+			state.mu.RUnlock()
+
+			close(resumeStream)
+
+			var writerErr error
+			select {
+			case writerErr = <-writerDone:
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for the upload writer")
+			}
+			if !respondedEarly {
+				select {
+				case <-handlerDone:
+				case <-time.After(time.Second):
+					t.Fatal("timed out waiting for the upload handler")
+				}
+			}
+
+			if respondedEarly {
+				t.Error("handler responded before the complete multipart file was available")
+			}
+			if statusBeforeCompletion != "" {
+				t.Errorf("firmware lifecycle started before upload completion: status=%q", statusBeforeCompletion)
+			}
+			if versionBeforeCompletion != "" {
+				t.Errorf("firmware version staged before upload completion: version=%q", versionBeforeCompletion)
+			}
+			if outcomeBeforeCompletion != firmwareUpdateOutcomeAttention {
+				t.Errorf("one-shot outcome consumed before upload completion: got %q", outcomeBeforeCompletion)
+			}
+			if writerErr != nil {
+				t.Errorf("upload writer failed before sending the complete file: %v", writerErr)
+			}
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+			}
+
+			state.mu.RLock()
+			gotStatus := state.FWUpdateStatus
+			gotVersion := state.FWNewVersion
+			gotNextOutcome := state.FWNextUpdateOutcome
+			state.mu.RUnlock()
+			if gotStatus != "downloaded" {
+				t.Errorf("expected status %q after complete upload, got %q", "downloaded", gotStatus)
+			}
+			if gotVersion != tt.wantVersion {
+				t.Errorf("expected staged version %q, got %q", tt.wantVersion, gotVersion)
+			}
+			if gotNextOutcome != firmwareUpdateOutcomeSuccess {
+				t.Errorf("expected one-shot outcome to reset after complete upload, got %q", gotNextOutcome)
+			}
+		})
+	}
+}
+
+func TestHandleUpdate_PutStreamFailureDoesNotMutateFirmwareState(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.mu.Lock()
+	state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+	state.mu.Unlock()
+	h := NewRESTApiHandler(state)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "protoos-update.swu")
+	if err != nil {
+		t.Fatalf("failed to create multipart file: %v", err)
+	}
+	marker := "firmware_version=4.5.6\n"
+	payload := marker + strings.Repeat("x", int(2*firmwareVersionScanLimit)-len(marker))
+	if _, err = io.WriteString(part, payload); err != nil {
+		t.Fatalf("failed to write multipart file: %v", err)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatalf("failed to close multipart writer: %v", err)
+	}
+
+	payloadOffset := bytes.Index(body.Bytes(), []byte(marker))
+	if payloadOffset < 0 {
+		t.Fatal("failed to locate firmware payload in multipart body")
+	}
+	streamErr := errors.New("simulated upload stream failure")
+	readBeforeFailure := int64(payloadOffset) + firmwareVersionScanLimit
+	interruptedBody := io.MultiReader(
+		io.LimitReader(bytes.NewReader(body.Bytes()), readBeforeFailure),
+		iotest.ErrReader(streamErr),
+	)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", interruptedBody)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	h.handleUpdate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected %d for interrupted upload, got %d; body=%s",
+			http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWUpdateStatus != "" {
+		t.Errorf("expected no firmware lifecycle after stream failure, got status %q", state.FWUpdateStatus)
+	}
+	if state.FWNewVersion != "" {
+		t.Errorf("expected no staged version after stream failure, got %q", state.FWNewVersion)
+	}
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeAttention {
+		t.Errorf("expected stream failure not to consume one-shot outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestHandleUpdate_PutOversizeDeclarationDoesNotMutateFirmwareState(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.mu.Lock()
+	state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+	state.mu.Unlock()
+	h := NewRESTApiHandler(state)
+
+	req := newFirmwareUploadRequest(t, "protoos-2.4.6.swu", "fake firmware bundle")
+	req.ContentLength = maxFirmwareUploadBytes + 1
+	rr := httptest.NewRecorder()
+	h.handleUpdate(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected %d for oversized upload, got %d; body=%s",
+			http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWUpdateStatus != "" {
+		t.Errorf("expected no firmware lifecycle after size failure, got status %q", state.FWUpdateStatus)
+	}
+	if state.FWNewVersion != "" {
+		t.Errorf("expected no staged version after size failure, got %q", state.FWNewVersion)
+	}
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeAttention {
+		t.Errorf("expected size failure not to consume one-shot outcome, got %q", state.FWNextUpdateOutcome)
+	}
 }
 
 func getFirmwareStatus(state *MinerState) string {
