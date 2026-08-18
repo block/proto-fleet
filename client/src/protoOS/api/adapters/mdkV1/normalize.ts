@@ -600,6 +600,7 @@ const normalizeSeries = (
   return {
     timeSeries: {
       bucketSizeMs,
+      units: canonical.units,
       points: metric.values.map((value, index) => ({
         timestampMs: startTimeMs + index * bucketSizeMs,
         value: value === null ? null : value * canonical.factor,

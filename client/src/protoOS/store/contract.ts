@@ -120,6 +120,7 @@ export interface MetricPoint {
 export interface MetricTimeSeries {
   points: MetricPoint[];
   bucketSizeMs?: number;
+  units?: MetricUnit;
   aggregates?: { min?: Measurement; avg?: Measurement; max?: Measurement };
 }
 

@@ -5,7 +5,7 @@ import { normalizeV1Telemetry } from "../../api/adapters/mdkV1/normalize";
 import { asComponentId, ROOT_MODULE_ID, ROOT_MODULE_KEY } from "../contract";
 import useMinerStore from "../useMinerStore";
 import { getAsicId } from "../utils/getAsicId";
-import { useHashboardsHardware, useMinerHardware } from "./useHardware";
+import { useHashboardSerialsByBay, useHashboardsHardware, useMinerHardware } from "./useHardware";
 import { useChartDataForMetric, useMiner, useMinerHashboardAsics } from "./useMiner";
 import { useErrors } from "./useMinerStatus";
 import { useFansTelemetry, useMinerTelemetry } from "./useTelemetry";
@@ -178,5 +178,19 @@ describe("useMiner", () => {
     const { result } = renderHook(() => useChartDataForMetric("hashrate"));
 
     expect(result.current.chartData).toEqual([]);
+  });
+
+  it("derives fallback bays from one-based hashboard slots", () => {
+    useMinerStore.getState().hardware.setHashboards([
+      { serial: "HB-3", slot: 3 },
+      { serial: "HB-4", slot: 4, bay: 2 },
+    ]);
+
+    const { result } = renderHook(() => useHashboardSerialsByBay());
+
+    expect(result.current).toEqual({
+      1: [null, null, "HB-3"],
+      2: ["HB-4", null, null],
+    });
   });
 });

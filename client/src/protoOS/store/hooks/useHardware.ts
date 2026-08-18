@@ -63,9 +63,9 @@ export const useHashboardSerialsByBay = () => {
           return hb.bay === bay;
         }
         // Fallback: calculate bay from slot if bay is not set
-        // slot / SLOTS_PER_BAY gives us the bay (0-indexed), add 1 to make it 1-indexed
+        // Convert the 1-based slot to a 0-based offset before deriving the 1-based bay.
         if (hb.slot !== undefined) {
-          const calculatedBay = Math.floor(hb.slot / SLOTS_PER_BAY) + 1;
+          const calculatedBay = Math.floor((hb.slot - 1) / SLOTS_PER_BAY) + 1;
           return calculatedBay === bay;
         }
         return false;

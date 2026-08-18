@@ -96,6 +96,7 @@ describe("MDK v1 normalization", () => {
       { timestampMs: 1_000, value: 90 },
       { timestampMs: 61_000, value: 100 },
     ]);
+    expect(history.rollupsByEntity.get(ROOT_MODULE_KEY)?.hashrate?.timeSeries?.units).toBe("TH/s");
     expect(history.hashboards.get(asHashboardId("serial:HB-1"))?.hashrate?.timeSeries?.bucketSizeMs).toBe(60_000);
   });
 

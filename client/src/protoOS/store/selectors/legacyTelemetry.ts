@@ -19,7 +19,9 @@ import type {
 const metric = (value?: NormalizedMetric): MetricTelemetry | undefined => {
   if (!value) return undefined;
   const points = value.timeSeries?.points ?? [];
-  const units = (value.latest?.units ?? value.timeSeries?.aggregates?.avg?.units ?? "W") as MetricUnit;
+  const normalizedUnits = value.latest?.units ?? value.timeSeries?.units ?? value.timeSeries?.aggregates?.avg?.units;
+  if (!normalizedUnits) return undefined;
+  const units = normalizedUnits as MetricUnit;
   const measurement = (item: typeof value.latest) =>
     item ? { value: item.value, units: item.units as MetricUnit } : undefined;
   const aggregates = value.timeSeries?.aggregates;
