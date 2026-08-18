@@ -238,6 +238,33 @@ func TestInstallInterruptedDuringConvergenceLeavesHAEnabled(t *testing.T) {
 	require.NotContains(t, joined, "sudo rm -f "+dockerRecoveryDropIn)
 }
 
+func TestInitialStartCleansUpFailedWitnessService(t *testing.T) {
+	// Arrange
+	config := NodeConfig{NodeName: "ha-c", NodeIP: testHostIPs[2], WitnessIP: testHostIPs[2]}
+	var calls []string
+	deps := installDependencies{
+		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			call := strings.Join(append([]string{name}, args...), " ")
+			calls = append(calls, call)
+			if call == "systemctl is-failed proto-fleet-ha.service" {
+				return []byte("failed\n"), nil
+			}
+			return nil, nil
+		},
+		localReady: func(context.Context, NodeConfig) error { return nil },
+		vipReady:   func(context.Context, NodeConfig) bool { return false },
+		sleep:      func(time.Duration) {},
+	}
+
+	// Act
+	err := initialStart(t.Context(), config, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "proto-fleet-ha.service failed")
+	require.NotErrorIs(t, err, errInstallConverging)
+	require.Contains(t, strings.Join(calls, "\n"), "sudo systemctl disable --now proto-fleet-ha.service")
+}
+
 func TestInitialStartCleansUpWhenLocalEtcdDoesNotStart(t *testing.T) {
 	// Arrange
 	config := NodeConfig{NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0]}
