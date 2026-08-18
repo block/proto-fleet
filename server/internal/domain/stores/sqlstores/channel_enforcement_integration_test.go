@@ -16,16 +16,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
 
-func TestChannelEnforcementStoreAuthorityRevisionAndHaltGateClaims(t *testing.T) {
+func TestChannelEnforcementStoreLaterAuthorityRevisionPreservesClaimsUntilHalt(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
-	db, orgID, deviceIdentifiers := setupCollectionTestData(t, 1)
+	db, orgID, deviceIdentifiers := setupCollectionTestData(t, 2)
 	collectionStore := newCollectionStore(db)
 	releaseSet := createTestReleaseSet(t, collectionStore, orgID, "enforcement-gate")
 	enforcementStore := sqlstores.NewSQLChannelEnforcementStore(db)
-	deviceID, targetID := enforcementFixtureIDs(
+	firstDeviceID, targetID := enforcementFixtureIDs(
 		t,
 		db,
 		deviceIdentifiers[0],
@@ -41,7 +41,7 @@ func TestChannelEnforcementStoreAuthorityRevisionAndHaltGateClaims(t *testing.T)
 	require.NoError(t, err)
 	enforcement, err := enforcementStore.CreateEnforcement(t.Context(), channel.CreateEnforcementParams{
 		OrgID:             orgID,
-		DeviceID:          deviceID,
+		DeviceID:          firstDeviceID,
 		ReleaseTargetID:   targetID,
 		CauseType:         "rollout_admission",
 		AuthorityID:       authority.ID,
@@ -63,8 +63,23 @@ func TestChannelEnforcementStoreAuthorityRevisionAndHaltGateClaims(t *testing.T)
 		"batch-stale-authority",
 		time.Now(),
 	)
-	require.ErrorIs(t, err, channel.ErrCASConflict)
+	require.NoError(t, err)
 
+	secondDeviceID, _ := enforcementFixtureIDs(
+		t,
+		db,
+		deviceIdentifiers[1],
+		releaseSet.Id,
+	)
+	secondEnforcement, err := enforcementStore.CreateEnforcement(t.Context(), channel.CreateEnforcementParams{
+		OrgID:             orgID,
+		DeviceID:          secondDeviceID,
+		ReleaseTargetID:   targetID,
+		CauseType:         "rollout_admission",
+		AuthorityID:       authority.ID,
+		AuthorityRevision: advanced.Revision,
+	})
+	require.NoError(t, err)
 	halted, err := enforcementStore.HaltAuthority(
 		t.Context(),
 		authority.ID,
@@ -75,7 +90,7 @@ func TestChannelEnforcementStoreAuthorityRevisionAndHaltGateClaims(t *testing.T)
 	require.NotNil(t, halted.HaltedAt)
 	_, err = enforcementStore.Claim(
 		t.Context(),
-		enforcement,
+		secondEnforcement,
 		"batch-after-halt",
 		time.Now(),
 	)

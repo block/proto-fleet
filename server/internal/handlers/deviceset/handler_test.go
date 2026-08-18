@@ -1299,6 +1299,9 @@ func TestAssignDevicesToChannel_HappyPath(t *testing.T) {
 			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
 			Return(deviceIDs, nil),
 		h.collectionStore.EXPECT().
+			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
+			Return(nil, nil),
+		h.collectionStore.EXPECT().
 			GetCollection(gomock.Any(), testOrgID, targetChannelID).
 			Return(&collectionpb.DeviceCollection{
 				Id:    targetChannelID,
