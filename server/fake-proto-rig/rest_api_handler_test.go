@@ -2957,6 +2957,22 @@ func newFirmwareUploadRequest(t *testing.T, filename, content string) *http.Requ
 	return req
 }
 
+func assertFirmwareUploadDidNotMutateState(t *testing.T, state *MinerState, wantNextOutcome string) {
+	t.Helper()
+
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWUpdateStatus != "" {
+		t.Errorf("expected no firmware lifecycle, got status %q", state.FWUpdateStatus)
+	}
+	if state.FWNewVersion != "" {
+		t.Errorf("expected no staged version, got %q", state.FWNewVersion)
+	}
+	if state.FWNextUpdateOutcome != wantNextOutcome {
+		t.Errorf("expected one-shot outcome to remain %q, got %q", wantNextOutcome, state.FWNextUpdateOutcome)
+	}
+}
+
 func TestHandleUpdate_PutConsumesCompleteStreamBeforeResponding(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -3113,6 +3129,188 @@ func TestHandleUpdate_PutConsumesCompleteStreamBeforeResponding(t *testing.T) {
 			if gotNextOutcome != firmwareUpdateOutcomeSuccess {
 				t.Errorf("expected one-shot outcome to reset after complete upload, got %q", gotNextOutcome)
 			}
+		})
+	}
+}
+
+func TestHandleUpdate_PutConsumesTrailingPartsBeforeResponding(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.mu.Lock()
+	state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+	state.mu.Unlock()
+
+	h := NewRESTApiHandler(state)
+	h.firmwareStepDelay = time.Hour
+
+	uploadReader, uploadWriter := io.Pipe()
+	multipartWriter := multipart.NewWriter(uploadWriter)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", uploadReader)
+	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	trailingPartPaused := make(chan struct{})
+	resumeTrailingPart := make(chan struct{})
+	finalBoundaryWritten := make(chan struct{})
+	closeUploadStream := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		file, err := multipartWriter.CreateFormFile("file", "protoos-2.4.6.swu")
+		if err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		if _, err = io.WriteString(file, "fake firmware bundle"); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+
+		trailing, err := multipartWriter.CreateFormField("metadata")
+		if err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		if _, err = io.WriteString(trailing, "metadata-start"); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		close(trailingPartPaused)
+		<-resumeTrailingPart
+		if _, err = io.WriteString(trailing, "-and-end"); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		if err = multipartWriter.Close(); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		close(finalBoundaryWritten)
+		<-closeUploadStream
+		writerDone <- uploadWriter.Close()
+	}()
+
+	handlerDone := make(chan struct{})
+	go func() {
+		h.handleUpdate(rr, req)
+		_ = uploadReader.Close()
+		close(handlerDone)
+	}()
+
+	select {
+	case <-trailingPartPaused:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for trailing multipart part to pause")
+	}
+
+	select {
+	case <-handlerDone:
+		t.Fatal("handler responded before the trailing multipart part reached final EOF")
+	case <-time.After(50 * time.Millisecond):
+	}
+	assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+
+	close(resumeTrailingPart)
+	select {
+	case <-finalBoundaryWritten:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for final multipart boundary")
+	}
+	select {
+	case <-handlerDone:
+		t.Fatal("handler responded before the upload stream reached EOF")
+	case <-time.After(50 * time.Millisecond):
+	}
+	assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+
+	close(closeUploadStream)
+	select {
+	case err := <-writerDone:
+		if err != nil {
+			t.Fatalf("upload writer failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upload writer")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for upload handler")
+	}
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWUpdateStatus != "downloaded" {
+		t.Errorf("expected status %q after complete upload, got %q", "downloaded", state.FWUpdateStatus)
+	}
+	if state.FWNewVersion != "2.4.6" {
+		t.Errorf("expected staged version %q, got %q", "2.4.6", state.FWNewVersion)
+	}
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Errorf("expected one-shot outcome to reset after complete upload, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestHandleUpdate_PutRejectsInvalidMultipartRemainder(t *testing.T) {
+	tests := []struct {
+		name      string
+		remainder func(boundary string) string
+	}{
+		{
+			name: "missing final boundary",
+			remainder: func(boundary string) string {
+				return "\r\n--" + boundary + "\r\n" +
+					"Content-Disposition: form-data; name=\"metadata\"\r\n\r\n" +
+					"truncated trailing data"
+			},
+		},
+		{
+			name: "malformed trailing part headers",
+			remainder: func(boundary string) string {
+				return "\r\n--" + boundary + "\r\n" +
+					"not-a-valid-mime-header\r\n\r\n" +
+					"trailing data\r\n--" + boundary + "--\r\n"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.mu.Lock()
+			state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+			state.mu.Unlock()
+			h := NewRESTApiHandler(state)
+
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			file, err := writer.CreateFormFile("file", "protoos-2.4.6.swu")
+			if err != nil {
+				t.Fatalf("failed to create multipart file: %v", err)
+			}
+			if _, err = io.WriteString(file, "fake firmware bundle"); err != nil {
+				t.Fatalf("failed to write multipart file: %v", err)
+			}
+			if _, err = io.WriteString(&body, tt.remainder(writer.Boundary())); err != nil {
+				t.Fatalf("failed to write multipart remainder: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", &body)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			rr := httptest.NewRecorder()
+			h.handleUpdate(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+			}
+			assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
 		})
 	}
 }
@@ -3275,20 +3473,84 @@ func TestHandleUpdate_PutOversizeDeclarationDoesNotMutateFirmwareState(t *testin
 	rr := httptest.NewRecorder()
 	h.handleUpdate(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
+	if rr.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("expected %d for oversized upload, got %d; body=%s",
-			http.StatusBadRequest, rr.Code, rr.Body.String())
+			http.StatusRequestEntityTooLarge, rr.Code, rr.Body.String())
 	}
-	state.mu.RLock()
-	defer state.mu.RUnlock()
-	if state.FWUpdateStatus != "" {
-		t.Errorf("expected no firmware lifecycle after size failure, got status %q", state.FWUpdateStatus)
+	assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+}
+
+func TestHandleUpdate_PutStreamedOversizeDoesNotMutateFirmwareState(t *testing.T) {
+	const uploadLimit = int64(1024)
+
+	tests := []struct {
+		name      string
+		writeBody func(t *testing.T, writer *multipart.Writer)
+	}{
+		{
+			name: "file part",
+			writeBody: func(t *testing.T, writer *multipart.Writer) {
+				t.Helper()
+				file, err := writer.CreateFormFile("file", "protoos-2.4.6.swu")
+				if err != nil {
+					t.Fatalf("failed to create multipart file: %v", err)
+				}
+				if _, err = io.WriteString(file, strings.Repeat("x", int(2*uploadLimit))); err != nil {
+					t.Fatalf("failed to write multipart file: %v", err)
+				}
+			},
+		},
+		{
+			name: "trailing part",
+			writeBody: func(t *testing.T, writer *multipart.Writer) {
+				t.Helper()
+				file, err := writer.CreateFormFile("file", "protoos-2.4.6.swu")
+				if err != nil {
+					t.Fatalf("failed to create multipart file: %v", err)
+				}
+				if _, err = io.WriteString(file, "fake firmware bundle"); err != nil {
+					t.Fatalf("failed to write multipart file: %v", err)
+				}
+				trailing, err := writer.CreateFormField("metadata")
+				if err != nil {
+					t.Fatalf("failed to create trailing multipart part: %v", err)
+				}
+				if _, err = io.WriteString(trailing, strings.Repeat("x", int(2*uploadLimit))); err != nil {
+					t.Fatalf("failed to write trailing multipart part: %v", err)
+				}
+			},
+		},
 	}
-	if state.FWNewVersion != "" {
-		t.Errorf("expected no staged version after size failure, got %q", state.FWNewVersion)
-	}
-	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeAttention {
-		t.Errorf("expected size failure not to consume one-shot outcome, got %q", state.FWNextUpdateOutcome)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.mu.Lock()
+			state.FWNextUpdateOutcome = firmwareUpdateOutcomeAttention
+			state.mu.Unlock()
+			h := NewRESTApiHandler(state)
+			h.firmwareUploadLimit = uploadLimit
+
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			tt.writeBody(t, writer)
+			if err := writer.Close(); err != nil {
+				t.Fatalf("failed to close multipart writer: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", bytes.NewReader(body.Bytes()))
+			req.ContentLength = -1
+			req.TransferEncoding = []string{"chunked"}
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			rr := httptest.NewRecorder()
+			h.handleUpdate(rr, req)
+
+			if rr.Code != http.StatusRequestEntityTooLarge {
+				t.Errorf("expected %d, got %d; body=%s",
+					http.StatusRequestEntityTooLarge, rr.Code, rr.Body.String())
+			}
+			assertFirmwareUploadDidNotMutateState(t, state, firmwareUpdateOutcomeAttention)
+		})
 	}
 }
 

@@ -661,6 +661,7 @@ type RESTApiHandler struct {
 	locateTimerMu        sync.Mutex
 	cancelLocateTimer    func()
 	scheduleLocateClear  func(time.Duration, func()) func()
+	firmwareUploadLimit  int64
 	firmwareStepDelay    time.Duration
 	firmwareInstallDelay time.Duration
 }
@@ -670,6 +671,7 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 	return &RESTApiHandler{
 		state:                state,
 		testControlsEnabled:  getEnvBool(fakeRigEnableTestControlsEnv, false),
+		firmwareUploadLimit:  maxFirmwareUploadBytes,
 		firmwareStepDelay:    defaultFirmwareStepDelay,
 		firmwareInstallDelay: defaultFirmwareInstallDelay,
 		scheduleLocateClear: func(duration time.Duration, callback func()) func() {
@@ -1972,11 +1974,36 @@ func (h *RESTApiHandler) startFirmwareInstallLifecycle(sequence uint64) {
 	go h.completeFirmwareInstall(sequence)
 }
 
-func readFirmwareUploadPart(w http.ResponseWriter, r *http.Request) (*multipart.Part, error) {
-	if r.ContentLength > maxFirmwareUploadBytes {
-		return nil, fmt.Errorf("firmware upload exceeds %d bytes", maxFirmwareUploadBytes)
+var errFirmwareUploadTooLarge = errors.New("firmware upload is too large")
+
+type firmwareUpload struct {
+	body   io.Reader
+	reader *multipart.Reader
+	file   *multipart.Part
+}
+
+func normalizeFirmwareUploadError(err error) error {
+	if err == nil {
+		return nil
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxFirmwareUploadBytes)
+
+	var maxBytesError *http.MaxBytesError
+	if errors.As(err, &maxBytesError) {
+		return fmt.Errorf("%w: %v", errFirmwareUploadTooLarge, err)
+	}
+	return err
+}
+
+func readFirmwareUploadPart(w http.ResponseWriter, r *http.Request, limit int64) (*firmwareUpload, error) {
+	if r.ContentLength > limit {
+		return nil, fmt.Errorf(
+			"%w: declared content length %d exceeds %d bytes",
+			errFirmwareUploadTooLarge,
+			r.ContentLength,
+			limit,
+		)
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	reader, err := r.MultipartReader()
 	if err != nil {
 		return nil, fmt.Errorf("parse multipart upload: %w", err)
@@ -1988,15 +2015,64 @@ func readFirmwareUploadPart(w http.ResponseWriter, r *http.Request) (*multipart.
 			return nil, fmt.Errorf("missing file part")
 		}
 		if nextErr != nil {
-			return nil, fmt.Errorf("read multipart upload: %w", nextErr)
+			return nil, fmt.Errorf("read multipart upload: %w", normalizeFirmwareUploadError(nextErr))
 		}
 		if part.FormName() == "file" && part.FileName() != "" {
-			return part, nil
+			return &firmwareUpload{
+				body:   r.Body,
+				reader: reader,
+				file:   part,
+			}, nil
 		}
 		if closeErr := part.Close(); closeErr != nil {
-			return nil, fmt.Errorf("skip multipart field: %w", closeErr)
+			return nil, fmt.Errorf("skip multipart field: %w", normalizeFirmwareUploadError(closeErr))
 		}
 	}
+}
+
+func consumeFirmwareUpload(upload *firmwareUpload) error {
+	if _, err := io.Copy(io.Discard, upload.file); err != nil {
+		_ = upload.file.Close()
+		return fmt.Errorf("read firmware file: %w", normalizeFirmwareUploadError(err))
+	}
+	if err := upload.file.Close(); err != nil {
+		return fmt.Errorf("close firmware file: %w", normalizeFirmwareUploadError(err))
+	}
+
+	for {
+		part, err := upload.reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read trailing multipart part: %w", normalizeFirmwareUploadError(err))
+		}
+		if _, err := io.Copy(io.Discard, part); err != nil {
+			_ = part.Close()
+			return fmt.Errorf("read trailing multipart data: %w", normalizeFirmwareUploadError(err))
+		}
+		if err := part.Close(); err != nil {
+			return fmt.Errorf("close trailing multipart part: %w", normalizeFirmwareUploadError(err))
+		}
+	}
+
+	if _, err := io.Copy(io.Discard, upload.body); err != nil {
+		return fmt.Errorf("read multipart body through EOF: %w", normalizeFirmwareUploadError(err))
+	}
+	return nil
+}
+
+func (h *RESTApiHandler) writeFirmwareUploadError(w http.ResponseWriter, err error, malformedMessage string) {
+	if errors.Is(err, errFirmwareUploadTooLarge) {
+		h.writeError(
+			w,
+			http.StatusRequestEntityTooLarge,
+			"REQUEST_TOO_LARGE",
+			"Firmware upload exceeds the 512 MiB limit",
+		)
+		return
+	}
+	h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", malformedMessage)
 }
 
 func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -2063,26 +2139,22 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		h.state.mu.Unlock()
 
-		file, err := readFirmwareUploadPart(w, r)
+		upload, err := readFirmwareUploadPart(w, r, h.firmwareUploadLimit)
 		if err != nil {
-			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
+			h.writeFirmwareUploadError(w, err, "Missing or invalid 'file' field in multipart form")
 			return
 		}
 
+		file := upload.file
 		filename := file.FileName()
 		explicitVersion, hasExplicitVersion, err := explicitFirmwareVersion(filename, file)
 		if err != nil {
 			_ = file.Close()
-			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Unable to inspect firmware upload")
+			h.writeFirmwareUploadError(w, normalizeFirmwareUploadError(err), "Unable to inspect firmware upload")
 			return
 		}
-		if _, err := io.Copy(io.Discard, file); err != nil {
-			_ = file.Close()
-			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Unable to read firmware upload")
-			return
-		}
-		if err := file.Close(); err != nil {
-			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Unable to close firmware upload")
+		if err := consumeFirmwareUpload(upload); err != nil {
+			h.writeFirmwareUploadError(w, err, "Unable to read complete firmware upload")
 			return
 		}
 
