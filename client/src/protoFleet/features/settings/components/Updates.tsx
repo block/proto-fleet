@@ -677,13 +677,14 @@ const Updates = () => {
                   ariaLabel="Include release candidates"
                   checked={channel === ReleaseChannel.STABLE_AND_RC}
                   disabled={isChannelChangePending || upgradeLocksConfiguration}
+                  id="include-release-candidates"
                   setChecked={(next) => {
                     const includeRC =
                       typeof next === "function" ? next(channel === ReleaseChannel.STABLE_AND_RC) : next;
                     void handleIncludeRCChange(includeRC);
                   }}
                 />
-                <div className="min-w-0">
+                <label htmlFor="include-release-candidates" className="min-w-0 cursor-pointer">
                   <span>
                     <span className="block text-300">Include release candidates</span>
                     <span className="block text-200 text-text-primary-50">
@@ -691,7 +692,7 @@ const Updates = () => {
                       stable release.
                     </span>
                   </span>
-                </div>
+                </label>
               </Row>
             ) : (
               <div className="py-3">

@@ -38,7 +38,7 @@ export class SettingsUpdatesPage extends BasePage {
   }
 
   async clickIncludeReleaseCandidates() {
-    await this.page.getByRole("checkbox", { name: "Include release candidates", exact: true }).click();
+    await this.page.getByText("Include release candidates", { exact: true }).click();
   }
 
   async validateIncludeReleaseCandidatesChecked() {
