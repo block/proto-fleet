@@ -37,6 +37,13 @@ func effectivePermissionsFromContext(ctx context.Context) *authz.EffectivePermis
 	return eff
 }
 
+func actorRBACBypassError(actor session.Actor) error {
+	return fleeterror.NewInternalErrorf(
+		"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+		actor,
+	)
+}
+
 // RequirePermission gates a handler on the named permission key
 // against the caller-supplied resource context. It is the runtime
 // counterpart of the existing RequireAdmin gate, which it replaces
@@ -56,9 +63,9 @@ func effectivePermissionsFromContext(ctx context.Context) *authz.EffectivePermis
 //     server-side assignment IDs, role names, or the caller's
 //     effective permission list.
 //
-// Synthesized internal actors (session.Info.Actor != "") short-circuit
-// to ALLOW without consulting EffectivePermissions. The scheduler and
-// curtailment-reconciler synthesize a session.Info without a real
+// Allowlisted synthesized internal actors short-circuit to ALLOW without
+// consulting EffectivePermissions. The scheduler and curtailment-reconciler
+// synthesize a session.Info without a real
 // UserID/OrganizationID; they're trusted by virtue of running
 // in-process, and they have no rows in user_organization_role to
 // resolve against.
@@ -98,11 +105,10 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 		switch info.Actor {
 		case session.ActorScheduler, session.ActorCurtailment:
 			return info, nil
+		case session.ActorChannelEnforcement:
+			return nil, actorRBACBypassError(info.Actor)
 		default:
-			return nil, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
+			return nil, actorRBACBypassError(info.Actor)
 		}
 	}
 
@@ -132,11 +138,10 @@ func RequireOrgWidePermission(ctx context.Context, key string) (*session.Info, e
 		switch info.Actor {
 		case session.ActorScheduler, session.ActorCurtailment:
 			return info, nil
+		case session.ActorChannelEnforcement:
+			return nil, actorRBACBypassError(info.Actor)
 		default:
-			return nil, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
+			return nil, actorRBACBypassError(info.Actor)
 		}
 	}
 
@@ -170,11 +175,10 @@ func HasPermission(ctx context.Context, key string, rc authz.ResourceContext) (b
 		switch info.Actor {
 		case session.ActorScheduler, session.ActorCurtailment:
 			return true, nil
+		case session.ActorChannelEnforcement:
+			return false, actorRBACBypassError(info.Actor)
 		default:
-			return false, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
+			return false, actorRBACBypassError(info.Actor)
 		}
 	}
 
@@ -197,11 +201,10 @@ func HasOrgWidePermission(ctx context.Context, key string) (bool, error) {
 		switch info.Actor {
 		case session.ActorScheduler, session.ActorCurtailment:
 			return true, nil
+		case session.ActorChannelEnforcement:
+			return false, actorRBACBypassError(info.Actor)
 		default:
-			return false, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
+			return false, actorRBACBypassError(info.Actor)
 		}
 	}
 
@@ -234,11 +237,10 @@ func SiteScopeForPermission(ctx context.Context, key string) (orgWide bool, site
 		switch info.Actor {
 		case session.ActorScheduler, session.ActorCurtailment:
 			return true, nil, nil
+		case session.ActorChannelEnforcement:
+			return false, nil, actorRBACBypassError(info.Actor)
 		default:
-			return false, nil, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
+			return false, nil, actorRBACBypassError(info.Actor)
 		}
 	}
 
@@ -284,11 +286,10 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 		switch info.Actor {
 		case session.ActorScheduler, session.ActorCurtailment:
 			return info, nil
+		case session.ActorChannelEnforcement:
+			return nil, actorRBACBypassError(info.Actor)
 		default:
-			return nil, fleeterror.NewInternalErrorf(
-				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
-				info.Actor,
-			)
+			return nil, actorRBACBypassError(info.Actor)
 		}
 	}
 

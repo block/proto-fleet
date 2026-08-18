@@ -63,7 +63,14 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Rollout, erro
 	if req.ID == uuid.Nil {
 		req.ID = uuid.New()
 	}
-	req.RequestFingerprint = fingerprintCreate(req)
+	fingerprint, err := fingerprintCreate(req)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf(
+			"create rollout request fingerprint: %w",
+			err,
+		)
+	}
+	req.RequestFingerprint = fingerprint
 	result, err := s.store.Create(ctx, req)
 	if err != nil {
 		return nil, mapStoreError(err)
@@ -481,7 +488,7 @@ func fingerprintControl(req ControlRequest) string {
 	return cryptohash.Sha256Hex(payload)
 }
 
-func fingerprintCreate(req CreateRequest) string {
+func fingerprintCreate(req CreateRequest) (string, error) {
 	fingerprintInput := struct {
 		Name               string
 		StrategyKey        string
@@ -509,8 +516,11 @@ func fingerprintCreate(req CreateRequest) string {
 		Reason:             req.Reason,
 		ActorUserID:        req.ActorUserID,
 	}
-	encoded, _ := json.Marshal(fingerprintInput)
-	return cryptohash.Sha256Hex(string(encoded))
+	encoded, err := json.Marshal(fingerprintInput)
+	if err != nil {
+		return "", fmt.Errorf("marshal rollout creation fingerprint: %w", err)
+	}
+	return cryptohash.Sha256Hex(string(encoded)), nil
 }
 
 func replayResult(result ControlResult) (*Rollout, error) {

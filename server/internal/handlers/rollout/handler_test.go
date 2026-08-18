@@ -220,6 +220,31 @@ func TestHandlerDerivesAPIKeyControlActorFromSession(t *testing.T) {
 	assert.Equal(t, int64(91), service.control.ActorUserID)
 }
 
+func TestProtoTranslationClampsNegativePositionsAndRevisions(t *testing.T) {
+	t.Parallel()
+
+	translatedRollout := rolloutToProto(&rolloutDomain.Rollout{Revision: -1})
+	translatedBatch := batchToProto(&rolloutDomain.Batch{Position: -1, Revision: -1})
+	translatedMember := memberToProto(&rolloutDomain.Member{Position: -1, Revision: -1})
+	translatedCause := causeToProto(&rolloutDomain.Cause{RolloutRevision: -1})
+
+	assert.Zero(t, translatedRollout.GetRevision())
+	assert.Zero(t, translatedBatch.GetPosition())
+	assert.Zero(t, translatedBatch.GetRevision())
+	assert.Zero(t, translatedMember.GetPosition())
+	assert.Zero(t, translatedMember.GetRevision())
+	assert.Zero(t, translatedCause.GetRolloutRevision())
+}
+
+func TestStateFromProtoTreatsUnspecifiedAsUnknown(t *testing.T) {
+	t.Parallel()
+
+	state, ok := stateFromProto(pb.RolloutState_ROLLOUT_STATE_UNSPECIFIED)
+
+	assert.Empty(t, state)
+	assert.False(t, ok)
+}
+
 type recordingRolloutService struct {
 	result   *rolloutDomain.Rollout
 	getOrgID int64

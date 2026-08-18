@@ -34,6 +34,8 @@ func (s State) IsTerminal() bool {
 	switch s {
 	case StateAborted, StateCompleted, StateCompletedWithFailures, StateReverted:
 		return true
+	case StateCreated, StateRunning, StatePaused, StateReview, StateReverting:
+		return false
 	default:
 		return false
 	}

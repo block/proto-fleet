@@ -47,6 +47,20 @@ func actorIdentityFromSession(
 	return actorType, &credentialID
 }
 
+func nonNegativeUint64(value int64) uint64 {
+	if value < 0 {
+		return 0
+	}
+	return uint64(value)
+}
+
+func nonNegativeUint32(value int32) uint32 {
+	if value < 0 {
+		return 0
+	}
+	return uint32(value)
+}
+
 func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
 	if input == nil {
 		return nil
@@ -132,7 +146,7 @@ func rolloutToProto(input *rolloutDomain.Rollout) *pb.Rollout {
 		Name:               input.Name,
 		StrategyKey:        input.StrategyKey,
 		State:              stateToProto(input.State),
-		Revision:           uint64(input.Revision),
+		Revision:           nonNegativeUint64(input.Revision),
 		SourceChannelId:    input.SourceChannelID,
 		TargetChannelId:    input.TargetChannelID,
 		SourceReleaseSetId: input.SourceReleaseSetID,
@@ -168,10 +182,10 @@ func rolloutToProto(input *rolloutDomain.Rollout) *pb.Rollout {
 func batchToProto(input *rolloutDomain.Batch) *pb.RolloutBatch {
 	result := &pb.RolloutBatch{
 		BatchId:  input.ID,
-		Position: uint32(input.Position),
+		Position: nonNegativeUint32(input.Position),
 		Label:    input.Label,
 		State:    batchStateToProto(input.State),
-		Revision: uint64(input.Revision),
+		Revision: nonNegativeUint64(input.Revision),
 		Members:  make([]*pb.RolloutMember, 0, len(input.Members)),
 	}
 	for index := range input.Members {
@@ -185,9 +199,9 @@ func memberToProto(input *rolloutDomain.Member) *pb.RolloutMember {
 		MemberId:         input.ID,
 		BatchId:          input.BatchID,
 		DeviceIdentifier: input.DeviceIdentifier,
-		Position:         uint32(input.Position),
+		Position:         nonNegativeUint32(input.Position),
 		State:            memberStateToProto(input.State),
-		Revision:         uint64(input.Revision),
+		Revision:         nonNegativeUint64(input.Revision),
 		SourceSnapshot:   snapshotToProto(input.SourceSnapshot),
 		TargetSnapshot:   snapshotToProto(input.TargetSnapshot),
 		RevertSnapshot:   snapshotToProto(input.RevertSnapshot),
@@ -232,7 +246,7 @@ func causeToProto(input *rolloutDomain.Cause) *pb.RolloutCause {
 		ActorUserId:     input.ActorUserID,
 		FromState:       fromState,
 		ToState:         stateToProto(input.ToState),
-		RolloutRevision: uint64(input.RolloutRevision),
+		RolloutRevision: nonNegativeUint64(input.RolloutRevision),
 		CreatedAt:       timestamppb.New(input.CreatedAt),
 	}
 }
@@ -257,6 +271,8 @@ func rolloutStatesFromProto(values []pb.RolloutState) ([]rolloutDomain.State, er
 
 func stateFromProto(value pb.RolloutState) (rolloutDomain.State, bool) {
 	switch value {
+	case pb.RolloutState_ROLLOUT_STATE_UNSPECIFIED:
+		return "", false
 	case pb.RolloutState_ROLLOUT_STATE_CREATED:
 		return rolloutDomain.StateCreated, true
 	case pb.RolloutState_ROLLOUT_STATE_RUNNING:

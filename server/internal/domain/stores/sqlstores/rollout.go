@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/google/uuid"
 
@@ -22,6 +23,13 @@ var _ rollout.Store = (*SQLRolloutStore)(nil)
 
 func NewSQLRolloutStore(conn *sql.DB) *SQLRolloutStore {
 	return &SQLRolloutStore{conn: conn}
+}
+
+func rolloutPositionToInt32(value int) (int32, error) {
+	if value < 0 || value > math.MaxInt32 {
+		return 0, fmt.Errorf("rollout position %d is outside the int32 range", value)
+	}
+	return int32(value), nil
 }
 
 func (s *SQLRolloutStore) Create(
@@ -101,16 +109,24 @@ func (s *SQLRolloutStore) Create(
 		}
 		batchInputs := make([]batchInput, 0, len(req.Batches))
 		memberInputs := make([]memberInput, 0)
-		var memberPosition int32
+		memberPosition := 0
 		for batchPosition, inputBatch := range req.Batches {
+			batchPositionInt32, positionErr := rolloutPositionToInt32(batchPosition)
+			if positionErr != nil {
+				return createResult{}, fmt.Errorf("convert rollout batch position: %w", positionErr)
+			}
 			batchInputs = append(batchInputs, batchInput{
-				Position: int32(batchPosition),
+				Position: batchPositionInt32,
 				Label:    inputBatch.Label,
 			})
 			for _, inputMember := range inputBatch.Members {
+				memberPositionInt32, positionErr := rolloutPositionToInt32(memberPosition)
+				if positionErr != nil {
+					return createResult{}, fmt.Errorf("convert rollout member position: %w", positionErr)
+				}
 				memberInputs = append(memberInputs, memberInput{
-					BatchPosition:    int32(batchPosition),
-					Position:         memberPosition,
+					BatchPosition:    batchPositionInt32,
+					Position:         memberPositionInt32,
 					DeviceIdentifier: inputMember.DeviceIdentifier,
 					SourceSnapshot:   nonNilSnapshot(inputMember.SourceSnapshot),
 					TargetSnapshot:   nonNilSnapshot(inputMember.TargetSnapshot),
@@ -121,7 +137,7 @@ func (s *SQLRolloutStore) Create(
 		}
 		batchJSON, marshalErr := json.Marshal(batchInputs)
 		if marshalErr != nil {
-			return createResult{}, marshalErr
+			return createResult{}, fmt.Errorf("marshal rollout batches: %w", marshalErr)
 		}
 		batches, batchErr := q.CreateFirmwareRolloutBatches(
 			ctx,
@@ -139,7 +155,7 @@ func (s *SQLRolloutStore) Create(
 		}
 		memberJSON, marshalErr := json.Marshal(memberInputs)
 		if marshalErr != nil {
-			return createResult{}, marshalErr
+			return createResult{}, fmt.Errorf("marshal rollout members: %w", marshalErr)
 		}
 		members, memberErr := q.CreateFirmwareRolloutMembers(
 			ctx,
@@ -484,7 +500,7 @@ func (s *SQLRolloutStore) ApplyControl(
 		}
 
 		if selectedBatchID.Valid {
-			selectedBatch, updateErr = q.AdmitFirmwareRolloutBatch(
+			_, updateErr = q.AdmitFirmwareRolloutBatch(
 				ctx,
 				sqlc.AdmitFirmwareRolloutBatchParams{
 					BatchID:   selectedBatchID.Int64,
