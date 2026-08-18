@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,6 +37,7 @@ type Alert struct {
 type Deliverer struct {
 	channels   ChannelStore
 	routes     RouteStore
+	windows    MaintenanceWindowStore
 	crypto     Cipher
 	devices    DeviceIdentityLookup
 	httpClient *http.Client
@@ -48,10 +50,11 @@ type Deliverer struct {
 	policyCacheGen map[int64]uint64
 }
 
-func NewDeliverer(channels ChannelStore, routes RouteStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
+func NewDeliverer(channels ChannelStore, routes RouteStore, windows MaintenanceWindowStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
 	return &Deliverer{
 		channels:       channels,
 		routes:         routes,
+		windows:        windows,
 		crypto:         crypto,
 		devices:        devices,
 		httpClient:     newDeliveryHTTPClient(policy),
@@ -148,6 +151,7 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 	if len(defaultAlerts) == 0 && len(extraIdx) == 0 {
 		return
 	}
+	windows := d.activeMaintenanceWindows(ctx, orgID)
 	// Resolve identities for routing survivors only (each surviving alert exactly once).
 	survivors := make([]Alert, 0, len(defaultAlerts)+len(routedUnique))
 	survivors = append(append(survivors, defaultAlerts...), routedUnique...)
@@ -160,9 +164,15 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 		if len(defaultAlerts) == 0 && len(idxs) == 0 {
 			continue
 		}
+		// Window coverage depends only on the channel, so resolve it once here; a covering window
+		// that mutes every rule mutes the whole batch, skipping the channel's send entirely.
+		muting, muteAll := channelMutingWindows(windows, rec.ID)
+		if muteAll {
+			continue
+		}
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(rec ChannelRecord, idxs []int) {
+		go func(rec ChannelRecord, idxs []int, muting []MaintenanceWindowRecord) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			// Materialize the channel's batch inside its concurrency slot: routing stays index-based, so a
@@ -175,10 +185,65 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 					alerts = append(alerts, orgAlerts[i])
 				}
 			}
+			alerts = dropMutedAlerts(alerts, muting)
+			if len(alerts) == 0 {
+				return
+			}
 			d.deliverChannel(ctx, orgID, rec, alerts, identities)
-		}(rec, idxs)
+		}(rec, idxs, muting)
 	}
 	wg.Wait()
+}
+
+// activeMaintenanceWindows loads the org's currently-active windows for delivery muting. Unlike
+// route policies (which fail closed so restricted alerts can't leak to unintended channels), a
+// read failure here fails open and delivers: a window only suppresses noise, and transient extra
+// noise during maintenance beats losing real pages.
+func (d *Deliverer) activeMaintenanceWindows(ctx context.Context, orgID int64) []MaintenanceWindowRecord {
+	if d.windows == nil {
+		return nil
+	}
+	windows, err := d.windows.ListActive(ctx, orgID, time.Now())
+	if err != nil {
+		slog.Error("alerts.deliver_list_windows_failed", "org", orgID, "err", err)
+		return nil
+	}
+	return windows
+}
+
+// channelMutingWindows filters the org's active windows down to the ones covering this channel
+// (an empty channel list covers every channel). muteAll reports that a covering window has an
+// empty rule list, which mutes every alert on the channel.
+func channelMutingWindows(windows []MaintenanceWindowRecord, channelID int64) (covering []MaintenanceWindowRecord, muteAll bool) {
+	for _, w := range windows {
+		if len(w.ChannelIDs) > 0 && !slices.Contains(w.ChannelIDs, channelID) {
+			continue
+		}
+		if len(w.RuleUIDs) == 0 {
+			return nil, true
+		}
+		covering = append(covering, w)
+	}
+	return covering, false
+}
+
+// dropMutedAlerts returns the channel's batch minus alerts a covering window's rule list claims.
+// Unattributed alerts stay: they carry no producing-rule UID, so a rule-scoped window can't
+// claim them. The input slice is shared across channel goroutines and never mutated.
+func dropMutedAlerts(alerts []Alert, covering []MaintenanceWindowRecord) []Alert {
+	if len(covering) == 0 {
+		return alerts
+	}
+	out := make([]Alert, 0, len(alerts))
+	for _, a := range alerts {
+		muted := a.RuleUID != "" && slices.ContainsFunc(covering, func(w MaintenanceWindowRecord) bool {
+			return slices.Contains(w.RuleUIDs, a.RuleUID)
+		})
+		if !muted {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // routeAlerts splits the org batch per its route policies: no policy or no rule UID → every channel (fail open),

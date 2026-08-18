@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -420,7 +421,7 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 	}
 	cleanup := func() error {
 		sweepErr := s.removeSilencesTargetingRule(ctx, orgID, id, func(sil GrafanaSilence) bool {
-			return isPauseSilence(sil) || isMaintenanceWindowSilence(sil)
+			return isPauseSilence(sil) || isLegacyMaintenanceWindowSilence(sil)
 		})
 		// The policy and config rows are inert once the rule is gone; drop them without letting their errors gate the safety-relevant silence sweep above.
 		var policyErr error
@@ -641,6 +642,12 @@ func (s *Service) scopeDimensions() []scopeDimension {
 	dims[3].lookup = deviceSets("group")
 	return dims
 }
+
+// Matches the device_identifier bound in pairing.proto.
+const maxDeviceIDLength = 255
+
+// The identifier alphabet: excludes SQL string-literal escapes and every regex metacharacter except ".".
+var deviceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
 
 // validateRuleScope: keep holds stored ids updates may retain even if since deleted. Device ids get only
 // the pattern check — the org-filtered live-device view makes an unknown, deleted, or cross-org id inert.

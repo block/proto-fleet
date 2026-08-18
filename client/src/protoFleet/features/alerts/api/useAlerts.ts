@@ -16,6 +16,11 @@ export const isMaintenanceWindowActive = (s: MaintenanceWindow, now: number = Da
   return now >= start && now < end;
 };
 
+// Empty channel targets mean the window mutes delivery on every channel; a channel-scoped window
+// leaves its rules paging on unlisted channels. Mirrors the server's authoritative delivery-side
+// predicate (server/internal/domain/alerts/deliver.go) — keep the two in sync.
+export const windowMutesEveryChannel = (w: MaintenanceWindow): boolean => w.channel_ids.length === 0;
+
 const withActive = (s: MaintenanceWindow, now?: number): MaintenanceWindowWithActive => ({
   ...s,
   active: isMaintenanceWindowActive(s, now),
@@ -61,12 +66,7 @@ export function useAlerts(): UseAlertsResult {
     mutationEpochRef.current += 1;
   }, []);
 
-  const isDeletedWindow = useCallback(
-    (w: MaintenanceWindow): boolean =>
-      deletedIdsRef.current.has(w.id) ||
-      (w.scope.kind === "rule" && w.scope.rule_id != null && deletedIdsRef.current.has(w.scope.rule_id)),
-    [],
-  );
+  const isDeletedWindow = useCallback((w: MaintenanceWindow): boolean => deletedIdsRef.current.has(w.id), []);
 
   const upsertRule = useCallback((updated: Rule) => {
     if (deletedIdsRef.current.has(updated.id)) return;
@@ -155,9 +155,8 @@ export function useAlerts(): UseAlertsResult {
       noteMutation();
       deletedIdsRef.current.add(id);
       setRules((current) => current.filter((r) => r.id !== id));
-      // The server delete also removes the rule's rule-scoped maintenance
-      // windows; drop them locally so the list doesn't show stale entries.
-      setMaintenanceWindows((current) => current.filter((w) => !(w.scope.kind === "rule" && w.scope.rule_id === id)));
+      // Maintenance windows keep their rows: the deleted rule's id dangles in
+      // rule_ids and simply mutes nothing.
     },
     [noteMutation],
   );
@@ -179,11 +178,7 @@ export function useAlerts(): UseAlertsResult {
       const updated = await api.updateMaintenanceWindow(input);
       noteMutation();
       if (!isDeletedWindow(updated)) {
-        // A history-affecting edit (e.g. scope change) makes Alertmanager assign a new silence id; drop the stale row so the window isn't listed twice.
-        setMaintenanceWindows((current) => {
-          const base = updated.id !== input.id ? current.filter((s) => s.id !== input.id) : current;
-          return upsertById(base, withActive(updated));
-        });
+        setMaintenanceWindows((current) => upsertById(current, withActive(updated)));
       }
       return updated;
     },

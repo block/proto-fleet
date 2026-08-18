@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { useChannels } from "@/protoFleet/features/alerts/api/useChannels";
+import { useCallback, useState } from "react";
+import { useChannelSelection } from "@/protoFleet/features/alerts/api/useChannelSelection";
 import type { Channel, RoutingMode, RuleRouting } from "@/protoFleet/features/alerts/types";
-import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 export interface UseDeliveryRoutingResult {
   mode: RoutingMode;
@@ -22,71 +20,41 @@ export interface UseDeliveryRoutingResult {
 
 // Owns the delivery-picker mechanics shared by the Add Rule and Edit delivery dialogs.
 export function useDeliveryRouting(): UseDeliveryRoutingResult {
-  const { channels, refresh } = useChannels();
   const [mode, setMode] = useState<RoutingMode>("default");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [channelsLoaded, setChannelsLoaded] = useState(false);
   const [sessionKey, setSessionKey] = useState(0);
-  const sessionFetchedRef = useRef(false);
+  const {
+    channels,
+    channelsLoaded,
+    selectedIds,
+    toggleChannel,
+    reset: resetSelection,
+  } = useChannelSelection(mode === "custom");
 
-  // Channels are only rendered in custom mode, so fetch lazily, once per session.
-  useEffect(() => {
-    if (mode !== "custom" || sessionFetchedRef.current) return;
-    sessionFetchedRef.current = true;
-    void refresh()
-      .then(() => setChannelsLoaded(true))
-      .catch((error) => {
-        pushToast({
-          message: getErrorMessage(error, "Failed to load channels"),
-          status: STATUSES.error,
-        });
-      });
-  }, [mode, refresh]);
-
-  // Derive the live selection: an id for a channel deleted since the rules cache was fetched renders
-  // no checkbox, so it could never be deselected and every save would fail server-side.
-  const liveSelectedIds = useMemo(() => {
-    if (!channelsLoaded) return selectedIds;
-    const live = new Set(channels.map((c) => c.id));
-    return new Set([...selectedIds].filter((id) => live.has(id)));
-  }, [selectedIds, channels, channelsLoaded]);
-
-  const reset = useCallback((routing: RuleRouting | null) => {
-    sessionFetchedRef.current = false;
-    setChannelsLoaded(false);
-    setMode(routing?.mode ?? "default");
-    setSelectedIds(new Set(routing?.channel_ids ?? []));
-    setSessionKey((key) => key + 1);
-  }, []);
-
-  const toggleChannel = useCallback((id: string) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }, []);
+  const reset = useCallback(
+    (routing: RuleRouting | null) => {
+      resetSelection(routing?.channel_ids ?? []);
+      setMode(routing?.mode ?? "default");
+      setSessionKey((key) => key + 1);
+    },
+    [resetSelection],
+  );
 
   const validate = useCallback((): string | null => {
-    if (mode === "custom" && liveSelectedIds.size === 0) {
+    if (mode === "custom" && selectedIds.size === 0) {
       return "Pick at least one channel, or use All channels / In-app only";
     }
     return null;
-  }, [mode, liveSelectedIds]);
+  }, [mode, selectedIds]);
 
   const toRuleRouting = useCallback(
-    (): RuleRouting => ({ mode, channel_ids: mode === "custom" ? [...liveSelectedIds] : [] }),
-    [mode, liveSelectedIds],
+    (): RuleRouting => ({ mode, channel_ids: mode === "custom" ? [...selectedIds] : [] }),
+    [mode, selectedIds],
   );
 
   return {
     mode,
     setMode,
-    selectedIds: liveSelectedIds,
+    selectedIds,
     toggleChannel,
     channels,
     channelsLoaded,

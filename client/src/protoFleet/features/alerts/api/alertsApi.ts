@@ -15,7 +15,6 @@ import {
   HashrateUnit as ProtoHashrateUnit,
   type AlertHistoryEntry as ProtoHistoryEntry,
   type MaintenanceWindow as ProtoMaintenanceWindow,
-  MaintenanceWindowScopeKind as ProtoMaintenanceWindowScopeKind,
   RoutingMode as ProtoRoutingMode,
   type Rule as ProtoRule,
   type RuleConfig as ProtoRuleConfig,
@@ -35,8 +34,6 @@ import type {
   HashrateMode,
   HashrateUnit,
   MaintenanceWindow,
-  MaintenanceWindowScope,
-  MaintenanceWindowScopeKind,
   RoutingMode,
   Rule,
   RuleConfig,
@@ -107,32 +104,6 @@ const ruleTemplateFromProto = (t: ProtoRuleTemplate): RuleTemplate => {
       return "mqtt-disconnected";
     default:
       return "";
-  }
-};
-
-const scopeKindToProto = (k: MaintenanceWindowScopeKind): ProtoMaintenanceWindowScopeKind => {
-  switch (k) {
-    case "rule":
-      return ProtoMaintenanceWindowScopeKind.RULE;
-    case "group":
-      return ProtoMaintenanceWindowScopeKind.GROUP;
-    case "site":
-      return ProtoMaintenanceWindowScopeKind.SITE;
-    case "device":
-      return ProtoMaintenanceWindowScopeKind.DEVICE;
-  }
-};
-
-const scopeKindFromProto = (k: ProtoMaintenanceWindowScopeKind): MaintenanceWindowScopeKind => {
-  switch (k) {
-    case ProtoMaintenanceWindowScopeKind.GROUP:
-      return "group";
-    case ProtoMaintenanceWindowScopeKind.SITE:
-      return "site";
-    case ProtoMaintenanceWindowScopeKind.DEVICE:
-      return "device";
-    default:
-      return "rule";
   }
 };
 
@@ -317,13 +288,8 @@ const ruleFromProto = (r: ProtoRule): Rule => ({
 const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindow => ({
   id: s.id,
   organization_id: String(s.organizationId),
-  scope: {
-    kind: s.scope ? scopeKindFromProto(s.scope.kind) : "rule",
-    rule_id: s.scope?.ruleId || null,
-    group_id: s.scope?.groupId || null,
-    site_id: s.scope?.siteId || null,
-    device_ids: s.scope?.deviceIds ?? [],
-  },
+  rule_ids: s.scope?.ruleIds ?? [],
+  channel_ids: s.scope?.channelIds ?? [],
   starts_at: isoFromTs(s.startsAt),
   ends_at: isoOrNull(s.endsAt),
   comment: s.comment,
@@ -361,14 +327,6 @@ const webhookToProto = (w?: WebhookConfig | null) =>
     : undefined;
 
 const slackToProto = (s?: SlackConfig | null) => (s ? { webhookUrl: s.webhook_url ?? "" } : undefined);
-
-const scopeToProto = (s: MaintenanceWindowScope) => ({
-  kind: scopeKindToProto(s.kind),
-  ruleId: s.rule_id ?? "",
-  groupId: s.group_id ?? "",
-  siteId: s.site_id ?? "",
-  deviceIds: s.device_ids,
-});
 
 const channelDestinationFields = (input: ChannelMutationInput) => ({
   kind: channelKindToProto(input.kind),
@@ -515,7 +473,9 @@ export async function listMaintenanceWindows(): Promise<MaintenanceWindow[]> {
 
 export interface MaintenanceWindowMutationInput {
   id?: string;
-  scope: MaintenanceWindowScope;
+  // Empty means every rule / every channel.
+  rule_ids: string[];
+  channel_ids: string[];
   starts_at: string;
   ends_at: string | null;
   comment: string;
@@ -523,7 +483,7 @@ export interface MaintenanceWindowMutationInput {
 
 export async function createMaintenanceWindow(input: MaintenanceWindowMutationInput): Promise<MaintenanceWindow> {
   const res = await alertMaintenanceWindowClient.createMaintenanceWindow({
-    scope: scopeToProto(input.scope),
+    scope: { ruleIds: input.rule_ids, channelIds: input.channel_ids },
     startsAt: tsFromIso(input.starts_at),
     endsAt: input.ends_at ? tsFromIso(input.ends_at) : undefined,
     comment: input.comment,
@@ -536,7 +496,7 @@ export async function updateMaintenanceWindow(
 ): Promise<MaintenanceWindow> {
   const res = await alertMaintenanceWindowClient.updateMaintenanceWindow({
     id: input.id,
-    scope: scopeToProto(input.scope),
+    scope: { ruleIds: input.rule_ids, channelIds: input.channel_ids },
     startsAt: tsFromIso(input.starts_at),
     endsAt: input.ends_at ? tsFromIso(input.ends_at) : undefined,
     comment: input.comment,

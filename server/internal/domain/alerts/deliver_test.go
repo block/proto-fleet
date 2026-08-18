@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func (f fakeDeviceLookup) DeviceIdentities(_ context.Context, _ int64, _ []strin
 func newDeliverer(t *testing.T, store *fakeChannelStore, devices DeviceIdentityLookup) (*Deliverer, Cipher) {
 	t.Helper()
 	crypto := testCipher(t)
-	d := NewDeliverer(store, nil, crypto, devices, DestinationPolicy{AllowPrivateDestinations: true}, "https://fleet.example.com")
+	d := NewDeliverer(store, nil, nil, crypto, devices, DestinationPolicy{AllowPrivateDestinations: true}, "https://fleet.example.com")
 	return d, crypto
 }
 
@@ -153,7 +154,7 @@ func TestDeliverSkipsPrivateDestinationUnderPolicy(t *testing.T) {
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
 	// Policy disallows private destinations: a loopback URL must be refused at send time.
-	d := NewDeliverer(store, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{}, "")
+	d := NewDeliverer(store, nil, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, "http://127.0.0.1:1/hook", "")
 
 	// No panic, no send; the SSRF check rejects it and the error is logged internally.
@@ -163,7 +164,7 @@ func TestDeliverSkipsPrivateDestinationUnderPolicy(t *testing.T) {
 func TestDelivererDoesNotFollowRedirects(t *testing.T) {
 	// Redirects are never followed: a 3xx must not forward the secret channel URL (Referer/Authorization)
 	// to the redirect target, whether public or internal. The client returns the 3xx response instead.
-	d := NewDeliverer(newFakeChannelStore(), nil, testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
+	d := NewDeliverer(newFakeChannelStore(), nil, nil, testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
 	require.NotNil(t, d.httpClient.CheckRedirect)
 
 	for _, target := range []string{"http://8.8.8.8/hook", "http://127.0.0.1/x", "http://169.254.169.254/latest"} {
@@ -175,7 +176,7 @@ func TestDelivererDoesNotFollowRedirects(t *testing.T) {
 
 func TestDelivererDisablesProxy(t *testing.T) {
 	// A proxy would resolve+connect the destination itself, bypassing the pinned dial.
-	d := NewDeliverer(newFakeChannelStore(), nil, testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
+	d := NewDeliverer(newFakeChannelStore(), nil, nil, testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
 	tr, ok := d.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
 	assert.Nil(t, tr.Proxy, "egress client must not use an env proxy")
@@ -183,7 +184,7 @@ func TestDelivererDisablesProxy(t *testing.T) {
 
 func TestDelivererDialRejectsPrivateAtConnect(t *testing.T) {
 	// The pinned-IP dialer must refuse internal addresses even if reached via DNS rebind or redirect.
-	d := NewDeliverer(newFakeChannelStore(), nil, testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
+	d := NewDeliverer(newFakeChannelStore(), nil, nil, testCipher(t), fakeDeviceLookup{}, DestinationPolicy{}, "")
 	tr, ok := d.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
 	require.NotNil(t, tr.DialContext)
@@ -207,7 +208,7 @@ func TestDeliverHonorsRoutePolicies(t *testing.T) {
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
 	routes := newFakeRouteStore()
-	d := NewDeliverer(store, routes, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	d := NewDeliverer(store, routes, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srvA.URL, "") // channel 1
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srvB.URL, "") // channel 2
 	require.NoError(t, routes.SetPolicy(context.Background(), 7, RoutePolicy{RuleUID: "rule-custom", Mode: RouteModeCustom, ChannelIDs: []int64{2}}))
@@ -235,7 +236,7 @@ func TestDeliverSkipsChannelWithNothingRouted(t *testing.T) {
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
 	routes := newFakeRouteStore()
-	d := NewDeliverer(store, routes, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	d := NewDeliverer(store, routes, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 	require.NoError(t, routes.SetPolicy(context.Background(), 7, RoutePolicy{RuleUID: "rule-none", Mode: RouteModeNone}))
 
@@ -252,7 +253,7 @@ func TestDeliverDropsChannelDeliveryOnColdRouteReadFailure(t *testing.T) {
 	crypto := testCipher(t)
 	routes := newFakeRouteStore()
 	routes.listErr = errors.New("db down")
-	d := NewDeliverer(store, routes, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	d := NewDeliverer(store, routes, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 
 	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-a", "X", "rule-any")})
@@ -266,7 +267,7 @@ func TestDeliverHonorsCachedPoliciesWhenRouteReadFails(t *testing.T) {
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
 	routes := newFakeRouteStore()
-	d := NewDeliverer(store, routes, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	d := NewDeliverer(store, routes, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 	require.NoError(t, routes.SetPolicy(context.Background(), 7, RoutePolicy{RuleUID: "rule-none", Mode: RouteModeNone}))
 
@@ -292,7 +293,7 @@ func TestDeliverAlertWithoutRuleUIDDefaultsWhenNoPolicies(t *testing.T) {
 	srv, got := captureServer(t)
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
-	d := NewDeliverer(store, newFakeRouteStore(), crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	d := NewDeliverer(store, newFakeRouteStore(), nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 
 	d.Deliver(context.Background(), []Alert{firingAlert("7", "dev-a", "Unattributed")})
@@ -306,7 +307,7 @@ func TestDeliverDropsUnattributedWhenPoliciesExist(t *testing.T) {
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
 	routes := newFakeRouteStore()
-	d := NewDeliverer(store, routes, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	d := NewDeliverer(store, routes, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 	require.NoError(t, routes.SetPolicy(context.Background(), 7, RoutePolicy{RuleUID: "rule-none", Mode: RouteModeNone}))
 
@@ -327,7 +328,7 @@ func TestInvalidatePolicyCacheDropsSnapshot(t *testing.T) {
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
 	routes := newFakeRouteStore()
-	d := NewDeliverer(store, routes, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	d := NewDeliverer(store, routes, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 	require.NoError(t, routes.SetPolicy(context.Background(), 7, RoutePolicy{RuleUID: "rule-none", Mode: RouteModeNone}))
 
@@ -349,7 +350,7 @@ func TestInvalidationRacingReadDoesNotResurrectStaleSnapshot(t *testing.T) {
 	store := newFakeChannelStore()
 	crypto := testCipher(t)
 	routes := newFakeRouteStore()
-	d := NewDeliverer(store, routes, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	d := NewDeliverer(store, routes, nil, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
 	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
 
 	// While the delivery's policy read is in flight (it already computed the pre-write, empty
@@ -368,6 +369,111 @@ func TestInvalidationRacingReadDoesNotResurrectStaleSnapshot(t *testing.T) {
 	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-b", "Post Write", "rule-none")})
 
 	assert.Empty(t, *got, "a snapshot from before the invalidation must not serve during the outage")
+}
+
+// seedWindow stores an active-unless-shifted maintenance window covering the given targets.
+func seedWindow(windows *fakeWindowStore, orgID int64, ruleUIDs []string, channelIDs []int64, shift time.Duration) {
+	_, _ = windows.Insert(context.Background(), MaintenanceWindowRecord{
+		OrganizationID: orgID,
+		RuleUIDs:       ruleUIDs,
+		ChannelIDs:     channelIDs,
+		StartsAt:       time.Now().Add(-time.Hour + shift),
+		EndsAt:         time.Now().Add(time.Hour + shift),
+	})
+}
+
+func newMutingDeliverer(t *testing.T) (*Deliverer, *fakeChannelStore, *fakeWindowStore, Cipher) {
+	t.Helper()
+	store := newFakeChannelStore()
+	windows := newFakeWindowStore()
+	crypto := testCipher(t)
+	d := NewDeliverer(store, nil, windows, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	return d, store, windows, crypto
+}
+
+func TestDeliverMutedByAllScopeWindow(t *testing.T) {
+	srv, got := captureServer(t)
+	d, store, windows, crypto := newMutingDeliverer(t)
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+	seedWindow(windows, 7, nil, nil, 0)
+
+	d.Deliver(context.Background(), []Alert{
+		firingRuleAlert("7", "dev-a", "Attributed", "rule-a"),
+		firingAlert("7", "dev-b", "Unattributed"),
+	})
+
+	assert.Empty(t, *got, "an all-rules/all-channels window mutes everything, attributed or not")
+}
+
+func TestDeliverWindowMutesOnlyListedChannels(t *testing.T) {
+	srvA, gotA := captureServer(t)
+	srvB, gotB := captureServer(t)
+	d, store, windows, crypto := newMutingDeliverer(t)
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srvA.URL, "") // channel 1
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srvB.URL, "") // channel 2
+	seedWindow(windows, 7, nil, []int64{2}, 0)
+
+	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-a", "X", "rule-a")})
+
+	assert.Len(t, *gotA, 1, "a channel outside the window's list still delivers")
+	assert.Empty(t, *gotB, "the listed channel is muted")
+}
+
+func TestDeliverWindowMutesOnlyListedRules(t *testing.T) {
+	srv, got := captureServer(t)
+	d, store, windows, crypto := newMutingDeliverer(t)
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+	seedWindow(windows, 7, []string{"rule-a"}, nil, 0)
+
+	d.Deliver(context.Background(), []Alert{
+		firingRuleAlert("7", "dev-a", "Muted Rule", "rule-a"),
+		firingRuleAlert("7", "dev-b", "Other Rule", "rule-b"),
+		// An unattributed alert can't be proven covered by a rule-scoped window, so it pages.
+		firingAlert("7", "dev-c", "Unattributed"),
+	})
+
+	require.Len(t, *got, 1)
+	body := string((*got)[0].body)
+	assert.NotContains(t, body, "Muted Rule")
+	assert.Contains(t, body, "Other Rule")
+	assert.Contains(t, body, "Unattributed")
+}
+
+func TestDeliverIgnoresExpiredAndFutureWindows(t *testing.T) {
+	srv, got := captureServer(t)
+	d, store, windows, crypto := newMutingDeliverer(t)
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+	seedWindow(windows, 7, nil, nil, -3*time.Hour) // ended in the past
+	seedWindow(windows, 7, nil, nil, 3*time.Hour)  // starts in the future
+
+	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-a", "X", "rule-a")})
+
+	assert.Len(t, *got, 1, "expired and future windows must not mute")
+}
+
+func TestDeliverWindowScopedToItsOrg(t *testing.T) {
+	srv, got := captureServer(t)
+	d, store, windows, crypto := newMutingDeliverer(t)
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+	seedWindow(windows, 8, nil, nil, 0)
+
+	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-a", "X", "rule-a")})
+
+	assert.Len(t, *got, 1, "another org's window must not mute this org")
+}
+
+// A window-read failure fails open (deliver anyway): noise beats silently lost pages, the
+// opposite of the routing read's fail-closed leak prevention.
+func TestDeliverFailsOpenWhenWindowReadFails(t *testing.T) {
+	srv, got := captureServer(t)
+	d, store, windows, crypto := newMutingDeliverer(t)
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+	seedWindow(windows, 7, nil, nil, 0)
+	windows.listActiveErr = errors.New("db down")
+
+	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-a", "X", "rule-a")})
+
+	assert.Len(t, *got, 1, "unreadable windows must not suppress delivery")
 }
 
 func TestSendTestReturnsAcceptedOnSuccess(t *testing.T) {

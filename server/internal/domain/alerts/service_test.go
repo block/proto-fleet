@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"strconv"
 	"testing"
 	"time"
 
@@ -15,74 +15,6 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
-
-func TestValidateMaintenanceWindowScope(t *testing.T) {
-	cases := []struct {
-		name    string
-		scope   MaintenanceWindowScope
-		wantErr bool
-	}{
-		{"rule with target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "r1"}, false},
-		{"rule without target", MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule}, true},
-		// Group and site scopes emit a matcher no provisioned alert carries, so they're
-		// rejected until the alert queries label instances with group_id/site_id.
-		{"group not yet supported", MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup, GroupID: "g1"}, true},
-		{"site not yet supported", MaintenanceWindowScope{Kind: MaintenanceWindowScopeSite, SiteID: "s1"}, true},
-		{"device with targets", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"d1"}}, false},
-		{"device without targets", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice}, true},
-		{"device uuid and mac ids", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{
-			"550e8400-e29b-41d4-a716-446655440000", "aa:bb:cc:dd:ee:ff", "SN.001",
-		}}, false},
-		{"device id regex wildcard rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{".*"}}, true},
-		{"device id regex alternation rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"a|b"}}, true},
-		{"device id with anchors rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{"^d1$"}}, true},
-		{"device id at max length allowed", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{strings.Repeat("d", maxDeviceIDLength)}}, false},
-		{"device id over max length rejected", MaintenanceWindowScope{Kind: MaintenanceWindowScopeDevice, DeviceIDs: []string{strings.Repeat("d", maxDeviceIDLength+1)}}, true},
-		{"unknown kind", MaintenanceWindowScope{Kind: "everything"}, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := validateMaintenanceWindowScope(tc.scope)
-			if tc.wantErr {
-				require.Error(t, err)
-				assert.True(t, fleeterror.IsInvalidArgumentError(err))
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestCreateMaintenanceWindowRejectsTargetlessScope(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
-	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		Scope: MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup},
-	})
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
-func TestDeviceScopeRegexCompilation(t *testing.T) {
-	sil := MaintenanceWindow{Scope: MaintenanceWindowScope{
-		Kind:      MaintenanceWindowScopeDevice,
-		DeviceIDs: []string{"dev-1", "SN.001"},
-	}}
-	gs := maintenanceWindowToGrafanaSilence(7, sil)
-
-	var matcher *GrafanaSilenceMatcher
-	for i, m := range gs.Matchers {
-		if m.Name == "device_id" {
-			matcher = &gs.Matchers[i]
-		}
-	}
-	require.NotNil(t, matcher)
-	assert.True(t, matcher.IsRegex)
-	assert.Equal(t, `^(?:dev-1|SN\.001)$`, matcher.Value)
-
-	scope := matchersToScope(gs.Matchers)
-	assert.Equal(t, MaintenanceWindowScopeDevice, scope.Kind)
-	assert.Equal(t, []string{"dev-1", "SN.001"}, scope.DeviceIDs)
-}
 
 func TestValidateDestination(t *testing.T) {
 	cases := []struct {
@@ -183,7 +115,7 @@ func TestValidateDestination(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := NewService(nil, nil, nil, nil, nil, nil, nil, tc.policy)
+			svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, tc.policy)
 			err := svc.validateDestination(context.Background(), &tc.channel)
 			if tc.wantErr {
 				require.Error(t, err)
@@ -246,6 +178,8 @@ func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte
 		require.NoError(t, json.NewEncoder(w).Encode(listed))
 	})
 	mux.HandleFunc("POST /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, r *http.Request) {
+		// A nil postBody means the caller expects no silence writes (e.g. DB-backed window paths).
+		require.NotNil(t, postBody, "unexpected silence write")
 		b, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		*postBody = b
@@ -257,77 +191,221 @@ func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte
 	return NewGrafana(GrafanaConfig{URL: srv.URL})
 }
 
-func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
-	existing := []GrafanaSilence{{
-		ID:        "sil-1",
-		CreatedBy: "alice@example.com",
-		Comment:   maintenanceWindowCommentMarker + " old",
-		Matchers: []GrafanaSilenceMatcher{
-			{Name: "organization_id", Value: "7", IsEqual: true},
-			{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
-		},
-	}}
-	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, existing, &postBody), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+// fakeWindowStore is an in-memory MaintenanceWindowStore honoring the store contract:
+// write-once created_by/created_at, ErrNotFound for rows the org doesn't own.
+type fakeWindowStore struct {
+	next          int64
+	rows          map[int64]MaintenanceWindowRecord
+	listActiveErr error
+}
 
-	_, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		ID:       "sil-1",
-		Comment:  "updated",
-		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
+func newFakeWindowStore() *fakeWindowStore {
+	return &fakeWindowStore{rows: map[int64]MaintenanceWindowRecord{}}
+}
+
+func (f *fakeWindowStore) Insert(_ context.Context, rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error) {
+	f.next++
+	rec.ID = f.next
+	if rec.CreatedAt.IsZero() {
+		rec.CreatedAt = time.Unix(500, 0)
+	}
+	f.rows[rec.ID] = rec
+	return rec, nil
+}
+
+func (f *fakeWindowStore) Update(_ context.Context, rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error) {
+	cur, ok := f.rows[rec.ID]
+	if !ok || cur.OrganizationID != rec.OrganizationID {
+		return MaintenanceWindowRecord{}, ErrNotFound
+	}
+	rec.CreatedBy, rec.CreatedAt = cur.CreatedBy, cur.CreatedAt
+	f.rows[rec.ID] = rec
+	return rec, nil
+}
+
+func (f *fakeWindowStore) List(_ context.Context, orgID int64) ([]MaintenanceWindowRecord, error) {
+	var out []MaintenanceWindowRecord
+	for _, rec := range f.rows {
+		if rec.OrganizationID == orgID {
+			out = append(out, rec)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeWindowStore) ListActive(_ context.Context, orgID int64, now time.Time) ([]MaintenanceWindowRecord, error) {
+	if f.listActiveErr != nil {
+		return nil, f.listActiveErr
+	}
+	var out []MaintenanceWindowRecord
+	for _, rec := range f.rows {
+		if rec.OrganizationID == orgID && !rec.StartsAt.After(now) && rec.EndsAt.After(now) {
+			out = append(out, rec)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeWindowStore) Delete(_ context.Context, orgID, id int64) error {
+	rec, ok := f.rows[id]
+	if !ok || rec.OrganizationID != orgID {
+		return ErrNotFound
+	}
+	delete(f.rows, id)
+	return nil
+}
+
+// newMaintenanceWindowService wires a service whose Grafana knows one shared rule ("rule-9").
+func newMaintenanceWindowService(t *testing.T) (*Service, *fakeWindowStore, *fakeChannelStore) {
+	t.Helper()
+	windows := newFakeWindowStore()
+	channels := newFakeChannelStore()
+	svc := NewService(fakeGrafanaSilences(t, nil, nil), channels, nil, nil, windows, nil, nil, nil, DestinationPolicy{})
+	return svc, windows, channels
+}
+
+func TestCreateMaintenanceWindowResolvesTargets(t *testing.T) {
+	svc, windows, channels := newMaintenanceWindowService(t)
+	ch, err := channels.Insert(context.Background(), ChannelRecord{OrganizationID: 7, Name: "ops"})
+	require.NoError(t, err)
+	chID := strconv.FormatInt(ch.ID, 10)
+
+	out, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		RuleIDs:    []string{"rule-9", "rule-9"},
+		ChannelIDs: []string{chID, chID},
+		StartsAt:   time.Unix(1000, 0),
+		EndsAt:     time.Unix(2000, 0),
+		Comment:    "planned work",
+		CreatedBy:  "alice@example.com",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"rule-9"}, out.RuleIDs, "duplicate rule ids collapse")
+	assert.Equal(t, []string{chID}, out.ChannelIDs, "duplicate channel ids collapse")
+
+	rec := windows.rows[1]
+	assert.Equal(t, []string{"rule-9"}, rec.RuleUIDs)
+	assert.Equal(t, []int64{ch.ID}, rec.ChannelIDs)
+	assert.Equal(t, "alice@example.com", rec.CreatedBy)
+}
+
+// Empty target lists persist as "every rule / every channel" without reading Grafana or the
+// channel table, so the all/all default works even mid-outage.
+func TestCreateMaintenanceWindowEmptyTargetsMeanAll(t *testing.T) {
+	windows := newFakeWindowStore()
+	svc := NewService(nil, nil, nil, nil, windows, nil, nil, nil, DestinationPolicy{})
+
+	out, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(2000, 0),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.RuleIDs)
+	assert.Empty(t, out.ChannelIDs)
+	assert.Empty(t, windows.rows[1].RuleUIDs)
+	assert.Empty(t, windows.rows[1].ChannelIDs)
+}
+
+func TestMaintenanceWindowRejectsUnknownChannel(t *testing.T) {
+	svc, windows, _ := newMaintenanceWindowService(t)
+	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ChannelIDs: []string{"999"},
+		StartsAt:   time.Unix(1000, 0),
+		EndsAt:     time.Unix(2000, 0),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "want InvalidArgument, got %v", err)
+	assert.Empty(t, windows.rows, "window with an unknown channel must not persist")
+}
+
+func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
+	svc, _, _ := newMaintenanceWindowService(t)
+	created, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		StartsAt:  time.Unix(1000, 0),
+		EndsAt:    time.Unix(2000, 0),
+		CreatedBy: "alice@example.com",
+	})
+	require.NoError(t, err)
+
+	updated, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ID:        created.ID,
+		RuleIDs:   []string{"rule-9"},
+		StartsAt:  time.Unix(1000, 0),
+		EndsAt:    time.Unix(3000, 0),
+		CreatedBy: "mallory@example.com",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "alice@example.com", updated.CreatedBy, "an edit must keep the original creator")
+	assert.Equal(t, []string{"rule-9"}, updated.RuleIDs)
+	assert.Equal(t, time.Unix(3000, 0), updated.EndsAt)
+}
+
+func TestMaintenanceWindowScopedToOwningOrg(t *testing.T) {
+	svc, _, _ := newMaintenanceWindowService(t)
+	created, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		StartsAt: time.Unix(1000, 0),
 		EndsAt:   time.Unix(2000, 0),
 	})
 	require.NoError(t, err)
 
-	var sent struct {
-		CreatedBy string `json:"createdBy"`
-	}
-	require.NoError(t, json.Unmarshal(postBody, &sent))
-	assert.Equal(t, "alice@example.com", sent.CreatedBy, "update must carry the original creator")
-}
-
-// Ownership is proven by the Proto Fleet provenance marker, not the org matcher alone, so an
-// operator-created Grafana silence that merely shares the org matcher is invisible and
-// un-mutable through these RPCs.
-func TestListMaintenanceWindowsIgnoresUnmarkedSilences(t *testing.T) {
-	listed := []GrafanaSilence{
-		{
-			ID:       "ours",
-			Comment:  maintenanceWindowCommentMarker + " planned",
-			StartsAt: time.Unix(1000, 0),
-			EndsAt:   time.Unix(2000, 0),
-			Matchers: []GrafanaSilenceMatcher{
-				{Name: "organization_id", Value: "7", IsEqual: true},
-				{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
-			},
-		},
-		{
-			ID:      "external",
-			Comment: "operator silence, same org",
-			Matchers: []GrafanaSilenceMatcher{
-				{Name: "organization_id", Value: "7", IsEqual: true},
-				{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
-			},
-		},
-	}
-	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, listed, &postBody), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
-
-	out, err := svc.ListMaintenanceWindows(context.Background(), 7)
-	require.NoError(t, err)
-	require.Len(t, out, 1, "only the Proto Fleet-marked silence is a maintenance window")
-	assert.Equal(t, "ours", out[0].ID)
-	assert.Equal(t, "planned", out[0].Comment, "the provenance marker is stripped for display")
-
-	// The external silence isn't owned, so update/delete can't reach it.
-	_, err = svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		ID:       "external",
-		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
+	_, err = svc.UpdateMaintenanceWindow(context.Background(), 8, MaintenanceWindow{
+		ID:       created.ID,
 		StartsAt: time.Unix(1000, 0),
 		EndsAt:   time.Unix(2000, 0),
 	})
 	require.ErrorIs(t, err, ErrNotFound)
-	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 7, "external"), ErrNotFound)
+	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 8, created.ID), ErrNotFound)
+
+	other, err := svc.ListMaintenanceWindows(context.Background(), 8)
+	require.NoError(t, err)
+	assert.Empty(t, other, "another org must not see the window")
+}
+
+func TestMaintenanceWindowUnknownIDIsNotFound(t *testing.T) {
+	svc, _, _ := newMaintenanceWindowService(t)
+	_, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ID:       "42",
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(2000, 0),
+	})
+	require.ErrorIs(t, err, ErrNotFound)
+	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 7, "42"), ErrNotFound)
+	// A non-numeric id can't be a row, so it reads as the same uniform NotFound.
+	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 7, "sil-legacy"), ErrNotFound)
+}
+
+func TestListMaintenanceWindowsComputesActive(t *testing.T) {
+	svc, windows, _ := newMaintenanceWindowService(t)
+	svc.now = func() time.Time { return time.Unix(1500, 0) }
+	windows.rows[1] = MaintenanceWindowRecord{ID: 1, OrganizationID: 7, StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(2000, 0)}
+	windows.rows[2] = MaintenanceWindowRecord{ID: 2, OrganizationID: 7, StartsAt: time.Unix(3000, 0), EndsAt: time.Unix(4000, 0)}
+
+	out, err := svc.ListMaintenanceWindows(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, out, 2)
+	byID := map[string]MaintenanceWindow{}
+	for _, w := range out {
+		byID[w.ID] = w
+	}
+	assert.True(t, byID["1"].Active, "a window covering now is active")
+	assert.False(t, byID["2"].Active, "a future window is not active")
+}
+
+// Pre-migration windows lived as marked Grafana silences; the startup sweep must delete the
+// live ones (they'd keep muting invisibly) while leaving pause silences, operator silences,
+// and already-expired legacy windows alone.
+func TestCleanupLegacyMaintenanceWindowSilences(t *testing.T) {
+	fake := &fakeGrafanaRules{silences: []GrafanaSilence{
+		{ID: "legacy-active", Comment: legacyMaintenanceWindowCommentMarker + " planned"},
+		{ID: "legacy-expired", Comment: legacyMaintenanceWindowCommentMarker, Status: &GrafanaSilenceStatus{State: "expired"}},
+		{ID: "pause", Comment: pauseSilenceCommentMarker},
+		{ID: "operator", Comment: "operator silence"},
+	}}
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+
+	removed, err := svc.CleanupLegacyMaintenanceWindowSilences(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, removed)
+	assert.Equal(t, []string{"legacy-active"}, fake.deletedSilences)
 }
 
 // Without pause-silence state, a muted rule is indistinguishable from an enabled one, so
@@ -345,7 +423,7 @@ func TestListRulesFailsClosedWhenSilencesUnavailable(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.ListRules(context.Background(), 7)
 	require.Error(t, err, "ListRules must fail closed when pause-silence state can't be loaded")
@@ -380,7 +458,7 @@ func TestListRulesIgnoresExpiredPauseSilence(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	out, err := svc.ListRules(context.Background(), 7)
 	require.NoError(t, err)
@@ -413,19 +491,18 @@ func TestPauseSilenceRecordsActor(t *testing.T) {
 	assert.Equal(t, "Proto Fleet", anon.CreatedBy, "fall back to app name when actor is unknown")
 }
 
-// A rule-scoped maintenance window must resolve its target through the same visibility
+// A rule-scoped maintenance window must resolve its targets through the same visibility
 // check as PauseRule, so a manage user can't silence a rule they can't list.
 func TestMaintenanceWindowRequiresVisibleRule(t *testing.T) {
-	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc, windows, _ := newMaintenanceWindowService(t)
 
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-does-not-exist"},
+		RuleIDs:  []string{"rule-does-not-exist"},
 		StartsAt: time.Unix(1000, 0),
 		EndsAt:   time.Unix(2000, 0),
 	})
 	require.ErrorIs(t, err, ErrNotFound)
-	assert.Nil(t, postBody, "window for an unknown rule must not reach Grafana")
+	assert.Empty(t, windows.rows, "window for an unknown rule must not persist")
 }
 
 // Maintenance windows are finite: the server must reject a missing or non-increasing time
@@ -439,31 +516,13 @@ func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			var postBody []byte
-			svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
-			tc.Scope = MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"}
+			svc, windows, _ := newMaintenanceWindowService(t)
 			_, err := svc.CreateMaintenanceWindow(context.Background(), 7, tc)
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsInvalidArgumentError(err), "want InvalidArgument, got %v", err)
-			assert.Nil(t, postBody, "invalid window must not reach Grafana")
+			assert.Empty(t, windows.rows, "invalid window must not persist")
 		})
 	}
-}
-
-// A rule-scoped maintenance window is structurally identical to a pause silence, so a
-// caller must not be able to smuggle the pause marker into the comment and have the
-// window hidden from the list / overlaid as a paused rule.
-func TestMaintenanceWindowRejectsPauseMarkerComment(t *testing.T) {
-	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
-
-	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		Comment: pauseSilenceCommentMarker + " sneaky",
-		Scope:   MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"},
-	})
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err), "want InvalidArgument, got %v", err)
-	assert.Nil(t, postBody, "rejected window must not reach Grafana")
 }
 
 func TestRuleVisibleToOrg(t *testing.T) {

@@ -36,6 +36,7 @@ type Service struct {
 	channels    ChannelStore
 	routes      RouteStore
 	configs     RuleConfigStore
+	windows     MaintenanceWindowStore
 	crypto      Cipher
 	tester      ChannelTester
 	scopeLookup ScopeLookup
@@ -49,8 +50,8 @@ type DestinationPolicy struct {
 	AllowPrivateDestinations bool `help:"Allow alert destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
 }
 
-func NewService(g *Grafana, channels ChannelStore, routes RouteStore, configs RuleConfigStore, crypto Cipher, tester ChannelTester, scopeLookup ScopeLookup, policy DestinationPolicy) *Service {
-	return &Service{grafana: g, channels: channels, routes: routes, configs: configs, crypto: crypto, tester: tester, scopeLookup: scopeLookup, policy: policy, now: time.Now}
+func NewService(g *Grafana, channels ChannelStore, routes RouteStore, configs RuleConfigStore, windows MaintenanceWindowStore, crypto Cipher, tester ChannelTester, scopeLookup ScopeLookup, policy DestinationPolicy) *Service {
+	return &Service{grafana: g, channels: channels, routes: routes, configs: configs, windows: windows, crypto: crypto, tester: tester, scopeLookup: scopeLookup, policy: policy, now: time.Now}
 }
 
 var ErrZeroOrgID = errors.New("alerts: organization id is required")
@@ -147,7 +148,7 @@ func (s *Service) recordToChannel(rec ChannelRecord) (Channel, error) {
 }
 
 // A non-numeric id can't name a real row, so treat it as not found rather than a parse error.
-func parseChannelID(id string) (int64, error) {
+func parseRowID(id string) (int64, error) {
 	n, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
 		return 0, ErrNotFound
@@ -223,7 +224,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	if err := validateChannelName(c.Name); err != nil {
 		return nil, err
 	}
-	id, err := parseChannelID(c.ID)
+	id, err := parseRowID(c.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +319,7 @@ func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) err
 	if err := requireOrg(orgID); err != nil {
 		return err
 	}
-	n, err := parseChannelID(id)
+	n, err := parseRowID(id)
 	if err != nil {
 		return err
 	}
@@ -340,7 +341,7 @@ func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool
 	if c.ID != "" {
 		// Saved channel: decrypt the stored destination so we test the real secret, not the
 		// redacted placeholder a read returns.
-		id, err := parseChannelID(c.ID)
+		id, err := parseRowID(c.ID)
 		if err != nil {
 			return false, 0, "", err
 		}
@@ -805,7 +806,7 @@ func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) (map[stri
 		if !silenceMatchesOrg(sil, want) {
 			continue
 		}
-		if !maintenanceWindowActive(grafanaSilenceToDomain(orgID, sil, now), now) {
+		if !timeRangeActive(sil.StartsAt, sil.EndsAt, now) {
 			continue
 		}
 		for _, m := range sil.Matchers {
@@ -821,195 +822,157 @@ func (s *Service) ListMaintenanceWindows(ctx context.Context, orgID int64) ([]Ma
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
-	sils, err := s.grafana.ListSilences(ctx)
+	recs, err := s.windows.List(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
-	want := strconv.FormatInt(orgID, 10)
 	now := s.now()
-	out := make([]MaintenanceWindow, 0, len(sils))
-	for _, gs := range sils {
-		if !silenceMatchesOrg(gs, want) {
-			continue
-		}
-		// Only surface silences Proto Fleet created (carry the marker): this both hides
-		// pause silences and keeps externally-created Grafana silences read-only/invisible,
-		// so they can't be listed, updated, or deleted through these RPCs.
-		if !isMaintenanceWindowSilence(gs) {
-			continue
-		}
-		dom := grafanaSilenceToDomain(orgID, gs, now)
-		out = append(out, dom)
+	out := make([]MaintenanceWindow, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, maintenanceWindowFromRecord(rec, now))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].StartsAt.After(out[j].StartsAt) })
 	return out, nil
 }
 
-func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, sil MaintenanceWindow) (*MaintenanceWindow, error) {
-	if err := requireOrg(orgID); err != nil {
-		return nil, err
-	}
-	if err := validateMaintenanceWindowScope(sil.Scope); err != nil {
-		return nil, err
-	}
-	if err := validateMaintenanceWindowComment(sil.Comment); err != nil {
-		return nil, err
-	}
-	if err := validateMaintenanceWindowTimes(sil.StartsAt, sil.EndsAt); err != nil {
-		return nil, err
-	}
-	if err := s.requireScopeTargetVisible(ctx, orgID, sil.Scope); err != nil {
-		return nil, err
-	}
-	sil.OrganizationID = orgID
-	sil.CreatedAt = s.now()
-	gs := maintenanceWindowToGrafanaSilence(orgID, sil)
-	id, err := s.grafana.PutSilence(ctx, gs)
+func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, w MaintenanceWindow) (*MaintenanceWindow, error) {
+	rec, err := s.resolveMaintenanceWindowRecord(ctx, orgID, w)
 	if err != nil {
 		return nil, err
 	}
-	if sil.Scope.Kind == MaintenanceWindowScopeRule && sil.Scope.RuleID != "" {
-		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id, true); err != nil {
-			return nil, err
-		}
+	stored, err := s.windows.Insert(ctx, *rec)
+	if err != nil {
+		return nil, err
 	}
-	sil.ID = id
-	sil.Active = maintenanceWindowActive(sil, s.now())
-	return &sil, nil
+	out := maintenanceWindowFromRecord(stored, s.now())
+	return &out, nil
 }
 
-// Grafana has no dedicated update endpoint; POST with the existing id replaces.
-func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil MaintenanceWindow) (*MaintenanceWindow, error) {
-	if err := requireOrg(orgID); err != nil {
-		return nil, err
-	}
-	if sil.ID == "" {
+func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, w MaintenanceWindow) (*MaintenanceWindow, error) {
+	if w.ID == "" {
 		return nil, errors.New("maintenance window id is required for update")
 	}
-	if err := validateMaintenanceWindowScope(sil.Scope); err != nil {
-		return nil, err
-	}
-	if err := validateMaintenanceWindowComment(sil.Comment); err != nil {
-		return nil, err
-	}
-	if err := validateMaintenanceWindowTimes(sil.StartsAt, sil.EndsAt); err != nil {
-		return nil, err
-	}
-	if err := s.requireScopeTargetVisible(ctx, orgID, sil.Scope); err != nil {
-		return nil, err
-	}
-	existing, err := s.ListMaintenanceWindows(ctx, orgID)
+	id, err := parseRowID(w.ID)
 	if err != nil {
 		return nil, err
 	}
-	owned := false
-	for _, e := range existing {
-		if e.ID == sil.ID {
-			owned = true
-			// Carry the original creator; the update request has no created_by, so a blank would wipe the audit owner.
-			sil.CreatedBy = e.CreatedBy
-			break
-		}
-	}
-	if !owned {
-		return nil, ErrNotFound
-	}
-	sil.OrganizationID = orgID
-	gs := maintenanceWindowToGrafanaSilence(orgID, sil)
-	gs.ID = sil.ID
-	id, err := s.grafana.PutSilence(ctx, gs)
+	rec, err := s.resolveMaintenanceWindowRecord(ctx, orgID, w)
 	if err != nil {
 		return nil, err
 	}
-	if sil.Scope.Kind == MaintenanceWindowScopeRule && sil.Scope.RuleID != "" {
-		// rollbackNew=false: this PUT replaced the previous silence, so deleting
-		// it on an inconclusive check would lift planned suppression entirely.
-		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id, false); err != nil {
-			return nil, err
-		}
+	rec.ID = id
+	// The store update leaves created_by/created_at untouched, so the audit owner survives edits.
+	stored, err := s.windows.Update(ctx, *rec)
+	if err != nil {
+		return nil, err
 	}
-	sil.ID = id
-	sil.Active = maintenanceWindowActive(sil, s.now())
-	return &sil, nil
+	out := maintenanceWindowFromRecord(stored, s.now())
+	return &out, nil
 }
 
 func (s *Service) DeleteMaintenanceWindow(ctx context.Context, orgID int64, id string) error {
 	if err := requireOrg(orgID); err != nil {
 		return err
 	}
-	existing, err := s.ListMaintenanceWindows(ctx, orgID)
+	n, err := parseRowID(id)
 	if err != nil {
 		return err
 	}
-	owned := false
-	for _, e := range existing {
-		if e.ID == id {
-			owned = true
-			break
-		}
-	}
-	if !owned {
-		return ErrNotFound
-	}
-	if err := s.grafana.DeleteSilence(ctx, id); err != nil && !IsNotFound(err) {
-		return err
-	}
-	return nil
+	return s.windows.Delete(ctx, orgID, n)
 }
 
-// Rejects targetless scopes, which would compile to just the org matcher and silence every alert in the organization.
-func validateMaintenanceWindowScope(scope MaintenanceWindowScope) error {
-	switch scope.Kind {
-	case MaintenanceWindowScopeRule:
-		if scope.RuleID == "" {
-			return fleeterror.NewInvalidArgumentError("rule_id is required for a rule-scoped maintenance window")
-		}
-	case MaintenanceWindowScopeGroup, MaintenanceWindowScopeSite:
-		// Not yet supported: only scope-limited user rules label instances with site_id, so the
-		// silence would save and show active while muting almost nothing (see proto-fleet-rules.yaml).
-		return fleeterror.NewInvalidArgumentErrorf("maintenance window scope %q is not yet supported", scope.Kind)
-	case MaintenanceWindowScopeDevice:
-		if len(scope.DeviceIDs) == 0 {
-			return fleeterror.NewInvalidArgumentError("device_ids is required for a device-scoped maintenance window")
-		}
-		if len(scope.DeviceIDs) > maxMaintenanceWindowDeviceIDs {
-			return fleeterror.NewInvalidArgumentErrorf("too many device_ids: %d (max %d)", len(scope.DeviceIDs), maxMaintenanceWindowDeviceIDs)
-		}
-		// Restrict ids to the identifier alphabet so a crafted id like ".*" can't broaden the silence to the whole org.
-		for _, id := range scope.DeviceIDs {
-			// Bound length before the regex so an oversized id can't force avoidable matcher work.
-			if len(id) > maxDeviceIDLength {
-				return fleeterror.NewInvalidArgumentErrorf("device id too long: %d (max %d)", len(id), maxDeviceIDLength)
-			}
-			if !deviceIDPattern.MatchString(id) {
-				return fleeterror.NewInvalidArgumentErrorf("invalid device id: %q", id)
-			}
-		}
-	default:
-		return fleeterror.NewInvalidArgumentErrorf("unknown maintenance window scope kind: %q", scope.Kind)
+// resolveMaintenanceWindowRecord validates a submitted window and resolves its rule and channel
+// targets into the persisted form, shared by create and update.
+func (s *Service) resolveMaintenanceWindowRecord(ctx context.Context, orgID int64, w MaintenanceWindow) (*MaintenanceWindowRecord, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
 	}
-	return nil
+	if err := validateMaintenanceWindowTimes(w.StartsAt, w.EndsAt); err != nil {
+		return nil, err
+	}
+	ruleUIDs, err := s.resolveVisibleRuleIDs(ctx, orgID, w.RuleIDs)
+	if err != nil {
+		return nil, err
+	}
+	channelIDs, err := s.resolveWindowChannelIDs(ctx, orgID, w.ChannelIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &MaintenanceWindowRecord{
+		OrganizationID: orgID,
+		RuleUIDs:       ruleUIDs,
+		ChannelIDs:     channelIDs,
+		StartsAt:       w.StartsAt,
+		EndsAt:         w.EndsAt,
+		Comment:        w.Comment,
+		CreatedBy:      w.CreatedBy,
+	}, nil
 }
 
-// For a rule-scoped window, confirm the target rule is one the caller can actually see
-// (same check PauseRule uses), so a manage user can't silence a rule they can't list or a
-// guessed/future rule UID. Group/site/device scopes carry no such existence check yet.
-func (s *Service) requireScopeTargetVisible(ctx context.Context, orgID int64, scope MaintenanceWindowScope) error {
-	if scope.Kind != MaintenanceWindowScopeRule {
-		return nil
+// resolveVisibleRuleIDs dedupes the requested rule ids, requiring each to name a rule the caller
+// can see (PauseRule's visibility gate, minus the silence read so windows stay writable during a
+// silence-API outage). Empty means every rule and skips the Grafana read entirely.
+func (s *Service) resolveVisibleRuleIDs(ctx context.Context, orgID int64, ruleIDs []string) ([]string, error) {
+	if len(ruleIDs) == 0 {
+		return nil, nil
 	}
-	_, err := s.requireRule(ctx, orgID, scope.RuleID)
-	return err
+	if len(ruleIDs) > maxMaintenanceWindowTargets {
+		return nil, fleeterror.NewInvalidArgumentErrorf("too many rule_ids: %d (max %d)", len(ruleIDs), maxMaintenanceWindowTargets)
+	}
+	rules, err := s.visibleRulesNoPauseState(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	visible := make(map[string]bool, len(rules))
+	for _, r := range rules {
+		visible[r.ID] = true
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ruleIDs))
+	for _, id := range ruleIDs {
+		// Uniform NotFound (like requireRule) so id scans aren't an existence oracle.
+		if !visible[id] {
+			return nil, ErrNotFound
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
-// A maintenance window and a pause silence are distinguished only by the pause comment
-// marker, so reject a window comment that carries it: otherwise a same-org caller could
-// hide a window from the list and have it overlaid as a paused rule.
-func validateMaintenanceWindowComment(comment string) error {
-	if strings.Contains(comment, pauseSilenceCommentMarker) || strings.Contains(comment, maintenanceWindowCommentMarker) {
-		return fleeterror.NewInvalidArgumentError("comment may not contain a reserved marker")
+// resolveWindowChannelIDs is resolveOrgChannelIDs behind the window's "empty means every channel"
+// contract, bounded like the rule list.
+func (s *Service) resolveWindowChannelIDs(ctx context.Context, orgID int64, channelIDs []string) ([]int64, error) {
+	if len(channelIDs) == 0 {
+		return nil, nil
 	}
-	return nil
+	if len(channelIDs) > maxMaintenanceWindowTargets {
+		return nil, fleeterror.NewInvalidArgumentErrorf("too many channel_ids: %d (max %d)", len(channelIDs), maxMaintenanceWindowTargets)
+	}
+	return s.resolveOrgChannelIDs(ctx, orgID, channelIDs)
+}
+
+func maintenanceWindowFromRecord(rec MaintenanceWindowRecord, now time.Time) MaintenanceWindow {
+	channelIDs := make([]string, len(rec.ChannelIDs))
+	for i, id := range rec.ChannelIDs {
+		channelIDs[i] = strconv.FormatInt(id, 10)
+	}
+	w := MaintenanceWindow{
+		ID:             strconv.FormatInt(rec.ID, 10),
+		OrganizationID: rec.OrganizationID,
+		RuleIDs:        rec.RuleUIDs,
+		ChannelIDs:     channelIDs,
+		StartsAt:       rec.StartsAt,
+		EndsAt:         rec.EndsAt,
+		Comment:        rec.Comment,
+		CreatedBy:      rec.CreatedBy,
+		CreatedAt:      rec.CreatedAt,
+	}
+	w.Active = timeRangeActive(w.StartsAt, w.EndsAt, now)
+	return w
 }
 
 // Maintenance windows are finite: the UI enforces this, but a direct RPC could omit ends_at
@@ -1028,13 +991,9 @@ func validateMaintenanceWindowTimes(startsAt, endsAt time.Time) error {
 	return nil
 }
 
-const maxMaintenanceWindowDeviceIDs = 500
-
-// Matches the device_identifier bound in pairing.proto; caps matcher work on a direct-RPC device-scoped window.
-const maxDeviceIDLength = 255
-
-// Excludes every regex metacharacter except "." (which maintenanceWindowToGrafanaSilence escapes).
-var deviceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
+// Per-list bound on a window's rule and channel targets, matching the wire validation; a
+// hostile direct caller can't inflate the row.
+const maxMaintenanceWindowTargets = 100
 
 // A pause silence is structurally identical to a rule-scoped maintenance window
 // (org + alert-rule-UID matchers), so it carries a marker to tell the two apart.
@@ -1081,29 +1040,6 @@ func buildPauseSilence(orgID int64, ruleID, actor string, now time.Time) Grafana
 
 func isPauseSilence(sil GrafanaSilence) bool {
 	return strings.HasPrefix(sil.Comment, pauseSilenceCommentMarker)
-}
-
-// Stamps Proto Fleet-created maintenance windows so List/Update/Delete don't treat an
-// arbitrary operator-created Grafana silence (which may share the org matcher) as one
-// we own. Like the pause marker it lives in the comment, not a matcher, so it can't
-// affect which alerts the silence matches.
-const maintenanceWindowCommentMarker = "[proto-fleet-mw]"
-
-func isMaintenanceWindowSilence(sil GrafanaSilence) bool {
-	return strings.HasPrefix(sil.Comment, maintenanceWindowCommentMarker)
-}
-
-// Prepends the provenance marker to the operator's reason for storage in Grafana.
-func encodeMaintenanceWindowComment(comment string) string {
-	if comment == "" {
-		return maintenanceWindowCommentMarker
-	}
-	return maintenanceWindowCommentMarker + " " + comment
-}
-
-// Recovers the operator's reason from a stored comment for display.
-func decodeMaintenanceWindowComment(comment string) string {
-	return strings.TrimSpace(strings.TrimPrefix(comment, maintenanceWindowCommentMarker))
 }
 
 func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
@@ -1270,128 +1206,14 @@ func silenceMatchesOrg(s GrafanaSilence, wantOrgID string) bool {
 	return false
 }
 
-func grafanaSilenceToDomain(orgID int64, gs GrafanaSilence, now time.Time) MaintenanceWindow {
-	out := MaintenanceWindow{
-		ID:             gs.ID,
-		OrganizationID: orgID,
-		StartsAt:       gs.StartsAt,
-		EndsAt:         gs.EndsAt,
-		Comment:        decodeMaintenanceWindowComment(gs.Comment),
-		CreatedBy:      gs.CreatedBy,
-	}
-	// The Alertmanager API exposes no created_at, so approximate it with StartsAt.
-	out.CreatedAt = gs.StartsAt
-
-	out.Scope = matchersToScope(gs.Matchers)
-	out.Active = maintenanceWindowActive(out, now)
-	return out
-}
-
-func matchersToScope(ms []GrafanaSilenceMatcher) MaintenanceWindowScope {
-	scope := MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule}
-	for _, m := range ms {
-		switch m.Name {
-		case "alertname_uid", alertRuleUIDMatcher:
-			scope.Kind = MaintenanceWindowScopeRule
-			scope.RuleID = m.Value
-		case "group_id":
-			scope.Kind = MaintenanceWindowScopeGroup
-			scope.GroupID = m.Value
-		case "site_id":
-			scope.Kind = MaintenanceWindowScopeSite
-			scope.SiteID = m.Value
-		case "device_id":
-			scope.Kind = MaintenanceWindowScopeDevice
-			// A regex matcher holds many ids as `^(?:id1|id2)$`; strip anchors and escapes to recover the plain list.
-			if m.IsRegex {
-				v := strings.TrimSuffix(strings.TrimPrefix(m.Value, "^(?:"), ")$")
-				for id := range strings.SplitSeq(v, "|") {
-					scope.DeviceIDs = append(scope.DeviceIDs, strings.ReplaceAll(id, `\`, ""))
-				}
-			} else {
-				scope.DeviceIDs = append(scope.DeviceIDs, m.Value)
-			}
-		}
-	}
-	return scope
-}
-
-func maintenanceWindowToGrafanaSilence(orgID int64, sil MaintenanceWindow) GrafanaSilence {
-	matchers := []GrafanaSilenceMatcher{
-		{
-			Name:    silenceLabelOrganizationID,
-			Value:   strconv.FormatInt(orgID, 10),
-			IsRegex: false,
-			IsEqual: true,
-		},
-	}
-	switch sil.Scope.Kind {
-	case MaintenanceWindowScopeRule:
-		if sil.Scope.RuleID != "" {
-			matchers = append(matchers, GrafanaSilenceMatcher{
-				Name:    alertRuleUIDMatcher,
-				Value:   sil.Scope.RuleID,
-				IsEqual: true,
-			})
-		}
-	case MaintenanceWindowScopeGroup:
-		if sil.Scope.GroupID != "" {
-			matchers = append(matchers, GrafanaSilenceMatcher{
-				Name:    "group_id",
-				Value:   sil.Scope.GroupID,
-				IsEqual: true,
-			})
-		}
-	case MaintenanceWindowScopeSite:
-		if sil.Scope.SiteID != "" {
-			matchers = append(matchers, GrafanaSilenceMatcher{
-				Name:    "site_id",
-				Value:   sil.Scope.SiteID,
-				IsEqual: true,
-			})
-		}
-	case MaintenanceWindowScopeDevice:
-		if len(sil.Scope.DeviceIDs) == 1 {
-			matchers = append(matchers, GrafanaSilenceMatcher{
-				Name:    "device_id",
-				Value:   sil.Scope.DeviceIDs[0],
-				IsEqual: true,
-			})
-		} else if len(sil.Scope.DeviceIDs) > 1 {
-			// Anchor the alternation so a partial match can't widen the silence to substring-containing ids.
-			quoted := make([]string, len(sil.Scope.DeviceIDs))
-			for i, id := range sil.Scope.DeviceIDs {
-				quoted[i] = regexp.QuoteMeta(id)
-			}
-			matchers = append(matchers, GrafanaSilenceMatcher{
-				Name:    "device_id",
-				Value:   "^(?:" + strings.Join(quoted, "|") + ")$",
-				IsRegex: true,
-				IsEqual: true,
-			})
-		}
-	}
-	// Alertmanager requires a concrete endsAt; represent an open-ended mute with the far-future sentinel.
-	endsAt := sil.EndsAt
-	if endsAt.IsZero() {
-		endsAt = pauseSilenceEndsAt
-	}
-	return GrafanaSilence{
-		StartsAt:  sil.StartsAt,
-		EndsAt:    endsAt,
-		CreatedBy: sil.CreatedBy,
-		Comment:   encodeMaintenanceWindowComment(sil.Comment),
-		Matchers:  matchers,
-	}
-}
-
-// A zero EndsAt means indefinite.
-func maintenanceWindowActive(s MaintenanceWindow, now time.Time) bool {
-	if now.Before(s.StartsAt) {
+// timeRangeActive reports whether [startsAt, endsAt) covers now; a zero endsAt (or the
+// far-future pause sentinel) reads as indefinite.
+func timeRangeActive(startsAt, endsAt, now time.Time) bool {
+	if now.Before(startsAt) {
 		return false
 	}
-	if s.EndsAt.IsZero() {
+	if endsAt.IsZero() {
 		return true
 	}
-	return now.Before(s.EndsAt)
+	return now.Before(endsAt)
 }

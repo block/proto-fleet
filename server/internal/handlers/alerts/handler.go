@@ -751,7 +751,7 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	out := &alertsv1.MaintenanceWindow{
 		Id:             s.ID,
 		OrganizationId: s.OrganizationID,
-		Scope:          scopeToProto(s.Scope),
+		Scope:          &alertsv1.MaintenanceWindowScope{RuleIds: s.RuleIDs, ChannelIds: s.ChannelIDs},
 		StartsAt:       timestamppb.New(s.StartsAt),
 		Comment:        s.Comment,
 		CreatedBy:      s.CreatedBy,
@@ -764,38 +764,25 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	return out
 }
 
-func scopeToProto(sc alerts.MaintenanceWindowScope) *alertsv1.MaintenanceWindowScope {
-	return &alertsv1.MaintenanceWindowScope{
-		Kind:      scopeKindToProto(sc.Kind),
-		RuleId:    sc.RuleID,
-		GroupId:   sc.GroupID,
-		SiteId:    sc.SiteID,
-		DeviceIds: sc.DeviceIDs,
-	}
-}
-
 func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope, startsAt, endsAt *timestamppb.Timestamp, comment string) (alerts.MaintenanceWindow, error) {
 	if scope == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("scope is required")
 	}
-	dk, err := protoToScopeKind(scope.GetKind())
-	if err != nil {
-		return alerts.MaintenanceWindow{}, err
+	// A stale client still writes the retired single-target scope; its target fields no longer
+	// parse, so honoring the request would silently widen the window to every alert and channel.
+	if scope.GetKind() != alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED {
+		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError(
+			"single-target maintenance window scopes are no longer supported; reload/upgrade the client and pick rules and channels instead")
 	}
 	if startsAt == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("starts_at is required")
 	}
 	dom := alerts.MaintenanceWindow{
-		ID: id,
-		Scope: alerts.MaintenanceWindowScope{
-			Kind:      dk,
-			RuleID:    scope.GetRuleId(),
-			GroupID:   scope.GetGroupId(),
-			SiteID:    scope.GetSiteId(),
-			DeviceIDs: scope.GetDeviceIds(),
-		},
-		StartsAt: startsAt.AsTime(),
-		Comment:  comment,
+		ID:         id,
+		RuleIDs:    scope.GetRuleIds(),
+		ChannelIDs: scope.GetChannelIds(),
+		StartsAt:   startsAt.AsTime(),
+		Comment:    comment,
 	}
 	if endsAt != nil {
 		dom.EndsAt = endsAt.AsTime()
@@ -929,33 +916,4 @@ func ruleTemplateToProto(t alerts.RuleTemplate) alertsv1.RuleTemplate {
 	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest:
 	}
 	return alertsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
-}
-
-func scopeKindToProto(k alerts.MaintenanceWindowScopeKind) alertsv1.MaintenanceWindowScopeKind {
-	switch k {
-	case alerts.MaintenanceWindowScopeRule:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE
-	case alerts.MaintenanceWindowScopeGroup:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP
-	case alerts.MaintenanceWindowScopeSite:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE
-	case alerts.MaintenanceWindowScopeDevice:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE
-	}
-	return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED
-}
-
-func protoToScopeKind(k alertsv1.MaintenanceWindowScopeKind) (alerts.MaintenanceWindowScopeKind, error) {
-	switch k {
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE:
-		return alerts.MaintenanceWindowScopeRule, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP:
-		return alerts.MaintenanceWindowScopeGroup, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE:
-		return alerts.MaintenanceWindowScopeSite, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE:
-		return alerts.MaintenanceWindowScopeDevice, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED:
-	}
-	return "", fleeterror.NewInvalidArgumentErrorf("unknown maintenance window scope kind: %s", k)
 }

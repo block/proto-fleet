@@ -139,7 +139,7 @@ func (s *Service) resolveOrgChannelIDs(ctx context.Context, orgID int64, channel
 	seen := map[int64]bool{}
 	out := make([]int64, 0, len(channelIDs))
 	for _, raw := range channelIDs {
-		id, err := parseChannelID(raw)
+		id, err := parseRowID(raw)
 		if err != nil || !owned[id] {
 			return nil, fleeterror.NewInvalidArgumentErrorf("unknown channel id: %q", raw)
 		}

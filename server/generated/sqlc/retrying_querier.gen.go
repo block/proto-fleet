@@ -1026,6 +1026,18 @@ func (q *retryingQuerier) CurtailmentEventHasInFlightTargets(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) DeleteAlertMaintenanceWindow(ctx context.Context, arg DeleteAlertMaintenanceWindowParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteAlertMaintenanceWindow", func() error {
+		callResult, callErr := q.next.DeleteAlertMaintenanceWindow(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) DeleteAlertRouteChannels(ctx context.Context, policyID int64) error {
 	return q.retrier.RetryQuery(ctx, "DeleteAlertRouteChannels", func() error {
 		return q.next.DeleteAlertRouteChannels(ctx, policyID)
@@ -3234,6 +3246,18 @@ func (q *retryingQuerier) InsertAlertChannel(ctx context.Context, arg InsertAler
 	return result, err
 }
 
+func (q *retryingQuerier) InsertAlertMaintenanceWindow(ctx context.Context, arg InsertAlertMaintenanceWindowParams) (AlertMaintenanceWindow, error) {
+	var result AlertMaintenanceWindow
+	err := q.retrier.RetryQuery(ctx, "InsertAlertMaintenanceWindow", func() error {
+		callResult, callErr := q.next.InsertAlertMaintenanceWindow(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertAlertRouteChannels", func() error {
 		return q.next.InsertAlertRouteChannels(ctx, arg)
@@ -3360,6 +3384,18 @@ func (q *retryingQuerier) IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDe
 	return result, err
 }
 
+func (q *retryingQuerier) ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error) {
+	var result []AlertMaintenanceWindow
+	err := q.retrier.RetryQuery(ctx, "ListActiveAlertMaintenanceWindows", func() error {
+		callResult, callErr := q.next.ListActiveAlertMaintenanceWindows(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int64) ([]string, error) {
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "ListActiveCurtailedDevicesByOrg", func() error {
@@ -3460,6 +3496,18 @@ func (q *retryingQuerier) ListAlertChannels(ctx context.Context, orgID int64) ([
 	var result []AlertChannel
 	err := q.retrier.RetryQuery(ctx, "ListAlertChannels", func() error {
 		callResult, callErr := q.next.ListAlertChannels(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListAlertMaintenanceWindows(ctx context.Context, orgID int64) ([]AlertMaintenanceWindow, error) {
+	var result []AlertMaintenanceWindow
+	err := q.retrier.RetryQuery(ctx, "ListAlertMaintenanceWindows", func() error {
+		callResult, callErr := q.next.ListAlertMaintenanceWindows(ctx, orgID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5338,6 +5386,18 @@ func (q *retryingQuerier) UpdateAlertChannel(ctx context.Context, arg UpdateAler
 	var result AlertChannel
 	err := q.retrier.RetryQuery(ctx, "UpdateAlertChannel", func() error {
 		callResult, callErr := q.next.UpdateAlertChannel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpdateAlertMaintenanceWindow(ctx context.Context, arg UpdateAlertMaintenanceWindowParams) (AlertMaintenanceWindow, error) {
+	var result AlertMaintenanceWindow
+	err := q.retrier.RetryQuery(ctx, "UpdateAlertMaintenanceWindow", func() error {
+		callResult, callErr := q.next.UpdateAlertMaintenanceWindow(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

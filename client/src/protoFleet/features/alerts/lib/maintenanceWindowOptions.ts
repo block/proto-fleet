@@ -1,8 +1,5 @@
 import type { PickerOption } from "@/protoFleet/features/alerts/components/SinglePickerField";
 
-// Only add a scope option once its target picker exists: the server rejects an untargeted scope.
-export const MAINTENANCE_WINDOW_SCOPE_OPTIONS: PickerOption[] = [{ id: "rule", label: "A rule" }];
-
 export interface QuickWindowOption extends PickerOption {
   hours: number;
 }

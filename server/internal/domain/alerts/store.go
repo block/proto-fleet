@@ -53,6 +53,34 @@ type RouteStore interface {
 	ListPolicies(ctx context.Context, orgID int64) ([]RoutePolicy, error)
 }
 
+// MaintenanceWindowRecord is the persisted form of a maintenance window. Empty RuleUIDs means
+// every rule; empty ChannelIDs means every channel. The id slices are stored intent, not foreign
+// keys: a deleted rule or channel leaves its id dangling, which simply mutes nothing — dropping
+// it instead would silently widen the window to "every rule/channel".
+type MaintenanceWindowRecord struct {
+	ID             int64
+	OrganizationID int64
+	RuleUIDs       []string
+	ChannelIDs     []int64
+	StartsAt       time.Time
+	EndsAt         time.Time
+	Comment        string
+	CreatedBy      string
+	CreatedAt      time.Time
+}
+
+// MaintenanceWindowStore persists maintenance windows; implementations return ErrNotFound when
+// an update or delete targets a row the org doesn't own.
+type MaintenanceWindowStore interface {
+	Insert(ctx context.Context, rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error)
+	// Update replaces the window's scope and times; CreatedBy/CreatedAt are write-once.
+	Update(ctx context.Context, rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error)
+	List(ctx context.Context, orgID int64) ([]MaintenanceWindowRecord, error)
+	// ListActive returns only the org's windows covering now — the delivery-path read.
+	ListActive(ctx context.Context, orgID int64, now time.Time) ([]MaintenanceWindowRecord, error)
+	Delete(ctx context.Context, orgID, id int64) error
+}
+
 // RuleConfigStore persists user rule configs keyed by Grafana rule UID — annotations are unusable because
 // Grafana copies them onto every alert instance, bloating batches. Rows follow the route-policy lifecycle.
 type RuleConfigStore interface {

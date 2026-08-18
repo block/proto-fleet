@@ -5,7 +5,7 @@ import EditDeliveryModal from "./EditDeliveryModal";
 import StatusDot from "./StatusDot";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
-import { isMaintenanceWindowActive } from "@/protoFleet/features/alerts/api/useAlerts";
+import { isMaintenanceWindowActive, windowMutesEveryChannel } from "@/protoFleet/features/alerts/api/useAlerts";
 import { scopePartLabels } from "@/protoFleet/features/alerts/lib/scopeLabels";
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import type { Rule } from "@/protoFleet/features/alerts/types";
@@ -38,7 +38,7 @@ const formatRuleCondition = (rule: Rule): string => {
   return "fires on first matching evaluation";
 };
 
-// Counts only (like MaintenanceWindowsSection's formatTarget); the edit modal's pickers show names.
+// Counts only (like MaintenanceWindowsSection's formatChannels); the edit modal's pickers show names.
 const formatRuleScope = (rule: Rule): string => {
   const scope = rule.config?.scope;
   const parts = scopePartLabels({
@@ -85,17 +85,28 @@ const RulesSection = () => {
   const [deliveryRule, setDeliveryRule] = useState<Rule | null>(null);
 
   const now = useNow();
-  const activeMaintenanceWindowIdsByRule = useMemo(() => {
-    // Track every active window per rule, not just the last one, so lifting a rule clears all of them.
-    const map = new Map<string, string[]>();
-    maintenanceWindows.forEach((sil) => {
-      if (isMaintenanceWindowActive(sil, now) && sil.scope.kind === "rule" && sil.scope.rule_id) {
-        const ids = map.get(sil.scope.rule_id) ?? [];
-        ids.push(sil.id);
-        map.set(sil.scope.rule_id, ids);
+  const { fullyMutedRuleIds, allRulesMuted, liftableWindowIdsByRule } = useMemo(() => {
+    const fullyMuted = new Set<string>();
+    let allMuted = false;
+    const liftable = new Map<string, string[]>();
+    maintenanceWindows.forEach((w) => {
+      if (!isMaintenanceWindowActive(w, now)) return;
+      // Only an every-channel window marks the rule "Muted": a channel-scoped one leaves it paging elsewhere.
+      if (windowMutesEveryChannel(w)) {
+        if (w.rule_ids.length === 0) allMuted = true;
+        w.rule_ids.forEach((id) => fullyMuted.add(id));
+      }
+      // Lifting from a rule row only deletes windows scoped to exactly that rule,
+      // so it can't silently un-mute the window's other targets. Track every such
+      // window, not just the last one, so lifting clears overlapping ones too.
+      if (w.rule_ids.length === 1) {
+        const [ruleId] = w.rule_ids;
+        const ids = liftable.get(ruleId) ?? [];
+        ids.push(w.id);
+        liftable.set(ruleId, ids);
       }
     });
-    return map;
+    return { fullyMutedRuleIds: fullyMuted, allRulesMuted: allMuted, liftableWindowIdsByRule: liftable };
   }, [maintenanceWindows, now]);
 
   const sortedRules = useMemo(
@@ -131,7 +142,7 @@ const RulesSection = () => {
 
   const handleMaintenanceWindowOrLift = useCallback(
     async (rule: Rule) => {
-      const activeIds = activeMaintenanceWindowIdsByRule.get(rule.id) ?? [];
+      const activeIds = liftableWindowIdsByRule.get(rule.id) ?? [];
       if (activeIds.length > 0) {
         try {
           // Lift every active window for the rule so it isn't left muted by an overlapping one.
@@ -151,7 +162,7 @@ const RulesSection = () => {
         setShowMaintenanceWindowModal(true);
       }
     },
-    [activeMaintenanceWindowIdsByRule, removeMaintenanceWindow],
+    [liftableWindowIdsByRule, removeMaintenanceWindow],
   );
 
   const handleDelete = useCallback(
@@ -199,8 +210,7 @@ const RulesSection = () => {
         },
       },
       {
-        title: (rule) =>
-          activeMaintenanceWindowIdsByRule.has(rule.id) ? "Lift maintenance window" : "Maintenance window",
+        title: (rule) => (liftableWindowIdsByRule.has(rule.id) ? "Lift maintenance window" : "Maintenance window"),
         icon: <Stop />,
         actionHandler: (rule) => {
           void handleMaintenanceWindowOrLift(rule);
@@ -216,7 +226,7 @@ const RulesSection = () => {
         },
       },
     ],
-    [handleTogglePause, handleMaintenanceWindowOrLift, handleDelete, activeMaintenanceWindowIdsByRule, canWriteRules],
+    [handleTogglePause, handleMaintenanceWindowOrLift, handleDelete, liftableWindowIdsByRule, canWriteRules],
   );
 
   const colConfig: ColConfig<Rule, string, RuleColumns> = useMemo(
@@ -254,8 +264,8 @@ const RulesSection = () => {
           if (!rule.enabled) {
             return <StatusDot dotClass="bg-text-primary-30">Paused</StatusDot>;
           }
-          // An active maintenance window suppresses the rule even while enabled.
-          if (activeMaintenanceWindowIdsByRule.has(rule.id)) {
+          // An active every-channel maintenance window suppresses the rule's delivery even while enabled.
+          if (allRulesMuted || fullyMutedRuleIds.has(rule.id)) {
             return <StatusDot dotClass="bg-intent-warning-fill">Muted</StatusDot>;
           }
           return <StatusDot dotClass="bg-intent-success-fill">Active</StatusDot>;
@@ -263,7 +273,7 @@ const RulesSection = () => {
         width: "w-80",
       },
     }),
-    [activeMaintenanceWindowIdsByRule],
+    [allRulesMuted, fullyMutedRuleIds],
   );
 
   return (
