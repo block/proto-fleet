@@ -48,7 +48,14 @@ const mergeMetrics = <T extends object>(current: T | undefined, incoming: T): T 
   for (const field of metricFields) {
     const before = (current as MetricContainer | undefined)?.[field] as MetricTelemetry | undefined;
     const after = (incoming as MetricContainer)[field] as MetricTelemetry | undefined;
-    if (before || after) (merged as MetricContainer)[field] = { ...(before ?? {}), ...(after ?? {}) };
+    if (!before && !after) continue;
+    const metric: MetricTelemetry = {};
+    if (before?.latest !== undefined) metric.latest = before.latest;
+    if (before?.timeSeries !== undefined) metric.timeSeries = before.timeSeries;
+    if (after?.latest !== undefined) metric.latest = after.latest;
+    if (after?.timeSeries !== undefined) metric.timeSeries = after.timeSeries;
+    if (metric.latest !== undefined || metric.timeSeries !== undefined) (merged as MetricContainer)[field] = metric;
+    else delete (merged as MetricContainer)[field];
   }
   return merged;
 };

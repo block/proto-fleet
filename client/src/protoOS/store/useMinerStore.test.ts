@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { asComponentId, asDeviceId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
+import { asComponentId, asDeviceId, asHashboardId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
 import useMinerStore from "./useMinerStore";
 
 const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
@@ -117,5 +117,38 @@ describe("partial normalized store updates", () => {
 
     useMinerStore.getState().systemInfo.setSystemInfo(systemInfo("Rig refreshed"));
     expect(useMinerStore.getState().systemInfo.systemTag).toBe("rack-7");
+  });
+
+  test("ignores undefined metric parts instead of clearing last-known telemetry", () => {
+    const hashboardId = asHashboardId("serial:HB-1");
+    const telemetry = useMinerStore.getState().telemetry;
+    telemetry.mergeTelemetry({
+      resourceByScope: new Map(),
+      rollupsByEntity: new Map(),
+      hashboards: new Map([
+        [hashboardId, { hashboardId, temperature: { latest: { value: 65, units: "°C" } } }],
+      ]),
+      asics: new Map(),
+      psus: new Map(),
+      fans: new Map(),
+      coolingModeByOwner: new Map(),
+      asicLoadByHashboard: new Map(),
+    });
+
+    telemetry.mergeTelemetry({
+      resourceByScope: new Map(),
+      rollupsByEntity: new Map(),
+      hashboards: new Map([[hashboardId, { hashboardId, temperature: { latest: undefined } }]]),
+      asics: new Map(),
+      psus: new Map(),
+      fans: new Map(),
+      coolingModeByOwner: new Map(),
+      asicLoadByHashboard: new Map(),
+    });
+
+    expect(useMinerStore.getState().telemetry.hashboards.get(hashboardId)?.temperature?.latest).toEqual({
+      value: 65,
+      units: "°C",
+    });
   });
 });

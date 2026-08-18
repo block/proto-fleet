@@ -142,6 +142,14 @@ const normalizeMeasurement = (value: number | null | undefined, unit: string | u
   return { value: value === null ? null : value * canonical.factor, units: canonical.units };
 };
 
+const normalizeLatestMetric = (
+  value: number | null | undefined,
+  unit: string | undefined,
+): MetricTelemetry | undefined => {
+  const latest = normalizeMeasurement(value, unit);
+  return latest ? { latest } : undefined;
+};
+
 type V1Firmware = {
   name?: string;
   version?: string;
@@ -528,9 +536,9 @@ export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
     applyLatestMetrics(normalized, board as unknown as Record<string, unknown>);
     const temp = board.temperature;
     if (temp) {
-      normalized.temperature = { latest: normalizeMeasurement(temp.average, temp.unit) };
-      normalized.inletTemperature = { latest: normalizeMeasurement(temp.inlet, temp.unit) };
-      normalized.outletTemperature = { latest: normalizeMeasurement(temp.outlet, temp.unit) };
+      normalized.temperature = normalizeLatestMetric(temp.average, temp.unit);
+      normalized.inletTemperature = normalizeLatestMetric(temp.inlet, temp.unit);
+      normalized.outletTemperature = normalizeLatestMetric(temp.outlet, temp.unit);
     }
     state.hashboards.set(id, normalized);
 
@@ -566,15 +574,15 @@ export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
     const slot = psu.index + 1;
     const id = asComponentId(`${ROOT_MODULE_ID}:psu:${slot}`);
     const normalized: PsuTelemetry = { componentId: id };
-    normalized.inputVoltage = { latest: normalizeMeasurement(psu.voltage?.input, psu.voltage?.unit) };
-    normalized.outputVoltage = { latest: normalizeMeasurement(psu.voltage?.output, psu.voltage?.unit) };
-    normalized.inputCurrent = { latest: normalizeMeasurement(psu.current?.input, psu.current?.unit) };
-    normalized.outputCurrent = { latest: normalizeMeasurement(psu.current?.output, psu.current?.unit) };
-    normalized.inputPower = { latest: normalizeMeasurement(psu.power?.input, psu.power?.unit) };
-    normalized.outputPower = { latest: normalizeMeasurement(psu.power?.output, psu.power?.unit) };
-    normalized.ambientTemperature = { latest: normalizeMeasurement(psu.temperature?.ambient, psu.temperature?.unit) };
-    normalized.averageTemperature = { latest: normalizeMeasurement(psu.temperature?.average, psu.temperature?.unit) };
-    normalized.hotspotTemperature = { latest: normalizeMeasurement(psu.temperature?.hotspot, psu.temperature?.unit) };
+    normalized.inputVoltage = normalizeLatestMetric(psu.voltage?.input, psu.voltage?.unit);
+    normalized.outputVoltage = normalizeLatestMetric(psu.voltage?.output, psu.voltage?.unit);
+    normalized.inputCurrent = normalizeLatestMetric(psu.current?.input, psu.current?.unit);
+    normalized.outputCurrent = normalizeLatestMetric(psu.current?.output, psu.current?.unit);
+    normalized.inputPower = normalizeLatestMetric(psu.power?.input, psu.power?.unit);
+    normalized.outputPower = normalizeLatestMetric(psu.power?.output, psu.power?.unit);
+    normalized.ambientTemperature = normalizeLatestMetric(psu.temperature?.ambient, psu.temperature?.unit);
+    normalized.averageTemperature = normalizeLatestMetric(psu.temperature?.average, psu.temperature?.unit);
+    normalized.hotspotTemperature = normalizeLatestMetric(psu.temperature?.hotspot, psu.temperature?.unit);
     state.psus.set(id, normalized);
   }
 

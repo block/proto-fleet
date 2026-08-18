@@ -99,6 +99,27 @@ describe("MDK v1 normalization", () => {
     expect(history.hashboards.get(asHashboardId("serial:HB-1"))?.hashrate?.timeSeries?.bucketSizeMs).toBe(60_000);
   });
 
+  it("omits latest metrics whose wire values cannot be normalized", () => {
+    const telemetry = normalizeV1Telemetry({
+      timestamp: "2026-08-17T00:00:00Z",
+      hashboards: [
+        {
+          index: 0,
+          serial_number: "HB-1",
+          hashrate: { value: 50, unit: MetricUnit.THS },
+          efficiency: { value: 30, unit: MetricUnit.JTH },
+          power: { value: 1_500, unit: MetricUnit.W },
+          temperature: { average: undefined, inlet: 40, outlet: 70, unit: MetricUnit.ValueC },
+        },
+      ],
+    } as never);
+
+    const board = telemetry.hashboards.get(asHashboardId("serial:HB-1"));
+    expect(board?.temperature).toBeUndefined();
+    expect(board?.inletTemperature?.latest?.value).toBe(40);
+    expect(board?.outletTemperature?.latest?.value).toBe(70);
+  });
+
   it("normalizes network, status, pool, target, and error reads without wire types", () => {
     expect(
       normalizeV1NetworkInfo({
