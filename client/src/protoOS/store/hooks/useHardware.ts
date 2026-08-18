@@ -10,16 +10,20 @@ const SLOTS_PER_BAY = 3;
 // =============================================================================
 
 // Miner hooks
-export const useMinerHardware = () => useMinerStore((state) => state.hardware.getMiner());
+export const useMinerHardware = () => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getMiner(), [hardware]);
+};
 
 // Hashboard hooks
 export const useHashboardsHardware = () => {
-  return useMinerStore(
-    useShallow((state) =>
-      [...state.hardware.hashboards.values()]
-        .map((board) => state.hardware.getHashboard(board.identity.value))
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(
+    () =>
+      [...hardware.hashboards.values()]
+        .map((board) => hardware.getHashboard(board.identity.value))
         .filter((board) => board !== undefined),
-    ),
+    [hardware],
   );
 };
 
@@ -87,9 +91,15 @@ export const useHashboardSerialsByBay = () => {
   }, [hashboards, maxBayIndex]);
 };
 
-export const useHashboardHardware = (serial: string) => useMinerStore((state) => state.hardware.getHashboard(serial));
+export const useHashboardHardware = (serial: string) => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getHashboard(serial), [hardware, serial]);
+};
 
-export const useHashboardsByBay = (bay: number) => useMinerStore((state) => state.hardware.getHashboardsByBay(bay));
+export const useHashboardsByBay = (bay: number) => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getHashboardsByBay(bay), [bay, hardware]);
+};
 
 export const useSlotsPerBay = () => {
   // TODO: This should come from the API when available
@@ -103,42 +113,65 @@ export const useHashboardSlot = (serial: string) => useMinerStore((state) => sta
 export const useHashboardBay = (serial: string) => useMinerStore((state) => state.hardware.getBayByHbSn(serial));
 
 export const useAsicRowsByHbSn = (serial: string) => {
-  const hashboard = useMinerStore((state) => state.hardware.getHashboard(serial));
-  const allAsics = useMinerStore((state) => state.hardware.asics);
+  const hardware = useMinerStore((state) => state.hardware);
 
   return useMemo(() => {
+    const hashboard = hardware.getHashboard(serial);
     if (!hashboard || !hashboard.asicIds) return [];
 
     const asicRows = hashboard.asicIds
-      .map((asicId) => allAsics.get(asicId as never)?.row)
+      .map((asicId) => hardware.asics.get(asicId as never)?.row)
       .filter((row): row is number => row !== undefined);
 
     const uniqueRows = new Set(asicRows);
     return Array.from(uniqueRows).sort((a, b) => a - b);
-  }, [hashboard, allAsics]);
+  }, [hardware, serial]);
 };
 
 // ASIC hooks
-export const useAsicHardware = (id: string) => useMinerStore((state) => state.hardware.getAsic(id));
+export const useAsicHardware = (id: string) => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getAsic(id), [hardware, id]);
+};
 
-export const useAsicPosition = (id: string) => useMinerStore((state) => state.hardware.getAsicPosition(id));
+export const useAsicPosition = (id: string) => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getAsicPosition(id), [hardware, id]);
+};
 
-export const useAsicsByHashboard = (hashboardSerial: string) =>
-  useMinerStore((state) => state.hardware.getAsicsByHashboard(hashboardSerial));
+export const useAsicsByHashboard = (hashboardSerial: string) => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getAsicsByHashboard(hashboardSerial), [hashboardSerial, hardware]);
+};
 
 // Controlboard hooks
-export const useControlBoard = () => useMinerStore((state) => state.hardware.getControlBoard());
+export const useControlBoard = () => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getControlBoard(), [hardware]);
+};
 
 // PSU hooks
-export const usePsus = () => useMinerStore((state) => state.hardware.getAllPsus());
+export const usePsus = () => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getAllPsus(), [hardware]);
+};
 
 export const usePsuIds = () => useMinerStore(useShallow((state) => state.hardware.getAllPsus().map((psu) => psu.id)));
 
-export const usePsu = (id: number) => useMinerStore((state) => state.hardware.getPsu(id));
+export const usePsu = (id: number) => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getPsu(id), [hardware, id]);
+};
 
 // Fan hooks
-export const useFans = () => useMinerStore((state) => state.hardware.getAllFans());
+export const useFans = () => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getAllFans(), [hardware]);
+};
 
 export const useFanIds = () => useMinerStore(useShallow((state) => state.hardware.getAllFans().map((fan) => fan.slot)));
 
-export const useFan = (id: number) => useMinerStore((state) => state.hardware.getFan(id));
+export const useFan = (id: number) => {
+  const hardware = useMinerStore((state) => state.hardware);
+  return useMemo(() => hardware.getFan(id), [hardware, id]);
+};

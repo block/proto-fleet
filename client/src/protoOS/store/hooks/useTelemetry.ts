@@ -1,4 +1,4 @@
-import { useShallow } from "zustand/react/shallow";
+import { useMemo } from "react";
 
 import { asAsicId, asComponentId, asHashboardId, ROOT_MODULE_KEY } from "../contract";
 import {
@@ -10,41 +10,50 @@ import {
 } from "../selectors/legacyTelemetry";
 import useMinerStore from "../useMinerStore";
 
-export const useMinerTelemetry = () =>
-  useMinerStore((state) =>
-    minerTelemetryView(
-      state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY),
-      [...state.hardware.hashboards.values()].map((board) => board.identity.value),
-    ),
+export const useMinerTelemetry = () => {
+  const rollup = useMinerStore((state) => state.telemetry.rollupsByEntity.get(ROOT_MODULE_KEY));
+  const hashboards = useMinerStore((state) => state.hardware.hashboards);
+  return useMemo(
+    () =>
+      minerTelemetryView(
+        rollup,
+        [...hashboards.values()].map((board) => board.identity.value),
+      ),
+    [hashboards, rollup],
   );
-export const useHashboardsTelemetry = () =>
-  useMinerStore(useShallow((state) => [...state.telemetry.hashboards.values()].map(hashboardTelemetryView)));
-export const useHashboardTelemetry = (serial: string) =>
-  useMinerStore((state) => {
-    const value = state.telemetry.hashboards.get(asHashboardId(`serial:${serial}`));
-    return value ? hashboardTelemetryView(value) : undefined;
-  });
-export const useAsicsTelemetry = () =>
-  useMinerStore(useShallow((state) => [...state.telemetry.asics.values()].map(asicTelemetryView)));
-export const useAsicTelemetry = (id: string) =>
-  useMinerStore((state) => {
-    const value = state.telemetry.asics.get(asAsicId(id));
-    return value ? asicTelemetryView(value) : undefined;
-  });
-export const usePsusTelemetry = () =>
-  useMinerStore(useShallow((state) => [...state.telemetry.psus.values()].map(psuTelemetryView)));
-export const usePsuTelemetry = (slot: number) =>
-  useMinerStore((state) => {
-    const value = state.telemetry.psus.get(asComponentId(`module:root:psu:${slot}`));
-    return value ? psuTelemetryView(value) : undefined;
-  });
-export const useFansTelemetry = () =>
-  useMinerStore(useShallow((state) => [...state.telemetry.fans.values()].map(fanTelemetryView)));
-export const useFanTelemetry = (slot: number) =>
-  useMinerStore((state) => {
-    const value = state.telemetry.fans.get(asComponentId(`module:root:fan:${slot}`));
-    return value ? fanTelemetryView(value) : undefined;
-  });
+};
+export const useHashboardsTelemetry = () => {
+  const values = useMinerStore((state) => state.telemetry.hashboards);
+  return useMemo(() => [...values.values()].map(hashboardTelemetryView), [values]);
+};
+export const useHashboardTelemetry = (serial: string) => {
+  const value = useMinerStore((state) => state.telemetry.hashboards.get(asHashboardId(`serial:${serial}`)));
+  return useMemo(() => (value ? hashboardTelemetryView(value) : undefined), [value]);
+};
+export const useAsicsTelemetry = () => {
+  const values = useMinerStore((state) => state.telemetry.asics);
+  return useMemo(() => [...values.values()].map(asicTelemetryView), [values]);
+};
+export const useAsicTelemetry = (id: string) => {
+  const value = useMinerStore((state) => state.telemetry.asics.get(asAsicId(id)));
+  return useMemo(() => (value ? asicTelemetryView(value) : undefined), [value]);
+};
+export const usePsusTelemetry = () => {
+  const values = useMinerStore((state) => state.telemetry.psus);
+  return useMemo(() => [...values.values()].map(psuTelemetryView), [values]);
+};
+export const usePsuTelemetry = (slot: number) => {
+  const value = useMinerStore((state) => state.telemetry.psus.get(asComponentId(`module:root:psu:${slot}`)));
+  return useMemo(() => (value ? psuTelemetryView(value) : undefined), [value]);
+};
+export const useFansTelemetry = () => {
+  const values = useMinerStore((state) => state.telemetry.fans);
+  return useMemo(() => [...values.values()].map(fanTelemetryView), [values]);
+};
+export const useFanTelemetry = (slot: number) => {
+  const value = useMinerStore((state) => state.telemetry.fans.get(asComponentId(`module:root:fan:${slot}`)));
+  return useMemo(() => (value ? fanTelemetryView(value) : undefined), [value]);
+};
 export const useCoolingMode = () => useMinerStore((state) => state.telemetry.coolingModeByOwner.get(ROOT_MODULE_KEY));
 export const useIntervalMs = () =>
   useMinerStore(
