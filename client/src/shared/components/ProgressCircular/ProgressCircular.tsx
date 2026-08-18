@@ -2,7 +2,7 @@ import clsx from "clsx";
 
 interface ProgressCircularProps {
   className?: string;
-  color?: "default" | "inverse";
+  color?: "default" | "inverse" | "staticContrast";
   dataTestId?: string;
   size?: number;
   value?: number;
@@ -29,7 +29,11 @@ const ProgressCircular = ({
       // Progress is an activity indicator, not a status indicator. Keep its color
       // neutral by default, with an explicit inverse option for filled controls.
       className={clsx(
-        color === "inverse" ? "!text-text-contrast" : "!text-core-primary-fill",
+        {
+          "!text-core-primary-fill": color === "default",
+          "!text-text-contrast": color === "inverse",
+          "!text-text-base-contrast-static": color === "staticContrast",
+        },
         { "animate-spin": indeterminate },
         className,
       )}

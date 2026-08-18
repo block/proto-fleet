@@ -62,7 +62,7 @@ const Button = ({
   const base = size === sizes.base;
   const compact = size === sizes.compact;
   const gap = compact ? "w-2" : "w-3";
-  const loadingSpinnerColor = primary || accent || danger ? "inverse" : "default";
+  const loadingSpinnerColor = accent || danger ? "staticContrast" : primary ? "inverse" : "default";
   const prefix = loading ? <ProgressCircular color={loadingSpinnerColor} size={12} indeterminate /> : prefixIcon;
   const disabledState = disabled || loading;
 

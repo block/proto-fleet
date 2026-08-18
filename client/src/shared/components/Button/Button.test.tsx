@@ -75,6 +75,14 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Update now" }).querySelector("svg")).toHaveClass("!text-text-contrast");
   });
 
+  test.each([variants.accent, variants.danger])("uses a static contrast spinner for a loading %s button", (variant) => {
+    render(<Button text="Update now" loading variant={variant} />);
+
+    expect(screen.getByRole("button", { name: "Update now" }).querySelector("svg")).toHaveClass(
+      "!text-text-base-contrast-static",
+    );
+  });
+
   test("keeps the default spinner color for a loading secondary button", () => {
     render(<Button text="Update now" loading variant={variants.secondary} />);
 

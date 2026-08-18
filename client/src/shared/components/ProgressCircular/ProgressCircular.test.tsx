@@ -16,4 +16,10 @@ describe("ProgressCircular", () => {
 
     expect(screen.getByTestId("inverse-progress-spinner")).toHaveClass("!text-text-contrast");
   });
+
+  it("renders with a static contrast color when the control foreground is fixed", () => {
+    render(<ProgressCircular color="staticContrast" dataTestId="static-progress-spinner" indeterminate />);
+
+    expect(screen.getByTestId("static-progress-spinner")).toHaveClass("!text-text-base-contrast-static");
+  });
 });
