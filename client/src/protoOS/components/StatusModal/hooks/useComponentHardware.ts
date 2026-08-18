@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { mapErrorSourceToComponentType } from "../utils";
 import { useMinerStore } from "@/protoOS/store";
 import type {
@@ -20,29 +21,28 @@ export type ComponentHardware =
  */
 export function useComponentHardware(source: ErrorSource, slot: number | undefined): ComponentHardware {
   const componentType = mapErrorSourceToComponentType(source);
+  const hardware = useMinerStore((state) => state.hardware);
 
-  const hardware = useMinerStore((state) => {
+  return useMemo(() => {
     if (slot === undefined) {
       // For control board or when no slot
       if (componentType === "controlBoard") {
-        return state.hardware.getControlBoard();
+        return hardware.getControlBoard();
       }
       return undefined;
     }
 
     switch (componentType) {
       case "fan":
-        return state.hardware.getFan(slot);
+        return hardware.getFan(slot);
       case "psu":
-        return state.hardware.getPsu(slot);
+        return hardware.getPsu(slot);
       case "hashboard": {
-        const hashboard = state.hardware.getHashboardBySlot(slot);
+        const hashboard = hardware.getHashboardBySlot(slot);
         return hashboard;
       }
       default:
         return undefined;
     }
-  });
-
-  return hardware;
+  }, [componentType, hardware, slot]);
 }

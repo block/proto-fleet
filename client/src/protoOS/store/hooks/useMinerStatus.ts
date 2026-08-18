@@ -213,9 +213,8 @@ export const useErrorsByComponent = (source: ErrorSource, slot: number): MinerEr
  * Returns all errors from the store
  */
 export const useErrors = (): MinerError[] => {
-  return useMinerStore(
-    useShallow((state) => (state.minerStatus.errorsByOwner.get(ROOT_MODULE_KEY) ?? []).map(toLegacyError)),
-  );
+  const errors = useMinerStore((state) => state.minerStatus.errorsByOwner.get(ROOT_MODULE_KEY));
+  return useMemo(() => (errors ?? []).map(toLegacyError), [errors]);
 };
 
 /**
