@@ -1511,7 +1511,7 @@ EOF
   HA_BUNDLE_PATH="$TEST_TMP/proto-fleet-ha-host.json"
   printf '%s' '{"prepared":true}' > "$HA_BUNDLE_PATH"
   chmod 600 "$HA_BUNDLE_PATH"
-  stat() { printf '600\n'; }
+  stat() { printf '1000 600\n'; }
   download_dir="$TEST_TMP/ha-download"
   mkdir -m 700 "$download_dir"
   run_ha_install "$tar_path" "$download_dir" \

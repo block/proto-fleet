@@ -90,7 +90,6 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-a")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-b")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-c")))
-	require.NoFileExists(t, filepath.Join(exportDir, publicCAName))
 }
 
 func TestGuidedInstallUsesPeerSSHUsernameOverride(t *testing.T) {
@@ -190,24 +189,17 @@ func TestPrepareInstallBundlesCreatesRoleScopedBundles(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	var serviceCA []byte
 	for _, role := range []string{"ha-a", "ha-b", "ha-c"} {
 		bundle, err := readHostBundle(filepath.Join(exportDir, hostBundleName(role)))
 		require.NoError(t, err)
 		require.Equal(t, role, bundle.Metadata.Role)
 		require.NotContains(t, bundle.Secrets, "service-ca.key")
-		serviceCA = bundle.Secrets["service-ca.crt"]
 		require.Equal(t, role == "ha-a", len(bundle.EtcdRootPassword) != 0)
 	}
 	for _, name := range []string{hostBundleName("ha-a"), hostBundleName("ha-b"), hostBundleName("ha-c")} {
 		requireMode(t, filepath.Join(exportDir, name), 0o600)
 		require.NoFileExists(t, filepath.Join(exportDir, name+".sha256"))
 	}
-	publicCA, err := os.ReadFile(filepath.Join(exportDir, publicCAName))
-	require.NoError(t, err)
-	require.Equal(t, serviceCA, publicCA)
-	requireMode(t, filepath.Join(exportDir, publicCAName), 0o644)
-	require.NoFileExists(t, filepath.Join(exportDir, publicCAName+".sha256"))
 }
 
 func TestDecodeHostBundleRejectsUnexpectedContent(t *testing.T) {

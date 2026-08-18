@@ -22,7 +22,6 @@ import (
 
 const (
 	bundleFormatVersion = 1
-	publicCAName        = "proto-fleet-ha-service-ca.crt"
 	maxBundleSize       = 2 << 20
 )
 
@@ -261,7 +260,7 @@ func makeBundleExportDir(source string) (string, error) {
 	return absoluteDir, nil
 }
 
-func installPreparedHost(ctx context.Context, source, bundlePath string, release clusterMetadata, prevalidated bool, deps guidedInstallDependencies) error {
+func installPreparedHost(ctx context.Context, source, bundlePath string, release clusterMetadata, skipPreflight bool, deps guidedInstallDependencies) error {
 	bundle, err := readHostBundle(bundlePath)
 	if err != nil {
 		return err
@@ -290,7 +289,7 @@ func installPreparedHost(ctx context.Context, source, bundlePath string, release
 	if err != nil {
 		return err
 	}
-	if !prevalidated {
+	if !skipPreflight {
 		if err := writeInstallerOutput(deps.output, "[validation] Checking the bundle, release, network, and dedicated host...\n"); err != nil {
 			return err
 		}
@@ -386,12 +385,7 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata) (err erro
 		}
 	}
 
-	publicCA, err := os.ReadFile(filepath.Join(secretsRoot, "offline", "service-ca.crt"))
-	if err != nil {
-		return fmt.Errorf("read generated service CA: %w", err)
-	}
-	publicCAPath := filepath.Join(exportDir, publicCAName)
-	return writeFile(publicCAPath, publicCA, 0o644)
+	return nil
 }
 
 func readHostBundle(path string) (preparedHostBundle, error) {
@@ -633,7 +627,7 @@ func requireAcknowledgement(scanner *bufio.Scanner, output io.Writer, prompt, ex
 }
 
 func removeCopiedExports(exportDir string) error {
-	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c"), publicCAName} {
+	for _, name := range []string{hostBundleName("ha-b"), hostBundleName("ha-c")} {
 		path := filepath.Join(exportDir, name)
 		if err := os.Remove(path); err != nil {
 			return fmt.Errorf("remove copied bundle export %s: %w", path, err)
