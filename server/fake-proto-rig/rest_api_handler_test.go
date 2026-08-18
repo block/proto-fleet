@@ -2476,86 +2476,93 @@ func TestHandleSystem_SwUpdateStatusUsesSpecFieldNames(t *testing.T) {
 	}
 }
 
-func TestStagedFirmwareVersion(t *testing.T) {
+func TestExplicitFirmwareVersion(t *testing.T) {
 	tests := []struct {
-		name           string
-		filename       string
-		content        string
-		currentVersion string
-		want           string
+		name     string
+		filename string
+		content  string
+		want     string
+		wantOK   bool
 	}{
 		{
-			name:           "plain semantic version",
-			filename:       "protoos-1.9.0.swu",
-			content:        `firmware_version=9.9.9`,
-			currentVersion: "1.8.0",
-			want:           "1.9.0",
+			name:     "plain semantic version",
+			filename: "protoos-1.9.0.swu",
+			content:  `firmware_version=9.9.9`,
+			want:     "1.9.0",
+			wantOK:   true,
 		},
 		{
-			name:           "v-prefixed semantic version",
-			filename:       "firmware-update-v2.0.2.swu",
-			currentVersion: "1.8.0",
-			want:           "2.0.2",
+			name:     "v-prefixed semantic version",
+			filename: "firmware-update-v2.0.2.swu",
+			want:     "2.0.2",
+			wantOK:   true,
 		},
 		{
-			name:           "key value payload marker",
-			filename:       "protoos-update.swu",
-			content:        "bundle header\nfirmware_version=1.4.4\nbinary data",
-			currentVersion: "1.8.0",
-			want:           "1.4.4",
+			name:     "key value payload marker",
+			filename: "protoos-update.swu",
+			content:  "bundle header\nfirmware_version=1.4.4\nbinary data",
+			want:     "1.4.4",
+			wantOK:   true,
 		},
 		{
-			name:           "JSON payload marker",
-			filename:       "protoos-update.swu",
-			content:        `{"firmware_version":"2.5.7"}`,
-			currentVersion: "1.8.0",
-			want:           "2.5.7",
+			name:     "JSON payload marker",
+			filename: "protoos-update.swu",
+			content:  `{"firmware_version":"2.5.7"}`,
+			want:     "2.5.7",
+			wantOK:   true,
 		},
 		{
-			name:           "plain semantic version payload marker",
-			filename:       "protoos-update.swu",
-			content:        "fake firmware bundle\nv3.6.9\n",
-			currentVersion: "1.8.0",
-			want:           "3.6.9",
+			name:     "plain semantic version payload marker",
+			filename: "protoos-update.swu",
+			content:  "fake firmware bundle\nv3.6.9\n",
+			want:     "3.6.9",
+			wantOK:   true,
 		},
 		{
-			name:           "fallback when no explicit version exists",
-			filename:       "protoos-update.swu",
-			content:        "fake firmware bundle",
-			currentVersion: "1.8.0",
-			want:           defaultNextFirmwareVersion,
+			name:     "no explicit version",
+			filename: "protoos-update.swu",
+			content:  "fake firmware bundle",
 		},
 		{
-			name:           "fallback increments non-default current version",
-			filename:       "protoos-update.swu",
-			content:        "fake firmware bundle",
-			currentVersion: "2.3.4",
-			want:           "2.3.5",
+			name:     "does not extract partial four-part version",
+			filename: "protoos-1.2.3.4.swu",
+			content:  "fake firmware bundle",
 		},
 		{
-			name:           "does not extract partial four-part version",
-			filename:       "protoos-1.2.3.4.swu",
-			content:        "fake firmware bundle",
-			currentVersion: "1.8.0",
-			want:           defaultNextFirmwareVersion,
-		},
-		{
-			name:           "ignores payload marker beyond bounded prefix",
-			filename:       "protoos-update.swu",
-			content:        strings.Repeat("x", int(firmwareVersionScanLimit)) + "\nfirmware_version=8.8.8\n",
-			currentVersion: "2.3.4",
-			want:           "2.3.5",
+			name:     "ignores payload marker beyond bounded prefix",
+			filename: "protoos-update.swu",
+			content:  strings.Repeat("x", int(firmwareVersionScanLimit)) + "\nfirmware_version=8.8.8\n",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := stagedFirmwareVersion(tt.filename, strings.NewReader(tt.content), tt.currentVersion)
+			got, ok, err := explicitFirmwareVersion(tt.filename, strings.NewReader(tt.content))
 			if err != nil {
-				t.Fatalf("stagedFirmwareVersion returned an error: %v", err)
+				t.Fatalf("explicitFirmwareVersion returned an error: %v", err)
 			}
 			if got != tt.want {
-				t.Fatalf("expected staged version %q, got %q", tt.want, got)
+				t.Fatalf("expected explicit version %q, got %q", tt.want, got)
+			}
+			if ok != tt.wantOK {
+				t.Fatalf("expected explicit version present=%t, got %t", tt.wantOK, ok)
+			}
+		})
+	}
+}
+
+func TestNextFirmwareVersion(t *testing.T) {
+	for _, tt := range []struct {
+		current string
+		want    string
+	}{
+		{current: defaultFirmwareVersion, want: defaultNextFirmwareVersion},
+		{current: "2.3.4", want: "2.3.5"},
+		{current: "invalid", want: defaultNextFirmwareVersion},
+	} {
+		t.Run(tt.current, func(t *testing.T) {
+			if got := nextFirmwareVersion(tt.current); got != tt.want {
+				t.Fatalf("expected next version %q, got %q", tt.want, got)
 			}
 		})
 	}
@@ -2888,6 +2895,97 @@ func TestHandleUpdate_PutConsumesCompleteStreamBeforeResponding(t *testing.T) {
 	}
 }
 
+func TestHandleUpdate_SlowMarkerlessUploadUsesFinalCurrentVersion(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+	h.firmwareStepDelay = time.Hour
+
+	uploadReader, uploadWriter := io.Pipe()
+	multipartWriter := multipart.NewWriter(uploadWriter)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", uploadReader)
+	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	rr := httptest.NewRecorder()
+
+	streamPaused := make(chan struct{})
+	resumeStream := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		part, err := multipartWriter.CreateFormFile("file", "protoos-update.swu")
+		if err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		if _, err = io.WriteString(part, strings.Repeat("x", int(firmwareVersionScanLimit))); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		close(streamPaused)
+		<-resumeStream
+		if err = multipartWriter.Close(); err != nil {
+			_ = uploadWriter.CloseWithError(err)
+			writerDone <- err
+			return
+		}
+		writerDone <- uploadWriter.Close()
+	}()
+
+	handlerDone := make(chan struct{})
+	go func() {
+		h.handleUpdate(rr, req)
+		_ = uploadReader.Close()
+		close(handlerDone)
+	}()
+
+	select {
+	case <-streamPaused:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for markerless upload to pause")
+	}
+
+	state.mu.Lock()
+	state.FWUpdateStatus = "installed"
+	state.FWNewVersion = "2.0.0"
+	state.mu.Unlock()
+	rebootRR := httptest.NewRecorder()
+	h.handleReboot(rebootRR, httptest.NewRequest(http.MethodPost, "/api/v1/system/reboot", nil))
+	if rebootRR.Code != http.StatusAccepted {
+		t.Fatalf("expected %d from overlapping reboot, got %d; body=%s",
+			http.StatusAccepted, rebootRR.Code, rebootRR.Body.String())
+	}
+	state.mu.Lock()
+	state.Rebooting = false
+	state.mu.Unlock()
+
+	close(resumeStream)
+	select {
+	case err := <-writerDone:
+		if err != nil {
+			t.Fatalf("upload writer failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for markerless upload writer")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for markerless upload handler")
+	}
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWCurrentVersion != "2.0.0" {
+		t.Fatalf("expected current version %q, got %q", "2.0.0", state.FWCurrentVersion)
+	}
+	if state.FWNewVersion != "2.0.1" {
+		t.Fatalf("expected markerless upload to stage %q, got %q", "2.0.1", state.FWNewVersion)
+	}
+}
+
 func TestHandleUpdate_PutStreamFailureDoesNotMutateFirmwareState(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.mu.Lock()
@@ -2997,20 +3095,6 @@ func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 	h.firmwareStepDelay = 20 * time.Millisecond
 	h.firmwareInstallDelay = 50 * time.Millisecond
 	const uploadedVersion = "2.4.6"
-
-	controlRR := httptest.NewRecorder()
-	h.handleFakeFirmwareUpdateOutcome(
-		controlRR,
-		httptest.NewRequest(
-			http.MethodPut,
-			"/fake-api/v1/test/firmware-update/outcome",
-			strings.NewReader(`{"outcome":"success"}`),
-		),
-	)
-	if controlRR.Code != http.StatusOK {
-		t.Fatalf("expected %d from fake success control, got %d; body=%s",
-			http.StatusOK, controlRR.Code, controlRR.Body.String())
-	}
 
 	rr := httptest.NewRecorder()
 	h.handleUpdate(rr, newFirmwareUploadRequest(t, "protoos-"+uploadedVersion+".swu", "fake firmware bundle"))
@@ -3129,7 +3213,118 @@ func TestHandleUpdate_PutWhilePending_RejectsAndPreservesStagedVersion(t *testin
 	}
 }
 
+func newFirmwareOutcomeControlMux(t *testing.T, enabled bool) (*MinerState, *http.ServeMux) {
+	t.Helper()
+	envValue := ""
+	if enabled {
+		envValue = "true"
+	}
+	t.Setenv(fakeRigEnableTestControlsEnv, envValue)
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAccessToken("test-token")
+	h := NewRESTApiHandler(state)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	return state, mux
+}
+
+func requestFirmwareOutcomeControl(mux *http.ServeMux, body string, authenticated bool) *httptest.ResponseRecorder {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/fake-api/v1/test/firmware-update/outcome",
+		strings.NewReader(body),
+	)
+	if authenticated {
+		req.Header.Set("Authorization", "Bearer test-token")
+	}
+	mux.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_DisabledByDefault(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, false)
+	rr := requestFirmwareOutcomeControl(mux, `{"outcome":"error"}`, true)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected %d when test controls are disabled, got %d; body=%s",
+			http.StatusNotFound, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Fatalf("expected disabled control not to change outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_EnabledRequiresBearerAuth(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, true)
+	rr := requestFirmwareOutcomeControl(mux, `{"outcome":"error"}`, false)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d without bearer auth, got %d; body=%s",
+			http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Fatalf("expected unauthorized control not to change outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_EnabledAcceptsAuthenticatedRequest(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, true)
+	rr := requestFirmwareOutcomeControl(mux, `{"outcome":"error"}`, true)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d with test controls and bearer auth, got %d; body=%s",
+			http.StatusOK, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeError {
+		t.Fatalf("expected authenticated control to set outcome %q, got %q",
+			firmwareUpdateOutcomeError, state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_RejectsOversizedBody(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, true)
+	body := `{"outcome":"` + strings.Repeat("x", int(maxTestControlRequestBytes))
+	rr := requestFirmwareOutcomeControl(mux, body, true)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected %d for oversized control body, got %d; body=%s",
+			http.StatusRequestEntityTooLarge, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Fatalf("expected oversized control not to change outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
+func TestFakeFirmwareUpdateOutcomeRoute_RejectsTrailingJSONValue(t *testing.T) {
+	state, mux := newFirmwareOutcomeControlMux(t, true)
+	rr := requestFirmwareOutcomeControl(
+		mux,
+		`{"outcome":"error"} {"outcome":"attention"}`,
+		true,
+	)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d for trailing JSON value, got %d; body=%s",
+			http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.FWNextUpdateOutcome != firmwareUpdateOutcomeSuccess {
+		t.Fatalf("expected rejected control not to change outcome, got %q", state.FWNextUpdateOutcome)
+	}
+}
+
 func TestFakeFirmwareUpdateOutcome_FailsNextUpdateWithoutPromoting(t *testing.T) {
+	t.Setenv(fakeRigEnableTestControlsEnv, "true")
 	tests := []struct {
 		outcome       string
 		expectedError string
@@ -3141,19 +3336,18 @@ func TestFakeFirmwareUpdateOutcome_FailsNextUpdateWithoutPromoting(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.outcome, func(t *testing.T) {
 			state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+			state.SetAccessToken("test-token")
 			h := NewRESTApiHandler(state)
 			h.firmwareStepDelay = 5 * time.Millisecond
 			h.firmwareInstallDelay = 5 * time.Millisecond
 
 			mux := http.NewServeMux()
 			h.RegisterRoutes(mux)
-			controlRR := httptest.NewRecorder()
-			controlReq := httptest.NewRequest(
-				http.MethodPut,
-				"/fake-api/v1/test/firmware-update/outcome",
-				strings.NewReader(fmt.Sprintf(`{"outcome":%q}`, tt.outcome)),
+			controlRR := requestFirmwareOutcomeControl(
+				mux,
+				fmt.Sprintf(`{"outcome":%q}`, tt.outcome),
+				true,
 			)
-			mux.ServeHTTP(controlRR, controlReq)
 			if controlRR.Code != http.StatusOK {
 				t.Fatalf("expected %d from fake outcome control, got %d; body=%s",
 					http.StatusOK, controlRR.Code, controlRR.Body.String())
