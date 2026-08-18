@@ -12,27 +12,34 @@ import (
 const (
 	defaultHealthCheckInterval = 100 * time.Millisecond
 	defaultCleanupTimeout      = 10 * time.Second
+	endpointStartupTimeout     = 10 * time.Second
+	endpointHeartbeatTimeout   = 5 * time.Second
 )
 
+// ErrRuntimeAborted marks an HA exit that completed its bounded hard-abort
+// cleanup attempt for the active runtime job group.
+var ErrRuntimeAborted = errors.New("HA Fleet runtime aborted")
+
 var errCriticalRuntimeUnhealthy = errors.New("critical Fleet runtime is unhealthy")
+var errEndpointUnavailable = errors.New("active Fleet endpoint is unavailable")
 
 type RuntimeConfig struct {
 	HealthCheckInterval time.Duration
 	CleanupTimeout      time.Duration
+	EndpointHealthy     func() bool
+	EndpointOwned       func() bool
 }
 
 type runtimeOwner interface {
 	Run(ctx context.Context) error
 	WaitForActive(ctx context.Context) (context.Context, Token, error)
-	RequestDemotion(cause error)
-	ResumeAcquisition()
+	Snapshot() Snapshot
 }
 
 type runtimeGroup interface {
 	Start(ctx context.Context) error
-	Abort()
+	Abort(ctx context.Context) error
 	Stop(ctx context.Context) error
-	Err() error
 }
 
 // Runtime serializes lease ownership, the existing runtime-job group, and
@@ -145,9 +152,21 @@ func (r *Runtime) runHA(ctx context.Context) error {
 		coordinatorResult <- r.owner.Run(coordinatorCtx)
 	}()
 
-	for {
+	type activationResult struct {
+		ctx context.Context //nolint:containedctx // Carries the owned lifetime returned by WaitForActive.
+		err error
+	}
+	activation := make(chan activationResult, 1)
+	go func() {
 		activeCtx, _, err := r.owner.WaitForActive(coordinatorCtx)
-		if err != nil {
+		activation <- activationResult{ctx: activeCtx, err: err}
+	}()
+
+	var activeCtx context.Context
+	select {
+	case result := <-activation:
+		activeCtx = result.ctx
+		if result.err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -155,65 +174,104 @@ func (r *Runtime) runHA(ctx context.Context) error {
 			case coordinatorErr := <-coordinatorResult:
 				return fmt.Errorf("run Fleet ownership coordinator: %w", coordinatorErr)
 			default:
-				return fmt.Errorf("wait for Fleet ownership: %w", err)
+				return fmt.Errorf("wait for Fleet ownership: %w", result.err)
 			}
 		}
-
-		if err := r.group.Start(activeCtx); err != nil {
-			r.owner.RequestDemotion(fmt.Errorf("start Fleet runtime: %w", err))
-			if terminalErr := r.group.Err(); terminalErr != nil {
-				return fmt.Errorf("start Fleet runtime left terminal cleanup failure: %w", terminalErr)
-			}
-			r.owner.ResumeAcquisition()
-			continue
-		}
-
-		if !r.healthCheck() {
-			r.group.Abort()
-			if activeCtx.Err() == nil {
-				r.owner.RequestDemotion(errCriticalRuntimeUnhealthy)
-			}
-			if stopErr := r.stopGroup(); stopErr != nil {
-				return stopErr
-			}
-			if ctx.Err() == nil {
-				r.owner.ResumeAcquisition()
-			}
-			continue
-		}
-
-		r.gate.activate(activeCtx)
-		activeErr := r.waitWhileHealthy(ctx, activeCtx)
-		admissionDrained := r.gate.deactivate()
-		r.group.Abort()
-		if errors.Is(activeErr, errCriticalRuntimeUnhealthy) {
-			r.owner.RequestDemotion(activeErr)
-		}
-		if err := r.stopGroupAndDrainAdmissions(admissionDrained); err != nil {
-			return err
-		}
-		if ctx.Err() != nil {
-			return nil
-		}
-		r.owner.ResumeAcquisition()
+	case coordinatorErr := <-coordinatorResult:
+		return fmt.Errorf("run Fleet ownership coordinator: %w", coordinatorErr)
+	case <-ctx.Done():
+		return nil
 	}
+
+	if err := r.group.Start(activeCtx); err != nil {
+		return fmt.Errorf("start active Fleet runtime: %w", err)
+	}
+	if !r.healthCheck() {
+		return r.abortGroup(errCriticalRuntimeUnhealthy)
+	}
+
+	r.gate.activate(activeCtx)
+	activeErr := r.waitWhileHealthy(ctx, activeCtx)
+	admissionDrained := r.gate.deactivate()
+	if ctx.Err() != nil {
+		return r.stopGroupAndDrainAdmissions(admissionDrained)
+	}
+	// Stop lease renewal before cleanup so a blocked abort cannot delay takeover.
+	cancelCoordinator()
+	abortErr := r.abortGroup(activeErr)
+
+	select {
+	case coordinatorErr := <-coordinatorResult:
+		return errors.Join(abortErr, coordinatorErr)
+	default:
+		return abortErr
+	}
+}
+
+func (r *Runtime) abortGroup(cause error) error {
+	abortCtx, cancel := context.WithTimeout(context.Background(), r.config.CleanupTimeout)
+	defer cancel()
+	cleanupErr := r.group.Abort(abortCtx)
+	if cleanupErr != nil {
+		cleanupErr = fmt.Errorf("abort Fleet runtime: %w", cleanupErr)
+	}
+	return errors.Join(ErrRuntimeAborted, cause, cleanupErr)
 }
 
 func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 	ticker := time.NewTicker(r.config.HealthCheckInterval)
 	defer ticker.Stop()
+	endpoint := newEndpointMonitor(r.config.EndpointHealthy, time.Now(), endpointStartupTimeout)
 	for {
 		select {
 		case <-parent.Done():
 			return fmt.Errorf("Fleet runtime stopped: %w", parent.Err())
 		case <-activeCtx.Done():
-			return fmt.Errorf("active lifetime ended: %w", activeCtx.Err())
+			return fmt.Errorf("active lifetime ended: %w", context.Cause(activeCtx))
 		case <-ticker.C:
 			if !r.healthCheck() {
 				return errCriticalRuntimeUnhealthy
 			}
+			if err := endpoint.check(time.Now()); err != nil {
+				return err
+			}
 		}
 	}
+}
+
+// endpointMonitor gives keepalived one bounded chance to claim the VIP after
+// activation. Once ready, two missed samples are tolerated before failing closed.
+type endpointMonitor struct {
+	healthy          func() bool
+	deadline         time.Time
+	ready            bool
+	unhealthySamples int
+}
+
+func newEndpointMonitor(healthy func() bool, startedAt time.Time, timeout time.Duration) *endpointMonitor {
+	return &endpointMonitor{healthy: healthy, deadline: startedAt.Add(timeout)}
+}
+
+func (m *endpointMonitor) check(now time.Time) error {
+	if m.healthy == nil {
+		return nil
+	}
+	if m.healthy() {
+		m.ready = true
+		m.unhealthySamples = 0
+		return nil
+	}
+	if !m.ready {
+		if now.Before(m.deadline) {
+			return nil
+		}
+		return errEndpointUnavailable
+	}
+	m.unhealthySamples++
+	if m.unhealthySamples < 3 {
+		return nil
+	}
+	return errEndpointUnavailable
 }
 
 func (r *Runtime) stopGroup() error {

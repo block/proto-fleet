@@ -681,6 +681,19 @@ func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, rollout.StateAborted, aborted.State)
+	secondEnforcement := enforcementByID(t, db, *second.EnforcementID)
+	assert.Equal(t, channelDomain.EnforcementStateCancelled, secondEnforcement.State)
+	assert.Equal(t, *started.Rollout.SourceChannelID, deviceChannel(t, db, orgID, deviceIDs[1]))
+	first = memberByIdentifier(t, aborted, deviceIDs[0])
+	second = memberByIdentifier(t, aborted, deviceIDs[1])
+	third = memberByIdentifier(t, aborted, deviceIDs[2])
+	assert.Equal(t, rollout.MemberStateAdmitted, first.State)
+	assert.Nil(t, first.OwnerReleasedAt)
+	assert.Equal(t, rollout.MemberStateCancelled, second.State)
+	assert.NotNil(t, second.OwnerReleasedAt)
+	assert.Equal(t, rollout.MemberStateAdmitted, third.State)
+	assert.Nil(t, third.OwnerReleasedAt)
+
 	_, err = rolloutService.Revert(t.Context(), rollout.ControlRequest{
 		OrgID:            orgID,
 		RolloutID:        started.Rollout.ID,
@@ -690,9 +703,10 @@ func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
 		ActorUserID:      actorID,
 	})
 	require.Error(t, err)
-	secondEnforcement := enforcementByID(t, db, *second.EnforcementID)
-	assert.Equal(t, channelDomain.EnforcementStateCancelled, secondEnforcement.State)
-	assert.Equal(t, *started.Rollout.SourceChannelID, deviceChannel(t, db, orgID, deviceIDs[1]))
+	persisted, err = rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	assert.Equal(t, rollout.StateAborted, persisted.State)
+	assert.Nil(t, persisted.RevertAuthorityID)
 	require.NoError(t, enforcementStore.ReturnPending(
 		t.Context(),
 		thirdClaim,
@@ -706,6 +720,11 @@ func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
 	thirdEnforcement := enforcementByID(t, db, *third.EnforcementID)
 	assert.Equal(t, channelDomain.EnforcementStateCancelled, thirdEnforcement.State)
 	assert.Equal(t, *started.Rollout.SourceChannelID, deviceChannel(t, db, orgID, deviceIDs[2]))
+	persisted, err = rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	third = memberByIdentifier(t, persisted, deviceIDs[2])
+	assert.Equal(t, rollout.MemberStateCancelled, third.State)
+	assert.NotNil(t, third.OwnerReleasedAt)
 
 	confirmEnforcement(t, db, firstClaim.ID)
 	finalizations, err = laneStore.ListFinalizations(t.Context(), 10)
@@ -717,6 +736,10 @@ func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
 	persisted, err = rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rollout.StateAborted, persisted.State)
+	first = memberByIdentifier(t, persisted, deviceIDs[0])
+	assert.Equal(t, rollout.MemberStateSucceeded, first.State)
+	assert.NotNil(t, first.OwnerReleasedAt)
+	assert.Equal(t, rollout.BatchStateCompleted, persisted.Batches[0].State)
 	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
 	require.NoError(t, err)
 	assert.Equal(t, *started.Rollout.SourceChannelID, lane.CurrentChannelID)

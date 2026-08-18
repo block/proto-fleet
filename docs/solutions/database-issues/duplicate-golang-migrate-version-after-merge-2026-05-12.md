@@ -73,7 +73,7 @@ The rename-the-branch-migration approach is the right move (rather than touching
    ```
 2. **After every merge from main**, scan the merged tree for duplicate version prefixes:
    ```bash
-   ls server/migrations/ | cut -c1-6 | sort | uniq -d
+   ls server/migrations/ | grep -F '.up.sql' | cut -c1-6 | sort | uniq -d
    ```
    Any output is a hard fail — fix before pushing.
 3. **Add a lefthook pre-push hook (and CI guard)** that runs the `uniq -d` check above and exits non-zero on collision. Cheap, deterministic, would have caught this before the merge commit landed. The repo already uses lefthook for `block-protected-branches`; this is the same shape.

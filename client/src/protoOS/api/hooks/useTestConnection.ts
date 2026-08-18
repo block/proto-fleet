@@ -1,14 +1,15 @@
 import { useCallback, useMemo, useState } from "react";
 
-import { TestConnection } from "@/protoOS/api/generatedApi";
+import { poolInfoToTestConnection } from "@/protoOS/api/poolAdapters";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
+import { PoolInfo } from "@/shared/components/MiningPools/types";
 
 export interface TestConnectionProps {
   onError?: () => void;
   onFinally?: () => void;
   onSuccess?: () => void;
-  poolInfo: TestConnection;
+  poolInfo: PoolInfo;
 }
 
 const useTestConnection = () => {
@@ -22,7 +23,7 @@ const useTestConnection = () => {
 
       setPending(true);
       authRetry({
-        request: (params) => api.testPoolConnection(poolInfo, params),
+        request: (params) => api.testPoolConnection(poolInfoToTestConnection(poolInfo), params),
         onSuccess: () => onSuccess?.(),
         onError: () => onError?.(),
       }).finally(() => {

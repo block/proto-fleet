@@ -169,7 +169,7 @@ describe("useCurtailmentPlanPreview", () => {
       deviceIdentifiers: ["miner-1"],
     });
 
-    expect(multiSiteRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site", "deviceIdentifiers"]);
+    expect(multiSiteRequest?.scopes.map((scope) => scope.scope.case)).toEqual(["deviceIdentifiers"]);
 
     const allSitesRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
@@ -362,7 +362,7 @@ describe("useCurtailmentPlanPreview", () => {
     expect(result.current.preview).toEqual(expect.objectContaining({ scopeLabel: "from Austin, TX" }));
   });
 
-  it("uses the site label in mixed site and miner preview labels", async () => {
+  it("uses the terminal miner label when a site is only navigation context", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 
     const { result } = renderPreviewHook({
@@ -375,7 +375,7 @@ describe("useCurtailmentPlanPreview", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.preview?.scopeLabel).toBe("from Austin, TX and selected miners");
+      expect(result.current.preview?.scopeLabel).toBe("from selected miners");
     });
   });
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	channelReconciler "github.com/block/proto-fleet/server/internal/domain/channel/reconciler"
@@ -16,6 +17,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	"github.com/block/proto-fleet/server/internal/domain/token"
+	"github.com/block/proto-fleet/server/internal/domain/updates"
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -27,6 +30,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
 
+func validateHAHTTPAddress(config Config) error {
+	if !config.HA.Enabled {
+		return nil
+	}
+	if config.HTTP.Address != ha.LocalStatusAddress {
+		return fmt.Errorf("HA requires HTTP listen address %q, got %q", ha.LocalStatusAddress, config.HTTP.Address)
+	}
+	return nil
+}
+
 type HTTPConfig struct {
 	Address           string        `help:"Address to listen on" default:"127.0.0.1:8080" env:"LISTEN_ADDRESS"`
 	ReadHeaderTimeout time.Duration `help:"Read header timeout" default:"3s" env:"READ_HEADER_TIMEOUT"`
@@ -37,8 +50,9 @@ type HTTPConfig struct {
 type Config struct {
 	Mode string `help:"Execution mode" enum:"server,agent,combined" default:"combined" env:"MODE"`
 
-	// Operator-facing base URL of this instance, used in outbound alert notification links.
-	PublicURL string `help:"Base URL of the proto-fleet instance, used in alert notification links (e.g. https://fleet.example.com)" default:"" env:"FLEET_PUBLIC_URL"`
+	// Operator-facing base URL of this instance, used in outbound alert notification links and, by its host,
+	// to name the sending instance when several of them post to one Slack channel.
+	PublicURL string `help:"Base URL of the proto-fleet instance, used in alert notification links and to name this instance in them (e.g. https://fleet.example.com)" default:"" env:"FLEET_PUBLIC_URL"`
 
 	DB             db.Config                      `embed:"" prefix:"db-" envprefix:"DB_"`
 	Log            logging.Config                 `embed:"" prefix:"logging-" envprefix:"LOG_"`
@@ -58,10 +72,12 @@ type Config struct {
 	Plugins        plugins.Config                 `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
 	IPScanner      ipscanner.Config               `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
 	Diagnostics    diagnostics.Config             `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
+	Updates        updates.Config                 `embed:"" prefix:"updates-" envprefix:"UPDATES_"`
 	Infrastructure infrastructureDomain.Config    `embed:"" prefix:"infrastructure-" envprefix:"INFRASTRUCTURE_"`
 	Files          files.Config                   `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FleetTelemetry fleet_telemetry.Config         `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
 	Metrics        metrics.Config                 `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
+	HA             ha.Config                      `embed:"" prefix:"ha-" envprefix:"FLEET_HA_"`
 
 	SystemMonitoring sysmon.Config `embed:"" prefix:"system-monitoring-" envprefix:"FLEET_SYSTEM_MONITORING_"`
 }

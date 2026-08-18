@@ -30,7 +30,12 @@ export type BuildingModalState =
   | { kind: "detailsCreate"; siteId?: bigint; siteName?: string; draft: BuildingFormValues }
   | { kind: "detailsEdit"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues }
   | { kind: "manage"; row: BuildingWithCounts; siteName?: string }
-  | { kind: "manageEditingDetails"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues };
+  | { kind: "manageEditingDetails"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues }
+  // The racks picker with no ManageBuildingModal behind it: hosts that already
+  // render the building (its detail page) open membership editing directly
+  // rather than putting the whole manage surface on screen uninvited. Carries
+  // the rack ids already in the building so the picker can seed its selection.
+  | { kind: "racksPicker"; row: BuildingWithCounts; currentRackIds: bigint[] };
 
 interface UseBuildingModalsOptions {
   // Refetches the host page's buildings cache. Called after every successful
@@ -71,6 +76,12 @@ export interface BuildingModalsApi {
   openManage: (row: BuildingWithCounts, siteName?: string, unassignedMinerCount?: number) => void;
   // Count carried alongside the manage state for the seeded-create flow.
   manageUnassignedMinerCount: number | undefined;
+  openRacksPicker: (row: BuildingWithCounts, currentRackIds: bigint[]) => void;
+  // Commit-per-modal: the racks picker owns building membership, so its Save
+  // applies the delta via AssignRacksToBuilding right away rather than staging it
+  // for a later save. `added` moves racks into this building; `removed` leaves
+  // them with no building. Resolves true on success.
+  pickerAssignRacks: (delta: { added: bigint[]; removed: bigint[] }) => Promise<boolean>;
   // Closes the topmost modal: drops details if details is stacked on manage,
   // otherwise collapses to none. Mirrors useSiteModals.dismiss.
   dismiss: () => void;
@@ -96,6 +107,9 @@ export interface BuildingModalsApi {
   refreshBuildings: () => void;
 }
 
+// Proto caps `racks` at 1000 per AssignRacksToBuildingRequest.
+const RACKS_PER_RPC = 1000;
+
 const useBuildingModals = ({
   refetchBuildings,
   onMutationSuccess,
@@ -118,7 +132,28 @@ const useBuildingModals = ({
   // state transitions away (drops details) before the operator confirms.
   const deleteFromManageRef = useRef(false);
 
-  const { createBuilding, updateBuilding, deleteBuilding } = useBuildings();
+  const { createBuilding, updateBuilding, deleteBuilding, assignRacksToBuilding } = useBuildings();
+
+  // Membership writer for the standalone racks picker. `targetBuildingId` unset
+  // leaves the racks with no building. Chunked because AssignRacksToBuildingRequest
+  // caps `racks` at 1000 and the picker can select a whole site's worth; chunks run
+  // sequentially so a mid-chain failure stops the chain.
+  const dispatchAssignRacks = useCallback(
+    async (rackIds: bigint[], targetBuildingId?: bigint) => {
+      for (let i = 0; i < rackIds.length; i += RACKS_PER_RPC) {
+        const chunk = rackIds.slice(i, i + RACKS_PER_RPC);
+        await new Promise<void>((resolve, reject) => {
+          void assignRacksToBuilding({
+            racks: chunk.map((rackId) => ({ rackId })),
+            targetBuildingId,
+            onSuccess: () => resolve(),
+            onError: (msg) => reject(new Error(msg)),
+          });
+        });
+      }
+    },
+    [assignRacksToBuilding],
+  );
 
   const openDetailsCreate = useCallback((siteId?: bigint, siteName?: string) => {
     setState({ kind: "detailsCreate", siteId, siteName, draft: emptyBuildingFormValues() });
@@ -307,9 +342,54 @@ const useBuildingModals = ({
     });
   }, [deleteTarget, deleteBuilding, refetchBuildings, onMutationSuccess, onDeleteFromManage]);
 
+  // The racks picker's create hand-off: the racks are already placed in the
+  // building, so there is no membership write to make, only caches to re-pull.
+  // Both, not just the building record — a created rack changes rack_count and
+  // whatever the host renders from building stats.
   const refreshBuildings = useCallback(() => {
     refetchBuildings?.();
-  }, [refetchBuildings]);
+    onMutationSuccess?.();
+  }, [refetchBuildings, onMutationSuccess]);
+
+  const openRacksPicker = useCallback((row: BuildingWithCounts, currentRackIds: bigint[]) => {
+    setState({ kind: "racksPicker", row, currentRackIds });
+  }, []);
+
+  const pickerAssignRacks = useCallback(
+    async (delta: { added: bigint[]; removed: bigint[] }): Promise<boolean> => {
+      if (savingRef.current) return false;
+      if (state.kind !== "racksPicker") return false;
+      const buildingId = unwrap(state.row).id;
+      savingRef.current = true;
+      setSaving(true);
+      try {
+        // Removals first so they free their grid cells before any newcomer
+        // lands, matching ManageBuildingModal's ordering. Chunked to the proto's
+        // per-request cap.
+        await dispatchAssignRacks(delta.removed, undefined);
+        await dispatchAssignRacks(delta.added, buildingId);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "unknown error";
+        pushToast({ message: `Failed to update racks: ${detail}`, status: STATUSES.error });
+        // Either pass is chunked, and the removals run first, so a failure here
+        // can still have moved racks out of the building. Re-pull rather than
+        // leave the host — and the operator's next look at the picker — on a
+        // membership the server no longer agrees with.
+        refetchBuildings?.();
+        onMutationSuccess?.();
+        return false;
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
+      }
+      // rack_count and the grid change without touching create/update/delete, so
+      // the host's cache only re-pulls if we ask it to.
+      refetchBuildings?.();
+      onMutationSuccess?.();
+      return true;
+    },
+    [state, dispatchAssignRacks, refetchBuildings, onMutationSuccess],
+  );
 
   return {
     state,
@@ -320,6 +400,8 @@ const useBuildingModals = ({
     openDetailsCreate,
     openDetailsEdit,
     openManage,
+    openRacksPicker,
+    pickerAssignRacks,
     dismiss,
     dismissDeleteConfirm,
     detailsCreate,

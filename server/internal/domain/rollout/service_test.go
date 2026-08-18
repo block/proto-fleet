@@ -188,15 +188,18 @@ func TestServiceRevertReplayResumesStartedStrategyWork(t *testing.T) {
 	t.Parallel()
 
 	rolloutID := uuid.New()
+	revertAuthorityID := uuid.New()
 	current := &Rollout{
-		ID:          rolloutID,
-		OrgID:       42,
-		StrategyKey: "fake",
-		State:       StateReverting,
-		Revision:    4,
+		ID:                rolloutID,
+		OrgID:             42,
+		StrategyKey:       "fake",
+		State:             StateReverting,
+		Revision:          4,
+		RevertAuthorityID: &revertAuthorityID,
 	}
 	store := &fakeStore{
-		getResult: current,
+		getResult:     current,
+		controlReplay: true,
 		controlResults: []ControlResult{{
 			Rollout:  current,
 			Control:  Control{ID: uuid.New(), Status: ControlStatusStarted},
@@ -215,8 +218,44 @@ func TestServiceRevertReplayResumesStartedStrategyWork(t *testing.T) {
 		ActorUserID:      9,
 	})
 	require.NoError(t, err)
+	assert.Equal(t, 0, strategy.validateRevertCalls)
 	assert.Equal(t, 1, strategy.revertCalls)
 	assert.Equal(t, 1, store.finishCalls)
+}
+
+func TestServiceRevertWithPriorAuthorityStillValidatesNewControl(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	revertAuthorityID := uuid.New()
+	store := &fakeStore{
+		getResult: &Rollout{
+			ID:                rolloutID,
+			OrgID:             42,
+			StrategyKey:       "fake",
+			State:             StateCompletedWithFailures,
+			Revision:          5,
+			RevertAuthorityID: &revertAuthorityID,
+		},
+	}
+	validationErr := errors.New("no succeeded members")
+	strategy := &fakeAdmissionStrategy{
+		key:               "fake",
+		validateRevertErr: validationErr,
+	}
+	svc := NewService(store, strategy)
+
+	_, err := svc.Revert(t.Context(), ControlRequest{
+		OrgID:            42,
+		RolloutID:        rolloutID,
+		ExpectedRevision: 5,
+		IdempotencyKey:   "new-revert-after-failure",
+		Reason:           "operator retry",
+		ActorUserID:      9,
+	})
+	require.ErrorIs(t, err, validationErr)
+	assert.Equal(t, 1, strategy.validateRevertCalls)
+	assert.Empty(t, store.controlRequests)
 }
 
 func TestServiceWithoutConcreteStrategyStillSupportsReadsAndFailsAdmissionClosed(t *testing.T) {
@@ -273,12 +312,14 @@ func TestServiceControlPropagatesStaleRevisionWithoutRetry(t *testing.T) {
 }
 
 type fakeStore struct {
-	getResult       *Rollout
-	getErr          error
-	controlResults  []ControlResult
-	controlErr      error
-	controlRequests []ControlRequest
-	finishCalls     int
+	getResult        *Rollout
+	getErr           error
+	controlResults   []ControlResult
+	controlErr       error
+	controlRequests  []ControlRequest
+	controlReplay    bool
+	controlReplayErr error
+	finishCalls      int
 }
 
 func (s *fakeStore) Create(context.Context, CreateRequest) (CreateResult, error) {
@@ -291,6 +332,10 @@ func (s *fakeStore) Get(context.Context, int64, uuid.UUID) (*Rollout, error) {
 
 func (s *fakeStore) List(context.Context, int64, []State) ([]Rollout, error) {
 	return nil, errors.New("unexpected List call")
+}
+
+func (s *fakeStore) CheckControlReplay(context.Context, ControlRequest) (bool, error) {
+	return s.controlReplay, s.controlReplayErr
 }
 
 func (s *fakeStore) ApplyControl(_ context.Context, req ControlRequest) (ControlResult, error) {
@@ -317,9 +362,11 @@ func (s *fakeStore) CaptureEvidence(context.Context, EvidenceRequest) ([]Evidenc
 }
 
 type fakeAdmissionStrategy struct {
-	key         string
-	admitCalls  int
-	revertCalls int
+	key                 string
+	admitCalls          int
+	validateRevertCalls int
+	validateRevertErr   error
+	revertCalls         int
 }
 
 func (s *fakeAdmissionStrategy) Key() string {
@@ -334,4 +381,9 @@ func (s *fakeAdmissionStrategy) Admit(context.Context, AdmissionRequest) error {
 func (s *fakeAdmissionStrategy) Revert(context.Context, RevertRequest) error {
 	s.revertCalls++
 	return nil
+}
+
+func (s *fakeAdmissionStrategy) ValidateRevert(context.Context, RevertValidationRequest) error {
+	s.validateRevertCalls++
+	return s.validateRevertErr
 }

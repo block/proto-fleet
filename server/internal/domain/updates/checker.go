@@ -96,7 +96,7 @@ func newChecker(cfg Config, releasesAPIURL, serverVersion string, logger *slog.L
 	return &Checker{
 		cfg:                  cfg,
 		logger:               logger,
-		client:               newGitHubClient(releasesAPIURL, serverVersion, cfg.GitHubToken, logger),
+		client:               newGitHubClient(releasesAPIURL, serverVersion, logger),
 		revalidationFailures: make(map[string]int),
 	}
 }
@@ -204,10 +204,18 @@ func (c *Checker) run(ctx context.Context) {
 func (c *Checker) checkSafely(ctx context.Context) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
+			c.markUnavailable()
 			c.logger.Error("release check panicked", "panic", recovered, "stack", string(debug.Stack()))
 		}
 	}()
 	c.check(ctx)
+}
+
+func (c *Checker) markUnavailable() {
+	c.mu.Lock()
+	c.snapshot.StableAvailable = false
+	c.snapshot.RCAvailable = false
+	c.mu.Unlock()
 }
 
 // jitteredInterval subtracts 10-20% random jitter from the configured
@@ -234,10 +242,7 @@ func (c *Checker) check(ctx context.Context) {
 	list, err := c.client.fetchReleases(ctx)
 	if err != nil {
 		c.logFetchFailure("release check skipped", err)
-		c.mu.Lock()
-		c.snapshot.StableAvailable = false
-		c.snapshot.RCAvailable = false
-		c.mu.Unlock()
+		c.markUnavailable()
 		return
 	}
 	previous := c.Snapshot()

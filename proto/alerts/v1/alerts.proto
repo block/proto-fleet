@@ -43,6 +43,10 @@ service MaintenanceWindowService {
 
 service HistoryService {
     rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse);
+
+    // Currently-firing alerts rolled up per rule with affected-miner counts, so a fleet-wide outage reads as a
+    // handful of rows instead of thousands. Drill into one group with ListAlerts (active_only + alert_name).
+    rpc ListActiveAlertGroups(ListActiveAlertGroupsRequest) returns (ListActiveAlertGroupsResponse);
 }
 
 enum ChannelKind {
@@ -188,6 +192,23 @@ message TemperatureConfig {
     double max_celsius = 1 [(buf.validate.field).double = {gt: 0, lte: 150}];
 }
 
+// Which miners a rule fires for: the union of every listed placement (sites, buildings, racks, groups — evaluated against current membership) and the explicit device_ids. Empty/absent means the whole org.
+message RuleScope {
+    repeated int64 site_ids = 1 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated string device_ids = 2 [(buf.validate.field).repeated = {max_items: 500, items: {string: {min_len: 1, max_len: 255}}}];
+    repeated int64 building_ids = 3 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated int64 rack_ids = 4 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    repeated int64 group_ids = 5 [(buf.validate.field).repeated = {max_items: 100, items: {int64: {gt: 0}}}];
+    // Live "any site": covers miners assigned to any current or future site (excludes unassigned miners); when set, site_ids is ignored and reads return it empty.
+    bool all_sites = 6;
+    // Read-only, server-set: device_ids were omitted because the caller lacks miner:read (never renders as org-wide).
+    // Writes carrying it are rejected — the caller cannot know the redacted list, so saving would silently drop it.
+    bool device_ids_redacted = 7;
+    // Write-intent marker: org-wide writes set this instead of omitting scope, so a scoped-rule update with no scope
+    // message can be rejected as a stale pre-scope client that would silently widen the rule. Never set on reads.
+    bool org_wide = 8;
+}
+
 // User-specified rule definition; the server compiles it into the backing Grafana rule.
 message RuleConfig {
     // 190 is Grafana's alert-rule title cap.
@@ -199,6 +220,7 @@ message RuleConfig {
         HashrateConfig hashrate = 4;
         TemperatureConfig temperature = 5;
     }
+    RuleScope scope = 6;
 }
 
 // Where a rule's firing alerts deliver: DEFAULT = every org channel, CUSTOM = only channel_ids, NONE = nowhere; history records the alert either way.
@@ -231,6 +253,11 @@ message Rule {
     RuleConfig config = 12;
     // Unset means the routing read failed (keep the last-known value); a readable rule always carries an explicit mode.
     RuleRouting routing = 13;
+    // Read-only, server-set: the stored config no longer compiles to the SQL the rule is evaluating (a save was interrupted mid-write); re-saving the rule converges both sides.
+    bool config_out_of_sync = 14;
+    // Read-only, server-set: the config read failed on this (mutation) response — keep the last-known config
+    // instead of reading the absent field as "no editable config", mirroring how an unset routing is handled.
+    bool config_unknown = 15;
 }
 
 message ListRulesRequest {}
@@ -359,12 +386,48 @@ message AlertHistoryEntry {
 }
 
 message ListAlertsRequest {
-    string before_id = 1;
+    // Opaque page cursor: the previous response's next_cursor. Opaque because the drill-in pages on an alert key
+    // and history on a row id. Ignored by the unfiltered active set, which is unpaged.
+    string before_id = 1 [(buf.validate.field).string.max_len = 64];
     int32 page_size = 2 [(buf.validate.field).int32.gte = 0];
-    // When set, return only currently-active alerts (latest row per fingerprint still firing); before_id is ignored.
+    // Return currently-active alerts instead of history. Unfiltered it is a current-state view, not a feed: the
+    // whole firing set in one capped response. Naming an alert below makes it the paged drill-in.
     bool active_only = 3;
+    // Narrows the active set to one rule's firing instances, one per affected miner (the per-alert drill-in).
+    // Ignored unless active_only is set. 190 is Grafana's alert-rule title cap.
+    string alert_name = 4 [(buf.validate.field).string.max_len = 190];
+    // The rule group alert_name belongs to, matched exactly, so drilling into one can't pull in another group's
+    // miners; "" is the group of rules carrying no rule label. Rejected without alert_name, ignored without
+    // active_only.
+    string rule_group = 5 [(buf.validate.field).string.max_len = 190];
 }
 message ListAlertsResponse {
     repeated AlertHistoryEntry alerts = 1;
+    bool has_more = 2;
+    // Cursor to pass as the next request's before_id; empty when has_more is false, and always empty for the
+    // unpaged active set, where has_more instead means the cap hid part of it.
+    string next_cursor = 3;
+}
+
+// One currently-firing alert rule and its blast radius. Identity and counts only: severity, summary and every
+// other per-instance detail live on the drill-in rows, which is the one place they describe a single alert.
+message ActiveAlertGroup {
+    string alert_name = 1;
+    string rule_group = 2;
+    // Distinct miners firing this alert; 0 for fleet-wide and source-scoped alerts, which carry no device.
+    int64 device_count = 3;
+    // Firing instances in the group, which exceeds device_count only when a rule fires on a non-device dimension.
+    int64 alert_count = 4;
+    // Earliest start across the group's instances: how long this alert has been firing somewhere in the fleet.
+    google.protobuf.Timestamp first_started_at = 5;
+    // The newest instance's summary, and only for a group whose device_count is 0: those have no drill-in to
+    // describe them, and taking it from a device-less instance keeps device identity out of this response.
+    string summary = 6;
+}
+
+message ListActiveAlertGroupsRequest {}
+message ListActiveAlertGroupsResponse {
+    repeated ActiveAlertGroup groups = 1;
+    // More distinct alerts are firing than the response cap; the omitted ones are the least widespread.
     bool has_more = 2;
 }

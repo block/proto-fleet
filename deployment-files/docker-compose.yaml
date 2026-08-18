@@ -2,10 +2,14 @@ x-extends:
   file: ./server/docker-compose.base.yaml
 
 services:
+  # Source checkouts use :latest for local builds. Release packaging replaces
+  # every Proto Fleet runtime reference with the bundle's literal version tag.
   fleet-api:
     extends:
       file: ./server/docker-compose.base.yaml
       service: fleet-api
+    image: proto-fleet-api:latest
+    pull_policy: never
     build:
       context: ./server
     environment:
@@ -16,6 +20,7 @@ services:
       DB_DSN: "${DB_DSN:-}"
       ENCRYPT_SERVICE_MASTER_KEY: "${ENCRYPT_SERVICE_MASTER_KEY}"
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+      UPDATES_ENABLED: "${UPDATES_ENABLED:-true}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
       ENABLE_VIRTUAL_MINERS: "${ENABLE_VIRTUAL_MINERS:-false}"
@@ -54,6 +59,8 @@ services:
         compress: "true"
 
   fleet-client:
+    image: proto-fleet-client:latest
+    pull_policy: never
     build:
       context: ./client
     depends_on:

@@ -76,6 +76,31 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, int64(8), store.createdInfrastructureDevices[31].SiteID)
 }
 
+func TestHandler_CreateCurtailmentResponseProfilePreservesSingularSiteScopeVersion(t *testing.T) {
+	t.Parallel()
+
+	store := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	resp, err := h.CreateCurtailmentResponseProfile(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
+		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
+			ProfileName:        "Versioned site shed",
+			Site:               &pb.ScopeSite{SiteId: 7},
+			ScopeSchemaVersion: domainCurtailment.ScopeSchemaVersionCurrent,
+			Mode:               pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
+				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
+			},
+		}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, domainCurtailment.ScopeSchemaVersionCurrent, resp.Msg.GetProfile().GetScopeSchemaVersion())
+	require.NotNil(t, store.created)
+	assert.JSONEq(t, `{"scope_schema_version":1,"site_id":7}`, string(store.created.ScopeJSON))
+}
+
 func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissions(t *testing.T) {
 	t.Parallel()
 
@@ -181,7 +206,7 @@ func TestHandler_CreateCurtailmentResponseProfilePreservesExplicitZeroRestoreInt
 	assert.Equal(t, int32(0), store.created.RestoreBatchSize)
 }
 
-func TestHandler_CreateCurtailmentResponseProfileWithoutSite(t *testing.T) {
+func TestHandler_CreateCurtailmentResponseProfileWithExplicitWholeOrg(t *testing.T) {
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
@@ -191,10 +216,13 @@ func TestHandler_CreateCurtailmentResponseProfileWithoutSite(t *testing.T) {
 		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
 		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
 			ProfileName: "Whole org shed",
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
-			Strategy:    pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
-			Level:       pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
-			Priority:    pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			}},
+			Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			Strategy: pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+			Level:    pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+			Priority: pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
 			ModeParams: &pb.CreateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 2500},
 			},
@@ -278,8 +306,7 @@ func TestHandler_CreateCurtailmentResponseProfileChecksExplicitDeviceSites(t *te
 	t.Parallel()
 
 	const (
-		allowedSite = int64(7)
-		deniedSite  = int64(8)
+		deniedSite = int64(8)
 	)
 	store := newHandlerResponseProfileStore()
 	store.deviceSites = map[string]*int64{"hidden-miner": ptrHandlerInt64(deniedSite)}
@@ -293,13 +320,11 @@ func TestHandler_CreateCurtailmentResponseProfileChecksExplicitDeviceSites(t *te
 			SessionID:      "sess-response-profile-create-device-scope",
 		},
 			testOrgAssignment(authz.PermCurtailmentManage),
-			testSiteAssignment(allowedSite, authz.PermCurtailmentManage),
 			testSiteAssignment(deniedSite),
 		),
 		connect.NewRequest(&pb.CreateCurtailmentResponseProfileRequest{
-			ProfileName: "Composite shed",
+			ProfileName: "Device shed",
 			Scopes: []*pb.CurtailmentScope{
-				{Scope: &pb.CurtailmentScope_Site{Site: &pb.ScopeSite{SiteId: allowedSite}}},
 				{Scope: &pb.CurtailmentScope_DeviceIdentifiers{
 					DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"hidden-miner"}},
 				}},
@@ -662,7 +687,7 @@ func TestHandler_UpdateCurtailmentResponseProfileGuardsStoredCompositeScope(t *t
 	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.updateExpectedScopeJSON))
 }
 
-func TestHandler_UpdateCurtailmentResponseProfilePreservesOmittedScope(t *testing.T) {
+func TestHandler_UpdateCurtailmentResponseProfileRejectsOmittedScope(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -696,15 +721,12 @@ func TestHandler_UpdateCurtailmentResponseProfilePreservesOmittedScope(t *testin
 		}),
 	)
 
-	require.NoError(t, err)
-	require.NotNil(t, store.updated)
-	assert.Nil(t, store.updated.SiteID)
-	assert.JSONEq(t, `{"site_ids":[7,8],"device_identifiers":null}`, string(store.updated.ScopeJSON))
-	assert.Nil(t, store.updateExpectedSiteID)
-	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.updateExpectedScopeJSON))
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Nil(t, store.updated)
 }
 
-func TestHandler_UpdateCurtailmentResponseProfileAllowsLegacySiteClear(t *testing.T) {
+func TestHandler_UpdateCurtailmentResponseProfileAllowsExplicitSiteClear(t *testing.T) {
 	t.Parallel()
 
 	siteID := int64(7)
@@ -719,7 +741,10 @@ func TestHandler_UpdateCurtailmentResponseProfileAllowsLegacySiteClear(t *testin
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
 			ProfileId:   201,
 			ProfileName: "Updated whole org",
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			}},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
 			},
@@ -729,7 +754,7 @@ func TestHandler_UpdateCurtailmentResponseProfileAllowsLegacySiteClear(t *testin
 	require.NoError(t, err)
 	require.NotNil(t, store.updated)
 	assert.Nil(t, store.updated.SiteID)
-	assert.JSONEq(t, `{}`, string(store.updated.ScopeJSON))
+	assert.JSONEq(t, `{"whole_org":true}`, string(store.updated.ScopeJSON))
 	require.NotNil(t, store.updateExpectedSiteID)
 	assert.Equal(t, siteID, *store.updateExpectedSiteID)
 	assert.JSONEq(t, `{"site_id":7}`, string(store.updateExpectedScopeJSON))
@@ -759,7 +784,10 @@ func TestHandler_UpdateCurtailmentResponseProfileRequiresOrgWideToClearSite(t *t
 		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
 			ProfileId:   201,
 			ProfileName: "Updated whole org",
-			Mode:        pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			}},
+			Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 			ModeParams: &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{
 				FixedKw: &pb.FixedKwParams{TargetKw: 3000},
 			},
@@ -942,6 +970,9 @@ func TestHandler_ResponseProfileAdminCanCreateAllPairedPolicy(t *testing.T) {
 			ProfileName:                 "All paired shed",
 			Mode:                        pb.CurtailmentMode_CURTAILMENT_MODE_FULL_FLEET,
 			ForceIncludeAllPairedMiners: true,
+			Scopes: []*pb.CurtailmentScope{{
+				Scope: &pb.CurtailmentScope_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
+			}},
 		}),
 	)
 

@@ -65,6 +65,11 @@ func TestConfigValidate(t *testing.T) {
 			mutate:  func(c *Config) { c.DownloadBaseURL = "https://example.com/releases/download" },
 			wantErr: "DownloadBaseURL",
 		},
+		{
+			name:    "relative updater socket rejected",
+			mutate:  func(c *Config) { c.UpdaterSocketPath = "run/updater.sock" },
+			wantErr: "UpdaterSocketPath",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

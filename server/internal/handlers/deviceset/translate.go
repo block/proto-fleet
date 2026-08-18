@@ -27,12 +27,16 @@ func toAssignDevicesToRackParams(req *dspb.AssignDevicesToRackRequest, orgID int
 	if err != nil {
 		return collection.AssignDevicesToRackParams{}, err
 	}
-	return collection.AssignDevicesToRackParams{
+	params := collection.AssignDevicesToRackParams{
 		OrgID:                     orgID,
 		TargetRackID:              targetRackID,
 		DeviceIdentifiers:         identifiers,
 		ForceClearConflictingSite: req.GetForceClearConflictingSite(),
-	}, nil
+	}
+	for _, sa := range req.GetSlotAssignments() {
+		params.SlotAssignments = append(params.SlotAssignments, toCollectionRackSlot(sa))
+	}
+	return params, nil
 }
 
 func toAssignDevicesToChannelParams(

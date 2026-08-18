@@ -577,6 +577,17 @@ describe("CurtailmentManagementPanel", () => {
             includeMaintenance: true,
           },
         },
+        {
+          id: "profile-2",
+          name: "Building shed",
+          targetSummary: "100% reduction",
+          scope: "2 buildings",
+          selectionStrategy: "Least efficient first",
+          restoreBehavior: "Restore in batches",
+          deadlineSummary: "Within 15 min",
+          formValues: undefined,
+          isReadOnly: true,
+        },
       ],
       isLoading: false,
       isCreating: false,
@@ -594,6 +605,7 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Standard shed");
+    expect(screen.getByTestId("modal-response-profiles")).not.toHaveTextContent("Building shed");
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"explicitMiners"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeId":"Austin, TX"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteSelection":"site"');

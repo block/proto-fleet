@@ -2,8 +2,10 @@ package buildings
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"go.uber.org/mock/gomock"
 
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
@@ -1492,5 +1494,291 @@ func TestAssignDevicesToBuilding_rejectsEmptyIdentifiers(t *testing.T) {
 	})
 	if !fleeterror.IsInvalidArgumentError(err) {
 		t.Fatalf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestCreateBuildings_insertsEveryRowInOneTx(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// Lock, read the site's existing names, then one insert per row — all
+	// inside the single transaction.
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return([]string{}, nil)
+	store.EXPECT().CreateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.CreateParams{})).
+		DoAndReturn(func(_ context.Context, p models.CreateParams) (*models.Building, error) {
+			if p.SiteID == nil || *p.SiteID != 42 {
+				t.Fatalf("expected every row to carry site 42, got %+v", p.SiteID)
+			}
+			// The bulk form applies one layout across the batch, so every
+			// insert must carry the dimensions it was given.
+			if p.Aisles != 4 || p.RacksPerAisle != 10 {
+				t.Fatalf("expected layout 4x10 on every row, got %dx%d", p.Aisles, p.RacksPerAisle)
+			}
+			return &models.Building{ID: 1, Name: p.Name, SiteID: ptrInt64(42)}, nil
+		}).Times(3)
+
+	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001", Aisles: 4, RacksPerAisle: 10},
+			{Name: "B-002", Aisles: 4, RacksPerAisle: 10},
+			{Name: "B-003", Aisles: 4, RacksPerAisle: 10},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rejected) != 0 {
+		t.Fatalf("expected no rejections, got %+v", rejected)
+	}
+	if len(created) != 3 {
+		t.Fatalf("expected 3 buildings, got %d", len(created))
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected one tx run, got %d", tx.calls)
+	}
+}
+
+func TestCreateBuildings_rejectsDuplicateNameWithinBatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// A batch duplicate no longer short-circuits: the site is still checked
+	// so one response can carry every offending row. Nothing is live here,
+	// so the in-batch collision is the only rejection.
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return(nil, nil)
+
+	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001"}, {Name: "B-002"}, {Name: "B-001"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected per-row rejection, not an error: %v", err)
+	}
+	if created != nil {
+		t.Fatalf("expected nothing created, got %+v", created)
+	}
+	if len(rejected) != 1 {
+		t.Fatalf("expected 1 rejection, got %+v", rejected)
+	}
+	// The LATER occurrence is flagged; the first stands.
+	if rejected[0].Index != 2 || rejected[0].Name != "B-001" {
+		t.Fatalf("expected index 2 / B-001, got %+v", rejected[0])
+	}
+	if rejected[0].Reason != models.ReasonBuildingCreateDuplicateNameInBatch {
+		t.Fatalf("unexpected reason: %v", rejected[0].Reason)
+	}
+}
+
+func TestCreateBuildings_rejectsNameAlreadyAtSiteAndCreatesNothing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// "B-002" is already live at the site. The batch must reject that row and
+	// insert NOTHING — not even the two rows that would have been fine.
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return([]string{"B-002"}, nil)
+
+	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001"}, {Name: "B-002"}, {Name: "B-003"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected per-row rejection, not an error: %v", err)
+	}
+	if created != nil {
+		t.Fatalf("expected nothing created, got %+v", created)
+	}
+	if len(rejected) != 1 {
+		t.Fatalf("expected 1 rejection, got %+v", rejected)
+	}
+	if rejected[0].Index != 1 || rejected[0].Reason != models.ReasonBuildingCreateDuplicateNameAtSite {
+		t.Fatalf("unexpected rejection: %+v", rejected[0])
+	}
+}
+
+func TestCreateBuildings_trimsNamesSoWhitespaceVariantsCollide(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// " B-001" and "B-001 " would both store as "B-001", so they must collide
+	// rather than sneak two identically-named buildings into the site.
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return(nil, nil)
+
+	_, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: " B-001"}, {Name: "B-001 "},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected per-row rejection, not an error: %v", err)
+	}
+	if len(rejected) != 1 || rejected[0].Index != 1 {
+		t.Fatalf("expected the second row flagged, got %+v", rejected)
+	}
+}
+
+func TestCreateBuildings_rejectsMissingSiteAndEmptyBatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(store, siteStore, nil, nil, nil, &fakeTransactor{}, nil)
+
+	rows := []models.NewBuildingParam{{Name: "B-001"}}
+	if _, _, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID: testOrgID, SiteID: 0, Buildings: rows,
+	}); err == nil {
+		t.Fatal("expected InvalidArgument for a missing site")
+	}
+	if _, _, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID: testOrgID, SiteID: 42,
+	}); err == nil {
+		t.Fatal("expected InvalidArgument for an empty batch")
+	}
+	if _, _, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID: testOrgID, SiteID: 42, Buildings: []models.NewBuildingParam{{Name: "  "}},
+	}); err == nil {
+		t.Fatal("expected InvalidArgument for a blank name")
+	}
+}
+
+// TestCreateBuildings_reportsBothUniquenessSourcesInOneResponse is why a
+// batch duplicate no longer short-circuits. The operator sees every bad row
+// on the first submit instead of discovering the site collision only after
+// fixing the in-batch one.
+func TestCreateBuildings_reportsBothUniquenessSourcesInOneResponse(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(store, siteStore, nil, nil, nil, &fakeTransactor{}, nil)
+
+	// "B-009" is live at the site; "B-001" is repeated inside the batch.
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return([]string{"B-009"}, nil)
+
+	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001"}, {Name: "B-009"}, {Name: "B-001"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected per-row rejections, not an error: %v", err)
+	}
+	if created != nil {
+		t.Fatalf("expected nothing created, got %+v", created)
+	}
+	if len(rejected) != 2 {
+		t.Fatalf("expected 2 rejections, got %+v", rejected)
+	}
+	// Ordered by index so the response lines up with the request.
+	if rejected[0].Index != 1 || rejected[0].Reason != models.ReasonBuildingCreateDuplicateNameAtSite {
+		t.Fatalf("expected index 1 AT_SITE, got %+v", rejected[0])
+	}
+	if rejected[1].Index != 2 || rejected[1].Reason != models.ReasonBuildingCreateDuplicateNameInBatch {
+		t.Fatalf("expected index 2 IN_BATCH, got %+v", rejected[1])
+	}
+}
+
+// TestCreateBuildings_insertRaceBecomesPerRowRejection covers the window the
+// site lock does not close: at READ COMMITTED a concurrent UpdateBuilding
+// locks the building row, not the site, so it can rename into one of our
+// names after the existing-name read. The store's AlreadyExists must land as
+// this row's rejection, not as an opaque transport error.
+func TestCreateBuildings_insertRaceBecomesPerRowRejection(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(store, siteStore, nil, nil, nil, &fakeTransactor{}, nil)
+
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
+	// The read sees a clean site, so both rows pass the pre-check.
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return(nil, nil)
+	store.EXPECT().CreateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.CreateParams{})).
+		Return(&models.Building{ID: 1, Name: "B-001"}, nil)
+	// The second insert loses the race against the concurrent rename.
+	store.EXPECT().CreateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.CreateParams{})).
+		Return(nil, fleeterror.NewPlainError("a building with this name already exists in the site", connect.CodeAlreadyExists))
+
+	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001"}, {Name: "B-002"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected a per-row rejection, not a transport error: %v", err)
+	}
+	if created != nil {
+		t.Fatalf("expected the batch rolled back, got %+v", created)
+	}
+	if len(rejected) != 1 {
+		t.Fatalf("expected 1 rejection, got %+v", rejected)
+	}
+	if rejected[0].Index != 1 || rejected[0].Name != "B-002" ||
+		rejected[0].Reason != models.ReasonBuildingCreateDuplicateNameAtSite {
+		t.Fatalf("unexpected rejection: %+v", rejected[0])
+	}
+}
+
+// TestCreateBuildings_rejectsOutOfBoundsLayout keeps bulk create's layout
+// bounds in step with single create's. buf.validate caps these for RPC
+// callers; this is the guard for a direct service caller.
+func TestCreateBuildings_rejectsOutOfBoundsLayout(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// No store or site expectations: this rejects before the tx opens.
+	_, _, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001"},
+			{Name: "B-002", Aisles: layoutDimensionMax + 1, RacksPerAisle: 4},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected an out-of-bounds layout to be rejected")
+	}
+	if !strings.Contains(err.Error(), "buildings[1]") {
+		t.Fatalf("expected the offending row named, got %v", err)
+	}
+	if tx.calls != 0 {
+		t.Fatalf("expected no tx to open, got %d", tx.calls)
 	}
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,6 +120,37 @@ encrypt:
 	_, err = parser.Parse(nil)
 	require.NoError(t, err)
 	require.Equal(t, explicitDSN, config.DB.ExplicitDSN)
+}
+
+func TestFleetdParsesHAEnabledFromEnv(t *testing.T) {
+	t.Setenv("FLEET_HA_ENABLED", "true")
+	t.Setenv("FLEET_HA_ETCD_ENDPOINTS", "https://10.0.0.1:2379,https://10.0.0.2:2379")
+	t.Setenv("FLEET_HA_ENDPOINT_IP", "10.0.0.100")
+	t.Setenv("FLEET_HA_ENDPOINT_INTERFACE", "eth0")
+
+	configPath := writeFleetdConfigFile(t, `
+auth:
+  client:
+    expiration-period: "1h"
+    secret-key: "test-client-secret"
+  miner-token-expiration-period: "30m"
+encrypt:
+  service-master-key: "test-master-key"
+`)
+	config := &Config{}
+	parser, err := kong.New(
+		config,
+		kong.Name("fleetd"),
+		kong.Configuration(kongyaml.Loader, configPath),
+	)
+	require.NoError(t, err)
+	_, err = parser.Parse(nil)
+	require.NoError(t, err)
+	require.True(t, config.HA.Enabled)
+	require.Equal(t, []string{"https://10.0.0.1:2379", "https://10.0.0.2:2379"}, config.HA.EtcdEndpoints)
+	require.Equal(t, "10.0.0.100", config.HA.EndpointIP)
+	require.Equal(t, "eth0", config.HA.EndpointInterface)
+	require.NoError(t, config.HA.Validate())
 }
 
 func TestFleetdInfrastructureOTControlSubnetsFlag(t *testing.T) {
@@ -247,6 +279,33 @@ encrypt:
 	require.False(t, config.SystemMonitoring.Enabled)
 	require.Equal(t, 30*time.Second, config.SystemMonitoring.Interval)
 	require.Equal(t, "/", config.SystemMonitoring.DiskPath)
+}
+
+func TestValidateHAHTTPAddressRequiresLocalStatusAddress(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		address string
+		wantErr bool
+	}{
+		{name: "loopback", address: "127.0.0.1:4000"},
+		{name: "other loopback port", address: "127.0.0.1:8080", wantErr: true},
+		{name: "network interface", address: "0.0.0.0:4000", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			config := Config{HTTP: HTTPConfig{Address: test.address}, HA: ha.Config{Enabled: true}}
+
+			// Act
+			err := validateHAHTTPAddress(config)
+
+			// Assert
+			if test.wantErr {
+				require.ErrorContains(t, err, "HTTP listen address")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestHTTP2WriteByteTimeoutStopsNonReadingClient(t *testing.T) {

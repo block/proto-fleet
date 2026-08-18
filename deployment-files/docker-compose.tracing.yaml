@@ -1,6 +1,6 @@
 # Tracing overlay (run-fleet.sh --enable-tracing): fleet-api request spans →
-# OTel collector → Datadog APM. Requires DD_API_KEY in the operator .env;
-# run-fleet.sh enforces that before layering this file.
+# OTel collector → Datadog APM. Requires DD_API_KEY and DD_HOSTNAME; run-fleet.sh
+# enforces the key and defaults the hostname into .env before layering this file.
 services:
   fleet-api:
     environment:
@@ -27,6 +27,8 @@ services:
       DD_API_KEY: "${DD_API_KEY:?DD_API_KEY is required for the tracing overlay (set it in .env)}"
       DD_SITE: "${DD_SITE:-datadoghq.com}"
       DD_ENV: "${DD_ENV:-production}"
+      # Stamped onto spans as host.name so APM traces join the Datadog Agent's host metrics.
+      DD_HOSTNAME: "${DD_HOSTNAME:?DD_HOSTNAME is required for the tracing overlay (run-fleet.sh defaults it to the host hostname)}"
     volumes:
       - ./server/otel-collector-config.datadog.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:

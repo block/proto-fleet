@@ -22,21 +22,6 @@ func TestNewCoordinatorUsesRandomProcessIncarnation(t *testing.T) {
 	require.NotEqual(t, first.HolderID(), second.HolderID())
 }
 
-func TestTokenCompareOrdersWriterGenerationBeforeLeaseEpoch(t *testing.T) {
-	require.Equal(t, -1, (Token{WriterGeneration: 41, LeaseEpoch: 99}).Compare(
-		Token{WriterGeneration: 42, LeaseEpoch: 1},
-	))
-	require.Equal(t, -1, (Token{WriterGeneration: 42, LeaseEpoch: 1}).Compare(
-		Token{WriterGeneration: 42, LeaseEpoch: 2},
-	))
-	require.Equal(t, 0, (Token{WriterGeneration: 42, LeaseEpoch: 2}).Compare(
-		Token{WriterGeneration: 42, LeaseEpoch: 2},
-	))
-	require.Equal(t, 1, (Token{WriterGeneration: 43, LeaseEpoch: 1}).Compare(
-		Token{WriterGeneration: 42, LeaseEpoch: 100},
-	))
-}
-
 func TestCoordinatorActivatesAndExposesLifetime(t *testing.T) {
 	holder := uuid.New()
 	store := &fakeLeaseStore{}
@@ -55,7 +40,60 @@ func TestCoordinatorActivatesAndExposesLifetime(t *testing.T) {
 	require.Equal(t, StateActive, coordinator.Snapshot().State)
 }
 
-func TestCoordinatorWaitForActiveUnblocksOnActivationAndRequestedDemotion(t *testing.T) {
+func TestCoordinatorRenewsAfterClosingDCSProof(t *testing.T) {
+	// Arrange
+	closingProofDone := false
+	store := &fakeLeaseStore{}
+	coordinator := newCoordinatorWithHolder(
+		&closingProofObserver{
+			observation: coordinatorObservation("cluster-a", 41, time.Second),
+			completed:   &closingProofDone,
+		},
+		store,
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+
+	// Act
+	err := coordinator.step(t.Context())
+
+	// Assert
+	require.NoError(t, err)
+	require.True(t, closingProofDone)
+	require.Equal(
+		t,
+		[]string{"acquire", "renew"},
+		store.callSequence(),
+	)
+	require.Equal(t, StateActive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorMarksPassiveCurrentOnlyAfterClosingDCSProof(t *testing.T) {
+	// Arrange
+	closingProofDone := false
+	observed := coordinatorObservation("cluster-a", 41, 40*time.Millisecond)
+	coordinator := newCoordinatorWithHolder(
+		&closingProofObserver{
+			observation: observed,
+			completed:   &closingProofDone,
+		},
+		&fakeLeaseStore{acquireErr: ErrLeaseUnavailable},
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+
+	// Act
+	err := coordinator.step(t.Context())
+
+	// Assert
+	require.ErrorIs(t, err, ErrLeaseUnavailable)
+	require.True(t, closingProofDone)
+	snapshot := coordinator.Snapshot()
+	require.True(t, snapshot.ObservationAvailable)
+	require.Equal(t, observed.DCSProofDeadline, snapshot.FreshUntil)
+}
+
+func TestCoordinatorWaitForActiveUnblocksOnActivationAndOwnershipLoss(t *testing.T) {
 	coordinator := newCoordinatorWithHolder(
 		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
 		&fakeLeaseStore{},
@@ -75,32 +113,10 @@ func TestCoordinatorWaitForActiveUnblocksOnActivationAndRequestedDemotion(t *tes
 	require.NoError(t, coordinator.step(t.Context()))
 	result := <-waitResult
 	require.NoError(t, result.err)
-	coordinator.RequestDemotion(errors.New("runtime unhealthy"))
+	coordinator.deactivate(ErrOwnershipLost)
 
 	require.Eventually(t, func() bool { return result.ctx.Err() != nil }, time.Second, time.Millisecond)
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
-}
-
-func TestCoordinatorWaitsForRuntimeCleanupBeforeReacquiring(t *testing.T) {
-	store := &fakeLeaseStore{}
-	coordinator := newCoordinatorWithHolder(
-		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
-		store,
-		coordinatorTestConfig(),
-		uuid.New(),
-	)
-
-	require.NoError(t, coordinator.step(t.Context()))
-	require.Equal(t, 1, store.acquireCount())
-	coordinator.RequestDemotion(errors.New("runtime unhealthy"))
-
-	require.NoError(t, coordinator.step(t.Context()))
-	require.Equal(t, 1, store.acquireCount())
-
-	coordinator.ResumeAcquisition()
-	require.NoError(t, coordinator.step(t.Context()))
-	require.Equal(t, 2, store.acquireCount())
-	require.Equal(t, StateActive, coordinator.Snapshot().State)
 }
 
 func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
@@ -121,29 +137,73 @@ func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 	require.Error(t, coordinator.step(t.Context()))
 	require.Error(t, activeCtx.Err())
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
-	require.NotEqual(t, holder, coordinator.HolderID())
+	require.Equal(t, holder, coordinator.HolderID())
 }
 
-func TestCoordinatorKeepsHolderAfterPassiveAcquisitionProofFailure(t *testing.T) {
+func TestCoordinatorRejectsTimelineMismatchFromNewWriter(t *testing.T) {
+	store := &fakeLeaseStore{}
+	coordinator := newCoordinatorWithHolder(
+		&sequenceObserver{results: []observerResult{
+			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+			{
+				observation: coordinatorObservation("cluster-a", 42, time.Second),
+				err:         fmt.Errorf("promotion observation: %w", ErrTimelineMismatch),
+			},
+		}},
+		store,
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+	require.NoError(t, coordinator.step(t.Context()))
+	activeCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+
+	require.ErrorIs(t, coordinator.step(t.Context()), ErrWriterChanged)
+	require.ErrorIs(t, context.Cause(activeCtx), ErrWriterChanged)
+	_, _, active = coordinator.ActiveLifetime()
+	require.False(t, active)
+	require.Equal(t, []string{"acquire", "renew"}, store.callSequence())
+}
+
+func TestCoordinatorGivesPeersAnAcquisitionWindowAfterPassiveProofFailure(t *testing.T) {
+	// Arrange
 	holder := uuid.New()
 	proofErr := errors.New("closing DCS proof failed")
+	store := &fakeLeaseStore{}
+	config := coordinatorTestConfig()
 	coordinator := newCoordinatorWithHolder(
 		actionThenErrorObserver{
 			observation: coordinatorObservation("cluster-a", 41, time.Second),
 			err:         proofErr,
 		},
-		&fakeLeaseStore{},
-		coordinatorTestConfig(),
+		store,
+		config,
 		holder,
 	)
 
+	// Act
 	require.ErrorIs(t, coordinator.step(t.Context()), proofErr)
+	require.NoError(t, coordinator.step(t.Context()))
+
+	// Assert
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
-	require.Equal(t, holder, coordinator.HolderID())
+	require.NotEqual(t, holder, coordinator.HolderID())
+	require.Equal(t, 1, store.acquireCount())
+	coordinator.mu.RLock()
+	acquireAfter := coordinator.acquireAfter
+	coordinator.mu.RUnlock()
+	require.True(t, acquireAfter.After(time.Now().Add(config.RetryInterval)))
+
+	coordinator.mu.Lock()
+	coordinator.acquireAfter = time.Now().Add(-time.Millisecond)
+	coordinator.mu.Unlock()
+
+	require.ErrorIs(t, coordinator.step(t.Context()), proofErr)
+	require.Equal(t, 2, store.acquireCount())
 }
 
 func TestCoordinatorCancelsLifetimeOnRenewalLoss(t *testing.T) {
-	store := &fakeLeaseStore{renewErr: ErrOwnershipLost}
+	store := &fakeLeaseStore{}
 	coordinator := newCoordinatorWithHolder(
 		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
 		store,
@@ -153,10 +213,58 @@ func TestCoordinatorCancelsLifetimeOnRenewalLoss(t *testing.T) {
 	require.NoError(t, coordinator.step(t.Context()))
 	activeCtx, _, active := coordinator.ActiveLifetime()
 	require.True(t, active)
+	store.setRenewError(ErrOwnershipLost)
 
 	require.ErrorIs(t, coordinator.step(t.Context()), ErrOwnershipLost)
 	require.Error(t, activeCtx.Err())
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorRunStopsAfterActiveOwnershipLoss(t *testing.T) {
+	// Arrange
+	store := &fakeLeaseStore{}
+	config := coordinatorTestConfig()
+	config.RenewInterval = time.Millisecond
+	coordinator := newCoordinatorWithHolder(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		store,
+		config,
+		uuid.New(),
+	)
+	runResult := make(chan error, 1)
+	go func() { runResult <- coordinator.Run(t.Context()) }()
+	activeCtx, _, err := coordinator.WaitForActive(t.Context())
+	require.NoError(t, err)
+
+	// Act
+	store.setRenewError(ErrOwnershipLost)
+
+	// Assert
+	require.ErrorIs(t, <-runResult, ErrOwnershipLost)
+	require.ErrorIs(t, context.Cause(activeCtx), ErrOwnershipLost)
+	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorRenewalCannotReacquireAfterWatchdogDemotion(t *testing.T) {
+	// Arrange
+	store := &fakeLeaseStore{}
+	coordinator := newCoordinatorWithHolder(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		store,
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+	require.NoError(t, coordinator.step(t.Context()))
+	activeCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+	coordinator.deactivate(ErrOwnershipExpired)
+
+	// Act
+	err := coordinator.renewActive(t.Context(), activeCtx)
+
+	// Assert
+	require.ErrorIs(t, err, ErrOwnershipLost)
+	require.Equal(t, 1, store.acquireCount())
 }
 
 func TestCoordinatorCancelsLifetimeOnWriterGenerationChange(t *testing.T) {
@@ -244,7 +352,7 @@ func TestCoordinatorActiveRenewalStopsAtWatchdogDeadline(t *testing.T) {
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 
-func TestCoordinatorRejectsLeaseThatExpiredBeforeAcquireReturned(t *testing.T) {
+func TestCoordinatorCannotRenewLeaseThatExpiredBeforeAcquireReturned(t *testing.T) {
 	config := coordinatorTestConfig()
 	config.LeaseDuration = 10 * time.Millisecond
 	config.RenewInterval = 5 * time.Millisecond
@@ -256,7 +364,7 @@ func TestCoordinatorRejectsLeaseThatExpiredBeforeAcquireReturned(t *testing.T) {
 		uuid.New(),
 	)
 
-	require.ErrorIs(t, coordinator.step(t.Context()), ErrOwnershipExpired)
+	require.ErrorIs(t, coordinator.step(t.Context()), ErrOwnershipLost)
 	_, _, active := coordinator.ActiveLifetime()
 	require.False(t, active)
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
@@ -338,9 +446,34 @@ func coordinatorTestConfig() CoordinatorConfig {
 	}
 }
 
+func (c *Coordinator) step(ctx context.Context) error {
+	activeCtx, _, active := c.ActiveLifetime()
+	if active {
+		return c.renewActive(ctx, activeCtx)
+	}
+	_, err := c.tryAcquire(ctx)
+	return err
+}
+
 type staticObserver struct {
 	observation WriterObservation
 	err         error
+}
+
+type closingProofObserver struct {
+	observation WriterObservation
+	completed   *bool
+}
+
+func (o *closingProofObserver) ObserveAndRun(
+	ctx context.Context,
+	action func(context.Context, WriterObservation) error,
+) (WriterObservation, error) {
+	if err := action(ctx, o.observation); err != nil {
+		return WriterObservation{}, err
+	}
+	*o.completed = true
+	return o.observation, nil
 }
 
 func (s staticObserver) ObserveAndRun(
@@ -379,6 +512,7 @@ type observerResult struct {
 type sequenceObserver struct {
 	mu      sync.Mutex
 	results []observerResult
+	calls   chan struct{}
 }
 
 func (s *sequenceObserver) ObserveAndRun(
@@ -389,8 +523,11 @@ func (s *sequenceObserver) ObserveAndRun(
 	result := s.results[0]
 	s.results = s.results[1:]
 	s.mu.Unlock()
+	if s.calls != nil {
+		s.calls <- struct{}{}
+	}
 	if result.err != nil {
-		return WriterObservation{}, result.err
+		return result.observation, result.err
 	}
 	if err := action(ctx, result.observation); err != nil {
 		return WriterObservation{}, err
@@ -437,7 +574,7 @@ func (b *activateThenBlockObserver) ObserveAndRun(
 
 type fakeLeaseStore struct {
 	mu           sync.Mutex
-	ownership    Ownership
+	calls        []string
 	acquireErr   error
 	renewErr     error
 	acquireDelay time.Duration
@@ -453,6 +590,7 @@ func (f *fakeLeaseStore) Acquire(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.acquires++
+	f.calls = append(f.calls, "acquire")
 	if f.acquireErr != nil {
 		return Ownership{}, f.acquireErr
 	}
@@ -460,7 +598,7 @@ func (f *fakeLeaseStore) Acquire(
 	if f.acquireDelay > 0 {
 		time.Sleep(f.acquireDelay)
 	}
-	f.ownership = Ownership{
+	active := Ownership{
 		DCSClusterID: observed.DCSClusterID,
 		Token: Token{
 			WriterGeneration: observed.WriterGeneration,
@@ -470,7 +608,7 @@ func (f *fakeLeaseStore) Acquire(
 		DatabaseTime: now,
 		ExpiresAt:    now.Add(duration),
 	}
-	return f.ownership, nil
+	return active, nil
 }
 
 func (f *fakeLeaseStore) acquireCount() int {
@@ -482,17 +620,32 @@ func (f *fakeLeaseStore) acquireCount() int {
 func (f *fakeLeaseStore) Renew(
 	_ context.Context,
 	_ WriterObservation,
-	ownership Ownership,
+	active Ownership,
 	duration time.Duration,
 ) (Ownership, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.calls = append(f.calls, "renew")
 	if f.renewErr != nil {
 		return Ownership{}, f.renewErr
 	}
 	now := time.Now()
-	ownership.DatabaseTime = now
-	ownership.ExpiresAt = now.Add(duration)
-	f.ownership = ownership
-	return ownership, nil
+	if !active.ExpiresAt.After(now) {
+		return Ownership{}, ErrOwnershipLost
+	}
+	active.DatabaseTime = now
+	active.ExpiresAt = now.Add(duration)
+	return active, nil
+}
+
+func (f *fakeLeaseStore) setRenewError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.renewErr = err
+}
+
+func (f *fakeLeaseStore) callSequence() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
 }

@@ -90,7 +90,7 @@ test.describe("Firmware", () => {
     },
   );
 
-  test("Upload firmware and update a rig miner", async ({ minersPage, settingsFirmwarePage }) => {
+  test("Upload firmware and update a rig miner", { tag: "@smoke" }, async ({ minersPage, settingsFirmwarePage }) => {
     test.setTimeout(testConfig.testTimeout * 4);
 
     const firmwareVersion = "2.4.6";
@@ -141,7 +141,7 @@ test.describe("Firmware", () => {
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Updating firmware", firmwareStatusTimeout);
       await waitForFirmwareActivation(minersPage, rigMinerIp, firmwareStatusTimeout);
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Hashing", firmwareStatusTimeout);
-      await minersPage.validateMinerValue(rigMinerIp, "firmware", firmwareVersion);
+      await minersPage.waitForMinerValue(rigMinerIp, "firmware", firmwareVersion, firmwareStatusTimeout * 2);
     });
   });
 });

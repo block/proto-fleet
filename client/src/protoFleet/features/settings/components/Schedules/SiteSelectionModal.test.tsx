@@ -69,7 +69,7 @@ describe("SiteSelectionModal", () => {
     expect(screen.getByText("Site Nine")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Done" }));
-    expect(onSave).toHaveBeenCalledWith(["7"]);
+    expect(onSave).toHaveBeenCalledWith({ siteIds: ["7"], allSelected: false });
   });
 
   it("prunes selected ids that are no longer present", async () => {
@@ -84,7 +84,73 @@ describe("SiteSelectionModal", () => {
 
     await waitFor(() => expect(screen.getByText("Site Seven")).toBeVisible());
     await user.click(screen.getByRole("button", { name: "Done" }));
-    expect(onSave).toHaveBeenCalledWith(["7"]);
+    // Coverage alone is not intent: the pruned fixed list stays fixed even
+    // though it happens to span every remaining site.
+    expect(onSave).toHaveBeenCalledWith({ siteIds: ["7"], allSelected: false });
+  });
+
+  it("keeps a fixed list fixed even when it covers every site", async () => {
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([createSite(7n, "Site Seven"), createSite(9n, "Site Nine")]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SiteSelectionModal open selectedSiteIds={["7", "9"]} onDismiss={vi.fn()} onSave={onSave} />);
+
+    await waitFor(() => expect(screen.getByText("Site Seven")).toBeVisible());
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    // An untouched open-and-Done must not widen an explicit list into a live
+    // all-sites scope that would absorb future sites.
+    expect(onSave).toHaveBeenCalledWith({ siteIds: ["7", "9"], allSelected: false });
+  });
+
+  it("saves a live all-sites selection only after an explicit All sites gesture", async () => {
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([createSite(7n, "Site Seven"), createSite(9n, "Site Nine")]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SiteSelectionModal open selectedSiteIds={[]} onDismiss={vi.fn()} onSave={onSave} />);
+
+    await waitFor(() => expect(screen.getByText("Site Seven")).toBeVisible());
+    await user.click(screen.getByText("All sites"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(onSave).toHaveBeenCalledWith({ siteIds: ["7", "9"], allSelected: true });
+  });
+
+  it("preserves an all-sites seed across an untouched open-and-Done", async () => {
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([createSite(7n, "Site Seven"), createSite(9n, "Site Nine")]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SiteSelectionModal open selectedSiteIds={[]} allSitesSelected onDismiss={vi.fn()} onSave={onSave} />);
+
+    await waitFor(() => expect(screen.getByText("Site Seven")).toBeVisible());
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(onSave).toHaveBeenCalledWith({ siteIds: ["7", "9"], allSelected: true });
+  });
+
+  it("demotes an all-sites seed to a fixed list when a site is unchecked", async () => {
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([createSite(7n, "Site Seven"), createSite(9n, "Site Nine")]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SiteSelectionModal open selectedSiteIds={[]} allSitesSelected onDismiss={vi.fn()} onSave={onSave} />);
+
+    await waitFor(() => expect(screen.getByText("Site Seven")).toBeVisible());
+    await user.click(screen.getByText("Site Nine"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(onSave).toHaveBeenCalledWith({ siteIds: ["7"], allSelected: false });
   });
 
   it("narrows the list to the active site and preserves off-site selections", async () => {
@@ -112,7 +178,8 @@ describe("SiteSelectionModal", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     // Site 9 is out of scope (not offered) but was already selected, so it's
     // preserved rather than silently dropped on save.
-    expect(onSave).toHaveBeenCalledWith(["7", "9"]);
+    // Scope-narrowed lists never report allSelected: "all visible" is not all org sites.
+    expect(onSave).toHaveBeenCalledWith({ siteIds: ["7", "9"], allSelected: false });
   });
 
   it("offers no sites under the Unassigned scope and preserves preselected ids", async () => {
@@ -140,6 +207,23 @@ describe("SiteSelectionModal", () => {
 
     await user.click(screen.getByRole("button", { name: "Done" }));
     // The preselected site target survives (not silently dropped).
-    expect(onSave).toHaveBeenCalledWith(["7"]);
+    expect(onSave).toHaveBeenCalledWith({ siteIds: ["7"], allSelected: false });
+  });
+
+  it("preserves an all-sites seed when no sites currently exist", async () => {
+    listSitesMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SiteSelectionModal open selectedSiteIds={[]} allSitesSelected onDismiss={vi.fn()} onSave={onSave} />);
+
+    await waitFor(() => expect(screen.getByText("No sites configured")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    // Nothing was actionable, so the live "all sites" selection must survive
+    // instead of silently widening the caller's scope to "everything".
+    expect(onSave).toHaveBeenCalledWith({ siteIds: [], allSelected: true });
   });
 });

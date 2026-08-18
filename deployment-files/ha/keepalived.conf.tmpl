@@ -1,0 +1,37 @@
+global_defs {
+    enable_script_security
+    script_user root
+}
+
+vrrp_script fleet_active {
+    script "/usr/local/libexec/proto-fleet/check-fleet-active ${HA_ENDPOINT_HEARTBEAT_FILE} ${HA_VIRTUAL_IP} ${HA_SECRETS_DIR}/service-ca.crt"
+    interval 1
+    timeout 1
+    rise 1
+    fall 2
+    # Never advertise the VIP until the full local proxy path has passed.
+    init_fail
+}
+
+vrrp_instance FLEET {
+    # Both hosts start passive; lease-backed active health controls eligibility.
+    state BACKUP
+    interface ${HA_NETWORK_INTERFACE}
+    virtual_router_id 51
+    priority 100
+    advert_int 1
+
+    # Unicast does not depend on multicast support in the deployment network.
+    unicast_src_ip ${HA_NODE_IP}
+    unicast_peer {
+        ${HA_PEER_IP}
+    }
+
+    virtual_ipaddress {
+        ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}
+    }
+
+    track_script {
+        fleet_active
+    }
+}

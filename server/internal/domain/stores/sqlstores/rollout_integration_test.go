@@ -116,7 +116,7 @@ func TestRolloutStoreListHydratesRolloutDetails(t *testing.T) {
 	require.Len(t, listed[0].Members[0].Evidence, 1)
 	require.Len(t, listed[0].Causes, 1)
 	assert.Equal(t, deviceIdentifiers[0], listed[0].Members[0].DeviceIdentifier)
-	assert.Equal(t, rolloutDomain.ControlOperationCreate, listed[0].Causes[0].Operation)
+	assert.Equal(t, "create", string(listed[0].Causes[0].Operation))
 }
 
 func TestRolloutStorePersistsAPIKeyControlAndCauseIdentity(t *testing.T) {

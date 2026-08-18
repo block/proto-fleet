@@ -649,12 +649,9 @@ describe("useCurtailmentApi", () => {
     );
   });
 
-  it("uses combined scope labels for mixed site and miner active and history events", async () => {
-    const mixedScopedEvent = curtailmentEvent({
+  it("maps explicit-miner terminal scopes for active and history events", async () => {
+    const minerScopedEvent = curtailmentEvent({
       scopes: [
-        create(CurtailmentScopeSchema, {
-          scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 101n }) },
-        }),
         create(CurtailmentScopeSchema, {
           scope: {
             case: "deviceIdentifiers",
@@ -663,11 +660,10 @@ describe("useCurtailmentApi", () => {
         }),
       ],
     });
-    mockListActiveCurtailments.mockResolvedValueOnce({ event: mixedScopedEvent });
-    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [mixedScopedEvent], nextPageToken: "" });
-    const siteNameById = new Map([["101", "Calgary"]]);
+    mockListActiveCurtailments.mockResolvedValueOnce({ event: minerScopedEvent });
+    mockListCurtailmentEvents.mockResolvedValueOnce({ events: [minerScopedEvent], nextPageToken: "" });
 
-    const { result } = renderHook(() => useCurtailmentApi({ siteNameById }));
+    const { result } = renderHook(() => useCurtailmentApi());
 
     await act(async () => {
       await result.current.refreshCurtailment();
@@ -675,21 +671,20 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEvent).toEqual(
       expect.objectContaining({
-        scopeLabel: "Calgary + 1 miner",
+        scopeLabel: "1 miner",
       }),
     );
     expect(result.current.activeEventFormValues).toEqual(
       expect.objectContaining({
         scopeType: "explicitMiners",
-        scopeId: "Calgary",
-        siteSelection: "site",
-        siteId: "101",
+        siteSelection: "none",
+        siteId: "",
         deviceIdentifiers: ["miner-1"],
       }),
     );
     expect(result.current.historyEvents[0]).toEqual(
       expect.objectContaining({
-        scopeLabel: "Calgary + 1 miner",
+        scopeLabel: "1 miner",
       }),
     );
   });

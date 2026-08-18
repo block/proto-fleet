@@ -6,6 +6,7 @@ import StatusDot from "./StatusDot";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import { isMaintenanceWindowActive } from "@/protoFleet/features/alerts/api/useAlerts";
+import { scopePartLabels } from "@/protoFleet/features/alerts/lib/scopeLabels";
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import type { Rule } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
@@ -16,16 +17,17 @@ import List from "@/shared/components/List";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-type RuleColumns = "name" | "condition" | "delivery" | "status";
+type RuleColumns = "name" | "condition" | "scope" | "delivery" | "status";
 
 const colTitles: ColTitles<RuleColumns> = {
   name: "Name",
   condition: "Condition",
+  scope: "Applies to",
   delivery: "Delivery",
   status: "Status",
 };
 
-const activeCols: RuleColumns[] = ["name", "condition", "delivery", "status"];
+const activeCols: RuleColumns[] = ["name", "condition", "scope", "delivery", "status"];
 
 // Borderless cells with a right-aligned action kebab, per the alerts design.
 const rulesTableClassName = "mb-6 [&_td]:!border-x-0 [&_th]:!border-x-0 [&_td[data-testid='action']>div]:!ml-auto";
@@ -34,6 +36,25 @@ const formatRuleCondition = (rule: Rule): string => {
   if (rule.summary) return rule.summary;
   if (rule.duration_seconds > 0) return `fires after ${rule.duration_seconds}s`;
   return "fires on first matching evaluation";
+};
+
+// Counts only (like MaintenanceWindowsSection's formatTarget); the edit modal's pickers show names.
+const formatRuleScope = (rule: Rule): string => {
+  const scope = rule.config?.scope;
+  const parts = scopePartLabels({
+    allSites: scope?.all_sites ?? false,
+    sites: scope?.site_ids?.length ?? 0,
+    buildings: scope?.building_ids?.length ?? 0,
+    racks: scope?.rack_ids?.length ?? 0,
+    groups: scope?.group_ids?.length ?? 0,
+    miners: scope?.device_ids?.length ?? 0,
+    minersRedacted: scope?.device_ids_redacted ?? false,
+  });
+  const label = parts.length === 0 ? "All miners" : parts.join(", ");
+  // An interrupted save left the rule evaluating different SQL than this config
+  // (an org-wide stored config is just as suspect); re-saving converges.
+  if (rule.config_out_of_sync) return `${label} (out of sync — re-save)`;
+  return label;
 };
 
 const formatRuleDelivery = (rule: Rule): string => {
@@ -219,6 +240,10 @@ const RulesSection = () => {
           </div>
         ),
         width: "w-96",
+      },
+      scope: {
+        component: (rule) => <span className="truncate text-text-primary">{formatRuleScope(rule)}</span>,
+        width: "w-40",
       },
       delivery: {
         component: (rule) => <span className="truncate text-text-primary">{formatRuleDelivery(rule)}</span>,

@@ -85,6 +85,9 @@ const (
 	// HistoryServiceListAlertsProcedure is the fully-qualified name of the HistoryService's ListAlerts
 	// RPC.
 	HistoryServiceListAlertsProcedure = "/alerts.v1.HistoryService/ListAlerts"
+	// HistoryServiceListActiveAlertGroupsProcedure is the fully-qualified name of the HistoryService's
+	// ListActiveAlertGroups RPC.
+	HistoryServiceListActiveAlertGroupsProcedure = "/alerts.v1.HistoryService/ListActiveAlertGroups"
 )
 
 // ChannelServiceClient is a client for the alerts.v1.ChannelService service.
@@ -603,6 +606,9 @@ func (UnimplementedMaintenanceWindowServiceHandler) DeleteMaintenanceWindow(cont
 // HistoryServiceClient is a client for the alerts.v1.HistoryService service.
 type HistoryServiceClient interface {
 	ListAlerts(context.Context, *connect.Request[v1.ListAlertsRequest]) (*connect.Response[v1.ListAlertsResponse], error)
+	// Currently-firing alerts rolled up per rule with affected-miner counts, so a fleet-wide outage reads as a
+	// handful of rows instead of thousands. Drill into one group with ListAlerts (active_only + alert_name).
+	ListActiveAlertGroups(context.Context, *connect.Request[v1.ListActiveAlertGroupsRequest]) (*connect.Response[v1.ListActiveAlertGroupsResponse], error)
 }
 
 // NewHistoryServiceClient constructs a client for the alerts.v1.HistoryService service. By default,
@@ -620,12 +626,18 @@ func NewHistoryServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+HistoryServiceListAlertsProcedure,
 			opts...,
 		),
+		listActiveAlertGroups: connect.NewClient[v1.ListActiveAlertGroupsRequest, v1.ListActiveAlertGroupsResponse](
+			httpClient,
+			baseURL+HistoryServiceListActiveAlertGroupsProcedure,
+			opts...,
+		),
 	}
 }
 
 // historyServiceClient implements HistoryServiceClient.
 type historyServiceClient struct {
-	listAlerts *connect.Client[v1.ListAlertsRequest, v1.ListAlertsResponse]
+	listAlerts            *connect.Client[v1.ListAlertsRequest, v1.ListAlertsResponse]
+	listActiveAlertGroups *connect.Client[v1.ListActiveAlertGroupsRequest, v1.ListActiveAlertGroupsResponse]
 }
 
 // ListAlerts calls alerts.v1.HistoryService.ListAlerts.
@@ -633,9 +645,17 @@ func (c *historyServiceClient) ListAlerts(ctx context.Context, req *connect.Requ
 	return c.listAlerts.CallUnary(ctx, req)
 }
 
+// ListActiveAlertGroups calls alerts.v1.HistoryService.ListActiveAlertGroups.
+func (c *historyServiceClient) ListActiveAlertGroups(ctx context.Context, req *connect.Request[v1.ListActiveAlertGroupsRequest]) (*connect.Response[v1.ListActiveAlertGroupsResponse], error) {
+	return c.listActiveAlertGroups.CallUnary(ctx, req)
+}
+
 // HistoryServiceHandler is an implementation of the alerts.v1.HistoryService service.
 type HistoryServiceHandler interface {
 	ListAlerts(context.Context, *connect.Request[v1.ListAlertsRequest]) (*connect.Response[v1.ListAlertsResponse], error)
+	// Currently-firing alerts rolled up per rule with affected-miner counts, so a fleet-wide outage reads as a
+	// handful of rows instead of thousands. Drill into one group with ListAlerts (active_only + alert_name).
+	ListActiveAlertGroups(context.Context, *connect.Request[v1.ListActiveAlertGroupsRequest]) (*connect.Response[v1.ListActiveAlertGroupsResponse], error)
 }
 
 // NewHistoryServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -649,10 +669,17 @@ func NewHistoryServiceHandler(svc HistoryServiceHandler, opts ...connect.Handler
 		svc.ListAlerts,
 		opts...,
 	)
+	historyServiceListActiveAlertGroupsHandler := connect.NewUnaryHandler(
+		HistoryServiceListActiveAlertGroupsProcedure,
+		svc.ListActiveAlertGroups,
+		opts...,
+	)
 	return "/alerts.v1.HistoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HistoryServiceListAlertsProcedure:
 			historyServiceListAlertsHandler.ServeHTTP(w, r)
+		case HistoryServiceListActiveAlertGroupsProcedure:
+			historyServiceListActiveAlertGroupsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -664,4 +691,8 @@ type UnimplementedHistoryServiceHandler struct{}
 
 func (UnimplementedHistoryServiceHandler) ListAlerts(context.Context, *connect.Request[v1.ListAlertsRequest]) (*connect.Response[v1.ListAlertsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.HistoryService.ListAlerts is not implemented"))
+}
+
+func (UnimplementedHistoryServiceHandler) ListActiveAlertGroups(context.Context, *connect.Request[v1.ListActiveAlertGroupsRequest]) (*connect.Response[v1.ListActiveAlertGroupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.HistoryService.ListActiveAlertGroups is not implemented"))
 }

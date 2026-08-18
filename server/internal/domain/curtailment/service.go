@@ -23,14 +23,24 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// Scope identifies the target set. SiteIDs and DeviceIdentifiers are unioned
-// for mixed scopes; the store resolves site membership without expanding it in
-// callers.
+const (
+	ScopeSchemaVersionCurrent  uint32 = 1
+	ScopeTopologyIDsPerTypeMax        = 256
+	ScopeDeviceIdentifiersMax         = 10000
+)
+
+// Scope identifies one terminal target type. A terminal type may contain
+// multiple IDs; the store resolves topology membership without expanding it in
+// callers. ScopeTypeMixed is the existing storage representation for terminal
+// types that do not have a dedicated ScopeType or for multiple site IDs.
 type Scope struct {
+	SchemaVersion     uint32
 	Type              models.ScopeType
 	SiteID            int64
 	SiteIDs           []int64
-	DeviceSetIDs      []string
+	BuildingIDs       []int64
+	RackIDs           []int64
+	GroupIDs          []int64
 	DeviceIdentifiers []string
 }
 
@@ -1618,14 +1628,12 @@ func effectivePostEventCooldownSec(req PreviewRequest) int32 {
 }
 
 func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
-	if s.SiteID < 0 || hasNonPositiveInt64(s.SiteIDs) {
-		return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("site_ids must be positive")
+	if err := validateScopeContract(s); err != nil {
+		return interfaces.ListCandidatesParams{}, err
 	}
 	s = normalizeScope(s)
 	switch s.Type {
-	case models.ScopeTypeWholeOrg, "":
-		// Whole-org dominates any narrower selectors supplied by composable
-		// clients, matching "all sites" behavior without expanding sites.
+	case models.ScopeTypeWholeOrg:
 		return interfaces.ListCandidatesParams{}, nil
 	case models.ScopeTypeSite:
 		if len(s.SiteIDs) != 1 {
@@ -1638,22 +1646,18 @@ func resolveScope(s Scope) (interfaces.ListCandidatesParams, error) {
 		}
 		return interfaces.ListCandidatesParams{DeviceIdentifiers: s.DeviceIdentifiers}, nil
 	case models.ScopeTypeMixed:
-		if len(s.DeviceSetIDs) > 0 {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented; use whole_org, site, or device_list")
+		if hasTopologySelectors(s) {
+			return interfaces.ListCandidatesParams{}, fleeterror.NewUnimplementedErrorf(
+				"building, rack, and group scope resolution is not implemented yet",
+			)
 		}
 		if len(s.SiteIDs) == 0 && len(s.DeviceIdentifiers) == 0 {
-			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("mixed scope must include site_ids or device_identifiers")
+			return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentError("scope must include terminal selector IDs")
 		}
 		return interfaces.ListCandidatesParams{
 			SiteIDs:           s.SiteIDs,
 			DeviceIdentifiers: s.DeviceIdentifiers,
 		}, nil
-	case models.ScopeTypeDeviceSets:
-		// Deferred: device-set resolution requires DeviceSetStore wiring
-		// outside the curtailment domain. Whole-org and device-list cover
-		// the critical paths. Symmetric mutual-exclusion guard for callers
-		// who set this Type with DeviceIdentifiers populated.
-		return interfaces.ListCandidatesParams{}, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented; use whole_org, site, or device_list")
 	default:
 		return interfaces.ListCandidatesParams{}, fleeterror.NewInvalidArgumentErrorf("unrecognized scope type: %q", s.Type)
 	}
@@ -1671,13 +1675,15 @@ func normalizeScope(s Scope) Scope {
 		s.SiteID = 0
 	}
 	s.DeviceIdentifiers = uniqueNonEmptyStrings(s.DeviceIdentifiers)
-	s.DeviceSetIDs = uniqueNonEmptyStrings(s.DeviceSetIDs)
+	s.BuildingIDs = uniquePositiveInt64s(s.BuildingIDs)
+	s.RackIDs = uniquePositiveInt64s(s.RackIDs)
+	s.GroupIDs = uniquePositiveInt64s(s.GroupIDs)
 
 	if s.Type == models.ScopeTypeWholeOrg {
 		return s
 	}
-	if len(s.DeviceSetIDs) > 0 {
-		s.Type = models.ScopeTypeDeviceSets
+	if hasTopologySelectors(s) {
+		s.Type = models.ScopeTypeMixed
 		return s
 	}
 	switch {
@@ -1689,10 +1695,77 @@ func normalizeScope(s Scope) Scope {
 		s.Type = models.ScopeTypeSite
 	case len(s.DeviceIdentifiers) > 0:
 		s.Type = models.ScopeTypeDeviceList
-	case s.Type == "":
-		s.Type = models.ScopeTypeWholeOrg
 	}
 	return s
+}
+
+func hasTopologySelectors(s Scope) bool {
+	return len(s.BuildingIDs) > 0 || len(s.RackIDs) > 0 || len(s.GroupIDs) > 0
+}
+
+func validateScopeContract(s Scope) error {
+	if err := validateScopeSchemaVersion(s.SchemaVersion); err != nil {
+		return err
+	}
+	if len(s.SiteIDs) > ScopeTopologyIDsPerTypeMax || len(s.BuildingIDs) > ScopeTopologyIDsPerTypeMax ||
+		len(s.RackIDs) > ScopeTopologyIDsPerTypeMax || len(s.GroupIDs) > ScopeTopologyIDsPerTypeMax {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"site_ids, building_ids, rack_ids, and group_ids must each contain at most %d entries",
+			ScopeTopologyIDsPerTypeMax,
+		)
+	}
+	if len(s.DeviceIdentifiers) > ScopeDeviceIdentifiersMax {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"device_identifiers must contain at most %d entries",
+			ScopeDeviceIdentifiersMax,
+		)
+	}
+	if s.SiteID < 0 || hasNonPositiveInt64(s.SiteIDs) {
+		return fleeterror.NewInvalidArgumentError("site_ids must be positive")
+	}
+	if hasNonPositiveInt64(s.BuildingIDs) {
+		return fleeterror.NewInvalidArgumentError("building_ids must be positive")
+	}
+	if hasNonPositiveInt64(s.RackIDs) {
+		return fleeterror.NewInvalidArgumentError("rack_ids must be positive")
+	}
+	if hasNonPositiveInt64(s.GroupIDs) {
+		return fleeterror.NewInvalidArgumentError("group_ids must be positive")
+	}
+	if scopeSelectorTypeCount(s) != 1 {
+		return fleeterror.NewInvalidArgumentError("scope must contain exactly one selector type")
+	}
+	if hasTopologySelectors(s) && s.SchemaVersion != ScopeSchemaVersionCurrent {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"scope_schema_version %d is required for building, rack, or group selectors",
+			ScopeSchemaVersionCurrent,
+		)
+	}
+	return nil
+}
+
+func validateScopeSchemaVersion(version uint32) error {
+	if version <= ScopeSchemaVersionCurrent {
+		return nil
+	}
+	return fleeterror.NewInvalidArgumentErrorf("unsupported scope_schema_version: %d", version)
+}
+
+func scopeSelectorTypeCount(s Scope) int {
+	count := 0
+	for _, selected := range []bool{
+		s.Type == models.ScopeTypeWholeOrg,
+		s.SiteID != 0 || len(s.SiteIDs) > 0,
+		len(s.BuildingIDs) > 0,
+		len(s.RackIDs) > 0,
+		len(s.GroupIDs) > 0,
+		len(s.DeviceIdentifiers) > 0,
+	} {
+		if selected {
+			count++
+		}
+	}
+	return count
 }
 
 func uniquePositiveInt64s(values []int64) []int64 {
@@ -2116,11 +2189,11 @@ func isClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
 		return false
 	}
 	switch scope.Type {
-	case models.ScopeTypeWholeOrg, models.ScopeTypeSite, "":
+	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
 		return true
 	case models.ScopeTypeMixed:
 		return IsSiteOnlyScope(scope)
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+	case models.ScopeTypeDeviceList:
 		return false
 	default:
 		return false
@@ -2128,57 +2201,71 @@ func isClosedLoopFullFleetStart(scope Scope, mode models.Mode) bool {
 }
 
 // IsSiteOnlyScope reports whether scope targets only one or more sites, with
-// no explicit devices or device-set selectors.
+// no explicit devices or narrower topology selectors.
 func IsSiteOnlyScope(scope Scope) bool {
 	scope = normalizeScope(scope)
 	return len(scope.SiteIDs) > 0 &&
 		len(scope.DeviceIdentifiers) == 0 &&
-		len(scope.DeviceSetIDs) == 0
+		!hasTopologySelectors(scope)
 }
 
 // MarshalScopeJSON renders the request scope as the JSONB column value.
 // Whole-org stores `{}` (NOT NULL).
 func MarshalScopeJSON(s Scope) ([]byte, error) {
+	if err := validateScopeContract(s); err != nil {
+		return nil, err
+	}
 	s = normalizeScope(s)
 	switch s.Type {
-	case models.ScopeTypeWholeOrg, "":
+	case models.ScopeTypeWholeOrg:
+		if s.SchemaVersion > 0 {
+			return marshalScopeJSON(map[string]any{
+				"whole_org":            true,
+				"scope_schema_version": s.SchemaVersion,
+			})
+		}
 		return []byte("{}"), nil
 	case models.ScopeTypeSite:
-		b, err := json.Marshal(map[string]int64{
-			"site_id": s.SiteID,
-		})
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		payload := map[string]any{"site_id": s.SiteID}
+		if s.SchemaVersion > 0 {
+			payload["scope_schema_version"] = s.SchemaVersion
 		}
-		return b, nil
+		return marshalScopeJSON(payload)
 	case models.ScopeTypeDeviceList:
-		b, err := json.Marshal(map[string][]string{
-			"device_identifiers": s.DeviceIdentifiers,
-		})
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		payload := map[string]any{"device_identifiers": s.DeviceIdentifiers}
+		if s.SchemaVersion > 0 {
+			payload["scope_schema_version"] = s.SchemaVersion
 		}
-		return b, nil
-	case models.ScopeTypeDeviceSets:
-		b, err := json.Marshal(map[string][]string{
-			"device_set_ids": s.DeviceSetIDs,
-		})
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
-		}
-		return b, nil
+		return marshalScopeJSON(payload)
 	case models.ScopeTypeMixed:
-		b, err := json.Marshal(map[string]any{
-			"site_ids":           s.SiteIDs,
-			"device_identifiers": s.DeviceIdentifiers,
-		})
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		payload := make(map[string]any, 2)
+		switch {
+		case len(s.SiteIDs) > 0:
+			payload["site_ids"] = s.SiteIDs
+		case len(s.BuildingIDs) > 0:
+			payload["building_ids"] = s.BuildingIDs
+		case len(s.RackIDs) > 0:
+			payload["rack_ids"] = s.RackIDs
+		case len(s.GroupIDs) > 0:
+			payload["group_ids"] = s.GroupIDs
+		default:
+			return nil, fleeterror.NewInternalError("mixed scope has no terminal selector IDs")
 		}
-		return b, nil
+		if s.SchemaVersion > 0 {
+			payload["scope_schema_version"] = s.SchemaVersion
+		}
+		return marshalScopeJSON(payload)
 	default:
 		return nil, fleeterror.NewInternalErrorf("unrecognized scope type: %q", s.Type)
 	}
+}
+
+func marshalScopeJSON(payload any) ([]byte, error) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+	}
+	return b, nil
 }
 
 // StopRequest is the service-level shape of a Stop call. The handler maps

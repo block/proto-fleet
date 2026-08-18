@@ -70,25 +70,25 @@ test.describe("Proto Fleet - RBAC", () => {
     await page.goto("/");
   });
 
-  test("Pools read-only role cannot access the Pools settings surface", async ({
-    page,
-    commonSteps,
-    settingsPoolsPage,
-  }) => {
-    await test.step("Provision a read-only pools role", async () => {
-      await provisionRoleAndLogin(commonSteps, {
-        roleDescription: "Read-only mining pool access for RBAC coverage.",
-        permissionKeys: ["pool:read"],
+  test(
+    "Pools read-only role cannot access the Pools settings surface",
+    { tag: "@smoke" },
+    async ({ page, commonSteps, settingsPoolsPage }) => {
+      await test.step("Provision a read-only pools role", async () => {
+        await provisionRoleAndLogin(commonSteps, {
+          roleDescription: "Read-only mining pool access for RBAC coverage.",
+          permissionKeys: ["pool:read"],
+        });
       });
-    });
 
-    await test.step("Validate the Pools settings surface stays inaccessible", async () => {
-      await validateManageOnlySettingsRouteHidden(page, {
-        route: "/settings/mining-pools",
-        validateSubmenuHidden: () => settingsPoolsPage.validateMiningPoolsSubmenuHidden(),
+      await test.step("Validate the Pools settings surface stays inaccessible", async () => {
+        await validateManageOnlySettingsRouteHidden(page, {
+          route: "/settings/mining-pools",
+          validateSubmenuHidden: () => settingsPoolsPage.validateMiningPoolsSubmenuHidden(),
+        });
       });
-    });
-  });
+    },
+  );
 
   test("Pools manage role can create and delete mining pools", async ({
     commonSteps,
@@ -325,52 +325,52 @@ test.describe("Proto Fleet - RBAC", () => {
     });
   });
 
-  test("Sites, buildings, and racks read-only role can view infrastructure without create actions", async ({
-    commonSteps,
-    fleetLocationsPage,
-    racksPage,
-  }) => {
-    const siteName = generateRandomText(RBAC_SITE_PREFIX);
-    const buildingName = generateRandomText(RBAC_BUILDING_PREFIX);
-    const rackLabel = generateRandomText(RBAC_RACK_PREFIX);
+  test(
+    "Sites, buildings, and racks read-only role can view infrastructure without create actions",
+    { tag: "@smoke" },
+    async ({ commonSteps, fleetLocationsPage, racksPage }) => {
+      const siteName = generateRandomText(RBAC_SITE_PREFIX);
+      const buildingName = generateRandomText(RBAC_BUILDING_PREFIX);
+      const rackLabel = generateRandomText(RBAC_RACK_PREFIX);
 
-    await test.step("Create infrastructure fixtures as admin", async () => {
-      await commonSteps.loginAsAdmin({ forceReauth: true });
-      await createInfrastructureFixturesAsAdmin(fleetLocationsPage, racksPage, {
-        siteName,
-        buildingName,
-        rackLabel,
+      await test.step("Create infrastructure fixtures as admin", async () => {
+        await commonSteps.loginAsAdmin({ forceReauth: true });
+        await createInfrastructureFixturesAsAdmin(fleetLocationsPage, racksPage, {
+          siteName,
+          buildingName,
+          rackLabel,
+        });
       });
-    });
 
-    await test.step("Provision a read-only infrastructure role", async () => {
-      await provisionRoleAndLogin(commonSteps, {
-        roleDescription: "Read-only infrastructure access for RBAC coverage.",
-        permissionKeys: ["site:read", "rack:read"],
+      await test.step("Provision a read-only infrastructure role", async () => {
+        await provisionRoleAndLogin(commonSteps, {
+          roleDescription: "Read-only infrastructure access for RBAC coverage.",
+          permissionKeys: ["site:read", "rack:read"],
+        });
       });
-    });
 
-    await test.step("Validate the infrastructure is visible without create controls", async () => {
-      await fleetLocationsPage.validateSiteRowCounts(siteName, {
-        buildings: 1,
-        racks: 0,
-        miners: 0,
+      await test.step("Validate the infrastructure is visible without create controls", async () => {
+        await fleetLocationsPage.validateSiteRowCounts(siteName, {
+          buildings: 1,
+          racks: 0,
+          miners: 0,
+        });
+        await fleetLocationsPage.validateBuildingRowCounts(buildingName, {
+          siteName,
+          racks: 0,
+          miners: 0,
+        });
+        await racksPage.navigateToRacksPage();
+        await racksPage.clickViewList();
+        await racksPage.waitForRackListToLoad({ allowEmpty: false, requireManageAccess: false });
+        await racksPage.validateRackRow(rackLabel, RBAC_RACK_ZONE, 0);
+        await fleetLocationsPage.validateAddSiteButtonHidden();
+        await fleetLocationsPage.validateAddBuildingButtonHidden();
+        await racksPage.navigateToRacksPage();
+        await racksPage.validateAddRackButtonHidden();
       });
-      await fleetLocationsPage.validateBuildingRowCounts(buildingName, {
-        siteName,
-        racks: 0,
-        miners: 0,
-      });
-      await racksPage.navigateToRacksPage();
-      await racksPage.clickViewList();
-      await racksPage.waitForRackListToLoad({ allowEmpty: false, requireManageAccess: false });
-      await racksPage.validateRackRow(rackLabel, RBAC_RACK_ZONE, 0);
-      await fleetLocationsPage.validateAddSiteButtonHidden();
-      await fleetLocationsPage.validateAddBuildingButtonHidden();
-      await racksPage.navigateToRacksPage();
-      await racksPage.validateAddRackButtonHidden();
-    });
-  });
+    },
+  );
 
   test("Sites, buildings, and racks manage role can create infrastructure", async ({
     commonSteps,

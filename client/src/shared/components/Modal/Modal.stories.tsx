@@ -276,7 +276,7 @@ export const NoHeader = () => {
             <p className="mt-2">
               This is useful for custom layouts where you want full control over the modal content.
             </p>
-            <p className="mt-2">The modal can still be closed with Escape key or clicking outside.</p>
+            <p className="mt-2">The modal can still be closed with the Escape key.</p>
           </div>
         </ModalComponent>
       ) : null}

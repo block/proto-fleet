@@ -23,6 +23,10 @@ type leaseQuerier interface {
 		ctx context.Context,
 		arg sqlc.AcquireFleetRuntimeLeaseParams,
 	) (sqlc.AcquireFleetRuntimeLeaseRow, error)
+	ClassifyFleetRuntimeLeaseAcquisition(
+		ctx context.Context,
+		arg sqlc.ClassifyFleetRuntimeLeaseAcquisitionParams,
+	) (string, error)
 	RenewFleetRuntimeLease(
 		ctx context.Context,
 		arg sqlc.RenewFleetRuntimeLeaseParams,
@@ -64,7 +68,21 @@ func (s *LeaseStore) Acquire(
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Ownership{}, ErrLeaseUnavailable
+		result, classifyErr := s.queries.ClassifyFleetRuntimeLeaseAcquisition(
+			ctx,
+			sqlc.ClassifyFleetRuntimeLeaseAcquisitionParams{
+				ServerAddress:    observed.ServerAddress,
+				ServerPort:       observed.ServerPort,
+				Timeline:         observed.Timeline,
+				DcsClusterID:     observed.DCSClusterID,
+				WriterGeneration: observed.WriterGeneration,
+				HolderID:         holderID,
+			},
+		)
+		if classifyErr != nil {
+			return Ownership{}, fmt.Errorf("classify Fleet active lease acquisition: %w", classifyErr)
+		}
+		return Ownership{}, leaseAcquisitionError(result)
 	}
 	if err != nil {
 		return Ownership{}, fmt.Errorf("acquire Fleet active lease: %w", err)
@@ -72,22 +90,35 @@ func (s *LeaseStore) Acquire(
 	return ownershipFromAcquire(row), nil
 }
 
+func leaseAcquisitionError(result string) error {
+	switch result {
+	case "contended":
+		return ErrLeaseUnavailable
+	case "cluster_mismatch":
+		return ErrDCSClusterIdentityMismatch
+	case "writer_mismatch", "writer_changed", "unavailable":
+		return ErrWriterChanged
+	default:
+		return fmt.Errorf("unknown Fleet active lease acquisition result %q", result)
+	}
+}
+
 // Renew extends only the exact unexpired holder/token using database time.
 func (s *LeaseStore) Renew(
 	ctx context.Context,
 	observed WriterObservation,
-	ownership Ownership,
+	active Ownership,
 	duration time.Duration,
 ) (Ownership, error) {
 	if err := validateWriterObservation(observed); err != nil {
 		return Ownership{}, err
 	}
-	if observed.DCSClusterID != ownership.DCSClusterID ||
-		observed.WriterGeneration != ownership.Token.WriterGeneration ||
-		ownership.DCSClusterID == "" ||
-		ownership.Token.WriterGeneration <= 0 ||
-		ownership.Token.LeaseEpoch <= 0 ||
-		ownership.HolderID == uuid.Nil ||
+	if observed.DCSClusterID != active.DCSClusterID ||
+		observed.WriterGeneration != active.Token.WriterGeneration ||
+		active.DCSClusterID == "" ||
+		active.Token.WriterGeneration <= 0 ||
+		active.Token.LeaseEpoch <= 0 ||
+		active.HolderID == uuid.Nil ||
 		duration.Milliseconds() <= 0 {
 		return Ownership{}, errors.New("invalid Fleet active lease renewal")
 	}
@@ -98,10 +129,10 @@ func (s *LeaseStore) Renew(
 			ServerPort:                observed.ServerPort,
 			Timeline:                  observed.Timeline,
 			LeaseDurationMilliseconds: duration.Milliseconds(),
-			DcsClusterID:              ownership.DCSClusterID,
-			WriterGeneration:          ownership.Token.WriterGeneration,
-			LeaseEpoch:                ownership.Token.LeaseEpoch,
-			HolderID:                  ownership.HolderID,
+			DcsClusterID:              active.DCSClusterID,
+			WriterGeneration:          active.Token.WriterGeneration,
+			LeaseEpoch:                active.Token.LeaseEpoch,
+			HolderID:                  active.HolderID,
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {

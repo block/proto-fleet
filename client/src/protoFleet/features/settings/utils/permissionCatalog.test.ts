@@ -26,6 +26,22 @@ const catalog: CatalogEntry[] = [
   { key: "rollout:control", description: "Pause, abort, and revert firmware rollouts.", resource: "rollout" },
 ];
 
+describe("buildPermissionGroups", () => {
+  it("publishes instance permissions as a visible role-editor group", () => {
+    const instanceUpdate: CatalogEntry = {
+      key: "instance:update",
+      description: "Manage instance updates.",
+      resource: "instance",
+    };
+
+    expect(buildPermissionGroups([...catalog, instanceUpdate])).toContainEqual({
+      resource: "instance",
+      label: "Instance",
+      entries: [instanceUpdate],
+    });
+  });
+});
+
 describe("dependencyGaps", () => {
   it("gives schedule:manage no hard requirements, only a choose-one-of action set", () => {
     const gaps = dependencyGaps(["schedule:manage"], catalog);

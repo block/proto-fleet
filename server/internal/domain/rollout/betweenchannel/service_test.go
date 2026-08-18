@@ -108,3 +108,52 @@ func TestStrategyRejectsGenericRolloutCreation(t *testing.T) {
 	err := NewStrategy(nil).ValidateCreate(t.Context(), rollout.CreateRequest{})
 	require.ErrorIs(t, err, ErrLaneConflict)
 }
+
+func TestStrategyValidateRevertRequiresSettledSucceededMember(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		members []rollout.Member
+		wantErr bool
+	}{
+		{
+			name: "no succeeded members",
+			members: []rollout.Member{{
+				State: rollout.MemberStateCancelled,
+			}},
+			wantErr: true,
+		},
+		{
+			name: "admitted member remains",
+			members: []rollout.Member{
+				{State: rollout.MemberStateSucceeded},
+				{State: rollout.MemberStateAdmitted},
+			},
+			wantErr: true,
+		},
+		{
+			name: "succeeded member after settlement",
+			members: []rollout.Member{
+				{State: rollout.MemberStateSucceeded},
+				{State: rollout.MemberStateCancelled},
+			},
+		},
+	}
+
+	strategy := NewStrategy(nil)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := strategy.ValidateRevert(t.Context(), rollout.RevertValidationRequest{
+				Rollout: rollout.Rollout{Members: test.members},
+			})
+			if test.wantErr {
+				require.ErrorIs(t, err, ErrMembershipConflict)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

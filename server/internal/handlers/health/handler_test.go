@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,8 +11,62 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/stretchr/testify/require"
 )
+
+type fakeHAState struct {
+	status  ha.Status
+	passive bool
+}
+
+func (s fakeHAState) Status(time.Time) ha.Status { return s.status }
+func (s fakeHAState) Passive(time.Time) bool     { return s.passive }
+
+func TestHAHandlerReturnsOnlyRedactedStatus(t *testing.T) {
+	// Arrange
+	expires := time.Now().UTC().Add(time.Second)
+	recorder := httptest.NewRecorder()
+	handler := NewHAHandler("v1.2.3", fakeHAState{status: ha.Status{
+		Role: ha.RoleActive, Observation: ha.ObservationCurrent,
+		LeaseExpiresAt: &expires, Endpoint: ha.EndpointHealthy,
+	}})
+
+	// Act
+	handler(recorder, httptest.NewRequest(http.MethodGet, "/health/ha", nil))
+
+	// Assert
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var status ha.Status
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &status))
+	require.Equal(t, "v1.2.3", status.Version)
+	require.Equal(t, ha.RoleActive, status.Role)
+	for _, forbidden := range []string{"holder", "token", "cluster", "address", "error"} {
+		require.NotContains(t, recorder.Body.String(), forbidden)
+	}
+}
+
+func TestPassiveHandlerRequiresCurrentPassiveObservation(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		passive    bool
+		statusCode int
+	}{
+		{name: "current passive without VIP", passive: true, statusCode: http.StatusOK},
+		{name: "not takeover ready", statusCode: http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			recorder := httptest.NewRecorder()
+
+			// Act
+			NewPassiveHandler(fakeHAState{passive: test.passive})(recorder, httptest.NewRequest(http.MethodGet, "/health/passive", nil))
+
+			// Assert
+			require.Equal(t, test.statusCode, recorder.Code)
+		})
+	}
+}
 
 type fakePinger struct {
 	err error
@@ -34,11 +89,12 @@ func TestLivenessHandlerStaysStatic(t *testing.T) {
 	recorder := httptest.NewRecorder()
 
 	// Act
-	NewHandler()(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+	NewHandler("v1.2.3")(recorder, httptest.NewRequest(http.MethodGet, "/health", nil))
 
 	// Assert
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.Equal(t, "ok", recorder.Body.String())
+	require.Equal(t, "v1.2.3", recorder.Header().Get("X-Proto-Fleet-Version"))
 }
 
 func TestReadyHandlerOKWhenDBReachable(t *testing.T) {
@@ -182,12 +238,13 @@ func TestActiveHandlerReflectsStrictActiveState(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 
-			NewActiveHandler(fakeActiveState(test.active))(
+			NewActiveHandler("v1.2.3", fakeActiveState(test.active))(
 				recorder,
 				httptest.NewRequest(http.MethodGet, "/health/active", nil),
 			)
 
 			require.Equal(t, test.statusCode, recorder.Code)
+			require.Equal(t, "v1.2.3", recorder.Header().Get("X-Proto-Fleet-Version"))
 		})
 	}
 }

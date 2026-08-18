@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,6 +29,32 @@ func TestGateRejectsPassiveRequestsAndCancelsAdmittedRequestsOnDemotion(t *testi
 	require.False(t, channelClosed(drained)())
 	_, _, err = gate.Admit(t.Context())
 	require.ErrorIs(t, err, ErrNotActive)
+
+	release()
+	requireReceive(t, drained)
+}
+
+func TestGateSeparatesCallerAndActiveRuntimeCancellation(t *testing.T) {
+	gate := newGate()
+	gate.activate(t.Context())
+	callerCtx, cancelCaller := context.WithCancel(t.Context())
+	admittedCtx, release, err := gate.Admit(callerCtx)
+	require.NoError(t, err)
+	operationCtx, cancelOperation, ok := admissionctx.DetachRequestCancellation(admittedCtx)
+	require.True(t, ok)
+	defer cancelOperation()
+
+	cancelCaller()
+	require.ErrorIs(t, admittedCtx.Err(), context.Canceled)
+	select {
+	case <-operationCtx.Done():
+		t.Fatal("caller cancellation ended active-runtime work")
+	default:
+	}
+
+	drained := gate.deactivate()
+	requireReceive(t, operationCtx.Done())
+	require.False(t, channelClosed(drained)(), "admission must remain held until its handler releases")
 
 	release()
 	requireReceive(t, drained)

@@ -252,7 +252,13 @@ func (s *Service) Revert(ctx context.Context, req ControlRequest) (*Rollout, err
 	if !ok {
 		return nil, strategyUnavailable(current.StrategyKey)
 	}
-	if validator, validatesRevert := strategy.(RevertStrategy); validatesRevert {
+	req.Operation = ControlOperationRevert
+	req.RequestFingerprint = fingerprintControl(req)
+	replayed, err := s.store.CheckControlReplay(ctx, req)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	if validator, validatesRevert := strategy.(RevertStrategy); validatesRevert && !replayed {
 		if err := validator.ValidateRevert(ctx, RevertValidationRequest{
 			Rollout: *current,
 		}); err != nil {
@@ -263,8 +269,6 @@ func (s *Service) Revert(ctx context.Context, req ControlRequest) (*Rollout, err
 		}
 	}
 
-	req.Operation = ControlOperationRevert
-	req.RequestFingerprint = fingerprintControl(req)
 	result, err := s.store.ApplyControl(ctx, req)
 	if err != nil {
 		return nil, mapStoreError(err)

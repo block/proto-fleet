@@ -329,6 +329,35 @@ message UncurtailRequest {
   DeviceRef ref = 1;
 }
 
+message CurtailmentProviderConfig {
+  string name = 1;
+  string type = 2;
+  bool enabled = 3;
+  repeated string brokers = 4;
+  int32 port = 5;
+  string username = 6;
+  string password = 7;
+  string topic = 8;
+  int32 qos = 9;
+  string stale_after = 10;
+  string reconnect_backoff = 11;
+}
+
+message CurtailmentConfig {
+  bool enabled = 1;
+  string fail_policy = 2;
+  string restore_policy = 3;
+  string nats_url = 4;
+  string mcdd_grpc_address = 5;
+  string status_publish_interval = 6;
+  repeated CurtailmentProviderConfig providers = 7;
+}
+
+message ApplyCurtailmentConfigRequest {
+  DeviceRef ref = 1;
+  CurtailmentConfig config = 2;
+}
+
 message SetPowerTargetRequest {
   DeviceRef ref = 1;
   PerformanceMode performance_mode = 2;
@@ -701,6 +730,8 @@ service Driver {
   rpc Curtail(CurtailRequest) returns (google.protobuf.Empty);
   // Restore a previously curtailed device to normal operation.
   rpc Uncurtail(UncurtailRequest) returns (google.protobuf.Empty);
+  // Optional: replace the rig-local curtailment fallback configuration.
+  rpc ApplyCurtailmentConfig(ApplyCurtailmentConfigRequest) returns (google.protobuf.Empty);
 
   // CoreV1 - Base Telemetry - Required methods
   rpc DeviceStatus(DeviceRef) returns (DeviceMetrics);

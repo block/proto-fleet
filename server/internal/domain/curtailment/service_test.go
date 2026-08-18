@@ -1201,19 +1201,19 @@ func TestService_Preview_RejectsZeroOrNegativeTarget(t *testing.T) {
 
 // --- scope resolution ---
 
-func TestService_Preview_DeviceSetScopeIsUnimplemented(t *testing.T) {
+func TestService_Preview_TopologyScopeIsUnimplementedUntilResolverLands(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	store := newFakeStore()
 	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
 	svc := NewService(store)
 	req := validRequest(orgID)
-	req.Scope = Scope{Type: models.ScopeTypeDeviceSets, DeviceSetIDs: []string{"set-a"}}
+	req.Scope = Scope{SchemaVersion: 1, BuildingIDs: []int64{7}}
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
-	// device-set scope is reported via UnimplementedError; the handler maps
+	// Topology scope is reported via UnimplementedError; the handler maps
 	// fleeterror codes to Connect codes elsewhere.
-	assert.Contains(t, err.Error(), "device-set")
+	assert.Contains(t, err.Error(), "building, rack, and group")
 }
 
 func TestService_Preview_DeviceListScopePassesFilterToStore(t *testing.T) {
@@ -1260,7 +1260,7 @@ func TestService_Preview_SiteScopeValidatesSiteAndPassesFilterToStore(t *testing
 	assert.Empty(t, store.lastListCandidatesFilter)
 }
 
-func TestService_Preview_MixedScopeUnionsSitesAndDevicesWithDeduplication(t *testing.T) {
+func TestService_Preview_RejectsMixedTerminalTypes(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -1285,18 +1285,12 @@ func TestService_Preview_MixedScopeUnionsSitesAndDevicesWithDeduplication(t *tes
 	}
 	req.Mode = models.ModeFullFleet
 
-	plan, err := svc.Preview(t.Context(), req)
+	_, err := svc.Preview(t.Context(), req)
 
-	require.NoError(t, err)
-	assert.Equal(t, 1, store.listCandidatesCalls)
-	assert.Equal(t, []int64{siteID}, store.lastListCandidatesSiteIDs)
-	assert.Equal(t, []string{"site-miner", "explicit-miner"}, store.lastListCandidatesFilter)
-	require.Len(t, plan.Selected, 2)
-	selectedIDs := make([]string, 0, len(plan.Selected))
-	for _, selected := range plan.Selected {
-		selectedIDs = append(selectedIDs, selected.DeviceIdentifier)
-	}
-	assert.ElementsMatch(t, []string{"site-miner", "explicit-miner"}, selectedIDs)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "exactly one selector type")
+	assert.Zero(t, store.listCandidatesCalls)
 }
 
 func TestService_Preview_SiteScopeRequiresExistingSite(t *testing.T) {
@@ -1316,7 +1310,7 @@ func TestService_Preview_SiteScopeRequiresExistingSite(t *testing.T) {
 	assert.Zero(t, store.listCandidatesCalls, "missing sites must reject before candidate selection")
 }
 
-func TestResolveScope_WholeOrgDominatesSelectorFields(t *testing.T) {
+func TestResolveScope_RejectsWholeOrgWithNarrowerSelector(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -1324,17 +1318,36 @@ func TestResolveScope_WholeOrgDominatesSelectorFields(t *testing.T) {
 		scope Scope
 	}{
 		{"explicit whole org with site", Scope{Type: models.ScopeTypeWholeOrg, SiteID: 99}},
-		{"implicit whole org with device identifiers", Scope{DeviceIdentifiers: []string{"miner-a"}}},
-		{"explicit whole org with device sets", Scope{Type: models.ScopeTypeWholeOrg, DeviceSetIDs: []string{"set-a"}}},
+		{"explicit whole org with device identifiers", Scope{Type: models.ScopeTypeWholeOrg, DeviceIdentifiers: []string{"miner-a"}}},
+		{"explicit whole org with narrower topology", Scope{Type: models.ScopeTypeWholeOrg, BuildingIDs: []int64{7}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			_, err := resolveScope(tc.scope)
 
-			require.NoError(t, err)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "exactly one selector type")
 		})
 	}
+}
+
+func TestService_Preview_RejectsMissingScope(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore()
+	store.orgConfigByOrg[1] = defaultOrgConfig(1)
+	svc := NewService(store)
+	req := validRequest(1)
+	req.Scope = Scope{}
+
+	_, err := svc.Preview(t.Context(), req)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "exactly one selector type")
+	assert.Zero(t, store.listCandidatesCalls)
 }
 
 func TestService_Preview_DeviceListScopeRequiresNonEmptyList(t *testing.T) {
@@ -1346,32 +1359,69 @@ func TestService_Preview_DeviceListScopeRequiresNonEmptyList(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestService_Preview_DeviceListWithDeviceSetsReturnsUnimplemented(t *testing.T) {
+func TestService_Preview_DeviceListWithBuildingRejectsMixedTerminalTypes(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
 	req := validRequest(1)
 	req.Scope = Scope{
+		SchemaVersion:     1,
 		Type:              models.ScopeTypeDeviceList,
 		DeviceIdentifiers: []string{"miner-a"},
-		DeviceSetIDs:      []string{"set-x"},
+		BuildingIDs:       []int64{7},
 	}
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "device-set scope is not implemented")
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "exactly one selector type")
 }
 
-func TestService_Preview_DeviceSetWithDeviceListReturnsUnimplemented(t *testing.T) {
+func TestService_Preview_TopologyScopeRequiresCurrentSchemaVersion(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
 	req := validRequest(1)
 	req.Scope = Scope{
-		Type:              models.ScopeTypeDeviceSets,
-		DeviceSetIDs:      []string{"set-x"},
-		DeviceIdentifiers: []string{"miner-a"},
+		RackIDs: []int64{9},
 	}
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "device-set scope is not implemented")
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "scope_schema_version 1 is required")
+}
+
+func TestResolveScopeEnforcesDomainTopologyBounds(t *testing.T) {
+	t.Parallel()
+
+	buildingIDs := make([]int64, ScopeTopologyIDsPerTypeMax+1)
+	for i := range buildingIDs {
+		buildingIDs[i] = int64(i + 1)
+	}
+
+	_, err := resolveScope(Scope{
+		SchemaVersion: ScopeSchemaVersionCurrent,
+		BuildingIDs:   buildingIDs,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "at most 256 entries")
+}
+
+func TestResolveScopeEnforcesDomainBoundsBeforeWholeOrgDominance(t *testing.T) {
+	t.Parallel()
+
+	deviceIdentifiers := make([]string, ScopeDeviceIdentifiersMax+1)
+	for i := range deviceIdentifiers {
+		deviceIdentifiers[i] = "miner-a"
+	}
+
+	_, err := resolveScope(Scope{
+		Type:              models.ScopeTypeWholeOrg,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "device_identifiers must contain at most 10000 entries")
 }
 
 // --- pre-selector filters ---

@@ -37,6 +37,7 @@ const RESOURCE_TO_GROUP: Record<string, string> = {
   channel: "firmwareRollouts",
   rollout: "firmwareRollouts",
   alert: "alerts",
+  instance: "instance",
   fleetnode: "admin",
   serverlog: "admin",
   activity: "admin",
@@ -54,6 +55,7 @@ const GROUP_LABELS: Record<string, string> = {
   schedule: "Schedules",
   firmwareRollouts: "Firmware rollouts",
   alerts: "Alerts",
+  instance: "Instance",
   admin: "Administration",
 };
 
@@ -66,6 +68,7 @@ const GROUP_ORDER = [
   "schedule",
   "firmwareRollouts",
   "alerts",
+  "instance",
   "admin",
 ];
 

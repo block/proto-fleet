@@ -165,31 +165,69 @@ func (o *Observer) observeAndRun(
 	if !isPrimaryRole(patroni.Role) {
 		return WriterObservation{}, fmt.Errorf("%w: Patroni role is %q", ErrWritableServerMismatch, patroni.Role)
 	}
+	observed := writerObservation(first, connected)
 	if patroni.Timeline != connected.Timeline {
-		return WriterObservation{}, fmt.Errorf(
+		second, closingErr := o.confirmDCSUnchanged(ctx, first)
+		if closingErr != nil {
+			return WriterObservation{}, closingErr
+		}
+		if _, leaseErr := o.leaderLeaseDeadline(ctx, second.LeaderLeaseID); leaseErr != nil {
+			return WriterObservation{}, leaseErr
+		}
+		return writerObservation(second, connected), fmt.Errorf(
 			"%w: PostgreSQL=%d Patroni=%d",
 			ErrTimelineMismatch,
 			connected.Timeline,
 			patroni.Timeline,
 		)
 	}
-
-	observed := writerObservation(first, connected)
 	if action != nil {
 		if err := action(ctx, observed); err != nil {
 			return WriterObservation{}, err
 		}
 	}
 
-	second, err := o.dcs.Snapshot(ctx, o.clusterPath)
+	second, err := o.confirmDCSUnchanged(ctx, first)
 	if err != nil {
-		return WriterObservation{}, fmt.Errorf("read final DCS snapshot: %w", err)
-	}
-	if err := validateDCSSnapshot(second); err != nil {
 		return WriterObservation{}, err
 	}
+
+	proofDeadline, err := o.leaderLeaseDeadline(ctx, second.LeaderLeaseID)
+	if err != nil {
+		return WriterObservation{}, err
+	}
+
+	observed = writerObservation(second, connected)
+	observed.DCSProofDeadline = proofDeadline
+	return observed, nil
+}
+
+func (o *Observer) leaderLeaseDeadline(ctx context.Context, leaseID int64) (time.Time, error) {
+	ttlRequestStarted := time.Now()
+	ttl, err := o.dcs.LeaseTTL(ctx, leaseID)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("validate DCS leader lease: %w", err)
+	}
+	proofDeadline := ttlRequestStarted.Add(ttl)
+	if ttl <= 0 || !proofDeadline.After(time.Now()) {
+		return time.Time{}, ErrLeaderLeaseExpired
+	}
+	return proofDeadline, nil
+}
+
+func (o *Observer) confirmDCSUnchanged(
+	ctx context.Context,
+	first DCSSnapshot,
+) (DCSSnapshot, error) {
+	second, err := o.dcs.Snapshot(ctx, o.clusterPath)
+	if err != nil {
+		return DCSSnapshot{}, fmt.Errorf("read final DCS snapshot: %w", err)
+	}
+	if err := validateDCSSnapshot(second); err != nil {
+		return DCSSnapshot{}, err
+	}
 	if second.ClusterID != first.ClusterID {
-		return WriterObservation{}, fmt.Errorf(
+		return DCSSnapshot{}, fmt.Errorf(
 			"%w: started with %s, finished with %s",
 			ErrDCSClusterIdentityMismatch,
 			first.ClusterID,
@@ -201,7 +239,7 @@ func (o *Observer) observeAndRun(
 		second.LeaderLeaseID != first.LeaderLeaseID ||
 		second.Member.APIURL != first.Member.APIURL ||
 		second.Member.ConnURL != first.Member.ConnURL {
-		return WriterObservation{}, fmt.Errorf(
+		return DCSSnapshot{}, fmt.Errorf(
 			"%w: started with %s@%d, finished with %s@%d",
 			ErrWriterChanged,
 			first.LeaderName,
@@ -210,23 +248,7 @@ func (o *Observer) observeAndRun(
 			second.WriterGeneration,
 		)
 	}
-
-	ttlRequestStarted := time.Now()
-	ttl, err := o.dcs.LeaseTTL(ctx, second.LeaderLeaseID)
-	if err != nil {
-		return WriterObservation{}, fmt.Errorf("validate DCS leader lease: %w", err)
-	}
-	if ttl <= 0 {
-		return WriterObservation{}, ErrLeaderLeaseExpired
-	}
-	proofDeadline := ttlRequestStarted.Add(ttl)
-	if !proofDeadline.After(time.Now()) {
-		return WriterObservation{}, ErrLeaderLeaseExpired
-	}
-
-	observed = writerObservation(second, connected)
-	observed.DCSProofDeadline = proofDeadline
-	return observed, nil
+	return second, nil
 }
 
 func writerObservation(
@@ -369,7 +391,7 @@ type etcdAPI interface {
 }
 
 // EtcdClient reads Patroni authority through etcd's authenticated native API.
-// The official client owns mTLS, authentication tokens, endpoint failover, and
+// The official client owns TLS, authentication tokens, endpoint failover, and
 // token refresh; this wrapper only translates the two reads the observer needs.
 type EtcdClient struct {
 	client         etcdAPI
@@ -562,5 +584,8 @@ func (c *PatroniHTTPClient) PrimaryIdentity(
 	if state.Timeline <= 0 {
 		return PatroniIdentity{}, errors.New("Patroni reports invalid timeline")
 	}
-	return PatroniIdentity{Role: state.Role, Timeline: state.Timeline}, nil
+	return PatroniIdentity{
+		Role:     state.Role,
+		Timeline: state.Timeline,
+	}, nil
 }

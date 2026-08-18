@@ -65,38 +65,38 @@ test.describe("Miner Settings Actions", () => {
   });
 
   if (testConfig.target !== "real") {
-    test("Update worker name from a miner action menu and restore the original value", async ({
-      minersPage,
-      commonSteps,
-      loginModal,
-    }) => {
-      let minerIp: string;
-      let originalWorkerName: string;
-      const updatedWorkerName = generateRandomText("worker-e2e");
+    test(
+      "Update worker name from a miner action menu and restore the original value",
+      { tag: "@smoke" },
+      async ({ minersPage, commonSteps, loginModal }) => {
+        let minerIp: string;
+        let originalWorkerName: string;
+        const updatedWorkerName = generateRandomText("worker-e2e");
 
-      await test.step("Find a Proto rig with an existing worker name", async () => {
-        await commonSteps.loginAsAdmin();
-        await commonSteps.goToMinersPage();
-        await minersPage.filterRigMiners();
-        const [selectedWorkerNamedMiner] = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(1);
-        minerIp = selectedWorkerNamedMiner.ipAddress;
-        originalWorkerName = selectedWorkerNamedMiner.workerName;
-      });
+        await test.step("Find a Proto rig with an existing worker name", async () => {
+          await commonSteps.loginAsAdmin();
+          await commonSteps.goToMinersPage();
+          await minersPage.filterRigMiners();
+          const [selectedWorkerNamedMiner] = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(1);
+          minerIp = selectedWorkerNamedMiner.ipAddress;
+          originalWorkerName = selectedWorkerNamedMiner.workerName;
+        });
 
-      await test.step("Update the worker name through the single-miner action flow", async () => {
-        workerNameRestoreTargets = [{ ipAddress: minerIp, workerName: originalWorkerName }];
+        await test.step("Update the worker name through the single-miner action flow", async () => {
+          workerNameRestoreTargets = [{ ipAddress: minerIp, workerName: originalWorkerName }];
 
-        await minersPage.clickMinerThreeDotsButton(minerIp);
-        await minersPage.clickUpdateWorkerNameButton();
-        await loginModal.loginAsAdminForWorkerNames();
-        await minersPage.validateUpdateWorkerNameModalOpened();
-        await minersPage.fillUpdateWorkerNameInput(updatedWorkerName);
-        await minersPage.clickSaveInModal();
+          await minersPage.clickMinerThreeDotsButton(minerIp);
+          await minersPage.clickUpdateWorkerNameButton();
+          await loginModal.loginAsAdminForWorkerNames();
+          await minersPage.validateUpdateWorkerNameModalOpened();
+          await minersPage.fillUpdateWorkerNameInput(updatedWorkerName);
+          await minersPage.clickSaveInModal();
 
-        await minersPage.validateTextInToastGroup("Worker name updated");
-        await minersPage.validateMinerWorkerName(minerIp, updatedWorkerName);
-      });
-    });
+          await minersPage.validateTextInToastGroup("Worker name updated");
+          await minersPage.validateMinerWorkerName(minerIp, updatedWorkerName);
+        });
+      },
+    );
 
     test("Bulk update worker names action updates the selected miners", async ({
       minersPage,
@@ -152,36 +152,35 @@ test.describe("Miner Settings Actions", () => {
     });
   }
 
-  test("Manage security opens from the miner action menu and validates password input", async ({
-    minersPage,
-    commonSteps,
-    loginModal,
-    page,
-  }) => {
-    await test.step("Open Manage security for a Proto rig", async () => {
-      await commonSteps.loginAsAdmin();
-      await commonSteps.goToMinersPage();
-      await minersPage.filterRigMiners();
+  test(
+    "Manage security opens from the miner action menu and validates password input",
+    { tag: "@smoke" },
+    async ({ minersPage, commonSteps, loginModal, page }) => {
+      await test.step("Open Manage security for a Proto rig", async () => {
+        await commonSteps.loginAsAdmin();
+        await commonSteps.goToMinersPage();
+        await minersPage.filterRigMiners();
 
-      const minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
-      await minersPage.clickMinerThreeDotsButton(minerIp);
-      await minersPage.clickManageSecurityButton();
-      await loginModal.loginAsAdminForSecurity();
-      await minersPage.validateManageSecurityModalOpened();
-    });
+        const minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+        await minersPage.clickMinerThreeDotsButton(minerIp);
+        await minersPage.clickManageSecurityButton();
+        await loginModal.loginAsAdminForSecurity();
+        await minersPage.validateManageSecurityModalOpened();
+      });
 
-    await test.step("Open the password modal and validate the password mismatch state", async () => {
-      await minersPage.clickManageSecurityUpdateButton();
-      await minersPage.validateTitleInModal("Update the admin login for your miners");
-      await minersPage.inputCurrentMinerPassword("root");
-      await minersPage.inputNewMinerPassword("ProtoRigPass123!");
-      await minersPage.inputConfirmMinerPassword("ProtoRigPass1234!");
-      await minersPage.clickIn("Continue", "modal");
-      await minersPage.validateTextInModal("Passwords don't match");
+      await test.step("Open the password modal and validate the password mismatch state", async () => {
+        await minersPage.clickManageSecurityUpdateButton();
+        await minersPage.validateTitleInModal("Update the admin login for your miners");
+        await minersPage.inputCurrentMinerPassword("root");
+        await minersPage.inputNewMinerPassword("ProtoRigPass123!");
+        await minersPage.inputConfirmMinerPassword("ProtoRigPass1234!");
+        await minersPage.clickIn("Continue", "modal");
+        await minersPage.validateTextInModal("Passwords don't match");
 
-      await page.getByTestId("modal").getByTestId("header-icon-button").click();
-      await minersPage.closeManageSecurityModal();
-      await minersPage.validateMinersPageOpened();
-    });
-  });
+        await page.getByTestId("modal").getByTestId("header-icon-button").click();
+        await minersPage.closeManageSecurityModal();
+        await minersPage.validateMinersPageOpened();
+      });
+    },
+  );
 });

@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
 type DatabaseMessageQueue struct {
@@ -59,8 +60,9 @@ func (d DatabaseMessageQueue) EnqueueMany(ctx context.Context, commandBatchLogUU
 }
 
 func (d DatabaseMessageQueue) EnqueueCommandBatch(ctx context.Context, batch CommandBatch) error {
-	if batch.MaxAttempts <= 0 {
-		return fleeterror.NewInternalError("queue max attempts must be greater than zero")
+	maxAttempts, err := d.resolveMaxAttempts(batch.MaxAttempts)
+	if err != nil {
+		return err
 	}
 	encoded := make([]encodedMessage, 0, len(batch.Messages))
 	for _, message := range batch.Messages {
@@ -70,7 +72,7 @@ func (d DatabaseMessageQueue) EnqueueCommandBatch(ctx context.Context, batch Com
 		}
 		encoded = append(encoded, encodedMessage{deviceID: message.DeviceID, payload: payloadBytes})
 	}
-	return db.WithTransactionNoResult(ctx, d.conn, func(q sqlc.Querier) error {
+	return db.WithTransactionTimeoutNoResult(ctx, d.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           batch.Identifier,
 			Type:           batch.CommandType.String(),
@@ -84,7 +86,7 @@ func (d DatabaseMessageQueue) EnqueueCommandBatch(ctx context.Context, batch Com
 		if err != nil {
 			return fleeterror.NewInternalErrorf("failed to create command batch: %v", err)
 		}
-		return createQueueMessages(ctx, q, batch.Identifier, batch.CommandType, encoded, batch.MaxAttempts)
+		return createQueueMessages(ctx, q, batch.Identifier, batch.CommandType, encoded, maxAttempts)
 	})
 }
 
@@ -95,9 +97,32 @@ func (d DatabaseMessageQueue) enqueueEncoded(
 	messages []encodedMessage,
 	maxAttempts int32,
 ) error {
-	return db.WithTransactionNoResult(ctx, d.conn, func(q sqlc.Querier) error {
-		return createQueueMessages(ctx, q, commandBatchLogUUID, commandType, messages, maxAttempts)
+	resolvedMaxAttempts, err := d.resolveMaxAttempts(maxAttempts)
+	if err != nil {
+		return err
+	}
+	return db.WithTransactionTimeoutNoResult(ctx, d.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
+		batchStatus, err := q.LockCommandBatch(ctx, commandBatchLogUUID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to lock command batch: %v", err)
+		}
+		if batchStatus != sqlc.BatchStatusEnumPENDING {
+			return fleeterror.NewInternalErrorf("cannot enqueue messages for command batch in %s status", batchStatus)
+		}
+		return createQueueMessages(ctx, q, commandBatchLogUUID, commandType, messages, resolvedMaxAttempts)
 	})
+}
+
+// resolveMaxAttempts maps an explicit per-batch ceiling to a positive value.
+// Zero means inherit the queue service configured default (MaxFailureRetries).
+func (d DatabaseMessageQueue) resolveMaxAttempts(explicit int32) (int32, error) {
+	if explicit > 0 {
+		return explicit, nil
+	}
+	if d.config.MaxFailureRetries > 0 {
+		return d.config.MaxFailureRetries, nil
+	}
+	return 0, fleeterror.NewInternalError("queue max attempts must be greater than zero")
 }
 
 func createQueueMessages(
@@ -135,7 +160,7 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Messa
 	if d.config.DequeLimit > 0 {
 		limit = min(limit, d.config.DequeLimit)
 	}
-	messages, err := db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) ([]Message, error) {
+	messages, err := db.WithTransactionTimeout(ctx, d.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) ([]Message, error) {
 		dbMessages, err := q.GetMessagesToProcess(ctx, limit)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get messages to process: %v", err)
@@ -247,12 +272,6 @@ type BatchStatusCheckFunc func(ctx context.Context, commandBatchLogID int64) (bo
 func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	return db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
 		return q.IsBatchFinished(ctx, commandBatchLogUUID)
-	})
-}
-
-func (d DatabaseMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogUUID string) (bool, error) {
-	return db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
-		return q.IsBatchProcessing(ctx, commandBatchLogUUID)
 	})
 }
 

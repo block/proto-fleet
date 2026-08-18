@@ -107,6 +107,41 @@ type CreateBuildingResult struct {
 	SiteReassignedDeviceCount int64
 }
 
+// NewBuildingParam is one row of a bulk create.
+type NewBuildingParam struct {
+	Name          string
+	Description   string
+	PowerKw       float64
+	OverheadKw    float64
+	Aisles        int32
+	RacksPerAisle int32
+}
+
+// CreateBuildingsParams is the input shape for bulk create. SiteID is
+// required and not a pointer: there is no "unassigned" bulk-create case.
+type CreateBuildingsParams struct {
+	OrgID     int64
+	SiteID    int64
+	Buildings []NewBuildingParam
+}
+
+type PerBuildingCreateErrorReason int
+
+const (
+	ReasonBuildingCreateUnspecified          PerBuildingCreateErrorReason = 0
+	ReasonBuildingCreateDuplicateNameInBatch PerBuildingCreateErrorReason = 1
+	ReasonBuildingCreateDuplicateNameAtSite  PerBuildingCreateErrorReason = 2
+)
+
+// PerBuildingCreateError points at one offending row of a bulk create.
+// Mirrors the proto shape so the handler stays a thin translator.
+type PerBuildingCreateError struct {
+	// Index is zero-based into CreateBuildingsParams.Buildings.
+	Index  int32
+	Name   string
+	Reason PerBuildingCreateErrorReason
+}
+
 // UpdateParams is the input shape for building updates. SiteID is
 // intentionally NOT updated here; that flow lives on
 // SiteService.AssignBuildingsToSite, which carries the cross-collection

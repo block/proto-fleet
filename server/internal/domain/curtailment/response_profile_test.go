@@ -55,7 +55,7 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	assert.Equal(t, int32(600), store.created.PostEventCooldownSec)
 }
 
-func TestResponseProfileService_CreatePersistsCompositeSiteAndMinerScope(t *testing.T) {
+func TestResponseProfileService_CreatePersistsMultiSiteTerminalScope(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 2500.0
@@ -65,21 +65,21 @@ func TestResponseProfileService_CreatePersistsCompositeSiteAndMinerScope(t *test
 	profile, err := svc.Create(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:       42,
-			ProfileName: "Combined shed",
+			ProfileName: "Multi-site shed",
 			Mode:        models.ModeFixedKw,
 			TargetKW:    &targetKW,
-			ScopeJSON:   []byte(`{"site_ids":[7,7],"device_identifiers":["miner-a","miner-a","miner-b"]}`),
+			ScopeJSON:   []byte(`{"site_ids":[7,8,7]}`),
 		},
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, profile)
-	assert.Nil(t, profile.SiteID, "mixed scopes must not masquerade as legacy single-site profiles")
-	assert.Equal(t, 1, store.siteCheckCount, "sites are validated by id without expanding site miners")
-	assert.Equal(t, int64(7), store.siteCheckSiteID)
-	assert.JSONEq(t, `{"site_ids":[7],"device_identifiers":["miner-a","miner-b"]}`, string(profile.ScopeJSON))
+	assert.Nil(t, profile.SiteID, "a multi-site terminal scope must not masquerade as a single-site profile")
+	assert.Equal(t, 2, store.siteCheckCount, "sites are validated by id without expanding site miners")
+	assert.Equal(t, int64(8), store.siteCheckSiteID)
+	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(profile.ScopeJSON))
 	require.NotNil(t, store.created)
-	assert.JSONEq(t, `{"site_ids":[7],"device_identifiers":["miner-a","miner-b"]}`, string(store.created.ScopeJSON))
+	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.created.ScopeJSON))
 }
 
 func TestResponseProfileService_CreateAllowsWholeOrgScope(t *testing.T) {
@@ -303,23 +303,134 @@ func TestResponseProfileService_CreateAllowsFacilityFanOutsideExplicitMinerSite(
 	assert.Equal(t, []int64{31}, profile.FacilityFanDeviceIDs)
 }
 
-func TestResponseProfileService_CreateRejectsDeviceSetScope(t *testing.T) {
+func TestResponseProfileService_CreateRejectsTopologyScopeUntilResolverLands(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 2500.0
 	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:       42,
-			ProfileName: "Device set shed",
+			ProfileName: "Building shed",
 			Mode:        models.ModeFixedKw,
 			TargetKW:    &targetKW,
-			ScopeJSON:   []byte(`{"device_set_ids":["set-a"]}`),
+			ScopeJSON:   []byte(`{"scope_schema_version":1,"building_ids":[7]}`),
 		},
 	})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
-	assert.Contains(t, err.Error(), "device-set scope is not implemented")
+	assert.Contains(t, err.Error(), "building, rack, and group scope resolution is not implemented yet")
+}
+
+func TestScopeFromJSONRejectsRemovedDeviceSetKey(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ScopeFromJSON([]byte(`{"device_set_ids":["set-a"]}`))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "unknown field")
+}
+
+func TestScopeFromJSONRejectsVersionWithoutSelector(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ScopeFromJSON([]byte(`{"scope_schema_version":1}`))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "must include a recognized selector")
+}
+
+func TestScopeFromJSONRejectsUnsupportedVersionWithoutSelector(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ScopeFromJSON([]byte(`{"scope_schema_version":2}`))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "unsupported scope_schema_version: 2")
+}
+
+func TestScopeFromJSONRejectsPresentEmptySelector(t *testing.T) {
+	t.Parallel()
+
+	for _, scopeJSON := range []string{
+		`{"whole_org":false}`,
+		`{"whole_org":true,"building_ids":[]}`,
+		`{"site_id":0}`,
+		`{"site_ids":[]}`,
+		`{"building_ids":[]}`,
+		`{"rack_ids":[]}`,
+		`{"group_ids":[]}`,
+		`{"device_identifiers":[]}`,
+	} {
+		t.Run(scopeJSON, func(t *testing.T) {
+			t.Parallel()
+
+			_, _, err := ScopeFromJSON([]byte(scopeJSON))
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "exactly one selector type")
+		})
+	}
+}
+
+func TestScopeFromJSONRejectsNull(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ScopeFromJSON([]byte(`null`))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "expected an object")
+}
+
+func TestScopeJSONRoundTripsTypedTerminalScope(t *testing.T) {
+	t.Parallel()
+
+	want := Scope{
+		SchemaVersion: ScopeSchemaVersionCurrent,
+		Type:          models.ScopeTypeMixed,
+		BuildingIDs:   []int64{11, 10, 11},
+	}
+
+	encoded, err := MarshalScopeJSON(want)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"scope_schema_version": 1,
+		"building_ids": [11, 10]
+	}`, string(encoded))
+
+	got, hasScope, err := ScopeFromJSON(encoded)
+	require.NoError(t, err)
+	require.True(t, hasScope)
+	assert.Equal(t, normalizeScope(want), got)
+}
+
+func TestScopeJSONRejectsMixedTerminalTypes(t *testing.T) {
+	t.Parallel()
+
+	_, err := MarshalScopeJSON(Scope{
+		SchemaVersion:     ScopeSchemaVersionCurrent,
+		BuildingIDs:       []int64{11},
+		DeviceIdentifiers: []string{"miner-a"},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "exactly one selector type")
+}
+
+func TestMarshalScopeJSONRequiresVersionForTypedTopology(t *testing.T) {
+	t.Parallel()
+
+	_, err := MarshalScopeJSON(Scope{BuildingIDs: []int64{7}})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "scope_schema_version 1 is required")
 }
 
 func TestResponseProfileService_CreateAppliesBackendBatchDefaultsWithoutOverwritingImmediateRestore(t *testing.T) {

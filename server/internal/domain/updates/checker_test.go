@@ -507,7 +507,7 @@ func TestReleasePageRejectsMoreThanPageSizeEntries(t *testing.T) {
 
 	gh := newGHServer(t)
 	gh.setList(http.StatusOK, releasesJSON(t, nightlies(releasesPageSize+1, "oversized")))
-	client := newGitHubClient(gh.srv.URL, "test-version", "", slog.Default())
+	client := newGitHubClient(gh.srv.URL, "test-version", slog.Default())
 
 	_, err := client.fetchReleases(context.Background())
 	require.Error(t, err)
@@ -522,17 +522,16 @@ func TestLatestReleaseRejectsTrailingJSON(t *testing.T) {
 	gh := newGHServer(t)
 	body := append(fixture(t, "latest_stable.json"), []byte("\n{}")...)
 	gh.setLatest(http.StatusOK, body)
-	client := newGitHubClient(gh.srv.URL, "test-version", "", slog.Default())
+	client := newGitHubClient(gh.srv.URL, "test-version", slog.Default())
 
 	_, err := client.fetchLatestStableFallback(context.Background())
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "unexpected trailing JSON value")
 }
 
-func TestAuthenticatedConditionalRequestsReuseCachedResponses(t *testing.T) {
+func TestConditionalRequestsReuseCachedResponses(t *testing.T) {
 	t.Parallel()
 
-	const token = "release-check-token"
 	var mu sync.Mutex
 	requests := make([]ghRequest, 0, 4)
 	counts := make(map[string]int)
@@ -560,7 +559,7 @@ func TestAuthenticatedConditionalRequestsReuseCachedResponses(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := newGitHubClient(srv.URL, "test-version", token, slog.Default())
+	client := newGitHubClient(srv.URL, "test-version", slog.Default())
 	firstLatest, err := client.fetchLatestStableFallback(context.Background())
 	require.NoError(t, err)
 	secondLatest, err := client.fetchLatestStableFallback(context.Background())
@@ -576,9 +575,6 @@ func TestAuthenticatedConditionalRequestsReuseCachedResponses(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.Len(t, requests, 4)
-	for _, request := range requests {
-		assert.Equal(t, "Bearer "+token, request.header.Get("Authorization"))
-	}
 	assert.Empty(t, requests[0].header.Get("If-None-Match"))
 	assert.Equal(t, `"releases/latest-etag"`, requests[1].header.Get("If-None-Match"))
 	assert.Empty(t, requests[2].header.Get("If-None-Match"))
@@ -654,7 +650,7 @@ func TestReleaseByTagRequiresMatchingStrictResponse(t *testing.T) {
 
 			gh := newGHServer(t)
 			gh.setTag("v2.0.0", tt.status, tt.body)
-			client := newGitHubClient(gh.srv.URL, "test-version", "", slog.Default())
+			client := newGitHubClient(gh.srv.URL, "test-version", slog.Default())
 
 			rel, found, err := client.fetchReleaseByTag(context.Background(), "v2.0.0")
 			if tt.wantErr != "" {
@@ -676,7 +672,7 @@ func TestHTTPTransportErrorDoesNotExposeRequestURL(t *testing.T) {
 	t.Parallel()
 
 	const sensitiveURL = "https://user:password@example.com/releases?token=secret"
-	client := newGitHubClient("https://example.com", "test-version", "", slog.Default())
+	client := newGitHubClient("https://example.com", "test-version", slog.Default())
 	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, &url.Error{
 			Op:  http.MethodGet,
@@ -1125,7 +1121,7 @@ func TestNotesURLUsesCanonicalRepositoryAndTag(t *testing.T) {
 	assert.Empty(t, releaseNotesURL("v1.2.3/../../phishing"))
 }
 
-func TestCheckSafelyRecoversAndAllowsNextCycle(t *testing.T) {
+func TestCheckSafelyInvalidatesPrimedSnapshotAndAllowsNextCycle(t *testing.T) {
 	t.Parallel()
 
 	gh := newGHServer(t)
@@ -1133,7 +1129,7 @@ func TestCheckSafelyRecoversAndAllowsNextCycle(t *testing.T) {
 	calls := 0
 	c.client.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		calls++
-		if calls == 1 {
+		if calls == 3 {
 			panic("unexpected transport defect")
 		}
 		body := []byte("[]")
@@ -1148,11 +1144,22 @@ func TestCheckSafelyRecoversAndAllowsNextCycle(t *testing.T) {
 		}, nil
 	})
 
+	c.checkSafely(context.Background())
+	primed := c.Snapshot()
+	require.True(t, primed.StableAvailable)
+	require.True(t, primed.RCAvailable)
+	require.NotNil(t, primed.LatestStable)
+
 	assert.NotPanics(t, func() { c.checkSafely(context.Background()) })
 	records := h.recordsAbove(slog.LevelDebug)
 	require.Len(t, records, 1)
 	assert.Equal(t, slog.LevelError, records[0].Level)
 	assert.Equal(t, "release check panicked", records[0].Message)
+	afterPanic := c.Snapshot()
+	assert.False(t, afterPanic.StableAvailable)
+	assert.False(t, afterPanic.RCAvailable)
+	assert.Equal(t, primed.LatestStable, afterPanic.LatestStable,
+		"panic recovery should retain cached data while making it ineligible")
 
 	c.checkSafely(context.Background())
 	stable, available := c.Snapshot().EligibleStable()

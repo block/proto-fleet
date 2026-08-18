@@ -60,6 +60,7 @@ func (s *Strategy) ValidateRevert(
 	_ context.Context,
 	req rollout.RevertValidationRequest,
 ) error {
+	hasSucceededMember := false
 	for _, member := range req.Rollout.Members {
 		if member.State == rollout.MemberStateAdmitted {
 			return fmt.Errorf(
@@ -67,6 +68,15 @@ func (s *Strategy) ValidateRevert(
 				ErrMembershipConflict,
 			)
 		}
+		if member.State == rollout.MemberStateSucceeded {
+			hasSucceededMember = true
+		}
+	}
+	if !hasSucceededMember {
+		return fmt.Errorf(
+			"%w: rollout has no succeeded members to revert",
+			ErrMembershipConflict,
+		)
 	}
 	return nil
 }

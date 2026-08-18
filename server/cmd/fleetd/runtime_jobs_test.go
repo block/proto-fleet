@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	"github.com/stretchr/testify/require"
 )
@@ -75,9 +76,11 @@ func TestNewRuntimeJobs(t *testing.T) {
 		channelEnforcement:        noopLifecycle{},
 		rolloutLaneFinalizer:      noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
+		curtailmentRigConfig:      noopLifecycle{},
 		curtailmentAlertMetrics:   noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 		systemMonitoring:          noopLifecycle{},
+		releaseChecker:            noopLifecycle{},
 	}
 
 	jobs, err := newRuntimeJobs(all)
@@ -94,13 +97,16 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"channel-enforcement",
 		"rollout-lane-finalizer",
 		"curtailment-mqtt-subscriber",
+		"curtailment-rig-config",
 		"curtailment-alert-metrics",
 		"chunked-upload-cleanup",
 		"system-monitoring",
+		"release-checker",
 	}, jobNames(jobs))
 
 	all.curtailmentAlertMetrics = nil
 	all.systemMonitoring = nil
+	all.releaseChecker = nil
 	jobs, err = newRuntimeJobs(all)
 	require.NoError(t, err)
 	require.Equal(t, []string{
@@ -115,6 +121,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"channel-enforcement",
 		"rollout-lane-finalizer",
 		"curtailment-mqtt-subscriber",
+		"curtailment-rig-config",
 		"chunked-upload-cleanup",
 	}, jobNames(jobs))
 }
@@ -163,6 +170,7 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		channelEnforcement:        noopLifecycle{},
 		rolloutLaneFinalizer:      noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
+		curtailmentRigConfig:      noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 	})
 	require.NoError(t, err)
@@ -191,13 +199,15 @@ func TestRuntimeJobGroupAbortsCommandExecution(t *testing.T) {
 		channelEnforcement:        noopLifecycle{},
 		rolloutLaneFinalizer:      noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
+		curtailmentRigConfig:      noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 	})
 	require.NoError(t, err)
 	group, err := runtimejobs.NewGroup(jobs)
 	require.NoError(t, err)
+	require.NoError(t, group.Start(t.Context()))
 
-	group.Abort()
+	require.NoError(t, group.Abort(t.Context()))
 
 	require.True(t, commandAborted)
 }
@@ -264,6 +274,39 @@ func TestStopRuntimeJobGroupDoesNotRetrySuccessfulStop(t *testing.T) {
 	require.Len(t, group.contexts, 1)
 	_, hasDeadline := group.contexts[0].Deadline()
 	require.True(t, hasDeadline)
+}
+
+func TestStopRuntimeJobGroupAfterRunOnlySkipsHAAbort(t *testing.T) {
+	t.Run("HA abort", func(t *testing.T) {
+		// Arrange
+		group := &scriptedRuntimeJobGroupStopper{
+			stop: func(context.Context) error { return nil },
+		}
+
+		// Act
+		stopRuntimeJobGroupAfterRun(
+			errors.Join(errors.New("runtime failed"), ha.ErrRuntimeAborted),
+			group,
+			noopLifecycle{},
+			time.Second,
+		)
+
+		// Assert
+		require.Empty(t, group.contexts)
+	})
+
+	t.Run("standalone failure", func(t *testing.T) {
+		// Arrange
+		group := &scriptedRuntimeJobGroupStopper{
+			stop: func(context.Context) error { return nil },
+		}
+
+		// Act
+		stopRuntimeJobGroupAfterRun(errors.New("runtime failed"), group, noopLifecycle{}, time.Second)
+
+		// Assert
+		require.Len(t, group.contexts, 1)
+	})
 }
 
 func TestStopRuntimeJobGroupStopsCommandAfterGroupFailure(t *testing.T) {

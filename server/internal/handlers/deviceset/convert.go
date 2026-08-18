@@ -400,3 +400,49 @@ func toCollectionSaveRackReq(r *dspb.SaveRackRequest) *collectionpb.SaveRackRequ
 	}
 	return req
 }
+
+// --- CreateRacks ---
+
+func toCreateRacksParams(r *dspb.CreateRacksRequest, orgID int64) collection.CreateRacksParams {
+	params := collection.CreateRacksParams{
+		OrgID:      orgID,
+		SiteID:     r.SiteId,
+		BuildingID: r.BuildingId,
+		Racks:      make([]collection.NewRackParams, 0, len(r.Racks)),
+	}
+	for _, row := range r.Racks {
+		params.Racks = append(params.Racks, collection.NewRackParams{
+			Label:       row.GetLabel(),
+			Rows:        row.GetRows(),
+			Columns:     row.GetColumns(),
+			Zone:        row.GetZone(),
+			OrderIndex:  collectionpb.RackOrderIndex(row.GetOrderIndex()),
+			CoolingType: collectionpb.RackCoolingType(row.GetCoolingType()),
+		})
+	}
+	return params
+}
+
+func toDeviceSetRackCreateErrors(rejected []collection.PerRackCreateError) []*dspb.PerRackCreateError {
+	out := make([]*dspb.PerRackCreateError, 0, len(rejected))
+	for _, e := range rejected {
+		out = append(out, &dspb.PerRackCreateError{
+			Index:  e.Index,
+			Label:  e.Label,
+			Reason: toDeviceSetRackCreateErrorReason(e.Reason),
+		})
+	}
+	return out
+}
+
+func toDeviceSetRackCreateErrorReason(reason collection.RackCreateErrorReason) dspb.PerRackCreateErrorReason {
+	switch reason {
+	case collection.RackCreateDuplicateLabelInBatch:
+		return dspb.PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_BATCH
+	case collection.RackCreateDuplicateLabelInOrg:
+		return dspb.PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_ORG
+	case collection.RackCreateErrorReasonUnspecified:
+		return dspb.PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_UNSPECIFIED
+	}
+	return dspb.PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_UNSPECIFIED
+}

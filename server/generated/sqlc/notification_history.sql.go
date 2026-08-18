@@ -135,6 +135,106 @@ func (q *Queries) InsertNotificationHistory(ctx context.Context, arg InsertNotif
 	return err
 }
 
+const listActiveNotificationGroups = `-- name: ListActiveNotificationGroups :many
+WITH groups AS (
+    SELECT
+        na.alert_name,
+        na.rule_group,
+        COUNT(*)::bigint AS alert_count,
+        -- FILTER, not COUNT(DISTINCT NULLIF(...)): equivalent, but only the bare column matches
+        -- idx_notification_active_org_rollup's ordering, so this streams out of the GroupAggregate unsorted.
+        (COUNT(DISTINCT na.device_id) FILTER (WHERE na.device_id <> ''))::bigint AS device_count,
+        MIN(COALESCE(na.starts_at, na.received_at))::timestamptz AS first_started_at,
+        MAX(na.received_at) AS last_received_at
+    FROM notification_active na
+    WHERE na.organization_id = $1
+      AND na.status = 'firing'
+      AND na.received_at >= $2 -- drop alerts not re-asserted within the freshness window
+    GROUP BY na.alert_name, na.rule_group
+    ORDER BY device_count DESC, alert_count DESC, MAX(na.received_at) DESC, na.alert_name
+    LIMIT $3
+)
+SELECT
+    g.alert_name,
+    g.rule_group,
+    g.alert_count,
+    g.device_count,
+    g.first_started_at,
+    -- A group with miners is described by its drill-in, so it reports no free text here and the CASE drops what
+    -- the lateral found. device_id = '' is an index prefix, so a group with no device-less rows costs one descent.
+    -- The summary is a header-polled one-liner, so it is bounded here rather than shipping a whole TEXT column;
+    -- the template rides along because the caller decides from it whether the summary may name a miner. Neither
+    -- is length-checked on insert (000136 bounds only the indexed columns), and a truncated template fails that
+    -- decision closed: it matches no known template, so the summary is withheld.
+    (CASE WHEN g.device_count = 0 THEN LEFT(COALESCE(s.summary, ''), 500) ELSE '' END)::text AS summary,
+    (CASE WHEN g.device_count = 0 THEN LEFT(COALESCE(s.template, ''), 64) ELSE '' END)::text AS template
+FROM groups g
+LEFT JOIN LATERAL (
+    SELECT na.summary, na.template
+    FROM notification_active na
+    WHERE na.organization_id = $1
+      AND na.status = 'firing'
+      AND na.received_at >= $2
+      AND na.alert_name = g.alert_name
+      AND na.rule_group = g.rule_group
+      AND na.device_id = ''
+    ORDER BY na.received_at DESC, na.history_id DESC
+    LIMIT 1
+) s ON TRUE
+ORDER BY g.device_count DESC, g.alert_count DESC, g.last_received_at DESC, g.alert_name
+`
+
+type ListActiveNotificationGroupsParams struct {
+	OrganizationID int64
+	ActiveSince    time.Time
+	PageLimit      int32
+}
+
+type ListActiveNotificationGroupsRow struct {
+	AlertName      string
+	RuleGroup      string
+	AlertCount     int64
+	DeviceCount    int64
+	FirstStartedAt time.Time
+	Summary        string
+	Template       string
+}
+
+// Firing alerts rolled up per rule, worst blast radius first. (alert_name, rule_group) is rule identity: Grafana
+// keeps titles unique per folder and a rule_group label maps to one folder, so a title repeats only across labels.
+// Counts and identity aggregate here; the one piece of per-instance detail is picked off in the lateral below.
+// Repeated: the CTE's ordering is not guaranteed to survive the join.
+func (q *Queries) ListActiveNotificationGroups(ctx context.Context, arg ListActiveNotificationGroupsParams) ([]ListActiveNotificationGroupsRow, error) {
+	rows, err := q.query(ctx, q.listActiveNotificationGroupsStmt, listActiveNotificationGroups, arg.OrganizationID, arg.ActiveSince, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveNotificationGroupsRow
+	for rows.Next() {
+		var i ListActiveNotificationGroupsRow
+		if err := rows.Scan(
+			&i.AlertName,
+			&i.RuleGroup,
+			&i.AlertCount,
+			&i.DeviceCount,
+			&i.FirstStartedAt,
+			&i.Summary,
+			&i.Template,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActiveNotifications = `-- name: ListActiveNotifications :many
 SELECT
     na.history_id,
@@ -195,7 +295,8 @@ type ListActiveNotificationsRow struct {
 
 // Current firing alerts (one row per alert instance), served from the incrementally-maintained
 // notification_active table, which also retains resolved tombstones; device name/MAC are joined live
-// so they reflect current device records.
+// so they reflect current device records. Ordered to match idx_notification_active_org_recent, so the freshness
+// window is a range scan that stops at page_limit rather than a sort over the whole set.
 func (q *Queries) ListActiveNotifications(ctx context.Context, arg ListActiveNotificationsParams) ([]ListActiveNotificationsRow, error) {
 	rows, err := q.query(ctx, q.listActiveNotificationsStmt, listActiveNotifications, arg.OrganizationID, arg.ActiveSince, arg.PageLimit)
 	if err != nil {
@@ -206,6 +307,120 @@ func (q *Queries) ListActiveNotifications(ctx context.Context, arg ListActiveNot
 	for rows.Next() {
 		var i ListActiveNotificationsRow
 		if err := rows.Scan(
+			&i.HistoryID,
+			&i.ReceivedAt,
+			&i.AlertName,
+			&i.Severity,
+			&i.RuleGroup,
+			&i.Fingerprint,
+			&i.OrganizationID,
+			&i.DeviceID,
+			&i.DeviceName,
+			&i.DeviceMac,
+			&i.Template,
+			&i.Summary,
+			&i.StartsAt,
+			&i.EndsAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveNotificationsByAlert = `-- name: ListActiveNotificationsByAlert :many
+SELECT
+    na.alert_key,
+    na.history_id,
+    na.received_at,
+    na.alert_name,
+    na.severity,
+    na.rule_group,
+    na.fingerprint,
+    na.organization_id,
+    na.device_id,
+    COALESCE(
+        TRIM(COALESCE(
+            NULLIF(d.custom_name, ''),
+            COALESCE(dd.manufacturer, '') || ' ' || COALESCE(dd.model, '')
+        )),
+        ''
+    )::text AS device_name,
+    COALESCE(d.mac_address, '') AS device_mac,
+    na.template,
+    na.summary,
+    na.starts_at,
+    na.ends_at
+FROM notification_active na
+LEFT JOIN device d
+    ON d.device_identifier = na.device_id
+    AND d.org_id = na.organization_id
+    AND d.deleted_at IS NULL
+LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE na.organization_id = $1
+  AND na.status = 'firing'
+  AND na.received_at >= $2 -- drop alerts not re-asserted within the freshness window
+  AND na.alert_name = $3
+  AND na.rule_group = $4
+  AND ($5::text IS NULL OR na.alert_key > $5)
+ORDER BY na.alert_key
+LIMIT $6
+`
+
+type ListActiveNotificationsByAlertParams struct {
+	OrganizationID int64
+	ActiveSince    time.Time
+	AlertName      string
+	RuleGroup      string
+	AfterKey       sql.NullString
+	PageLimit      int32
+}
+
+type ListActiveNotificationsByAlertRow struct {
+	AlertKey       string
+	HistoryID      int64
+	ReceivedAt     time.Time
+	AlertName      string
+	Severity       string
+	RuleGroup      string
+	Fingerprint    string
+	OrganizationID int64
+	DeviceID       string
+	DeviceName     string
+	DeviceMac      string
+	Template       string
+	Summary        string
+	StartsAt       sql.NullTime
+	EndsAt         sql.NullTime
+}
+
+// One rule's firing instances, one per affected miner: the drill-in behind a rollup row. Keyset on alert_key,
+// not history_id: a re-assert rewrites history_id, lifting an unread row above the cursor and losing it.
+func (q *Queries) ListActiveNotificationsByAlert(ctx context.Context, arg ListActiveNotificationsByAlertParams) ([]ListActiveNotificationsByAlertRow, error) {
+	rows, err := q.query(ctx, q.listActiveNotificationsByAlertStmt, listActiveNotificationsByAlert,
+		arg.OrganizationID,
+		arg.ActiveSince,
+		arg.AlertName,
+		arg.RuleGroup,
+		arg.AfterKey,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveNotificationsByAlertRow
+	for rows.Next() {
+		var i ListActiveNotificationsByAlertRow
+		if err := rows.Scan(
+			&i.AlertKey,
 			&i.HistoryID,
 			&i.ReceivedAt,
 			&i.AlertName,

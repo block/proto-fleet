@@ -31,6 +31,8 @@ const listCurtailmentEventsDefaultPageSize int32 = 50
 const listCurtailmentEventsMaxPageSize int32 = 200
 const listCurtailmentEventsMaxPermissionScanPages = 3
 
+const requestReadMaxBytes = 2 << 20
+
 // Handler implements the curtailment RPC surface; service=nil keeps
 // RPC bodies at Unimplemented after any entry auth gates run.
 type Handler struct {
@@ -41,6 +43,11 @@ type Handler struct {
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
+
+// RequestReadLimitOption caps curtailment RPC bodies before Connect unmarshals them.
+func RequestReadLimitOption() connect.HandlerOption {
+	return connect.WithReadMaxBytes(requestReadMaxBytes)
+}
 
 func NewHandler(service *curtailment.Service, mqttSettings ...*mqttingest.SettingsService) *Handler {
 	h := &Handler{service: service}
@@ -483,7 +490,7 @@ func (h *Handler) scopeResourceContextRequirementsFromProto(
 	deviceSites map[string]*int64,
 	requireKnownDevices bool,
 ) (scopeResourceContextRequirements, error) {
-	scope, err := toCompositeScope(scopes)
+	scope, err := toTerminalScope(scopes)
 	if err != nil {
 		return scopeResourceContextRequirements{}, err
 	}
@@ -501,6 +508,13 @@ func (h *Handler) scopeResourceContextRequirements(
 		siteContexts: siteResourceContextsForScope(scope),
 	}
 	if scope.Type == models.ScopeTypeWholeOrg || scopeHasNoSelectors(scope) {
+		out.requireOrgWide = true
+		return out, nil
+	}
+	if len(scope.BuildingIDs) > 0 || len(scope.RackIDs) > 0 || len(scope.GroupIDs) > 0 {
+		// Topology resolution will eventually derive the complete site envelope.
+		// Until then, fail closed instead of authorizing an unresolved selector
+		// against an empty resource context.
 		out.requireOrgWide = true
 		return out, nil
 	}
@@ -543,7 +557,9 @@ func scopeHasNoSelectors(scope curtailment.Scope) bool {
 	return scope.Type == "" &&
 		scope.SiteID == 0 &&
 		len(scope.SiteIDs) == 0 &&
-		len(scope.DeviceSetIDs) == 0 &&
+		len(scope.BuildingIDs) == 0 &&
+		len(scope.RackIDs) == 0 &&
+		len(scope.GroupIDs) == 0 &&
 		len(scope.DeviceIdentifiers) == 0
 }
 
@@ -845,7 +861,7 @@ func shouldBatchHydrateTargetSiteCoverage(event *models.Event) bool {
 		return false
 	}
 	switch event.ScopeType {
-	case models.ScopeTypeDeviceList, models.ScopeTypeDeviceSets:
+	case models.ScopeTypeDeviceList:
 		return true
 	case models.ScopeTypeMixed:
 		_, handled, err := mixedSiteOnlyEventResourceContexts(event)

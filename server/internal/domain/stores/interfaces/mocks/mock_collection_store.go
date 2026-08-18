@@ -670,6 +670,21 @@ func (mr *MockCollectionStoreMockRecorder) ListRackZones(ctx, orgID any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackZones", reflect.TypeOf((*MockCollectionStore)(nil).ListRackZones), ctx, orgID)
 }
 
+// ListTakenLabels mocks base method.
+func (m *MockCollectionStore) ListTakenLabels(ctx context.Context, orgID int64, collectionType collectionv1.CollectionType, labels []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTakenLabels", ctx, orgID, collectionType, labels)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTakenLabels indicates an expected call of ListTakenLabels.
+func (mr *MockCollectionStoreMockRecorder) ListTakenLabels(ctx, orgID, collectionType, labels any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTakenLabels", reflect.TypeOf((*MockCollectionStore)(nil).ListTakenLabels), ctx, orgID, collectionType, labels)
+}
+
 // LockChannelForWrite mocks base method.
 func (m *MockCollectionStore) LockChannelForWrite(ctx context.Context, collectionID, orgID int64) error {
 	m.ctrl.T.Helper()

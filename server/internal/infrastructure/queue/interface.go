@@ -7,8 +7,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 )
 
-// ErrStale is returned when a MarkSuccess/MarkFailed/MarkPermanentlyFailed update
-// finds 0 rows affected because the message is no longer in PROCESSING state (e.g., already reaped).
+// ErrStale is returned when a terminal update finds that a message is no
+// longer in PROCESSING state, for example because it was already reaped.
 var ErrStale = errors.New("stale: message no longer PROCESSING")
 
 type Message struct {
@@ -54,21 +54,7 @@ type MessageQueue interface {
 	// Dequeue retrieves and locks at most limit commands for processing.
 	Dequeue(ctx context.Context, limit int32) ([]Message, error)
 
-	// MarkSuccess updates a command as successfully processed.
-	// Returns ErrStale if the message is no longer PROCESSING.
-	MarkSuccess(ctx context.Context, messageID int64) error
-
-	// MarkFailed updates a command as failed with error info (may retry if under max retries).
-	// Returns ErrStale if the message is no longer PROCESSING.
-	MarkFailed(ctx context.Context, messageID int64, errorInfo string) error
-
-	// MarkPermanentlyFailed marks a command as failed with no retries (for permanent errors like unsupported capabilities).
-	// Returns ErrStale if the message is no longer PROCESSING.
-	MarkPermanentlyFailed(ctx context.Context, messageID int64, errorInfo string) error
-
 	IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error)
-
-	IsBatchProcessing(ctx context.Context, commandBatchLogUUID string) (bool, error)
 
 	// MaxFailureRetries returns the configured maximum number of retry attempts
 	// before a message is permanently marked FAILED.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"connectrpc.com/authn"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -140,6 +141,31 @@ func TestPairDevicesAllowAllFailedReturnsCanceledError(t *testing.T) {
 
 	require.Nil(t, resp)
 	require.True(t, fleeterror.IsCanceledError(err))
+}
+
+func TestPairingRigConfigReapplyDetachesFromRequestCancellation(t *testing.T) {
+	type reapplyCall struct {
+		ctxErr error
+		orgID  int64
+		userID int64
+	}
+	reapplied := make(chan reapplyCall, 1)
+	service := &Service{rigConfigReapplier: func(ctx context.Context, orgID, userID int64) {
+		reapplied <- reapplyCall{ctxErr: ctx.Err(), orgID: orgID, userID: userID}
+	}}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	service.reapplyRigConfigBestEffort(ctx, 42, 9)
+
+	select {
+	case call := <-reapplied:
+		require.Equal(t, int64(42), call.orgID)
+		require.Equal(t, int64(9), call.userID)
+		require.NoError(t, call.ctxErr)
+	case <-time.After(time.Second):
+		t.Fatal("rig config reapply was not started")
+	}
 }
 
 func TestCanonicalCIDR(t *testing.T) {

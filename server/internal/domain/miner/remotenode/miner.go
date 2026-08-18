@@ -97,6 +97,7 @@ type Miner struct {
 
 var _ interfaces.Miner = (*Miner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*Miner)(nil)
+var _ interfaces.MinerCurtailmentConfigurator = (*Miner)(nil)
 
 // Keep the remote diagnostics wait aligned with the cloud command worker budget
 // and above the fleet node's minerCommandTimeout, while still bounding callers
@@ -184,6 +185,19 @@ func (m *Miner) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 
 func (m *Miner) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
 	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_Uncurtail{Uncurtail: &gatewaypb.UncurtailAction{}}})
+}
+
+// ApplyCurtailmentConfig forwards the device-bound encrypted config to its
+// FleetNode. Plaintext is never accepted on the node transport.
+func (m *Miner) ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
+	if payload.EncryptedConfig == nil {
+		return fleeterror.NewFailedPreconditionError("encrypted curtailment config is required for fleet-node miner")
+	}
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ApplyCurtailmentConfig{
+		ApplyCurtailmentConfig: &gatewaypb.ApplyCurtailmentConfigAction{
+			EncryptedConfig: dtoNodeEncryptedPayloadToProto(payload.EncryptedConfig),
+		},
+	}})
 }
 
 func (m *Miner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {

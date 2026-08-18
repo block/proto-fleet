@@ -2136,7 +2136,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("preserves all-sites selection when saving a miner subset", async () => {
+  it("keeps all-sites as drill-down context while confirming only the terminal miner subset", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: { ...configuredValues, includeMaintenance: false },
@@ -2155,6 +2155,9 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(
+      screen.getByText("This will curtail 3 miners immediately. Schedules stay suppressed until miners are restored."),
+    ).toBeInTheDocument();
     await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
