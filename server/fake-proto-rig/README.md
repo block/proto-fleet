@@ -36,7 +36,10 @@ Fake uploads are streamed with a 512 MiB request limit. Only the version scan
 prefix is retained in memory.
 
 Tests can set the one-shot outcome for the next update through the fake-only
-`PUT /fake-api/v1/test/firmware-update/outcome` endpoint:
+`PUT /fake-api/v1/test/firmware-update/outcome` endpoint. Set
+`FAKE_RIG_ENABLE_TEST_CONTROLS=true` to register this endpoint, then authenticate
+with a bearer token issued by `/api/v1/auth/login`. The endpoint is unavailable
+by default.
 
 ```json
 {"outcome":"success"}
@@ -68,6 +71,7 @@ docker run -p 8080:8080 fake-proto-rig
 | `HTTP_PORT` | Port to listen on | `8080` |
 | `SERIAL_NUMBER` | Device serial number | `PROTO-SIM-<uuid>` |
 | `MAC_ADDRESS` | Device MAC address | Generated from instance ID |
+| `FAKE_RIG_ENABLE_TEST_CONTROLS` | Enable authenticated fake-only test control endpoints | `false` |
 
 ### Error Injection
 

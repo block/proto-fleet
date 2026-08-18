@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -27,8 +28,10 @@ const (
 	maxLocateLEDOnTimeSecs               = 300
 	firmwareVersionScanLimit       int64 = 64 * 1024
 	maxFirmwareUploadBytes         int64 = 512 * 1024 * 1024
+	maxTestControlRequestBytes     int64 = 1024
 	defaultFirmwareStepDelay             = 1 * time.Second
 	defaultFirmwareInstallDelay          = 2 * time.Second
+	fakeRigEnableTestControlsEnv         = "FAKE_RIG_ENABLE_TEST_CONTROLS"
 	firmwareUpdateOutcomeSuccess         = "success"
 	firmwareUpdateOutcomeError           = "error"
 	firmwareUpdateOutcomeAttention       = "attention"
@@ -236,16 +239,16 @@ func firmwareVersionFromContent(content io.Reader) (string, bool, error) {
 	return "", false, nil
 }
 
-func stagedFirmwareVersion(filename string, content io.Reader, currentVersion string) (string, error) {
+func explicitFirmwareVersion(filename string, content io.Reader) (string, bool, error) {
 	if version, ok := firmwareVersionFromFilename(filename); ok {
-		return version, nil
+		return version, true, nil
 	}
 	if version, ok, err := firmwareVersionFromContent(content); err != nil {
-		return "", err
+		return "", false, err
 	} else if ok {
-		return version, nil
+		return version, true, nil
 	}
-	return nextFirmwareVersion(currentVersion), nil
+	return "", false, nil
 }
 
 func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion, updateError string) UpdateStatus {
@@ -654,6 +657,7 @@ type PSUTelemetry struct {
 // RESTApiHandler handles REST API requests
 type RESTApiHandler struct {
 	state                *MinerState
+	testControlsEnabled  bool
 	locateTimerMu        sync.Mutex
 	cancelLocateTimer    func()
 	scheduleLocateClear  func(time.Duration, func()) func()
@@ -665,6 +669,7 @@ type RESTApiHandler struct {
 func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 	return &RESTApiHandler{
 		state:                state,
+		testControlsEnabled:  getEnvBool(fakeRigEnableTestControlsEnv, false),
 		firmwareStepDelay:    defaultFirmwareStepDelay,
 		firmwareInstallDelay: defaultFirmwareInstallDelay,
 		scheduleLocateClear: func(duration time.Duration, callback func()) func() {
@@ -687,8 +692,13 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 //   - Everything else: auth requirements still apply, but default_password_active
 //     does not block the route.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
-	// This test-control route is intentionally outside the real device API.
-	mux.HandleFunc("/fake-api/v1/test/firmware-update/outcome", h.handleFakeFirmwareUpdateOutcome)
+	if h.testControlsEnabled {
+		// This authenticated test-control route is intentionally outside the real device API.
+		mux.HandleFunc(
+			"/fake-api/v1/test/firmware-update/outcome",
+			h.requireBearerAuth(h.handleFakeFirmwareUpdateOutcome),
+		)
+	}
 
 	// Pools: auth required, not blocked by default_password_active per firmware.
 	// Fleet onboarding configures pools before the operator changes the password.
@@ -2059,13 +2069,8 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		h.state.mu.RLock()
-		currentVersion := h.state.FWCurrentVersion
-		h.state.mu.RUnlock()
-		if currentVersion == "" {
-			currentVersion = defaultFirmwareVersion
-		}
-		newVersion, err := stagedFirmwareVersion(file.FileName(), file, currentVersion)
+		filename := file.FileName()
+		explicitVersion, hasExplicitVersion, err := explicitFirmwareVersion(filename, file)
 		if err != nil {
 			_ = file.Close()
 			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Unable to inspect firmware upload")
@@ -2092,10 +2097,18 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
 			return
 		}
+		newVersion := explicitVersion
+		if !hasExplicitVersion {
+			currentVersion := h.state.FWCurrentVersion
+			if currentVersion == "" {
+				currentVersion = defaultFirmwareVersion
+			}
+			newVersion = nextFirmwareVersion(currentVersion)
+		}
 		sequence := h.beginFirmwareUpdateLocked("downloaded", newVersion)
 		h.state.mu.Unlock()
 
-		log.Printf("Firmware upload received: filename=%s", file.FileName())
+		log.Printf("Firmware upload received: filename=%s", filename)
 		h.startFirmwareUploadLifecycle(sequence)
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
@@ -2113,8 +2126,24 @@ func (h *RESTApiHandler) handleFakeFirmwareUpdateOutcome(w http.ResponseWriter, 
 	var request struct {
 		Outcome string `json:"outcome"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxTestControlRequestBytes)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&request); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			h.writeError(w, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "Request body is too large")
+			return
+		}
 		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			h.writeError(w, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "Request body is too large")
+			return
+		}
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Request body must contain exactly one JSON value")
 		return
 	}
 
