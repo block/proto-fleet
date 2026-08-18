@@ -298,6 +298,34 @@ func TestInitialStartWaitsForWitnessServiceToBecomeActive(t *testing.T) {
 	require.Equal(t, 1, vipChecks)
 }
 
+func TestInitialStartCancellationDuringLocalEtcdWaitLeavesServicesEnabled(t *testing.T) {
+	// Arrange
+	config := NodeConfig{NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0]}
+	var calls []string
+	deps := installDependencies{
+		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			calls = append(calls, strings.Join(append([]string{name}, args...), " "))
+			return nil, nil
+		},
+		localReady: func(context.Context, NodeConfig) error {
+			return fmt.Errorf("stopped waiting for local etcd member: %w", context.Canceled)
+		},
+	}
+
+	// Act
+	err := initialStart(t.Context(), config, deps)
+
+	// Assert
+	require.ErrorIs(t, err, errInstallConverging)
+	require.ErrorContains(t, err, "reconnect and run systemctl status proto-fleet-ha.service")
+	joined := strings.Join(calls, "\n")
+	require.Contains(t, joined, "sudo systemctl enable proto-fleet-ha.service")
+	require.Contains(t, joined, "sudo systemctl enable proto-fleet-updater.service")
+	require.Contains(t, joined, "sudo systemctl start --no-block proto-fleet-ha.service")
+	require.NotContains(t, joined, "sudo systemctl disable --now proto-fleet-updater.service")
+	require.NotContains(t, joined, "sudo systemctl disable --now proto-fleet-ha.service")
+}
+
 func TestInitialStartCleansUpWhenLocalEtcdDoesNotStart(t *testing.T) {
 	// Arrange
 	config := NodeConfig{NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0]}

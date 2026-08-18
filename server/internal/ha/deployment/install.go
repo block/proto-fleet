@@ -878,6 +878,9 @@ func initialStart(ctx context.Context, config NodeConfig, deps installDependenci
 		return stopIncompleteHA(ctx, deps, fmt.Errorf("start HA services: %s", commandError(output, err)), cleanupUpdater)
 	}
 	if err := deps.localReady(ctx, config); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("%w; reconnect and run systemctl status proto-fleet-ha.service: %v", errInstallConverging, err)
+		}
 		return stopIncompleteHA(ctx, deps, err, cleanupUpdater)
 	}
 	fmt.Println("[peer waiting] HA service is enabled and will keep converging while peers join")
