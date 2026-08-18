@@ -300,6 +300,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countResponseProfilesByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevices: %w", err)
 	}
+	if q.countRolloutLaneNonCurrentMembersStmt, err = db.PrepareContext(ctx, countRolloutLaneNonCurrentMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query CountRolloutLaneNonCurrentMembers: %w", err)
+	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
@@ -1016,6 +1019,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.haltChannelFirmwareAuthorityStmt, err = db.PrepareContext(ctx, haltChannelFirmwareAuthority); err != nil {
 		return nil, fmt.Errorf("error preparing query HaltChannelFirmwareAuthority: %w", err)
+	}
+	if q.hasFirmwareRolloutSucceededMembersStmt, err = db.PrepareContext(ctx, hasFirmwareRolloutSucceededMembers); err != nil {
+		return nil, fmt.Errorf("error preparing query HasFirmwareRolloutSucceededMembers: %w", err)
 	}
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
@@ -1767,6 +1773,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateDiscoveredDeviceFirmwareVersionStmt, err = db.PrepareContext(ctx, updateDiscoveredDeviceFirmwareVersion); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDiscoveredDeviceFirmwareVersion: %w", err)
 	}
+	if q.updateDiscoveredDeviceModelByDeviceIdentifierStmt, err = db.PrepareContext(ctx, updateDiscoveredDeviceModelByDeviceIdentifier); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateDiscoveredDeviceModelByDeviceIdentifier: %w", err)
+	}
 	if q.updateFirmwareRolloutMemberStmt, err = db.PrepareContext(ctx, updateFirmwareRolloutMember); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateFirmwareRolloutMember: %w", err)
 	}
@@ -2353,6 +2362,11 @@ func (q *Queries) Close() error {
 	if q.countResponseProfilesByInfrastructureDevicesStmt != nil {
 		if cerr := q.countResponseProfilesByInfrastructureDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countRolloutLaneNonCurrentMembersStmt != nil {
+		if cerr := q.countRolloutLaneNonCurrentMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countRolloutLaneNonCurrentMembersStmt: %w", cerr)
 		}
 	}
 	if q.createApiKeyStmt != nil {
@@ -3548,6 +3562,11 @@ func (q *Queries) Close() error {
 	if q.haltChannelFirmwareAuthorityStmt != nil {
 		if cerr := q.haltChannelFirmwareAuthorityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing haltChannelFirmwareAuthorityStmt: %w", cerr)
+		}
+	}
+	if q.hasFirmwareRolloutSucceededMembersStmt != nil {
+		if cerr := q.hasFirmwareRolloutSucceededMembersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasFirmwareRolloutSucceededMembersStmt: %w", cerr)
 		}
 	}
 	if q.hasUserStmt != nil {
@@ -4800,6 +4819,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateDiscoveredDeviceFirmwareVersionStmt: %w", cerr)
 		}
 	}
+	if q.updateDiscoveredDeviceModelByDeviceIdentifierStmt != nil {
+		if cerr := q.updateDiscoveredDeviceModelByDeviceIdentifierStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateDiscoveredDeviceModelByDeviceIdentifierStmt: %w", cerr)
+		}
+	}
 	if q.updateFirmwareRolloutMemberStmt != nil {
 		if cerr := q.updateFirmwareRolloutMemberStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateFirmwareRolloutMemberStmt: %w", cerr)
@@ -5136,6 +5160,7 @@ type Queries struct {
 	countRacksInBuildingStmt                                     *sql.Stmt
 	countResponseProfilesByInfrastructureDeviceStmt              *sql.Stmt
 	countResponseProfilesByInfrastructureDevicesStmt             *sql.Stmt
+	countRolloutLaneNonCurrentMembersStmt                        *sql.Stmt
 	createApiKeyStmt                                             *sql.Stmt
 	createBetweenChannelAdmissionEnforcementsStmt                *sql.Stmt
 	createBetweenChannelRevertEnforcementsStmt                   *sql.Stmt
@@ -5375,6 +5400,7 @@ type Queries struct {
 	getUserRoleNameStmt                                          *sql.Stmt
 	getUsersForOrganizationStmt                                  *sql.Stmt
 	haltChannelFirmwareAuthorityStmt                             *sql.Stmt
+	hasFirmwareRolloutSucceededMembersStmt                       *sql.Stmt
 	hasUserStmt                                                  *sql.Stmt
 	holdChannelFirmwareEnforcementStmt                           *sql.Stmt
 	insertActivityLogStmt                                        *sql.Stmt
@@ -5625,6 +5651,7 @@ type Queries struct {
 	updateDeviceWorkerNameStmt                                   *sql.Stmt
 	updateDeviceWorkerNamePoolSyncStatusByIDStmt                 *sql.Stmt
 	updateDiscoveredDeviceFirmwareVersionStmt                    *sql.Stmt
+	updateDiscoveredDeviceModelByDeviceIdentifierStmt            *sql.Stmt
 	updateFirmwareRolloutMemberStmt                              *sql.Stmt
 	updateFleetNodeLastSeenAtStmt                                *sql.Stmt
 	updateInfrastructureDeviceStmt                               *sql.Stmt
@@ -5764,6 +5791,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countRacksInBuildingStmt:                                     q.countRacksInBuildingStmt,
 		countResponseProfilesByInfrastructureDeviceStmt:              q.countResponseProfilesByInfrastructureDeviceStmt,
 		countResponseProfilesByInfrastructureDevicesStmt:             q.countResponseProfilesByInfrastructureDevicesStmt,
+		countRolloutLaneNonCurrentMembersStmt:                        q.countRolloutLaneNonCurrentMembersStmt,
 		createApiKeyStmt:                                             q.createApiKeyStmt,
 		createBetweenChannelAdmissionEnforcementsStmt:                q.createBetweenChannelAdmissionEnforcementsStmt,
 		createBetweenChannelRevertEnforcementsStmt:                   q.createBetweenChannelRevertEnforcementsStmt,
@@ -6003,6 +6031,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserRoleNameStmt:                                          q.getUserRoleNameStmt,
 		getUsersForOrganizationStmt:                                  q.getUsersForOrganizationStmt,
 		haltChannelFirmwareAuthorityStmt:                             q.haltChannelFirmwareAuthorityStmt,
+		hasFirmwareRolloutSucceededMembersStmt:                       q.hasFirmwareRolloutSucceededMembersStmt,
 		hasUserStmt:                                                  q.hasUserStmt,
 		holdChannelFirmwareEnforcementStmt:                           q.holdChannelFirmwareEnforcementStmt,
 		insertActivityLogStmt:                                        q.insertActivityLogStmt,
@@ -6253,6 +6282,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDeviceWorkerNameStmt:                                   q.updateDeviceWorkerNameStmt,
 		updateDeviceWorkerNamePoolSyncStatusByIDStmt:                 q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
 		updateDiscoveredDeviceFirmwareVersionStmt:                    q.updateDiscoveredDeviceFirmwareVersionStmt,
+		updateDiscoveredDeviceModelByDeviceIdentifierStmt:            q.updateDiscoveredDeviceModelByDeviceIdentifierStmt,
 		updateFirmwareRolloutMemberStmt:                              q.updateFirmwareRolloutMemberStmt,
 		updateFleetNodeLastSeenAtStmt:                                q.updateFleetNodeLastSeenAtStmt,
 		updateInfrastructureDeviceStmt:                               q.updateInfrastructureDeviceStmt,

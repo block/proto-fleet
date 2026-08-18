@@ -70,6 +70,7 @@ type Enforcement struct {
 	ClaimedAt                   *time.Time
 	EnqueuedAt                  *time.Time
 	CommandCompletedAt          *time.Time
+	NextReconcileAt             time.Time
 	LastObservedFirmwareVersion *string
 	FirmwareObservedAt          *time.Time
 	LastObservedHashrateHS      *float64

@@ -456,6 +456,7 @@ type ChannelFirmwareEnforcement struct {
 	LastError                   sql.NullString
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
+	NextReconcileAt             time.Time
 }
 
 type CommandBatchLog struct {
@@ -971,18 +972,20 @@ type FirmwareRolloutBatch struct {
 }
 
 type FirmwareRolloutCause struct {
-	ID              int64
-	RolloutID       uuid.UUID
-	MemberID        sql.NullInt64
-	ControlID       uuid.NullUUID
-	OrgID           int64
-	Operation       string
-	Reason          string
-	ActorUserID     int64
-	FromState       sql.NullString
-	ToState         string
-	RolloutRevision int64
-	CreatedAt       time.Time
+	ID                int64
+	RolloutID         uuid.UUID
+	MemberID          sql.NullInt64
+	ControlID         uuid.NullUUID
+	OrgID             int64
+	Operation         string
+	Reason            string
+	ActorUserID       int64
+	FromState         sql.NullString
+	ToState           string
+	RolloutRevision   int64
+	CreatedAt         time.Time
+	ActorType         string
+	ActorCredentialID sql.NullString
 }
 
 type FirmwareRolloutControl struct {
@@ -1000,6 +1003,8 @@ type FirmwareRolloutControl struct {
 	CreatedByUserID    int64
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	ActorType          string
+	ActorCredentialID  sql.NullString
 }
 
 type FirmwareRolloutEvidence struct {

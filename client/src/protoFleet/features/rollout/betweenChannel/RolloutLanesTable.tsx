@@ -1,4 +1,4 @@
-import { isActiveRollout } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
+import { rolloutLaneStartBlockedReason } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import type { RolloutLane, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -14,6 +14,7 @@ export interface LaneTableRow {
 interface RolloutLanesTableProps {
   rows: LaneTableRow[];
   canStart: boolean;
+  isPreparingStart?: boolean;
   onStart: (lane: RolloutLane) => void;
   onView: (rollout: RolloutRecord) => void;
 }
@@ -45,7 +46,13 @@ function rolloutStateLabel(state: RolloutRecord["state"]): string {
   }
 }
 
-export default function RolloutLanesTable({ rows, canStart, onStart, onView }: RolloutLanesTableProps) {
+export default function RolloutLanesTable({
+  rows,
+  canStart,
+  isPreparingStart = false,
+  onStart,
+  onView,
+}: RolloutLanesTableProps) {
   const colConfig: ColConfig<LaneTableRow, string, LaneColumn> = {
     lane: {
       component: ({ lane }) => (
@@ -83,29 +90,37 @@ export default function RolloutLanesTable({ rows, canStart, onStart, onView }: R
       allowWrap: true,
     },
     actions: {
-      component: ({ lane, latestRollout }) => (
-        <div className="flex justify-end gap-2">
-          {latestRollout ? (
-            <Button
-              text="View"
-              ariaLabel={`View latest rollout for ${lane.label}`}
-              variant={variants.secondary}
-              size={sizes.compact}
-              onClick={() => onView(latestRollout)}
-            />
-          ) : null}
-          {canStart ? (
-            <Button
-              text="Start rollout"
-              ariaLabel={`Start rollout for ${lane.label}`}
-              variant={variants.primary}
-              size={sizes.compact}
-              disabled={isActiveRollout(latestRollout)}
-              onClick={() => onStart(lane)}
-            />
-          ) : null}
-        </div>
-      ),
+      component: ({ lane, latestRollout }) => {
+        const blockedReason = rolloutLaneStartBlockedReason(lane, latestRollout);
+        return (
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex justify-end gap-2">
+              {latestRollout ? (
+                <Button
+                  text="View"
+                  ariaLabel={`View latest rollout for ${lane.label}`}
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  onClick={() => onView(latestRollout)}
+                />
+              ) : null}
+              {canStart ? (
+                <Button
+                  text="Start rollout"
+                  ariaLabel={`Start rollout for ${lane.label}`}
+                  variant={variants.primary}
+                  size={sizes.compact}
+                  disabled={isPreparingStart || blockedReason !== null}
+                  onClick={() => onStart(lane)}
+                />
+              ) : null}
+            </div>
+            {canStart && blockedReason ? (
+              <div className="max-w-64 text-right text-200 text-text-primary-70">{blockedReason}</div>
+            ) : null}
+          </div>
+        );
+      },
       width: "w-64",
     },
   };

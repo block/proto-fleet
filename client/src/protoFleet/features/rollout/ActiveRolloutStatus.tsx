@@ -58,6 +58,7 @@ interface ActiveRolloutStatusProps {
   onRevert?: () => void;
   onCancelRemaining?: () => void;
   onContinueFromReview?: () => void;
+  onCompleteWithFailures?: () => void;
   onRetryFailed?: () => void;
   onViewMiners?: () => void;
   onViewErrors?: () => void;
@@ -230,6 +231,7 @@ function ActiveRolloutStatus({
   onRevert,
   onCancelRemaining,
   onContinueFromReview,
+  onCompleteWithFailures,
   onRetryFailed,
   onViewMiners,
   onViewErrors,
@@ -300,6 +302,7 @@ function ActiveRolloutStatus({
           onRevert,
           onCancelRemaining,
           onContinueFromReview,
+          onCompleteWithFailures,
           onRetryFailed,
         },
         { canManage, canControl },

@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { buildManualBatches, evaluateTargetCompatibility } from "./betweenChannelUtils";
+import {
+  buildManualBatches,
+  canCompleteWithFailures,
+  canRevertRollout,
+  evaluateTargetCompatibility,
+  rolloutLaneStartBlockedReason,
+  shouldMonitorRollout,
+} from "./betweenChannelUtils";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
-import type { RolloutLaneReleaseTarget } from "@/protoFleet/features/rollout/rolloutTypes";
+import type {
+  RolloutLane,
+  RolloutLaneReleaseTarget,
+  RolloutMemberState,
+  RolloutRecord,
+} from "@/protoFleet/features/rollout/rolloutTypes";
 
 const sourceTargets: RolloutLaneReleaseTarget[] = [
   {
@@ -59,6 +71,65 @@ function targetKey(manufacturer: string, model: string): string {
   return key;
 }
 
+function rolloutWithMembers(
+  state: RolloutRecord["state"],
+  memberStates: RolloutMemberState[],
+  overrides: Partial<RolloutRecord> = {},
+): RolloutRecord {
+  return {
+    id: "rollout-1",
+    name: "Production rollout",
+    strategyKey: "between_channel",
+    state,
+    revision: 1n,
+    sourceChannelId: 41n,
+    targetChannelId: 42n,
+    reason: "Validated release",
+    batches: [
+      {
+        id: 1n,
+        position: 0,
+        label: "Final",
+        state: "completed",
+        revision: 1n,
+        members: [],
+      },
+    ],
+    members: memberStates.map((memberState, index) => ({
+      id: BigInt(index + 1),
+      batchId: 1n,
+      deviceIdentifier: `miner-${index + 1}`,
+      position: index,
+      state: memberState,
+      revision: 1n,
+      evidence: [],
+    })),
+    causes: [],
+    availableActions: {
+      admit: false,
+      continue: false,
+      pause: false,
+      resume: false,
+      abort: false,
+      revert: state === "aborted",
+      complete: state === "review",
+    },
+    ...overrides,
+  };
+}
+
+const lane: RolloutLane = {
+  id: "lane-1",
+  label: "Stable production",
+  description: "",
+  currentChannelId: 41n,
+  revision: 1n,
+  channels: [],
+  memberCount: 2,
+  memberIdentifiers: [],
+  currentReleaseTargets: [],
+};
+
 describe("between-channel rollout helpers", () => {
   it("blocks a target that is missing a source model", () => {
     const rows = evaluateTargetCompatibility(sourceTargets, files, {
@@ -104,5 +175,54 @@ describe("between-channel rollout helpers", () => {
         members: [{ deviceIdentifier: "miner-2" }, { deviceIdentifier: "miner-4" }],
       },
     ]);
+  });
+
+  it("keeps aborted rollouts live until every member settles before exposing revert", () => {
+    const unsettled = rolloutWithMembers("aborted", ["succeeded", "admitted"]);
+    const settled = rolloutWithMembers("aborted", ["succeeded", "cancelled"]);
+
+    expect(shouldMonitorRollout(unsettled)).toBe(true);
+    expect(canRevertRollout(unsettled)).toBe(false);
+    expect(shouldMonitorRollout(settled)).toBe(false);
+    expect(canRevertRollout(settled)).toBe(true);
+  });
+
+  it("blocks a new rollout while members remain on a non-current lane channel", () => {
+    const abortedSplit = rolloutWithMembers("aborted", ["succeeded", "cancelled"]);
+    const completedWithFailures = rolloutWithMembers("completedWithFailures", ["succeeded", "failed"]);
+
+    expect(rolloutLaneStartBlockedReason(lane, abortedSplit)).toMatch(/Revert or resolve/i);
+    expect(
+      rolloutLaneStartBlockedReason(
+        {
+          ...lane,
+          currentChannelId: 42n,
+        },
+        completedWithFailures,
+      ),
+    ).toMatch(/Revert or resolve/i);
+    expect(
+      rolloutLaneStartBlockedReason({ ...lane, currentChannelId: 42n }, rolloutWithMembers("completed", ["succeeded"])),
+    ).toBeNull();
+  });
+
+  it("offers explicit failure completion only after the final batch settles in review", () => {
+    const finalFailure = rolloutWithMembers("review", ["succeeded", "attentionRequired"]);
+    const pendingBatch = rolloutWithMembers("review", ["succeeded", "failed"], {
+      batches: [
+        {
+          id: 1n,
+          position: 0,
+          label: "Remaining",
+          state: "pending",
+          revision: 1n,
+          members: [],
+        },
+      ],
+    });
+
+    expect(canCompleteWithFailures(finalFailure)).toBe(true);
+    expect(canCompleteWithFailures(pendingBatch)).toBe(false);
+    expect(canCompleteWithFailures(rolloutWithMembers("review", ["succeeded"]))).toBe(false);
   });
 });

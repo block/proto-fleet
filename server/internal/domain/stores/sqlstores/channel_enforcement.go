@@ -291,12 +291,14 @@ func (s *SQLChannelEnforcementStore) RecordObservation(
 	ctx context.Context,
 	enforcement channel.Enforcement,
 	observation channel.Observation,
+	nextReconcileAt time.Time,
 ) error {
 	return s.requireTransition(ctx, "record observation", func(q sqlc.Querier) (int64, error) {
 		params := sqlc.RecordChannelFirmwareObservationParams{
 			FirmwareVersion:    sql.NullString{String: observation.FirmwareVersion, Valid: observation.FirmwareVersion != ""},
 			FirmwareObservedAt: sql.NullTime{Time: observation.ObservedAt, Valid: !observation.ObservedAt.IsZero()},
 			ObservationError:   sql.NullString{String: observation.Error, Valid: observation.Error != ""},
+			NextReconcileAt:    nextReconcileAt,
 			EnforcementID:      enforcement.ID,
 			ExpectedRevision:   enforcement.Revision,
 			ExpectedBatchUuid:  emptyToNullString(enforcement.CommandBatchUUID),
@@ -399,6 +401,7 @@ func enforcementFromGetRow(row sqlc.GetChannelFirmwareEnforcementRow) channel.En
 		ClaimedAt:                   row.ClaimedAt,
 		EnqueuedAt:                  row.EnqueuedAt,
 		CommandCompletedAt:          row.CommandCompletedAt,
+		NextReconcileAt:             row.NextReconcileAt,
 		LastObservedFirmwareVersion: row.LastObservedFirmwareVersion,
 		FirmwareObservedAt:          row.FirmwareObservedAt,
 		LastObservedHashrateHs:      row.LastObservedHashrateHs,
@@ -433,6 +436,7 @@ func enforcementFromListRow(row sqlc.ListChannelFirmwareEnforcementsForReconcile
 		ClaimedAt:                   row.ClaimedAt,
 		EnqueuedAt:                  row.EnqueuedAt,
 		CommandCompletedAt:          row.CommandCompletedAt,
+		NextReconcileAt:             row.NextReconcileAt,
 		LastObservedFirmwareVersion: row.LastObservedFirmwareVersion,
 		FirmwareObservedAt:          row.FirmwareObservedAt,
 		LastObservedHashrateHs:      row.LastObservedHashrateHs,
@@ -472,6 +476,7 @@ func enforcementFromSQL(
 		ClaimedAt:                   nullTimeToPtr(row.ClaimedAt),
 		EnqueuedAt:                  nullTimeToPtr(row.EnqueuedAt),
 		CommandCompletedAt:          nullTimeToPtr(row.CommandCompletedAt),
+		NextReconcileAt:             row.NextReconcileAt,
 		LastObservedFirmwareVersion: nullStringToPtr(row.LastObservedFirmwareVersion),
 		FirmwareObservedAt:          nullTimeToPtr(row.FirmwareObservedAt),
 		LastObservedHashrateHS:      nullFloat64ToPtr(row.LastObservedHashrateHs),

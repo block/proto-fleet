@@ -82,6 +82,23 @@ const (
 	ControlStatusFailed    ControlStatus = "failed"
 )
 
+type ActorType string
+
+const (
+	ActorTypeUser   ActorType = "user"
+	ActorTypeAPIKey ActorType = "api_key"
+	ActorTypeSystem ActorType = "system"
+)
+
+func (a ActorType) Valid() bool {
+	switch a {
+	case "", ActorTypeUser, ActorTypeAPIKey, ActorTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 type EvidencePhase string
 
 const (
@@ -179,18 +196,20 @@ type Evidence struct {
 }
 
 type Cause struct {
-	ID              int64
-	RolloutID       uuid.UUID
-	MemberID        *int64
-	ControlID       *uuid.UUID
-	OrgID           int64
-	Operation       ControlOperation
-	Reason          string
-	ActorUserID     int64
-	FromState       *State
-	ToState         State
-	RolloutRevision int64
-	CreatedAt       time.Time
+	ID                int64
+	RolloutID         uuid.UUID
+	MemberID          *int64
+	ControlID         *uuid.UUID
+	OrgID             int64
+	Operation         ControlOperation
+	Reason            string
+	ActorUserID       int64
+	ActorType         ActorType
+	ActorCredentialID *string
+	FromState         *State
+	ToState           State
+	RolloutRevision   int64
+	CreatedAt         time.Time
 }
 
 type Control struct {
@@ -206,6 +225,8 @@ type Control struct {
 	Status             ControlStatus
 	ErrorMessage       *string
 	CreatedByUserID    int64
+	ActorType          ActorType
+	ActorCredentialID  *string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
@@ -239,6 +260,8 @@ type CreateRequest struct {
 	RequestFingerprint string
 	Reason             string
 	ActorUserID        int64
+	ActorType          ActorType
+	ActorCredentialID  *string
 }
 
 type CreateResult struct {
@@ -256,6 +279,8 @@ type ControlRequest struct {
 	RequestFingerprint string
 	Reason             string
 	ActorUserID        int64
+	ActorType          ActorType
+	ActorCredentialID  *string
 	WithFailures       bool
 }
 

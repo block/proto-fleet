@@ -549,6 +549,8 @@ INSERT INTO firmware_rollout_cause (
     operation,
     reason,
     actor_user_id,
+    actor_type,
+    actor_credential_id,
     from_state,
     to_state,
     rollout_revision
@@ -563,22 +565,26 @@ VALUES (
     $7,
     $8,
     $9,
-    $10
+    $10,
+    $11,
+    $12
 )
-RETURNING id, rollout_id, member_id, control_id, org_id, operation, reason, actor_user_id, from_state, to_state, rollout_revision, created_at
+RETURNING id, rollout_id, member_id, control_id, org_id, operation, reason, actor_user_id, from_state, to_state, rollout_revision, created_at, actor_type, actor_credential_id
 `
 
 type CreateFirmwareRolloutCauseParams struct {
-	RolloutID       uuid.UUID
-	MemberID        sql.NullInt64
-	ControlID       uuid.NullUUID
-	OrgID           int64
-	Operation       string
-	Reason          string
-	ActorUserID     int64
-	FromState       sql.NullString
-	ToState         string
-	RolloutRevision int64
+	RolloutID         uuid.UUID
+	MemberID          sql.NullInt64
+	ControlID         uuid.NullUUID
+	OrgID             int64
+	Operation         string
+	Reason            string
+	ActorUserID       int64
+	ActorType         string
+	ActorCredentialID sql.NullString
+	FromState         sql.NullString
+	ToState           string
+	RolloutRevision   int64
 }
 
 func (q *Queries) CreateFirmwareRolloutCause(ctx context.Context, arg CreateFirmwareRolloutCauseParams) (FirmwareRolloutCause, error) {
@@ -590,6 +596,8 @@ func (q *Queries) CreateFirmwareRolloutCause(ctx context.Context, arg CreateFirm
 		arg.Operation,
 		arg.Reason,
 		arg.ActorUserID,
+		arg.ActorType,
+		arg.ActorCredentialID,
 		arg.FromState,
 		arg.ToState,
 		arg.RolloutRevision,
@@ -608,6 +616,8 @@ func (q *Queries) CreateFirmwareRolloutCause(ctx context.Context, arg CreateFirm
 		&i.ToState,
 		&i.RolloutRevision,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorCredentialID,
 	)
 	return i, err
 }
@@ -624,7 +634,9 @@ INSERT INTO firmware_rollout_control (
     expected_revision,
     resulting_revision,
     status,
-    created_by_user_id
+    created_by_user_id,
+    actor_type,
+    actor_credential_id
 )
 VALUES (
     $1,
@@ -637,9 +649,11 @@ VALUES (
     $8,
     $9,
     $10,
-    $11
+    $11,
+    $12,
+    $13
 )
-RETURNING id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at
+RETURNING id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id
 `
 
 type CreateFirmwareRolloutControlParams struct {
@@ -654,6 +668,8 @@ type CreateFirmwareRolloutControlParams struct {
 	ResultingRevision  int64
 	Status             string
 	CreatedByUserID    int64
+	ActorType          string
+	ActorCredentialID  sql.NullString
 }
 
 func (q *Queries) CreateFirmwareRolloutControl(ctx context.Context, arg CreateFirmwareRolloutControlParams) (FirmwareRolloutControl, error) {
@@ -669,6 +685,8 @@ func (q *Queries) CreateFirmwareRolloutControl(ctx context.Context, arg CreateFi
 		arg.ResultingRevision,
 		arg.Status,
 		arg.CreatedByUserID,
+		arg.ActorType,
+		arg.ActorCredentialID,
 	)
 	var i FirmwareRolloutControl
 	err := row.Scan(
@@ -686,6 +704,8 @@ func (q *Queries) CreateFirmwareRolloutControl(ctx context.Context, arg CreateFi
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActorType,
+		&i.ActorCredentialID,
 	)
 	return i, err
 }
@@ -785,7 +805,7 @@ WHERE id = $3
   AND rollout_id = $4
   AND org_id = $5
   AND status = 'started'
-RETURNING id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at
+RETURNING id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id
 `
 
 type FinishFirmwareRolloutControlParams struct {
@@ -820,6 +840,8 @@ func (q *Queries) FinishFirmwareRolloutControl(ctx context.Context, arg FinishFi
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActorType,
+		&i.ActorCredentialID,
 	)
 	return i, err
 }
@@ -963,7 +985,7 @@ func (q *Queries) GetFirmwareRolloutByIdempotencyKey(ctx context.Context, arg Ge
 }
 
 const getFirmwareRolloutControl = `-- name: GetFirmwareRolloutControl :one
-SELECT id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at
+SELECT id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id
 FROM firmware_rollout_control
 WHERE id = $1
   AND rollout_id = $2
@@ -995,12 +1017,14 @@ func (q *Queries) GetFirmwareRolloutControl(ctx context.Context, arg GetFirmware
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActorType,
+		&i.ActorCredentialID,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutControlByKey = `-- name: GetFirmwareRolloutControlByKey :one
-SELECT id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at
+SELECT id, rollout_id, org_id, batch_id, operation, idempotency_key, request_fingerprint, expected_revision, resulting_revision, status, error_message, created_by_user_id, created_at, updated_at, actor_type, actor_credential_id
 FROM firmware_rollout_control
 WHERE rollout_id = $1
   AND org_id = $2
@@ -1031,8 +1055,32 @@ func (q *Queries) GetFirmwareRolloutControlByKey(ctx context.Context, arg GetFir
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ActorType,
+		&i.ActorCredentialID,
 	)
 	return i, err
+}
+
+const hasFirmwareRolloutSucceededMembers = `-- name: HasFirmwareRolloutSucceededMembers :one
+SELECT EXISTS (
+    SELECT 1
+    FROM firmware_rollout_member
+    WHERE rollout_id = $1
+      AND org_id = $2
+      AND state = 'succeeded'
+)
+`
+
+type HasFirmwareRolloutSucceededMembersParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) HasFirmwareRolloutSucceededMembers(ctx context.Context, arg HasFirmwareRolloutSucceededMembersParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasFirmwareRolloutSucceededMembersStmt, hasFirmwareRolloutSucceededMembers, arg.RolloutID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listFirmwareRolloutBatches = `-- name: ListFirmwareRolloutBatches :many
@@ -1082,7 +1130,7 @@ func (q *Queries) ListFirmwareRolloutBatches(ctx context.Context, arg ListFirmwa
 }
 
 const listFirmwareRolloutCauses = `-- name: ListFirmwareRolloutCauses :many
-SELECT id, rollout_id, member_id, control_id, org_id, operation, reason, actor_user_id, from_state, to_state, rollout_revision, created_at
+SELECT id, rollout_id, member_id, control_id, org_id, operation, reason, actor_user_id, from_state, to_state, rollout_revision, created_at, actor_type, actor_credential_id
 FROM firmware_rollout_cause
 WHERE rollout_id = $1
   AND org_id = $2
@@ -1116,6 +1164,8 @@ func (q *Queries) ListFirmwareRolloutCauses(ctx context.Context, arg ListFirmwar
 			&i.ToState,
 			&i.RolloutRevision,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorCredentialID,
 		); err != nil {
 			return nil, err
 		}

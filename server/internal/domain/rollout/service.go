@@ -19,13 +19,15 @@ type Service struct {
 }
 
 type AdmitRequest struct {
-	OrgID            int64
-	RolloutID        uuid.UUID
-	BatchID          int64
-	ExpectedRevision int64
-	IdempotencyKey   string
-	Reason           string
-	ActorUserID      int64
+	OrgID             int64
+	RolloutID         uuid.UUID
+	BatchID           int64
+	ExpectedRevision  int64
+	IdempotencyKey    string
+	Reason            string
+	ActorUserID       int64
+	ActorType         ActorType
+	ActorCredentialID *string
 }
 
 func NewService(store Store, strategies ...AdmissionStrategy) *Service {
@@ -118,14 +120,16 @@ func (s *Service) runAdmission(
 	}
 
 	control := ControlRequest{
-		OrgID:            req.OrgID,
-		RolloutID:        req.RolloutID,
-		BatchID:          req.BatchID,
-		ExpectedRevision: req.ExpectedRevision,
-		Operation:        operation,
-		IdempotencyKey:   req.IdempotencyKey,
-		Reason:           req.Reason,
-		ActorUserID:      req.ActorUserID,
+		OrgID:             req.OrgID,
+		RolloutID:         req.RolloutID,
+		BatchID:           req.BatchID,
+		ExpectedRevision:  req.ExpectedRevision,
+		Operation:         operation,
+		IdempotencyKey:    req.IdempotencyKey,
+		Reason:            req.Reason,
+		ActorUserID:       req.ActorUserID,
+		ActorType:         req.ActorType,
+		ActorCredentialID: req.ActorCredentialID,
 	}
 	control.RequestFingerprint = fingerprintControl(control)
 	result, err := s.store.ApplyControl(ctx, control)
@@ -283,15 +287,16 @@ func (s *Service) Revert(ctx context.Context, req ControlRequest) (*Rollout, err
 		}
 		return nil, fleeterror.NewFailedPreconditionErrorf("rollout revert failed: %w", err)
 	}
-	if _, err := s.store.FinishControl(ctx, FinishControlRequest{
+	finished, err := s.store.FinishControl(ctx, FinishControlRequest{
 		OrgID:     req.OrgID,
 		RolloutID: req.RolloutID,
 		ControlID: result.Control.ID,
 		Success:   true,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, mapStoreError(err)
 	}
-	return result.Rollout, nil
+	return finished, nil
 }
 
 func (s *Service) applySimpleControl(
@@ -396,6 +401,9 @@ func validateCreateRequest(req CreateRequest) error {
 		strings.TrimSpace(req.StrategyKey) == "" || req.ActorUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("organization, name, strategy, and actor are required")
 	}
+	if err := ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
 	if strings.TrimSpace(req.IdempotencyKey) == "" || strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("idempotency key and reason are required")
 	}
@@ -425,6 +433,9 @@ func validateAdmitRequest(req AdmitRequest) error {
 	if req.OrgID <= 0 || req.RolloutID == uuid.Nil || req.ActorUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("organization, rollout, and actor IDs are required")
 	}
+	if err := ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
 	if req.ExpectedRevision <= 0 || strings.TrimSpace(req.IdempotencyKey) == "" ||
 		strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("expected revision, idempotency key, and reason are required")
@@ -436,9 +447,23 @@ func validateControlRequest(req ControlRequest) error {
 	if req.OrgID <= 0 || req.RolloutID == uuid.Nil || req.ActorUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("organization, rollout, and actor IDs are required")
 	}
+	if err := ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
 	if req.ExpectedRevision <= 0 || strings.TrimSpace(req.IdempotencyKey) == "" ||
 		strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("expected revision, idempotency key, and reason are required")
+	}
+	return nil
+}
+
+// ValidateActorIdentity checks actor metadata shared by rollout entry points.
+func ValidateActorIdentity(actorType ActorType, credentialID *string) error {
+	if !actorType.Valid() {
+		return fleeterror.NewInvalidArgumentError("actor type is invalid")
+	}
+	if credentialID != nil && strings.TrimSpace(*credentialID) == "" {
+		return fleeterror.NewInvalidArgumentError("actor credential ID cannot be empty")
 	}
 	return nil
 }

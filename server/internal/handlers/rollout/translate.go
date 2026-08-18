@@ -30,6 +30,23 @@ func parseLaneID(value string) (uuid.UUID, error) {
 	return result, nil
 }
 
+func actorIdentityFromSession(
+	info *session.Info,
+) (rolloutDomain.ActorType, *string) {
+	if info.Actor != "" {
+		return rolloutDomain.ActorTypeSystem, nil
+	}
+	actorType := rolloutDomain.ActorTypeUser
+	if info.AuthMethod == session.AuthMethodAPIKey {
+		actorType = rolloutDomain.ActorTypeAPIKey
+	}
+	credentialID := info.CredentialID()
+	if credentialID == "" {
+		return actorType, nil
+	}
+	return actorType, &credentialID
+}
+
 func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
 	if input == nil {
 		return nil
@@ -85,6 +102,7 @@ func createRequestFromProto(
 	input *pb.CreateRolloutRequest,
 	info *session.Info,
 ) rolloutDomain.CreateRequest {
+	actorType, actorCredentialID := actorIdentityFromSession(info)
 	return rolloutDomain.CreateRequest{
 		OrgID:              info.OrganizationID,
 		Name:               input.GetName(),
@@ -100,6 +118,8 @@ func createRequestFromProto(
 		IdempotencyKey:     input.GetIdempotencyKey(),
 		Reason:             input.GetReason(),
 		ActorUserID:        info.UserID,
+		ActorType:          actorType,
+		ActorCredentialID:  actorCredentialID,
 	}
 }
 

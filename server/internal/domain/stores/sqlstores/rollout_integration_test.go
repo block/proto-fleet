@@ -77,6 +77,116 @@ func TestRolloutStoreFreezesBatchesAndReconstructsAfterRestart(t *testing.T) {
 	require.ErrorIs(t, err, rolloutDomain.ErrNotFound)
 }
 
+func TestRolloutStoreListHydratesRolloutDetails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIdentifiers := setupCollectionTestData(t, 1)
+	store := sqlstores.NewSQLRolloutStore(db)
+	created, err := store.Create(t.Context(), rolloutCreateRequest(
+		t,
+		db,
+		orgID,
+		"list-details",
+		[][]string{{deviceIdentifiers[0]}},
+	))
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	_, err = store.CaptureEvidence(t.Context(), rolloutDomain.EvidenceRequest{
+		OrgID:       orgID,
+		RolloutID:   created.Rollout.ID,
+		Phase:       rolloutDomain.EvidencePhaseBaseline,
+		WindowStart: now.Add(-time.Hour),
+		WindowEnd:   now,
+		FreshAfter:  now.Add(-5 * time.Minute),
+	})
+	require.NoError(t, err)
+
+	listed, err := store.List(t.Context(), orgID, []rolloutDomain.State{
+		rolloutDomain.StateCreated,
+	})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.Equal(t, created.Rollout.ID, listed[0].ID)
+	require.Len(t, listed[0].Batches, 1)
+	require.Len(t, listed[0].Members, 1)
+	require.Len(t, listed[0].Batches[0].Members, 1)
+	require.Len(t, listed[0].Members[0].Evidence, 1)
+	require.Len(t, listed[0].Causes, 1)
+	assert.Equal(t, deviceIdentifiers[0], listed[0].Members[0].DeviceIdentifier)
+	assert.Equal(t, rolloutDomain.ControlOperationCreate, listed[0].Causes[0].Operation)
+}
+
+func TestRolloutStorePersistsAPIKeyControlAndCauseIdentity(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIdentifiers := setupCollectionTestData(t, 1)
+	store := sqlstores.NewSQLRolloutStore(db)
+	credentialID := "apikey:rollout-key-77" //nolint:gosec // Opaque audit identifier, not a secret.
+	createRequest := rolloutCreateRequest(
+		t,
+		db,
+		orgID,
+		"api-key-attribution",
+		[][]string{{deviceIdentifiers[0]}},
+	)
+	createRequest.ActorType = rolloutDomain.ActorTypeAPIKey
+	createRequest.ActorCredentialID = &credentialID
+	created, err := store.Create(t.Context(), createRequest)
+	require.NoError(t, err)
+
+	controlRequest := rolloutControlRequest(
+		created.Rollout,
+		rolloutDomain.ControlOperationAdmit,
+		"api-key-admit",
+	)
+	controlRequest.BatchID = created.Rollout.Batches[0].ID
+	controlRequest.ActorType = rolloutDomain.ActorTypeAPIKey
+	controlRequest.ActorCredentialID = &credentialID
+	_, err = store.ApplyControl(t.Context(), controlRequest)
+	require.NoError(t, err)
+
+	var controlActorType string
+	var controlCredentialID sql.NullString
+	var controlUserID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT actor_type, actor_credential_id, created_by_user_id
+		FROM firmware_rollout_control
+		WHERE rollout_id = $1
+		  AND operation = 'admit'
+	`, created.Rollout.ID).Scan(
+		&controlActorType,
+		&controlCredentialID,
+		&controlUserID,
+	))
+	assert.Equal(t, string(rolloutDomain.ActorTypeAPIKey), controlActorType)
+	require.True(t, controlCredentialID.Valid)
+	assert.Equal(t, credentialID, controlCredentialID.String)
+	assert.Equal(t, created.Rollout.CreatedByUserID, controlUserID)
+
+	var causeActorType string
+	var causeCredentialID sql.NullString
+	var causeUserID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT actor_type, actor_credential_id, actor_user_id
+		FROM firmware_rollout_cause
+		WHERE rollout_id = $1
+		  AND operation = 'admit'
+	`, created.Rollout.ID).Scan(
+		&causeActorType,
+		&causeCredentialID,
+		&causeUserID,
+	))
+	assert.Equal(t, string(rolloutDomain.ActorTypeAPIKey), causeActorType)
+	require.True(t, causeCredentialID.Valid)
+	assert.Equal(t, credentialID, causeCredentialID.String)
+	assert.Equal(t, created.Rollout.CreatedByUserID, causeUserID)
+}
+
 func TestRolloutStoreEnforcesOneActiveOwnerPerMiner(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

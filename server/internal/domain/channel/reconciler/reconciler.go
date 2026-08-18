@@ -24,13 +24,15 @@ import (
 )
 
 const (
-	defaultTickInterval = 30 * time.Second
-	defaultBatchSize    = 100
+	defaultTickInterval           = 30 * time.Second
+	defaultBatchSize              = 100
+	defaultVerificationRetryDelay = 30 * time.Second
 )
 
 type Config struct {
-	TickInterval time.Duration `help:"Interval between channel firmware enforcement passes." default:"30s" env:"TICK_INTERVAL"`
-	BatchSize    int32         `help:"Maximum enforcement rows processed per pass." default:"100" env:"BATCH_SIZE"`
+	TickInterval           time.Duration `help:"Interval between channel firmware enforcement passes." default:"30s" env:"TICK_INTERVAL"`
+	BatchSize              int32         `help:"Maximum enforcement rows processed per pass." default:"100" env:"BATCH_SIZE"`
+	VerificationRetryDelay time.Duration `help:"Delay before retrying firmware verification." default:"30s" env:"VERIFICATION_RETRY_DELAY"`
 }
 
 func (c Config) withDefaults() Config {
@@ -39,6 +41,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.BatchSize <= 0 {
 		c.BatchSize = defaultBatchSize
+	}
+	if c.VerificationRetryDelay <= 0 {
+		c.VerificationRetryDelay = defaultVerificationRetryDelay
 	}
 	return c
 }
@@ -348,14 +353,61 @@ func (r *Reconciler) verify(ctx context.Context, enforcement channel.Enforcement
 		OrgID:        enforcement.OrgID,
 		SampledAfter: *enforcement.CommandCompletedAt,
 	}})
+	if len(results) == 0 {
+		r.deferVerificationWithError(ctx, enforcement, "telemetry sampler returned no results")
+		return
+	}
 	if len(results) != 1 {
+		r.deferVerificationWithError(
+			ctx,
+			enforcement,
+			fmt.Sprintf("telemetry sampler returned %d results; expected 1", len(results)),
+		)
 		return
 	}
 	sample := results[0]
-	if sample.Err != nil ||
-		sample.OrgID != enforcement.OrgID ||
-		string(sample.DeviceID) != enforcement.DeviceIdentifier ||
-		!sample.FlightStart.After(*enforcement.CommandCompletedAt) {
+	if sample.Err != nil {
+		r.deferVerificationWithError(
+			ctx,
+			enforcement,
+			fmt.Sprintf("telemetry sampler failed: %v", sample.Err),
+		)
+		return
+	}
+	if sample.OrgID != enforcement.OrgID {
+		r.deferVerificationWithError(
+			ctx,
+			enforcement,
+			fmt.Sprintf(
+				"telemetry sample organization mismatch: got %d, want %d",
+				sample.OrgID,
+				enforcement.OrgID,
+			),
+		)
+		return
+	}
+	if string(sample.DeviceID) != enforcement.DeviceIdentifier {
+		r.deferVerificationWithError(
+			ctx,
+			enforcement,
+			fmt.Sprintf(
+				"telemetry sample device mismatch: got %q, want %q",
+				sample.DeviceID,
+				enforcement.DeviceIdentifier,
+			),
+		)
+		return
+	}
+	if !sample.FlightStart.After(*enforcement.CommandCompletedAt) {
+		r.deferVerificationWithError(
+			ctx,
+			enforcement,
+			fmt.Sprintf(
+				"telemetry sample is stale: sampled at %s, command completed at %s",
+				sample.FlightStart.Format(time.RFC3339Nano),
+				enforcement.CommandCompletedAt.Format(time.RFC3339Nano),
+			),
+		)
 		return
 	}
 
@@ -370,13 +422,40 @@ func (r *Reconciler) verify(ctx context.Context, enforcement channel.Enforcement
 		}
 		return
 	}
-	if err := r.store.RecordObservation(ctx, enforcement, observation); err != nil &&
+	if err := r.store.RecordObservation(
+		ctx,
+		enforcement,
+		observation,
+		r.nextVerificationAttempt(),
+	); err != nil &&
 		!errors.Is(err, channel.ErrCASConflict) {
 		slog.Error(
 			"channel enforcement observation write failed",
 			"enforcement_id", enforcement.ID,
 			"error", err)
 	}
+}
+
+func (r *Reconciler) deferVerificationWithError(
+	ctx context.Context,
+	enforcement channel.Enforcement,
+	reason string,
+) {
+	if err := r.store.RecordObservation(
+		ctx,
+		enforcement,
+		channel.Observation{Error: reason},
+		r.nextVerificationAttempt(),
+	); err != nil && !errors.Is(err, channel.ErrCASConflict) {
+		slog.Error(
+			"channel enforcement verification error write failed",
+			"enforcement_id", enforcement.ID,
+			"error", err)
+	}
+}
+
+func (r *Reconciler) nextVerificationAttempt() time.Time {
+	return r.now().Add(r.cfg.VerificationRetryDelay)
 }
 
 func observationFromSample(sample telemetry.SampleResult) channel.Observation {

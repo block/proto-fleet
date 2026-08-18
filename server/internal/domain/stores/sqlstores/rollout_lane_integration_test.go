@@ -66,15 +66,16 @@ func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 	sourceChannelID := *started.Rollout.SourceChannelID
 	targetChannelID := *started.Rollout.TargetChannelID
 	assert.Equal(t, sourceChannelID, started.Lane.CurrentChannelID)
-	_, err = db.ExecContext(t.Context(), `
-		UPDATE discovered_device discovered
-		SET model = 'Metadata Changed After Freeze'
-		FROM device
-		WHERE device.discovered_device_id = discovered.id
-		  AND device.org_id = $1
-		  AND device.device_identifier = $2
-	`, orgID, deviceIDs[0])
+	updated, err := sqlc.New(db).UpdateDiscoveredDeviceModelByDeviceIdentifier(
+		t.Context(),
+		sqlc.UpdateDiscoveredDeviceModelByDeviceIdentifierParams{
+			OrgID:            orgID,
+			DeviceIdentifier: deviceIDs[0],
+			Model:            "Metadata Changed After Freeze",
+		},
+	)
 	require.NoError(t, err)
+	require.Equal(t, int64(1), updated)
 
 	admitFirst := rollout.AdmitRequest{
 		OrgID:            orgID,
@@ -152,7 +153,31 @@ func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sourceChannelID, deviceChannel(t, db, orgID, deviceIDs[1]))
 
-	completed, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	reviewAfterFailure, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	assert.Equal(t, rollout.StateReview, reviewAfterFailure.State)
+	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
+	require.NoError(t, err)
+	assert.Equal(t, sourceChannelID, lane.CurrentChannelID)
+
+	_, err = rolloutService.Complete(t.Context(), rollout.ControlRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: reviewAfterFailure.Revision,
+		IdempotencyKey:   "complete-failures-without-approval",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.Error(t, err)
+	completed, err := rolloutService.Complete(t.Context(), rollout.ControlRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: reviewAfterFailure.Revision,
+		IdempotencyKey:   "complete-failures-with-approval",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+		WithFailures:     true,
+	})
 	require.NoError(t, err)
 	assert.Equal(t, rollout.StateCompletedWithFailures, completed.State)
 	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
@@ -288,6 +313,23 @@ func TestRolloutLaneFinalizerAdvancesBatchesAndCompletesRollout(t *testing.T) {
 		require.NotNil(t, member.OwnerReleasedAt)
 	}
 	require.Equal(t, int64(1), rolloutCauseCount(t, db, orgID, started.Rollout.ID, "complete"))
+	var automaticActorType string
+	var automaticCredentialID sql.NullString
+	var automaticUserID int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT actor_type, actor_credential_id, actor_user_id
+		FROM firmware_rollout_cause
+		WHERE org_id = $1
+		  AND rollout_id = $2
+		  AND operation = 'complete'
+	`, orgID, started.Rollout.ID).Scan(
+		&automaticActorType,
+		&automaticCredentialID,
+		&automaticUserID,
+	))
+	assert.Equal(t, string(rollout.ActorTypeSystem), automaticActorType)
+	assert.False(t, automaticCredentialID.Valid)
+	assert.Equal(t, actorID, automaticUserID)
 	replayed, err := laneStore.Finalize(t.Context(), finalizations[0])
 	require.NoError(t, err)
 	require.False(t, replayed.ProjectActivity)
@@ -398,6 +440,68 @@ func TestRolloutLaneFinalizerCompletesFailedRevertWithoutMovingLane(t *testing.T
 	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
 	require.NoError(t, err)
 	require.Equal(t, *started.Rollout.TargetChannelID, lane.CurrentChannelID)
+}
+
+func TestRolloutLaneRejectsRevertWithoutSucceededMembers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupCollectionTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
+	laneService := betweenchannel.NewService(laneStore, nil)
+	rolloutService := rollout.NewService(
+		sqlstores.NewSQLRolloutStore(db),
+		betweenchannel.NewStrategy(laneStore),
+	)
+	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Zero success revert lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "0")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "zero-success-revert-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	started, err := laneService.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Zero success revert target",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "1")},
+		Batches: []rollout.CreateBatch{{
+			Label:   "all",
+			Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+		}},
+		IdempotencyKey: "zero-success-revert-start",
+		Reason:         "integration test",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+	aborted, err := rolloutService.Abort(t.Context(), rollout.ControlRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: started.Rollout.Revision,
+		IdempotencyKey:   "zero-success-abort",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, rollout.StateAborted, aborted.State)
+
+	_, err = rolloutService.Revert(t.Context(), rollout.ControlRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		ExpectedRevision: aborted.Revision,
+		IdempotencyKey:   "zero-success-revert",
+		Reason:           "integration test",
+		ActorUserID:      actorID,
+	})
+	require.Error(t, err)
+	persisted, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	assert.Equal(t, rollout.StateAborted, persisted.State)
+	assert.Nil(t, persisted.RevertAuthorityID)
 }
 
 func TestRolloutLaneAbortCompletesFullyCancelledBatch(t *testing.T) {
@@ -616,6 +720,24 @@ func TestRolloutLaneAbortBoundaryLetsOnlyPreAbortClaimSettle(t *testing.T) {
 	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
 	require.NoError(t, err)
 	assert.Equal(t, *started.Rollout.SourceChannelID, lane.CurrentChannelID)
+
+	_, err = laneService.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Blocked split target",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("3.0.0", "e")},
+		Batches: []rollout.CreateBatch{{
+			Label: "remaining-source-members",
+			Members: []rollout.CreateMember{
+				{DeviceIdentifier: deviceIDs[1]},
+				{DeviceIdentifier: deviceIDs[2]},
+			},
+		}},
+		IdempotencyKey: "abort-split-next-start",
+		Reason:         "integration test",
+		ActorUserID:    actorID,
+	})
+	require.Error(t, err)
 }
 
 func TestRolloutLaneManualMembershipMoveConflictsInsteadOfOverwriting(t *testing.T) {
@@ -700,29 +822,33 @@ func TestRolloutLaneManualMembershipMoveConflictsInsteadOfOverwriting(t *testing
 	)
 	require.NoError(t, err)
 
-	reverting, err := rolloutService.Revert(t.Context(), rollout.ControlRequest{
+	revertRequest := rollout.ControlRequest{
 		OrgID:            orgID,
 		RolloutID:        started.Rollout.ID,
 		ExpectedRevision: completed.Revision,
 		IdempotencyKey:   "conflict-revert",
 		Reason:           "integration test",
 		ActorUserID:      actorID,
-	})
+	}
+	_, err = rolloutService.Revert(t.Context(), revertRequest)
 	require.NoError(t, err)
-	persisted, err = rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	settled, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
 	require.NoError(t, err)
-	member = memberByIdentifier(t, persisted, deviceIDs[0])
+	assert.Equal(t, rollout.StateCompletedWithFailures, settled.State)
+	require.NotNil(t, settled.RevertAuthorityID)
+	assert.True(t, authorityHalted(t, db, *settled.RevertAuthorityID))
+	member = memberByIdentifier(t, settled, deviceIDs[0])
 	assert.Equal(t, rollout.MemberStateAttentionRequired, member.State)
 	assert.Equal(t, manualChannel.Id, deviceChannel(t, db, orgID, deviceIDs[0]))
-	_, err = rolloutService.Complete(t.Context(), rollout.ControlRequest{
-		OrgID:            orgID,
-		RolloutID:        started.Rollout.ID,
-		ExpectedRevision: reverting.Revision,
-		IdempotencyKey:   "conflict-complete-revert",
-		Reason:           "integration test",
-		ActorUserID:      actorID,
-	})
-	require.Error(t, err)
+
+	restartedLaneStore := sqlstores.NewSQLRolloutLaneStore(db)
+	restartedService := rollout.NewService(
+		sqlstores.NewSQLRolloutStore(db),
+		betweenchannel.NewStrategy(restartedLaneStore),
+	)
+	replayed, err := restartedService.Revert(t.Context(), revertRequest)
+	require.NoError(t, err)
+	assert.Equal(t, rollout.StateCompletedWithFailures, replayed.State)
 	lane, err = laneService.GetLane(t.Context(), orgID, lane.ID)
 	require.NoError(t, err)
 	assert.Equal(t, *started.Rollout.TargetChannelID, lane.CurrentChannelID)

@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { isAbortError } from "@/protoFleet/api/requestErrors";
 import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import { mapRolloutToEvent } from "@/protoFleet/api/rolloutMappers";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import { useRolloutApi } from "@/protoFleet/api/useRolloutApi";
 import BetweenChannelRolloutStatus from "@/protoFleet/features/rollout/betweenChannel/BetweenChannelRolloutStatus";
-import { isActiveRollout } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
+import {
+  canCompleteWithFailures,
+  canRevertRollout,
+  shouldMonitorRollout,
+} from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import CreateRolloutLaneModal, {
   type CreateRolloutLaneValues,
 } from "@/protoFleet/features/rollout/betweenChannel/CreateRolloutLaneModal";
@@ -47,7 +52,6 @@ export default function RolloutLanesTab() {
   const {
     lanes,
     rollouts,
-    isLoading,
     isMutating,
     loadError,
     mutationError,
@@ -57,22 +61,27 @@ export default function RolloutLanesTab() {
     createRolloutLane,
     startRolloutLane,
     listRollouts,
+    getRollout,
     admitRollout,
     continueRollout,
     pauseRollout,
     resumeRollout,
     abortRollout,
     revertRollout,
+    completeRollout,
   } = useRolloutApi();
   const { listFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileInfo[]>([]);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [startLane, setStartLane] = useState<RolloutLane | null>(null);
   const [isPreparingLane, setIsPreparingLane] = useState(false);
   const [focusedRolloutId, setFocusedRolloutId] = useState<string | null>(null);
   const [modalRolloutId, setModalRolloutId] = useState<string | null>(null);
+  const refreshControllerRef = useRef<AbortController | null>(null);
+  const prepareStartControllerRef = useRef<AbortController | null>(null);
 
   const loadData = useCallback(async () => {
     if (!permissions.canReadChannels) {
@@ -92,6 +101,7 @@ export default function RolloutLanesTab() {
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "Failed to load firmware rollout lanes.");
     } finally {
+      setIsInitialLoading(false);
       setIsLoadingFiles(false);
     }
   }, [
@@ -118,38 +128,56 @@ export default function RolloutLanesTab() {
   }, [lanes, rollouts]);
   const focusedRollout = focusedRolloutId ? rollouts.find((rollout) => rollout.id === focusedRolloutId) : undefined;
   const modalRollout = modalRolloutId ? rollouts.find((rollout) => rollout.id === modalRolloutId) : undefined;
+  const monitoredRolloutIdsKey = rollouts
+    .filter((rollout) => shouldMonitorRollout(rollout))
+    .map((rollout) => rollout.id)
+    .sort()
+    .join("\0");
+  const monitoredRolloutIds = useMemo(
+    () => (monitoredRolloutIdsKey ? monitoredRolloutIdsKey.split("\0") : []),
+    [monitoredRolloutIdsKey],
+  );
   const monitoredRollout =
     focusedRollout ??
-    rows.find((row) => isActiveRollout(row.latestRollout))?.latestRollout ??
-    rows.find((row) => row.latestRollout?.availableActions.revert)?.latestRollout;
+    rows.find((row) => shouldMonitorRollout(row.latestRollout))?.latestRollout ??
+    rows.find((row) => row.latestRollout && canRevertRollout(row.latestRollout))?.latestRollout;
   const monitoredLane = monitoredRollout ? laneForRollout(lanes, monitoredRollout.id) : undefined;
   const canCreateLane = permissions.canManageChannels;
   const canStartLane = permissions.canManageChannels && permissions.canManage;
 
-  const refreshRollouts = useCallback(async () => {
-    if (!permissions.canRead) {
+  const refreshMonitoredRollouts = useCallback(async () => {
+    if (!permissions.canReadChannels || refreshControllerRef.current) {
       return;
     }
+    const controller = new AbortController();
+    refreshControllerRef.current = controller;
     try {
-      await listRollouts();
-    } catch {
-      // The hook exposes loadError and routes auth failures. Keep the current
-      // durable record visible instead of clearing the whole tab on refresh.
+      await Promise.allSettled([
+        listRolloutLanes({ signal: controller.signal }),
+        ...(permissions.canRead
+          ? monitoredRolloutIds.map((rolloutId) => getRollout({ rolloutId, signal: controller.signal }))
+          : []),
+      ]);
+    } finally {
+      if (refreshControllerRef.current === controller) {
+        refreshControllerRef.current = null;
+      }
     }
-  }, [listRollouts, permissions.canRead]);
+  }, [getRollout, listRolloutLanes, monitoredRolloutIds, permissions.canRead, permissions.canReadChannels]);
 
   useEffect(() => {
-    const refresh = () => void refreshRollouts();
+    const refresh = () => void refreshMonitoredRollouts();
     window.addEventListener(ROLLOUT_CHANGED_EVENT, refresh);
-    const hasActiveRollout = rows.some((row) => isActiveRollout(row.latestRollout));
-    const interval = hasActiveRollout ? window.setInterval(refresh, 5000) : undefined;
+    const interval = monitoredRolloutIds.length > 0 ? window.setInterval(refresh, 5000) : undefined;
     return () => {
       window.removeEventListener(ROLLOUT_CHANGED_EVENT, refresh);
       if (interval !== undefined) {
         window.clearInterval(interval);
       }
+      refreshControllerRef.current?.abort();
+      refreshControllerRef.current = null;
     };
-  }, [refreshRollouts, rows]);
+  }, [monitoredRolloutIds.length, refreshMonitoredRollouts]);
 
   const handleCreate = useCallback(
     async (values: CreateRolloutLaneValues) => {
@@ -169,18 +197,38 @@ export default function RolloutLanesTab() {
 
   const prepareStart = useCallback(
     async (lane: RolloutLane) => {
+      prepareStartControllerRef.current?.abort();
+      const controller = new AbortController();
+      prepareStartControllerRef.current = controller;
       setIsPreparingLane(true);
       setPageError(null);
       try {
-        const freshLane = await getRolloutLane({ laneId: lane.id });
+        const freshLane = await getRolloutLane({ laneId: lane.id, signal: controller.signal });
+        if (controller.signal.aborted || prepareStartControllerRef.current !== controller) {
+          return;
+        }
         setStartLane(freshLane);
       } catch (error) {
+        if (prepareStartControllerRef.current !== controller || isAbortError(error, controller.signal)) {
+          return;
+        }
         setPageError(error instanceof Error ? error.message : "Failed to load fresh lane membership.");
       } finally {
-        setIsPreparingLane(false);
+        if (prepareStartControllerRef.current === controller) {
+          prepareStartControllerRef.current = null;
+          setIsPreparingLane(false);
+        }
       }
     },
     [getRolloutLane],
+  );
+
+  useEffect(
+    () => () => {
+      prepareStartControllerRef.current?.abort();
+      prepareStartControllerRef.current = null;
+    },
+    [],
   );
 
   const handleStart = useCallback(
@@ -253,6 +301,28 @@ export default function RolloutLanesTab() {
     [abortRollout, continueRollout, pauseRollout, resumeRollout, revertRollout],
   );
 
+  const runCompleteWithFailures = useCallback(
+    async (rollout: RolloutRecord) => {
+      try {
+        const updated = await completeRollout({
+          rolloutId: rollout.id,
+          expectedRevision: rollout.revision,
+          idempotencyKey: idempotencyKey("complete-with-failures"),
+          reason: "Complete final batch with terminal failures",
+          withFailures: true,
+        });
+        setFocusedRolloutId(updated.id);
+        pushToast({ message: "Rollout completed with failures", status: STATUSES.success });
+      } catch (error) {
+        pushToast({
+          message: error instanceof Error ? error.message : "Failed to complete rollout with failures.",
+          status: STATUSES.error,
+        });
+      }
+    },
+    [completeRollout],
+  );
+
   if (!permissions.canReadChannels) {
     return (
       <Callout
@@ -295,15 +365,16 @@ export default function RolloutLanesTab() {
         />
       ) : null}
 
-      {isLoading || isLoadingFiles || isPreparingLane ? (
+      {isInitialLoading || isLoadingFiles ? (
         <div className="flex items-center justify-center gap-3 py-10 text-300 text-text-primary-70">
           <ProgressCircular indeterminate className="text-core-primary-fill" />
-          {isPreparingLane ? "Refreshing lane membership..." : "Loading rollout lanes..."}
+          Loading rollout lanes...
         </div>
       ) : (
         <RolloutLanesTable
           rows={rows}
           canStart={canStartLane}
+          isPreparingStart={isPreparingLane}
           onStart={(lane) => void prepareStart(lane)}
           onView={(rollout) => setModalRolloutId(rollout.id)}
         />
@@ -320,6 +391,7 @@ export default function RolloutLanesTab() {
           onContinue={() => void runControl(monitoredRollout, "continue", "Continue after manual review")}
           onAbort={() => void runControl(monitoredRollout, "abort", "Abort new rollout work")}
           onRevert={() => void runControl(monitoredRollout, "revert", "Restore the captured source release")}
+          onCompleteWithFailures={() => void runCompleteWithFailures(monitoredRollout)}
         />
       ) : null}
 
@@ -361,6 +433,17 @@ export default function RolloutLanesTab() {
         onResume={modalRollout ? () => void runControl(modalRollout, "resume", "Resumed by operator") : undefined}
         onContinueFromReview={
           modalRollout ? () => void runControl(modalRollout, "continue", "Continue after manual review") : undefined
+        }
+        onAbort={modalRollout ? () => void runControl(modalRollout, "abort", "Abort new rollout work") : undefined}
+        onRevert={
+          modalRollout && canRevertRollout(modalRollout)
+            ? () => void runControl(modalRollout, "revert", "Restore the captured source release")
+            : undefined
+        }
+        onCompleteWithFailures={
+          modalRollout && permissions.canControl && canCompleteWithFailures(modalRollout)
+            ? () => void runCompleteWithFailures(modalRollout)
+            : undefined
         }
       />
     </div>

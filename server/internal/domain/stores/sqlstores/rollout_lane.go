@@ -317,18 +317,49 @@ func (s *SQLRolloutLaneStore) StartRollout(
 				return nil, err
 			}
 
+			laneChannels, listErr := q.ListRolloutLaneChannels(
+				txCtx,
+				sqlc.ListRolloutLaneChannelsParams{
+					LaneID: req.LaneID,
+					OrgID:  req.OrgID,
+				},
+			)
+			if listErr != nil {
+				return nil, listErr
+			}
+			channelIDs := make([]int64, 0, len(laneChannels))
+			for _, laneChannel := range laneChannels {
+				channelIDs = append(channelIDs, laneChannel.ChannelID)
+			}
 			lockedChannels, lockErr := q.LockBetweenChannelChannels(
 				txCtx,
 				sqlc.LockBetweenChannelChannelsParams{
 					OrgID:      req.OrgID,
-					ChannelIds: []int64{laneRow.CurrentChannelID},
+					ChannelIds: channelIDs,
 				},
 			)
 			if lockErr != nil {
 				return nil, lockErr
 			}
-			if len(lockedChannels) != 1 {
+			if len(lockedChannels) != len(channelIDs) {
 				return nil, betweenchannel.ErrLaneConflict
+			}
+			nonCurrentMembers, countErr := q.CountRolloutLaneNonCurrentMembers(
+				txCtx,
+				sqlc.CountRolloutLaneNonCurrentMembersParams{
+					LaneID: req.LaneID,
+					OrgID:  req.OrgID,
+				},
+			)
+			if countErr != nil {
+				return nil, countErr
+			}
+			if nonCurrentMembers > 0 {
+				return nil, fmt.Errorf(
+					"%w: %d members remain on non-current rollout lane channels",
+					betweenchannel.ErrMembershipConflict,
+					nonCurrentMembers,
+				)
 			}
 			deviceIDs := transitionDeviceIDs(domainTransitions)
 			lockedDevices, lockErr := q.LockBetweenChannelDevices(
@@ -739,6 +770,42 @@ func (s *SQLRolloutLaneStore) PrepareRevert(
 		if missing != 0 {
 			return betweenchannel.ErrCompatibility
 		}
+		settled, err := settleBetweenChannelRevert(
+			txCtx,
+			q,
+			rolloutSettlementContext{
+				RolloutID:                req.Rollout.ID,
+				OrgID:                    req.Rollout.OrgID,
+				RolloutState:             req.Rollout.State,
+				RolloutRevision:          req.Rollout.Revision,
+				ForwardAuthorityID:       req.Rollout.ForwardAuthorityID,
+				ForwardAuthorityRevision: req.Rollout.ForwardAuthorityRevision,
+				RevertAuthorityID:        req.Rollout.RevertAuthorityID,
+				RevertAuthorityRevision:  req.Rollout.RevertAuthorityRevision,
+				CreatedByUserID:          req.Rollout.CreatedByUserID,
+				SourceChannelID:          *req.Rollout.SourceChannelID,
+				TargetChannelID:          *req.Rollout.TargetChannelID,
+				LaneID:                   lane.ID,
+				CurrentChannelID:         lane.CurrentChannelID,
+			},
+		)
+		if err != nil {
+			return err
+		}
+		if settled {
+			_, err = q.FinishFirmwareRolloutControl(
+				txCtx,
+				sqlc.FinishFirmwareRolloutControlParams{
+					Status:    string(rollout.ControlStatusSucceeded),
+					ControlID: req.ControlID,
+					RolloutID: req.Rollout.ID,
+					OrgID:     req.Rollout.OrgID,
+				},
+			)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 }
@@ -903,7 +970,11 @@ func (s *SQLRolloutLaneStore) Finalize(
 					return nil, settleErr
 				}
 			case rollout.MemberStateReverting:
-				if settleErr := settleBetweenChannelRevert(txCtx, q, current); settleErr != nil {
+				if _, settleErr := settleBetweenChannelRevert(
+					txCtx,
+					q,
+					rolloutSettlementFromFinalization(current),
+				); settleErr != nil {
 					return nil, settleErr
 				}
 			case rollout.MemberStatePending,
@@ -1099,13 +1170,15 @@ func createBetweenChannelRollout(
 	if _, err = q.CreateFirmwareRolloutCause(
 		ctx,
 		sqlc.CreateFirmwareRolloutCauseParams{
-			RolloutID:       req.ID,
-			OrgID:           req.OrgID,
-			Operation:       string(rollout.ControlOperationCreate),
-			Reason:          req.Reason,
-			ActorUserID:     req.ActorUserID,
-			ToState:         string(rollout.StateCreated),
-			RolloutRevision: rolloutRow.Revision,
+			RolloutID:         req.ID,
+			OrgID:             req.OrgID,
+			Operation:         string(rollout.ControlOperationCreate),
+			Reason:            req.Reason,
+			ActorUserID:       req.ActorUserID,
+			ActorType:         persistedActorType(req.ActorType),
+			ActorCredentialID: ptrToNullString(req.ActorCredentialID),
+			ToState:           string(rollout.StateCreated),
+			RolloutRevision:   rolloutRow.Revision,
 		},
 	); err != nil {
 		return sqlc.FirmwareRollout{}, err
@@ -1633,10 +1706,25 @@ func settleBetweenChannelForward(
 		return nil
 	}
 
-	targetState := rollout.StateCompleted
 	if settlement.FailedMembers > 0 {
-		targetState = rollout.StateCompletedWithFailures
+		if current.RolloutState == rollout.StateReview {
+			return nil
+		}
+		_, err = q.MoveBetweenChannelRolloutToReview(
+			ctx,
+			sqlc.MoveBetweenChannelRolloutToReviewParams{
+				RolloutID:        current.RolloutID,
+				OrgID:            current.OrgID,
+				ExpectedRevision: current.RolloutRevision,
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return rollout.ErrRevisionConflict
+		}
+		return err
 	}
+
+	targetState := rollout.StateCompleted
 	authority, err := q.HaltChannelFirmwareAuthority(
 		ctx,
 		sqlc.HaltChannelFirmwareAuthorityParams{
@@ -1680,27 +1768,64 @@ func settleBetweenChannelForward(
 	); err != nil {
 		return err
 	}
+	settlementContext := rolloutSettlementFromFinalization(current)
 	if err = advanceBetweenChannelLane(
 		ctx,
 		q,
-		current,
+		settlementContext,
 		current.SourceChannelID,
 		current.TargetChannelID,
 	); err != nil {
 		return err
 	}
-	return createAutomaticCompletionCause(ctx, q, current, completed)
+	return createAutomaticCompletionCause(ctx, q, settlementContext, completed)
+}
+
+type rolloutSettlementContext struct {
+	RolloutID                uuid.UUID
+	OrgID                    int64
+	RolloutState             rollout.State
+	RolloutRevision          int64
+	ForwardAuthorityID       uuid.UUID
+	ForwardAuthorityRevision int64
+	RevertAuthorityID        *uuid.UUID
+	RevertAuthorityRevision  *int64
+	CreatedByUserID          int64
+	SourceChannelID          int64
+	TargetChannelID          int64
+	LaneID                   uuid.UUID
+	CurrentChannelID         int64
+}
+
+func rolloutSettlementFromFinalization(
+	current betweenchannel.Finalization,
+) rolloutSettlementContext {
+	return rolloutSettlementContext{
+		RolloutID:                current.RolloutID,
+		OrgID:                    current.OrgID,
+		RolloutState:             current.RolloutState,
+		RolloutRevision:          current.RolloutRevision,
+		ForwardAuthorityID:       current.ForwardAuthorityID,
+		ForwardAuthorityRevision: current.ForwardAuthorityRevision,
+		RevertAuthorityID:        current.RevertAuthorityID,
+		RevertAuthorityRevision:  current.RevertAuthorityRevision,
+		CreatedByUserID:          current.CreatedByUserID,
+		SourceChannelID:          current.SourceChannelID,
+		TargetChannelID:          current.TargetChannelID,
+		LaneID:                   current.LaneID,
+		CurrentChannelID:         current.CurrentChannelID,
+	}
 }
 
 func settleBetweenChannelRevert(
 	ctx context.Context,
 	q sqlc.Querier,
-	current betweenchannel.Finalization,
-) error {
+	current rolloutSettlementContext,
+) (bool, error) {
 	if current.RolloutState != rollout.StateReverting ||
 		current.RevertAuthorityID == nil ||
 		current.RevertAuthorityRevision == nil {
-		return nil
+		return false, nil
 	}
 	settlement, err := q.GetBetweenChannelRevertSettlement(
 		ctx,
@@ -1710,11 +1835,11 @@ func settleBetweenChannelRevert(
 		},
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if settlement.SelectedMembers == 0 ||
 		settlement.TerminalMembers != settlement.SelectedMembers {
-		return nil
+		return false, nil
 	}
 
 	targetState := rollout.StateReverted
@@ -1730,10 +1855,10 @@ func settleBetweenChannelRevert(
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return rollout.ErrRevisionConflict
+		return false, rollout.ErrRevisionConflict
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	completed, err := q.CompleteBetweenChannelRollout(
 		ctx,
@@ -1750,10 +1875,10 @@ func settleBetweenChannelRevert(
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return rollout.ErrRevisionConflict
+		return false, rollout.ErrRevisionConflict
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err = q.ReleaseFirmwareRolloutOwners(
 		ctx,
@@ -1762,7 +1887,7 @@ func settleBetweenChannelRevert(
 			OrgID:     current.OrgID,
 		},
 	); err != nil {
-		return err
+		return false, err
 	}
 	if targetState == rollout.StateReverted {
 		if err = advanceBetweenChannelLane(
@@ -1772,16 +1897,19 @@ func settleBetweenChannelRevert(
 			current.TargetChannelID,
 			current.SourceChannelID,
 		); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return createAutomaticCompletionCause(ctx, q, current, completed)
+	if err = createAutomaticCompletionCause(ctx, q, current, completed); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func advanceBetweenChannelLane(
 	ctx context.Context,
 	q sqlc.Querier,
-	current betweenchannel.Finalization,
+	current rolloutSettlementContext,
 	expectedChannelID int64,
 	targetChannelID int64,
 ) error {
@@ -1809,7 +1937,7 @@ func advanceBetweenChannelLane(
 func createAutomaticCompletionCause(
 	ctx context.Context,
 	q sqlc.Querier,
-	current betweenchannel.Finalization,
+	current rolloutSettlementContext,
 	completed sqlc.FirmwareRollout,
 ) error {
 	_, err := q.CreateFirmwareRolloutCause(
@@ -1820,6 +1948,7 @@ func createAutomaticCompletionCause(
 			Operation:       string(rollout.ControlOperationComplete),
 			Reason:          "rollout lane work settled automatically",
 			ActorUserID:     current.CreatedByUserID,
+			ActorType:       string(rollout.ActorTypeSystem),
 			FromState:       sql.NullString{String: string(current.RolloutState), Valid: true},
 			ToState:         completed.State,
 			RolloutRevision: completed.Revision,

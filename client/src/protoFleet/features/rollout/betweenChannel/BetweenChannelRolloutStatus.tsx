@@ -2,6 +2,10 @@ import { useMemo, useState } from "react";
 
 import { mapRolloutToEvent } from "@/protoFleet/api/rolloutMappers";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
+import {
+  canCompleteWithFailures,
+  canRevertRollout,
+} from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import type { RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -17,6 +21,7 @@ interface BetweenChannelRolloutStatusProps {
   onContinue?: () => void;
   onAbort?: () => void;
   onRevert?: () => void;
+  onCompleteWithFailures?: () => void;
 }
 
 export default function BetweenChannelRolloutStatus({
@@ -29,6 +34,7 @@ export default function BetweenChannelRolloutStatus({
   onContinue,
   onAbort,
   onRevert,
+  onCompleteWithFailures,
 }: BetweenChannelRolloutStatusProps) {
   const [confirmation, setConfirmation] = useState<"abort" | "revert" | null>(null);
   const event = useMemo(() => mapRolloutToEvent(rollout, { laneLabel }), [laneLabel, rollout]);
@@ -46,7 +52,8 @@ export default function BetweenChannelRolloutStatus({
           onResume={onResume}
           onContinueFromReview={onContinue}
           onAbort={onAbort ? () => setConfirmation("abort") : undefined}
-          onRevert={onRevert ? () => setConfirmation("revert") : undefined}
+          onRevert={onRevert && canRevertRollout(rollout) ? () => setConfirmation("revert") : undefined}
+          onCompleteWithFailures={canCompleteWithFailures(rollout) ? onCompleteWithFailures : undefined}
         />
         <div className="grid gap-2 rounded-xl bg-surface-elevated-base p-5 text-300 text-text-primary-70 shadow-100 tablet:grid-cols-2">
           <div>

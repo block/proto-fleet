@@ -14,5 +14,3 @@ WHERE type = 'channel';
 
 ALTER TABLE device_set_membership
     DROP CONSTRAINT IF EXISTS fk_device_set_membership_device_set_org;
-
-DROP INDEX IF EXISTS idx_one_channel_per_device;

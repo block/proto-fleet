@@ -90,6 +90,20 @@ WHERE attachment.lane_id = sqlc.arg('lane_id')
   AND attachment.org_id = sqlc.arg('org_id')
 ORDER BY attachment.position, attachment.channel_id;
 
+-- name: CountRolloutLaneNonCurrentMembers :one
+SELECT COUNT(*)::bigint
+FROM rollout_lane lane
+JOIN rollout_lane_channel attachment
+  ON attachment.lane_id = lane.id
+ AND attachment.org_id = lane.org_id
+JOIN device_set_membership membership
+  ON membership.device_set_id = attachment.channel_id
+ AND membership.org_id = attachment.org_id
+ AND membership.device_set_type = 'channel'
+WHERE lane.id = sqlc.arg('lane_id')
+  AND lane.org_id = sqlc.arg('org_id')
+  AND attachment.channel_id <> lane.current_channel_id;
+
 -- name: GetNextRolloutLaneChannelPosition :one
 SELECT COALESCE(MAX(position) + 1, 0)::int
 FROM rollout_lane_channel
@@ -768,7 +782,7 @@ SET state = 'review',
 WHERE id = sqlc.arg('rollout_id')
   AND org_id = sqlc.arg('org_id')
   AND revision = sqlc.arg('expected_revision')
-  AND state = 'running'
+  AND state IN ('running', 'paused')
 RETURNING *;
 
 -- name: GetBetweenChannelForwardSettlement :one

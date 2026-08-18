@@ -20,6 +20,7 @@ interface ViewRolloutModalProps {
   onRevert?: () => void;
   onCancelRemaining?: () => void;
   onContinueFromReview?: () => void;
+  onCompleteWithFailures?: () => void;
   onRetryFailed?: () => void;
   onViewMiners?: () => void;
   onViewErrors?: () => void;
@@ -50,6 +51,7 @@ function modalActions({
   onRevert,
   onCancelRemaining,
   onContinueFromReview,
+  onCompleteWithFailures,
   onRetryFailed,
   onViewMiners,
 }: ViewRolloutModalProps & { event: RolloutEvent }): ModalActions {
@@ -63,6 +65,7 @@ function modalActions({
       onRevert,
       onCancelRemaining,
       onContinueFromReview,
+      onCompleteWithFailures,
       onRetryFailed,
     },
     { canManage, canControl },
@@ -127,6 +130,7 @@ function ViewRolloutModal({
   onRevert,
   onCancelRemaining,
   onContinueFromReview,
+  onCompleteWithFailures,
   onRetryFailed,
   onViewMiners,
   onViewErrors,
@@ -147,6 +151,7 @@ function ViewRolloutModal({
     onRevert,
     onCancelRemaining,
     onContinueFromReview,
+    onCompleteWithFailures,
     onRetryFailed,
     onViewMiners,
   });
@@ -191,6 +196,7 @@ function ViewRolloutModal({
         onRevert={onRevert}
         onCancelRemaining={onCancelRemaining}
         onContinueFromReview={onContinueFromReview}
+        onCompleteWithFailures={onCompleteWithFailures}
         onRetryFailed={onRetryFailed}
         onViewMiners={onViewMiners}
         onViewErrors={onViewErrors}

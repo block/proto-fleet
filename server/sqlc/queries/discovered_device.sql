@@ -103,6 +103,17 @@ WHERE device_identifier = $1
   AND org_id = $2
   AND deleted_at IS NULL;
 
+-- name: UpdateDiscoveredDeviceModelByDeviceIdentifier :execrows
+UPDATE discovered_device AS discovered
+SET model = sqlc.arg('model')::text
+FROM device
+WHERE device.discovered_device_id = discovered.id
+  AND device.org_id = sqlc.arg('org_id')
+  AND discovered.org_id = sqlc.arg('org_id')
+  AND device.device_identifier = sqlc.arg('device_identifier')
+  AND device.deleted_at IS NULL
+  AND discovered.deleted_at IS NULL;
+
 -- name: UpdateDiscoveredDeviceFirmwareVersion :exec
 UPDATE discovered_device dd
 SET firmware_version = $2

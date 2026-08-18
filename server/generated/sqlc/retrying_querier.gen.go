@@ -1080,6 +1080,18 @@ func (q *retryingQuerier) CountResponseProfilesByInfrastructureDevices(ctx conte
 	return result, err
 }
 
+func (q *retryingQuerier) CountRolloutLaneNonCurrentMembers(ctx context.Context, arg CountRolloutLaneNonCurrentMembersParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountRolloutLaneNonCurrentMembers", func() error {
+		callResult, callErr := q.next.CountRolloutLaneNonCurrentMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error {
 	return q.retrier.RetryQuery(ctx, "CreateApiKey", func() error {
 		return q.next.CreateApiKey(ctx, arg)
@@ -1146,8 +1158,8 @@ func (q *retryingQuerier) CreateChannelFirmwareAuthority(ctx context.Context, ar
 	return result, err
 }
 
-func (q *retryingQuerier) CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (ChannelFirmwareEnforcement, error) {
-	var result ChannelFirmwareEnforcement
+func (q *retryingQuerier) CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (CreateChannelFirmwareEnforcementRow, error) {
+	var result CreateChannelFirmwareEnforcementRow
 	err := q.retrier.RetryQuery(ctx, "CreateChannelFirmwareEnforcement", func() error {
 		callResult, callErr := q.next.CreateChannelFirmwareEnforcement(ctx, arg)
 		if callErr == nil {
@@ -3870,6 +3882,18 @@ func (q *retryingQuerier) HaltChannelFirmwareAuthority(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) HasFirmwareRolloutSucceededMembers(ctx context.Context, arg HasFirmwareRolloutSucceededMembersParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "HasFirmwareRolloutSucceededMembers", func() error {
+		callResult, callErr := q.next.HasFirmwareRolloutSucceededMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) HasUser(ctx context.Context) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "HasUser", func() error {
@@ -6568,6 +6592,18 @@ func (q *retryingQuerier) UpdateDiscoveredDeviceFirmwareVersion(ctx context.Cont
 	return q.retrier.RetryQuery(ctx, "UpdateDiscoveredDeviceFirmwareVersion", func() error {
 		return q.next.UpdateDiscoveredDeviceFirmwareVersion(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) UpdateDiscoveredDeviceModelByDeviceIdentifier(ctx context.Context, arg UpdateDiscoveredDeviceModelByDeviceIdentifierParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UpdateDiscoveredDeviceModelByDeviceIdentifier", func() error {
+		callResult, callErr := q.next.UpdateDiscoveredDeviceModelByDeviceIdentifier(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) UpdateFirmwareRolloutMember(ctx context.Context, arg UpdateFirmwareRolloutMemberParams) (FirmwareRolloutMember, error) {

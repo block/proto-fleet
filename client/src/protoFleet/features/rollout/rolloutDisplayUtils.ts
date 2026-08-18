@@ -486,6 +486,7 @@ export interface RolloutLifecycleHandlers {
   /** Fixture compatibility. API-backed surfaces use onAbort. */
   onCancelRemaining?: () => void;
   onContinueFromReview?: () => void;
+  onCompleteWithFailures?: () => void;
   onRetryFailed?: () => void;
 }
 
@@ -545,6 +546,14 @@ export function rolloutLifecycleActions(
   }
   if (canControl && handlers.onResume && eligibility.resume) {
     actions.push({ key: "resume", text: "Resume", variant: "primary", onClick: handlers.onResume });
+  }
+  if (canControl && handlers.onCompleteWithFailures && eligibility.complete) {
+    actions.push({
+      key: "complete-with-failures",
+      text: "Complete with failures",
+      variant: "danger",
+      onClick: handlers.onCompleteWithFailures,
+    });
   }
   if (
     canControl &&

@@ -177,6 +177,49 @@ func TestHandlerDerivesControlOrganizationAndActorFromSession(t *testing.T) {
 	assert.Equal(t, rolloutID, service.control.RolloutID)
 }
 
+func TestHandlerDerivesAPIKeyControlActorFromSession(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	service := &recordingRolloutService{
+		result: &rolloutDomain.Rollout{
+			ID:        rolloutID,
+			OrgID:     73,
+			State:     rolloutDomain.StatePaused,
+			Revision:  3,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+	handler := NewHandler(service, nil)
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodAPIKey,
+		APIKeyID:       "rollout-key-77",
+		OrganizationID: 73,
+		UserID:         91,
+	})
+	ctx = middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  []string{authz.PermRolloutControl},
+	}}))
+
+	_, err := handler.PauseRollout(
+		ctx,
+		connect.NewRequest(&pb.PauseRolloutRequest{
+			RolloutId:        rolloutID.String(),
+			ExpectedRevision: 2,
+			IdempotencyKey:   "pause-api-key",
+			Reason:           "automation pause",
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, rolloutDomain.ActorTypeAPIKey, service.control.ActorType)
+	require.NotNil(t, service.control.ActorCredentialID)
+	assert.Equal(t, "apikey:rollout-key-77", *service.control.ActorCredentialID)
+	assert.Equal(t, int64(91), service.control.ActorUserID)
+}
+
 type recordingRolloutService struct {
 	result   *rolloutDomain.Rollout
 	getOrgID int64

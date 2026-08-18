@@ -523,6 +523,33 @@ func (q *Queries) CountBetweenChannelRevertMembersWithoutEnforcement(ctx context
 	return column_1, err
 }
 
+const countRolloutLaneNonCurrentMembers = `-- name: CountRolloutLaneNonCurrentMembers :one
+SELECT COUNT(*)::bigint
+FROM rollout_lane lane
+JOIN rollout_lane_channel attachment
+  ON attachment.lane_id = lane.id
+ AND attachment.org_id = lane.org_id
+JOIN device_set_membership membership
+  ON membership.device_set_id = attachment.channel_id
+ AND membership.org_id = attachment.org_id
+ AND membership.device_set_type = 'channel'
+WHERE lane.id = $1
+  AND lane.org_id = $2
+  AND attachment.channel_id <> lane.current_channel_id
+`
+
+type CountRolloutLaneNonCurrentMembersParams struct {
+	LaneID uuid.UUID
+	OrgID  int64
+}
+
+func (q *Queries) CountRolloutLaneNonCurrentMembers(ctx context.Context, arg CountRolloutLaneNonCurrentMembersParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRolloutLaneNonCurrentMembersStmt, countRolloutLaneNonCurrentMembers, arg.LaneID, arg.OrgID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createBetweenChannelAdmissionEnforcements = `-- name: CreateBetweenChannelAdmissionEnforcements :execrows
 INSERT INTO channel_firmware_enforcement (
     org_id,
@@ -2143,7 +2170,7 @@ SET state = 'review',
 WHERE id = $1
   AND org_id = $2
   AND revision = $3
-  AND state = 'running'
+  AND state IN ('running', 'paused')
 RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
 `
 

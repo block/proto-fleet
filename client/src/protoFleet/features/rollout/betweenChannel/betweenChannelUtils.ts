@@ -2,7 +2,9 @@ import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { CreateRolloutBatchInput, CreateRolloutMemberInput } from "@/protoFleet/api/useRolloutApi";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import type {
+  RolloutLane,
   RolloutLaneReleaseTarget,
+  RolloutMemberState,
   RolloutRecord,
   RolloutStrategy,
 } from "@/protoFleet/features/rollout/rolloutTypes";
@@ -25,13 +27,80 @@ export interface ManualBatchConfig {
   pilotSize?: number;
 }
 
-export function isActiveRollout(rollout: RolloutRecord | undefined): boolean {
-  return Boolean(
-    rollout &&
+const terminalMemberStates = new Set<RolloutMemberState>([
+  "succeeded",
+  "failed",
+  "attentionRequired",
+  "cancelled",
+  "reverted",
+]);
+const terminalFailureStates = new Set<RolloutMemberState>(["failed", "attentionRequired", "cancelled"]);
+const targetOrUnsettledOnSourceStates = new Set<RolloutMemberState>([
+  "admitted",
+  "succeeded",
+  "attentionRequired",
+  "reverting",
+  "unknown",
+]);
+
+function hasUnsettledMembers(rollout: RolloutRecord): boolean {
+  return rollout.members.some((member) => !terminalMemberStates.has(member.state));
+}
+
+export function shouldMonitorRollout(rollout: RolloutRecord | undefined): boolean {
+  if (!rollout) {
+    return false;
+  }
+  if (
     rollout.state !== "completed" &&
     rollout.state !== "completedWithFailures" &&
     rollout.state !== "aborted" &&
-    rollout.state !== "reverted",
+    rollout.state !== "reverted"
+  ) {
+    return true;
+  }
+  return rollout.state === "aborted" && hasUnsettledMembers(rollout);
+}
+
+export function canRevertRollout(rollout: RolloutRecord): boolean {
+  return rollout.availableActions.revert && (rollout.state !== "aborted" || !hasUnsettledMembers(rollout));
+}
+
+function hasMemberOutsideCurrentChannel(lane: RolloutLane, rollout: RolloutRecord): boolean {
+  if (rollout.members.length === 0) {
+    return false;
+  }
+  if (lane.currentChannelId === rollout.sourceChannelId) {
+    return rollout.members.some((member) => targetOrUnsettledOnSourceStates.has(member.state));
+  }
+  if (lane.currentChannelId === rollout.targetChannelId) {
+    return rollout.members.some((member) => member.state !== "succeeded");
+  }
+  return true;
+}
+
+export function rolloutLaneStartBlockedReason(lane: RolloutLane, rollout: RolloutRecord | undefined): string | null {
+  if (!rollout) {
+    return null;
+  }
+  if (shouldMonitorRollout(rollout)) {
+    return rollout.state === "aborted"
+      ? "Wait for in-flight miners to settle, then revert or resolve the split before starting another rollout."
+      : "Finish or abort the current rollout before starting another rollout.";
+  }
+  if (hasMemberOutsideCurrentChannel(lane, rollout)) {
+    return "Revert or resolve miners left on a historical release before starting another rollout.";
+  }
+  return null;
+}
+
+export function canCompleteWithFailures(rollout: RolloutRecord): boolean {
+  return (
+    rollout.state === "review" &&
+    rollout.availableActions.complete &&
+    !rollout.batches.some((batch) => batch.state === "pending") &&
+    !hasUnsettledMembers(rollout) &&
+    rollout.members.some((member) => terminalFailureStates.has(member.state))
   );
 }
 

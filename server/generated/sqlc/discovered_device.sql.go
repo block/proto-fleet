@@ -289,6 +289,32 @@ func (q *Queries) UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg
 	return err
 }
 
+const updateDiscoveredDeviceModelByDeviceIdentifier = `-- name: UpdateDiscoveredDeviceModelByDeviceIdentifier :execrows
+UPDATE discovered_device AS discovered
+SET model = $1::text
+FROM device
+WHERE device.discovered_device_id = discovered.id
+  AND device.org_id = $2
+  AND discovered.org_id = $2
+  AND device.device_identifier = $3
+  AND device.deleted_at IS NULL
+  AND discovered.deleted_at IS NULL
+`
+
+type UpdateDiscoveredDeviceModelByDeviceIdentifierParams struct {
+	Model            string
+	OrgID            int64
+	DeviceIdentifier string
+}
+
+func (q *Queries) UpdateDiscoveredDeviceModelByDeviceIdentifier(ctx context.Context, arg UpdateDiscoveredDeviceModelByDeviceIdentifierParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateDiscoveredDeviceModelByDeviceIdentifierStmt, updateDiscoveredDeviceModelByDeviceIdentifier, arg.Model, arg.OrgID, arg.DeviceIdentifier)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const upsertDiscoveredDevice = `-- name: UpsertDiscoveredDevice :one
 INSERT INTO discovered_device (
     org_id,

@@ -172,17 +172,20 @@ func (h *Handler) StartRolloutLane(
 	if err != nil {
 		return nil, err
 	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
 	result, err := h.laneService.StartRollout(
 		ctx,
 		betweenchannel.StartRolloutRequest{
-			OrgID:           info.OrganizationID,
-			LaneID:          laneID,
-			Name:            req.Msg.GetName(),
-			FirmwareFileIDs: req.Msg.GetFirmwareFileIds(),
-			Batches:         batchesFromProto(req.Msg.GetBatches()),
-			IdempotencyKey:  req.Msg.GetIdempotencyKey(),
-			Reason:          req.Msg.GetReason(),
-			ActorUserID:     info.UserID,
+			OrgID:             info.OrganizationID,
+			LaneID:            laneID,
+			Name:              req.Msg.GetName(),
+			FirmwareFileIDs:   req.Msg.GetFirmwareFileIds(),
+			Batches:           batchesFromProto(req.Msg.GetBatches()),
+			IdempotencyKey:    req.Msg.GetIdempotencyKey(),
+			Reason:            req.Msg.GetReason(),
+			ActorUserID:       info.UserID,
+			ActorType:         actorType,
+			ActorCredentialID: actorCredentialID,
 		},
 	)
 	if err != nil {
@@ -281,14 +284,17 @@ func (h *Handler) AdmitRollout(
 	if err != nil {
 		return nil, err
 	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
 	result, err := h.service.Admit(ctx, rolloutDomain.AdmitRequest{
-		OrgID:            info.OrganizationID,
-		RolloutID:        rolloutID,
-		BatchID:          req.Msg.GetBatchId(),
-		ExpectedRevision: int64(req.Msg.GetExpectedRevision()),
-		IdempotencyKey:   req.Msg.GetIdempotencyKey(),
-		Reason:           req.Msg.GetReason(),
-		ActorUserID:      info.UserID,
+		OrgID:             info.OrganizationID,
+		RolloutID:         rolloutID,
+		BatchID:           req.Msg.GetBatchId(),
+		ExpectedRevision:  int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Overflow becomes negative and fails domain validation.
+		IdempotencyKey:    req.Msg.GetIdempotencyKey(),
+		Reason:            req.Msg.GetReason(),
+		ActorUserID:       info.UserID,
+		ActorType:         actorType,
+		ActorCredentialID: actorCredentialID,
 	})
 	if err != nil {
 		return nil, err
@@ -310,13 +316,16 @@ func (h *Handler) ContinueRollout(
 	if err != nil {
 		return nil, err
 	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
 	result, err := h.service.Continue(ctx, rolloutDomain.AdmitRequest{
-		OrgID:            info.OrganizationID,
-		RolloutID:        rolloutID,
-		ExpectedRevision: int64(req.Msg.GetExpectedRevision()),
-		IdempotencyKey:   req.Msg.GetIdempotencyKey(),
-		Reason:           req.Msg.GetReason(),
-		ActorUserID:      info.UserID,
+		OrgID:             info.OrganizationID,
+		RolloutID:         rolloutID,
+		ExpectedRevision:  int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Overflow becomes negative and fails domain validation.
+		IdempotencyKey:    req.Msg.GetIdempotencyKey(),
+		Reason:            req.Msg.GetReason(),
+		ActorUserID:       info.UserID,
+		ActorType:         actorType,
+		ActorCredentialID: actorCredentialID,
 	})
 	if err != nil {
 		return nil, err
@@ -461,16 +470,19 @@ func controlRequest(
 	if err != nil {
 		return rolloutDomain.ControlRequest{}, err
 	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
 	rolloutID, err := parseRolloutID(rolloutIDValue)
 	if err != nil {
 		return rolloutDomain.ControlRequest{}, err
 	}
 	return rolloutDomain.ControlRequest{
-		OrgID:            info.OrganizationID,
-		RolloutID:        rolloutID,
-		ExpectedRevision: int64(expectedRevision),
-		IdempotencyKey:   idempotencyKey,
-		Reason:           reason,
-		ActorUserID:      info.UserID,
+		OrgID:             info.OrganizationID,
+		RolloutID:         rolloutID,
+		ExpectedRevision:  int64(expectedRevision), //nolint:gosec // Overflow becomes negative and fails domain validation.
+		IdempotencyKey:    idempotencyKey,
+		Reason:            reason,
+		ActorUserID:       info.UserID,
+		ActorType:         actorType,
+		ActorCredentialID: actorCredentialID,
 	}, nil
 }

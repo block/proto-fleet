@@ -320,6 +320,7 @@ type Querier interface {
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
+	CountRolloutLaneNonCurrentMembers(ctx context.Context, arg CountRolloutLaneNonCurrentMembersParams) (int64, error)
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
 	CreateBetweenChannelAdmissionEnforcements(ctx context.Context, arg CreateBetweenChannelAdmissionEnforcementsParams) (int64, error)
 	CreateBetweenChannelRevertEnforcements(ctx context.Context, arg CreateBetweenChannelRevertEnforcementsParams) (int64, error)
@@ -330,7 +331,7 @@ type Querier interface {
 	CreateBuilding(ctx context.Context, arg CreateBuildingParams) (Building, error)
 	CreateChannelExtension(ctx context.Context, arg CreateChannelExtensionParams) (int64, error)
 	CreateChannelFirmwareAuthority(ctx context.Context, arg CreateChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error)
-	CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (ChannelFirmwareEnforcement, error)
+	CreateChannelFirmwareEnforcement(ctx context.Context, arg CreateChannelFirmwareEnforcementParams) (CreateChannelFirmwareEnforcementRow, error)
 	// organization_id is captured from the caller's session so downstream
 	// org-scoped queries (e.g. GetBatchHeaderForOrg) can filter directly on the
 	// batch's owning organization rather than joining through user_organization.
@@ -811,6 +812,7 @@ type Querier interface {
 	GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams) (string, error)
 	GetUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
 	HaltChannelFirmwareAuthority(ctx context.Context, arg HaltChannelFirmwareAuthorityParams) (ChannelFirmwareAuthority, error)
+	HasFirmwareRolloutSucceededMembers(ctx context.Context, arg HasFirmwareRolloutSucceededMembersParams) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	HoldChannelFirmwareEnforcement(ctx context.Context, arg HoldChannelFirmwareEnforcementParams) (int64, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
@@ -1638,6 +1640,7 @@ type Querier interface {
 	UpdateDeviceWorkerName(ctx context.Context, arg UpdateDeviceWorkerNameParams) (int64, error)
 	UpdateDeviceWorkerNamePoolSyncStatusByID(ctx context.Context, arg UpdateDeviceWorkerNamePoolSyncStatusByIDParams) error
 	UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error
+	UpdateDiscoveredDeviceModelByDeviceIdentifier(ctx context.Context, arg UpdateDiscoveredDeviceModelByDeviceIdentifierParams) (int64, error)
 	UpdateFirmwareRolloutMember(ctx context.Context, arg UpdateFirmwareRolloutMemberParams) (FirmwareRolloutMember, error)
 	UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error)
 	// expected_site_id and expected_rack_name predicate the write on the

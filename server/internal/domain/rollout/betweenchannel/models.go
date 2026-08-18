@@ -85,6 +85,8 @@ type StartRolloutRequest struct {
 	RequestFingerprint string
 	Reason             string
 	ActorUserID        int64
+	ActorType          rollout.ActorType
+	ActorCredentialID  *string
 }
 
 type StartRolloutResult struct {

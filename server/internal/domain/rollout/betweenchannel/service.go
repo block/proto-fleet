@@ -162,6 +162,9 @@ func validateStartRolloutRequest(req StartRolloutRequest) error {
 			"organization, actor, lane, and rollout name are required",
 		)
 	}
+	if err := rollout.ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
 	if strings.TrimSpace(req.IdempotencyKey) == "" || strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("idempotency key and reason are required")
 	}

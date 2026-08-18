@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import RolloutLanesTable, { type LaneTableRow } from "./RolloutLanesTable";
+import type { RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 
 const rows: LaneTableRow[] = [
   {
@@ -28,6 +29,39 @@ const rows: LaneTableRow[] = [
   },
 ];
 
+const abortedSplit: RolloutRecord = {
+  id: "rollout-1",
+  name: "Production 2.0.0",
+  strategyKey: "between_channel",
+  state: "aborted",
+  revision: 2n,
+  sourceChannelId: 41n,
+  targetChannelId: 42n,
+  reason: "Operator aborted",
+  batches: [],
+  members: [
+    {
+      id: 1n,
+      batchId: 1n,
+      deviceIdentifier: "miner-1",
+      position: 0,
+      state: "succeeded",
+      revision: 1n,
+      evidence: [],
+    },
+  ],
+  causes: [],
+  availableActions: {
+    admit: false,
+    continue: false,
+    pause: false,
+    resume: false,
+    abort: false,
+    revert: true,
+    complete: false,
+  },
+};
+
 describe("RolloutLanesTable", () => {
   it("shows stable lane release and membership to read-only operators", () => {
     render(<RolloutLanesTable rows={rows} canStart={false} onStart={vi.fn()} onView={vi.fn()} />);
@@ -42,5 +76,25 @@ describe("RolloutLanesTable", () => {
     render(<RolloutLanesTable rows={rows} canStart onStart={vi.fn()} onView={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeEnabled();
+  });
+
+  it("disables start and explains how to resolve an aborted lane split", () => {
+    render(
+      <RolloutLanesTable
+        rows={[{ ...rows[0], latestRollout: abortedSplit }]}
+        canStart
+        onStart={vi.fn()}
+        onView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
+    expect(screen.getByText(/Revert or resolve miners left on a historical release/i)).toBeInTheDocument();
+  });
+
+  it("disables every start action while fresh lane preparation is in progress", () => {
+    render(<RolloutLanesTable rows={rows} canStart isPreparingStart onStart={vi.fn()} onView={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
   });
 });

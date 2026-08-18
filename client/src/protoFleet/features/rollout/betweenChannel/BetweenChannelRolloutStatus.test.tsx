@@ -204,9 +204,79 @@ describe("BetweenChannelRolloutStatus", () => {
       />,
     );
 
+    expect(screen.queryByRole("button", { name: "Revert" })).not.toBeInTheDocument();
+
+    rerender(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "aborted",
+          batches: baseRollout.batches.map((batch) => ({ ...batch, state: "cancelled" })),
+          members: baseRollout.members.map((member, index) => ({
+            ...member,
+            state: index === 0 ? "succeeded" : "cancelled",
+          })),
+          availableActions: { ...baseRollout.availableActions, pause: false, abort: false, revert: true },
+        }}
+        laneLabel="Stable production"
+        canControl
+        onAbort={onAbort}
+        onRevert={onRevert}
+      />,
+    );
+
     await user.click(screen.getByRole("button", { name: "Revert" }));
     expect(screen.getByText("Revert 1 confirmed miner?")).toBeInTheDocument();
     await user.click(screen.getByTestId("confirm-revert-rollout"));
     expect(onRevert).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers permission-gated explicit completion for a settled final batch with failures", async () => {
+    const user = userEvent.setup();
+    const onCompleteWithFailures = vi.fn();
+    const failedReview: RolloutRecord = {
+      ...baseRollout,
+      state: "review",
+      batches: baseRollout.batches.map((batch) => ({ ...batch, state: "completed" })),
+      members: baseRollout.members.map((member, index) => ({
+        ...member,
+        state: index === 0 ? "succeeded" : index === 1 ? "failed" : "cancelled",
+      })),
+      availableActions: { ...baseRollout.availableActions, continue: false, pause: false, complete: true },
+    };
+    const { rerender } = render(
+      <BetweenChannelRolloutStatus
+        rollout={failedReview}
+        laneLabel="Stable production"
+        canControl
+        onCompleteWithFailures={onCompleteWithFailures}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Complete with failures" }));
+    expect(onCompleteWithFailures).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <BetweenChannelRolloutStatus
+        rollout={failedReview}
+        laneLabel="Stable production"
+        canControl={false}
+        onCompleteWithFailures={onCompleteWithFailures}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Complete with failures" })).not.toBeInTheDocument();
+
+    rerender(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...failedReview,
+          batches: [{ ...failedReview.batches[0], state: "pending" }],
+        }}
+        laneLabel="Stable production"
+        canControl
+        onCompleteWithFailures={onCompleteWithFailures}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Complete with failures" })).not.toBeInTheDocument();
   });
 });

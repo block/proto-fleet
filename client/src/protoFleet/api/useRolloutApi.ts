@@ -153,6 +153,10 @@ function rpcOptions(signal?: AbortSignal): { signal: AbortSignal } | undefined {
   return signal ? { signal } : undefined;
 }
 
+function newestRollout(existing: RolloutRecord | undefined, incoming: RolloutRecord): RolloutRecord {
+  return existing && existing.revision > incoming.revision ? existing : incoming;
+}
+
 function createRolloutRequest(input: CreateRolloutInput) {
   return create(CreateRolloutRequestSchema, {
     name: input.name,
@@ -237,7 +241,7 @@ export function useRolloutApi(): UseRolloutApiResult {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const latestListRequestIdRef = useRef(0);
-  const latestGetRequestIdRef = useRef(0);
+  const activeGetRequestByRolloutRef = useRef(new Map<string, symbol>());
   const latestLaneListRequestIdRef = useRef(0);
   const latestLaneGetRequestIdRef = useRef(0);
   const activeLoadCountRef = useRef(0);
@@ -263,20 +267,18 @@ export function useRolloutApi(): UseRolloutApiResult {
 
   const applyMutationResult = useCallback((nextRollout: RolloutRecord) => {
     setRollout((current) => {
-      if (current?.id === nextRollout.id && current.revision > nextRollout.revision) {
-        return current;
-      }
-      return nextRollout;
+      return current?.id === nextRollout.id ? newestRollout(current, nextRollout) : nextRollout;
     });
     setRollouts((current) => {
       const existingIndex = current.findIndex((item) => item.id === nextRollout.id);
       if (existingIndex === -1) {
         return [nextRollout, ...current];
       }
-      if (current[existingIndex].revision > nextRollout.revision) {
+      const newest = newestRollout(current[existingIndex], nextRollout);
+      if (newest === current[existingIndex]) {
         return current;
       }
-      return current.map((item, index) => (index === existingIndex ? nextRollout : item));
+      return current.map((item, index) => (index === existingIndex ? newest : item));
     });
   }, []);
 
@@ -384,7 +386,14 @@ export function useRolloutApi(): UseRolloutApiResult {
         assertNotAborted(signal);
         const mappedRollouts = response.rollouts.map((item) => mapRollout(item));
         if (requestId === latestListRequestIdRef.current) {
-          setRollouts(mappedRollouts);
+          setRollouts((current) => {
+            const currentById = new Map(current.map((item) => [item.id, item]));
+            const listedIds = new Set(mappedRollouts.map((item) => item.id));
+            return [
+              ...mappedRollouts.map((item) => newestRollout(currentById.get(item.id), item)),
+              ...current.filter((item) => !listedIds.has(item.id)),
+            ];
+          });
         }
         return mappedRollouts;
       } catch (error) {
@@ -410,7 +419,8 @@ export function useRolloutApi(): UseRolloutApiResult {
   const getRollout = useCallback(
     async ({ rolloutId, signal }: GetRolloutOptions) => {
       assertNotAborted(signal);
-      const requestId = ++latestGetRequestIdRef.current;
+      const requestToken = Symbol(rolloutId);
+      activeGetRequestByRolloutRef.current.set(rolloutId, requestToken);
       beginLoad();
       setLoadError(null);
 
@@ -424,8 +434,8 @@ export function useRolloutApi(): UseRolloutApiResult {
           throw new Error("Rollout response was missing a rollout.");
         }
         const mappedRollout = mapRollout(response.rollout);
-        if (requestId === latestGetRequestIdRef.current) {
-          setRollout(mappedRollout);
+        if (requestToken === activeGetRequestByRolloutRef.current.get(rolloutId)) {
+          applyMutationResult(mappedRollout);
         }
         return mappedRollout;
       } catch (error) {
@@ -433,7 +443,7 @@ export function useRolloutApi(): UseRolloutApiResult {
           throw error;
         }
         const resolvedError = handleFailure(error, "Failed to load rollout.");
-        if (requestId === latestGetRequestIdRef.current) {
+        if (requestToken === activeGetRequestByRolloutRef.current.get(rolloutId)) {
           if (isAuthOrPermissionError(error)) {
             setRollout(null);
             setRollouts([]);
@@ -442,10 +452,13 @@ export function useRolloutApi(): UseRolloutApiResult {
         }
         throw resolvedError;
       } finally {
+        if (requestToken === activeGetRequestByRolloutRef.current.get(rolloutId)) {
+          activeGetRequestByRolloutRef.current.delete(rolloutId);
+        }
         finishLoad();
       }
     },
-    [beginLoad, finishLoad, handleFailure],
+    [applyMutationResult, beginLoad, finishLoad, handleFailure],
   );
 
   const executeMutation = useCallback(

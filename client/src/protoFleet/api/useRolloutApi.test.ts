@@ -153,6 +153,64 @@ describe("useRolloutApi", () => {
     expect(deviceSetClientMock.listDeviceSetMembers).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes a lane pointer and its current release count without remounting", async () => {
+    const advancedLane = create(RolloutLaneSchema, {
+      laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+      label: "Stable production",
+      currentChannelId: 42n,
+      revision: 3n,
+      channels: [
+        create(RolloutLaneChannelSchema, {
+          channelId: 41n,
+          releaseSetId: 7n,
+          position: 0,
+        }),
+        create(RolloutLaneChannelSchema, {
+          channelId: 42n,
+          releaseSetId: 8n,
+          position: 1,
+          current: true,
+        }),
+      ],
+    });
+    rolloutClientMock.listRolloutLanes
+      .mockResolvedValueOnce({ lanes: [protoLane()] })
+      .mockResolvedValueOnce({ lanes: [advancedLane] });
+    deviceSetClientMock.getDeviceSet.mockImplementation(async ({ deviceSetId }: { deviceSetId: bigint }) => ({
+      deviceSet: {
+        id: deviceSetId,
+        deviceCount: deviceSetId === 42n ? 3 : 2,
+        typeDetails: {
+          case: "channelInfo",
+          value: {
+            releaseTargets: [
+              {
+                firmwareFileId: deviceSetId === 42n ? "file-beta" : "file-alpha",
+                targetManufacturer: "Proto",
+                targetModel: "Alpha",
+                firmwareVersion: deviceSetId === 42n ? "2.0.0" : "1.0.0",
+                sha256: deviceSetId === 42n ? "def" : "abc",
+              },
+            ],
+          },
+        },
+      },
+    }));
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.listRolloutLanes();
+      await result.current.listRolloutLanes();
+    });
+
+    expect(result.current.lanes[0]).toMatchObject({
+      currentChannelId: 42n,
+      revision: 3n,
+      memberCount: 3,
+      currentReleaseTargets: [{ firmwareFileId: "file-beta", firmwareVersion: "2.0.0" }],
+    });
+  });
+
   it("starts the selected lane with exact target files and frozen batch assignments", async () => {
     rolloutClientMock.startRolloutLane.mockResolvedValue({
       lane: protoLane(),
@@ -213,8 +271,53 @@ describe("useRolloutApi", () => {
     });
 
     expect(rolloutClientMock.listRollouts.mock.calls[0][0].states).toEqual([RolloutState.RUNNING]);
-    expect(result.current.rollouts.map((rollout) => rollout.id)).toEqual(["one"]);
+    expect(result.current.rollouts.map((rollout) => rollout.id)).toEqual(["two", "one"]);
     expect(result.current.rollout).toMatchObject({ id: "two", state: "paused", revision: 2n });
+  });
+
+  it("merges a bounded get refresh into existing rollout history", async () => {
+    rolloutClientMock.listRollouts.mockResolvedValue({
+      rollouts: [protoRollout("history", RolloutState.COMPLETED), protoRollout("live", RolloutState.RUNNING, 1n)],
+    });
+    rolloutClientMock.getRollout.mockResolvedValue({
+      rollout: protoRollout("live", RolloutState.REVIEW, 2n),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.listRollouts();
+      await result.current.getRollout({ rolloutId: "live" });
+    });
+
+    expect(result.current.rollouts.map(({ id }) => id)).toEqual(["history", "live"]);
+    expect(result.current.rollouts.find(({ id }) => id === "live")).toMatchObject({
+      state: "review",
+      revision: 2n,
+    });
+  });
+
+  it("merges concurrent get refreshes independently by rollout ID", async () => {
+    const first = deferred<{ rollout: ReturnType<typeof protoRollout> }>();
+    rolloutClientMock.getRollout.mockImplementation(({ rolloutId }: { rolloutId: string }) =>
+      rolloutId === "one" ? first.promise : Promise.resolve({ rollout: protoRollout("two", RolloutState.PAUSED, 2n) }),
+    );
+    const { result } = renderHook(() => useRolloutApi());
+    let firstRequest!: Promise<unknown>;
+    let secondRequest!: Promise<unknown>;
+
+    act(() => {
+      firstRequest = result.current.getRollout({ rolloutId: "one" });
+      secondRequest = result.current.getRollout({ rolloutId: "two" });
+    });
+    await act(async () => {
+      await secondRequest;
+    });
+    await act(async () => {
+      first.resolve({ rollout: protoRollout("one", RolloutState.RUNNING, 2n) });
+      await firstRequest;
+    });
+
+    expect(result.current.rollouts.map(({ id }) => id).sort()).toEqual(["one", "two"]);
   });
 
   it("forwards revision and idempotency fields to distinct abort and revert controls", async () => {
@@ -419,6 +522,29 @@ describe("useRolloutApi", () => {
     });
 
     expect(result.current.rollouts.map((rollout) => rollout.id)).toEqual(["fresh"]);
+  });
+
+  it("does not let a stale history list overwrite a newer per-ID refresh", async () => {
+    const staleList = deferred<{ rollouts: ReturnType<typeof protoRollout>[] }>();
+    rolloutClientMock.listRollouts.mockReturnValue(staleList.promise);
+    rolloutClientMock.getRollout.mockResolvedValue({
+      rollout: protoRollout("live", RolloutState.REVIEW, 2n),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+    let listRequest!: Promise<unknown>;
+
+    act(() => {
+      listRequest = result.current.listRollouts();
+    });
+    await act(async () => {
+      await result.current.getRollout({ rolloutId: "live" });
+    });
+    await act(async () => {
+      staleList.resolve({ rollouts: [protoRollout("live", RolloutState.RUNNING, 1n)] });
+      await listRequest;
+    });
+
+    expect(result.current.rollouts).toEqual([expect.objectContaining({ id: "live", state: "review", revision: 2n })]);
   });
 
   it("does not update state or report auth errors after cancellation", async () => {
