@@ -1,0 +1,411 @@
+package betweenchannel
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/google/uuid"
+
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
+)
+
+var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+type Service struct {
+	store    LaneStore
+	resolver ReleaseTargetResolver
+}
+
+type ReleaseTargetResolver interface {
+	ResolveReleaseTargets(
+		ctx context.Context,
+		firmwareFileIDs []string,
+	) ([]ReleaseTarget, func(), error)
+}
+
+type ReleaseTargetResolverFunc func(
+	ctx context.Context,
+	firmwareFileIDs []string,
+) ([]ReleaseTarget, func(), error)
+
+func (f ReleaseTargetResolverFunc) ResolveReleaseTargets(
+	ctx context.Context,
+	firmwareFileIDs []string,
+) ([]ReleaseTarget, func(), error) {
+	return f(ctx, firmwareFileIDs)
+}
+
+func NewService(store LaneStore, resolvers ...ReleaseTargetResolver) *Service {
+	service := &Service{store: store}
+	if len(resolvers) > 0 {
+		service.resolver = resolvers[0]
+	}
+	return service
+}
+
+func (s *Service) CreateLane(
+	ctx context.Context,
+	req CreateLaneRequest,
+) (*Lane, error) {
+	if err := validateCreateLaneRequest(req); err != nil {
+		return nil, err
+	}
+	targets, release, err := s.resolveTargets(ctx, req.FirmwareFileIDs, req.ReleaseTargets)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	req.ReleaseTargets = targets
+	if req.ID == uuid.Nil {
+		req.ID = uuid.New()
+	}
+	req.RequestFingerprint, err = fingerprintLaneCreate(req)
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"rollout lane request cannot be fingerprinted: %v",
+			err,
+		)
+	}
+	lane, err := s.store.CreateLane(ctx, req)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return lane, nil
+}
+
+func (s *Service) GetLane(
+	ctx context.Context,
+	orgID int64,
+	laneID uuid.UUID,
+) (*Lane, error) {
+	if orgID <= 0 || laneID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"organization and rollout lane IDs are required",
+		)
+	}
+	lane, err := s.store.GetLane(ctx, orgID, laneID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return lane, nil
+}
+
+func (s *Service) ListLanes(ctx context.Context, orgID int64) ([]Lane, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("organization ID is required")
+	}
+	lanes, err := s.store.ListLanes(ctx, orgID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return lanes, nil
+}
+
+func (s *Service) StartRollout(
+	ctx context.Context,
+	req StartRolloutRequest,
+) (StartRolloutResult, error) {
+	if err := validateStartRolloutRequest(req); err != nil {
+		return StartRolloutResult{}, err
+	}
+	targets, release, err := s.resolveTargets(ctx, req.FirmwareFileIDs, req.ReleaseTargets)
+	if err != nil {
+		return StartRolloutResult{}, err
+	}
+	defer release()
+	req.ReleaseTargets = targets
+	if req.ID == uuid.Nil {
+		req.ID = uuid.New()
+	}
+	req.RequestFingerprint, err = fingerprintLaneStart(req)
+	if err != nil {
+		return StartRolloutResult{}, fleeterror.NewInvalidArgumentErrorf(
+			"rollout lane start request cannot be fingerprinted: %v",
+			err,
+		)
+	}
+	result, err := s.store.StartRollout(ctx, req)
+	if err != nil {
+		return StartRolloutResult{}, mapStoreError(err)
+	}
+	return result, nil
+}
+
+func validateCreateLaneRequest(req CreateLaneRequest) error {
+	if req.OrgID <= 0 || req.ActorUserID <= 0 || strings.TrimSpace(req.Label) == "" {
+		return fleeterror.NewInvalidArgumentError(
+			"organization, actor, and rollout lane label are required",
+		)
+	}
+	if strings.TrimSpace(req.IdempotencyKey) == "" {
+		return fleeterror.NewInvalidArgumentError("idempotency key is required")
+	}
+	if err := validateReleaseInput(req.FirmwareFileIDs, req.ReleaseTargets); err != nil {
+		return err
+	}
+	if err := validateIdentifiers(req.DeviceIdentifiers); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateStartRolloutRequest(req StartRolloutRequest) error {
+	if req.OrgID <= 0 || req.ActorUserID <= 0 || req.LaneID == uuid.Nil ||
+		strings.TrimSpace(req.Name) == "" {
+		return fleeterror.NewInvalidArgumentError(
+			"organization, actor, lane, and rollout name are required",
+		)
+	}
+	if strings.TrimSpace(req.IdempotencyKey) == "" || strings.TrimSpace(req.Reason) == "" {
+		return fleeterror.NewInvalidArgumentError("idempotency key and reason are required")
+	}
+	if err := validateReleaseInput(req.FirmwareFileIDs, req.ReleaseTargets); err != nil {
+		return err
+	}
+	if len(req.Batches) == 0 {
+		return fleeterror.NewInvalidArgumentError("at least one rollout batch is required")
+	}
+	identifiers := make([]string, 0)
+	for _, batch := range req.Batches {
+		if len(batch.Members) == 0 {
+			return fleeterror.NewInvalidArgumentError("rollout batches cannot be empty")
+		}
+		for _, member := range batch.Members {
+			identifiers = append(identifiers, member.DeviceIdentifier)
+		}
+	}
+	return validateIdentifiers(identifiers)
+}
+
+func validateReleaseInput(
+	firmwareFileIDs []string,
+	targets []ReleaseTarget,
+) error {
+	switch {
+	case len(firmwareFileIDs) > 0 && len(targets) > 0:
+		return fleeterror.NewInvalidArgumentError(
+			"firmware file IDs and resolved release targets are mutually exclusive",
+		)
+	case len(firmwareFileIDs) > 0:
+		return validateIdentifiers(firmwareFileIDs)
+	default:
+		return validateReleaseTargets(targets)
+	}
+}
+
+func (s *Service) resolveTargets(
+	ctx context.Context,
+	firmwareFileIDs []string,
+	targets []ReleaseTarget,
+) ([]ReleaseTarget, func(), error) {
+	if len(firmwareFileIDs) == 0 {
+		return targets, func() {}, nil
+	}
+	if s.resolver == nil {
+		return nil, func() {}, fleeterror.NewFailedPreconditionError(
+			"firmware release resolver is not registered",
+		)
+	}
+	resolved, release, err := s.resolver.ResolveReleaseTargets(ctx, firmwareFileIDs)
+	if release == nil {
+		release = func() {}
+	}
+	if err != nil {
+		release()
+		return nil, func() {}, err
+	}
+	if err := validateReleaseTargets(resolved); err != nil {
+		release()
+		return nil, func() {}, err
+	}
+	return resolved, release, nil
+}
+
+func validateIdentifiers(identifiers []string) error {
+	if len(identifiers) == 0 {
+		return fleeterror.NewInvalidArgumentError("device identifiers are required")
+	}
+	seen := make(map[string]struct{}, len(identifiers))
+	for _, value := range identifiers {
+		identifier := strings.TrimSpace(value)
+		if identifier == "" {
+			return fleeterror.NewInvalidArgumentError("device identifiers cannot be empty")
+		}
+		if _, ok := seen[identifier]; ok {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"duplicate device identifier %q",
+				identifier,
+			)
+		}
+		seen[identifier] = struct{}{}
+	}
+	return nil
+}
+
+func validateReleaseTargets(targets []ReleaseTarget) error {
+	if len(targets) == 0 {
+		return fleeterror.NewInvalidArgumentError("at least one release target is required")
+	}
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		if strings.TrimSpace(target.FirmwareFileID) == "" ||
+			strings.TrimSpace(target.Manufacturer) == "" ||
+			strings.TrimSpace(target.Model) == "" ||
+			strings.TrimSpace(target.FirmwareVersion) == "" ||
+			!sha256Pattern.MatchString(target.SHA256) {
+			return fleeterror.NewInvalidArgumentError(
+				"release targets require file, manufacturer, model, version, and lowercase SHA-256",
+			)
+		}
+		key := ModelKey(target.Manufacturer, target.Model)
+		if _, ok := seen[key]; ok {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"duplicate release target for %s %s",
+				target.Manufacturer,
+				target.Model,
+			)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func validateTransitionTargets(
+	source []DeviceTransition,
+	targets []ReleaseTarget,
+) error {
+	if err := validateReleaseTargets(targets); err != nil {
+		return err
+	}
+	targetByModel := make(map[string]ReleaseTarget, len(targets))
+	for _, target := range targets {
+		targetByModel[ModelKey(target.Manufacturer, target.Model)] = target
+	}
+	for _, transition := range source {
+		if strings.TrimSpace(transition.Manufacturer) == "" ||
+			strings.TrimSpace(transition.Model) == "" ||
+			transition.SourceReleaseTargetID <= 0 {
+			return fmt.Errorf(
+				"%w: source release is missing model support for device %s",
+				ErrCompatibility,
+				transition.DeviceIdentifier,
+			)
+		}
+		target, ok := targetByModel[ModelKey(transition.Manufacturer, transition.Model)]
+		if !ok {
+			return fmt.Errorf(
+				"%w: target release is missing %s %s",
+				ErrCompatibility,
+				transition.Manufacturer,
+				transition.Model,
+			)
+		}
+		if target.FirmwareVersion == transition.SourceFirmwareVersion ||
+			target.SHA256 == transition.SourceSHA256 {
+			return fmt.Errorf(
+				"%w: %s %s already targets source release",
+				ErrCompatibility,
+				transition.Manufacturer,
+				transition.Model,
+			)
+		}
+	}
+	return nil
+}
+
+func ValidateTransitionTargetsForStore(
+	source []DeviceTransition,
+	targets []ReleaseTarget,
+) error {
+	return validateTransitionTargets(source, targets)
+}
+
+func ModelKey(manufacturer, model string) string {
+	return strings.ToLower(strings.TrimSpace(manufacturer)) +
+		"\x00" +
+		strings.ToLower(strings.TrimSpace(model))
+}
+
+func fingerprintLaneCreate(req CreateLaneRequest) (string, error) {
+	payload := struct {
+		Label             string
+		Description       string
+		FirmwareFileIDs   []string
+		ReleaseTargets    []ReleaseTarget
+		DeviceIdentifiers []string
+		ActorUserID       int64
+	}{
+		Label:             req.Label,
+		Description:       req.Description,
+		FirmwareFileIDs:   sortedStrings(req.FirmwareFileIDs),
+		ReleaseTargets:    sortedTargets(req.ReleaseTargets),
+		DeviceIdentifiers: sortedStrings(req.DeviceIdentifiers),
+		ActorUserID:       req.ActorUserID,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal lane create fingerprint: %w", err)
+	}
+	return cryptohash.Sha256Hex(string(encoded)), nil
+}
+
+func fingerprintLaneStart(req StartRolloutRequest) (string, error) {
+	payload := struct {
+		LaneID          uuid.UUID
+		Name            string
+		FirmwareFileIDs []string
+		ReleaseTargets  []ReleaseTarget
+		Batches         any
+		Reason          string
+		ActorUserID     int64
+	}{
+		LaneID:          req.LaneID,
+		Name:            req.Name,
+		FirmwareFileIDs: sortedStrings(req.FirmwareFileIDs),
+		ReleaseTargets:  sortedTargets(req.ReleaseTargets),
+		Batches:         req.Batches,
+		Reason:          req.Reason,
+		ActorUserID:     req.ActorUserID,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal lane start fingerprint: %w", err)
+	}
+	return cryptohash.Sha256Hex(string(encoded)), nil
+}
+
+func sortedTargets(values []ReleaseTarget) []ReleaseTarget {
+	result := append([]ReleaseTarget(nil), values...)
+	sort.Slice(result, func(i, j int) bool {
+		return ModelKey(result[i].Manufacturer, result[i].Model) <
+			ModelKey(result[j].Manufacturer, result[j].Model)
+	})
+	return result
+}
+
+func sortedStrings(values []string) []string {
+	result := append([]string(nil), values...)
+	sort.Strings(result)
+	return result
+}
+
+func mapStoreError(err error) error {
+	switch {
+	case errors.Is(err, ErrLaneNotFound):
+		return fleeterror.NewNotFoundErrorf("%w", err)
+	case errors.Is(err, ErrLaneConflict),
+		errors.Is(err, ErrMembershipConflict),
+		errors.Is(err, ErrCompatibility):
+		return fleeterror.NewFailedPreconditionErrorf("%w", err)
+	case errors.Is(err, ErrIdempotencyConflict):
+		return fleeterror.NewAlreadyExistsErrorf("%w", err)
+	default:
+		return err
+	}
+}

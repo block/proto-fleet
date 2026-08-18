@@ -362,37 +362,39 @@ func (s *Service) leaseFirmwareReleaseTarget(fileID string) (*pb.FirmwareRelease
 	}, release, nil
 }
 
-// CreateFirmwareReleaseSet snapshots verified artifacts into an immutable,
-// organization-owned release set.
-func (s *Service) CreateFirmwareReleaseSet(ctx context.Context, firmwareFileIDs []string) (*pb.FirmwareReleaseSet, error) {
+func (s *Service) ResolveFirmwareReleaseTargets(
+	firmwareFileIDs []string,
+) ([]*pb.FirmwareReleaseTarget, func(), error) {
 	if len(firmwareFileIDs) == 0 {
-		return nil, fleeterror.NewInvalidArgumentError("firmware_file_ids must not be empty")
+		return nil, func() {}, fleeterror.NewInvalidArgumentError(
+			"firmware_file_ids must not be empty",
+		)
 	}
 	if len(firmwareFileIDs) > 100 {
-		return nil, fleeterror.NewInvalidArgumentError("firmware_file_ids must contain at most 100 entries")
-	}
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
+		return nil, func() {}, fleeterror.NewInvalidArgumentError(
+			"firmware_file_ids must contain at most 100 entries",
+		)
 	}
 
 	targets := make([]*pb.FirmwareReleaseTarget, 0, len(firmwareFileIDs))
 	releases := make([]func(), 0, len(firmwareFileIDs))
-	defer func() {
+	releaseAll := func() {
 		for _, release := range releases {
 			release()
 		}
-	}()
+	}
 	models := make(map[string]struct{}, len(firmwareFileIDs))
 	for _, fileID := range firmwareFileIDs {
 		target, release, err := s.leaseFirmwareReleaseTarget(fileID)
 		if err != nil {
-			return nil, err
+			releaseAll()
+			return nil, func() {}, err
 		}
 		releases = append(releases, release)
 		modelKey := strings.ToLower(target.TargetManufacturer) + "\x00" + strings.ToLower(target.TargetModel)
 		if _, duplicate := models[modelKey]; duplicate {
-			return nil, fleeterror.NewInvalidArgumentErrorf(
+			releaseAll()
+			return nil, func() {}, fleeterror.NewInvalidArgumentErrorf(
 				"duplicate firmware target for %s %s",
 				target.TargetManufacturer,
 				target.TargetModel,
@@ -400,6 +402,21 @@ func (s *Service) CreateFirmwareReleaseSet(ctx context.Context, firmwareFileIDs 
 		}
 		models[modelKey] = struct{}{}
 		targets = append(targets, target)
+	}
+	return targets, releaseAll, nil
+}
+
+// CreateFirmwareReleaseSet snapshots verified artifacts into an immutable,
+// organization-owned release set.
+func (s *Service) CreateFirmwareReleaseSet(ctx context.Context, firmwareFileIDs []string) (*pb.FirmwareReleaseSet, error) {
+	targets, releaseAll, err := s.ResolveFirmwareReleaseTargets(firmwareFileIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseAll()
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
@@ -514,6 +531,13 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 				}
 				if len(uniqueIdentifiers(owned)) != len(uniqueIdentifiers(deviceIdentifiers)) {
 					return nil, fleeterror.NewNotFoundError("one or more devices were not found in the organization")
+				}
+				if err := s.rejectRolloutOwnedChannelAssignment(
+					ctx,
+					info.OrganizationID,
+					deviceIdentifiers,
+				); err != nil {
+					return nil, err
 				}
 			}
 		}
@@ -1714,6 +1738,13 @@ func (s *Service) AssignDevicesToChannel(
 		if len(uniqueIdentifiers(owned)) != len(uniqueIdentifiers(params.DeviceIdentifiers)) {
 			return nil, fleeterror.NewNotFoundError("one or more devices were not found in the organization")
 		}
+		if err := s.rejectRolloutOwnedChannelAssignment(
+			ctx,
+			params.OrgID,
+			params.DeviceIdentifiers,
+		); err != nil {
+			return nil, err
+		}
 
 		var targetName string
 		if params.TargetChannelID != nil {
@@ -1798,6 +1829,28 @@ func (s *Service) AssignDevicesToChannel(
 		AssignedCount: out.assigned,
 		RemovedCount:  out.removed,
 	}, nil
+}
+
+func (s *Service) rejectRolloutOwnedChannelAssignment(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+) error {
+	rolloutOwned, err := s.collectionStore.ListActiveRolloutOwnedDeviceIdentifiers(
+		ctx,
+		orgID,
+		deviceIdentifiers,
+	)
+	if err != nil {
+		return err
+	}
+	if len(rolloutOwned) > 0 {
+		return fleeterror.NewFailedPreconditionErrorf(
+			"channel membership is owned by an active rollout for %d device(s)",
+			len(rolloutOwned),
+		)
+	}
+	return nil
 }
 
 type ListCollectionMembersParams struct {

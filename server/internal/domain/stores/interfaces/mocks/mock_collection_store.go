@@ -577,6 +577,21 @@ func (mr *MockCollectionStoreMockRecorder) GetRackSlots(ctx, collectionID, orgID
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRackSlots", reflect.TypeOf((*MockCollectionStore)(nil).GetRackSlots), ctx, collectionID, orgID)
 }
 
+// ListActiveRolloutOwnedDeviceIdentifiers mocks base method.
+func (m *MockCollectionStore) ListActiveRolloutOwnedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveRolloutOwnedDeviceIdentifiers", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveRolloutOwnedDeviceIdentifiers indicates an expected call of ListActiveRolloutOwnedDeviceIdentifiers.
+func (mr *MockCollectionStoreMockRecorder) ListActiveRolloutOwnedDeviceIdentifiers(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveRolloutOwnedDeviceIdentifiers", reflect.TypeOf((*MockCollectionStore)(nil).ListActiveRolloutOwnedDeviceIdentifiers), ctx, orgID, deviceIdentifiers)
+}
+
 // ListCollectionMembers mocks base method.
 func (m *MockCollectionStore) ListCollectionMembers(ctx context.Context, orgID, collectionID int64, pageSize int32, pageToken string, filter *interfaces.DeviceSetFilter) ([]*collectionv1.CollectionMember, string, error) {
 	m.ctrl.T.Helper()

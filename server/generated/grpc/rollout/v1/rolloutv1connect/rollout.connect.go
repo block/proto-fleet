@@ -34,6 +34,18 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// RolloutServiceCreateRolloutLaneProcedure is the fully-qualified name of the RolloutService's
+	// CreateRolloutLane RPC.
+	RolloutServiceCreateRolloutLaneProcedure = "/rollout.v1.RolloutService/CreateRolloutLane"
+	// RolloutServiceGetRolloutLaneProcedure is the fully-qualified name of the RolloutService's
+	// GetRolloutLane RPC.
+	RolloutServiceGetRolloutLaneProcedure = "/rollout.v1.RolloutService/GetRolloutLane"
+	// RolloutServiceListRolloutLanesProcedure is the fully-qualified name of the RolloutService's
+	// ListRolloutLanes RPC.
+	RolloutServiceListRolloutLanesProcedure = "/rollout.v1.RolloutService/ListRolloutLanes"
+	// RolloutServiceStartRolloutLaneProcedure is the fully-qualified name of the RolloutService's
+	// StartRolloutLane RPC.
+	RolloutServiceStartRolloutLaneProcedure = "/rollout.v1.RolloutService/StartRolloutLane"
 	// RolloutServiceCreateRolloutProcedure is the fully-qualified name of the RolloutService's
 	// CreateRollout RPC.
 	RolloutServiceCreateRolloutProcedure = "/rollout.v1.RolloutService/CreateRollout"
@@ -68,6 +80,10 @@ const (
 
 // RolloutServiceClient is a client for the rollout.v1.RolloutService service.
 type RolloutServiceClient interface {
+	CreateRolloutLane(context.Context, *connect.Request[v1.CreateRolloutLaneRequest]) (*connect.Response[v1.CreateRolloutLaneResponse], error)
+	GetRolloutLane(context.Context, *connect.Request[v1.GetRolloutLaneRequest]) (*connect.Response[v1.GetRolloutLaneResponse], error)
+	ListRolloutLanes(context.Context, *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error)
+	StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error)
 	CreateRollout(context.Context, *connect.Request[v1.CreateRolloutRequest]) (*connect.Response[v1.CreateRolloutResponse], error)
 	GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error)
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
@@ -90,6 +106,26 @@ type RolloutServiceClient interface {
 func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) RolloutServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &rolloutServiceClient{
+		createRolloutLane: connect.NewClient[v1.CreateRolloutLaneRequest, v1.CreateRolloutLaneResponse](
+			httpClient,
+			baseURL+RolloutServiceCreateRolloutLaneProcedure,
+			opts...,
+		),
+		getRolloutLane: connect.NewClient[v1.GetRolloutLaneRequest, v1.GetRolloutLaneResponse](
+			httpClient,
+			baseURL+RolloutServiceGetRolloutLaneProcedure,
+			opts...,
+		),
+		listRolloutLanes: connect.NewClient[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse](
+			httpClient,
+			baseURL+RolloutServiceListRolloutLanesProcedure,
+			opts...,
+		),
+		startRolloutLane: connect.NewClient[v1.StartRolloutLaneRequest, v1.StartRolloutLaneResponse](
+			httpClient,
+			baseURL+RolloutServiceStartRolloutLaneProcedure,
+			opts...,
+		),
 		createRollout: connect.NewClient[v1.CreateRolloutRequest, v1.CreateRolloutResponse](
 			httpClient,
 			baseURL+RolloutServiceCreateRolloutProcedure,
@@ -145,16 +181,40 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // rolloutServiceClient implements RolloutServiceClient.
 type rolloutServiceClient struct {
-	createRollout   *connect.Client[v1.CreateRolloutRequest, v1.CreateRolloutResponse]
-	getRollout      *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
-	listRollouts    *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
-	admitRollout    *connect.Client[v1.AdmitRolloutRequest, v1.AdmitRolloutResponse]
-	continueRollout *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
-	pauseRollout    *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
-	resumeRollout   *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
-	abortRollout    *connect.Client[v1.AbortRolloutRequest, v1.AbortRolloutResponse]
-	revertRollout   *connect.Client[v1.RevertRolloutRequest, v1.RevertRolloutResponse]
-	completeRollout *connect.Client[v1.CompleteRolloutRequest, v1.CompleteRolloutResponse]
+	createRolloutLane *connect.Client[v1.CreateRolloutLaneRequest, v1.CreateRolloutLaneResponse]
+	getRolloutLane    *connect.Client[v1.GetRolloutLaneRequest, v1.GetRolloutLaneResponse]
+	listRolloutLanes  *connect.Client[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse]
+	startRolloutLane  *connect.Client[v1.StartRolloutLaneRequest, v1.StartRolloutLaneResponse]
+	createRollout     *connect.Client[v1.CreateRolloutRequest, v1.CreateRolloutResponse]
+	getRollout        *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
+	listRollouts      *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
+	admitRollout      *connect.Client[v1.AdmitRolloutRequest, v1.AdmitRolloutResponse]
+	continueRollout   *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
+	pauseRollout      *connect.Client[v1.PauseRolloutRequest, v1.PauseRolloutResponse]
+	resumeRollout     *connect.Client[v1.ResumeRolloutRequest, v1.ResumeRolloutResponse]
+	abortRollout      *connect.Client[v1.AbortRolloutRequest, v1.AbortRolloutResponse]
+	revertRollout     *connect.Client[v1.RevertRolloutRequest, v1.RevertRolloutResponse]
+	completeRollout   *connect.Client[v1.CompleteRolloutRequest, v1.CompleteRolloutResponse]
+}
+
+// CreateRolloutLane calls rollout.v1.RolloutService.CreateRolloutLane.
+func (c *rolloutServiceClient) CreateRolloutLane(ctx context.Context, req *connect.Request[v1.CreateRolloutLaneRequest]) (*connect.Response[v1.CreateRolloutLaneResponse], error) {
+	return c.createRolloutLane.CallUnary(ctx, req)
+}
+
+// GetRolloutLane calls rollout.v1.RolloutService.GetRolloutLane.
+func (c *rolloutServiceClient) GetRolloutLane(ctx context.Context, req *connect.Request[v1.GetRolloutLaneRequest]) (*connect.Response[v1.GetRolloutLaneResponse], error) {
+	return c.getRolloutLane.CallUnary(ctx, req)
+}
+
+// ListRolloutLanes calls rollout.v1.RolloutService.ListRolloutLanes.
+func (c *rolloutServiceClient) ListRolloutLanes(ctx context.Context, req *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error) {
+	return c.listRolloutLanes.CallUnary(ctx, req)
+}
+
+// StartRolloutLane calls rollout.v1.RolloutService.StartRolloutLane.
+func (c *rolloutServiceClient) StartRolloutLane(ctx context.Context, req *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error) {
+	return c.startRolloutLane.CallUnary(ctx, req)
 }
 
 // CreateRollout calls rollout.v1.RolloutService.CreateRollout.
@@ -209,6 +269,10 @@ func (c *rolloutServiceClient) CompleteRollout(ctx context.Context, req *connect
 
 // RolloutServiceHandler is an implementation of the rollout.v1.RolloutService service.
 type RolloutServiceHandler interface {
+	CreateRolloutLane(context.Context, *connect.Request[v1.CreateRolloutLaneRequest]) (*connect.Response[v1.CreateRolloutLaneResponse], error)
+	GetRolloutLane(context.Context, *connect.Request[v1.GetRolloutLaneRequest]) (*connect.Response[v1.GetRolloutLaneResponse], error)
+	ListRolloutLanes(context.Context, *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error)
+	StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error)
 	CreateRollout(context.Context, *connect.Request[v1.CreateRolloutRequest]) (*connect.Response[v1.CreateRolloutResponse], error)
 	GetRollout(context.Context, *connect.Request[v1.GetRolloutRequest]) (*connect.Response[v1.GetRolloutResponse], error)
 	ListRollouts(context.Context, *connect.Request[v1.ListRolloutsRequest]) (*connect.Response[v1.ListRolloutsResponse], error)
@@ -227,6 +291,26 @@ type RolloutServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	rolloutServiceCreateRolloutLaneHandler := connect.NewUnaryHandler(
+		RolloutServiceCreateRolloutLaneProcedure,
+		svc.CreateRolloutLane,
+		opts...,
+	)
+	rolloutServiceGetRolloutLaneHandler := connect.NewUnaryHandler(
+		RolloutServiceGetRolloutLaneProcedure,
+		svc.GetRolloutLane,
+		opts...,
+	)
+	rolloutServiceListRolloutLanesHandler := connect.NewUnaryHandler(
+		RolloutServiceListRolloutLanesProcedure,
+		svc.ListRolloutLanes,
+		opts...,
+	)
+	rolloutServiceStartRolloutLaneHandler := connect.NewUnaryHandler(
+		RolloutServiceStartRolloutLaneProcedure,
+		svc.StartRolloutLane,
+		opts...,
+	)
 	rolloutServiceCreateRolloutHandler := connect.NewUnaryHandler(
 		RolloutServiceCreateRolloutProcedure,
 		svc.CreateRollout,
@@ -279,6 +363,14 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 	)
 	return "/rollout.v1.RolloutService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case RolloutServiceCreateRolloutLaneProcedure:
+			rolloutServiceCreateRolloutLaneHandler.ServeHTTP(w, r)
+		case RolloutServiceGetRolloutLaneProcedure:
+			rolloutServiceGetRolloutLaneHandler.ServeHTTP(w, r)
+		case RolloutServiceListRolloutLanesProcedure:
+			rolloutServiceListRolloutLanesHandler.ServeHTTP(w, r)
+		case RolloutServiceStartRolloutLaneProcedure:
+			rolloutServiceStartRolloutLaneHandler.ServeHTTP(w, r)
 		case RolloutServiceCreateRolloutProcedure:
 			rolloutServiceCreateRolloutHandler.ServeHTTP(w, r)
 		case RolloutServiceGetRolloutProcedure:
@@ -307,6 +399,22 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 
 // UnimplementedRolloutServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedRolloutServiceHandler struct{}
+
+func (UnimplementedRolloutServiceHandler) CreateRolloutLane(context.Context, *connect.Request[v1.CreateRolloutLaneRequest]) (*connect.Response[v1.CreateRolloutLaneResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.CreateRolloutLane is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) GetRolloutLane(context.Context, *connect.Request[v1.GetRolloutLaneRequest]) (*connect.Response[v1.GetRolloutLaneResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.GetRolloutLane is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ListRolloutLanes(context.Context, *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRolloutLanes is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) StartRolloutLane(context.Context, *connect.Request[v1.StartRolloutLaneRequest]) (*connect.Response[v1.StartRolloutLaneResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.StartRolloutLane is not implemented"))
+}
 
 func (UnimplementedRolloutServiceHandler) CreateRollout(context.Context, *connect.Request[v1.CreateRolloutRequest]) (*connect.Response[v1.CreateRolloutResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.CreateRollout is not implemented"))

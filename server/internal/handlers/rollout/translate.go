@@ -10,6 +10,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
+	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
@@ -21,12 +22,48 @@ func parseRolloutID(value string) (uuid.UUID, error) {
 	return result, nil
 }
 
-func createRequestFromProto(
-	input *pb.CreateRolloutRequest,
-	info *session.Info,
-) rolloutDomain.CreateRequest {
-	batches := make([]rolloutDomain.CreateBatch, 0, len(input.GetBatches()))
-	for _, inputBatch := range input.GetBatches() {
+func parseLaneID(value string) (uuid.UUID, error) {
+	result, err := uuid.Parse(value)
+	if err != nil {
+		return uuid.Nil, fleeterror.NewInvalidArgumentError("lane_id must be a UUID")
+	}
+	return result, nil
+}
+
+func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
+	if input == nil {
+		return nil
+	}
+	result := &pb.RolloutLane{
+		LaneId:           input.ID.String(),
+		Label:            input.Label,
+		Description:      input.Description,
+		CurrentChannelId: input.CurrentChannelID,
+		Revision:         uint64(input.Revision), //nolint:gosec // Database constraint requires a positive revision.
+		CreatedAt:        timestamppb.New(input.CreatedAt),
+		UpdatedAt:        timestamppb.New(input.UpdatedAt),
+		Channels:         make([]*pb.RolloutLaneChannel, 0, len(input.Channels)),
+	}
+	for _, inputChannel := range input.Channels {
+		channel := &pb.RolloutLaneChannel{
+			ChannelId:    inputChannel.ChannelID,
+			ReleaseSetId: inputChannel.ReleaseSetID,
+			Position:     uint32(inputChannel.Position), //nolint:gosec // Database constraint requires a nonnegative position.
+			Current:      inputChannel.ChannelID == input.CurrentChannelID,
+			CreatedAt:    timestamppb.New(inputChannel.CreatedAt),
+		}
+		if inputChannel.RolloutID != nil {
+			value := inputChannel.RolloutID.String()
+			channel.RolloutId = &value
+		}
+		result.Channels = append(result.Channels, channel)
+	}
+	return result
+}
+
+func batchesFromProto(inputs []*pb.CreateRolloutBatch) []rolloutDomain.CreateBatch {
+	result := make([]rolloutDomain.CreateBatch, 0, len(inputs))
+	for _, inputBatch := range inputs {
 		batch := rolloutDomain.CreateBatch{
 			Label:   inputBatch.GetLabel(),
 			Members: make([]rolloutDomain.CreateMember, 0, len(inputBatch.GetMembers())),
@@ -39,8 +76,15 @@ func createRequestFromProto(
 				RevertSnapshot:   snapshotFromProto(inputMember.GetRevertSnapshot()),
 			})
 		}
-		batches = append(batches, batch)
+		result = append(result, batch)
 	}
+	return result
+}
+
+func createRequestFromProto(
+	input *pb.CreateRolloutRequest,
+	info *session.Info,
+) rolloutDomain.CreateRequest {
 	return rolloutDomain.CreateRequest{
 		OrgID:              info.OrganizationID,
 		Name:               input.GetName(),
@@ -52,7 +96,7 @@ func createRequestFromProto(
 		SourceSnapshot:     snapshotFromProto(input.GetSourceSnapshot()),
 		TargetSnapshot:     snapshotFromProto(input.GetTargetSnapshot()),
 		RevertSnapshot:     snapshotFromProto(input.GetRevertSnapshot()),
-		Batches:            batches,
+		Batches:            batchesFromProto(input.GetBatches()),
 		IdempotencyKey:     input.GetIdempotencyKey(),
 		Reason:             input.GetReason(),
 		ActorUserID:        info.UserID,

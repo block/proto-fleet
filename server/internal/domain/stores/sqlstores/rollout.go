@@ -495,9 +495,18 @@ func (s *SQLRolloutStore) ApplyControl(
 			); updateErr != nil {
 				return rollout.ControlResult{}, updateErr
 			}
-			if _, updateErr = q.ReleaseFirmwareRolloutOwners(
+			if _, updateErr = q.CancelUnclaimedFirmwareRolloutMembers(
 				ctx,
-				sqlc.ReleaseFirmwareRolloutOwnersParams{
+				sqlc.CancelUnclaimedFirmwareRolloutMembersParams{
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
+				},
+			); updateErr != nil {
+				return rollout.ControlResult{}, updateErr
+			}
+			if _, updateErr = q.ReleaseTerminalFirmwareRolloutOwners(
+				ctx,
+				sqlc.ReleaseTerminalFirmwareRolloutOwnersParams{
 					RolloutID: req.RolloutID,
 					OrgID:     req.OrgID,
 				},
@@ -559,6 +568,15 @@ func (s *SQLRolloutStore) ApplyControl(
 			if _, updateErr = q.CompleteFirmwareRolloutRevertMembers(
 				ctx,
 				sqlc.CompleteFirmwareRolloutRevertMembersParams{
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
+				},
+			); updateErr != nil {
+				return rollout.ControlResult{}, updateErr
+			}
+			if _, updateErr = q.ReleaseFirmwareRolloutOwners(
+				ctx,
+				sqlc.ReleaseFirmwareRolloutOwnersParams{
 					RolloutID: req.RolloutID,
 					OrgID:     req.OrgID,
 				},
@@ -649,28 +667,87 @@ func (s *SQLRolloutStore) FinishControl(
 		if getErr != nil {
 			return nil, getErr
 		}
-		if control.Status == string(rollout.ControlStatusStarted) {
-			status := rollout.ControlStatusSucceeded
-			if !req.Success {
-				status = rollout.ControlStatusFailed
+		if control.Status != string(rollout.ControlStatusStarted) {
+			row, loadErr := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{
+				RolloutID: req.RolloutID,
+				OrgID:     req.OrgID,
+			})
+			if loadErr != nil {
+				return nil, loadErr
 			}
-			control, getErr = q.FinishFirmwareRolloutControl(
+			return loadRollout(ctx, q, row)
+		}
+
+		var revertCurrent *sqlc.FirmwareRollout
+		if !req.Success && control.Operation == string(rollout.ControlOperationRevert) {
+			current, lockErr := q.LockFirmwareRollout(
 				ctx,
-				sqlc.FinishFirmwareRolloutControlParams{
-					Status:       string(status),
-					ErrorMessage: sql.NullString{String: req.ErrorMessage, Valid: !req.Success},
-					ControlID:    req.ControlID,
-					RolloutID:    req.RolloutID,
-					OrgID:        req.OrgID,
+				sqlc.LockFirmwareRolloutParams{
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
 				},
 			)
-			if getErr != nil {
-				return nil, getErr
+			if lockErr != nil {
+				return nil, lockErr
 			}
+			durableWork, countErr := q.CountFirmwareRolloutDurableRevertWork(
+				ctx,
+				sqlc.CountFirmwareRolloutDurableRevertWorkParams{
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
+				},
+			)
+			if countErr != nil {
+				return nil, countErr
+			}
+			if durableWork > 0 {
+				return loadRollout(ctx, q, current)
+			}
+			revertCurrent = &current
+		}
+
+		status := rollout.ControlStatusSucceeded
+		if !req.Success {
+			status = rollout.ControlStatusFailed
+		}
+		control, getErr = q.FinishFirmwareRolloutControl(
+			ctx,
+			sqlc.FinishFirmwareRolloutControlParams{
+				Status:       string(status),
+				ErrorMessage: sql.NullString{String: req.ErrorMessage, Valid: !req.Success},
+				ControlID:    req.ControlID,
+				RolloutID:    req.RolloutID,
+				OrgID:        req.OrgID,
+			},
+		)
+		if getErr != nil {
+			return nil, getErr
 		}
 		if !req.Success &&
 			(control.Operation == string(rollout.ControlOperationAdmit) ||
 				control.Operation == string(rollout.ControlOperationContinue)) {
+			if control.BatchID.Valid {
+				if _, resetErr := q.ResetFirmwareRolloutAdmissionMembersAfterFailure(
+					ctx,
+					sqlc.ResetFirmwareRolloutAdmissionMembersAfterFailureParams{
+						RolloutID: req.RolloutID,
+						BatchID:   control.BatchID.Int64,
+						OrgID:     req.OrgID,
+					},
+				); resetErr != nil {
+					return nil, resetErr
+				}
+				if _, resetErr := q.ResetFirmwareRolloutAdmissionBatchAfterFailure(
+					ctx,
+					sqlc.ResetFirmwareRolloutAdmissionBatchAfterFailureParams{
+						BatchID:   control.BatchID.Int64,
+						RolloutID: req.RolloutID,
+						OrgID:     req.OrgID,
+					},
+				); resetErr != nil {
+					return nil, resetErr
+				}
+			}
 			if _, moveErr := q.MoveFirmwareRolloutToReviewAfterControlFailure(
 				ctx,
 				sqlc.MoveFirmwareRolloutToReviewAfterControlFailureParams{
@@ -679,6 +756,44 @@ func (s *SQLRolloutStore) FinishControl(
 				},
 			); moveErr != nil {
 				return nil, moveErr
+			}
+		}
+		if !req.Success && control.Operation == string(rollout.ControlOperationRevert) {
+			if revertCurrent == nil {
+				return nil, errors.New("revert control failure has no locked rollout")
+			}
+			current := *revertCurrent
+			if current.RevertAuthorityID.Valid &&
+				current.RevertAuthorityRevision.Valid {
+				if _, haltErr := q.HaltChannelFirmwareAuthority(
+					ctx,
+					sqlc.HaltChannelFirmwareAuthorityParams{
+						AuthorityID:      current.RevertAuthorityID.UUID,
+						OrgID:            req.OrgID,
+						ExpectedRevision: current.RevertAuthorityRevision.Int64,
+					},
+				); haltErr != nil && !errors.Is(haltErr, sql.ErrNoRows) {
+					return nil, haltErr
+				}
+			}
+			if _, resetErr := q.ResetFirmwareRolloutRevertMembersAfterFailure(
+				ctx,
+				sqlc.ResetFirmwareRolloutRevertMembersAfterFailureParams{
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
+				},
+			); resetErr != nil {
+				return nil, resetErr
+			}
+			if _, resetErr := q.ResetFirmwareRolloutRevertAfterFailure(
+				ctx,
+				sqlc.ResetFirmwareRolloutRevertAfterFailureParams{
+					RolloutID: req.RolloutID,
+					OrgID:     req.OrgID,
+					ControlID: uuid.NullUUID{UUID: req.ControlID, Valid: true},
+				},
+			); resetErr != nil {
+				return nil, resetErr
 			}
 		}
 		row, getErr := q.GetFirmwareRollout(ctx, sqlc.GetFirmwareRolloutParams{

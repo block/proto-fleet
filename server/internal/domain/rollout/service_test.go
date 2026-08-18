@@ -99,6 +99,89 @@ func TestServiceAdmitDuplicateIdempotencyDoesNotCallStrategyTwice(t *testing.T) 
 	assert.Equal(t, 1, store.finishCalls)
 }
 
+func TestServiceAdmitReplayResumesStartedStrategyWork(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	batch := Batch{
+		ID:        7,
+		RolloutID: rolloutID,
+		State:     BatchStateAdmitted,
+	}
+	store := &fakeStore{
+		getResult: &Rollout{
+			ID:          rolloutID,
+			OrgID:       42,
+			StrategyKey: "fake",
+			State:       StateRunning,
+			Revision:    2,
+		},
+		controlResults: []ControlResult{{
+			Rollout: &Rollout{
+				ID:          rolloutID,
+				OrgID:       42,
+				StrategyKey: "fake",
+				State:       StateRunning,
+				Revision:    2,
+				Batches:     []Batch{batch},
+			},
+			Batch:    &batch,
+			Control:  Control{ID: uuid.New(), Status: ControlStatusStarted},
+			Replayed: true,
+		}},
+	}
+	strategy := &fakeAdmissionStrategy{key: "fake"}
+	svc := NewService(store, strategy)
+
+	_, err := svc.Admit(t.Context(), AdmitRequest{
+		OrgID:            42,
+		RolloutID:        rolloutID,
+		BatchID:          7,
+		ExpectedRevision: 1,
+		IdempotencyKey:   "resume-started-admit",
+		Reason:           "operator approved",
+		ActorUserID:      9,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, strategy.admitCalls)
+	assert.Equal(t, 1, store.finishCalls)
+}
+
+func TestServiceRevertReplayResumesStartedStrategyWork(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	current := &Rollout{
+		ID:          rolloutID,
+		OrgID:       42,
+		StrategyKey: "fake",
+		State:       StateReverting,
+		Revision:    4,
+	}
+	store := &fakeStore{
+		getResult: current,
+		controlResults: []ControlResult{{
+			Rollout:  current,
+			Control:  Control{ID: uuid.New(), Status: ControlStatusStarted},
+			Replayed: true,
+		}},
+	}
+	strategy := &fakeAdmissionStrategy{key: "fake"}
+	svc := NewService(store, strategy)
+
+	_, err := svc.Revert(t.Context(), ControlRequest{
+		OrgID:            42,
+		RolloutID:        rolloutID,
+		ExpectedRevision: 3,
+		IdempotencyKey:   "resume-started-revert",
+		Reason:           "operator approved",
+		ActorUserID:      9,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, strategy.revertCalls)
+	assert.Equal(t, 1, store.finishCalls)
+}
+
 func TestServiceWithoutConcreteStrategyStillSupportsReadsAndFailsAdmissionClosed(t *testing.T) {
 	t.Parallel()
 

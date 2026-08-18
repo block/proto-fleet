@@ -180,7 +180,8 @@ SELECT *
 FROM firmware_rollout_control
 WHERE id = sqlc.arg('control_id')
   AND rollout_id = sqlc.arg('rollout_id')
-  AND org_id = sqlc.arg('org_id');
+  AND org_id = sqlc.arg('org_id')
+FOR UPDATE;
 
 -- name: GetFirmwareRolloutBatchForControl :one
 SELECT *
@@ -310,10 +311,44 @@ WHERE rollout_id = sqlc.arg('rollout_id')
 UPDATE firmware_rollout_member
 SET state = 'cancelled',
     settled_at = CURRENT_TIMESTAMP,
+    owner_released_at = CURRENT_TIMESTAMP,
     revision = revision + 1
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND org_id = sqlc.arg('org_id')
   AND state = 'pending';
+
+-- name: CancelUnclaimedFirmwareRolloutMembers :execrows
+WITH cancelled_enforcements AS (
+    UPDATE channel_firmware_enforcement enforcement
+    SET state = 'cancelled',
+        last_error = 'rollout authority was halted before dispatch',
+        revision = enforcement.revision + 1
+    FROM firmware_rollout rollout
+    WHERE rollout.id = sqlc.arg('rollout_id')
+      AND rollout.org_id = sqlc.arg('org_id')
+      AND enforcement.authority_id = rollout.forward_authority_id
+      AND enforcement.org_id = rollout.org_id
+      AND enforcement.state IN ('pending', 'held')
+      AND enforcement.attempt_count = 0
+      AND enforcement.command_batch_uuid IS NULL
+    RETURNING enforcement.id
+)
+UPDATE firmware_rollout_member member
+SET state = 'cancelled',
+    settled_at = CURRENT_TIMESTAMP,
+    owner_released_at = CURRENT_TIMESTAMP,
+    last_error = 'rollout authority was halted before dispatch',
+    revision = member.revision + 1
+WHERE member.rollout_id = sqlc.arg('rollout_id')
+  AND member.org_id = sqlc.arg('org_id')
+  AND member.state = 'admitted'
+  AND (
+      member.enforcement_id IS NULL
+      OR member.enforcement_id IN (
+          SELECT id
+          FROM cancelled_enforcements
+      )
+  );
 
 -- name: ReleaseFirmwareRolloutOwners :execrows
 UPDATE firmware_rollout_member
@@ -323,11 +358,27 @@ WHERE rollout_id = sqlc.arg('rollout_id')
   AND org_id = sqlc.arg('org_id')
   AND owner_released_at IS NULL;
 
+-- name: ReleaseTerminalFirmwareRolloutOwners :execrows
+UPDATE firmware_rollout_member
+SET owner_released_at = CURRENT_TIMESTAMP,
+    revision = revision + 1
+WHERE rollout_id = sqlc.arg('rollout_id')
+  AND org_id = sqlc.arg('org_id')
+  AND state IN (
+      'succeeded',
+      'failed',
+      'attention_required',
+      'cancelled',
+      'reverted'
+  )
+  AND owner_released_at IS NULL;
+
 -- name: PrepareFirmwareRolloutMembersForRevert :execrows
 UPDATE firmware_rollout_member
 SET state = 'reverting',
     owner_released_at = NULL,
     settled_at = NULL,
+    revert_selected_at = CURRENT_TIMESTAMP,
     revision = revision + 1
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND org_id = sqlc.arg('org_id')
@@ -395,3 +446,99 @@ SET state = 'review',
 WHERE id = sqlc.arg('rollout_id')
   AND org_id = sqlc.arg('org_id')
   AND state = 'running';
+
+-- name: ResetFirmwareRolloutAdmissionMembersAfterFailure :execrows
+UPDATE firmware_rollout_member
+SET state = 'pending',
+    admitted_at = NULL,
+    revision = revision + 1
+WHERE rollout_id = sqlc.arg('rollout_id')
+  AND batch_id = sqlc.arg('batch_id')
+  AND org_id = sqlc.arg('org_id')
+  AND state = 'admitted'
+  AND enforcement_id IS NULL
+  AND owner_released_at IS NULL;
+
+-- name: ResetFirmwareRolloutAdmissionBatchAfterFailure :execrows
+UPDATE firmware_rollout_batch batch
+SET state = 'pending',
+    revision = batch.revision + 1
+WHERE batch.id = sqlc.arg('batch_id')
+  AND batch.rollout_id = sqlc.arg('rollout_id')
+  AND batch.org_id = sqlc.arg('org_id')
+  AND batch.state = 'admitted'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM firmware_rollout_member member
+      WHERE member.batch_id = batch.id
+        AND member.rollout_id = batch.rollout_id
+        AND member.org_id = batch.org_id
+        AND member.state = 'admitted'
+  );
+
+-- name: ResetFirmwareRolloutRevertMembersAfterFailure :execrows
+UPDATE firmware_rollout_member member
+SET state = 'succeeded',
+    settled_at = CURRENT_TIMESTAMP,
+    owner_released_at = CURRENT_TIMESTAMP,
+    revert_selected_at = NULL,
+    revision = member.revision + 1
+FROM firmware_rollout rollout
+WHERE member.rollout_id = sqlc.arg('rollout_id')
+  AND member.org_id = sqlc.arg('org_id')
+  AND rollout.id = member.rollout_id
+  AND rollout.org_id = member.org_id
+  AND member.state = 'reverting'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM channel_firmware_enforcement enforcement
+      WHERE enforcement.id = member.enforcement_id
+        AND enforcement.org_id = member.org_id
+        AND enforcement.device_id = member.device_id
+        AND enforcement.authority_id = rollout.revert_authority_id
+        AND enforcement.cause_type = 'between_channel_revert'
+  );
+
+-- name: CountFirmwareRolloutDurableRevertWork :one
+SELECT COUNT(*)::bigint
+FROM firmware_rollout_member member
+JOIN firmware_rollout rollout
+  ON rollout.id = member.rollout_id
+ AND rollout.org_id = member.org_id
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.id = member.enforcement_id
+ AND enforcement.org_id = member.org_id
+ AND enforcement.device_id = member.device_id
+WHERE member.rollout_id = sqlc.arg('rollout_id')
+  AND member.org_id = sqlc.arg('org_id')
+  AND (
+      (
+          member.revert_selected_at IS NOT NULL
+          AND member.state IN (
+              'reverted',
+              'attention_required',
+              'cancelled',
+              'failed'
+          )
+      )
+      OR (
+          enforcement.authority_id = rollout.revert_authority_id
+          AND enforcement.cause_type = 'between_channel_revert'
+      )
+  );
+
+-- name: ResetFirmwareRolloutRevertAfterFailure :one
+UPDATE firmware_rollout rollout
+SET state = cause.from_state,
+    reverting_at = NULL,
+    revision = rollout.revision + 1
+FROM firmware_rollout_cause cause
+WHERE rollout.id = sqlc.arg('rollout_id')
+  AND rollout.org_id = sqlc.arg('org_id')
+  AND rollout.state = 'reverting'
+  AND cause.rollout_id = rollout.id
+  AND cause.org_id = rollout.org_id
+  AND cause.control_id = sqlc.arg('control_id')
+  AND cause.operation = 'revert'
+  AND cause.from_state IN ('aborted', 'completed', 'completed_with_failures')
+RETURNING rollout.*;

@@ -7,6 +7,10 @@ import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 service RolloutService {
+    rpc CreateRolloutLane(CreateRolloutLaneRequest) returns (CreateRolloutLaneResponse);
+    rpc GetRolloutLane(GetRolloutLaneRequest) returns (GetRolloutLaneResponse);
+    rpc ListRolloutLanes(ListRolloutLanesRequest) returns (ListRolloutLanesResponse);
+    rpc StartRolloutLane(StartRolloutLaneRequest) returns (StartRolloutLaneResponse);
     rpc CreateRollout(CreateRolloutRequest) returns (CreateRolloutResponse);
     rpc GetRollout(GetRolloutRequest) returns (GetRolloutResponse);
     rpc ListRollouts(ListRolloutsRequest) returns (ListRolloutsResponse);
@@ -17,6 +21,84 @@ service RolloutService {
     rpc AbortRollout(AbortRolloutRequest) returns (AbortRolloutResponse);
     rpc RevertRollout(RevertRolloutRequest) returns (RevertRolloutResponse);
     rpc CompleteRollout(CompleteRolloutRequest) returns (CompleteRolloutResponse);
+}
+
+message RolloutLane {
+    string lane_id = 1;
+    string label = 2;
+    string description = 3;
+    int64 current_channel_id = 4;
+    uint64 revision = 5;
+    repeated RolloutLaneChannel channels = 6;
+    google.protobuf.Timestamp created_at = 7;
+    google.protobuf.Timestamp updated_at = 8;
+}
+
+message RolloutLaneChannel {
+    int64 channel_id = 1;
+    int64 release_set_id = 2;
+    uint32 position = 3;
+    optional string rollout_id = 4;
+    bool current = 5;
+    google.protobuf.Timestamp created_at = 6;
+}
+
+message CreateRolloutLaneRequest {
+    string label = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    string description = 2 [(buf.validate.field).string.max_len = 1024];
+    repeated string firmware_file_ids = 3 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 100
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    repeated string device_identifiers = 4 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message CreateRolloutLaneResponse {
+    RolloutLane lane = 1;
+}
+
+message GetRolloutLaneRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetRolloutLaneResponse {
+    RolloutLane lane = 1;
+}
+
+message ListRolloutLanesRequest {}
+
+message ListRolloutLanesResponse {
+    repeated RolloutLane lanes = 1;
+}
+
+message StartRolloutLaneRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    repeated string firmware_file_ids = 3 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 100
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    repeated CreateRolloutBatch batches = 4 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 1000
+    }];
+    string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 6 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message StartRolloutLaneResponse {
+    RolloutLane lane = 1;
+    Rollout rollout = 2;
 }
 
 enum RolloutState {

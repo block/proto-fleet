@@ -976,6 +976,27 @@ func (s *SQLCollectionStore) LockDevicesForChannelAssignment(
 	return ids, nil
 }
 
+func (s *SQLCollectionStore) ListActiveRolloutOwnedDeviceIdentifiers(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+) ([]string, error) {
+	ids, err := s.GetQueries(ctx).ListActiveRolloutOwnedDeviceIdentifiers(
+		ctx,
+		sqlc.ListActiveRolloutOwnedDeviceIdentifiersParams{
+			OrgID:             orgID,
+			DeviceIdentifiers: deviceIdentifiers,
+		},
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf(
+			"failed to list rollout-owned devices: %v",
+			err,
+		)
+	}
+	return ids, nil
+}
+
 func (s *SQLCollectionStore) RemoveDevicesFromAnyChannel(
 	ctx context.Context,
 	orgID int64,

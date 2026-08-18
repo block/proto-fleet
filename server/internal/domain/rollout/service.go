@@ -46,8 +46,17 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Rollout, erro
 	if err := validateCreateRequest(req); err != nil {
 		return nil, err
 	}
-	if _, ok := s.strategies[req.StrategyKey]; !ok {
+	strategy, ok := s.strategies[req.StrategyKey]
+	if !ok {
 		return nil, strategyUnavailable(req.StrategyKey)
+	}
+	if creation, validatesCreate := strategy.(CreationStrategy); validatesCreate {
+		if err := creation.ValidateCreate(ctx, req); err != nil {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"rollout creation failed: %w",
+				err,
+			)
+		}
 	}
 	if req.ID == uuid.Nil {
 		req.ID = uuid.New()
@@ -123,7 +132,7 @@ func (s *Service) runAdmission(
 	if err != nil {
 		return nil, mapStoreError(err)
 	}
-	if result.Replayed {
+	if result.Replayed && result.Control.Status != ControlStatusStarted {
 		return replayResult(result)
 	}
 	if result.Batch == nil {
@@ -177,7 +186,47 @@ func (s *Service) Abort(ctx context.Context, req ControlRequest) (*Rollout, erro
 }
 
 func (s *Service) Complete(ctx context.Context, req ControlRequest) (*Rollout, error) {
-	return s.applySimpleControl(ctx, req, ControlOperationComplete)
+	if err := validateControlRequest(req); err != nil {
+		return nil, err
+	}
+	current, err := s.Get(ctx, req.OrgID, req.RolloutID)
+	if err != nil {
+		return nil, err
+	}
+	completion, hasCompletion := s.strategies[current.StrategyKey].(CompletionStrategy)
+	if hasCompletion {
+		if err := completion.ValidateComplete(ctx, CompletionRequest{
+			Rollout:      *current,
+			WithFailures: req.WithFailures,
+		}); err != nil {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"rollout cannot complete: %w",
+				err,
+			)
+		}
+	}
+
+	req.Operation = ControlOperationComplete
+	req.RequestFingerprint = fingerprintControl(req)
+	result, err := s.store.ApplyControl(ctx, req)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	if hasCompletion {
+		if err := completion.Complete(ctx, CompletionRequest{
+			Rollout:      *result.Rollout,
+			WithFailures: req.WithFailures,
+		}); err != nil {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"rollout completed but lane finalization is pending: %w",
+				err,
+			)
+		}
+	}
+	if result.Replayed && result.Control.Status != ControlStatusStarted {
+		return replayResult(result)
+	}
+	return result.Rollout, nil
 }
 
 func (s *Service) Revert(ctx context.Context, req ControlRequest) (*Rollout, error) {
@@ -192,6 +241,16 @@ func (s *Service) Revert(ctx context.Context, req ControlRequest) (*Rollout, err
 	if !ok {
 		return nil, strategyUnavailable(current.StrategyKey)
 	}
+	if validator, validatesRevert := strategy.(RevertStrategy); validatesRevert {
+		if err := validator.ValidateRevert(ctx, RevertValidationRequest{
+			Rollout: *current,
+		}); err != nil {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"rollout cannot revert: %w",
+				err,
+			)
+		}
+	}
 
 	req.Operation = ControlOperationRevert
 	req.RequestFingerprint = fingerprintControl(req)
@@ -199,7 +258,7 @@ func (s *Service) Revert(ctx context.Context, req ControlRequest) (*Rollout, err
 	if err != nil {
 		return nil, mapStoreError(err)
 	}
-	if result.Replayed {
+	if result.Replayed && result.Control.Status != ControlStatusStarted {
 		return replayResult(result)
 	}
 	err = strategy.Revert(ctx, RevertRequest{
@@ -217,7 +276,7 @@ func (s *Service) Revert(ctx context.Context, req ControlRequest) (*Rollout, err
 		})
 		if finishErr != nil {
 			return nil, fleeterror.NewInternalErrorf(
-				"rollout revert failed and could not record its cause: %v; record error: %w",
+				"rollout revert failed and could not restore its prior state: %v; record error: %w",
 				err,
 				finishErr,
 			)

@@ -212,6 +212,7 @@ const cancelPendingFirmwareRolloutMembers = `-- name: CancelPendingFirmwareRollo
 UPDATE firmware_rollout_member
 SET state = 'cancelled',
     settled_at = CURRENT_TIMESTAMP,
+    owner_released_at = CURRENT_TIMESTAMP,
     revision = revision + 1
 WHERE rollout_id = $1
   AND org_id = $2
@@ -225,6 +226,53 @@ type CancelPendingFirmwareRolloutMembersParams struct {
 
 func (q *Queries) CancelPendingFirmwareRolloutMembers(ctx context.Context, arg CancelPendingFirmwareRolloutMembersParams) (int64, error) {
 	result, err := q.exec(ctx, q.cancelPendingFirmwareRolloutMembersStmt, cancelPendingFirmwareRolloutMembers, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const cancelUnclaimedFirmwareRolloutMembers = `-- name: CancelUnclaimedFirmwareRolloutMembers :execrows
+WITH cancelled_enforcements AS (
+    UPDATE channel_firmware_enforcement enforcement
+    SET state = 'cancelled',
+        last_error = 'rollout authority was halted before dispatch',
+        revision = enforcement.revision + 1
+    FROM firmware_rollout rollout
+    WHERE rollout.id = $1
+      AND rollout.org_id = $2
+      AND enforcement.authority_id = rollout.forward_authority_id
+      AND enforcement.org_id = rollout.org_id
+      AND enforcement.state IN ('pending', 'held')
+      AND enforcement.attempt_count = 0
+      AND enforcement.command_batch_uuid IS NULL
+    RETURNING enforcement.id
+)
+UPDATE firmware_rollout_member member
+SET state = 'cancelled',
+    settled_at = CURRENT_TIMESTAMP,
+    owner_released_at = CURRENT_TIMESTAMP,
+    last_error = 'rollout authority was halted before dispatch',
+    revision = member.revision + 1
+WHERE member.rollout_id = $1
+  AND member.org_id = $2
+  AND member.state = 'admitted'
+  AND (
+      member.enforcement_id IS NULL
+      OR member.enforcement_id IN (
+          SELECT id
+          FROM cancelled_enforcements
+      )
+  )
+`
+
+type CancelUnclaimedFirmwareRolloutMembersParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) CancelUnclaimedFirmwareRolloutMembers(ctx context.Context, arg CancelUnclaimedFirmwareRolloutMembersParams) (int64, error) {
+	result, err := q.exec(ctx, q.cancelUnclaimedFirmwareRolloutMembersStmt, cancelUnclaimedFirmwareRolloutMembers, arg.RolloutID, arg.OrgID)
 	if err != nil {
 		return 0, err
 	}
@@ -275,6 +323,47 @@ func (q *Queries) CompleteFirmwareRolloutRevertMembers(ctx context.Context, arg 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const countFirmwareRolloutDurableRevertWork = `-- name: CountFirmwareRolloutDurableRevertWork :one
+SELECT COUNT(*)::bigint
+FROM firmware_rollout_member member
+JOIN firmware_rollout rollout
+  ON rollout.id = member.rollout_id
+ AND rollout.org_id = member.org_id
+LEFT JOIN channel_firmware_enforcement enforcement
+  ON enforcement.id = member.enforcement_id
+ AND enforcement.org_id = member.org_id
+ AND enforcement.device_id = member.device_id
+WHERE member.rollout_id = $1
+  AND member.org_id = $2
+  AND (
+      (
+          member.revert_selected_at IS NOT NULL
+          AND member.state IN (
+              'reverted',
+              'attention_required',
+              'cancelled',
+              'failed'
+          )
+      )
+      OR (
+          enforcement.authority_id = rollout.revert_authority_id
+          AND enforcement.cause_type = 'between_channel_revert'
+      )
+  )
+`
+
+type CountFirmwareRolloutDurableRevertWorkParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) CountFirmwareRolloutDurableRevertWork(ctx context.Context, arg CountFirmwareRolloutDurableRevertWorkParams) (int64, error) {
+	row := q.queryRow(ctx, q.countFirmwareRolloutDurableRevertWorkStmt, countFirmwareRolloutDurableRevertWork, arg.RolloutID, arg.OrgID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createFirmwareRollout = `-- name: CreateFirmwareRollout :one
@@ -631,7 +720,7 @@ JOIN device
  AND device.org_id = $3
  AND device.deleted_at IS NULL
 ORDER BY (input.value->>'position')::int
-RETURNING id, rollout_id, batch_id, org_id, device_id, position, state, revision, source_snapshot, target_snapshot, revert_snapshot, enforcement_id, command_batch_uuid, last_error, admitted_at, settled_at, owner_released_at, created_at, updated_at
+RETURNING id, rollout_id, batch_id, org_id, device_id, position, state, revision, source_snapshot, target_snapshot, revert_snapshot, enforcement_id, command_batch_uuid, last_error, admitted_at, settled_at, owner_released_at, created_at, updated_at, source_release_set_id, source_release_target_id, target_release_set_id, target_release_target_id, revert_selected_at
 `
 
 type CreateFirmwareRolloutMembersParams struct {
@@ -669,6 +758,11 @@ func (q *Queries) CreateFirmwareRolloutMembers(ctx context.Context, arg CreateFi
 			&i.OwnerReleasedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SourceReleaseSetID,
+			&i.SourceReleaseTargetID,
+			&i.TargetReleaseSetID,
+			&i.TargetReleaseTargetID,
+			&i.RevertSelectedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -874,6 +968,7 @@ FROM firmware_rollout_control
 WHERE id = $1
   AND rollout_id = $2
   AND org_id = $3
+FOR UPDATE
 `
 
 type GetFirmwareRolloutControlParams struct {
@@ -1036,7 +1131,7 @@ func (q *Queries) ListFirmwareRolloutCauses(ctx context.Context, arg ListFirmwar
 }
 
 const listFirmwareRolloutMembers = `-- name: ListFirmwareRolloutMembers :many
-SELECT member.id, member.rollout_id, member.batch_id, member.org_id, member.device_id, member.position, member.state, member.revision, member.source_snapshot, member.target_snapshot, member.revert_snapshot, member.enforcement_id, member.command_batch_uuid, member.last_error, member.admitted_at, member.settled_at, member.owner_released_at, member.created_at, member.updated_at,
+SELECT member.id, member.rollout_id, member.batch_id, member.org_id, member.device_id, member.position, member.state, member.revision, member.source_snapshot, member.target_snapshot, member.revert_snapshot, member.enforcement_id, member.command_batch_uuid, member.last_error, member.admitted_at, member.settled_at, member.owner_released_at, member.created_at, member.updated_at, member.source_release_set_id, member.source_release_target_id, member.target_release_set_id, member.target_release_target_id, member.revert_selected_at,
        device.device_identifier
 FROM firmware_rollout_member member
 JOIN device
@@ -1053,26 +1148,31 @@ type ListFirmwareRolloutMembersParams struct {
 }
 
 type ListFirmwareRolloutMembersRow struct {
-	ID               int64
-	RolloutID        uuid.UUID
-	BatchID          int64
-	OrgID            int64
-	DeviceID         int64
-	Position         int32
-	State            string
-	Revision         int64
-	SourceSnapshot   json.RawMessage
-	TargetSnapshot   json.RawMessage
-	RevertSnapshot   json.RawMessage
-	EnforcementID    sql.NullInt64
-	CommandBatchUuid sql.NullString
-	LastError        sql.NullString
-	AdmittedAt       sql.NullTime
-	SettledAt        sql.NullTime
-	OwnerReleasedAt  sql.NullTime
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	DeviceIdentifier string
+	ID                    int64
+	RolloutID             uuid.UUID
+	BatchID               int64
+	OrgID                 int64
+	DeviceID              int64
+	Position              int32
+	State                 string
+	Revision              int64
+	SourceSnapshot        json.RawMessage
+	TargetSnapshot        json.RawMessage
+	RevertSnapshot        json.RawMessage
+	EnforcementID         sql.NullInt64
+	CommandBatchUuid      sql.NullString
+	LastError             sql.NullString
+	AdmittedAt            sql.NullTime
+	SettledAt             sql.NullTime
+	OwnerReleasedAt       sql.NullTime
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	SourceReleaseSetID    sql.NullInt64
+	SourceReleaseTargetID sql.NullInt64
+	TargetReleaseSetID    sql.NullInt64
+	TargetReleaseTargetID sql.NullInt64
+	RevertSelectedAt      sql.NullTime
+	DeviceIdentifier      string
 }
 
 func (q *Queries) ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwareRolloutMembersParams) ([]ListFirmwareRolloutMembersRow, error) {
@@ -1104,6 +1204,11 @@ func (q *Queries) ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwa
 			&i.OwnerReleasedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SourceReleaseSetID,
+			&i.SourceReleaseTargetID,
+			&i.TargetReleaseSetID,
+			&i.TargetReleaseTargetID,
+			&i.RevertSelectedAt,
 			&i.DeviceIdentifier,
 		); err != nil {
 			return nil, err
@@ -1268,6 +1373,7 @@ UPDATE firmware_rollout_member
 SET state = 'reverting',
     owner_released_at = NULL,
     settled_at = NULL,
+    revert_selected_at = CURRENT_TIMESTAMP,
     revision = revision + 1
 WHERE rollout_id = $1
   AND org_id = $2
@@ -1309,6 +1415,192 @@ func (q *Queries) ReleaseFirmwareRolloutOwners(ctx context.Context, arg ReleaseF
 	return result.RowsAffected()
 }
 
+const releaseTerminalFirmwareRolloutOwners = `-- name: ReleaseTerminalFirmwareRolloutOwners :execrows
+UPDATE firmware_rollout_member
+SET owner_released_at = CURRENT_TIMESTAMP,
+    revision = revision + 1
+WHERE rollout_id = $1
+  AND org_id = $2
+  AND state IN (
+      'succeeded',
+      'failed',
+      'attention_required',
+      'cancelled',
+      'reverted'
+  )
+  AND owner_released_at IS NULL
+`
+
+type ReleaseTerminalFirmwareRolloutOwnersParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) ReleaseTerminalFirmwareRolloutOwners(ctx context.Context, arg ReleaseTerminalFirmwareRolloutOwnersParams) (int64, error) {
+	result, err := q.exec(ctx, q.releaseTerminalFirmwareRolloutOwnersStmt, releaseTerminalFirmwareRolloutOwners, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const resetFirmwareRolloutAdmissionBatchAfterFailure = `-- name: ResetFirmwareRolloutAdmissionBatchAfterFailure :execrows
+UPDATE firmware_rollout_batch batch
+SET state = 'pending',
+    revision = batch.revision + 1
+WHERE batch.id = $1
+  AND batch.rollout_id = $2
+  AND batch.org_id = $3
+  AND batch.state = 'admitted'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM firmware_rollout_member member
+      WHERE member.batch_id = batch.id
+        AND member.rollout_id = batch.rollout_id
+        AND member.org_id = batch.org_id
+        AND member.state = 'admitted'
+  )
+`
+
+type ResetFirmwareRolloutAdmissionBatchAfterFailureParams struct {
+	BatchID   int64
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) ResetFirmwareRolloutAdmissionBatchAfterFailure(ctx context.Context, arg ResetFirmwareRolloutAdmissionBatchAfterFailureParams) (int64, error) {
+	result, err := q.exec(ctx, q.resetFirmwareRolloutAdmissionBatchAfterFailureStmt, resetFirmwareRolloutAdmissionBatchAfterFailure, arg.BatchID, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const resetFirmwareRolloutAdmissionMembersAfterFailure = `-- name: ResetFirmwareRolloutAdmissionMembersAfterFailure :execrows
+UPDATE firmware_rollout_member
+SET state = 'pending',
+    admitted_at = NULL,
+    revision = revision + 1
+WHERE rollout_id = $1
+  AND batch_id = $2
+  AND org_id = $3
+  AND state = 'admitted'
+  AND enforcement_id IS NULL
+  AND owner_released_at IS NULL
+`
+
+type ResetFirmwareRolloutAdmissionMembersAfterFailureParams struct {
+	RolloutID uuid.UUID
+	BatchID   int64
+	OrgID     int64
+}
+
+func (q *Queries) ResetFirmwareRolloutAdmissionMembersAfterFailure(ctx context.Context, arg ResetFirmwareRolloutAdmissionMembersAfterFailureParams) (int64, error) {
+	result, err := q.exec(ctx, q.resetFirmwareRolloutAdmissionMembersAfterFailureStmt, resetFirmwareRolloutAdmissionMembersAfterFailure, arg.RolloutID, arg.BatchID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const resetFirmwareRolloutRevertAfterFailure = `-- name: ResetFirmwareRolloutRevertAfterFailure :one
+UPDATE firmware_rollout rollout
+SET state = cause.from_state,
+    reverting_at = NULL,
+    revision = rollout.revision + 1
+FROM firmware_rollout_cause cause
+WHERE rollout.id = $1
+  AND rollout.org_id = $2
+  AND rollout.state = 'reverting'
+  AND cause.rollout_id = rollout.id
+  AND cause.org_id = rollout.org_id
+  AND cause.control_id = $3
+  AND cause.operation = 'revert'
+  AND cause.from_state IN ('aborted', 'completed', 'completed_with_failures')
+RETURNING rollout.id, rollout.org_id, rollout.name, rollout.strategy_key, rollout.state, rollout.resume_state, rollout.revision, rollout.forward_authority_id, rollout.forward_authority_revision, rollout.revert_authority_id, rollout.revert_authority_revision, rollout.source_channel_id, rollout.target_channel_id, rollout.source_release_set_id, rollout.target_release_set_id, rollout.source_snapshot, rollout.target_snapshot, rollout.revert_snapshot, rollout.idempotency_key, rollout.create_fingerprint, rollout.reason, rollout.created_by_user_id, rollout.started_at, rollout.paused_at, rollout.aborted_at, rollout.completed_at, rollout.reverting_at, rollout.reverted_at, rollout.created_at, rollout.updated_at
+`
+
+type ResetFirmwareRolloutRevertAfterFailureParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+	ControlID uuid.NullUUID
+}
+
+func (q *Queries) ResetFirmwareRolloutRevertAfterFailure(ctx context.Context, arg ResetFirmwareRolloutRevertAfterFailureParams) (FirmwareRollout, error) {
+	row := q.queryRow(ctx, q.resetFirmwareRolloutRevertAfterFailureStmt, resetFirmwareRolloutRevertAfterFailure, arg.RolloutID, arg.OrgID, arg.ControlID)
+	var i FirmwareRollout
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.StrategyKey,
+		&i.State,
+		&i.ResumeState,
+		&i.Revision,
+		&i.ForwardAuthorityID,
+		&i.ForwardAuthorityRevision,
+		&i.RevertAuthorityID,
+		&i.RevertAuthorityRevision,
+		&i.SourceChannelID,
+		&i.TargetChannelID,
+		&i.SourceReleaseSetID,
+		&i.TargetReleaseSetID,
+		&i.SourceSnapshot,
+		&i.TargetSnapshot,
+		&i.RevertSnapshot,
+		&i.IdempotencyKey,
+		&i.CreateFingerprint,
+		&i.Reason,
+		&i.CreatedByUserID,
+		&i.StartedAt,
+		&i.PausedAt,
+		&i.AbortedAt,
+		&i.CompletedAt,
+		&i.RevertingAt,
+		&i.RevertedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const resetFirmwareRolloutRevertMembersAfterFailure = `-- name: ResetFirmwareRolloutRevertMembersAfterFailure :execrows
+UPDATE firmware_rollout_member member
+SET state = 'succeeded',
+    settled_at = CURRENT_TIMESTAMP,
+    owner_released_at = CURRENT_TIMESTAMP,
+    revert_selected_at = NULL,
+    revision = member.revision + 1
+FROM firmware_rollout rollout
+WHERE member.rollout_id = $1
+  AND member.org_id = $2
+  AND rollout.id = member.rollout_id
+  AND rollout.org_id = member.org_id
+  AND member.state = 'reverting'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM channel_firmware_enforcement enforcement
+      WHERE enforcement.id = member.enforcement_id
+        AND enforcement.org_id = member.org_id
+        AND enforcement.device_id = member.device_id
+        AND enforcement.authority_id = rollout.revert_authority_id
+        AND enforcement.cause_type = 'between_channel_revert'
+  )
+`
+
+type ResetFirmwareRolloutRevertMembersAfterFailureParams struct {
+	RolloutID uuid.UUID
+	OrgID     int64
+}
+
+func (q *Queries) ResetFirmwareRolloutRevertMembersAfterFailure(ctx context.Context, arg ResetFirmwareRolloutRevertMembersAfterFailureParams) (int64, error) {
+	result, err := q.exec(ctx, q.resetFirmwareRolloutRevertMembersAfterFailureStmt, resetFirmwareRolloutRevertMembersAfterFailure, arg.RolloutID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateFirmwareRolloutMember = `-- name: UpdateFirmwareRolloutMember :one
 UPDATE firmware_rollout_member
 SET state = $1,
@@ -1333,7 +1625,7 @@ WHERE id = $5
   AND rollout_id = $6
   AND org_id = $7
   AND revision = $8
-RETURNING id, rollout_id, batch_id, org_id, device_id, position, state, revision, source_snapshot, target_snapshot, revert_snapshot, enforcement_id, command_batch_uuid, last_error, admitted_at, settled_at, owner_released_at, created_at, updated_at
+RETURNING id, rollout_id, batch_id, org_id, device_id, position, state, revision, source_snapshot, target_snapshot, revert_snapshot, enforcement_id, command_batch_uuid, last_error, admitted_at, settled_at, owner_released_at, created_at, updated_at, source_release_set_id, source_release_target_id, target_release_set_id, target_release_target_id, revert_selected_at
 `
 
 type UpdateFirmwareRolloutMemberParams struct {
@@ -1379,6 +1671,11 @@ func (q *Queries) UpdateFirmwareRolloutMember(ctx context.Context, arg UpdateFir
 		&i.OwnerReleasedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceReleaseSetID,
+		&i.SourceReleaseTargetID,
+		&i.TargetReleaseSetID,
+		&i.TargetReleaseTargetID,
+		&i.RevertSelectedAt,
 	)
 	return i, err
 }

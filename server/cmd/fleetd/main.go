@@ -91,6 +91,7 @@ import (
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
 	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
+	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	sitemapDomain "github.com/block/proto-fleet/server/internal/domain/sitemap"
 	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
@@ -484,9 +485,14 @@ func start(config *Config) error {
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
 	channelEnforcementStore := sqlstores.NewSQLChannelEnforcementStore(conn)
 	rolloutStore := sqlstores.NewSQLRolloutStore(conn)
-	// Read APIs remain available without an admission strategy. Create, admit,
-	// and revert fail closed until a strategy is registered.
-	rolloutSvc := rolloutDomain.NewService(rolloutStore)
+	rolloutLaneStore := sqlstores.NewSQLRolloutLaneStore(conn)
+	rolloutLaneStrategy := betweenchannel.NewStrategy(rolloutLaneStore)
+	rolloutSvc := rolloutDomain.NewService(rolloutStore, rolloutLaneStrategy)
+	rolloutLaneFinalizer := betweenchannel.NewFinalizer(
+		config.RolloutLane,
+		rolloutLaneStore,
+		activitySvc,
+	)
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
 	facilityFanController := curtailmentDomain.NewFacilityFanController(
 		infrastructureStore,
@@ -609,6 +615,31 @@ func start(config *Config) error {
 
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc, filesService)
+	rolloutLaneSvc := betweenchannel.NewService(
+		rolloutLaneStore,
+		betweenchannel.ReleaseTargetResolverFunc(func(
+			_ context.Context,
+			firmwareFileIDs []string,
+		) ([]betweenchannel.ReleaseTarget, func(), error) {
+			targets, release, err := collectionSvc.ResolveFirmwareReleaseTargets(
+				firmwareFileIDs,
+			)
+			if err != nil {
+				return nil, release, err
+			}
+			result := make([]betweenchannel.ReleaseTarget, 0, len(targets))
+			for _, target := range targets {
+				result = append(result, betweenchannel.ReleaseTarget{
+					FirmwareFileID:  target.GetFirmwareFileId(),
+					Manufacturer:    target.GetTargetManufacturer(),
+					Model:           target.GetTargetModel(),
+					FirmwareVersion: target.GetFirmwareVersion(),
+					SHA256:          target.GetSha256(),
+				})
+			}
+			return result, release, nil
+		}),
+	)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
@@ -648,6 +679,7 @@ func start(config *Config) error {
 		scheduleProcessor:         scheduleProcessor,
 		curtailmentReconciler:     curtailmentRec,
 		channelEnforcement:        channelEnforcementRec,
+		rolloutLaneFinalizer:      rolloutLaneFinalizer,
 		curtailmentMQTTSubscriber: mqttSubscriber,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
@@ -729,7 +761,10 @@ func start(config *Config) error {
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
-	mux.Handle(rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li))
+	mux.Handle(rolloutv1connect.NewRolloutServiceHandler(
+		rolloutHandler.NewHandler(rolloutSvc, rolloutLaneSvc),
+		li,
+	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

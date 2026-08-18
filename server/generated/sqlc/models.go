@@ -1021,25 +1021,30 @@ type FirmwareRolloutEvidence struct {
 }
 
 type FirmwareRolloutMember struct {
-	ID               int64
-	RolloutID        uuid.UUID
-	BatchID          int64
-	OrgID            int64
-	DeviceID         int64
-	Position         int32
-	State            string
-	Revision         int64
-	SourceSnapshot   json.RawMessage
-	TargetSnapshot   json.RawMessage
-	RevertSnapshot   json.RawMessage
-	EnforcementID    sql.NullInt64
-	CommandBatchUuid sql.NullString
-	LastError        sql.NullString
-	AdmittedAt       sql.NullTime
-	SettledAt        sql.NullTime
-	OwnerReleasedAt  sql.NullTime
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                    int64
+	RolloutID             uuid.UUID
+	BatchID               int64
+	OrgID                 int64
+	DeviceID              int64
+	Position              int32
+	State                 string
+	Revision              int64
+	SourceSnapshot        json.RawMessage
+	TargetSnapshot        json.RawMessage
+	RevertSnapshot        json.RawMessage
+	EnforcementID         sql.NullInt64
+	CommandBatchUuid      sql.NullString
+	LastError             sql.NullString
+	AdmittedAt            sql.NullTime
+	SettledAt             sql.NullTime
+	OwnerReleasedAt       sql.NullTime
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	SourceReleaseSetID    sql.NullInt64
+	SourceReleaseTargetID sql.NullInt64
+	TargetReleaseSetID    sql.NullInt64
+	TargetReleaseTargetID sql.NullInt64
+	RevertSelectedAt      sql.NullTime
 }
 
 type FleetActiveOrganization struct {
@@ -1325,6 +1330,31 @@ type Role struct {
 type RolePermission struct {
 	RoleID       int64
 	PermissionID int64
+}
+
+type RolloutLane struct {
+	ID                uuid.UUID
+	OrgID             int64
+	Label             string
+	Description       string
+	CurrentChannelID  int64
+	Revision          int64
+	IdempotencyKey    string
+	CreateFingerprint string
+	CreatedByUserID   int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type RolloutLaneChannel struct {
+	LaneID              uuid.UUID
+	OrgID               int64
+	ChannelID           int64
+	Position            int32
+	RolloutID           uuid.NullUUID
+	StartIdempotencyKey sql.NullString
+	StartFingerprint    sql.NullString
+	CreatedAt           time.Time
 }
 
 type Schedule struct {

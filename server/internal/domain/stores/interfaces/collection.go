@@ -345,6 +345,10 @@ type CollectionStore interface {
 	// stable identifier order and returns the owned identifiers.
 	LockDevicesForChannelAssignment(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
 
+	// ListActiveRolloutOwnedDeviceIdentifiers returns requested devices whose
+	// channel membership is currently owned by a rollout.
+	ListActiveRolloutOwnedDeviceIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+
 	// RemoveDevicesFromAnyChannel removes prior channel memberships while
 	// preserving membership in targetChannelID.
 	RemoveDevicesFromAnyChannel(ctx context.Context, orgID int64, deviceIdentifiers []string, targetChannelID int64) (int64, error)

@@ -176,15 +176,15 @@ WHERE membership.org_id = sqlc.arg('org_id')
 ORDER BY membership.device_identifier;
 
 -- name: ClaimChannelFirmwareEnforcement :execrows
--- Authority is locked before the enforcement row. Halt/revision updates lock
--- the same authority row, so only a claim committed before the control change
--- can proceed.
+-- Authority is locked before the enforcement row. A halt committed before this
+-- lock prevents the claim, while older admitted batches remain valid across
+-- later admission revisions.
 WITH locked_authority AS MATERIALIZED (
     SELECT source.id, source.org_id, source.revision
     FROM channel_firmware_authority source
     WHERE source.id = sqlc.arg('authority_id')
       AND source.org_id = sqlc.arg('org_id')
-      AND source.revision = sqlc.arg('authority_revision')
+      AND source.revision >= sqlc.arg('authority_revision')
       AND source.halted_at IS NULL
     FOR UPDATE
 )
@@ -199,7 +199,7 @@ FROM locked_authority authority
 WHERE enforcement.id = sqlc.arg('enforcement_id')
   AND enforcement.org_id = authority.org_id
   AND enforcement.authority_id = authority.id
-  AND enforcement.authority_revision = authority.revision
+  AND enforcement.authority_revision = sqlc.arg('authority_revision')
   AND enforcement.revision = sqlc.arg('expected_revision')
   AND enforcement.state IN ('pending', 'held')
   AND enforcement.attempt_count = 0

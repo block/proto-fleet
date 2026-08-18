@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
+	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
@@ -39,27 +40,28 @@ type Config struct {
 	// Operator-facing base URL of this instance, used in outbound alert notification links.
 	PublicURL string `help:"Base URL of the proto-fleet instance, used in alert notification links (e.g. https://fleet.example.com)" default:"" env:"FLEET_PUBLIC_URL"`
 
-	DB             db.Config                    `embed:"" prefix:"db-" envprefix:"DB_"`
-	Log            logging.Config               `embed:"" prefix:"logging-" envprefix:"LOG_"`
-	HTTP           HTTPConfig                   `embed:"" prefix:"http-" envprefix:"HTTP_"`
-	Auth           token.Config                 `embed:"" prefix:"auth-" envprefix:"AUTH_"`
-	Session        session.Config               `embed:"" prefix:"session-" envprefix:"SESSION_"`
-	Pools          pools.Config                 `embed:"" prefix:"pools-" envprefix:"POOLS_"`
-	Encrypt        encrypt.Config               `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`
-	Command        command.Config               `embed:"" prefix:"fleet-command-" envprefix:"FLEET_COMMAND_"`
-	Curtailment    curtailmentReconciler.Config `embed:"" prefix:"curtailment-" envprefix:"CURTAILMENT_"`
-	Channel        channelReconciler.Config     `embed:"" prefix:"channel-enforcement-" envprefix:"CHANNEL_ENFORCEMENT_"`
-	Queue          queue.Config                 `embed:"" prefix:"fleet-queue-" envprefix:"FLEET_QUEUE_"`
-	TimescaleDB    timescaledb.Config           `embed:"" prefix:"timescaledb-" envprefix:"TIMESCALEDB_"`
-	Telemetry      telemetry.Config             `embed:"" prefix:"telemetry-" envprefix:"TELEMETRY_"`
-	Scheduler      scheduler.Config             `embed:"" prefix:"scheduler-" envprefix:"SCHEDULER_"`
-	Plugins        plugins.Config               `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
-	IPScanner      ipscanner.Config             `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
-	Diagnostics    diagnostics.Config           `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
-	Infrastructure infrastructureDomain.Config  `embed:"" prefix:"infrastructure-" envprefix:"INFRASTRUCTURE_"`
-	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
-	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
-	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
+	DB             db.Config                      `embed:"" prefix:"db-" envprefix:"DB_"`
+	Log            logging.Config                 `embed:"" prefix:"logging-" envprefix:"LOG_"`
+	HTTP           HTTPConfig                     `embed:"" prefix:"http-" envprefix:"HTTP_"`
+	Auth           token.Config                   `embed:"" prefix:"auth-" envprefix:"AUTH_"`
+	Session        session.Config                 `embed:"" prefix:"session-" envprefix:"SESSION_"`
+	Pools          pools.Config                   `embed:"" prefix:"pools-" envprefix:"POOLS_"`
+	Encrypt        encrypt.Config                 `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`
+	Command        command.Config                 `embed:"" prefix:"fleet-command-" envprefix:"FLEET_COMMAND_"`
+	Curtailment    curtailmentReconciler.Config   `embed:"" prefix:"curtailment-" envprefix:"CURTAILMENT_"`
+	Channel        channelReconciler.Config       `embed:"" prefix:"channel-enforcement-" envprefix:"CHANNEL_ENFORCEMENT_"`
+	RolloutLane    betweenchannel.FinalizerConfig `embed:"" prefix:"rollout-lane-finalizer-" envprefix:"ROLLOUT_LANE_FINALIZER_"`
+	Queue          queue.Config                   `embed:"" prefix:"fleet-queue-" envprefix:"FLEET_QUEUE_"`
+	TimescaleDB    timescaledb.Config             `embed:"" prefix:"timescaledb-" envprefix:"TIMESCALEDB_"`
+	Telemetry      telemetry.Config               `embed:"" prefix:"telemetry-" envprefix:"TELEMETRY_"`
+	Scheduler      scheduler.Config               `embed:"" prefix:"scheduler-" envprefix:"SCHEDULER_"`
+	Plugins        plugins.Config                 `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
+	IPScanner      ipscanner.Config               `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
+	Diagnostics    diagnostics.Config             `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
+	Infrastructure infrastructureDomain.Config    `embed:"" prefix:"infrastructure-" envprefix:"INFRASTRUCTURE_"`
+	Files          files.Config                   `embed:"" prefix:"files-" envprefix:"FILES_"`
+	FleetTelemetry fleet_telemetry.Config         `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
+	Metrics        metrics.Config                 `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
 
 	SystemMonitoring sysmon.Config `embed:"" prefix:"system-monitoring-" envprefix:"FLEET_SYSTEM_MONITORING_"`
 }

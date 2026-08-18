@@ -52,9 +52,9 @@ const claimChannelFirmwareEnforcement = `-- name: ClaimChannelFirmwareEnforcemen
 WITH locked_authority AS MATERIALIZED (
     SELECT source.id, source.org_id, source.revision
     FROM channel_firmware_authority source
-    WHERE source.id = $5
-      AND source.org_id = $6
-      AND source.revision = $7
+    WHERE source.id = $6
+      AND source.org_id = $7
+      AND source.revision >= $4
       AND source.halted_at IS NULL
     FOR UPDATE
 )
@@ -69,8 +69,8 @@ FROM locked_authority authority
 WHERE enforcement.id = $3
   AND enforcement.org_id = authority.org_id
   AND enforcement.authority_id = authority.id
-  AND enforcement.authority_revision = authority.revision
-  AND enforcement.revision = $4
+  AND enforcement.authority_revision = $4
+  AND enforcement.revision = $5
   AND enforcement.state IN ('pending', 'held')
   AND enforcement.attempt_count = 0
   AND enforcement.command_batch_uuid IS NULL
@@ -80,24 +80,24 @@ type ClaimChannelFirmwareEnforcementParams struct {
 	CommandBatchUuid  sql.NullString
 	ClaimedAt         sql.NullTime
 	EnforcementID     int64
+	AuthorityRevision int64
 	ExpectedRevision  int64
 	AuthorityID       uuid.UUID
 	OrgID             int64
-	AuthorityRevision int64
 }
 
-// Authority is locked before the enforcement row. Halt/revision updates lock
-// the same authority row, so only a claim committed before the control change
-// can proceed.
+// Authority is locked before the enforcement row. A halt committed before this
+// lock prevents the claim, while older admitted batches remain valid across
+// later admission revisions.
 func (q *Queries) ClaimChannelFirmwareEnforcement(ctx context.Context, arg ClaimChannelFirmwareEnforcementParams) (int64, error) {
 	result, err := q.exec(ctx, q.claimChannelFirmwareEnforcementStmt, claimChannelFirmwareEnforcement,
 		arg.CommandBatchUuid,
 		arg.ClaimedAt,
 		arg.EnforcementID,
+		arg.AuthorityRevision,
 		arg.ExpectedRevision,
 		arg.AuthorityID,
 		arg.OrgID,
-		arg.AuthorityRevision,
 	)
 	if err != nil {
 		return 0, err

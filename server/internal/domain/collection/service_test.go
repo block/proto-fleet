@@ -3428,6 +3428,9 @@ func TestService_AssignDevicesToChannel_OrgScopedAtomicMove(t *testing.T) {
 			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
 			Return(deviceIDs, nil),
 		mockStore.EXPECT().
+			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
+			Return(nil, nil),
+		mockStore.EXPECT().
 			GetCollection(gomock.Any(), testOrgID, targetChannelID).
 			Return(&pb.DeviceCollection{
 				Id:    targetChannelID,
@@ -3490,6 +3493,9 @@ func TestService_AssignDevicesToChannel_UnassignDoesNotTouchRackPlacement(t *tes
 		mockStore.EXPECT().
 			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
 			Return(deviceIDs, nil),
+		mockStore.EXPECT().
+			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
+			Return(nil, nil),
 		mockStore.EXPECT().
 			RemoveDevicesFromAnyChannel(gomock.Any(), testOrgID, deviceIDs, int64(0)).
 			Return(int64(1), nil),

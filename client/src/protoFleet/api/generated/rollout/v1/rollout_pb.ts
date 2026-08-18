@@ -15,9 +15,292 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
 export const file_rollout_v1_rollout: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "Chhyb2xsb3V0L3YxL3JvbGxvdXQucHJvdG8SCnJvbGxvdXQudjEijwgKB1JvbGxvdXQSEgoKcm9sbG91dF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDHN0cmF0ZWd5X2tleRgDIAEoCRInCgVzdGF0ZRgEIAEoDjIYLnJvbGxvdXQudjEuUm9sbG91dFN0YXRlEhAKCHJldmlzaW9uGAUgASgEEh4KEXNvdXJjZV9jaGFubmVsX2lkGAogASgDSACIAQESHgoRdGFyZ2V0X2NoYW5uZWxfaWQYCyABKANIAYgBARIiChVzb3VyY2VfcmVsZWFzZV9zZXRfaWQYDCABKANIAogBARIiChV0YXJnZXRfcmVsZWFzZV9zZXRfaWQYDSABKANIA4gBARIwCg9zb3VyY2Vfc25hcHNob3QYDiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjAKD3RhcmdldF9zbmFwc2hvdBgPIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSMAoPcmV2ZXJ0X3NuYXBzaG90GBAgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIOCgZyZWFzb24YFCABKAkSLgoKc3RhcnRlZF9hdBgVIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLQoJcGF1c2VkX2F0GBYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgphYm9ydGVkX2F0GBcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxjb21wbGV0ZWRfYXQYGCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDHJldmVydGluZ19hdBgZIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLcmV2ZXJ0ZWRfYXQYGiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYGyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYHCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEikKB2JhdGNoZXMYHiADKAsyGC5yb2xsb3V0LnYxLlJvbGxvdXRCYXRjaBIqCgdtZW1iZXJzGB8gAygLMhkucm9sbG91dC52MS5Sb2xsb3V0TWVtYmVyEigKBmNhdXNlcxggIAMoCzIYLnJvbGxvdXQudjEuUm9sbG91dENhdXNlQhQKEl9zb3VyY2VfY2hhbm5lbF9pZEIUChJfdGFyZ2V0X2NoYW5uZWxfaWRCGAoWX3NvdXJjZV9yZWxlYXNlX3NldF9pZEIYChZfdGFyZ2V0X3JlbGVhc2Vfc2V0X2lkIq0BCgxSb2xsb3V0QmF0Y2gSEAoIYmF0Y2hfaWQYASABKAMSEAoIcG9zaXRpb24YAiABKA0SDQoFbGFiZWwYAyABKAkSLAoFc3RhdGUYBCABKA4yHS5yb2xsb3V0LnYxLlJvbGxvdXRCYXRjaFN0YXRlEhAKCHJldmlzaW9uGAUgASgEEioKB21lbWJlcnMYBiADKAsyGS5yb2xsb3V0LnYxLlJvbGxvdXRNZW1iZXIi2AQKDVJvbGxvdXRNZW1iZXISEQoJbWVtYmVyX2lkGAEgASgDEhAKCGJhdGNoX2lkGAIgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAMgASgJEhAKCHBvc2l0aW9uGAQgASgNEi0KBXN0YXRlGAUgASgOMh4ucm9sbG91dC52MS5Sb2xsb3V0TWVtYmVyU3RhdGUSEAoIcmV2aXNpb24YBiABKAQSMAoPc291cmNlX3NuYXBzaG90GAcgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIwCg90YXJnZXRfc25hcHNob3QYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjAKD3JldmVydF9zbmFwc2hvdBgJIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSGwoOZW5mb3JjZW1lbnRfaWQYCiABKANIAIgBARIfChJjb21tYW5kX2JhdGNoX3V1aWQYCyABKAlIAYgBARIXCgpsYXN0X2Vycm9yGAwgASgJSAKIAQESLwoLYWRtaXR0ZWRfYXQYDSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnNldHRsZWRfYXQYDiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi0KCGV2aWRlbmNlGA8gAygLMhsucm9sbG91dC52MS5Sb2xsb3V0RXZpZGVuY2VCEQoPX2VuZm9yY2VtZW50X2lkQhUKE19jb21tYW5kX2JhdGNoX3V1aWRCDQoLX2xhc3RfZXJyb3Ii0gMKD1JvbGxvdXRFdmlkZW5jZRITCgtldmlkZW5jZV9pZBgBIAEoAxIvCgVwaGFzZRgCIAEoDjIgLnJvbGxvdXQudjEuUm9sbG91dEV2aWRlbmNlUGhhc2USMAoMd2luZG93X3N0YXJ0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp3aW5kb3dfZW5kGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtvYnNlcnZlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASHAoPYXZnX2hhc2hyYXRlX2hzGAYgASgBSACIAQESGAoLYXZnX3Bvd2VyX3cYByABKAFIAYgBARIeChFhdmdfdGVtcGVyYXR1cmVfYxgIIAEoAUgCiAEBEhgKC2Vycm9yX2NvdW50GAkgASgDSAOIAQESGQoMc2FtcGxlX2NvdW50GAogASgDSASIAQFCEgoQX2F2Z19oYXNocmF0ZV9oc0IOCgxfYXZnX3Bvd2VyX3dCFAoSX2F2Z190ZW1wZXJhdHVyZV9jQg4KDF9lcnJvcl9jb3VudEIPCg1fc2FtcGxlX2NvdW50IqQCCgxSb2xsb3V0Q2F1c2USEAoIY2F1c2VfaWQYASABKAMSFgoJbWVtYmVyX2lkGAIgASgDSACIAQESEQoJb3BlcmF0aW9uGAMgASgJEg4KBnJlYXNvbhgEIAEoCRIVCg1hY3Rvcl91c2VyX2lkGAUgASgDEiwKCmZyb21fc3RhdGUYBiABKA4yGC5yb2xsb3V0LnYxLlJvbGxvdXRTdGF0ZRIqCgh0b19zdGF0ZRgHIAEoDjIYLnJvbGxvdXQudjEuUm9sbG91dFN0YXRlEhgKEHJvbGxvdXRfcmV2aXNpb24YCCABKAQSLgoKY3JlYXRlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCDAoKX21lbWJlcl9pZCLPAQoTQ3JlYXRlUm9sbG91dE1lbWJlchIiChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIHukgEcgIQARIwCg9zb3VyY2Vfc25hcHNob3QYAiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjAKD3RhcmdldF9zbmFwc2hvdBgDIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSMAoPcmV2ZXJ0X3NuYXBzaG90GAQgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdCJsChJDcmVhdGVSb2xsb3V0QmF0Y2gSFwoFbGFiZWwYASABKAlCCLpIBXIDGIABEj0KB21lbWJlcnMYAiADKAsyHy5yb2xsb3V0LnYxLkNyZWF0ZVJvbGxvdXRNZW1iZXJCC7pICJIBBQgBEJBOIvMEChRDcmVhdGVSb2xsb3V0UmVxdWVzdBIYCgRuYW1lGAEgASgJQgq6SAdyBRABGIABEiAKDHN0cmF0ZWd5X2tleRgCIAEoCUIKukgHcgUQARiAARI8CgdiYXRjaGVzGAMgAygLMh4ucm9sbG91dC52MS5DcmVhdGVSb2xsb3V0QmF0Y2hCC7pICJIBBQgBEOgHEicKEXNvdXJjZV9jaGFubmVsX2lkGAQgASgDQge6SAQiAiAASACIAQESJwoRdGFyZ2V0X2NoYW5uZWxfaWQYBSABKANCB7pIBCICIABIAYgBARIrChVzb3VyY2VfcmVsZWFzZV9zZXRfaWQYBiABKANCB7pIBCICIABIAogBARIrChV0YXJnZXRfcmVsZWFzZV9zZXRfaWQYByABKANCB7pIBCICIABIA4gBARIwCg9zb3VyY2Vfc25hcHNob3QYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjAKD3RhcmdldF9zbmFwc2hvdBgJIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSMAoPcmV2ZXJ0X3NuYXBzaG90GAogASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIjCg9pZGVtcG90ZW5jeV9rZXkYCyABKAlCCrpIB3IFEAEYgAISGgoGcmVhc29uGAwgASgJQgq6SAdyBRABGIACQhQKEl9zb3VyY2VfY2hhbm5lbF9pZEIUChJfdGFyZ2V0X2NoYW5uZWxfaWRCGAoWX3NvdXJjZV9yZWxlYXNlX3NldF9pZEIYChZfdGFyZ2V0X3JlbGVhc2Vfc2V0X2lkIj0KFUNyZWF0ZVJvbGxvdXRSZXNwb25zZRIkCgdyb2xsb3V0GAEgASgLMhMucm9sbG91dC52MS5Sb2xsb3V0IjEKEUdldFJvbGxvdXRSZXF1ZXN0EhwKCnJvbGxvdXRfaWQYASABKAlCCLpIBXIDsAEBIjoKEkdldFJvbGxvdXRSZXNwb25zZRIkCgdyb2xsb3V0GAEgASgLMhMucm9sbG91dC52MS5Sb2xsb3V0IlIKE0xpc3RSb2xsb3V0c1JlcXVlc3QSOwoGc3RhdGVzGAEgAygOMhgucm9sbG91dC52MS5Sb2xsb3V0U3RhdGVCEbpIDpIBCxAJGAEiBYIBAhABIj0KFExpc3RSb2xsb3V0c1Jlc3BvbnNlEiUKCHJvbGxvdXRzGAEgAygLMhMucm9sbG91dC52MS5Sb2xsb3V0IrMBChNBZG1pdFJvbGxvdXRSZXF1ZXN0EhwKCnJvbGxvdXRfaWQYASABKAlCCLpIBXIDsAEBEhkKCGJhdGNoX2lkGAIgASgDQge6SAQiAiAAEiIKEWV4cGVjdGVkX3JldmlzaW9uGAMgASgEQge6SAQyAiAAEiMKD2lkZW1wb3RlbmN5X2tleRgEIAEoCUIKukgHcgUQARiAAhIaCgZyZWFzb24YBSABKAlCCrpIB3IFEAEYgAIiPAoUQWRtaXRSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCKbAQoWQ29udGludWVSb2xsb3V0UmVxdWVzdBIcCgpyb2xsb3V0X2lkGAEgASgJQgi6SAVyA7ABARIiChFleHBlY3RlZF9yZXZpc2lvbhgCIAEoBEIHukgEMgIgABIjCg9pZGVtcG90ZW5jeV9rZXkYAyABKAlCCrpIB3IFEAEYgAISGgoGcmVhc29uGAQgASgJQgq6SAdyBRABGIACIj8KF0NvbnRpbnVlUm9sbG91dFJlc3BvbnNlEiQKB3JvbGxvdXQYASABKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQimAEKE1BhdXNlUm9sbG91dFJlcXVlc3QSHAoKcm9sbG91dF9pZBgBIAEoCUIIukgFcgOwAQESIgoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKARCB7pIBDICIAASIwoPaWRlbXBvdGVuY3lfa2V5GAMgASgJQgq6SAdyBRABGIACEhoKBnJlYXNvbhgEIAEoCUIKukgHcgUQARiAAiI8ChRQYXVzZVJvbGxvdXRSZXNwb25zZRIkCgdyb2xsb3V0GAEgASgLMhMucm9sbG91dC52MS5Sb2xsb3V0IpkBChRSZXN1bWVSb2xsb3V0UmVxdWVzdBIcCgpyb2xsb3V0X2lkGAEgASgJQgi6SAVyA7ABARIiChFleHBlY3RlZF9yZXZpc2lvbhgCIAEoBEIHukgEMgIgABIjCg9pZGVtcG90ZW5jeV9rZXkYAyABKAlCCrpIB3IFEAEYgAISGgoGcmVhc29uGAQgASgJQgq6SAdyBRABGIACIj0KFVJlc3VtZVJvbGxvdXRSZXNwb25zZRIkCgdyb2xsb3V0GAEgASgLMhMucm9sbG91dC52MS5Sb2xsb3V0IpgBChNBYm9ydFJvbGxvdXRSZXF1ZXN0EhwKCnJvbGxvdXRfaWQYASABKAlCCLpIBXIDsAEBEiIKEWV4cGVjdGVkX3JldmlzaW9uGAIgASgEQge6SAQyAiAAEiMKD2lkZW1wb3RlbmN5X2tleRgDIAEoCUIKukgHcgUQARiAAhIaCgZyZWFzb24YBCABKAlCCrpIB3IFEAEYgAIiPAoUQWJvcnRSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCKZAQoUUmV2ZXJ0Um9sbG91dFJlcXVlc3QSHAoKcm9sbG91dF9pZBgBIAEoCUIIukgFcgOwAQESIgoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKARCB7pIBDICIAASIwoPaWRlbXBvdGVuY3lfa2V5GAMgASgJQgq6SAdyBRABGIACEhoKBnJlYXNvbhgEIAEoCUIKukgHcgUQARiAAiI9ChVSZXZlcnRSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCKyAQoWQ29tcGxldGVSb2xsb3V0UmVxdWVzdBIcCgpyb2xsb3V0X2lkGAEgASgJQgi6SAVyA7ABARIiChFleHBlY3RlZF9yZXZpc2lvbhgCIAEoBEIHukgEMgIgABIjCg9pZGVtcG90ZW5jeV9rZXkYAyABKAlCCrpIB3IFEAEYgAISGgoGcmVhc29uGAQgASgJQgq6SAdyBRABGIACEhUKDXdpdGhfZmFpbHVyZXMYBSABKAgiPwoXQ29tcGxldGVSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCqzAgoMUm9sbG91dFN0YXRlEh0KGVJPTExPVVRfU1RBVEVfVU5TUEVDSUZJRUQQABIZChVST0xMT1VUX1NUQVRFX0NSRUFURUQQARIZChVST0xMT1VUX1NUQVRFX1JVTk5JTkcQAhIYChRST0xMT1VUX1NUQVRFX1BBVVNFRBADEhgKFFJPTExPVVRfU1RBVEVfUkVWSUVXEAQSGQoVUk9MTE9VVF9TVEFURV9BQk9SVEVEEAUSGwoXUk9MTE9VVF9TVEFURV9DT01QTEVURUQQBhIpCiVST0xMT1VUX1NUQVRFX0NPTVBMRVRFRF9XSVRIX0ZBSUxVUkVTEAcSGwoXUk9MTE9VVF9TVEFURV9SRVZFUlRJTkcQCBIaChZST0xMT1VUX1NUQVRFX1JFVkVSVEVEEAkqwQEKEVJvbGxvdXRCYXRjaFN0YXRlEiMKH1JPTExPVVRfQkFUQ0hfU1RBVEVfVU5TUEVDSUZJRUQQABIfChtST0xMT1VUX0JBVENIX1NUQVRFX1BFTkRJTkcQARIgChxST0xMT1VUX0JBVENIX1NUQVRFX0FETUlUVEVEEAISIQodUk9MTE9VVF9CQVRDSF9TVEFURV9DT01QTEVURUQQAxIhCh1ST0xMT1VUX0JBVENIX1NUQVRFX0NBTkNFTExFRBAEKtwCChJSb2xsb3V0TWVtYmVyU3RhdGUSJAogUk9MTE9VVF9NRU1CRVJfU1RBVEVfVU5TUEVDSUZJRUQQABIgChxST0xMT1VUX01FTUJFUl9TVEFURV9QRU5ESU5HEAESIQodUk9MTE9VVF9NRU1CRVJfU1RBVEVfQURNSVRURUQQAhIiCh5ST0xMT1VUX01FTUJFUl9TVEFURV9TVUNDRUVERUQQAxIfChtST0xMT1VUX01FTUJFUl9TVEFURV9GQUlMRUQQBBIrCidST0xMT1VUX01FTUJFUl9TVEFURV9BVFRFTlRJT05fUkVRVUlSRUQQBRIiCh5ST0xMT1VUX01FTUJFUl9TVEFURV9DQU5DRUxMRUQQBhIiCh5ST0xMT1VUX01FTUJFUl9TVEFURV9SRVZFUlRJTkcQBxIhCh1ST0xMT1VUX01FTUJFUl9TVEFURV9SRVZFUlRFRBAIKoQBChRSb2xsb3V0RXZpZGVuY2VQaGFzZRImCiJST0xMT1VUX0VWSURFTkNFX1BIQVNFX1VOU1BFQ0lGSUVEEAASIwofUk9MTE9VVF9FVklERU5DRV9QSEFTRV9CQVNFTElORRABEh8KG1JPTExPVVRfRVZJREVOQ0VfUEhBU0VfUE9TVBACMuMGCg5Sb2xsb3V0U2VydmljZRJUCg1DcmVhdGVSb2xsb3V0EiAucm9sbG91dC52MS5DcmVhdGVSb2xsb3V0UmVxdWVzdBohLnJvbGxvdXQudjEuQ3JlYXRlUm9sbG91dFJlc3BvbnNlEksKCkdldFJvbGxvdXQSHS5yb2xsb3V0LnYxLkdldFJvbGxvdXRSZXF1ZXN0Gh4ucm9sbG91dC52MS5HZXRSb2xsb3V0UmVzcG9uc2USUQoMTGlzdFJvbGxvdXRzEh8ucm9sbG91dC52MS5MaXN0Um9sbG91dHNSZXF1ZXN0GiAucm9sbG91dC52MS5MaXN0Um9sbG91dHNSZXNwb25zZRJRCgxBZG1pdFJvbGxvdXQSHy5yb2xsb3V0LnYxLkFkbWl0Um9sbG91dFJlcXVlc3QaIC5yb2xsb3V0LnYxLkFkbWl0Um9sbG91dFJlc3BvbnNlEloKD0NvbnRpbnVlUm9sbG91dBIiLnJvbGxvdXQudjEuQ29udGludWVSb2xsb3V0UmVxdWVzdBojLnJvbGxvdXQudjEuQ29udGludWVSb2xsb3V0UmVzcG9uc2USUQoMUGF1c2VSb2xsb3V0Eh8ucm9sbG91dC52MS5QYXVzZVJvbGxvdXRSZXF1ZXN0GiAucm9sbG91dC52MS5QYXVzZVJvbGxvdXRSZXNwb25zZRJUCg1SZXN1bWVSb2xsb3V0EiAucm9sbG91dC52MS5SZXN1bWVSb2xsb3V0UmVxdWVzdBohLnJvbGxvdXQudjEuUmVzdW1lUm9sbG91dFJlc3BvbnNlElEKDEFib3J0Um9sbG91dBIfLnJvbGxvdXQudjEuQWJvcnRSb2xsb3V0UmVxdWVzdBogLnJvbGxvdXQudjEuQWJvcnRSb2xsb3V0UmVzcG9uc2USVAoNUmV2ZXJ0Um9sbG91dBIgLnJvbGxvdXQudjEuUmV2ZXJ0Um9sbG91dFJlcXVlc3QaIS5yb2xsb3V0LnYxLlJldmVydFJvbGxvdXRSZXNwb25zZRJaCg9Db21wbGV0ZVJvbGxvdXQSIi5yb2xsb3V0LnYxLkNvbXBsZXRlUm9sbG91dFJlcXVlc3QaIy5yb2xsb3V0LnYxLkNvbXBsZXRlUm9sbG91dFJlc3BvbnNlQrABCg5jb20ucm9sbG91dC52MUIMUm9sbG91dFByb3RvUAFaR2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3JvbGxvdXQvdjE7cm9sbG91dHYxogIDUlhYqgIKUm9sbG91dC5WMcoCClJvbGxvdXRcVjHiAhZSb2xsb3V0XFYxXEdQQk1ldGFkYXRh6gILUm9sbG91dDo6VjFiBnByb3RvMw",
+    "Chhyb2xsb3V0L3YxL3JvbGxvdXQucHJvdG8SCnJvbGxvdXQudjEiggIKC1JvbGxvdXRMYW5lEg8KB2xhbmVfaWQYASABKAkSDQoFbGFiZWwYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSGgoSY3VycmVudF9jaGFubmVsX2lkGAQgASgDEhAKCHJldmlzaW9uGAUgASgEEjAKCGNoYW5uZWxzGAYgAygLMh4ucm9sbG91dC52MS5Sb2xsb3V0TGFuZUNoYW5uZWwSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiuwEKElJvbGxvdXRMYW5lQ2hhbm5lbBISCgpjaGFubmVsX2lkGAEgASgDEhYKDnJlbGVhc2Vfc2V0X2lkGAIgASgDEhAKCHBvc2l0aW9uGAMgASgNEhcKCnJvbGxvdXRfaWQYBCABKAlIAIgBARIPCgdjdXJyZW50GAUgASgIEi4KCmNyZWF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQg0KC19yb2xsb3V0X2lkItkBChhDcmVhdGVSb2xsb3V0TGFuZVJlcXVlc3QSGQoFbGFiZWwYASABKAlCCrpIB3IFEAEYgAESHQoLZGVzY3JpcHRpb24YAiABKAlCCLpIBXIDGIAIEi0KEWZpcm13YXJlX2ZpbGVfaWRzGAMgAygJQhK6SA+SAQwIARBkGAEiBHICEAESLwoSZGV2aWNlX2lkZW50aWZpZXJzGAQgAygJQhO6SBCSAQ0IARCQThgBIgRyAhABEiMKD2lkZW1wb3RlbmN5X2tleRgFIAEoCUIKukgHcgUQARiAAiJCChlDcmVhdGVSb2xsb3V0TGFuZVJlc3BvbnNlEiUKBGxhbmUYASABKAsyFy5yb2xsb3V0LnYxLlJvbGxvdXRMYW5lIjIKFUdldFJvbGxvdXRMYW5lUmVxdWVzdBIZCgdsYW5lX2lkGAEgASgJQgi6SAVyA7ABASI/ChZHZXRSb2xsb3V0TGFuZVJlc3BvbnNlEiUKBGxhbmUYASABKAsyFy5yb2xsb3V0LnYxLlJvbGxvdXRMYW5lIhkKF0xpc3RSb2xsb3V0TGFuZXNSZXF1ZXN0IkIKGExpc3RSb2xsb3V0TGFuZXNSZXNwb25zZRImCgVsYW5lcxgBIAMoCzIXLnJvbGxvdXQudjEuUm9sbG91dExhbmUi/AEKF1N0YXJ0Um9sbG91dExhbmVSZXF1ZXN0EhkKB2xhbmVfaWQYASABKAlCCLpIBXIDsAEBEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEYgAESLQoRZmlybXdhcmVfZmlsZV9pZHMYAyADKAlCErpID5IBDAgBEGQYASIEcgIQARI8CgdiYXRjaGVzGAQgAygLMh4ucm9sbG91dC52MS5DcmVhdGVSb2xsb3V0QmF0Y2hCC7pICJIBBQgBEOgHEiMKD2lkZW1wb3RlbmN5X2tleRgFIAEoCUIKukgHcgUQARiAAhIaCgZyZWFzb24YBiABKAlCCrpIB3IFEAEYgAIiZwoYU3RhcnRSb2xsb3V0TGFuZVJlc3BvbnNlEiUKBGxhbmUYASABKAsyFy5yb2xsb3V0LnYxLlJvbGxvdXRMYW5lEiQKB3JvbGxvdXQYAiABKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQijwgKB1JvbGxvdXQSEgoKcm9sbG91dF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhQKDHN0cmF0ZWd5X2tleRgDIAEoCRInCgVzdGF0ZRgEIAEoDjIYLnJvbGxvdXQudjEuUm9sbG91dFN0YXRlEhAKCHJldmlzaW9uGAUgASgEEh4KEXNvdXJjZV9jaGFubmVsX2lkGAogASgDSACIAQESHgoRdGFyZ2V0X2NoYW5uZWxfaWQYCyABKANIAYgBARIiChVzb3VyY2VfcmVsZWFzZV9zZXRfaWQYDCABKANIAogBARIiChV0YXJnZXRfcmVsZWFzZV9zZXRfaWQYDSABKANIA4gBARIwCg9zb3VyY2Vfc25hcHNob3QYDiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjAKD3RhcmdldF9zbmFwc2hvdBgPIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSMAoPcmV2ZXJ0X3NuYXBzaG90GBAgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIOCgZyZWFzb24YFCABKAkSLgoKc3RhcnRlZF9hdBgVIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLQoJcGF1c2VkX2F0GBYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgphYm9ydGVkX2F0GBcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxjb21wbGV0ZWRfYXQYGCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDHJldmVydGluZ19hdBgZIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLcmV2ZXJ0ZWRfYXQYGiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYGyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYHCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEikKB2JhdGNoZXMYHiADKAsyGC5yb2xsb3V0LnYxLlJvbGxvdXRCYXRjaBIqCgdtZW1iZXJzGB8gAygLMhkucm9sbG91dC52MS5Sb2xsb3V0TWVtYmVyEigKBmNhdXNlcxggIAMoCzIYLnJvbGxvdXQudjEuUm9sbG91dENhdXNlQhQKEl9zb3VyY2VfY2hhbm5lbF9pZEIUChJfdGFyZ2V0X2NoYW5uZWxfaWRCGAoWX3NvdXJjZV9yZWxlYXNlX3NldF9pZEIYChZfdGFyZ2V0X3JlbGVhc2Vfc2V0X2lkIq0BCgxSb2xsb3V0QmF0Y2gSEAoIYmF0Y2hfaWQYASABKAMSEAoIcG9zaXRpb24YAiABKA0SDQoFbGFiZWwYAyABKAkSLAoFc3RhdGUYBCABKA4yHS5yb2xsb3V0LnYxLlJvbGxvdXRCYXRjaFN0YXRlEhAKCHJldmlzaW9uGAUgASgEEioKB21lbWJlcnMYBiADKAsyGS5yb2xsb3V0LnYxLlJvbGxvdXRNZW1iZXIi2AQKDVJvbGxvdXRNZW1iZXISEQoJbWVtYmVyX2lkGAEgASgDEhAKCGJhdGNoX2lkGAIgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAMgASgJEhAKCHBvc2l0aW9uGAQgASgNEi0KBXN0YXRlGAUgASgOMh4ucm9sbG91dC52MS5Sb2xsb3V0TWVtYmVyU3RhdGUSEAoIcmV2aXNpb24YBiABKAQSMAoPc291cmNlX3NuYXBzaG90GAcgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIwCg90YXJnZXRfc25hcHNob3QYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjAKD3JldmVydF9zbmFwc2hvdBgJIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSGwoOZW5mb3JjZW1lbnRfaWQYCiABKANIAIgBARIfChJjb21tYW5kX2JhdGNoX3V1aWQYCyABKAlIAYgBARIXCgpsYXN0X2Vycm9yGAwgASgJSAKIAQESLwoLYWRtaXR0ZWRfYXQYDSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnNldHRsZWRfYXQYDiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi0KCGV2aWRlbmNlGA8gAygLMhsucm9sbG91dC52MS5Sb2xsb3V0RXZpZGVuY2VCEQoPX2VuZm9yY2VtZW50X2lkQhUKE19jb21tYW5kX2JhdGNoX3V1aWRCDQoLX2xhc3RfZXJyb3Ii0gMKD1JvbGxvdXRFdmlkZW5jZRITCgtldmlkZW5jZV9pZBgBIAEoAxIvCgVwaGFzZRgCIAEoDjIgLnJvbGxvdXQudjEuUm9sbG91dEV2aWRlbmNlUGhhc2USMAoMd2luZG93X3N0YXJ0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp3aW5kb3dfZW5kGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtvYnNlcnZlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASHAoPYXZnX2hhc2hyYXRlX2hzGAYgASgBSACIAQESGAoLYXZnX3Bvd2VyX3cYByABKAFIAYgBARIeChFhdmdfdGVtcGVyYXR1cmVfYxgIIAEoAUgCiAEBEhgKC2Vycm9yX2NvdW50GAkgASgDSAOIAQESGQoMc2FtcGxlX2NvdW50GAogASgDSASIAQFCEgoQX2F2Z19oYXNocmF0ZV9oc0IOCgxfYXZnX3Bvd2VyX3dCFAoSX2F2Z190ZW1wZXJhdHVyZV9jQg4KDF9lcnJvcl9jb3VudEIPCg1fc2FtcGxlX2NvdW50IqQCCgxSb2xsb3V0Q2F1c2USEAoIY2F1c2VfaWQYASABKAMSFgoJbWVtYmVyX2lkGAIgASgDSACIAQESEQoJb3BlcmF0aW9uGAMgASgJEg4KBnJlYXNvbhgEIAEoCRIVCg1hY3Rvcl91c2VyX2lkGAUgASgDEiwKCmZyb21fc3RhdGUYBiABKA4yGC5yb2xsb3V0LnYxLlJvbGxvdXRTdGF0ZRIqCgh0b19zdGF0ZRgHIAEoDjIYLnJvbGxvdXQudjEuUm9sbG91dFN0YXRlEhgKEHJvbGxvdXRfcmV2aXNpb24YCCABKAQSLgoKY3JlYXRlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCDAoKX21lbWJlcl9pZCLPAQoTQ3JlYXRlUm9sbG91dE1lbWJlchIiChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIHukgEcgIQARIwCg9zb3VyY2Vfc25hcHNob3QYAiABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjAKD3RhcmdldF9zbmFwc2hvdBgDIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSMAoPcmV2ZXJ0X3NuYXBzaG90GAQgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdCJsChJDcmVhdGVSb2xsb3V0QmF0Y2gSFwoFbGFiZWwYASABKAlCCLpIBXIDGIABEj0KB21lbWJlcnMYAiADKAsyHy5yb2xsb3V0LnYxLkNyZWF0ZVJvbGxvdXRNZW1iZXJCC7pICJIBBQgBEJBOIvMEChRDcmVhdGVSb2xsb3V0UmVxdWVzdBIYCgRuYW1lGAEgASgJQgq6SAdyBRABGIABEiAKDHN0cmF0ZWd5X2tleRgCIAEoCUIKukgHcgUQARiAARI8CgdiYXRjaGVzGAMgAygLMh4ucm9sbG91dC52MS5DcmVhdGVSb2xsb3V0QmF0Y2hCC7pICJIBBQgBEOgHEicKEXNvdXJjZV9jaGFubmVsX2lkGAQgASgDQge6SAQiAiAASACIAQESJwoRdGFyZ2V0X2NoYW5uZWxfaWQYBSABKANCB7pIBCICIABIAYgBARIrChVzb3VyY2VfcmVsZWFzZV9zZXRfaWQYBiABKANCB7pIBCICIABIAogBARIrChV0YXJnZXRfcmVsZWFzZV9zZXRfaWQYByABKANCB7pIBCICIABIA4gBARIwCg9zb3VyY2Vfc25hcHNob3QYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EjAKD3RhcmdldF9zbmFwc2hvdBgJIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSMAoPcmV2ZXJ0X3NuYXBzaG90GAogASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIjCg9pZGVtcG90ZW5jeV9rZXkYCyABKAlCCrpIB3IFEAEYgAISGgoGcmVhc29uGAwgASgJQgq6SAdyBRABGIACQhQKEl9zb3VyY2VfY2hhbm5lbF9pZEIUChJfdGFyZ2V0X2NoYW5uZWxfaWRCGAoWX3NvdXJjZV9yZWxlYXNlX3NldF9pZEIYChZfdGFyZ2V0X3JlbGVhc2Vfc2V0X2lkIj0KFUNyZWF0ZVJvbGxvdXRSZXNwb25zZRIkCgdyb2xsb3V0GAEgASgLMhMucm9sbG91dC52MS5Sb2xsb3V0IjEKEUdldFJvbGxvdXRSZXF1ZXN0EhwKCnJvbGxvdXRfaWQYASABKAlCCLpIBXIDsAEBIjoKEkdldFJvbGxvdXRSZXNwb25zZRIkCgdyb2xsb3V0GAEgASgLMhMucm9sbG91dC52MS5Sb2xsb3V0IlIKE0xpc3RSb2xsb3V0c1JlcXVlc3QSOwoGc3RhdGVzGAEgAygOMhgucm9sbG91dC52MS5Sb2xsb3V0U3RhdGVCEbpIDpIBCxAJGAEiBYIBAhABIj0KFExpc3RSb2xsb3V0c1Jlc3BvbnNlEiUKCHJvbGxvdXRzGAEgAygLMhMucm9sbG91dC52MS5Sb2xsb3V0IrMBChNBZG1pdFJvbGxvdXRSZXF1ZXN0EhwKCnJvbGxvdXRfaWQYASABKAlCCLpIBXIDsAEBEhkKCGJhdGNoX2lkGAIgASgDQge6SAQiAiAAEiIKEWV4cGVjdGVkX3JldmlzaW9uGAMgASgEQge6SAQyAiAAEiMKD2lkZW1wb3RlbmN5X2tleRgEIAEoCUIKukgHcgUQARiAAhIaCgZyZWFzb24YBSABKAlCCrpIB3IFEAEYgAIiPAoUQWRtaXRSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCKbAQoWQ29udGludWVSb2xsb3V0UmVxdWVzdBIcCgpyb2xsb3V0X2lkGAEgASgJQgi6SAVyA7ABARIiChFleHBlY3RlZF9yZXZpc2lvbhgCIAEoBEIHukgEMgIgABIjCg9pZGVtcG90ZW5jeV9rZXkYAyABKAlCCrpIB3IFEAEYgAISGgoGcmVhc29uGAQgASgJQgq6SAdyBRABGIACIj8KF0NvbnRpbnVlUm9sbG91dFJlc3BvbnNlEiQKB3JvbGxvdXQYASABKAsyEy5yb2xsb3V0LnYxLlJvbGxvdXQimAEKE1BhdXNlUm9sbG91dFJlcXVlc3QSHAoKcm9sbG91dF9pZBgBIAEoCUIIukgFcgOwAQESIgoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKARCB7pIBDICIAASIwoPaWRlbXBvdGVuY3lfa2V5GAMgASgJQgq6SAdyBRABGIACEhoKBnJlYXNvbhgEIAEoCUIKukgHcgUQARiAAiI8ChRQYXVzZVJvbGxvdXRSZXNwb25zZRIkCgdyb2xsb3V0GAEgASgLMhMucm9sbG91dC52MS5Sb2xsb3V0IpkBChRSZXN1bWVSb2xsb3V0UmVxdWVzdBIcCgpyb2xsb3V0X2lkGAEgASgJQgi6SAVyA7ABARIiChFleHBlY3RlZF9yZXZpc2lvbhgCIAEoBEIHukgEMgIgABIjCg9pZGVtcG90ZW5jeV9rZXkYAyABKAlCCrpIB3IFEAEYgAISGgoGcmVhc29uGAQgASgJQgq6SAdyBRABGIACIj0KFVJlc3VtZVJvbGxvdXRSZXNwb25zZRIkCgdyb2xsb3V0GAEgASgLMhMucm9sbG91dC52MS5Sb2xsb3V0IpgBChNBYm9ydFJvbGxvdXRSZXF1ZXN0EhwKCnJvbGxvdXRfaWQYASABKAlCCLpIBXIDsAEBEiIKEWV4cGVjdGVkX3JldmlzaW9uGAIgASgEQge6SAQyAiAAEiMKD2lkZW1wb3RlbmN5X2tleRgDIAEoCUIKukgHcgUQARiAAhIaCgZyZWFzb24YBCABKAlCCrpIB3IFEAEYgAIiPAoUQWJvcnRSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCKZAQoUUmV2ZXJ0Um9sbG91dFJlcXVlc3QSHAoKcm9sbG91dF9pZBgBIAEoCUIIukgFcgOwAQESIgoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKARCB7pIBDICIAASIwoPaWRlbXBvdGVuY3lfa2V5GAMgASgJQgq6SAdyBRABGIACEhoKBnJlYXNvbhgEIAEoCUIKukgHcgUQARiAAiI9ChVSZXZlcnRSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCKyAQoWQ29tcGxldGVSb2xsb3V0UmVxdWVzdBIcCgpyb2xsb3V0X2lkGAEgASgJQgi6SAVyA7ABARIiChFleHBlY3RlZF9yZXZpc2lvbhgCIAEoBEIHukgEMgIgABIjCg9pZGVtcG90ZW5jeV9rZXkYAyABKAlCCrpIB3IFEAEYgAISGgoGcmVhc29uGAQgASgJQgq6SAdyBRABGIACEhUKDXdpdGhfZmFpbHVyZXMYBSABKAgiPwoXQ29tcGxldGVSb2xsb3V0UmVzcG9uc2USJAoHcm9sbG91dBgBIAEoCzITLnJvbGxvdXQudjEuUm9sbG91dCqzAgoMUm9sbG91dFN0YXRlEh0KGVJPTExPVVRfU1RBVEVfVU5TUEVDSUZJRUQQABIZChVST0xMT1VUX1NUQVRFX0NSRUFURUQQARIZChVST0xMT1VUX1NUQVRFX1JVTk5JTkcQAhIYChRST0xMT1VUX1NUQVRFX1BBVVNFRBADEhgKFFJPTExPVVRfU1RBVEVfUkVWSUVXEAQSGQoVUk9MTE9VVF9TVEFURV9BQk9SVEVEEAUSGwoXUk9MTE9VVF9TVEFURV9DT01QTEVURUQQBhIpCiVST0xMT1VUX1NUQVRFX0NPTVBMRVRFRF9XSVRIX0ZBSUxVUkVTEAcSGwoXUk9MTE9VVF9TVEFURV9SRVZFUlRJTkcQCBIaChZST0xMT1VUX1NUQVRFX1JFVkVSVEVEEAkqwQEKEVJvbGxvdXRCYXRjaFN0YXRlEiMKH1JPTExPVVRfQkFUQ0hfU1RBVEVfVU5TUEVDSUZJRUQQABIfChtST0xMT1VUX0JBVENIX1NUQVRFX1BFTkRJTkcQARIgChxST0xMT1VUX0JBVENIX1NUQVRFX0FETUlUVEVEEAISIQodUk9MTE9VVF9CQVRDSF9TVEFURV9DT01QTEVURUQQAxIhCh1ST0xMT1VUX0JBVENIX1NUQVRFX0NBTkNFTExFRBAEKtwCChJSb2xsb3V0TWVtYmVyU3RhdGUSJAogUk9MTE9VVF9NRU1CRVJfU1RBVEVfVU5TUEVDSUZJRUQQABIgChxST0xMT1VUX01FTUJFUl9TVEFURV9QRU5ESU5HEAESIQodUk9MTE9VVF9NRU1CRVJfU1RBVEVfQURNSVRURUQQAhIiCh5ST0xMT1VUX01FTUJFUl9TVEFURV9TVUNDRUVERUQQAxIfChtST0xMT1VUX01FTUJFUl9TVEFURV9GQUlMRUQQBBIrCidST0xMT1VUX01FTUJFUl9TVEFURV9BVFRFTlRJT05fUkVRVUlSRUQQBRIiCh5ST0xMT1VUX01FTUJFUl9TVEFURV9DQU5DRUxMRUQQBhIiCh5ST0xMT1VUX01FTUJFUl9TVEFURV9SRVZFUlRJTkcQBxIhCh1ST0xMT1VUX01FTUJFUl9TVEFURV9SRVZFUlRFRBAIKoQBChRSb2xsb3V0RXZpZGVuY2VQaGFzZRImCiJST0xMT1VUX0VWSURFTkNFX1BIQVNFX1VOU1BFQ0lGSUVEEAASIwofUk9MTE9VVF9FVklERU5DRV9QSEFTRV9CQVNFTElORRABEh8KG1JPTExPVVRfRVZJREVOQ0VfUEhBU0VfUE9TVBACMtwJCg5Sb2xsb3V0U2VydmljZRJgChFDcmVhdGVSb2xsb3V0TGFuZRIkLnJvbGxvdXQudjEuQ3JlYXRlUm9sbG91dExhbmVSZXF1ZXN0GiUucm9sbG91dC52MS5DcmVhdGVSb2xsb3V0TGFuZVJlc3BvbnNlElcKDkdldFJvbGxvdXRMYW5lEiEucm9sbG91dC52MS5HZXRSb2xsb3V0TGFuZVJlcXVlc3QaIi5yb2xsb3V0LnYxLkdldFJvbGxvdXRMYW5lUmVzcG9uc2USXQoQTGlzdFJvbGxvdXRMYW5lcxIjLnJvbGxvdXQudjEuTGlzdFJvbGxvdXRMYW5lc1JlcXVlc3QaJC5yb2xsb3V0LnYxLkxpc3RSb2xsb3V0TGFuZXNSZXNwb25zZRJdChBTdGFydFJvbGxvdXRMYW5lEiMucm9sbG91dC52MS5TdGFydFJvbGxvdXRMYW5lUmVxdWVzdBokLnJvbGxvdXQudjEuU3RhcnRSb2xsb3V0TGFuZVJlc3BvbnNlElQKDUNyZWF0ZVJvbGxvdXQSIC5yb2xsb3V0LnYxLkNyZWF0ZVJvbGxvdXRSZXF1ZXN0GiEucm9sbG91dC52MS5DcmVhdGVSb2xsb3V0UmVzcG9uc2USSwoKR2V0Um9sbG91dBIdLnJvbGxvdXQudjEuR2V0Um9sbG91dFJlcXVlc3QaHi5yb2xsb3V0LnYxLkdldFJvbGxvdXRSZXNwb25zZRJRCgxMaXN0Um9sbG91dHMSHy5yb2xsb3V0LnYxLkxpc3RSb2xsb3V0c1JlcXVlc3QaIC5yb2xsb3V0LnYxLkxpc3RSb2xsb3V0c1Jlc3BvbnNlElEKDEFkbWl0Um9sbG91dBIfLnJvbGxvdXQudjEuQWRtaXRSb2xsb3V0UmVxdWVzdBogLnJvbGxvdXQudjEuQWRtaXRSb2xsb3V0UmVzcG9uc2USWgoPQ29udGludWVSb2xsb3V0EiIucm9sbG91dC52MS5Db250aW51ZVJvbGxvdXRSZXF1ZXN0GiMucm9sbG91dC52MS5Db250aW51ZVJvbGxvdXRSZXNwb25zZRJRCgxQYXVzZVJvbGxvdXQSHy5yb2xsb3V0LnYxLlBhdXNlUm9sbG91dFJlcXVlc3QaIC5yb2xsb3V0LnYxLlBhdXNlUm9sbG91dFJlc3BvbnNlElQKDVJlc3VtZVJvbGxvdXQSIC5yb2xsb3V0LnYxLlJlc3VtZVJvbGxvdXRSZXF1ZXN0GiEucm9sbG91dC52MS5SZXN1bWVSb2xsb3V0UmVzcG9uc2USUQoMQWJvcnRSb2xsb3V0Eh8ucm9sbG91dC52MS5BYm9ydFJvbGxvdXRSZXF1ZXN0GiAucm9sbG91dC52MS5BYm9ydFJvbGxvdXRSZXNwb25zZRJUCg1SZXZlcnRSb2xsb3V0EiAucm9sbG91dC52MS5SZXZlcnRSb2xsb3V0UmVxdWVzdBohLnJvbGxvdXQudjEuUmV2ZXJ0Um9sbG91dFJlc3BvbnNlEloKD0NvbXBsZXRlUm9sbG91dBIiLnJvbGxvdXQudjEuQ29tcGxldGVSb2xsb3V0UmVxdWVzdBojLnJvbGxvdXQudjEuQ29tcGxldGVSb2xsb3V0UmVzcG9uc2VCsAEKDmNvbS5yb2xsb3V0LnYxQgxSb2xsb3V0UHJvdG9QAVpHZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcm9sbG91dC92MTtyb2xsb3V0djGiAgNSWFiqAgpSb2xsb3V0LlYxygIKUm9sbG91dFxWMeICFlJvbGxvdXRcVjFcR1BCTWV0YWRhdGHqAgtSb2xsb3V0OjpWMWIGcHJvdG8z",
     [file_buf_validate_validate, file_google_protobuf_struct, file_google_protobuf_timestamp],
   );
+
+/**
+ * @generated from message rollout.v1.RolloutLane
+ */
+export type RolloutLane = Message<"rollout.v1.RolloutLane"> & {
+  /**
+   * @generated from field: string lane_id = 1;
+   */
+  laneId: string;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * @generated from field: int64 current_channel_id = 4;
+   */
+  currentChannelId: bigint;
+
+  /**
+   * @generated from field: uint64 revision = 5;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: repeated rollout.v1.RolloutLaneChannel channels = 6;
+   */
+  channels: RolloutLaneChannel[];
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 7;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 8;
+   */
+  updatedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message rollout.v1.RolloutLane.
+ * Use `create(RolloutLaneSchema)` to create a new message.
+ */
+export const RolloutLaneSchema: GenMessage<RolloutLane> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 0);
+
+/**
+ * @generated from message rollout.v1.RolloutLaneChannel
+ */
+export type RolloutLaneChannel = Message<"rollout.v1.RolloutLaneChannel"> & {
+  /**
+   * @generated from field: int64 channel_id = 1;
+   */
+  channelId: bigint;
+
+  /**
+   * @generated from field: int64 release_set_id = 2;
+   */
+  releaseSetId: bigint;
+
+  /**
+   * @generated from field: uint32 position = 3;
+   */
+  position: number;
+
+  /**
+   * @generated from field: optional string rollout_id = 4;
+   */
+  rolloutId?: string | undefined;
+
+  /**
+   * @generated from field: bool current = 5;
+   */
+  current: boolean;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 6;
+   */
+  createdAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message rollout.v1.RolloutLaneChannel.
+ * Use `create(RolloutLaneChannelSchema)` to create a new message.
+ */
+export const RolloutLaneChannelSchema: GenMessage<RolloutLaneChannel> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 1);
+
+/**
+ * @generated from message rollout.v1.CreateRolloutLaneRequest
+ */
+export type CreateRolloutLaneRequest = Message<"rollout.v1.CreateRolloutLaneRequest"> & {
+  /**
+   * @generated from field: string label = 1;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string description = 2;
+   */
+  description: string;
+
+  /**
+   * @generated from field: repeated string firmware_file_ids = 3;
+   */
+  firmwareFileIds: string[];
+
+  /**
+   * @generated from field: repeated string device_identifiers = 4;
+   */
+  deviceIdentifiers: string[];
+
+  /**
+   * @generated from field: string idempotency_key = 5;
+   */
+  idempotencyKey: string;
+};
+
+/**
+ * Describes the message rollout.v1.CreateRolloutLaneRequest.
+ * Use `create(CreateRolloutLaneRequestSchema)` to create a new message.
+ */
+export const CreateRolloutLaneRequestSchema: GenMessage<CreateRolloutLaneRequest> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 2);
+
+/**
+ * @generated from message rollout.v1.CreateRolloutLaneResponse
+ */
+export type CreateRolloutLaneResponse = Message<"rollout.v1.CreateRolloutLaneResponse"> & {
+  /**
+   * @generated from field: rollout.v1.RolloutLane lane = 1;
+   */
+  lane?: RolloutLane | undefined;
+};
+
+/**
+ * Describes the message rollout.v1.CreateRolloutLaneResponse.
+ * Use `create(CreateRolloutLaneResponseSchema)` to create a new message.
+ */
+export const CreateRolloutLaneResponseSchema: GenMessage<CreateRolloutLaneResponse> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 3);
+
+/**
+ * @generated from message rollout.v1.GetRolloutLaneRequest
+ */
+export type GetRolloutLaneRequest = Message<"rollout.v1.GetRolloutLaneRequest"> & {
+  /**
+   * @generated from field: string lane_id = 1;
+   */
+  laneId: string;
+};
+
+/**
+ * Describes the message rollout.v1.GetRolloutLaneRequest.
+ * Use `create(GetRolloutLaneRequestSchema)` to create a new message.
+ */
+export const GetRolloutLaneRequestSchema: GenMessage<GetRolloutLaneRequest> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 4);
+
+/**
+ * @generated from message rollout.v1.GetRolloutLaneResponse
+ */
+export type GetRolloutLaneResponse = Message<"rollout.v1.GetRolloutLaneResponse"> & {
+  /**
+   * @generated from field: rollout.v1.RolloutLane lane = 1;
+   */
+  lane?: RolloutLane | undefined;
+};
+
+/**
+ * Describes the message rollout.v1.GetRolloutLaneResponse.
+ * Use `create(GetRolloutLaneResponseSchema)` to create a new message.
+ */
+export const GetRolloutLaneResponseSchema: GenMessage<GetRolloutLaneResponse> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 5);
+
+/**
+ * @generated from message rollout.v1.ListRolloutLanesRequest
+ */
+export type ListRolloutLanesRequest = Message<"rollout.v1.ListRolloutLanesRequest"> & {};
+
+/**
+ * Describes the message rollout.v1.ListRolloutLanesRequest.
+ * Use `create(ListRolloutLanesRequestSchema)` to create a new message.
+ */
+export const ListRolloutLanesRequestSchema: GenMessage<ListRolloutLanesRequest> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 6);
+
+/**
+ * @generated from message rollout.v1.ListRolloutLanesResponse
+ */
+export type ListRolloutLanesResponse = Message<"rollout.v1.ListRolloutLanesResponse"> & {
+  /**
+   * @generated from field: repeated rollout.v1.RolloutLane lanes = 1;
+   */
+  lanes: RolloutLane[];
+};
+
+/**
+ * Describes the message rollout.v1.ListRolloutLanesResponse.
+ * Use `create(ListRolloutLanesResponseSchema)` to create a new message.
+ */
+export const ListRolloutLanesResponseSchema: GenMessage<ListRolloutLanesResponse> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 7);
+
+/**
+ * @generated from message rollout.v1.StartRolloutLaneRequest
+ */
+export type StartRolloutLaneRequest = Message<"rollout.v1.StartRolloutLaneRequest"> & {
+  /**
+   * @generated from field: string lane_id = 1;
+   */
+  laneId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: repeated string firmware_file_ids = 3;
+   */
+  firmwareFileIds: string[];
+
+  /**
+   * @generated from field: repeated rollout.v1.CreateRolloutBatch batches = 4;
+   */
+  batches: CreateRolloutBatch[];
+
+  /**
+   * @generated from field: string idempotency_key = 5;
+   */
+  idempotencyKey: string;
+
+  /**
+   * @generated from field: string reason = 6;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message rollout.v1.StartRolloutLaneRequest.
+ * Use `create(StartRolloutLaneRequestSchema)` to create a new message.
+ */
+export const StartRolloutLaneRequestSchema: GenMessage<StartRolloutLaneRequest> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 8);
+
+/**
+ * @generated from message rollout.v1.StartRolloutLaneResponse
+ */
+export type StartRolloutLaneResponse = Message<"rollout.v1.StartRolloutLaneResponse"> & {
+  /**
+   * @generated from field: rollout.v1.RolloutLane lane = 1;
+   */
+  lane?: RolloutLane | undefined;
+
+  /**
+   * @generated from field: rollout.v1.Rollout rollout = 2;
+   */
+  rollout?: Rollout | undefined;
+};
+
+/**
+ * Describes the message rollout.v1.StartRolloutLaneResponse.
+ * Use `create(StartRolloutLaneResponseSchema)` to create a new message.
+ */
+export const StartRolloutLaneResponseSchema: GenMessage<StartRolloutLaneResponse> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 9);
 
 /**
  * @generated from message rollout.v1.Rollout
@@ -148,7 +431,7 @@ export type Rollout = Message<"rollout.v1.Rollout"> & {
  * Describes the message rollout.v1.Rollout.
  * Use `create(RolloutSchema)` to create a new message.
  */
-export const RolloutSchema: GenMessage<Rollout> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 0);
+export const RolloutSchema: GenMessage<Rollout> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 10);
 
 /**
  * @generated from message rollout.v1.RolloutBatch
@@ -189,7 +472,7 @@ export type RolloutBatch = Message<"rollout.v1.RolloutBatch"> & {
  * Describes the message rollout.v1.RolloutBatch.
  * Use `create(RolloutBatchSchema)` to create a new message.
  */
-export const RolloutBatchSchema: GenMessage<RolloutBatch> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 1);
+export const RolloutBatchSchema: GenMessage<RolloutBatch> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 11);
 
 /**
  * @generated from message rollout.v1.RolloutMember
@@ -275,7 +558,7 @@ export type RolloutMember = Message<"rollout.v1.RolloutMember"> & {
  * Describes the message rollout.v1.RolloutMember.
  * Use `create(RolloutMemberSchema)` to create a new message.
  */
-export const RolloutMemberSchema: GenMessage<RolloutMember> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 2);
+export const RolloutMemberSchema: GenMessage<RolloutMember> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 12);
 
 /**
  * @generated from message rollout.v1.RolloutEvidence
@@ -336,7 +619,9 @@ export type RolloutEvidence = Message<"rollout.v1.RolloutEvidence"> & {
  * Describes the message rollout.v1.RolloutEvidence.
  * Use `create(RolloutEvidenceSchema)` to create a new message.
  */
-export const RolloutEvidenceSchema: GenMessage<RolloutEvidence> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 3);
+export const RolloutEvidenceSchema: GenMessage<RolloutEvidence> =
+  /*@__PURE__*/
+  messageDesc(file_rollout_v1_rollout, 13);
 
 /**
  * @generated from message rollout.v1.RolloutCause
@@ -392,7 +677,7 @@ export type RolloutCause = Message<"rollout.v1.RolloutCause"> & {
  * Describes the message rollout.v1.RolloutCause.
  * Use `create(RolloutCauseSchema)` to create a new message.
  */
-export const RolloutCauseSchema: GenMessage<RolloutCause> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 4);
+export const RolloutCauseSchema: GenMessage<RolloutCause> = /*@__PURE__*/ messageDesc(file_rollout_v1_rollout, 14);
 
 /**
  * @generated from message rollout.v1.CreateRolloutMember
@@ -425,7 +710,7 @@ export type CreateRolloutMember = Message<"rollout.v1.CreateRolloutMember"> & {
  */
 export const CreateRolloutMemberSchema: GenMessage<CreateRolloutMember> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 5);
+  messageDesc(file_rollout_v1_rollout, 15);
 
 /**
  * @generated from message rollout.v1.CreateRolloutBatch
@@ -448,7 +733,7 @@ export type CreateRolloutBatch = Message<"rollout.v1.CreateRolloutBatch"> & {
  */
 export const CreateRolloutBatchSchema: GenMessage<CreateRolloutBatch> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 6);
+  messageDesc(file_rollout_v1_rollout, 16);
 
 /**
  * @generated from message rollout.v1.CreateRolloutRequest
@@ -521,7 +806,7 @@ export type CreateRolloutRequest = Message<"rollout.v1.CreateRolloutRequest"> & 
  */
 export const CreateRolloutRequestSchema: GenMessage<CreateRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 7);
+  messageDesc(file_rollout_v1_rollout, 17);
 
 /**
  * @generated from message rollout.v1.CreateRolloutResponse
@@ -539,7 +824,7 @@ export type CreateRolloutResponse = Message<"rollout.v1.CreateRolloutResponse"> 
  */
 export const CreateRolloutResponseSchema: GenMessage<CreateRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 8);
+  messageDesc(file_rollout_v1_rollout, 18);
 
 /**
  * @generated from message rollout.v1.GetRolloutRequest
@@ -557,7 +842,7 @@ export type GetRolloutRequest = Message<"rollout.v1.GetRolloutRequest"> & {
  */
 export const GetRolloutRequestSchema: GenMessage<GetRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 9);
+  messageDesc(file_rollout_v1_rollout, 19);
 
 /**
  * @generated from message rollout.v1.GetRolloutResponse
@@ -575,7 +860,7 @@ export type GetRolloutResponse = Message<"rollout.v1.GetRolloutResponse"> & {
  */
 export const GetRolloutResponseSchema: GenMessage<GetRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 10);
+  messageDesc(file_rollout_v1_rollout, 20);
 
 /**
  * @generated from message rollout.v1.ListRolloutsRequest
@@ -593,7 +878,7 @@ export type ListRolloutsRequest = Message<"rollout.v1.ListRolloutsRequest"> & {
  */
 export const ListRolloutsRequestSchema: GenMessage<ListRolloutsRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 11);
+  messageDesc(file_rollout_v1_rollout, 21);
 
 /**
  * @generated from message rollout.v1.ListRolloutsResponse
@@ -611,7 +896,7 @@ export type ListRolloutsResponse = Message<"rollout.v1.ListRolloutsResponse"> & 
  */
 export const ListRolloutsResponseSchema: GenMessage<ListRolloutsResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 12);
+  messageDesc(file_rollout_v1_rollout, 22);
 
 /**
  * @generated from message rollout.v1.AdmitRolloutRequest
@@ -649,7 +934,7 @@ export type AdmitRolloutRequest = Message<"rollout.v1.AdmitRolloutRequest"> & {
  */
 export const AdmitRolloutRequestSchema: GenMessage<AdmitRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 13);
+  messageDesc(file_rollout_v1_rollout, 23);
 
 /**
  * @generated from message rollout.v1.AdmitRolloutResponse
@@ -667,7 +952,7 @@ export type AdmitRolloutResponse = Message<"rollout.v1.AdmitRolloutResponse"> & 
  */
 export const AdmitRolloutResponseSchema: GenMessage<AdmitRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 14);
+  messageDesc(file_rollout_v1_rollout, 24);
 
 /**
  * @generated from message rollout.v1.ContinueRolloutRequest
@@ -700,7 +985,7 @@ export type ContinueRolloutRequest = Message<"rollout.v1.ContinueRolloutRequest"
  */
 export const ContinueRolloutRequestSchema: GenMessage<ContinueRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 15);
+  messageDesc(file_rollout_v1_rollout, 25);
 
 /**
  * @generated from message rollout.v1.ContinueRolloutResponse
@@ -718,7 +1003,7 @@ export type ContinueRolloutResponse = Message<"rollout.v1.ContinueRolloutRespons
  */
 export const ContinueRolloutResponseSchema: GenMessage<ContinueRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 16);
+  messageDesc(file_rollout_v1_rollout, 26);
 
 /**
  * @generated from message rollout.v1.PauseRolloutRequest
@@ -751,7 +1036,7 @@ export type PauseRolloutRequest = Message<"rollout.v1.PauseRolloutRequest"> & {
  */
 export const PauseRolloutRequestSchema: GenMessage<PauseRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 17);
+  messageDesc(file_rollout_v1_rollout, 27);
 
 /**
  * @generated from message rollout.v1.PauseRolloutResponse
@@ -769,7 +1054,7 @@ export type PauseRolloutResponse = Message<"rollout.v1.PauseRolloutResponse"> & 
  */
 export const PauseRolloutResponseSchema: GenMessage<PauseRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 18);
+  messageDesc(file_rollout_v1_rollout, 28);
 
 /**
  * @generated from message rollout.v1.ResumeRolloutRequest
@@ -802,7 +1087,7 @@ export type ResumeRolloutRequest = Message<"rollout.v1.ResumeRolloutRequest"> & 
  */
 export const ResumeRolloutRequestSchema: GenMessage<ResumeRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 19);
+  messageDesc(file_rollout_v1_rollout, 29);
 
 /**
  * @generated from message rollout.v1.ResumeRolloutResponse
@@ -820,7 +1105,7 @@ export type ResumeRolloutResponse = Message<"rollout.v1.ResumeRolloutResponse"> 
  */
 export const ResumeRolloutResponseSchema: GenMessage<ResumeRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 20);
+  messageDesc(file_rollout_v1_rollout, 30);
 
 /**
  * @generated from message rollout.v1.AbortRolloutRequest
@@ -853,7 +1138,7 @@ export type AbortRolloutRequest = Message<"rollout.v1.AbortRolloutRequest"> & {
  */
 export const AbortRolloutRequestSchema: GenMessage<AbortRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 21);
+  messageDesc(file_rollout_v1_rollout, 31);
 
 /**
  * @generated from message rollout.v1.AbortRolloutResponse
@@ -871,7 +1156,7 @@ export type AbortRolloutResponse = Message<"rollout.v1.AbortRolloutResponse"> & 
  */
 export const AbortRolloutResponseSchema: GenMessage<AbortRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 22);
+  messageDesc(file_rollout_v1_rollout, 32);
 
 /**
  * @generated from message rollout.v1.RevertRolloutRequest
@@ -904,7 +1189,7 @@ export type RevertRolloutRequest = Message<"rollout.v1.RevertRolloutRequest"> & 
  */
 export const RevertRolloutRequestSchema: GenMessage<RevertRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 23);
+  messageDesc(file_rollout_v1_rollout, 33);
 
 /**
  * @generated from message rollout.v1.RevertRolloutResponse
@@ -922,7 +1207,7 @@ export type RevertRolloutResponse = Message<"rollout.v1.RevertRolloutResponse"> 
  */
 export const RevertRolloutResponseSchema: GenMessage<RevertRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 24);
+  messageDesc(file_rollout_v1_rollout, 34);
 
 /**
  * @generated from message rollout.v1.CompleteRolloutRequest
@@ -960,7 +1245,7 @@ export type CompleteRolloutRequest = Message<"rollout.v1.CompleteRolloutRequest"
  */
 export const CompleteRolloutRequestSchema: GenMessage<CompleteRolloutRequest> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 25);
+  messageDesc(file_rollout_v1_rollout, 35);
 
 /**
  * @generated from message rollout.v1.CompleteRolloutResponse
@@ -978,7 +1263,7 @@ export type CompleteRolloutResponse = Message<"rollout.v1.CompleteRolloutRespons
  */
 export const CompleteRolloutResponseSchema: GenMessage<CompleteRolloutResponse> =
   /*@__PURE__*/
-  messageDesc(file_rollout_v1_rollout, 26);
+  messageDesc(file_rollout_v1_rollout, 36);
 
 /**
  * @generated from enum rollout.v1.RolloutState
@@ -1161,6 +1446,38 @@ export const RolloutEvidencePhaseSchema: GenEnum<RolloutEvidencePhase> =
  * @generated from service rollout.v1.RolloutService
  */
 export const RolloutService: GenService<{
+  /**
+   * @generated from rpc rollout.v1.RolloutService.CreateRolloutLane
+   */
+  createRolloutLane: {
+    methodKind: "unary";
+    input: typeof CreateRolloutLaneRequestSchema;
+    output: typeof CreateRolloutLaneResponseSchema;
+  };
+  /**
+   * @generated from rpc rollout.v1.RolloutService.GetRolloutLane
+   */
+  getRolloutLane: {
+    methodKind: "unary";
+    input: typeof GetRolloutLaneRequestSchema;
+    output: typeof GetRolloutLaneResponseSchema;
+  };
+  /**
+   * @generated from rpc rollout.v1.RolloutService.ListRolloutLanes
+   */
+  listRolloutLanes: {
+    methodKind: "unary";
+    input: typeof ListRolloutLanesRequestSchema;
+    output: typeof ListRolloutLanesResponseSchema;
+  };
+  /**
+   * @generated from rpc rollout.v1.RolloutService.StartRolloutLane
+   */
+  startRolloutLane: {
+    methodKind: "unary";
+    input: typeof StartRolloutLaneRequestSchema;
+    output: typeof StartRolloutLaneResponseSchema;
+  };
   /**
    * @generated from rpc rollout.v1.RolloutService.CreateRollout
    */

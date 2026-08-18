@@ -22,13 +22,29 @@ import (
 func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 	t.Parallel()
 
-	handler := NewHandler(nil)
+	handler := NewHandler(nil, nil)
 	ctx := rolloutHandlerContext(t, 42, 9)
 	rolloutID := uuid.New().String()
 	calls := []struct {
 		name string
 		call func() error
 	}{
+		{"CreateRolloutLane", func() error {
+			_, err := handler.CreateRolloutLane(ctx, connect.NewRequest(&pb.CreateRolloutLaneRequest{}))
+			return err
+		}},
+		{"GetRolloutLane", func() error {
+			_, err := handler.GetRolloutLane(ctx, connect.NewRequest(&pb.GetRolloutLaneRequest{LaneId: rolloutID}))
+			return err
+		}},
+		{"ListRolloutLanes", func() error {
+			_, err := handler.ListRolloutLanes(ctx, connect.NewRequest(&pb.ListRolloutLanesRequest{}))
+			return err
+		}},
+		{"StartRolloutLane", func() error {
+			_, err := handler.StartRolloutLane(ctx, connect.NewRequest(&pb.StartRolloutLaneRequest{LaneId: rolloutID}))
+			return err
+		}},
 		{"CreateRollout", func() error {
 			_, err := handler.CreateRollout(ctx, connect.NewRequest(&pb.CreateRolloutRequest{}))
 			return err
@@ -73,6 +89,7 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 
 	for _, testCase := range calls {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 			err := testCase.call()
 			require.Error(t, err)
 			var fleetErr fleeterror.FleetError
@@ -96,7 +113,7 @@ func TestHandlerSeparatesReadManageAndControlPermissions(t *testing.T) {
 			UpdatedAt: time.Now(),
 		},
 	}
-	handler := NewHandler(service)
+	handler := NewHandler(service, nil)
 
 	readCtx := rolloutHandlerContext(t, 42, 9, authz.PermRolloutRead)
 	response, err := handler.GetRollout(
@@ -142,7 +159,7 @@ func TestHandlerDerivesControlOrganizationAndActorFromSession(t *testing.T) {
 			UpdatedAt: time.Now(),
 		},
 	}
-	handler := NewHandler(service)
+	handler := NewHandler(service, nil)
 	ctx := rolloutHandlerContext(t, 73, 91, authz.PermRolloutControl)
 
 	_, err := handler.PauseRollout(

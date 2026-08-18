@@ -73,6 +73,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		scheduleProcessor:         noopLifecycle{},
 		curtailmentReconciler:     noopLifecycle{},
 		channelEnforcement:        noopLifecycle{},
+		rolloutLaneFinalizer:      noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
 		curtailmentAlertMetrics:   noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
@@ -91,6 +92,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"schedule-processor",
 		"curtailment-reconciler",
 		"channel-enforcement",
+		"rollout-lane-finalizer",
 		"curtailment-mqtt-subscriber",
 		"curtailment-alert-metrics",
 		"chunked-upload-cleanup",
@@ -111,6 +113,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"schedule-processor",
 		"curtailment-reconciler",
 		"channel-enforcement",
+		"rollout-lane-finalizer",
 		"curtailment-mqtt-subscriber",
 		"chunked-upload-cleanup",
 	}, jobNames(jobs))
@@ -158,6 +161,7 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		scheduleProcessor:         producer,
 		curtailmentReconciler:     noopLifecycle{},
 		channelEnforcement:        noopLifecycle{},
+		rolloutLaneFinalizer:      noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 	})
@@ -185,6 +189,7 @@ func TestRuntimeJobGroupAbortsCommandExecution(t *testing.T) {
 		scheduleProcessor:         noopLifecycle{},
 		curtailmentReconciler:     noopLifecycle{},
 		channelEnforcement:        noopLifecycle{},
+		rolloutLaneFinalizer:      noopLifecycle{},
 		curtailmentMQTTSubscriber: noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 	})

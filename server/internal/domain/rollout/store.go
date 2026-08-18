@@ -22,6 +22,10 @@ type AdmissionStrategy interface {
 	Revert(ctx context.Context, req RevertRequest) error
 }
 
+type CreationStrategy interface {
+	ValidateCreate(ctx context.Context, req CreateRequest) error
+}
+
 type AdmissionRequest struct {
 	Rollout        Rollout
 	Batch          Batch
@@ -33,4 +37,22 @@ type RevertRequest struct {
 	Rollout        Rollout
 	ControlID      uuid.UUID
 	IdempotencyKey string
+}
+
+type RevertStrategy interface {
+	ValidateRevert(ctx context.Context, req RevertValidationRequest) error
+}
+
+type RevertValidationRequest struct {
+	Rollout Rollout
+}
+
+type CompletionStrategy interface {
+	ValidateComplete(ctx context.Context, req CompletionRequest) error
+	Complete(ctx context.Context, req CompletionRequest) error
+}
+
+type CompletionRequest struct {
+	Rollout      Rollout
+	WithFailures bool
 }
