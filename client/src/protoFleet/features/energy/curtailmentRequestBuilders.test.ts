@@ -217,7 +217,7 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.scopes[0].scope.value.siteId).toBe(42n);
   });
 
-  it("builds combined site and miner scopes without expanding sites", () => {
+  it("uses miners as the terminal scope and keeps the selected site as navigation only", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
       scopeType: "explicitMiners",
@@ -227,17 +227,15 @@ describe("curtailmentRequestBuilders", () => {
       deviceIdentifiers: ["miner-1", "miner-1", "miner-2"],
     });
 
-    expect(request.scopes).toHaveLength(2);
-    expect(request.scopes[0]?.scope.case).toBe("site");
-    expect(request.scopes[1]?.scope.case).toBe("deviceIdentifiers");
-    if (request.scopes[0]?.scope.case !== "site" || request.scopes[1]?.scope.case !== "deviceIdentifiers") {
-      throw new Error("Expected site and deviceIdentifiers scopes");
+    expect(request.scopes).toHaveLength(1);
+    expect(request.scopes[0]?.scope.case).toBe("deviceIdentifiers");
+    if (request.scopes[0]?.scope.case !== "deviceIdentifiers") {
+      throw new Error("Expected deviceIdentifiers scope");
     }
-    expect(request.scopes[0].scope.value.siteId).toBe(42n);
-    expect(request.scopes[1].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
+    expect(request.scopes[0].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
   });
 
-  it("builds multiple site scopes with explicit miner scopes without expanding sites", () => {
+  it("does not submit multiple parent sites with an explicit miner scope", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
       scopeType: "explicitMiners",
@@ -248,42 +246,30 @@ describe("curtailmentRequestBuilders", () => {
       deviceIdentifiers: ["miner-1", "miner-2"],
     });
 
-    expect(request.scopes).toHaveLength(3);
-    expect(request.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site", "deviceIdentifiers"]);
-    if (
-      request.scopes[0]?.scope.case !== "site" ||
-      request.scopes[1]?.scope.case !== "site" ||
-      request.scopes[2]?.scope.case !== "deviceIdentifiers"
-    ) {
-      throw new Error("Expected two site scopes and one deviceIdentifiers scope");
+    expect(request.scopes).toHaveLength(1);
+    if (request.scopes[0]?.scope.case !== "deviceIdentifiers") {
+      throw new Error("Expected deviceIdentifiers scope");
     }
-    expect(request.scopes[0].scope.value.siteId).toBe(42n);
-    expect(request.scopes[1].scope.value.siteId).toBe(43n);
-    expect(request.scopes[2].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
+    expect(request.scopes[0].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
   });
 
   it("builds all-sites scopes from the selected site ids", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
-      scopeType: "explicitMiners",
+      scopeType: "site",
       siteSelection: "allSites",
       siteId: "42",
       siteIds: ["42", "43"],
-      deviceIdentifiers: ["miner-1", "miner-2"],
+      deviceIdentifiers: [],
     });
 
-    expect(request.scopes).toHaveLength(3);
-    expect(request.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site", "deviceIdentifiers"]);
-    if (
-      request.scopes[0]?.scope.case !== "site" ||
-      request.scopes[1]?.scope.case !== "site" ||
-      request.scopes[2]?.scope.case !== "deviceIdentifiers"
-    ) {
+    expect(request.scopes).toHaveLength(2);
+    expect(request.scopes.map((scope) => scope.scope.case)).toEqual(["site", "site"]);
+    if (request.scopes[0]?.scope.case !== "site" || request.scopes[1]?.scope.case !== "site") {
       throw new Error("Expected all-sites scope to preserve selected sites");
     }
     expect(request.scopes[0].scope.value.siteId).toBe(42n);
     expect(request.scopes[1].scope.value.siteId).toBe(43n);
-    expect(request.scopes[2].scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
   });
 
   it("collapses all-miner selection to whole org without sending page-loaded miner ids", () => {

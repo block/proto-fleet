@@ -141,16 +141,6 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
-	if responseProfileUpdateOmitsScope(req.Msg) {
-		preserveScope, err := responseProfileUpdateShouldPreserveOmittedScope(existing)
-		if err != nil {
-			return nil, err
-		}
-		if preserveScope {
-			profile.SiteID = cloneInt64Ptr(existing.SiteID)
-			profile.ScopeJSON = cloneBytes(existing.ScopeJSON)
-		}
-	}
 	if !req.Msg.GetReplaceFacilityFanSettings() {
 		profile.FacilityFanDeviceIDs = append([]int64(nil), existing.FacilityFanDeviceIDs...)
 		profile.FanOffDelaySec = existing.FanOffDelaySec
@@ -493,28 +483,6 @@ func cloneBytes(v []byte) []byte {
 	return append([]byte(nil), v...)
 }
 
-func responseProfileUpdateOmitsScope(msg *pb.UpdateCurtailmentResponseProfileRequest) bool {
-	return msg.GetSite() == nil && len(msg.GetScopes()) == 0
-}
-
-func responseProfileUpdateShouldPreserveOmittedScope(profile *models.ResponseProfile) (bool, error) {
-	if profile == nil {
-		return false, nil
-	}
-	scope, err := domainCurtailment.ResponseProfileScope(*profile)
-	if err != nil {
-		return false, err
-	}
-	switch scope.Type {
-	case models.ScopeTypeMixed, models.ScopeTypeDeviceList, models.ScopeTypeDeviceSets:
-		return true, nil
-	case models.ScopeTypeWholeOrg, models.ScopeTypeSite, "":
-		return false, nil
-	default:
-		return false, nil
-	}
-}
-
 func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResponseProfileRequest) (models.ResponseProfile, error) {
 	profile, err := responseProfileFromPayload(
 		orgID,
@@ -522,6 +490,7 @@ func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResp
 		msg.GetProfileName(),
 		msg.GetSite(),
 		msg.GetScopes(),
+		msg.GetScopeSchemaVersion(),
 		msg.GetMode(),
 		msg.GetStrategy(),
 		msg.GetLevel(),
@@ -553,6 +522,7 @@ func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResp
 		msg.GetProfileName(),
 		msg.GetSite(),
 		msg.GetScopes(),
+		msg.GetScopeSchemaVersion(),
 		msg.GetMode(),
 		msg.GetStrategy(),
 		msg.GetLevel(),
@@ -579,6 +549,7 @@ func responseProfileFromPayload(
 	name string,
 	site *pb.ScopeSite,
 	scopes []*pb.CurtailmentScope,
+	scopeSchemaVersion uint32,
 	modeProto pb.CurtailmentMode,
 	strategyProto pb.CurtailmentStrategy,
 	levelProto pb.CurtailmentLevel,
@@ -597,6 +568,11 @@ func responseProfileFromPayload(
 	fanOffDelaySec uint32,
 	fanRestoreDelaySec uint32,
 ) (models.ResponseProfile, error) {
+	if site == nil && len(scopes) == 0 {
+		return models.ResponseProfile{}, fleeterror.NewInvalidArgumentError(
+			"scope is required: set whole_org, site, device_identifiers, or scopes",
+		)
+	}
 	mode, fixedKw, err := toRequestMode(modeProto, fixedKw, hasModeParams)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -676,17 +652,29 @@ func responseProfileFromPayload(
 	if site != nil {
 		siteID := site.GetSiteId()
 		profile.SiteID = &siteID
+		if scopeSchemaVersion > 0 {
+			scopeJSON, err := domainCurtailment.MarshalScopeJSON(domainCurtailment.Scope{
+				SchemaVersion: scopeSchemaVersion,
+				Type:          models.ScopeTypeSite,
+				SiteID:        siteID,
+			})
+			if err != nil {
+				return models.ResponseProfile{}, err
+			}
+			profile.ScopeJSON = scopeJSON
+		}
 	}
 	if len(scopes) > 0 {
-		scope, err := toCompositeScope(scopes)
+		scope, err := toTerminalScope(scopes)
 		if err != nil {
 			return models.ResponseProfile{}, err
 		}
+		scope.SchemaVersion = scopeSchemaVersion
 		scopeJSON, err := domainCurtailment.MarshalScopeJSON(scope)
 		if err != nil {
 			return models.ResponseProfile{}, err
 		}
-		if scope.Type == models.ScopeTypeWholeOrg {
+		if scope.Type == models.ScopeTypeWholeOrg && scope.SchemaVersion == 0 {
 			scopeJSON = []byte(`{"whole_org":true}`)
 		}
 		profile.ScopeJSON = scopeJSON
@@ -724,6 +712,7 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		out.Site = &pb.ScopeSite{SiteId: *profile.SiteID}
 	}
 	if scope, hasScope, err := domainCurtailment.ScopeFromJSON(profile.ScopeJSON); err == nil && hasScope {
+		out.ScopeSchemaVersion = scope.SchemaVersion
 		if scopes := protoScopesFromDomainScope(scope); len(scopes) > 0 {
 			out.Scopes = scopes
 		}

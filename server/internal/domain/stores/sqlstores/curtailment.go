@@ -1233,7 +1233,9 @@ func hierarchicalScopeSiteIDs(event models.InsertEventParams) ([]int64, bool, er
 	case models.ScopeTypeMixed:
 		var scope struct {
 			SiteIDs           []int64  `json:"site_ids"`
-			DeviceSetIDs      []string `json:"device_set_ids"`
+			BuildingIDs       []int64  `json:"building_ids"`
+			RackIDs           []int64  `json:"rack_ids"`
+			GroupIDs          []int64  `json:"group_ids"`
 			DeviceIdentifiers []string `json:"device_identifiers"`
 		}
 		if err := json.Unmarshal(event.ScopeJSON, &scope); err != nil {
@@ -1243,11 +1245,12 @@ func hierarchicalScopeSiteIDs(event models.InsertEventParams) ([]int64, bool, er
 			return nil, false, fleeterror.NewInternalErrorf("invalid mixed site scope for closed-loop curtailment event")
 		}
 		siteIDs := uniqueSortedInt64s(scope.SiteIDs)
-		if len(siteIDs) > 0 && len(scope.DeviceSetIDs) == 0 && len(scope.DeviceIdentifiers) == 0 {
+		if len(siteIDs) > 0 && len(scope.BuildingIDs) == 0 && len(scope.RackIDs) == 0 &&
+			len(scope.GroupIDs) == 0 && len(scope.DeviceIdentifiers) == 0 {
 			return siteIDs, true, nil
 		}
 		return nil, false, nil
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+	case models.ScopeTypeDeviceList:
 		return nil, false, nil
 	default:
 		return nil, false, nil

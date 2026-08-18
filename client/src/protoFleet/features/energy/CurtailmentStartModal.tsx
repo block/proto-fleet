@@ -977,38 +977,30 @@ function formatScopeLabelForSentence(scopeLabel: string): string {
 }
 
 function formatCurtailmentConfirmationTarget(values: CurtailmentFormValues, selectedMinerCount?: number): string {
-  const selectedSiteIds = getSiteScopeIds(values);
-  if (hasAllMinersSelected(values) || (values.siteSelection === "allSites" && selectedSiteIds.length === 0)) {
+  if (hasAllMinersSelected(values)) {
     return "the whole fleet";
   }
 
-  const selectedMiners =
-    getExplicitMinerCount(values) > 0 ? formatCountLabel(values.deviceIdentifiers.length, "miner").toLowerCase() : "";
-  const selectedSiteLabel =
-    values.siteSelection === "allSites"
-      ? "all sites"
-      : selectedSiteIds.length === 1
-        ? values.scopeId
-        : formatCountLabel(selectedSiteIds.length, "site").toLowerCase();
-  const selectedSite =
-    selectedSiteIds.length > 0
-      ? `miners in ${selectedSiteLabel ? formatScopeLabelForSentence(selectedSiteLabel) : "the selected sites"}`
-      : "";
-
-  if (selectedMiners && selectedSite) {
-    return `${selectedMiners} and ${selectedSite}`;
-  }
-
-  if (selectedMiners) {
-    return selectedMiners;
+  if (values.scopeType === "explicitMiners" && getExplicitMinerCount(values) > 0) {
+    return formatCountLabel(values.deviceIdentifiers.length, "miner").toLowerCase();
   }
 
   if (values.scopeType === "deviceSet") {
     return `miners in ${formatCountLabel(values.deviceSetIds.length, "device set").toLowerCase()}`;
   }
 
-  if (selectedSite) {
-    return selectedSite;
+  if (values.scopeType === "site") {
+    const selectedSiteIds = getSiteScopeIds(values);
+    if (selectedSiteIds.length > 0) {
+      const selectedSiteLabel =
+        values.siteSelection === "allSites"
+          ? "all sites"
+          : selectedSiteIds.length === 1
+            ? values.scopeId
+            : formatCountLabel(selectedSiteIds.length, "site").toLowerCase();
+
+      return `miners in ${selectedSiteLabel ? formatScopeLabelForSentence(selectedSiteLabel) : "the selected sites"}`;
+    }
   }
 
   if (values.curtailmentMode === "fullFleet") {

@@ -2,6 +2,7 @@ import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo,
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
+import { getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -240,33 +241,10 @@ function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): s
 }
 
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
-  if (values.minerSelectionMode === "all") {
-    return getResponseProfileScopeLabelForActionType(values.actionType);
-  }
-
-  const siteIds = getSelectedResponseProfileSiteIds(values);
-  if (values.siteSelection === "allSites") {
-    return "All sites";
-  }
-
-  const minerCount = values.deviceIdentifiers.length;
-  const siteSummary =
-    siteIds.length === 1
-      ? getResponseProfileSiteNameForId(values, siteIds[0]) || `Site ${siteIds[0]}`
-      : `${siteIds.length} sites`;
-  if (values.siteSelection === "site" && siteIds.length > 0 && minerCount > 0) {
-    return `${siteSummary} + ${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
-  }
-
-  if (values.siteSelection === "site" && siteIds.length > 0) {
-    return siteSummary;
-  }
-
-  if (minerCount > 0) {
-    return `${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
-  }
-
-  return getResponseProfileScopeLabelForActionType(values.actionType);
+  return getCurtailmentScopeSummary(values, {
+    fallbackLabel: getResponseProfileScopeLabelForActionType(values.actionType),
+    getSiteLabel: (siteId) => getResponseProfileSiteNameForId(values, siteId),
+  });
 }
 
 function uniqueNonEmptyStrings(values: readonly string[]): string[] {
@@ -832,7 +810,9 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
+          ariaLabel={profile.isReadOnly ? "Editing topology-scoped profiles is not available yet" : "Edit"}
           className="!h-8 !px-3 !py-0"
+          disabled={profile.isReadOnly}
           onClick={() => onEdit(profile)}
           testId={`response-profile-edit-${profile.id}`}
         />

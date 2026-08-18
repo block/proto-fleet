@@ -989,7 +989,7 @@ func TestHandler_ListActiveCurtailments_UsesMixedSiteOnlyScopeJSON(t *testing.T)
 				OrgID:     orgID,
 				State:     models.EventStateActive,
 				ScopeType: models.ScopeTypeMixed,
-				ScopeJSON: []byte(`{"site_ids":[7,8],"device_identifiers":null}`),
+				ScopeJSON: []byte(`{"site_ids":[7,8]}`),
 				Reason:    "multi-site full-fleet",
 			},
 		},
@@ -1022,7 +1022,7 @@ func TestHandler_ListActiveCurtailments_UsesMixedSiteOnlyScopeJSON(t *testing.T)
 	assert.Empty(t, resp.Msg.Events)
 }
 
-func TestHandler_ListCurtailmentEvents_UsesTargetlessMixedScopeJSON(t *testing.T) {
+func TestHandler_ListCurtailmentEvents_UsesTargetlessDeviceScopeJSON(t *testing.T) {
 	t.Parallel()
 	const (
 		orgID       = int64(42)
@@ -1038,18 +1038,18 @@ func TestHandler_ListCurtailmentEvents_UsesTargetlessMixedScopeJSON(t *testing.T
 				EventUUID: allowedUUID,
 				OrgID:     orgID,
 				State:     models.EventStateCompleted,
-				ScopeType: models.ScopeTypeMixed,
-				ScopeJSON: []byte(`{"site_ids":[7],"device_identifiers":["allowed-miner"]}`),
-				Reason:    "targetless allowed mixed scope",
+				ScopeType: models.ScopeTypeDeviceList,
+				ScopeJSON: []byte(`{"device_identifiers":["allowed-miner"]}`),
+				Reason:    "targetless allowed device scope",
 			},
 			{
 				ID:        2,
 				EventUUID: deniedUUID,
 				OrgID:     orgID,
 				State:     models.EventStateCompleted,
-				ScopeType: models.ScopeTypeMixed,
-				ScopeJSON: []byte(`{"site_ids":[7],"device_identifiers":["denied-miner"]}`),
-				Reason:    "targetless denied mixed scope",
+				ScopeType: models.ScopeTypeDeviceList,
+				ScopeJSON: []byte(`{"device_identifiers":["denied-miner"]}`),
+				Reason:    "targetless denied device scope",
 			},
 		},
 		targetSiteIDsByUUID: map[uuid.UUID][]int64{},

@@ -121,20 +121,14 @@ func TestService_Start_RejectsForceIncludeAllPairedMinersOutsideFullFleet(t *tes
 	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
 }
 
-// Open-loop scopes (explicit miners / device sets) never run the policy's
-// release/reopen admission loop, so an all-paired event there would release
-// unpaired miners and never reclaim them. The service rejects the combination.
+// Explicit miners do not currently run the policy's release/reopen admission
+// loop, so an all-paired event there would release unpaired miners and never
+// reclaim them. The service rejects the combination.
 func TestService_Start_RejectsForceIncludeAllPairedMinersForOpenLoopScopes(t *testing.T) {
 	t.Parallel()
 
 	scopes := map[string]Scope{
 		"device list": {Type: models.ScopeTypeDeviceList, DeviceIdentifiers: []string{"miner-1"}},
-		"device sets": {Type: models.ScopeTypeDeviceSets, DeviceSetIDs: []string{"set-1"}},
-		"mixed sites and miners": {
-			Type:              models.ScopeTypeMixed,
-			SiteIDs:           []int64{7},
-			DeviceIdentifiers: []string{"miner-1"},
-		},
 	}
 	for name, scope := range scopes {
 		t.Run(name, func(t *testing.T) {
@@ -670,7 +664,7 @@ func TestService_Start_PersistsMultiSiteFullFleetAsClosedLoop(t *testing.T) {
 	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
 	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
 	assert.Equal(t, models.ScopeTypeMixed, store.lastInsertEvent.ScopeType)
-	assert.JSONEq(t, `{"site_ids":[99,100],"device_identifiers":null}`, string(store.lastInsertEvent.ScopeJSON))
+	assert.JSONEq(t, `{"site_ids":[99,100]}`, string(store.lastInsertEvent.ScopeJSON))
 	assert.Empty(t, store.lastInsertTargets)
 }
 

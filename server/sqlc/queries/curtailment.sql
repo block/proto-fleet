@@ -89,15 +89,7 @@ JOIN device d ON d.org_id = ce.org_id
                     END
                 ) AS mixed_device(device_identifier)
             )
-            AND NOT EXISTS (
-                SELECT 1
-                FROM jsonb_array_elements_text(
-                    CASE WHEN jsonb_typeof(ce.scope_jsonb->'device_set_ids') = 'array'
-                      THEN ce.scope_jsonb->'device_set_ids'
-                      ELSE '[]'::jsonb
-                    END
-                ) AS mixed_device_set(device_set_id)
-            )
+            AND NOT (ce.scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids'])
         )
     )
 WHERE ce.org_id = sqlc.arg('org_id')
@@ -787,12 +779,7 @@ WHERE org_id = sqlc.arg('org_id')
               ELSE '[]'::jsonb
             END
           ) = 0
-          AND jsonb_array_length(
-            CASE WHEN jsonb_typeof(scope_jsonb->'device_set_ids') = 'array'
-              THEN scope_jsonb->'device_set_ids'
-              ELSE '[]'::jsonb
-            END
-          ) = 0
+          AND NOT (scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids'])
         )
       )
     )
@@ -812,12 +799,7 @@ WHERE org_id = sqlc.arg('org_id')
               ELSE '[]'::jsonb
             END
           ) = 0
-          AND jsonb_array_length(
-            CASE WHEN jsonb_typeof(scope_jsonb->'device_set_ids') = 'array'
-              THEN scope_jsonb->'device_set_ids'
-              ELSE '[]'::jsonb
-            END
-          ) = 0
+          AND NOT (scope_jsonb ?| ARRAY['building_ids', 'rack_ids', 'group_ids'])
           AND EXISTS (
             SELECT 1
             FROM jsonb_array_elements_text(

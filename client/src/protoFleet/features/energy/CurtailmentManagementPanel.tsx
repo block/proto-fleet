@@ -616,7 +616,10 @@ function CurtailmentManagementPanel({
     void listInfrastructureDevices().catch(() => {});
   }, [listInfrastructureDevices]);
   const responseProfileOptions = useMemo(
-    () => responseProfiles.map(createCurtailmentResponseProfileOption),
+    () =>
+      responseProfiles
+        .filter((profile) => !profile.isReadOnly && profile.formValues !== undefined)
+        .map(createCurtailmentResponseProfileOption),
     [responseProfiles],
   );
   const defaultSiteScope = useMemo(
