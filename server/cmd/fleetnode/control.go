@@ -72,6 +72,8 @@ type acker interface {
 	Send(req *pb.ControlStreamRequest) error
 }
 
+var errControlSenderClosed = errors.New("control session sender closed")
+
 // connect-go bidi streams are not safe for concurrent Send. The receive
 // loop's busy-ack and the worker's completion ack now share a stream;
 // serialize through this wrapper.
@@ -83,12 +85,12 @@ type lockedAcker struct {
 
 func (l *lockedAcker) Send(req *pb.ControlStreamRequest) error {
 	if l.closed.Load() {
-		return io.ErrClosedPipe
+		return errControlSenderClosed
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed.Load() {
-		return io.ErrClosedPipe
+		return errControlSenderClosed
 	}
 	return l.inner.Send(req)
 }
@@ -612,7 +614,7 @@ func (r *RunCmd) sendAckWithPayload(stream acker, commandID string, code pb.AckC
 		ErrorMessage: errMsg,
 		Code:         code,
 		Payload:      payload,
-	}}}); err != nil {
+	}}}); err != nil && !errors.Is(err, errControlSenderClosed) {
 		logger.Warn("send ack failed", "command_id", commandID, "err", err)
 	}
 }

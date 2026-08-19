@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1620,6 +1621,35 @@ func TestSendAckWithPayload_DowngradesOversizedOKPayload(t *testing.T) {
 	assert.Contains(t, got.GetErrorMessage(), "ack payload too large")
 }
 
+func TestSendAck_ClosedSessionDropsWithoutWarning(t *testing.T) {
+	// Arrange
+	inner := &capturingAcker{}
+	sender := &lockedAcker{inner: inner}
+	sender.Close()
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	// Act
+	(&RunCmd{}).sendAck(sender, "old-command", pb.AckCode_ACK_CODE_OK, "", logger)
+
+	// Assert
+	assert.Empty(t, inner.sent, "a late ack must not reach the discarded session")
+	assert.NotContains(t, logs.String(), "send ack failed")
+}
+
+func TestSendAck_TransportFailureWarns(t *testing.T) {
+	// Arrange
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	// Act
+	(&RunCmd{}).sendAck(errorAcker{err: io.ErrClosedPipe}, "current-command", pb.AckCode_ACK_CODE_OK, "", logger)
+
+	// Assert
+	assert.Contains(t, logs.String(), "send ack failed")
+	assert.Contains(t, logs.String(), "current-command")
+}
+
 type capturingAcker struct {
 	sent []*pb.ControlStreamRequest
 }
@@ -1627,4 +1657,12 @@ type capturingAcker struct {
 func (c *capturingAcker) Send(req *pb.ControlStreamRequest) error {
 	c.sent = append(c.sent, req)
 	return nil
+}
+
+type errorAcker struct {
+	err error
+}
+
+func (a errorAcker) Send(*pb.ControlStreamRequest) error {
+	return a.err
 }

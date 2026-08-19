@@ -89,3 +89,19 @@ func TestControlStreamContextErrorDistinguishesDemotionFromClientCancellation(t 
 		assert.NoError(t, controlStreamContextError(t.Context()))
 	})
 }
+
+func TestSendControlStreamAcceptedClassifiesDemotion(t *testing.T) {
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	requestCtx := admissionctx.WithActiveLifetime(t.Context(), activeCtx)
+
+	err := sendControlStreamAccepted(requestCtx, func(response *pb.ControlStreamResponse) error {
+		require.NotNil(t, response.GetAccepted())
+		cancelActive()
+		return context.Canceled
+	})
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeUnavailable, fleetErr.GRPCCode)
+	assert.Equal(t, int32(commonpb.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE), fleetErr.FleetErrorCode)
+}

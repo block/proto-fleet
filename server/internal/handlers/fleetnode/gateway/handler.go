@@ -686,12 +686,12 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	var first *pb.ControlStreamRequest
 	select {
 	case <-helloTimer.C:
-		return fleeterror.NewFailedPreconditionErrorf("control stream Hello not received within %s", HelloTimeout)
+		return controlStreamHandshakeError(ctx, fleeterror.NewFailedPreconditionErrorf("control stream Hello not received within %s", HelloTimeout))
 	case <-ctx.Done():
-		return fleeterror.NewInternalErrorf("control stream closed before hello: %v", ctx.Err())
+		return controlStreamHandshakeError(ctx, fleeterror.NewInternalErrorf("control stream closed before hello: %v", ctx.Err()))
 	case r := <-helloCh:
 		if r.err != nil {
-			return fleeterror.NewInvalidArgumentErrorf("control stream closed before hello: %v", r.err)
+			return controlStreamHandshakeError(ctx, fleeterror.NewInvalidArgumentErrorf("control stream closed before hello: %v", r.err))
 		}
 		first = r.msg
 	}
@@ -702,10 +702,8 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	regHandle := h.registry.Register(subject.FleetNodeID)
 	defer regHandle.Unregister()
 
-	if sendErr := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
-		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
-	}}); sendErr != nil {
-		return fleeterror.NewInternalErrorf("send accepted: %v", sendErr)
+	if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+		return err
 	}
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it
@@ -762,6 +760,22 @@ func controlStreamContextError(ctx context.Context) error {
 	activeLifetime, admitted := admissionctx.ActiveLifetime(ctx)
 	if admitted && activeLifetime.Err() != nil {
 		return fleeterror.NewNotActiveError()
+	}
+	return nil
+}
+
+func controlStreamHandshakeError(ctx context.Context, fallback error) error {
+	if err := controlStreamContextError(ctx); err != nil {
+		return err
+	}
+	return fallback
+}
+
+func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error) error {
+	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
+		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
+	}}); err != nil {
+		return controlStreamHandshakeError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
 	}
 	return nil
 }

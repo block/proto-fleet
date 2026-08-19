@@ -247,6 +247,18 @@ func TestControlStream_ReturnsStructuredNotActive(t *testing.T) {
 		requireStructuredNotActive(t, err)
 	})
 
+	t.Run("demotion before hello", func(t *testing.T) {
+		activeCtx, cancelActive := context.WithCancel(t.Context())
+		client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
+		stream := client.ControlStream(t.Context())
+		require.NoError(t, stream.Send(nil), "start the RPC without sending Hello")
+
+		cancelActive()
+		_, err := stream.Receive()
+
+		requireStructuredNotActive(t, err)
+	})
+
 	t.Run("accepted stream demotion", func(t *testing.T) {
 		activeCtx, cancelActive := context.WithCancel(t.Context())
 		client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
