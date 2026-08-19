@@ -18,6 +18,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -727,7 +728,7 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return controlStreamContextError(ctx)
 		case <-regHandle.Done:
 			// Newest-wins eviction or Unregister fired; let the handler
 			// exit so connect-go closes the stream.
@@ -755,4 +756,12 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 			}
 		}
 	}
+}
+
+func controlStreamContextError(ctx context.Context) error {
+	activeLifetime, admitted := admissionctx.ActiveLifetime(ctx)
+	if admitted && activeLifetime.Err() != nil {
+		return fleeterror.NewNotActiveError()
+	}
+	return nil
 }

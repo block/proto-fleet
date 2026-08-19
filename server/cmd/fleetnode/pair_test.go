@@ -346,6 +346,7 @@ func TestControlLoop_PairSupervisorTruncatedAcksPartial(t *testing.T) {
 	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
 	cancel()
 	<-done
+	cmd.waitForControlWorkers(discardLogger(t))
 
 	// Assert
 	acks := fake.acksCopy()

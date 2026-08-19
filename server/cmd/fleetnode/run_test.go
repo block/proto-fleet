@@ -134,6 +134,25 @@ func TestRunCmd_HappyPathThreeTicks(t *testing.T) {
 	assert.GreaterOrEqual(t, calls, 3, "daemon must send at least 3 heartbeats before shutdown")
 }
 
+func TestRunCmd_ControlWorkerShutdownWaitIsBounded(t *testing.T) {
+	require.Equal(t, 10*time.Second, controlWorkerShutdownTimeout)
+	previousTimeout := controlWorkerShutdownTimeout
+	controlWorkerShutdownTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { controlWorkerShutdownTimeout = previousTimeout })
+
+	cmd := &RunCmd{}
+	cmd.initControlConcurrency()
+	cmd.controlWorkers.Add(1)
+	t.Cleanup(cmd.controlWorkers.Done)
+
+	started := time.Now()
+	cmd.waitForControlWorkers(discardLogger(t))
+	elapsed := time.Since(started)
+
+	assert.GreaterOrEqual(t, elapsed, controlWorkerShutdownTimeout)
+	assert.Less(t, elapsed, 500*time.Millisecond, "daemon shutdown must continue after its worker budget")
+}
+
 func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 	t.Parallel()
 

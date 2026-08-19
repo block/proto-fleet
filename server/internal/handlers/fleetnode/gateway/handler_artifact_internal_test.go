@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/admissionctx"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 )
@@ -58,4 +60,32 @@ func TestCommandArtifactUploadReaderRejectsOversizedChunk(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+}
+
+func TestControlStreamContextErrorDistinguishesDemotionFromClientCancellation(t *testing.T) {
+	t.Run("active lifetime ended", func(t *testing.T) {
+		activeCtx, cancelActive := context.WithCancel(t.Context())
+		requestCtx, cancelRequest := context.WithCancel(admissionctx.WithActiveLifetime(t.Context(), activeCtx))
+		cancelActive()
+		cancelRequest()
+
+		err := controlStreamContextError(requestCtx)
+
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodeUnavailable, fleetErr.GRPCCode)
+		assert.Equal(t, int32(commonpb.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE), fleetErr.FleetErrorCode)
+	})
+
+	t.Run("client canceled while activation remains live", func(t *testing.T) {
+		activeCtx := context.Background()
+		requestCtx, cancelRequest := context.WithCancel(admissionctx.WithActiveLifetime(t.Context(), activeCtx))
+		cancelRequest()
+
+		assert.NoError(t, controlStreamContextError(requestCtx))
+	})
+
+	t.Run("normal stream replacement has no activation cancellation", func(t *testing.T) {
+		assert.NoError(t, controlStreamContextError(t.Context()))
+	})
 }

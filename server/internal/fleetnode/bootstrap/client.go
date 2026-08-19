@@ -15,6 +15,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
+const (
+	http2ReadIdleTimeout = 30 * time.Second
+	http2PingTimeout     = 10 * time.Second
+)
+
 // A shared AllowHTTP+DialTLSContext shim would silently downgrade https to
 // plaintext, defeating ValidateServerURL's https-required policy. The https
 // branch uses net/http's Transport so ALPN can negotiate H2 when available
@@ -29,7 +34,9 @@ func newGatewayHTTPClient(serverURL string) (*http.Client, error) {
 	switch u.Scheme {
 	case "http":
 		tr = &http2.Transport{
-			AllowHTTP: true,
+			AllowHTTP:       true,
+			ReadIdleTimeout: http2ReadIdleTimeout,
+			PingTimeout:     http2PingTimeout,
 			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
 				var d net.Dialer
 				return d.DialContext(ctx, network, addr)
@@ -41,6 +48,10 @@ func newGatewayHTTPClient(serverURL string) (*http.Client, error) {
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
 			ForceAttemptHTTP2:     true,
+			HTTP2: &http.HTTP2Config{
+				SendPingTimeout: http2ReadIdleTimeout,
+				PingTimeout:     http2PingTimeout,
+			},
 		}
 	default:
 		return nil, fmt.Errorf("server-url scheme must be http or https; got %q", u.Scheme)
