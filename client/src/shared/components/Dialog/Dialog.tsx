@@ -2,7 +2,6 @@ import { motion } from "motion/react";
 import { ReactNode, useCallback } from "react";
 import clsx from "clsx";
 
-import { DismissCircleDark } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import ButtonGroup from "@/shared/components/ButtonGroup";
 import { groupVariants } from "@/shared/components/ButtonGroup/constants";
@@ -16,7 +15,6 @@ import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 interface DialogProps {
   className?: string;
   children?: ReactNode;
-  dismissButton?: boolean;
   icon?: ReactNode;
   loading?: boolean;
   preventScroll?: boolean;
@@ -36,7 +34,6 @@ interface DialogProps {
 const Dialog = ({
   className,
   children,
-  dismissButton = false,
   icon,
   loading,
   preventScroll,
@@ -76,7 +73,6 @@ const Dialog = ({
       >
         <div className="p-6">
           <div className="flex flex-col gap-3">
-            {dismissButton ? <DismissCircleDark ariaLabel="Close dialog" onClick={dismissDialog} /> : null}
             {loading ? (
               <div className="flex w-10 items-center justify-center rounded-lg bg-surface-5 py-2.5">
                 <ProgressCircular indeterminate />

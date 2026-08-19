@@ -300,9 +300,9 @@ describe("Updates", () => {
     const page = render(<Updates />);
     expect(await page.findByText("First failure")).toBeInTheDocument();
 
-    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(page.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(page.queryByText("First failure")).not.toBeInTheDocument());
-    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
+    await waitFor(() => expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument());
 
     upgradeHookMock.current = {
       ...upgradeHookMock.current,
@@ -328,9 +328,9 @@ describe("Updates", () => {
     const page = render(<Updates />);
     expect(await page.findByText("Session-scoped failure")).toBeInTheDocument();
 
-    fireEvent.click(page.getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(page.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(page.queryByText("Session-scoped failure")).not.toBeInTheDocument());
-    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
+    await waitFor(() => expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument());
 
     permissionsMock.sessionGeneration = 2;
     upgradeHookMock.current = { ...upgradeHookMock.current, operationStatusPending: true };
@@ -442,7 +442,7 @@ describe("Updates", () => {
     // the same upgrade again. Waited separately because the dialog's exit
     // transition keeps its frame in the DOM briefly after the content clears.
     await waitFor(() => expect(page.queryByText("new stack failed to start")).not.toBeInTheDocument());
-    await waitFor(() => expect(page.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument());
+    await waitFor(() => expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument());
   });
 
   it("acknowledges the exact successful outcome before reloading Fleet", async () => {
