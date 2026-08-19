@@ -26,7 +26,6 @@ interface DialogProps {
   subtitleSize?: string;
   testId?: string;
   title: string;
-  viewportBounded?: boolean;
   titleSize?: string;
   headerClassName?: string;
   buttonGroupVariant?: keyof typeof groupVariants;
@@ -48,7 +47,6 @@ const Dialog = ({
   testId,
   title,
   titleSize = "text-heading-300",
-  viewportBounded = false,
   headerClassName,
   buttonGroupVariant = groupVariants.justifyBetween,
   buttons,
@@ -71,9 +69,7 @@ const Dialog = ({
       <motion.div
         {...slideUpAnimation}
         className={clsx(
-          "mt-16 h-fit w-108 overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200",
-          viewportBounded &&
-            "max-h-[calc(100dvh-(--spacing(32)))] max-w-[calc(100vw-theme(spacing.4))] overflow-x-hidden overflow-y-auto phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]",
+          "mt-16 h-fit max-h-[calc(100dvh-(--spacing(32)))] w-108 max-w-[calc(100vw-theme(spacing.4))] overflow-x-hidden overflow-y-auto rounded-3xl bg-surface-elevated-base shadow-200 phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]",
           className,
         )}
         data-testid={testId}
