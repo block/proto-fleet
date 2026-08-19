@@ -32,22 +32,25 @@ test.describe("Proto Fleet - Updates Settings", () => {
         await settingsUpdatesPage.validateCurrentVersion("v1.2.0");
         await settingsUpdatesPage.validateLatestAvailableVersion("v1.3.0");
         await settingsUpdatesPage.validateReleaseNotesLink("https://github.com/block/proto-fleet/releases/tag/v1.3.0");
+        await settingsUpdatesPage.clickInstallManually();
         await settingsUpdatesPage.validateInstallCommand(
           "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.3.0",
         );
         await settingsUpdatesPage.validateCopyInstallCommandEnabled();
+        await settingsUpdatesPage.closeManualInstall();
         await settingsUpdatesPage.validateIncludeReleaseCandidatesUnchecked();
       });
 
       await test.step("Enable release candidates and validate the refreshed offer", async () => {
         await settingsUpdatesPage.clickIncludeReleaseCandidates();
-        await settingsUpdatesPage.validateTextInToast("Release channel updated");
+        await settingsUpdatesPage.validateTextInToast("Release channel saved");
         test.expect(updatesMock.releaseChannelRequests).toEqual([ReleaseChannel.STABLE_AND_RC]);
         await settingsUpdatesPage.validateIncludeReleaseCandidatesChecked();
         await settingsUpdatesPage.validateLatestAvailableVersion("v1.4.0-rc.1");
         await settingsUpdatesPage.validateReleaseNotesLink(
           "https://github.com/block/proto-fleet/releases/tag/v1.4.0-rc.1",
         );
+        await settingsUpdatesPage.clickInstallManually();
         await settingsUpdatesPage.validateInstallCommand(
           "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.4.0-rc.1",
         );
@@ -72,15 +75,15 @@ test.describe("Proto Fleet - Updates Settings", () => {
     await settingsUpdatesPage.validateUpdatesPageOpened();
 
     await test.step("Open the upgrade confirmation modal without triggering the request yet", async () => {
-      await settingsUpdatesPage.clickUpgradeToVersion("v1.3.0");
+      await settingsUpdatesPage.clickUpdateNow();
       await settingsUpdatesPage.validateUpgradeConfirmationOpened("v1.3.0");
       test.expect(updatesMock.triggerUpgradeRequests).toEqual([]);
     });
 
     await test.step("Confirm the upgrade and validate the exact requested version", async () => {
-      await settingsUpdatesPage.confirmUpgradeToVersion("v1.3.0");
+      await settingsUpdatesPage.confirmUpdate();
       await settingsUpdatesPage.validateUpgradeModalText("Preparing v1.3.0");
-      await settingsUpdatesPage.validateCopyInstallCommandDisabled();
+      await settingsUpdatesPage.validateManualInstallActionHidden();
       test.expect(updatesMock.triggerUpgradeRequests).toEqual(["v1.3.0"]);
     });
   });

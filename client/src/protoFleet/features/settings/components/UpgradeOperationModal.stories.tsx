@@ -59,14 +59,6 @@ export const ReleaseCandidateConfirmation: Story = {
   },
 };
 
-export const CheckingStatus: Story = {
-  args: {
-    reconciling: true,
-    targetVersion: "v1.3.0",
-    triggerError: "The upgrade request timed out before Fleet received a response.",
-  },
-};
-
 export const ManualFallbackConfirmation: Story = {
   args: {
     connectionLost: true,
