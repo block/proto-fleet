@@ -246,6 +246,27 @@ func (f *fakeWindowStore) ListActive(_ context.Context, orgID int64, now time.Ti
 	return out, nil
 }
 
+func (f *fakeWindowStore) CountUnexpired(_ context.Context, orgID int64, now time.Time) (int64, error) {
+	var n int64
+	for _, rec := range f.rows {
+		if rec.OrganizationID == orgID && rec.EndsAt.After(now) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *fakeWindowStore) DeleteExpiredBefore(_ context.Context, orgID int64, before time.Time) (int64, error) {
+	var n int64
+	for id, rec := range f.rows {
+		if rec.OrganizationID == orgID && rec.EndsAt.Before(before) {
+			delete(f.rows, id)
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *fakeWindowStore) Delete(_ context.Context, orgID, id int64) error {
 	rec, ok := f.rows[id]
 	if !ok || rec.OrganizationID != orgID {
@@ -390,22 +411,97 @@ func TestListMaintenanceWindowsComputesActive(t *testing.T) {
 	assert.False(t, byID["2"].Active, "a future window is not active")
 }
 
-// Pre-migration windows lived as marked Grafana silences; the startup sweep must delete the
-// live ones (they'd keep muting invisibly) while leaving pause silences, operator silences,
-// and already-expired legacy windows alone.
-func TestCleanupLegacyMaintenanceWindowSilences(t *testing.T) {
+// Pre-migration windows lived as marked Grafana silences; the startup sweep must copy the
+// representable live ones into the window store before deleting them (deleting alone would
+// silently lift active suppression mid-maintenance), while leaving pause silences, operator
+// silences, and already-expired legacy windows alone.
+func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
+	ruleMatchers := []GrafanaSilenceMatcher{
+		{Name: "organization_id", Value: "7", IsEqual: true},
+		{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
+	}
 	fake := &fakeGrafanaRules{silences: []GrafanaSilence{
-		{ID: "legacy-active", Comment: legacyMaintenanceWindowCommentMarker + " planned"},
+		{
+			ID:        "legacy-rule",
+			Comment:   legacyMaintenanceWindowCommentMarker + " planned",
+			StartsAt:  time.Unix(1000, 0),
+			EndsAt:    time.Unix(9000, 0),
+			CreatedBy: "alice@example.com",
+			Matchers:  ruleMatchers,
+		},
+		// Device-scoped (no rule matcher): unrepresentable in the rule×channel model, deleted only.
+		{ID: "legacy-device", Comment: legacyMaintenanceWindowCommentMarker, StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(9000, 0), Matchers: []GrafanaSilenceMatcher{
+			{Name: "organization_id", Value: "7", IsEqual: true},
+			{Name: "device_id", Value: "miner-1", IsEqual: true},
+		}},
+		// Ended but not yet GC'd as expired: nothing to preserve, deleted only.
+		{ID: "legacy-ended", Comment: legacyMaintenanceWindowCommentMarker, StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(2000, 0), Matchers: ruleMatchers},
 		{ID: "legacy-expired", Comment: legacyMaintenanceWindowCommentMarker, Status: &GrafanaSilenceStatus{State: "expired"}},
 		{ID: "pause", Comment: pauseSilenceCommentMarker},
 		{ID: "operator", Comment: "operator silence"},
 	}}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	windows := newFakeWindowStore()
+	svc := NewService(fake.server(t), nil, nil, nil, windows, nil, nil, nil, DestinationPolicy{})
+	svc.now = func() time.Time { return time.Unix(5000, 0) }
 
-	removed, err := svc.CleanupLegacyMaintenanceWindowSilences(context.Background())
+	migrated, removed, err := svc.MigrateLegacyMaintenanceWindowSilences(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 1, removed)
-	assert.Equal(t, []string{"legacy-active"}, fake.deletedSilences)
+	assert.Equal(t, 1, migrated)
+	assert.Equal(t, 3, removed)
+	assert.ElementsMatch(t, []string{"legacy-rule", "legacy-device", "legacy-ended"}, fake.deletedSilences)
+
+	require.Len(t, windows.rows, 1)
+	rec := windows.rows[1]
+	assert.Equal(t, int64(7), rec.OrganizationID)
+	assert.Equal(t, []string{"rule-9"}, rec.RuleUIDs)
+	assert.Empty(t, rec.ChannelIDs, "a silence muted everywhere, so the window covers every channel")
+	assert.True(t, rec.StartsAt.Equal(time.Unix(1000, 0)), "starts_at carries over")
+	assert.True(t, rec.EndsAt.Equal(time.Unix(9000, 0)), "ends_at carries over")
+	assert.Equal(t, "planned", rec.Comment, "the marker is stripped from the operator's comment")
+	assert.Equal(t, "alice@example.com", rec.CreatedBy)
+
+	// The fake's DELETE never mutates the served list, so a second sweep sees the same
+	// silences — the shape of a first sweep whose insert landed but whose delete failed.
+	migrated, _, err = svc.MigrateLegacyMaintenanceWindowSilences(context.Background())
+	require.NoError(t, err)
+	assert.Zero(t, migrated, "an already-migrated silence must not insert a duplicate window")
+	assert.Len(t, windows.rows, 1)
+}
+
+// The creation path bounds growth: unexpired windows count against a per-org cap, and rows
+// expired past retention are pruned so neither the cap nor the list wedges shut over time.
+func TestCreateMaintenanceWindowQuotaAndPrune(t *testing.T) {
+	svc, windows, _ := newMaintenanceWindowService(t)
+	now := time.Unix(1_000_000_000, 0)
+	svc.now = func() time.Time { return now }
+
+	for range maxMaintenanceWindowsPerOrg {
+		_, err := windows.Insert(context.Background(), MaintenanceWindowRecord{
+			OrganizationID: 7, StartsAt: now, EndsAt: now.Add(time.Hour),
+		})
+		require.NoError(t, err)
+	}
+	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		StartsAt: now, EndsAt: now.Add(time.Hour),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "the unexpired-window cap must reject creation")
+
+	// Expired history neither counts against the cap nor survives the retention prune.
+	windows.rows = map[int64]MaintenanceWindowRecord{}
+	ancient, err := windows.Insert(context.Background(), MaintenanceWindowRecord{
+		OrganizationID: 7,
+		StartsAt:       now.Add(-maintenanceWindowRetention - 2*time.Hour),
+		EndsAt:         now.Add(-maintenanceWindowRetention - time.Hour),
+	})
+	require.NoError(t, err)
+	created, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		StartsAt: now, EndsAt: now.Add(time.Hour),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created)
+	_, stillThere := windows.rows[ancient.ID]
+	assert.False(t, stillThere, "creation prunes windows expired past retention")
 }
 
 // Without pause-silence state, a muted rule is indistinguishable from an enabled one, so

@@ -78,6 +78,10 @@ type MaintenanceWindowStore interface {
 	List(ctx context.Context, orgID int64) ([]MaintenanceWindowRecord, error)
 	// ListActive returns only the org's windows covering now — the delivery-path read.
 	ListActive(ctx context.Context, orgID int64, now time.Time) ([]MaintenanceWindowRecord, error)
+	// CountUnexpired counts the org's active-or-scheduled windows (ends_at > now), for the creation cap.
+	CountUnexpired(ctx context.Context, orgID int64, now time.Time) (int64, error)
+	// DeleteExpiredBefore reclaims the org's windows that ended before the cutoff (retention).
+	DeleteExpiredBefore(ctx context.Context, orgID int64, before time.Time) (int64, error)
 	Delete(ctx context.Context, orgID, id int64) error
 }
 

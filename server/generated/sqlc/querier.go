@@ -296,6 +296,9 @@ type Querier interface {
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
+	// Backs the per-org creation cap: only windows still active or scheduled count against it,
+	// so expired history can never block creating a new window.
+	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
 	// `site_id` is nullable. Name is unique per (site_id, name) when site_id
 	// is non-null; the partial index surfaces collisions to the service
@@ -348,6 +351,8 @@ type Querier interface {
 	// site delete cascade so they cannot outlive a soft-deleted site.
 	DeleteCurtailmentResponseProfilesBySite(ctx context.Context, arg DeleteCurtailmentResponseProfilesBySiteParams) (DeleteCurtailmentResponseProfilesBySiteRow, error)
 	DeleteDisabledMQTTSourceConfigByOrg(ctx context.Context, arg DeleteDisabledMQTTSourceConfigByOrgParams) (int64, error)
+	// Retention: reclaims windows that ended before the cutoff so the org's list stays bounded.
+	DeleteExpiredAlertMaintenanceWindows(ctx context.Context, arg DeleteExpiredAlertMaintenanceWindowsParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context, expiresAt time.Time) (sql.Result, error)
 	// Fleet dashboard metric rollups. The 90 second bucket width must match
 	// models.FleetMetricRollupBucketDuration and the client dashboard's shortest

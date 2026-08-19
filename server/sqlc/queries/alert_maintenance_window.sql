@@ -36,6 +36,19 @@ WHERE org_id = sqlc.arg('org_id')
   AND starts_at <= sqlc.arg('now')
   AND ends_at > sqlc.arg('now');
 
+-- name: CountUnexpiredAlertMaintenanceWindows :one
+-- Backs the per-org creation cap: only windows still active or scheduled count against it,
+-- so expired history can never block creating a new window.
+SELECT count(*) FROM alert_maintenance_window
+WHERE org_id = sqlc.arg('org_id')
+  AND ends_at > sqlc.arg('now');
+
+-- name: DeleteExpiredAlertMaintenanceWindows :execrows
+-- Retention: reclaims windows that ended before the cutoff so the org's list stays bounded.
+DELETE FROM alert_maintenance_window
+WHERE org_id = sqlc.arg('org_id')
+  AND ends_at < sqlc.arg('before');
+
 -- name: DeleteAlertMaintenanceWindow :execrows
 DELETE FROM alert_maintenance_window
 WHERE id = sqlc.arg('id')

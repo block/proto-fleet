@@ -623,20 +623,22 @@ func start(config *Config) (result error) {
 	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, alertMaintenanceWindowStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
 
 	// One-shot: without it, Grafana silences written by pre-migration maintenance windows would
-	// keep muting alerts invisibly (the window list no longer reads Grafana). Retries because the
-	// Grafana sidecar can come up after fleet-api; exits once a sweep succeeds.
+	// keep muting alerts invisibly (the window list no longer reads Grafana). Each representable
+	// silence is copied into the DB-backed table before its silence is deleted, so deploying
+	// mid-window doesn't lift active suppression. Retries because the Grafana sidecar can come
+	// up after fleet-api; exits once a sweep succeeds.
 	var alertLegacySilenceSweep runtimejobs.Lifecycle
 	if config.Metrics.Enabled {
 		alertLegacySilenceSweep = newBackgroundLoop(func(ctx context.Context) {
 			for {
-				removed, err := alertsSvc.CleanupLegacyMaintenanceWindowSilences(ctx)
+				migrated, removed, err := alertsSvc.MigrateLegacyMaintenanceWindowSilences(ctx)
 				if err == nil {
 					if removed > 0 {
-						slog.Info("removed legacy maintenance window silences", "count", removed)
+						slog.Info("migrated legacy maintenance window silences", "migrated", migrated, "removed", removed)
 					}
 					return
 				}
-				slog.Warn("failed to sweep legacy maintenance window silences, will retry", "error", err)
+				slog.Warn("failed to migrate legacy maintenance window silences, will retry", "error", err)
 				select {
 				case <-time.After(30 * time.Second):
 				case <-ctx.Done():

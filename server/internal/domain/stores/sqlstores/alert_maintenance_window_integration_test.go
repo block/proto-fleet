@@ -113,3 +113,36 @@ func TestAlertMaintenanceWindowStoreListActive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, atEnd)
 }
+
+func TestAlertMaintenanceWindowStoreCountAndPrune(t *testing.T) {
+	store := newAlertMaintenanceWindowStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+
+	insert := func(startsAt, endsAt time.Time) alerts.MaintenanceWindowRecord {
+		rec, err := store.Insert(ctx, alerts.MaintenanceWindowRecord{
+			OrganizationID: 21, StartsAt: startsAt, EndsAt: endsAt,
+		})
+		require.NoError(t, err)
+		return rec
+	}
+	insert(now.Add(-time.Hour), now.Add(time.Hour))               // active
+	insert(now.Add(24*time.Hour), now.Add(25*time.Hour))          // scheduled
+	insert(now.Add(-2*time.Hour), now.Add(-time.Hour))            // freshly expired
+	old := insert(now.Add(-72*time.Hour), now.Add(-48*time.Hour)) // expired past the cutoff
+
+	n, err := store.CountUnexpired(ctx, 21, now)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), n, "only active and scheduled windows count")
+
+	deleted, err := store.DeleteExpiredBefore(ctx, 21, now.Add(-24*time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), deleted)
+
+	listed, err := store.List(ctx, 21)
+	require.NoError(t, err)
+	require.Len(t, listed, 3, "the prune removes only windows ended before the cutoff")
+	for _, rec := range listed {
+		assert.NotEqual(t, old.ID, rec.ID)
+	}
+}

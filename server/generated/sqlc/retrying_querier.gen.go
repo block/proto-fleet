@@ -822,6 +822,18 @@ func (q *retryingQuerier) CountResponseProfilesByInfrastructureDevices(ctx conte
 	return result, err
 }
 
+func (q *retryingQuerier) CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountUnexpiredAlertMaintenanceWindows", func() error {
+		callResult, callErr := q.next.CountUnexpiredAlertMaintenanceWindows(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error {
 	return q.retrier.RetryQuery(ctx, "CreateApiKey", func() error {
 		return q.next.CreateApiKey(ctx, arg)
@@ -1102,6 +1114,18 @@ func (q *retryingQuerier) DeleteDisabledMQTTSourceConfigByOrg(ctx context.Contex
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteDisabledMQTTSourceConfigByOrg", func() error {
 		callResult, callErr := q.next.DeleteDisabledMQTTSourceConfigByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) DeleteExpiredAlertMaintenanceWindows(ctx context.Context, arg DeleteExpiredAlertMaintenanceWindowsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteExpiredAlertMaintenanceWindows", func() error {
+		callResult, callErr := q.next.DeleteExpiredAlertMaintenanceWindows(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

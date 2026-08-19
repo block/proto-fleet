@@ -20,11 +20,22 @@ func NewSQLAlertMaintenanceWindowStore(conn *sql.DB) *SQLAlertMaintenanceWindowS
 
 var _ alerts.MaintenanceWindowStore = (*SQLAlertMaintenanceWindowStore)(nil)
 
+// pq.Array encodes a nil slice as SQL NULL rather than '{}'. Use for array args whose SQL
+// needs a real (possibly empty) array: NOT NULL columns like this store's all-targets
+// ("every rule/channel") scopes, and cardinality(...) = 0 all-values branches like the
+// activity log's site filter (cardinality NULL ≠ 0 would silently match nothing).
+func emptyIfNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}
+
 func (s *SQLAlertMaintenanceWindowStore) Insert(ctx context.Context, rec alerts.MaintenanceWindowRecord) (alerts.MaintenanceWindowRecord, error) {
 	row, err := s.GetQueries(ctx).InsertAlertMaintenanceWindow(ctx, sqlc.InsertAlertMaintenanceWindowParams{
 		OrgID:      rec.OrganizationID,
-		RuleUids:   rec.RuleUIDs,
-		ChannelIds: rec.ChannelIDs,
+		RuleUids:   emptyIfNil(rec.RuleUIDs),
+		ChannelIds: emptyIfNil(rec.ChannelIDs),
 		StartsAt:   rec.StartsAt,
 		EndsAt:     rec.EndsAt,
 		Comment:    rec.Comment,
@@ -38,8 +49,8 @@ func (s *SQLAlertMaintenanceWindowStore) Insert(ctx context.Context, rec alerts.
 
 func (s *SQLAlertMaintenanceWindowStore) Update(ctx context.Context, rec alerts.MaintenanceWindowRecord) (alerts.MaintenanceWindowRecord, error) {
 	row, err := s.GetQueries(ctx).UpdateAlertMaintenanceWindow(ctx, sqlc.UpdateAlertMaintenanceWindowParams{
-		RuleUids:   rec.RuleUIDs,
-		ChannelIds: rec.ChannelIDs,
+		RuleUids:   emptyIfNil(rec.RuleUIDs),
+		ChannelIds: emptyIfNil(rec.ChannelIDs),
 		StartsAt:   rec.StartsAt,
 		EndsAt:     rec.EndsAt,
 		Comment:    rec.Comment,
@@ -72,6 +83,20 @@ func (s *SQLAlertMaintenanceWindowStore) ListActive(ctx context.Context, orgID i
 		return nil, err
 	}
 	return maintenanceWindowRecordsFromRows(rows), nil
+}
+
+func (s *SQLAlertMaintenanceWindowStore) CountUnexpired(ctx context.Context, orgID int64, now time.Time) (int64, error) {
+	return s.GetQueries(ctx).CountUnexpiredAlertMaintenanceWindows(ctx, sqlc.CountUnexpiredAlertMaintenanceWindowsParams{
+		OrgID: orgID,
+		Now:   now,
+	})
+}
+
+func (s *SQLAlertMaintenanceWindowStore) DeleteExpiredBefore(ctx context.Context, orgID int64, before time.Time) (int64, error) {
+	return s.GetQueries(ctx).DeleteExpiredAlertMaintenanceWindows(ctx, sqlc.DeleteExpiredAlertMaintenanceWindowsParams{
+		OrgID:  orgID,
+		Before: before,
+	})
 }
 
 func (s *SQLAlertMaintenanceWindowStore) Delete(ctx context.Context, orgID, id int64) error {

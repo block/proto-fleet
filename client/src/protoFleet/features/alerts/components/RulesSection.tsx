@@ -5,7 +5,7 @@ import EditDeliveryModal from "./EditDeliveryModal";
 import StatusDot from "./StatusDot";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
-import { isMaintenanceWindowActive, windowMutesEveryChannel } from "@/protoFleet/features/alerts/api/useAlerts";
+import { isMaintenanceWindowActive, isRuleFullyMuted } from "@/protoFleet/features/alerts/api/useAlerts";
 import { scopePartLabels } from "@/protoFleet/features/alerts/lib/scopeLabels";
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import type { Rule } from "@/protoFleet/features/alerts/types";
@@ -85,20 +85,13 @@ const RulesSection = () => {
   const [deliveryRule, setDeliveryRule] = useState<Rule | null>(null);
 
   const now = useNow();
-  const { fullyMutedRuleIds, allRulesMuted, liftableWindowIdsByRule } = useMemo(() => {
-    const fullyMuted = new Set<string>();
-    let allMuted = false;
+  const { mutedRuleIds, liftableWindowIdsByRule } = useMemo(() => {
+    const activeWindows = maintenanceWindows.filter((w) => isMaintenanceWindowActive(w, now));
+    // Lifting from a rule row only deletes windows scoped to exactly that rule,
+    // so it can't silently un-mute the window's other targets. Track every such
+    // window, not just the last one, so lifting clears overlapping ones too.
     const liftable = new Map<string, string[]>();
-    maintenanceWindows.forEach((w) => {
-      if (!isMaintenanceWindowActive(w, now)) return;
-      // Only an every-channel window marks the rule "Muted": a channel-scoped one leaves it paging elsewhere.
-      if (windowMutesEveryChannel(w)) {
-        if (w.rule_ids.length === 0) allMuted = true;
-        w.rule_ids.forEach((id) => fullyMuted.add(id));
-      }
-      // Lifting from a rule row only deletes windows scoped to exactly that rule,
-      // so it can't silently un-mute the window's other targets. Track every such
-      // window, not just the last one, so lifting clears overlapping ones too.
+    activeWindows.forEach((w) => {
       if (w.rule_ids.length === 1) {
         const [ruleId] = w.rule_ids;
         const ids = liftable.get(ruleId) ?? [];
@@ -106,8 +99,9 @@ const RulesSection = () => {
         liftable.set(ruleId, ids);
       }
     });
-    return { fullyMutedRuleIds: fullyMuted, allRulesMuted: allMuted, liftableWindowIdsByRule: liftable };
-  }, [maintenanceWindows, now]);
+    const muted = new Set(rules.filter((rule) => isRuleFullyMuted(rule, activeWindows)).map((rule) => rule.id));
+    return { mutedRuleIds: muted, liftableWindowIdsByRule: liftable };
+  }, [rules, maintenanceWindows, now]);
 
   const sortedRules = useMemo(
     () =>
@@ -264,8 +258,8 @@ const RulesSection = () => {
           if (!rule.enabled) {
             return <StatusDot dotClass="bg-text-primary-30">Paused</StatusDot>;
           }
-          // An active every-channel maintenance window suppresses the rule's delivery even while enabled.
-          if (allRulesMuted || fullyMutedRuleIds.has(rule.id)) {
+          // Active maintenance windows covering every channel the rule delivers to suppress it even while enabled.
+          if (mutedRuleIds.has(rule.id)) {
             return <StatusDot dotClass="bg-intent-warning-fill">Muted</StatusDot>;
           }
           return <StatusDot dotClass="bg-intent-success-fill">Active</StatusDot>;
@@ -273,7 +267,7 @@ const RulesSection = () => {
         width: "w-80",
       },
     }),
-    [allRulesMuted, fullyMutedRuleIds],
+    [mutedRuleIds],
   );
 
   return (

@@ -15,4 +15,6 @@ CREATE TABLE alert_maintenance_window (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_alert_maintenance_window_org ON alert_maintenance_window (org_id);
+-- (org_id, ends_at) serves both the org list and the delivery-path active-window read,
+-- where ends_at > now skips the expired tail without scanning it.
+CREATE INDEX idx_alert_maintenance_window_org_ends ON alert_maintenance_window (org_id, ends_at);

@@ -19,7 +19,23 @@ export const isMaintenanceWindowActive = (s: MaintenanceWindow, now: number = Da
 // Empty channel targets mean the window mutes delivery on every channel; a channel-scoped window
 // leaves its rules paging on unlisted channels. Mirrors the server's authoritative delivery-side
 // predicate (server/internal/domain/alerts/deliver.go) — keep the two in sync.
-export const windowMutesEveryChannel = (w: MaintenanceWindow): boolean => w.channel_ids.length === 0;
+const windowMutesEveryChannel = (w: MaintenanceWindow): boolean => w.channel_ids.length === 0;
+
+const windowCoversRule = (w: MaintenanceWindow, ruleId: string): boolean =>
+  w.rule_ids.length === 0 || w.rule_ids.includes(ruleId);
+
+// A rule is fully muted when the given (already-active) windows jointly cover every channel its
+// alerts can deliver to — an every-channel window, or for a custom-routed rule the union of
+// channel-scoped windows spanning its routed channels. Default-routed rules deliver to every org
+// channel (a list this view doesn't load), so only an every-channel window marks them muted; a
+// window set that merely enumerates each current channel conservatively still reads as Active.
+export const isRuleFullyMuted = (rule: Rule, activeWindows: MaintenanceWindow[]): boolean => {
+  const covering = activeWindows.filter((w) => windowCoversRule(w, rule.id));
+  if (covering.some(windowMutesEveryChannel)) return true;
+  if (rule.routing?.mode !== "custom" || rule.routing.channel_ids.length === 0) return false;
+  const mutedChannelIds = new Set(covering.flatMap((w) => w.channel_ids));
+  return rule.routing.channel_ids.every((id) => mutedChannelIds.has(id));
+};
 
 const withActive = (s: MaintenanceWindow, now?: number): MaintenanceWindowWithActive => ({
   ...s,

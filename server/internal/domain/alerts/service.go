@@ -839,11 +839,28 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, w Ma
 	if err != nil {
 		return nil, err
 	}
+	now := s.now()
+	// Prune-on-create: creation is the only path that grows the table, so reclaiming the org's
+	// stale expired rows here bounds the list without a background job. Best-effort — a failed
+	// prune must not block the window an operator needs right now.
+	if _, err := s.windows.DeleteExpiredBefore(ctx, orgID, now.Add(-maintenanceWindowRetention)); err != nil {
+		slog.Warn("alerts.maintenance_window_prune_failed", "org_id", orgID, "error", err)
+	}
+	// Soft cap (read-then-insert, like the user-rule quota but without its mutex): a racing
+	// duplicate can overshoot by a few rows, which is fine for a growth bound.
+	unexpired, err := s.windows.CountUnexpired(ctx, orgID, now)
+	if err != nil {
+		return nil, err
+	}
+	if unexpired >= maxMaintenanceWindowsPerOrg {
+		return nil, fleeterror.NewFailedPreconditionErrorf(
+			"maintenance window limit reached (%d active or scheduled); delete one first", maxMaintenanceWindowsPerOrg)
+	}
 	stored, err := s.windows.Insert(ctx, *rec)
 	if err != nil {
 		return nil, err
 	}
-	out := maintenanceWindowFromRecord(stored, s.now())
+	out := maintenanceWindowFromRecord(stored, now)
 	return &out, nil
 }
 
@@ -994,6 +1011,14 @@ func validateMaintenanceWindowTimes(startsAt, endsAt time.Time) error {
 // Per-list bound on a window's rule and channel targets, matching the wire validation; a
 // hostile direct caller can't inflate the row.
 const maxMaintenanceWindowTargets = 100
+
+// Per-org bound on active-or-scheduled windows; expired history never counts against it
+// (it is pruned instead), so the cap can't wedge creation shut over time.
+const maxMaintenanceWindowsPerOrg = 100
+
+// How long an expired window stays listable as audit history before the creation-time prune
+// reclaims it.
+const maintenanceWindowRetention = 90 * 24 * time.Hour
 
 // A pause silence is structurally identical to a rule-scoped maintenance window
 // (org + alert-rule-UID matchers), so it carries a marker to tell the two apart.

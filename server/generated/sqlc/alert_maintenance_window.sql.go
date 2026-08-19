@@ -12,6 +12,26 @@ import (
 	"github.com/lib/pq"
 )
 
+const countUnexpiredAlertMaintenanceWindows = `-- name: CountUnexpiredAlertMaintenanceWindows :one
+SELECT count(*) FROM alert_maintenance_window
+WHERE org_id = $1
+  AND ends_at > $2
+`
+
+type CountUnexpiredAlertMaintenanceWindowsParams struct {
+	OrgID int64
+	Now   time.Time
+}
+
+// Backs the per-org creation cap: only windows still active or scheduled count against it,
+// so expired history can never block creating a new window.
+func (q *Queries) CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error) {
+	row := q.queryRow(ctx, q.countUnexpiredAlertMaintenanceWindowsStmt, countUnexpiredAlertMaintenanceWindows, arg.OrgID, arg.Now)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteAlertMaintenanceWindow = `-- name: DeleteAlertMaintenanceWindow :execrows
 DELETE FROM alert_maintenance_window
 WHERE id = $1
@@ -25,6 +45,26 @@ type DeleteAlertMaintenanceWindowParams struct {
 
 func (q *Queries) DeleteAlertMaintenanceWindow(ctx context.Context, arg DeleteAlertMaintenanceWindowParams) (int64, error) {
 	result, err := q.exec(ctx, q.deleteAlertMaintenanceWindowStmt, deleteAlertMaintenanceWindow, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteExpiredAlertMaintenanceWindows = `-- name: DeleteExpiredAlertMaintenanceWindows :execrows
+DELETE FROM alert_maintenance_window
+WHERE org_id = $1
+  AND ends_at < $2
+`
+
+type DeleteExpiredAlertMaintenanceWindowsParams struct {
+	OrgID  int64
+	Before time.Time
+}
+
+// Retention: reclaims windows that ended before the cutoff so the org's list stays bounded.
+func (q *Queries) DeleteExpiredAlertMaintenanceWindows(ctx context.Context, arg DeleteExpiredAlertMaintenanceWindowsParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteExpiredAlertMaintenanceWindowsStmt, deleteExpiredAlertMaintenanceWindows, arg.OrgID, arg.Before)
 	if err != nil {
 		return 0, err
 	}
