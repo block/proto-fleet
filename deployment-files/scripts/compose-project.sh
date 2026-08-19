@@ -58,34 +58,48 @@ compose_env_last_value() {
     printf '%s' "$parsed"
 }
 
-resolve_compose_project_name() {
-    local project_name persisted_status
-
-    if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-        project_name="$COMPOSE_PROJECT_NAME"
-    else
-        project_name=$(compose_env_last_value COMPOSE_PROJECT_NAME)
-        persisted_status=$?
-        case "$persisted_status" in
-            0)
-                if [ -z "$project_name" ]; then
-                    project_name=$(basename "$PROJECT_ROOT")
-                fi
-                ;;
-            1)
-                project_name=$(basename "$PROJECT_ROOT")
-                ;;
-            *)
-                echo "Error: COMPOSE_PROJECT_NAME in $ENV_FILE uses unsupported or malformed Compose dotenv syntax." >&2
-                return 1
-                ;;
-        esac
-    fi
+validate_compose_project_name() {
+    local project_name="$1"
 
     if [[ ! "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
         echo "Error: COMPOSE_PROJECT_NAME must start with a lowercase letter or digit and contain only lowercase letters, digits, hyphens, and underscores." >&2
         return 1
     fi
+}
 
+resolve_persisted_compose_project_name() {
+    local project_name persisted_status
+
+    project_name=$(compose_env_last_value COMPOSE_PROJECT_NAME)
+    persisted_status=$?
+    case "$persisted_status" in
+        0)
+            if [ -z "$project_name" ]; then
+                project_name=$(basename "$PROJECT_ROOT")
+            fi
+            ;;
+        1)
+            project_name=$(basename "$PROJECT_ROOT")
+            ;;
+        *)
+            echo "Error: COMPOSE_PROJECT_NAME in $ENV_FILE uses unsupported or malformed Compose dotenv syntax." >&2
+            return 1
+            ;;
+    esac
+
+    validate_compose_project_name "$project_name" || return 1
     printf '%s' "$project_name"
+}
+
+resolve_compose_project_name() {
+    local project_name
+
+    if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+        project_name="$COMPOSE_PROJECT_NAME"
+        validate_compose_project_name "$project_name" || return 1
+        printf '%s' "$project_name"
+        return 0
+    fi
+
+    resolve_persisted_compose_project_name
 }

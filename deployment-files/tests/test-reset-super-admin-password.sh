@@ -54,11 +54,12 @@ if ! printf 'replacement-password\n' | \
 fi
 
 assert_contains "runs from deployment directory" "cwd=$STAGE"
+assert_contains "pins the local Docker daemon" "args= <--host> <unix:///var/run/docker.sock> <compose>"
 assert_contains "uses the persisted Compose project" " <--project-name> <fleet-recovery>"
 assert_contains "pins the project directory" " <--project-directory> <$STAGE>"
 assert_contains "loads the deployment env" " <--env-file> <$STAGE/.env>"
 assert_contains "uses the bundled compose file" " <-f> <$STAGE/docker-compose.yaml>"
-assert_contains "runs a disposable non-TTY container" " <run> <--rm> <-T> <fleet-api>"
+assert_contains "runs a dependency-free disposable non-TTY container" " <run> <--rm> <--no-deps> <-T> <fleet-api>"
 assert_contains "uses the absolute fleetd path" " </app/fleetd> <admin> <reset-password>"
 assert_contains "forwards command arguments" " <--password-stdin>"
 
@@ -67,6 +68,28 @@ if [ "$(cat "$STDIN_LOG")" = "replacement-password" ]; then
 else
     fail "stdin was not forwarded"
 fi
+
+for override in COMPOSE_PROJECT_NAME DB_DSN DB_PASSWORD DOCKER_HOST DOCKER_CONTEXT; do
+    OVERRIDE_CALL_LOG="$TMP_DIR/${override}.docker-call.log"
+    if env "$override=conflicting-value" PATH="$BIN_DIR:$PATH" \
+        CALL_LOG="$OVERRIDE_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+        "$STAGE/reset-super-admin-password.sh" >/dev/null 2>&1; then
+        fail "caller $override override was accepted"
+    elif [ -e "$OVERRIDE_CALL_LOG" ]; then
+        fail "caller $override override reached Docker"
+    else
+        echo "ok: rejects caller $override override before Docker"
+    fi
+done
+
+SAME_PROJECT_CALL_LOG="$TMP_DIR/same-project-docker-call.log"
+if ! COMPOSE_PROJECT_NAME=fleet-recovery PATH="$BIN_DIR:$PATH" \
+    CALL_LOG="$SAME_PROJECT_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+    "$STAGE/reset-super-admin-password.sh"; then
+    fail "matching caller project identity was rejected"
+fi
+assert_contains "accepts a matching caller project identity" \
+    " <--project-name> <fleet-recovery>" "$SAME_PROJECT_CALL_LOG"
 
 mkdir -p "$STAGE/ha" "$HA_CONFIG_DIR"
 printf 'HA_NODE_NAME=fleet-1\n' > "$HA_NODE_ENV"

@@ -503,6 +503,20 @@ validate_runner_env_values() {
     validate_runner_env_value_syntax "${keys[@]}"
 }
 
+validate_database_overrides_are_persisted() {
+    local key persisted status
+
+    for key in DB_DSN DB_NAME DB_USERNAME DB_PASSWORD; do
+        [ "${!key+x}" = "x" ] || continue
+        persisted=$(compose_env_last_value "$key")
+        status=$?
+        if [ "$status" -ne 0 ] || [ "${!key}" != "$persisted" ]; then
+            echo "Error: caller $key differs from the persisted deployment configuration; update $ENV_FILE instead of using a transient database override." >&2
+            return 1
+        fi
+    done
+}
+
 env_has_nonempty_value() {
     local value
     value=$(env_last_value "$1") || return 1
@@ -708,6 +722,7 @@ if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
 fi
 
 validate_runner_env_values || exit 1
+validate_database_overrides_are_persisted || exit 1
 if [[ ! "$FLEET_API_READY_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: FLEET_API_READY_ATTEMPTS must be a positive integer." >&2
     exit 1

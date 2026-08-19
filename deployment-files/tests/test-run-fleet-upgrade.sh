@@ -1147,8 +1147,20 @@ if DB_PASSWORD= run_stage "$STAGE" --non-interactive --preflight-only; then
 else
     pass "process credential precedence matches Compose and fails closed"
 fi
-assert_contains "empty process credential is validated as effective" "$HARNESS_OUTPUT_LOG" "Missing or empty required key in environment file: DB_PASSWORD"
+assert_contains "empty process credential is rejected as transient" "$HARNESS_OUTPUT_LOG" \
+    "caller DB_PASSWORD differs from the persisted deployment configuration"
 assert_not_contains "empty process credential prevents image preparation" "$HARNESS_CALL_LOG" " pull"
+
+make_stage transient-db-target
+if DB_DSN='postgres://other-database/fleet' run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "a transient database target should fail"
+else
+    pass "database targeting must be persisted for recovery"
+fi
+assert_contains "transient database target is diagnosed without its value" "$HARNESS_OUTPUT_LOG" \
+    "caller DB_DSN differs from the persisted deployment configuration"
+assert_not_contains "transient database target is not printed" "$HARNESS_OUTPUT_LOG" "other-database"
+assert_not_contains "transient database target prevents Docker activity" "$HARNESS_CALL_LOG" "docker "
 
 make_stage project-volume
 printf 'COMPOSE_PROJECT_NAME=fleet-blue\n' >> "$STAGE/.env"

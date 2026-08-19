@@ -36,13 +36,26 @@ fi
 
 PROJECT_ROOT="$DEPLOYMENT_DIR"
 source "$COMPOSE_PROJECT_HELPER"
-FLEET_COMPOSE_PROJECT_NAME=$(resolve_compose_project_name) || exit 1
+FLEET_COMPOSE_PROJECT_NAME=$(resolve_persisted_compose_project_name) || exit 1
+
+if [ "${COMPOSE_PROJECT_NAME+x}" = "x" ] \
+    && [ "$COMPOSE_PROJECT_NAME" != "$FLEET_COMPOSE_PROJECT_NAME" ]; then
+    echo "Error: caller COMPOSE_PROJECT_NAME conflicts with the installed deployment; unset it before recovery." >&2
+    exit 1
+fi
+for override in DB_DSN DB_NAME DB_USERNAME DB_PASSWORD DOCKER_HOST DOCKER_CONTEXT DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH; do
+    if [ "${!override+x}" = "x" ]; then
+        echo "Error: caller $override is not allowed during password recovery; unset it and use the persisted deployment configuration." >&2
+        exit 1
+    fi
+done
+unset COMPOSE_PROJECT_NAME override
 
 cd "$DEPLOYMENT_DIR"
-exec docker compose \
+exec docker --host unix:///var/run/docker.sock compose \
     --project-name "$FLEET_COMPOSE_PROJECT_NAME" \
     --project-directory "$DEPLOYMENT_DIR" \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
-    run --rm -T fleet-api \
+    run --rm --no-deps -T fleet-api \
     /app/fleetd admin reset-password "$@"
