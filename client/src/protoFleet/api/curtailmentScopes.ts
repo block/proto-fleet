@@ -53,17 +53,13 @@ export function normalizeCurtailmentSelectionValues(values: readonly string[]): 
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
-const maxInt64 = 9_223_372_036_854_775_807n;
-const baseTenIntegerPattern = /^[0-9]+$/;
-
 export function parseCurtailmentTargetId(value: string | undefined): bigint | undefined {
-  const trimmed = value?.trim() ?? "";
-  if (!baseTenIntegerPattern.test(trimmed)) {
+  try {
+    const parsed = BigInt(value?.trim() ?? "");
+    return parsed > 0n ? parsed : undefined;
+  } catch {
     return undefined;
   }
-
-  const parsed = BigInt(trimmed);
-  return parsed > 0n && parsed <= maxInt64 ? parsed : undefined;
 }
 
 function getSelectedSiteIds(selection: CurtailmentScopeSelection): string[] {
