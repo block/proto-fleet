@@ -10,26 +10,16 @@ import {
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 
 describe("mapCurtailmentEventToFormValues", () => {
-  it("hydrates topology scopes into the canonical form fields", () => {
+  it("keeps topology-scoped events read-only until the modal can render them", () => {
     const scopes = [7n, 8n].map((buildingId) =>
       create(CurtailmentScopeSchema, {
         scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId }) },
       }),
     );
 
-    const values = mapCurtailmentEventToFormValues(create(CurtailmentEventSchema, { scopes }));
-
-    expect(values).toEqual(
-      expect.objectContaining({
-        scopeType: "building",
-        scopeId: "2 buildings",
-        siteIds: [],
-        buildingTargetIds: ["7", "8"],
-        rackTargetIds: [],
-        groupTargetIds: [],
-        deviceIdentifiers: [],
-      }),
-    );
+    expect(
+      mapCurtailmentEventToFormValues(create(CurtailmentEventSchema, { scopes, scopeSchemaVersion: 1 })),
+    ).toBeUndefined();
   });
 
   it("fails closed when an event contains mixed scope types", () => {
@@ -42,6 +32,20 @@ describe("mapCurtailmentEventToFormValues", () => {
       }),
     ];
 
-    expect(mapCurtailmentEventToFormValues(create(CurtailmentEventSchema, { scopes }))).toBeUndefined();
+    expect(
+      mapCurtailmentEventToFormValues(create(CurtailmentEventSchema, { scopes, scopeSchemaVersion: 1 })),
+    ).toBeUndefined();
+  });
+
+  it("fails closed on unsupported scope schema versions", () => {
+    const scopes = [
+      create(CurtailmentScopeSchema, {
+        scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+      }),
+    ];
+
+    expect(
+      mapCurtailmentEventToFormValues(create(CurtailmentEventSchema, { scopes, scopeSchemaVersion: 2 })),
+    ).toBeUndefined();
   });
 });

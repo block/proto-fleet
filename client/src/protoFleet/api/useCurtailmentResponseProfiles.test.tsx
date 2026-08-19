@@ -97,6 +97,7 @@ function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): Curtai
     facilityFanDeviceIds: [31n, 32n],
     fanOffDelaySec: 45,
     fanRestoreDelaySec: 90,
+    scopeSchemaVersion: overrides.scopes?.length ? 1 : 0,
   });
 
   return Object.assign(profile, overrides);
@@ -613,6 +614,32 @@ describe("useCurtailmentResponseProfiles", () => {
       formValues: undefined,
       isReadOnly: true,
     });
+  });
+
+  it("keeps unsupported and malformed scope contracts visible but read-only", async () => {
+    const siteScope = create(CurtailmentScopeSchema, {
+      scope: { case: "site", value: create(ScopeSiteSchema, { siteId: 101n }) },
+    });
+    const buildingScope = create(CurtailmentScopeSchema, {
+      scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+    });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [
+        apiProfile({ profileId: 8n, site: undefined, scopes: [siteScope], scopeSchemaVersion: 2 }),
+        apiProfile({ profileId: 9n, site: undefined, scopes: [siteScope, buildingScope] }),
+      ],
+    });
+
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles).toEqual([
+      expect.objectContaining({ id: "8", scope: "Unknown scope", formValues: undefined, isReadOnly: true }),
+      expect.objectContaining({ id: "9", scope: "Unknown scope", formValues: undefined, isReadOnly: true }),
+    ]);
   });
 
   it("maps explicit whole-org API scopes as all-miner form state", async () => {

@@ -82,6 +82,23 @@ type ResponseProfileScopeValues = Pick<
   readOnlyScopeSummary?: string;
 };
 
+function getUnknownResponseProfileScopeValues(): ResponseProfileScopeValues {
+  return {
+    scopeType: undefined,
+    siteSelection: "none",
+    siteId: "",
+    siteName: "",
+    siteIds: [],
+    siteNamesById: {},
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
+    deviceIdentifiers: [],
+    minerSelectionMode: "subset",
+    readOnlyScopeSummary: "Unknown scope",
+  };
+}
+
 function numberToInputValue(value: number | undefined): string {
   return value && Number.isFinite(value) && value > 0 ? value.toString() : "";
 }
@@ -271,26 +288,22 @@ function getApiResponseProfileScopeValues(
 ): ResponseProfileScopeValues {
   const profileSiteId = profile.site?.siteId;
   if (profile.scopes.length === 0 && !profileSiteId) {
-    return {
-      scopeType: undefined,
-      siteSelection: "none",
-      siteId: "",
-      siteName: "",
-      siteIds: [],
-      siteNamesById: {},
-      buildingTargetIds: [],
-      rackTargetIds: [],
-      groupTargetIds: [],
-      deviceIdentifiers: [],
-      minerSelectionMode: "subset",
-      readOnlyScopeSummary: "Unknown scope",
-    };
+    return getUnknownResponseProfileScopeValues();
   }
 
-  const terminalScope =
-    profile.scopes.length > 0
-      ? parseCurtailmentTerminalScopes(profile.scopes)
-      : { type: "site" as const, siteIds: [profileSiteId?.toString() ?? ""] };
+  let terminalScope;
+  if (profile.scopes.length > 0) {
+    if (profile.scopeSchemaVersion !== curtailmentScopeSchemaVersion) {
+      return getUnknownResponseProfileScopeValues();
+    }
+    try {
+      terminalScope = parseCurtailmentTerminalScopes(profile.scopes);
+    } catch {
+      return getUnknownResponseProfileScopeValues();
+    }
+  } else {
+    terminalScope = { type: "site" as const, siteIds: [profileSiteId?.toString() ?? ""] };
+  }
   const scopeFields = getCurtailmentScopeFormFields(terminalScope);
   let siteSelection: ResponseProfileFormValues["siteSelection"] =
     scopeFields.scopeType === "wholeOrg" ? "allSites" : scopeFields.scopeType === "site" ? "site" : "none";

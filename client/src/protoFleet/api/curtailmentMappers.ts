@@ -1,6 +1,7 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import {
+  curtailmentScopeSchemaVersion,
   getCurtailmentScopeFormFields,
   getCurtailmentScopeSummary,
   parseCurtailmentTerminalScopes,
@@ -121,10 +122,17 @@ function mapCurtailmentEventScopeToFormValues(
     >
   | undefined {
   if (event.scopes.length > 0) {
+    if (event.scopeSchemaVersion !== curtailmentScopeSchemaVersion) {
+      return undefined;
+    }
+
     let scope;
     try {
       scope = parseCurtailmentTerminalScopes(event.scopes);
     } catch {
+      return undefined;
+    }
+    if (scope.type === "building" || scope.type === "rack" || scope.type === "group") {
       return undefined;
     }
     const scopeFields = getCurtailmentScopeFormFields(scope);
