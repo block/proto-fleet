@@ -113,8 +113,8 @@ vi.mock("@/shared/features/toaster", () => ({
   },
 }));
 
-vi.mock("./AvailableUpdateAnimation", () => ({
-  default: () => <div aria-hidden="true" data-testid="available-update-animation" />,
+vi.mock("./AvailableUpdateArtwork", () => ({
+  default: () => <div aria-hidden="true" data-testid="available-update-artwork" />,
 }));
 
 const INSTALL_COMMAND = "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.3.0";
@@ -224,7 +224,7 @@ describe("Updates", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(getByText("Fleet v1.3.0 available")).toBeInTheDocument();
     expect(screen.getByTestId("available-update-lockup")).toBeInTheDocument();
-    expect(screen.getByTestId("available-update-animation")).toBeInTheDocument();
+    expect(screen.getByTestId("available-update-artwork")).toBeInTheDocument();
     expect(getByText("Use manual install to update this Fleet.")).toBeInTheDocument();
     expect(screen.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
     expect(

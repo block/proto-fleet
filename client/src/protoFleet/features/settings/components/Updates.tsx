@@ -6,7 +6,7 @@ import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/instanc
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { isAuthOrPermissionError, isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
 import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
-import AvailableUpdateAnimation from "@/protoFleet/features/settings/components/AvailableUpdateAnimation";
+import AvailableUpdateArtwork from "@/protoFleet/features/settings/components/AvailableUpdateArtwork";
 import ManualInstallModal from "@/protoFleet/features/settings/components/ManualInstallModal";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -72,7 +72,7 @@ const UpdateFeatureCard = ({ action, children, testId }: UpdateFeatureCardProps)
     data-testid={testId}
     className="flex min-h-[240px] flex-col overflow-hidden rounded-xl bg-core-primary-5 tablet:flex-row"
   >
-    <AvailableUpdateAnimation />
+    <AvailableUpdateArtwork />
     <div className="flex grow flex-col items-center gap-5 px-6 pt-0 pb-8 text-center tablet:flex-row tablet:justify-between tablet:py-8 tablet:pr-6 tablet:pl-0 tablet:text-left">
       <div className="space-y-1">{children}</div>
       {action}
