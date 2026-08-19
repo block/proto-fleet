@@ -420,7 +420,7 @@ func TestMaintenanceWindowUnknownIDIsNotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 7, "42"), ErrNotFound)
 	// A non-numeric id can't be a row, so it reads as the same uniform NotFound.
-	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 7, "sil-legacy"), ErrNotFound)
+	require.ErrorIs(t, svc.DeleteMaintenanceWindow(context.Background(), 7, "not-a-row"), ErrNotFound)
 }
 
 func TestListMaintenanceWindowsComputesActive(t *testing.T) {
@@ -438,111 +438,6 @@ func TestListMaintenanceWindowsComputesActive(t *testing.T) {
 	}
 	assert.True(t, byID["1"].Active, "a window covering now is active")
 	assert.False(t, byID["2"].Active, "a future window is not active")
-}
-
-// Pre-migration windows lived as marked Grafana silences; the startup sweep must copy the
-// representable live ones into the window store before deleting them (deleting alone would
-// silently lift active suppression mid-maintenance), retain live ones the DB model can't
-// represent until they expire on their own, and leave pause silences, operator silences, and
-// already-expired legacy windows alone.
-func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
-	ruleMatchers := []GrafanaSilenceMatcher{
-		{Name: "organization_id", Value: "7", IsEqual: true},
-		{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true},
-	}
-	fake := &fakeGrafanaRules{silences: []GrafanaSilence{
-		{
-			ID:        "legacy-rule",
-			Comment:   legacyMaintenanceWindowCommentMarker + " planned",
-			StartsAt:  time.Unix(1000, 0),
-			EndsAt:    time.Unix(9000, 0),
-			CreatedBy: "alice@example.com",
-			Matchers:  ruleMatchers,
-		},
-		// Same rule and interval as legacy-rule but a different operator and comment: a distinct
-		// window whose audit record must survive migration, not be deduped away.
-		{
-			ID:        "legacy-rule-twin",
-			Comment:   legacyMaintenanceWindowCommentMarker + " other crew",
-			StartsAt:  time.Unix(1000, 0),
-			EndsAt:    time.Unix(9000, 0),
-			CreatedBy: "bob@example.com",
-			Matchers:  ruleMatchers,
-		},
-		// Device-scoped (no rule matcher): unrepresentable in the rule×channel model, so its live
-		// suppression is left to expire in Grafana rather than lifted mid-maintenance.
-		{ID: "legacy-device", Comment: legacyMaintenanceWindowCommentMarker, StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(9000, 0), Matchers: []GrafanaSilenceMatcher{
-			{Name: "organization_id", Value: "7", IsEqual: true},
-			{Name: "device_id", Value: "miner-1", IsEqual: true},
-		}},
-		// Ended but not yet GC'd as expired: nothing to preserve, deleted only.
-		{ID: "legacy-ended", Comment: legacyMaintenanceWindowCommentMarker, StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(2000, 0), Matchers: ruleMatchers},
-		{ID: "legacy-expired", Comment: legacyMaintenanceWindowCommentMarker, Status: &GrafanaSilenceStatus{State: "expired"}},
-		{ID: "pause", Comment: pauseSilenceCommentMarker},
-		{ID: "operator", Comment: "operator silence"},
-	}}
-	windows := newFakeWindowStore()
-	svc := NewService(fake.server(t), nil, nil, nil, windows, nil, nil, nil, DestinationPolicy{})
-	svc.now = func() time.Time { return time.Unix(5000, 0) }
-
-	migrated, removed, err := svc.MigrateLegacyMaintenanceWindowSilences(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, 2, migrated, "the same-interval twin is a distinct window, not a duplicate")
-	assert.Equal(t, 3, removed)
-	assert.ElementsMatch(t, []string{"legacy-rule", "legacy-rule-twin", "legacy-ended"}, fake.deletedSilences,
-		"live silences the DB model can't represent must be retained, not deleted")
-
-	require.Len(t, windows.rows, 2)
-	assert.Equal(t, "bob@example.com", windows.rows[2].CreatedBy, "the twin keeps its own audit record")
-	rec := windows.rows[1]
-	assert.Equal(t, int64(7), rec.OrganizationID)
-	assert.Equal(t, []string{"rule-9"}, rec.RuleUIDs)
-	assert.Empty(t, rec.ChannelIDs, "a silence muted everywhere, so the window covers every channel")
-	assert.True(t, rec.StartsAt.Equal(time.Unix(1000, 0)), "starts_at carries over")
-	assert.True(t, rec.EndsAt.Equal(time.Unix(9000, 0)), "ends_at carries over")
-	assert.Equal(t, "planned", rec.Comment, "the marker is stripped from the operator's comment")
-	assert.Equal(t, "alice@example.com", rec.CreatedBy)
-
-	// The fake's DELETE never mutates the served list, so a second sweep sees the same
-	// silences — the shape of a first sweep whose insert landed but whose delete failed.
-	migrated, _, err = svc.MigrateLegacyMaintenanceWindowSilences(context.Background())
-	require.NoError(t, err)
-	assert.Zero(t, migrated, "an already-migrated silence must not insert a duplicate window")
-	assert.Len(t, windows.rows, 2)
-}
-
-// legacyWindowRecord must accept exactly the shape the old UI wrote — one org equality matcher
-// plus one rule-UID equality matcher — and report every other shape unrepresentable (see its
-// doc for why translating a recognizable subset would widen the suppression).
-func TestLegacyWindowRecordShapes(t *testing.T) {
-	org := GrafanaSilenceMatcher{Name: "organization_id", Value: "7", IsEqual: true}
-	rule := GrafanaSilenceMatcher{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true}
-	cases := map[string]struct {
-		matchers []GrafanaSilenceMatcher
-		ok       bool
-	}{
-		"org and rule":            {[]GrafanaSilenceMatcher{org, rule}, true},
-		"org and pre-uid rule":    {[]GrafanaSilenceMatcher{org, {Name: "alertname_uid", Value: "rule-9", IsEqual: true}}, true},
-		"extra device matcher":    {[]GrafanaSilenceMatcher{org, rule, {Name: "device_id", Value: "miner-1", IsEqual: true}}, false},
-		"regex rule matcher":      {[]GrafanaSilenceMatcher{org, {Name: "__alert_rule_uid__", Value: "rule-.*", IsEqual: true, IsRegex: true}}, false},
-		"negated rule matcher":    {[]GrafanaSilenceMatcher{org, {Name: "__alert_rule_uid__", Value: "rule-9"}}, false},
-		"duplicate rule matcher":  {[]GrafanaSilenceMatcher{org, rule, {Name: "alertname_uid", Value: "rule-8", IsEqual: true}}, false},
-		"duplicate org matcher":   {[]GrafanaSilenceMatcher{org, org, rule}, false},
-		"missing rule matcher":    {[]GrafanaSilenceMatcher{org}, false},
-		"missing org matcher":     {[]GrafanaSilenceMatcher{rule}, false},
-		"non-numeric org matcher": {[]GrafanaSilenceMatcher{{Name: "organization_id", Value: "abc", IsEqual: true}, rule}, false},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			_, ok := legacyWindowRecord(GrafanaSilence{
-				Comment:  legacyMaintenanceWindowCommentMarker,
-				StartsAt: time.Unix(1000, 0),
-				EndsAt:   time.Unix(2000, 0),
-				Matchers: tc.matchers,
-			})
-			assert.Equal(t, tc.ok, ok)
-		})
-	}
 }
 
 // The creation path bounds growth: unexpired windows count against a per-org cap, and rows
@@ -705,16 +600,16 @@ func TestMaintenanceWindowRequiresVisibleRule(t *testing.T) {
 	assert.Empty(t, windows.rows, "window for an unknown rule must not persist")
 }
 
-// Maintenance windows are finite and forward-looking: the server must reject a missing or
-// non-increasing time range even though the UI enforces it, so a direct RPC can't open a
-// decades-long silence — and an already-ended range, which would occupy a row invisible to
-// the unexpired-count quota. The service clock is pinned to Unix(500) by the helper.
+// Maintenance windows are finite and forward-looking: the server must reject a missing,
+// non-increasing, overly long, or already-ended range even though the UI enforces it. The
+// service clock is pinned to Unix(500) by the helper.
 func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
 	cases := map[string]MaintenanceWindow{
 		"missing ends_at":    {StartsAt: time.Unix(1000, 0)},
 		"missing starts_at":  {EndsAt: time.Unix(2000, 0)},
 		"ends before starts": {StartsAt: time.Unix(2000, 0), EndsAt: time.Unix(1000, 0)},
 		"ends equals starts": {StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(1000, 0)},
+		"duration too long":  {StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(1000, 0).Add(maxMaintenanceWindowDuration + time.Second)},
 		"already ended":      {StartsAt: time.Unix(100, 0), EndsAt: time.Unix(400, 0)},
 	}
 	for name, tc := range cases {
@@ -726,6 +621,13 @@ func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
 			assert.Empty(t, windows.rows, "invalid window must not persist")
 		})
 	}
+
+	svc, _, _ := newMaintenanceWindowService(t)
+	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(1000, 0).Add(maxMaintenanceWindowDuration),
+	})
+	require.NoError(t, err, "the maximum duration itself should remain valid")
 }
 
 func TestRuleVisibleToOrg(t *testing.T) {

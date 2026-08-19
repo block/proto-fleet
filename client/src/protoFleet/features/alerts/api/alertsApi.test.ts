@@ -30,7 +30,7 @@ describe("createMaintenanceWindow", () => {
       maintenanceWindow: {
         id: "5",
         organizationId: 7n,
-        scope: { kind: 0, ruleIds: ["rule-a"], channelIds: ["3"] },
+        scope: { ruleIds: ["rule-a"], channelIds: ["3"] },
         startsAt: timestampFromDate(new Date("2026-08-18T10:00:00Z")),
         endsAt: timestampFromDate(new Date("2026-08-18T12:00:00Z")),
         comment: "planned",

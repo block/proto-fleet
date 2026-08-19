@@ -1010,10 +1010,10 @@ func maintenanceWindowFromRecord(rec MaintenanceWindowRecord, now time.Time) Mai
 }
 
 // Maintenance windows are finite and forward-looking: the UI enforces this, but a direct RPC
-// could omit ends_at (which would compile to the far-future sentinel and silence alerts for
-// decades), pass an end at/before the start, or write an already-ended window — which mutes
-// nothing but would bloat the table beyond the unexpired-count quota's reach. Indefinite
-// suppression is only available via PauseRule; ending a window early is done by deleting it.
+// could omit ends_at, pass an end at/before the start, create an excessively long blackout, or
+// write an already-ended window that would bloat the table beyond the unexpired-count quota's
+// reach. Indefinite suppression is only available via PauseRule; ending a window early is done
+// by deleting it.
 func validateMaintenanceWindowTimes(startsAt, endsAt, now time.Time) error {
 	if startsAt.IsZero() {
 		return fleeterror.NewInvalidArgumentError("starts_at is required for a maintenance window")
@@ -1024,6 +1024,9 @@ func validateMaintenanceWindowTimes(startsAt, endsAt, now time.Time) error {
 	if !endsAt.After(startsAt) {
 		return fleeterror.NewInvalidArgumentError("ends_at must be after starts_at")
 	}
+	if endsAt.Sub(startsAt) > maxMaintenanceWindowDuration {
+		return fleeterror.NewInvalidArgumentError("maintenance window duration cannot exceed 30 days")
+	}
 	if !endsAt.After(now) {
 		return fleeterror.NewInvalidArgumentError("ends_at must be in the future; to end a window early, delete it")
 	}
@@ -1033,6 +1036,11 @@ func validateMaintenanceWindowTimes(startsAt, endsAt, now time.Time) error {
 // Per-list bound on a window's rule and channel targets, matching the wire validation; a
 // hostile direct caller can't inflate the row.
 const maxMaintenanceWindowTargets = 100
+
+// A maintenance window is for bounded planned work, not indefinite suppression. The UI's
+// presets top out at three days; thirty days leaves room for longer operator-entered work while
+// preventing a typo from creating a years-long organization-wide blackout.
+const maxMaintenanceWindowDuration = 30 * 24 * time.Hour
 
 // Per-org bound on active-or-scheduled windows; expired history never counts against it
 // (it is pruned instead), so the cap can't wedge creation shut over time.

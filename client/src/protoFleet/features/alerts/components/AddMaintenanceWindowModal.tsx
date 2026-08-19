@@ -5,6 +5,7 @@ import { useChannelSelection } from "@/protoFleet/features/alerts/api/useChannel
 import SinglePickerField from "@/protoFleet/features/alerts/components/SinglePickerField";
 import {
   MAINTENANCE_WINDOW_QUICK_OPTIONS,
+  MAX_MAINTENANCE_WINDOW_DURATION_MS,
   toLocalDatetimeValue,
 } from "@/protoFleet/features/alerts/lib/maintenanceWindowOptions";
 import type { MaintenanceWindowWithActive } from "@/protoFleet/features/alerts/types";
@@ -113,6 +114,7 @@ const AddMaintenanceWindowModal = ({
   const [comment, setComment] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirmedAllAlertingMute, setConfirmedAllAlertingMute] = useState(false);
   // Channels only render in selected mode, so the session fetches them lazily then.
   const {
     channels,
@@ -139,6 +141,7 @@ const AddMaintenanceWindowModal = ({
         );
         setComment(editingMaintenanceWindow.comment);
         setErrorMsg("");
+        setConfirmedAllAlertingMute(false);
       } else {
         const now = new Date();
         const end = computeEndsFromQuick(DEFAULT_QUICK);
@@ -151,6 +154,7 @@ const AddMaintenanceWindowModal = ({
         setEnds(toLocalDatetimeValue(end));
         setComment("");
         setErrorMsg("");
+        setConfirmedAllAlertingMute(false);
       }
       setSaving(false);
     }
@@ -219,6 +223,14 @@ const AddMaintenanceWindowModal = ({
       setErrorMsg("End must be after start");
       return;
     }
+    if (new Date(ends).getTime() - new Date(starts).getTime() > MAX_MAINTENANCE_WINDOW_DURATION_MS) {
+      setErrorMsg("Maintenance windows cannot exceed 30 days");
+      return;
+    }
+    if (ruleMode === "all" && channelMode === "all" && !confirmedAllAlertingMute) {
+      setErrorMsg("Confirm that no alerts will be delivered during this window");
+      return;
+    }
     if (ruleMode === "selected" && liveRuleIds.size === 0) {
       setErrorMsg("Pick at least one alert, or use All alerts");
       return;
@@ -260,6 +272,7 @@ const AddMaintenanceWindowModal = ({
     liveRuleIds,
     channelMode,
     liveChannelIds,
+    confirmedAllAlertingMute,
     comment,
     isEditing,
     editingMaintenanceWindow,
@@ -299,6 +312,7 @@ const AddMaintenanceWindowModal = ({
           mode={ruleMode}
           onModeChange={(mode) => {
             setRuleMode(mode);
+            setConfirmedAllAlertingMute(false);
             clearError();
           }}
           allHint="Every alert rule is muted, including rules added later."
@@ -317,6 +331,7 @@ const AddMaintenanceWindowModal = ({
           mode={channelMode}
           onModeChange={(mode) => {
             setChannelMode(mode);
+            setConfirmedAllAlertingMute(false);
             clearError();
           }}
           allHint="Delivery is muted on every channel, including channels added later."
@@ -329,12 +344,24 @@ const AddMaintenanceWindowModal = ({
         />
 
         {ruleMode === "all" && channelMode === "all" ? (
-          <Callout
-            intent="warning"
-            prefixIcon={<Alert />}
-            title="This mutes all alerting"
-            subtitle="No alert reaches any channel while this window is active."
-          />
+          <div className="flex flex-col gap-3">
+            <Callout
+              intent="warning"
+              prefixIcon={<Alert />}
+              title="This mutes all alerting"
+              subtitle="No alert reaches any channel while this window is active."
+            />
+            <label className="flex cursor-pointer items-center gap-3 text-300 text-text-primary">
+              <Checkbox
+                checked={confirmedAllAlertingMute}
+                onChange={(event) => {
+                  setConfirmedAllAlertingMute(event.target.checked);
+                  clearError();
+                }}
+              />
+              I understand that no alerts will be delivered during this window.
+            </label>
+          </div>
         ) : null}
 
         <SinglePickerField

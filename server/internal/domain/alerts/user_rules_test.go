@@ -570,7 +570,7 @@ func TestDeleteRuleSweepIsIdempotentButGuarded(t *testing.T) {
 	assert.Equal(t, []string{"sil-pfu-gone"}, fake.deletedSilences)
 }
 
-func TestDeleteRuleCleansRuleScopedSilences(t *testing.T) {
+func TestDeleteRuleCleansPauseSilence(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
 	ruleMatchers := []GrafanaSilenceMatcher{
 		{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
@@ -580,18 +580,12 @@ func TestDeleteRuleCleansRuleScopedSilences(t *testing.T) {
 		listed: []GrafanaAlertRule{existing},
 		silences: []GrafanaSilence{
 			{ID: "sil-pause", Comment: pauseSilenceCommentMarker, Matchers: ruleMatchers},
-			// Legacy rule-scoped maintenance-window silence: must not outlive the rule.
-			{ID: "sil-mw", Comment: legacyMaintenanceWindowCommentMarker + " planned work", Matchers: ruleMatchers},
-			// Legacy device-scoped maintenance-window silence: untouched (no rule matcher).
-			{ID: "sil-device", Comment: legacyMaintenanceWindowCommentMarker, Matchers: []GrafanaSilenceMatcher{
-				{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
-				{Name: "device_id", Value: "dev-1", IsEqual: true},
-			}},
+			{ID: "sil-operator", Comment: "operator silence", Matchers: ruleMatchers},
 		},
 	}
 	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	require.NoError(t, svc.DeleteRule(context.Background(), 7, "pfu-mine"))
 	assert.Equal(t, "pfu-mine", fake.deletedUID)
-	assert.ElementsMatch(t, []string{"sil-pause", "sil-mw"}, fake.deletedSilences)
+	assert.Equal(t, []string{"sil-pause"}, fake.deletedSilences)
 }

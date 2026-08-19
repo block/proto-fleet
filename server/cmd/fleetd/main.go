@@ -622,32 +622,6 @@ func start(config *Config) (result error) {
 	alertScopeLookup := alertScopeStores{sites: siteStore, buildings: buildingStore, sets: collectionStore}
 	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, alertMaintenanceWindowStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
 
-	// One-shot: without it, Grafana silences written by pre-migration maintenance windows would
-	// keep muting alerts invisibly (the window list no longer reads Grafana). Each representable
-	// silence is copied into the DB-backed table before its silence is deleted, so deploying
-	// mid-window doesn't lift active suppression. Retries because the Grafana sidecar can come
-	// up after fleet-api; exits once a sweep succeeds.
-	var alertLegacySilenceSweep runtimejobs.Lifecycle
-	if config.Metrics.Enabled {
-		alertLegacySilenceSweep = newBackgroundLoop(func(ctx context.Context) {
-			for {
-				migrated, removed, err := alertsSvc.MigrateLegacyMaintenanceWindowSilences(ctx)
-				if err == nil {
-					if removed > 0 {
-						slog.Info("migrated legacy maintenance window silences", "migrated", migrated, "removed", removed)
-					}
-					return
-				}
-				slog.Warn("failed to migrate legacy maintenance window silences, will retry", "error", err)
-				select {
-				case <-time.After(30 * time.Second):
-				case <-ctx.Done():
-					return
-				}
-			}
-		})
-	}
-
 	// Both updates URLs end up inside a copy-paste upgrade command, so an
 	// http:// base must fail startup (explicit Validate, like Plugins above —
 	// kong only auto-validates flag leaves, not embedded config structs).
@@ -700,7 +674,6 @@ func start(config *Config) (result error) {
 		chunkedUploadCleanup:      chunkedUploadCleanup,
 		systemMonitoring:          systemMonitoring,
 		releaseChecker:            releaseCheckerJob,
-		alertLegacySilenceSweep:   alertLegacySilenceSweep,
 	})
 	if err != nil {
 		return err

@@ -37,17 +37,6 @@ func TestProtoToMaintenanceWindowMapping(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-// A stale client still sets the retired single-target scope kind; honoring the request minus
-// its dropped target fields would silently widen the window to every alert and channel, so
-// the write must be rejected instead.
-func TestProtoToMaintenanceWindowRejectsStaleScopeKind(t *testing.T) {
-	_, err := protoToMaintenanceWindow("", &alertsv1.MaintenanceWindowScope{
-		Kind: alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE, //nolint:staticcheck // exercising the stale-client guard
-	}, timestamppb.New(time.Unix(1000, 0)), timestamppb.New(time.Unix(2000, 0)), "")
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-}
-
 func TestMaintenanceWindowToProtoOmitsZeroEndsAt(t *testing.T) {
 	out := maintenanceWindowToProto(alerts.MaintenanceWindow{
 		ID:       "5",

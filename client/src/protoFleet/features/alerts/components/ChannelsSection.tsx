@@ -3,6 +3,7 @@ import AddChannelModal from "./AddChannelModal";
 import ChannelEditableCell from "./ChannelEditableCell";
 import ChannelStatusBadge from "./ChannelStatusBadge";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import { useChannels } from "@/protoFleet/features/alerts/api/useChannels";
 import type { Channel } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
@@ -35,6 +36,7 @@ const destinationPlaceholder = (c: Channel) => {
 
 const ChannelsSection = () => {
   const { channels, refresh, createChannel, updateChannel, testChannel, removeChannel } = useChannels();
+  const { refresh: refreshAlerts } = useAlertsContext();
   const canManage = useHasPermission("alert:manage");
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -143,15 +145,27 @@ const ChannelsSection = () => {
     async (channel: Channel) => {
       try {
         await removeChannel(channel.id);
-        pushToast({ message: `Deleted channel "${channel.name}"`, status: STATUSES.success });
       } catch (error) {
         pushToast({
           message: getErrorMessage(error, "Failed to delete channel"),
           status: STATUSES.error,
         });
+        return;
+      }
+
+      pushToast({ message: `Deleted channel "${channel.name}"`, status: STATUSES.success });
+      try {
+        // ListRules filters soft-deleted channel ids from custom routes. Refreshing here keeps
+        // the rule's Muted/Active badge aligned with the delivery path after a channel delete.
+        await refreshAlerts();
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Channel deleted, but alert rules could not be refreshed"),
+          status: STATUSES.error,
+        });
       }
     },
-    [removeChannel],
+    [removeChannel, refreshAlerts],
   );
 
   const actions: ListAction<Channel>[] = useMemo(

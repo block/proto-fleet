@@ -768,12 +768,6 @@ func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope,
 	if scope == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("scope is required")
 	}
-	// A stale client still writes the retired single-target scope; its target fields no longer
-	// parse, so honoring the request would silently widen the window to every alert and channel.
-	if scope.GetKind() != alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED {
-		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError(
-			"single-target maintenance window scopes are no longer supported; reload/upgrade the client and pick rules and channels instead")
-	}
 	if startsAt == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("starts_at is required")
 	}

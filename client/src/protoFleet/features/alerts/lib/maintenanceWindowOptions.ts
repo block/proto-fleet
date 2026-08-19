@@ -4,6 +4,8 @@ export interface QuickWindowOption extends PickerOption {
   hours: number;
 }
 
+export const MAX_MAINTENANCE_WINDOW_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+
 export const MAINTENANCE_WINDOW_QUICK_OPTIONS: QuickWindowOption[] = [
   { id: "1h", label: "1 hour", hours: 1 },
   { id: "4h", label: "4 hours", hours: 4 },

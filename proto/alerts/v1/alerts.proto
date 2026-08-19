@@ -309,27 +309,12 @@ message ResumeRuleResponse {
     Rule rule = 1;
 }
 
-// Pre-refactor scope selector, kept only so stale-client writes stay detectable (see MaintenanceWindowScope.kind).
-enum MaintenanceWindowScopeKind {
-    option deprecated = true;
-
-    MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED = 0;
-    MAINTENANCE_WINDOW_SCOPE_KIND_RULE = 1;
-    MAINTENANCE_WINDOW_SCOPE_KIND_GROUP = 2;
-    MAINTENANCE_WINDOW_SCOPE_KIND_SITE = 3;
-    MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE = 4;
-}
-
 // What a maintenance window mutes: alerts from the listed rules stop delivering to the listed
 // channels while the window is active. Empty rule_ids means every rule; empty channel_ids means
 // every channel. Alert history records the muted alerts either way.
 message MaintenanceWindowScope {
-    // Pre-refactor single-target selector, which stale clients always set. Writes carrying it are
-    // rejected: honoring such a request minus its (dropped) target fields would silently widen a
-    // single-rule window to every alert and channel. Never set on reads.
-    MaintenanceWindowScopeKind kind = 1;
-    reserved 2 to 5;
-    reserved "rule_id", "group_id", "site_id", "device_ids";
+    reserved 1 to 5;
+    reserved "kind", "rule_id", "group_id", "site_id", "device_ids";
     // 40 is Grafana's alert-rule UID cap.
     repeated string rule_ids = 6 [(buf.validate.field).repeated = {max_items: 100, items: {string: {min_len: 1, max_len: 40}}}];
     repeated string channel_ids = 7 [(buf.validate.field).repeated = {max_items: 100, items: {string: {min_len: 1, max_len: 20}}}];

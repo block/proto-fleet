@@ -217,7 +217,6 @@ type runtimeJobLifecycles struct {
 	chunkedUploadCleanup      runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
 	releaseChecker            runtimejobs.Lifecycle
-	alertLegacySilenceSweep   runtimejobs.Lifecycle
 }
 
 func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) {
@@ -270,11 +269,6 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 	}
 	if lifecycles.releaseChecker != nil {
 		if err := add("release-checker", lifecycles.releaseChecker); err != nil {
-			return nil, err
-		}
-	}
-	if lifecycles.alertLegacySilenceSweep != nil {
-		if err := add("alert-legacy-silence-sweep", lifecycles.alertLegacySilenceSweep); err != nil {
 			return nil, err
 		}
 	}

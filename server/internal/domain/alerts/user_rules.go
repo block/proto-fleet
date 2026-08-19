@@ -420,9 +420,7 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 		return fleeterror.NewInvalidArgumentError("rule id is required")
 	}
 	cleanup := func() error {
-		sweepErr := s.removeSilencesTargetingRule(ctx, orgID, id, func(sil GrafanaSilence) bool {
-			return isPauseSilence(sil) || isLegacyMaintenanceWindowSilence(sil)
-		})
+		sweepErr := s.removeSilencesTargetingRule(ctx, orgID, id, isPauseSilence)
 		// The policy and config rows are inert once the rule is gone; drop them without letting their errors gate the safety-relevant silence sweep above.
 		var policyErr error
 		if s.routes != nil {
