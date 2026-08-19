@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/rollout"
 )
 
+//nolint:interfacebloat // Lane lifecycle operations share one transactional store implementation.
 type LaneStore interface {
 	PreviewLane(ctx context.Context, req PreviewLaneRequest) (InitialEnforcementPreview, error)
 	CreateLane(ctx context.Context, req CreateLaneRequest) (*Lane, error)
@@ -19,6 +20,7 @@ type LaneStore interface {
 		includeFirmwareConvergenceMembers bool,
 		firmwareConvergenceMembersUpdatedAfter *time.Time,
 	) (*Lane, error)
+	GetLaneForRollout(ctx context.Context, orgID int64, rolloutID uuid.UUID) (*Lane, error)
 	ListLanes(ctx context.Context, orgID int64, activeFirmwareConvergenceOnly bool) ([]Lane, error)
 	ListMembers(ctx context.Context, req ListMembersRequest) (ListMembersResult, error)
 	GetAssignments(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]LaneAssignment, error)

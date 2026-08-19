@@ -140,6 +140,23 @@ func (s *Service) GetLane(
 	return lane, nil
 }
 
+func (s *Service) GetLaneForRollout(
+	ctx context.Context,
+	orgID int64,
+	rolloutID uuid.UUID,
+) (*Lane, error) {
+	if orgID <= 0 || rolloutID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"organization and rollout IDs are required",
+		)
+	}
+	lane, err := s.store.GetLaneForRollout(ctx, orgID, rolloutID)
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return lane, nil
+}
+
 func (s *Service) ListLanes(
 	ctx context.Context,
 	orgID int64,

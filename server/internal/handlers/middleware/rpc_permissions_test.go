@@ -192,6 +192,11 @@ func TestRPCContract_RolloutLaneMembershipUsesChannelPermissions(t *testing.T) {
 	require.Equal(
 		t,
 		authz.PermChannelRead,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceGetRolloutLaneForRolloutProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelRead,
 		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceListRolloutLaneMembersProcedure],
 	)
 	require.Equal(

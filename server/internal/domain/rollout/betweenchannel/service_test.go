@@ -17,12 +17,58 @@ type recordingDeleteLaneStore struct {
 	requests []DeleteLaneRequest
 }
 
+type recordingGetLaneForRolloutStore struct {
+	LaneStore
+	lane      *Lane
+	err       error
+	orgID     int64
+	rolloutID uuid.UUID
+}
+
+func (s *recordingGetLaneForRolloutStore) GetLaneForRollout(
+	_ context.Context,
+	orgID int64,
+	rolloutID uuid.UUID,
+) (*Lane, error) {
+	s.orgID = orgID
+	s.rolloutID = rolloutID
+	return s.lane, s.err
+}
+
 func (s *recordingDeleteLaneStore) DeleteLane(
 	_ context.Context,
 	req DeleteLaneRequest,
 ) error {
 	s.requests = append(s.requests, req)
 	return nil
+}
+
+func TestServiceGetLaneForRolloutValidatesAndMapsStoreErrors(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	expected := &Lane{ID: uuid.New(), OrgID: 42, Label: "Stable"}
+	store := &recordingGetLaneForRolloutStore{lane: expected}
+	service := NewService(store, nil)
+
+	actual, err := service.GetLaneForRollout(t.Context(), 42, rolloutID)
+	require.NoError(t, err)
+	assert.Same(t, expected, actual)
+	assert.Equal(t, int64(42), store.orgID)
+	assert.Equal(t, rolloutID, store.rolloutID)
+
+	_, err = service.GetLaneForRollout(t.Context(), 0, rolloutID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "got %v", err)
+
+	_, err = service.GetLaneForRollout(t.Context(), 42, uuid.Nil)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err), "got %v", err)
+
+	store.err = ErrLaneNotFound
+	_, err = service.GetLaneForRollout(t.Context(), 42, rolloutID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err), "got %v", err)
 }
 
 func TestServiceDeleteLaneFingerprintsActorIdentityForIdempotency(t *testing.T) {

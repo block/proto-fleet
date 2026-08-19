@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { rolloutClient } from "@/protoFleet/api/clients";
 import {
+  GetRolloutLaneForRolloutRequestSchema,
   ListRolloutLanesRequestSchema,
   ListRolloutsRequestSchema,
   RolloutState,
@@ -46,6 +48,7 @@ interface RolloutPillSelection {
 
 const idlePollIntervalMs = 30_000;
 const activePollIntervalMs = 5_000;
+const exactLaneRevalidationIntervalMs = idlePollIntervalMs;
 const rolloutLanesPath = "/settings/firmware?tab=rolloutLanes";
 const pillRolloutStates = [
   RolloutState.CREATED,
@@ -132,6 +135,8 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
   const [selection, setSelection] = useState<RolloutPillSelection | null>(null);
   const rolloutsRef = useRef<RolloutRecord[]>([]);
   const lanesRef = useRef<RolloutLane[]>([]);
+  const missingLaneRolloutIdRef = useRef<string | null>(null);
+  const exactLaneValidationRef = useRef<{ rolloutId: string; validatedAt: number } | null>(null);
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const pendingFreshRefreshRef = useRef(false);
   const visibleSelection =
@@ -166,12 +171,10 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
       pendingFreshRefreshRef.current = false;
       let refreshPromise: Promise<void>;
       refreshPromise = (async () => {
-        if (!canReadRollouts) {
-          rolloutsRef.current = [];
-        }
-        if (!canReadChannels) {
-          lanesRef.current = [];
-        }
+        let nextRollouts = canReadRollouts ? rolloutsRef.current : [];
+        let nextLanes = canReadChannels ? lanesRef.current : [];
+        let listedLanes: RolloutLane[] | null = null;
+        let exactLaneLookupAllowed = canReadChannels;
         const [rolloutsResult, lanesResult] = await Promise.allSettled([
           canReadRollouts
             ? rolloutClient.listRollouts(create(ListRolloutsRequestSchema, { states: pillRolloutStates }), { signal })
@@ -189,27 +192,106 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
 
         if (rolloutsResult.status === "fulfilled") {
           if (rolloutsResult.value) {
-            rolloutsRef.current = rolloutsResult.value.rollouts.map(mapRollout);
+            nextRollouts = rolloutsResult.value.rollouts.map(mapRollout);
           }
         } else if (!isAbortError(rolloutsResult.reason, signal)) {
           if (isAuthOrPermissionError(rolloutsResult.reason)) {
-            rolloutsRef.current = [];
+            nextRollouts = [];
           }
           handleAuthErrors({ error: rolloutsResult.reason });
         }
 
         if (lanesResult.status === "fulfilled") {
           if (lanesResult.value) {
-            lanesRef.current = lanesResult.value.lanes.map((lane) => mapRolloutLane(lane));
+            listedLanes = lanesResult.value.lanes.map((lane) => mapRolloutLane(lane));
+            nextLanes = listedLanes;
           }
         } else if (!isAbortError(lanesResult.reason, signal)) {
           if (isAuthOrPermissionError(lanesResult.reason)) {
-            lanesRef.current = [];
+            nextLanes = [];
+            exactLaneLookupAllowed = false;
           }
           handleAuthErrors({ error: lanesResult.reason });
         }
 
-        const nextSelection = selectPill(rolloutsRef.current, lanesRef.current);
+        let nextSelection = selectPill(nextRollouts, nextLanes);
+        const selectedRolloutId =
+          nextSelection?.source === "rollout" || nextSelection?.source === "completedRollout"
+            ? nextSelection.rolloutId
+            : undefined;
+        const cachedExactLane = selectedRolloutId ? laneForRollout(lanesRef.current, selectedRolloutId) : undefined;
+        const listedExactLane =
+          listedLanes && selectedRolloutId ? laneForRollout(listedLanes, selectedRolloutId) : undefined;
+        if (listedExactLane && selectedRolloutId) {
+          missingLaneRolloutIdRef.current = null;
+          exactLaneValidationRef.current = { rolloutId: selectedRolloutId, validatedAt: Date.now() };
+        }
+        if (listedLanes && !forceFresh && selectedRolloutId && !listedExactLane) {
+          if (cachedExactLane) {
+            nextLanes = [...listedLanes, cachedExactLane];
+            nextSelection = selectPill(nextRollouts, nextLanes);
+          }
+        }
+
+        const exactLaneValidation = exactLaneValidationRef.current;
+        const cachedExactLaneNeedsRevalidation =
+          cachedExactLane !== undefined &&
+          (exactLaneValidation === null ||
+            exactLaneValidation.rolloutId !== selectedRolloutId ||
+            Date.now() - exactLaneValidation.validatedAt >= exactLaneRevalidationIntervalMs);
+        const shouldLoadExactLane =
+          exactLaneLookupAllowed &&
+          selectedRolloutId &&
+          !listedExactLane &&
+          (forceFresh || !laneForRollout(nextLanes, selectedRolloutId) || cachedExactLaneNeedsRevalidation) &&
+          (forceFresh || cachedExactLaneNeedsRevalidation || missingLaneRolloutIdRef.current !== selectedRolloutId);
+        if (shouldLoadExactLane) {
+          try {
+            const exactLaneResult = await rolloutClient.getRolloutLaneForRollout(
+              create(GetRolloutLaneForRolloutRequestSchema, { rolloutId: selectedRolloutId }),
+              { signal },
+            );
+            if (signal.aborted) {
+              return;
+            }
+            if (exactLaneResult.lane) {
+              const exactLane = mapRolloutLane(exactLaneResult.lane);
+              nextLanes = [...nextLanes.filter((lane) => lane.id !== exactLane.id), exactLane];
+              nextSelection = selectPill(nextRollouts, nextLanes);
+              missingLaneRolloutIdRef.current = null;
+              exactLaneValidationRef.current = { rolloutId: selectedRolloutId, validatedAt: Date.now() };
+            }
+          } catch (error) {
+            if (signal.aborted || isAbortError(error, signal)) {
+              return;
+            }
+            if (isAuthOrPermissionError(error)) {
+              nextLanes = [];
+              nextSelection = selectPill(nextRollouts, nextLanes);
+              exactLaneValidationRef.current = null;
+            }
+            if (error instanceof ConnectError && error.code === Code.NotFound) {
+              if (cachedExactLane) {
+                nextLanes = nextLanes.filter((lane) => lane.id !== cachedExactLane.id);
+                nextSelection = selectPill(nextRollouts, nextLanes);
+              }
+              missingLaneRolloutIdRef.current = selectedRolloutId;
+              exactLaneValidationRef.current = null;
+            } else {
+              if (!isAuthOrPermissionError(error) && cachedExactLane) {
+                nextLanes = [...nextLanes.filter((lane) => lane.id !== cachedExactLane.id), cachedExactLane];
+                nextSelection = selectPill(nextRollouts, nextLanes);
+                exactLaneValidationRef.current = { rolloutId: selectedRolloutId, validatedAt: Date.now() };
+              }
+              handleAuthErrors({ error });
+            }
+          }
+        }
+        if (signal.aborted) {
+          return;
+        }
+        rolloutsRef.current = nextRollouts;
+        lanesRef.current = nextLanes;
         setSelection((currentSelection) =>
           currentSelection?.fingerprint === nextSelection?.fingerprint ? currentSelection : nextSelection,
         );
@@ -241,6 +323,8 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
     if (!enabled || (!canReadRollouts && !canReadChannels)) {
       rolloutsRef.current = [];
       lanesRef.current = [];
+      missingLaneRolloutIdRef.current = null;
+      exactLaneValidationRef.current = null;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- discard cached remote data when polling access ends
       setSelection(null);
       return;
@@ -276,7 +360,7 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
 
   return useMemo(() => {
     const activeEvent =
-      visibleSelection?.source === "rollout" && !canReadChannels
+      visibleSelection && visibleSelection.source !== "convergence" && !canReadChannels
         ? { ...visibleSelection.event, scopeLabel: "Rollout lane" }
         : (visibleSelection?.event ?? null);
     return {

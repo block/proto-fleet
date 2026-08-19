@@ -43,6 +43,13 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 			_, err := handler.GetRolloutLane(ctx, connect.NewRequest(&pb.GetRolloutLaneRequest{LaneId: rolloutID}))
 			return err
 		}},
+		{"GetRolloutLaneForRollout", func() error {
+			_, err := handler.GetRolloutLaneForRollout(
+				ctx,
+				connect.NewRequest(&pb.GetRolloutLaneForRolloutRequest{RolloutId: rolloutID}),
+			)
+			return err
+		}},
 		{"ListRolloutLanes", func() error {
 			_, err := handler.ListRolloutLanes(ctx, connect.NewRequest(&pb.ListRolloutLanesRequest{}))
 			return err
@@ -272,6 +279,58 @@ func TestListRolloutLanesForwardsActiveFirmwareConvergenceFilter(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, laneService.activeFirmwareConvergenceOnly)
 	assert.Equal(t, int64(42), laneService.listOrgID)
+}
+
+func TestGetRolloutLaneForRolloutUsesChannelReadAndOrganizationScope(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	laneID := uuid.New()
+	laneService := &recordingLaneService{
+		laneForRollout: &betweenchannel.Lane{
+			ID:    laneID,
+			OrgID: 42,
+			Label: "Stable",
+		},
+	}
+	handler := NewHandler(nil, laneService)
+	request := connect.NewRequest(&pb.GetRolloutLaneForRolloutRequest{
+		RolloutId: rolloutID.String(),
+	})
+
+	_, err := handler.GetRolloutLaneForRollout(
+		rolloutHandlerContext(t, 42, 9, authz.PermRolloutRead),
+		request,
+	)
+	assertPermissionDenied(t, err)
+
+	response, err := handler.GetRolloutLaneForRollout(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelRead),
+		request,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), laneService.laneForRolloutOrgID)
+	assert.Equal(t, rolloutID, laneService.laneForRolloutID)
+	assert.Equal(t, laneID.String(), response.Msg.GetLane().GetLaneId())
+	assert.Equal(t, "Stable", response.Msg.GetLane().GetLabel())
+}
+
+func TestGetRolloutLaneForRolloutPreservesNotFound(t *testing.T) {
+	t.Parallel()
+
+	handler := NewHandler(nil, &recordingLaneService{
+		laneForRolloutErr: fleeterror.NewNotFoundError("rollout lane not found"),
+	})
+	_, err := handler.GetRolloutLaneForRollout(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelRead),
+		connect.NewRequest(&pb.GetRolloutLaneForRolloutRequest{
+			RolloutId: uuid.NewString(),
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
 }
 
 func TestGetRolloutLaneAssignmentsUsesChannelReadAndOrganizationScope(t *testing.T) {
@@ -719,6 +778,10 @@ type recordingLaneService struct {
 	deleted                       betweenchannel.DeleteLaneRequest
 	updatedMembership             betweenchannel.UpdateMembershipRequest
 	deleteErr                     error
+	laneForRollout                *betweenchannel.Lane
+	laneForRolloutErr             error
+	laneForRolloutOrgID           int64
+	laneForRolloutID              uuid.UUID
 	listOrgID                     int64
 	activeFirmwareConvergenceOnly bool
 	listMembersRequest            betweenchannel.ListMembersRequest
@@ -729,6 +792,16 @@ type recordingLaneService struct {
 	assignmentIdentifiers         []string
 	created                       betweenchannel.CreateLaneRequest
 	preview                       betweenchannel.InitialEnforcementPreview
+}
+
+func (s *recordingLaneService) GetLaneForRollout(
+	_ context.Context,
+	orgID int64,
+	rolloutID uuid.UUID,
+) (*betweenchannel.Lane, error) {
+	s.laneForRolloutOrgID = orgID
+	s.laneForRolloutID = rolloutID
+	return s.laneForRollout, s.laneForRolloutErr
 }
 
 func (s *recordingLaneService) PreviewLane(

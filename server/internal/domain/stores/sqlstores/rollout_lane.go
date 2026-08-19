@@ -510,6 +510,32 @@ func (s *SQLRolloutLaneStore) GetLane(
 	return lane, nil
 }
 
+func (s *SQLRolloutLaneStore) GetLaneForRollout(
+	ctx context.Context,
+	orgID int64,
+	rolloutID uuid.UUID,
+) (*betweenchannel.Lane, error) {
+	q := s.GetQueries(ctx)
+	row, err := q.GetRolloutLaneForRollout(
+		ctx,
+		sqlc.GetRolloutLaneForRolloutParams{
+			RolloutID: uuid.NullUUID{UUID: rolloutID, Valid: true},
+			OrgID:     orgID,
+		},
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, betweenchannel.ErrLaneNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get rollout lane for rollout: %w", err)
+	}
+	lane, err := loadRolloutLane(ctx, q, row, false, nil)
+	if err != nil {
+		return nil, fmt.Errorf("load rollout lane for rollout: %w", err)
+	}
+	return lane, nil
+}
+
 func (s *SQLRolloutLaneStore) ListLanes(
 	ctx context.Context,
 	orgID int64,

@@ -174,6 +174,7 @@ var ProcedurePermissions = map[string]string{
 	curtailmentv1connect.CurtailmentServiceIngestCurtailmentSignalProcedure:             authz.PermCurtailmentIngest,
 
 	rolloutv1connect.RolloutServiceGetRolloutLaneProcedure:                     authz.PermChannelRead,
+	rolloutv1connect.RolloutServiceGetRolloutLaneForRolloutProcedure:           authz.PermChannelRead,
 	rolloutv1connect.RolloutServiceListRolloutLanesProcedure:                   authz.PermChannelRead,
 	rolloutv1connect.RolloutServiceListRolloutLaneMembersProcedure:             authz.PermChannelRead,
 	rolloutv1connect.RolloutServiceGetRolloutLaneAssignmentsProcedure:          authz.PermChannelRead,

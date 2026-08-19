@@ -21,6 +21,60 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
 
+func TestGetRolloutLaneForRolloutUsesExactOrganizationScopedRelationship(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Exact linked lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "exact-linked-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	started, err := service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Exact linked rollout",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "b")},
+		Batches: []rollout.CreateBatch{{
+			Label:   "all",
+			Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+		}},
+		IdempotencyKey: "exact-linked-rollout",
+		Reason:         "verify exact lookup",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+
+	actual, err := service.GetLaneForRollout(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	assert.Equal(t, lane.ID, actual.ID)
+	assert.Equal(t, "Exact linked lane", actual.Label)
+	var linkedRolloutID *uuid.UUID
+	for _, channel := range actual.Channels {
+		if channel.RolloutID != nil && *channel.RolloutID == started.Rollout.ID {
+			linkedRolloutID = channel.RolloutID
+			break
+		}
+	}
+	require.NotNil(t, linkedRolloutID)
+
+	_, err = service.GetLaneForRollout(t.Context(), orgID+1, started.Rollout.ID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err), "got %v", err)
+
+	_, err = service.GetLaneForRollout(t.Context(), orgID, uuid.New())
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err), "got %v", err)
+}
+
 func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

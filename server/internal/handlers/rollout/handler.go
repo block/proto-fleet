@@ -32,6 +32,7 @@ type rolloutService interface {
 	Complete(ctx context.Context, req rolloutDomain.ControlRequest) (*rolloutDomain.Rollout, error)
 }
 
+//nolint:interfacebloat // The Connect handler exposes the complete rollout-lane service surface.
 type laneService interface {
 	PreviewLane(
 		ctx context.Context,
@@ -44,6 +45,11 @@ type laneService interface {
 		laneID uuid.UUID,
 		includeFirmwareConvergenceMembers bool,
 		firmwareConvergenceMembersUpdatedAfter *time.Time,
+	) (*betweenchannel.Lane, error)
+	GetLaneForRollout(
+		ctx context.Context,
+		orgID int64,
+		rolloutID uuid.UUID,
 	) (*betweenchannel.Lane, error)
 	ListLanes(ctx context.Context, orgID int64, activeFirmwareConvergenceOnly bool) ([]betweenchannel.Lane, error)
 	ListMembers(
@@ -231,6 +237,36 @@ func (h *Handler) GetRolloutLane(
 		return nil, err
 	}
 	return connect.NewResponse(&pb.GetRolloutLaneResponse{
+		Lane: laneToProto(lane),
+	}), nil
+}
+
+func (h *Handler) GetRolloutLaneForRollout(
+	ctx context.Context,
+	req *connect.Request[pb.GetRolloutLaneForRolloutRequest],
+) (*connect.Response[pb.GetRolloutLaneForRolloutResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelRead,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	rolloutID, err := parseRolloutID(req.Msg.GetRolloutId())
+	if err != nil {
+		return nil, err
+	}
+	lane, err := h.laneService.GetLaneForRollout(ctx, info.OrganizationID, rolloutID)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.GetRolloutLaneForRolloutResponse{
 		Lane: laneToProto(lane),
 	}), nil
 }

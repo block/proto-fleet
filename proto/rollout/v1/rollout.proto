@@ -10,6 +10,7 @@ service RolloutService {
     rpc PreviewRolloutLane(PreviewRolloutLaneRequest) returns (PreviewRolloutLaneResponse);
     rpc CreateRolloutLane(CreateRolloutLaneRequest) returns (CreateRolloutLaneResponse);
     rpc GetRolloutLane(GetRolloutLaneRequest) returns (GetRolloutLaneResponse);
+    rpc GetRolloutLaneForRollout(GetRolloutLaneForRolloutRequest) returns (GetRolloutLaneForRolloutResponse);
     rpc ListRolloutLanes(ListRolloutLanesRequest) returns (ListRolloutLanesResponse);
     rpc ListRolloutLaneMembers(ListRolloutLaneMembersRequest) returns (ListRolloutLaneMembersResponse);
     rpc GetRolloutLaneAssignments(GetRolloutLaneAssignmentsRequest) returns (GetRolloutLaneAssignmentsResponse);
@@ -82,6 +83,14 @@ message GetRolloutLaneRequest {
 }
 
 message GetRolloutLaneResponse {
+    RolloutLane lane = 1;
+}
+
+message GetRolloutLaneForRolloutRequest {
+    string rollout_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetRolloutLaneForRolloutResponse {
     RolloutLane lane = 1;
 }
 

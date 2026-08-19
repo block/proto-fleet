@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
   RolloutLaneSchema,
@@ -13,16 +14,23 @@ import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import { useRolloutPillData } from "@/protoFleet/components/PageHeader/useRolloutPillData";
 import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 
-const { listRolloutLanes, listRollouts, getDeviceSet, handleAuthErrors, navigate, useHasPermission } = vi.hoisted(
-  () => ({
-    listRolloutLanes: vi.fn(),
-    listRollouts: vi.fn(),
-    getDeviceSet: vi.fn(),
-    handleAuthErrors: vi.fn(),
-    navigate: vi.fn(),
-    useHasPermission: vi.fn(),
-  }),
-);
+const {
+  getRolloutLaneForRollout,
+  listRolloutLanes,
+  listRollouts,
+  getDeviceSet,
+  handleAuthErrors,
+  navigate,
+  useHasPermission,
+} = vi.hoisted(() => ({
+  getRolloutLaneForRollout: vi.fn(),
+  listRolloutLanes: vi.fn(),
+  listRollouts: vi.fn(),
+  getDeviceSet: vi.fn(),
+  handleAuthErrors: vi.fn(),
+  navigate: vi.fn(),
+  useHasPermission: vi.fn(),
+}));
 
 vi.mock("react-router-dom", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-router-dom")>()),
@@ -31,6 +39,7 @@ vi.mock("react-router-dom", async (importOriginal) => ({
 
 vi.mock("@/protoFleet/api/clients", () => ({
   rolloutClient: {
+    getRolloutLaneForRollout,
     listRolloutLanes,
     listRollouts,
   },
@@ -44,11 +53,11 @@ vi.mock("@/protoFleet/store", () => ({
   useHasPermission,
 }));
 
-function lane(active = true, laneId = "lane-1", label = "Stable production") {
+function lane(active = true, laneId = "lane-1", label = "Stable production", rolloutId = "rollout-1") {
   return create(RolloutLaneSchema, {
     laneId,
     label,
-    channels: [{ channelId: 42n, releaseSetId: 8n, position: 1, rolloutId: "rollout-1" }],
+    channels: [{ channelId: 42n, releaseSetId: 8n, position: 1, rolloutId }],
     firmwareConvergence: {
       totalCount: 6,
       pendingCount: active ? 3 : 0,
@@ -100,6 +109,14 @@ async function runInitialRefresh() {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("useRolloutPillData", () => {
   beforeEach(() => {
     const storedValues = new Map<string, string>();
@@ -112,6 +129,7 @@ describe("useRolloutPillData", () => {
     vi.clearAllMocks();
     localStorage.clear();
     grantPermissions("rollout:read", "channel:read");
+    getRolloutLaneForRollout.mockResolvedValue({ lane: undefined });
     listRolloutLanes.mockResolvedValue({ lanes: [] });
     listRollouts.mockResolvedValue({ rollouts: [] });
   });
@@ -133,6 +151,149 @@ describe("useRolloutPillData", () => {
     expect(result.current.activeEvent?.title).toBe("Stable 2.0");
     expect(result.current.detailsPath).toBe("/settings/firmware?tab=rolloutLanes");
     expect(result.current.hasVisiblePill).toBe(true);
+    expect(getRolloutLaneForRollout).not.toHaveBeenCalled();
+  });
+
+  it("resolves the exact lane label for an active rollout without active convergence", async () => {
+    getRolloutLaneForRollout.mockResolvedValue({
+      lane: lane(false, "lane-1", "Stable production", "rollout-1"),
+    });
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+
+    expect(result.current.activeEvent?.scopeLabel).toBe("Stable production");
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
+    expect(getRolloutLaneForRollout.mock.calls[0]?.[0]).toMatchObject({ rolloutId: "rollout-1" });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(result.current.activeEvent?.scopeLabel).toBe("Stable production");
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
+  });
+
+  it("resolves the exact lane label for the latest completed rollout result", async () => {
+    getRolloutLaneForRollout.mockResolvedValue({
+      lane: lane(false, "lane-completed", "Completed lane", "completed"),
+    });
+    listRollouts.mockResolvedValue({
+      rollouts: [completedRollout("completed", RolloutState.COMPLETED, "2026-08-19T01:00:00Z")],
+    });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+
+    expect(result.current.activeEvent?.scopeLabel).toBe("Completed lane");
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
+    expect(getRolloutLaneForRollout.mock.calls[0]?.[0]).toMatchObject({ rolloutId: "completed" });
+  });
+
+  it("keeps the generic label when the exact lane relationship is not found", async () => {
+    getRolloutLaneForRollout.mockRejectedValue(new ConnectError("rollout lane not found", Code.NotFound));
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+
+    expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
+    expect(handleAuthErrors).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
+
+    act(() => window.dispatchEvent(new CustomEvent(ROLLOUT_CHANGED_EVENT)));
+    await act(async () => {});
+    expect(getRolloutLaneForRollout).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a cached exact lane after a fresh lookup no longer finds it", async () => {
+    getRolloutLaneForRollout
+      .mockResolvedValueOnce({ lane: lane() })
+      .mockRejectedValueOnce(new ConnectError("rollout lane not found", Code.NotFound));
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(result.current.activeEvent?.scopeLabel).toBe("Stable production");
+
+    act(() => window.dispatchEvent(new CustomEvent(ROLLOUT_CHANGED_EVENT)));
+    await act(async () => {});
+
+    expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
+    expect(getRolloutLaneForRollout).toHaveBeenCalledTimes(2);
+  });
+
+  it("periodically revalidates and evicts an archived exact lane", async () => {
+    getRolloutLaneForRollout
+      .mockResolvedValueOnce({ lane: lane() })
+      .mockRejectedValueOnce(new ConnectError("rollout lane not found", Code.NotFound));
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(result.current.activeEvent?.scopeLabel).toBe("Stable production");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(getRolloutLaneForRollout).toHaveBeenCalledTimes(2);
+    expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
+  });
+
+  it("evicts a cached exact lane when forced refresh finds it archived after a list failure", async () => {
+    getRolloutLaneForRollout
+      .mockResolvedValueOnce({ lane: lane() })
+      .mockRejectedValueOnce(new ConnectError("rollout lane not found", Code.NotFound));
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(result.current.activeEvent?.scopeLabel).toBe("Stable production");
+
+    listRolloutLanes.mockRejectedValueOnce(new ConnectError("temporarily unavailable", Code.Unavailable));
+    act(() => window.dispatchEvent(new CustomEvent(ROLLOUT_CHANGED_EVENT)));
+    await act(async () => {});
+
+    expect(getRolloutLaneForRollout).toHaveBeenCalledTimes(2);
+    expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
+  });
+
+  it("preserves a cached exact lane after a transient fresh lookup failure", async () => {
+    const transientError = new ConnectError("temporarily unavailable", Code.Unavailable);
+    getRolloutLaneForRollout.mockResolvedValueOnce({ lane: lane() }).mockRejectedValueOnce(transientError);
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(result.current.activeEvent?.scopeLabel).toBe("Stable production");
+
+    act(() => window.dispatchEvent(new CustomEvent(ROLLOUT_CHANGED_EVENT)));
+    await act(async () => {});
+
+    expect(result.current.activeEvent?.scopeLabel).toBe("Stable production");
+    expect(getRolloutLaneForRollout).toHaveBeenCalledTimes(2);
+    expect(handleAuthErrors).toHaveBeenCalledWith({ error: transientError });
+  });
+
+  it("does not attempt the exact lookup after channel permission is denied", async () => {
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+    listRolloutLanes.mockRejectedValue(new ConnectError("access denied", Code.PermissionDenied));
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+
+    expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
+    expect(getRolloutLaneForRollout).not.toHaveBeenCalled();
+    expect(handleAuthErrors).toHaveBeenCalledWith({ error: expect.any(ConnectError) });
   });
 
   it("falls back to the first active initial lane in server order", async () => {
@@ -210,6 +371,7 @@ describe("useRolloutPillData", () => {
     expect(result.current.hasVisiblePill).toBe(true);
     expect(listRollouts).toHaveBeenCalledOnce();
     expect(listRolloutLanes).not.toHaveBeenCalled();
+    expect(getRolloutLaneForRollout).not.toHaveBeenCalled();
     expect(useHasPermission).toHaveBeenCalledWith("rollout:read");
     expect(useHasPermission).toHaveBeenCalledWith("channel:read");
   });
@@ -227,11 +389,12 @@ describe("useRolloutPillData", () => {
   });
 
   it("removes the cached lane label immediately when channel read is revoked", async () => {
-    listRolloutLanes.mockResolvedValue({ lanes: [lane()] });
+    getRolloutLaneForRollout.mockResolvedValue({ lane: lane() });
     listRollouts.mockResolvedValue({ rollouts: [rollout()] });
     const { result, rerender } = renderHook(() => useRolloutPillData());
     await runInitialRefresh();
     expect(result.current.activeEvent?.scopeLabel).toBe("Stable production");
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
 
     listRollouts.mockReturnValueOnce(new Promise(() => {}));
     grantPermissions("rollout:read");
@@ -240,8 +403,81 @@ describe("useRolloutPillData", () => {
     expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
     expect(result.current.detailsPath).toBeNull();
     expect(result.current.hasVisiblePill).toBe(true);
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
     await runInitialRefresh();
     expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
+  });
+
+  it("sanitizes a completed exact lane label immediately when channel read is revoked", async () => {
+    getRolloutLaneForRollout.mockResolvedValue({
+      lane: lane(false, "lane-completed", "Completed lane", "completed"),
+    });
+    listRollouts.mockResolvedValue({
+      rollouts: [completedRollout("completed", RolloutState.COMPLETED, "2026-08-19T01:00:00Z")],
+    });
+    const { result, rerender } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(result.current.activeEvent?.scopeLabel).toBe("Completed lane");
+
+    grantPermissions("rollout:read");
+    rerender();
+
+    expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
+    expect(result.current.detailsPath).toBeNull();
+  });
+
+  it("aborts an in-flight exact lane lookup on unmount", async () => {
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+    getRolloutLaneForRollout.mockImplementation(
+      (_request: unknown, options: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(new ConnectError("canceled", Code.Canceled)), {
+            once: true,
+          });
+        }),
+    );
+
+    const hook = renderHook(() => useRolloutPillData());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
+    const options = getRolloutLaneForRollout.mock.calls[0]?.[1] as { signal: AbortSignal };
+    expect(options.signal.aborted).toBe(false);
+
+    hook.unmount();
+    expect(options.signal.aborted).toBe(true);
+  });
+
+  it("does not let a stale exact lookup overwrite a newer selection", async () => {
+    const staleLookup = deferred<{ lane: ReturnType<typeof lane> }>();
+    getRolloutLaneForRollout
+      .mockReturnValueOnce(staleLookup.promise)
+      .mockResolvedValueOnce({ lane: lane(false, "lane-new", "New lane", "rollout-1") });
+    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+    const { result, rerender } = renderHook(() => useRolloutPillData());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(getRolloutLaneForRollout).toHaveBeenCalledOnce();
+
+    grantPermissions("rollout:read");
+    rerender();
+    await runInitialRefresh();
+    expect(result.current.activeEvent?.scopeLabel).toBe("Rollout lane");
+
+    grantPermissions("rollout:read", "channel:read");
+    rerender();
+    await runInitialRefresh();
+    expect(result.current.activeEvent?.scopeLabel).toBe("New lane");
+    expect(getRolloutLaneForRollout).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      staleLookup.resolve({ lane: lane(false, "lane-old", "Stale lane", "rollout-1") });
+      await Promise.resolve();
+    });
+    expect(result.current.activeEvent?.scopeLabel).toBe("New lane");
   });
 
   it("does not poll when disabled or when both permissions are absent", async () => {
