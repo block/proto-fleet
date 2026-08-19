@@ -55,7 +55,7 @@ func ResetSuperAdminPassword(ctx context.Context, passwordStdin bool) error {
 }
 
 func resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker string, passwordStdin bool) ([]string, error) {
-	command := []string{"--rm", "-T", "fleet-api", "/app/fleetd", "admin", "reset-password"}
+	command := []string{"--rm", "--no-deps", "-T", "fleet-api", "/app/fleetd", "admin", "reset-password"}
 	if passwordStdin {
 		command = append(command, "--password-stdin")
 	}

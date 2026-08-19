@@ -262,7 +262,7 @@ func ownsHAGrafanaVolume(deps uninstallDependencies) (bool, error) {
 
 func removeHAArtifacts(ctx context.Context, deps uninstallDependencies, databaseNode bool) error {
 	files := []string{
-		serviceUnit, firewallUnit, nftablesDropIn,
+		serviceUnit, firewallUnit, nftablesDropIn, haActiveInstallMarker,
 	}
 	if databaseNode {
 		files = append(files,

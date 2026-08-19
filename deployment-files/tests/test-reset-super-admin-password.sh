@@ -10,6 +10,7 @@ CALL_LOG="$TMP_DIR/docker-call.log"
 STDIN_LOG="$TMP_DIR/docker-stdin.log"
 HA_CONFIG_DIR="$TMP_DIR/ha-config"
 HA_NODE_ENV="$HA_CONFIG_DIR/node.env"
+HA_ACTIVE_INSTALL="$HA_CONFIG_DIR/active-install"
 HA_CALL_LOG="$TMP_DIR/fleet-ha-call.log"
 HA_STDIN_LOG="$TMP_DIR/fleet-ha-stdin.log"
 HA_DOCKER_CALL_LOG="$TMP_DIR/ha-docker-call.log"
@@ -82,6 +83,28 @@ for override in COMPOSE_PROJECT_NAME DB_DSN DB_PASSWORD DOCKER_HOST DOCKER_CONTE
     fi
 done
 
+for rejected_arg in --db-explicit-dsn --db-address --username unexpected; do
+    REJECTED_ARG_CALL_LOG="$TMP_DIR/rejected-${rejected_arg#--}.docker-call.log"
+    if PATH="$BIN_DIR:$PATH" CALL_LOG="$REJECTED_ARG_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+        "$STAGE/reset-super-admin-password.sh" "$rejected_arg" >/dev/null 2>&1; then
+        fail "unsupported argument $rejected_arg was accepted"
+    elif [ -e "$REJECTED_ARG_CALL_LOG" ]; then
+        fail "unsupported argument $rejected_arg reached Docker"
+    else
+        echo "ok: rejects unsupported argument $rejected_arg before Docker"
+    fi
+done
+
+MULTI_ARG_CALL_LOG="$TMP_DIR/multiple-args.docker-call.log"
+if PATH="$BIN_DIR:$PATH" CALL_LOG="$MULTI_ARG_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+    "$STAGE/reset-super-admin-password.sh" --password-stdin --db-address database >/dev/null 2>&1; then
+    fail "multiple recovery arguments were accepted"
+elif [ -e "$MULTI_ARG_CALL_LOG" ]; then
+    fail "multiple recovery arguments reached Docker"
+else
+    echo "ok: rejects multiple arguments before Docker"
+fi
+
 SAME_PROJECT_CALL_LOG="$TMP_DIR/same-project-docker-call.log"
 if ! COMPOSE_PROJECT_NAME=fleet-recovery PATH="$BIN_DIR:$PATH" \
     CALL_LOG="$SAME_PROJECT_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
@@ -93,6 +116,7 @@ assert_contains "accepts a matching caller project identity" \
 
 mkdir -p "$STAGE/ha" "$HA_CONFIG_DIR"
 printf 'HA_NODE_NAME=fleet-1\n' > "$HA_NODE_ENV"
+printf '%s\n' "$STAGE" > "$HA_ACTIVE_INSTALL"
 cat > "$STAGE/ha/fleet-ha" <<'EOF'
 #!/usr/bin/env bash
 printf 'args=' > "$HA_CALL_LOG"
@@ -101,6 +125,7 @@ printf '\n' >> "$HA_CALL_LOG"
 cat > "$HA_STDIN_LOG"
 EOF
 chmod +x "$STAGE/ha/fleet-ha"
+rm "$STAGE/.env"
 
 if ! printf 'ha-replacement-password\n' | \
     PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
@@ -120,6 +145,44 @@ if [ -e "$HA_DOCKER_CALL_LOG" ]; then
 else
     echo "ok: HA recovery does not invoke the standalone topology"
 fi
+
+printf 'COMPOSE_PROJECT_NAME=fleet-recovery\n' > "$STAGE/.env"
+AMBIGUOUS_CALL_LOG="$TMP_DIR/ambiguous-docker-call.log"
+if PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
+    CALL_LOG="$AMBIGUOUS_CALL_LOG" "$STAGE/reset-super-admin-password.sh" >/dev/null 2>&1; then
+    fail "ambiguous standalone and HA state was accepted"
+elif [ -e "$AMBIGUOUS_CALL_LOG" ]; then
+    fail "ambiguous standalone and HA state reached Docker"
+else
+    echo "ok: ambiguous standalone and HA state fails closed before Docker"
+fi
+
+rm "$STAGE/.env"
+
+printf '%s\n' "$TMP_DIR/not-this-deployment" > "$HA_ACTIVE_INSTALL"
+MISMATCH_CALL_LOG="$TMP_DIR/mismatched-marker-docker-call.log"
+if PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
+    CALL_LOG="$MISMATCH_CALL_LOG" "$STAGE/reset-super-admin-password.sh" >/dev/null 2>&1; then
+    fail "mismatched HA installation marker was accepted"
+elif [ -e "$MISMATCH_CALL_LOG" ]; then
+    fail "mismatched HA installation marker reached Docker"
+else
+    echo "ok: mismatched HA installation marker fails closed before Docker"
+fi
+printf '%s\n' "$STAGE" > "$HA_ACTIVE_INSTALL"
+
+rm "$HA_ACTIVE_INSTALL"
+printf 'COMPOSE_PROJECT_NAME=fleet-recovery\n' > "$STAGE/.env"
+STALE_HA_CALL_LOG="$TMP_DIR/stale-ha-docker-call.log"
+if ! PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
+    CALL_LOG="$STALE_HA_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+    "$STAGE/reset-super-admin-password.sh"; then
+    fail "stale unmarked HA configuration blocked standalone recovery"
+fi
+assert_contains "ignores stale unmarked HA configuration" \
+    " <--project-name> <fleet-recovery>" "$STALE_HA_CALL_LOG"
+rm "$STAGE/.env"
+printf '%s\n' "$STAGE" > "$HA_ACTIVE_INSTALL"
 
 chmod -x "$STAGE/ha/fleet-ha"
 if PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \

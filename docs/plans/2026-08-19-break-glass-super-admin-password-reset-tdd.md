@@ -58,9 +58,10 @@ The operator-facing command is a release-bundled wrapper:
   mark it executable. It detects the installed topology: standalone uses its
   persisted Compose project and `.env`; HA delegates to `fleet-ha
   reset-password`, which selects the generated HA environment, project, and
-  overlay. Both paths pin the local Docker daemon and reject caller database
-  targeting overrides. Piped stdin uses non-TTY mode. Raw Compose details stay
-  internal.
+  overlay. An install marker distinguishes active HA state from retained HA
+  data, and ambiguous topology fails closed. Both paths pin the local Docker
+  daemon and reject extra arguments or caller database targeting overrides.
+  Piped stdin uses non-TTY mode. Raw Compose details stay internal.
 - `run-fleet.sh` requires database connection overrides to match `.env`, so
   recovery always has an authoritative persisted target.
 - Restructure `fleetd` into kong commands with the server as the default and an

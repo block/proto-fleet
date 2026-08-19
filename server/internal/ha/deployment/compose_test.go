@@ -58,7 +58,7 @@ func TestResetSuperAdminPasswordComposeArgsUseInstalledHAProfile(t *testing.T) {
 		"--env-file /etc/proto-fleet/ha/node.env",
 		"--file " + filepath.Join(root, "docker-compose.yaml"),
 		"--file " + filepath.Join(root, "ha/fleet-compose.yaml"),
-		"run --rm -T fleet-api /app/fleetd admin reset-password --password-stdin",
+		"run --rm --no-deps -T fleet-api /app/fleetd admin reset-password --password-stdin",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("reset args %q do not contain %q", args, expected)

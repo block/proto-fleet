@@ -40,6 +40,7 @@ func TestUninstallDatabaseNodePreservesPersistentState(t *testing.T) {
 		"rm -f -- "+dockerDropIn+" "+dockerRecoveryDropIn,
 		"systemctl disable --now proto-fleet-ha-firewall.service",
 		"nft delete table inet proto_fleet_ha",
+		"rm -f -- "+serviceUnit+" "+firewallUnit+" "+nftablesDropIn+" "+haActiveInstallMarker,
 	)
 
 	joined := strings.Join(calls, "\n")

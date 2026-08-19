@@ -88,6 +88,8 @@ printf '%s\n' "$NEW_PASSWORD" | ./reset-super-admin-password.sh --password-stdin
 Supplied passwords must contain at least 8 characters and no more than 72
 bytes; the success message does not echo them. The command refuses to choose
 an account if the database contains zero or multiple live SUPER_ADMIN users.
+It rejects all other options and fails closed if both standalone and HA
+installation state appear active.
 
 ## One-click upgrades
 
