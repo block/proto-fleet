@@ -56,9 +56,9 @@ The operator-facing command is a release-bundled wrapper:
 
 - Add `deployment-files/reset-super-admin-password.sh` to release artifacts and
   mark it executable. It detects the installed topology: standalone uses its
-  Compose project and `.env`; HA delegates to `fleet-ha reset-password`, which
-  selects the generated HA environment, project, and overlay. Piped stdin uses
-  non-TTY mode. Raw Compose details stay internal.
+  persisted Compose project and `.env`; HA delegates to `fleet-ha
+  reset-password`, which selects the generated HA environment, project, and
+  overlay. Piped stdin uses non-TTY mode. Raw Compose details stay internal.
 - Restructure `fleetd` into kong commands with the server as the default and an
   `admin reset-password` command. Keep the current server `Config` at the kong
   root (or map it equivalently), so bare `fleetd` and existing root-level

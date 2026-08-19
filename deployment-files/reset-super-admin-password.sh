@@ -7,6 +7,7 @@ HA_NODE_ENV="$HA_CONFIG_DIR/node.env"
 HA_COMMAND="$DEPLOYMENT_DIR/ha/fleet-ha"
 ENV_FILE="$DEPLOYMENT_DIR/.env"
 COMPOSE_FILE="$DEPLOYMENT_DIR/docker-compose.yaml"
+COMPOSE_PROJECT_HELPER="$DEPLOYMENT_DIR/scripts/compose-project.sh"
 
 if [ -d "$HA_CONFIG_DIR" ]; then
     if [ ! -f "$HA_NODE_ENV" ] || [ ! -r "$HA_NODE_ENV" ]; then
@@ -28,9 +29,18 @@ if [ ! -f "$COMPOSE_FILE" ] || [ ! -r "$COMPOSE_FILE" ]; then
     echo "Error: $COMPOSE_FILE must be a readable regular file." >&2
     exit 1
 fi
+if [ ! -f "$COMPOSE_PROJECT_HELPER" ] || [ ! -r "$COMPOSE_PROJECT_HELPER" ]; then
+    echo "Error: $COMPOSE_PROJECT_HELPER must be a readable regular file." >&2
+    exit 1
+fi
+
+PROJECT_ROOT="$DEPLOYMENT_DIR"
+source "$COMPOSE_PROJECT_HELPER"
+FLEET_COMPOSE_PROJECT_NAME=$(resolve_compose_project_name) || exit 1
 
 cd "$DEPLOYMENT_DIR"
 exec docker compose \
+    --project-name "$FLEET_COMPOSE_PROJECT_NAME" \
     --project-directory "$DEPLOYMENT_DIR" \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \

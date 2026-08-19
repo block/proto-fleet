@@ -122,12 +122,13 @@ make_stage() {
     HARNESS_UPDATER_STATE_FILE="$runtime/updater-state"
     HARNESS_UPDATER_ENABLED_FILE="$runtime/updater-enabled"
     HARNESS_UPDATER_ENV_FILE="$runtime/updater.env"
-    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
+    mkdir -p "$STAGE/client" "$STAGE/ha" "$STAGE/profiles" "$STAGE/scripts" "$STAGE/server/monitoring/grafana/provisioning/datasources" "$HARNESS_BIN_DIR"
     : > "$HARNESS_CALL_LOG"
     : > "$HARNESS_OUTPUT_LOG"
     printf 'not-found\n' > "$HARNESS_UPDATER_STATE_FILE"
     printf 'false\n' > "$HARNESS_UPDATER_ENABLED_FILE"
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
+    cp "$DEPLOY_DIR/scripts/compose-project.sh" "$STAGE/scripts/"
     "$REAL_AWK" -v env_path="$HARNESS_UPDATER_ENV_FILE" '
         /^HOST_UPDATER_ENV_PATH=/ {
             printf "HOST_UPDATER_ENV_PATH=\"%s\"\n", env_path
@@ -563,9 +564,8 @@ assert_contains "source-tree run reaches teardown in its isolated project" "$HAR
 assert_not_contains "source-tree run does not inspect the packaged updater" \
     "$HARNESS_CALL_LOG" "proto-fleet-updater.service"
 
-# Existing process-level overrides remain authoritative and are reused by
-# volume detection. Do not persist a new multi-install identity here: the
-# surrounding migration and uninstall tools do not support that contract.
+# Existing process-level overrides remain authoritative, are reused by volume
+# detection, and become the durable identity for upgrades and recovery tools.
 make_stage project-override
 printf 'COMPOSE_PROJECT_NAME=persisted-project\n' >> "$STAGE/.env"
 if COMPOSE_PROJECT_NAME=fleet-blue run_stage "$STAGE" --non-interactive --preflight-only; then
@@ -575,6 +575,12 @@ else
 fi
 assert_contains "explicit project override reaches Compose" "$HARNESS_CALL_LOG" "compose --project-name fleet-blue"
 assert_not_contains "process project override beats persisted identity" "$HARNESS_CALL_LOG" "compose --project-name persisted-project"
+if [ "$(grep -c '^COMPOSE_PROJECT_NAME=' "$STAGE/.env")" -eq 1 ] \
+    && grep -q '^COMPOSE_PROJECT_NAME=fleet-blue$' "$STAGE/.env"; then
+    pass "explicit project override is persisted for recovery"
+else
+    fail "explicit project override should become the durable project identity"
+fi
 
 # Compose historically accepted a project identity from the deployment .env.
 # Preserve its last non-empty assignment when the process has no override.

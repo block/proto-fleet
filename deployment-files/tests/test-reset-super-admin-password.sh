@@ -31,8 +31,9 @@ assert_contains() {
     fi
 }
 
-mkdir -p "$STAGE" "$BIN_DIR"
+mkdir -p "$STAGE/scripts" "$BIN_DIR"
 cp "$DEPLOYMENT_FILES_DIR/reset-super-admin-password.sh" "$STAGE/"
+cp "$DEPLOYMENT_FILES_DIR/scripts/compose-project.sh" "$STAGE/scripts/"
 printf 'services: {}\n' > "$STAGE/docker-compose.yaml"
 printf 'COMPOSE_PROJECT_NAME=fleet-recovery\n' > "$STAGE/.env"
 
@@ -53,6 +54,7 @@ if ! printf 'replacement-password\n' | \
 fi
 
 assert_contains "runs from deployment directory" "cwd=$STAGE"
+assert_contains "uses the persisted Compose project" " <--project-name> <fleet-recovery>"
 assert_contains "pins the project directory" " <--project-directory> <$STAGE>"
 assert_contains "loads the deployment env" " <--env-file> <$STAGE/.env>"
 assert_contains "uses the bundled compose file" " <-f> <$STAGE/docker-compose.yaml>"

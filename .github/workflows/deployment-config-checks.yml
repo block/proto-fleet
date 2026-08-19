@@ -20,6 +20,7 @@ jobs:
             deployment-files/install.sh \
             deployment-files/reset-super-admin-password.sh \
             deployment-files/run-fleet.sh \
+            deployment-files/scripts/compose-project.sh \
             deployment-files/scripts/create-release-manifest.sh \
             deployment-files/uninstall.sh \
             deployment-files/tests/test-install-overlay-migration.sh \
