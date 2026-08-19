@@ -1122,18 +1122,6 @@ func (q *retryingQuerier) DeleteDisabledMQTTSourceConfigByOrg(ctx context.Contex
 	return result, err
 }
 
-func (q *retryingQuerier) DeleteExpiredAlertMaintenanceWindows(ctx context.Context, arg DeleteExpiredAlertMaintenanceWindowsParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "DeleteExpiredAlertMaintenanceWindows", func() error {
-		callResult, callErr := q.next.DeleteExpiredAlertMaintenanceWindows(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) DeleteExpiredSessions(ctx context.Context, expiresAt time.Time) (sql.Result, error) {
 	var result sql.Result
 	err := q.retrier.RetryQuery(ctx, "DeleteExpiredSessions", func() error {
@@ -4558,6 +4546,18 @@ func (q *retryingQuerier) PauseActiveSchedule(ctx context.Context, arg PauseActi
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "PauseActiveSchedule", func() error {
 		callResult, callErr := q.next.PauseActiveSchedule(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "PruneExpiredAlertMaintenanceWindows", func() error {
+		callResult, callErr := q.next.PruneExpiredAlertMaintenanceWindows(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

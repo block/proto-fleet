@@ -93,10 +93,12 @@ func (s *SQLAlertMaintenanceWindowStore) CountUnexpired(ctx context.Context, org
 	})
 }
 
-func (s *SQLAlertMaintenanceWindowStore) DeleteExpiredBefore(ctx context.Context, orgID int64, before time.Time) (int64, error) {
-	return s.GetQueries(ctx).DeleteExpiredAlertMaintenanceWindows(ctx, sqlc.DeleteExpiredAlertMaintenanceWindowsParams{
-		OrgID:  orgID,
-		Before: before,
+func (s *SQLAlertMaintenanceWindowStore) PruneExpired(ctx context.Context, orgID int64, now time.Time, retention time.Duration, keepNewest int64) (int64, error) {
+	return s.GetQueries(ctx).PruneExpiredAlertMaintenanceWindows(ctx, sqlc.PruneExpiredAlertMaintenanceWindowsParams{
+		OrgID:      orgID,
+		Now:        now,
+		Before:     now.Add(-retention),
+		KeepNewest: keepNewest,
 	})
 }
 

@@ -327,9 +327,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt, err = db.PrepareContext(ctx, deleteDisabledMQTTSourceConfigByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteDisabledMQTTSourceConfigByOrg: %w", err)
 	}
-	if q.deleteExpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, deleteExpiredAlertMaintenanceWindows); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteExpiredAlertMaintenanceWindows: %w", err)
-	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
@@ -1211,6 +1208,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.pauseActiveScheduleStmt, err = db.PrepareContext(ctx, pauseActiveSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query PauseActiveSchedule: %w", err)
+	}
+	if q.pruneExpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, pruneExpiredAlertMaintenanceWindows); err != nil {
+		return nil, fmt.Errorf("error preparing query PruneExpiredAlertMaintenanceWindows: %w", err)
 	}
 	if q.prunePermissionsOutsideKeysStmt, err = db.PrepareContext(ctx, prunePermissionsOutsideKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query PrunePermissionsOutsideKeys: %w", err)
@@ -2164,11 +2164,6 @@ func (q *Queries) Close() error {
 	if q.deleteDisabledMQTTSourceConfigByOrgStmt != nil {
 		if cerr := q.deleteDisabledMQTTSourceConfigByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteDisabledMQTTSourceConfigByOrgStmt: %w", cerr)
-		}
-	}
-	if q.deleteExpiredAlertMaintenanceWindowsStmt != nil {
-		if cerr := q.deleteExpiredAlertMaintenanceWindowsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteExpiredAlertMaintenanceWindowsStmt: %w", cerr)
 		}
 	}
 	if q.deleteExpiredSessionsStmt != nil {
@@ -3641,6 +3636,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing pauseActiveScheduleStmt: %w", cerr)
 		}
 	}
+	if q.pruneExpiredAlertMaintenanceWindowsStmt != nil {
+		if cerr := q.pruneExpiredAlertMaintenanceWindowsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing pruneExpiredAlertMaintenanceWindowsStmt: %w", cerr)
+		}
+	}
 	if q.prunePermissionsOutsideKeysStmt != nil {
 		if cerr := q.prunePermissionsOutsideKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing prunePermissionsOutsideKeysStmt: %w", cerr)
@@ -4521,7 +4521,6 @@ type Queries struct {
 	deleteCurtailmentResponseProfileByOrgStmt                    *sql.Stmt
 	deleteCurtailmentResponseProfilesBySiteStmt                  *sql.Stmt
 	deleteDisabledMQTTSourceConfigByOrgStmt                      *sql.Stmt
-	deleteExpiredAlertMaintenanceWindowsStmt                     *sql.Stmt
 	deleteExpiredSessionsStmt                                    *sql.Stmt
 	deleteFleetMetricRollupsForWindowStmt                        *sql.Stmt
 	deleteFleetNodeDevicePairingsStmt                            *sql.Stmt
@@ -4816,6 +4815,7 @@ type Queries struct {
 	pairDeviceToFleetNodeStmt                                    *sql.Stmt
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
+	pruneExpiredAlertMaintenanceWindowsStmt                      *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
 	queryComponentKeysWithErrorsStmt                             *sql.Stmt
 	queryDeviceIDsWithErrorsStmt                                 *sql.Stmt
@@ -5071,7 +5071,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteCurtailmentResponseProfileByOrgStmt:                    q.deleteCurtailmentResponseProfileByOrgStmt,
 		deleteCurtailmentResponseProfilesBySiteStmt:                  q.deleteCurtailmentResponseProfilesBySiteStmt,
 		deleteDisabledMQTTSourceConfigByOrgStmt:                      q.deleteDisabledMQTTSourceConfigByOrgStmt,
-		deleteExpiredAlertMaintenanceWindowsStmt:                     q.deleteExpiredAlertMaintenanceWindowsStmt,
 		deleteExpiredSessionsStmt:                                    q.deleteExpiredSessionsStmt,
 		deleteFleetMetricRollupsForWindowStmt:                        q.deleteFleetMetricRollupsForWindowStmt,
 		deleteFleetNodeDevicePairingsStmt:                            q.deleteFleetNodeDevicePairingsStmt,
@@ -5366,6 +5365,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		pairDeviceToFleetNodeStmt:                                    q.pairDeviceToFleetNodeStmt,
 		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
+		pruneExpiredAlertMaintenanceWindowsStmt:                      q.pruneExpiredAlertMaintenanceWindowsStmt,
 		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
 		queryComponentKeysWithErrorsStmt:                             q.queryComponentKeysWithErrorsStmt,
 		queryDeviceIDsWithErrorsStmt:                                 q.queryDeviceIDsWithErrorsStmt,

@@ -81,8 +81,9 @@ type MaintenanceWindowStore interface {
 	// CountUnexpired counts the org's active-or-scheduled windows (ends_at > now), for the
 	// write quota; excludingID skips the row an update rewrites (0 on create).
 	CountUnexpired(ctx context.Context, orgID int64, now time.Time, excludingID int64) (int64, error)
-	// DeleteExpiredBefore reclaims the org's windows that ended before the cutoff (retention).
-	DeleteExpiredBefore(ctx context.Context, orgID int64, before time.Time) (int64, error)
+	// PruneExpired reclaims the org's expired windows (ends_at <= now) that ended more than
+	// retention ago, plus any beyond the newest keepNewest (a count backstop on history).
+	PruneExpired(ctx context.Context, orgID int64, now time.Time, retention time.Duration, keepNewest int64) (int64, error)
 	Delete(ctx context.Context, orgID, id int64) error
 }
 

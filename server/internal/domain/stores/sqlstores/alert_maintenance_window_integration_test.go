@@ -139,7 +139,7 @@ func TestAlertMaintenanceWindowStoreCountAndPrune(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), n, "the row an update rewrites is excluded from its own quota check")
 
-	deleted, err := store.DeleteExpiredBefore(ctx, 21, now.Add(-24*time.Hour))
+	deleted, err := store.PruneExpired(ctx, 21, now, 24*time.Hour, 10)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), deleted)
 
@@ -149,4 +149,15 @@ func TestAlertMaintenanceWindowStoreCountAndPrune(t *testing.T) {
 	for _, rec := range listed {
 		assert.NotEqual(t, old.ID, rec.ID)
 	}
+
+	// Count backstop: with two expired rows and keep_newest=1, the older one is reclaimed even
+	// though it ended well inside the retention cutoff.
+	insert(now.Add(-4*time.Hour), now.Add(-3*time.Hour))
+	deleted, err = store.PruneExpired(ctx, 21, now, 24*time.Hour, 1)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), deleted, "the expired row beyond keep_newest is reclaimed")
+
+	listed, err = store.List(ctx, 21)
+	require.NoError(t, err)
+	assert.Len(t, listed, 3, "active, scheduled, and the newest expired row survive")
 }

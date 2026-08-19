@@ -194,9 +194,11 @@ func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte
 // fakeWindowStore is an in-memory MaintenanceWindowStore honoring the store contract:
 // write-once created_by/created_at, ErrNotFound for rows the org doesn't own.
 type fakeWindowStore struct {
-	next          int64
-	rows          map[int64]MaintenanceWindowRecord
-	listActiveErr error
+	next                int64
+	rows                map[int64]MaintenanceWindowRecord
+	listActiveErr       error
+	lastPruneRetention  time.Duration
+	lastPruneKeepNewest int64
 }
 
 func newFakeWindowStore() *fakeWindowStore {
@@ -256,7 +258,12 @@ func (f *fakeWindowStore) CountUnexpired(_ context.Context, orgID int64, now tim
 	return n, nil
 }
 
-func (f *fakeWindowStore) DeleteExpiredBefore(_ context.Context, orgID int64, before time.Time) (int64, error) {
+// PruneExpired applies only the age cutoff and records its arguments; the keep-newest count
+// backstop is real SQL, exercised against the database in the sqlstore integration test.
+func (f *fakeWindowStore) PruneExpired(_ context.Context, orgID int64, now time.Time, retention time.Duration, keepNewest int64) (int64, error) {
+	f.lastPruneKeepNewest = keepNewest
+	f.lastPruneRetention = retention
+	before := now.Add(-retention)
 	var n int64
 	for id, rec := range f.rows {
 		if rec.OrganizationID == orgID && rec.EndsAt.Before(before) {
@@ -473,7 +480,7 @@ func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
 	assert.Equal(t, 1, migrated)
 	assert.Equal(t, 2, removed)
 	assert.ElementsMatch(t, []string{"legacy-rule", "legacy-ended"}, fake.deletedSilences,
-		"the live device-scoped silence must be retained, not deleted")
+		"live silences the DB model can't represent must be retained, not deleted")
 
 	require.Len(t, windows.rows, 1)
 	rec := windows.rows[1]
@@ -491,6 +498,40 @@ func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, migrated, "an already-migrated silence must not insert a duplicate window")
 	assert.Len(t, windows.rows, 1)
+}
+
+// legacyWindowRecord must accept exactly the shape the old UI wrote — one org equality matcher
+// plus one rule-UID equality matcher — and report every other shape unrepresentable (see its
+// doc for why translating a recognizable subset would widen the suppression).
+func TestLegacyWindowRecordShapes(t *testing.T) {
+	org := GrafanaSilenceMatcher{Name: "organization_id", Value: "7", IsEqual: true}
+	rule := GrafanaSilenceMatcher{Name: "__alert_rule_uid__", Value: "rule-9", IsEqual: true}
+	cases := map[string]struct {
+		matchers []GrafanaSilenceMatcher
+		ok       bool
+	}{
+		"org and rule":            {[]GrafanaSilenceMatcher{org, rule}, true},
+		"org and pre-uid rule":    {[]GrafanaSilenceMatcher{org, {Name: "alertname_uid", Value: "rule-9", IsEqual: true}}, true},
+		"extra device matcher":    {[]GrafanaSilenceMatcher{org, rule, {Name: "device_id", Value: "miner-1", IsEqual: true}}, false},
+		"regex rule matcher":      {[]GrafanaSilenceMatcher{org, {Name: "__alert_rule_uid__", Value: "rule-.*", IsEqual: true, IsRegex: true}}, false},
+		"negated rule matcher":    {[]GrafanaSilenceMatcher{org, {Name: "__alert_rule_uid__", Value: "rule-9"}}, false},
+		"duplicate rule matcher":  {[]GrafanaSilenceMatcher{org, rule, {Name: "alertname_uid", Value: "rule-8", IsEqual: true}}, false},
+		"duplicate org matcher":   {[]GrafanaSilenceMatcher{org, org, rule}, false},
+		"missing rule matcher":    {[]GrafanaSilenceMatcher{org}, false},
+		"missing org matcher":     {[]GrafanaSilenceMatcher{rule}, false},
+		"non-numeric org matcher": {[]GrafanaSilenceMatcher{{Name: "organization_id", Value: "abc", IsEqual: true}, rule}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, ok := legacyWindowRecord(GrafanaSilence{
+				Comment:  legacyMaintenanceWindowCommentMarker,
+				StartsAt: time.Unix(1000, 0),
+				EndsAt:   time.Unix(2000, 0),
+				Matchers: tc.matchers,
+			})
+			assert.Equal(t, tc.ok, ok)
+		})
+	}
 }
 
 // The creation path bounds growth: unexpired windows count against a per-org cap, and rows
@@ -522,6 +563,10 @@ func TestCreateMaintenanceWindowQuotaAndPrune(t *testing.T) {
 	require.NotNil(t, created)
 	_, stillThere := windows.rows[ancient.ID]
 	assert.False(t, stillThere, "creation prunes windows expired past retention")
+	// The count backstop itself is SQL (integration-tested); here just pin that creation asks
+	// for it with the intended policy values.
+	assert.Equal(t, maintenanceWindowRetention, windows.lastPruneRetention)
+	assert.Equal(t, int64(maxRetainedExpiredWindowsPerOrg), windows.lastPruneKeepNewest)
 }
 
 // Every accepted write leaves the row unexpired, so an update can revive an expired row; it

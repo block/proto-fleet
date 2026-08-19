@@ -45,11 +45,22 @@ WHERE org_id = sqlc.arg('org_id')
   AND ends_at > sqlc.arg('now')
   AND id <> sqlc.arg('excluding_id');
 
--- name: DeleteExpiredAlertMaintenanceWindows :execrows
--- Retention: reclaims windows that ended before the cutoff so the org's list stays bounded.
+-- name: PruneExpiredAlertMaintenanceWindows :execrows
+-- Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
+-- plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
 DELETE FROM alert_maintenance_window
-WHERE org_id = sqlc.arg('org_id')
-  AND ends_at < sqlc.arg('before');
+WHERE alert_maintenance_window.org_id = sqlc.arg('org_id')
+  AND alert_maintenance_window.ends_at <= sqlc.arg('now')
+  AND (
+    alert_maintenance_window.ends_at < sqlc.arg('before')
+    OR alert_maintenance_window.id IN (
+        SELECT newest.id FROM alert_maintenance_window AS newest
+        WHERE newest.org_id = sqlc.arg('org_id')
+          AND newest.ends_at <= sqlc.arg('now')
+        ORDER BY newest.ends_at DESC, newest.id DESC
+        OFFSET sqlc.arg('keep_newest')::bigint
+    )
+  );
 
 -- name: DeleteAlertMaintenanceWindow :execrows
 DELETE FROM alert_maintenance_window

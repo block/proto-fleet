@@ -843,7 +843,8 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, w Ma
 	// Prune-on-create: creation is the only path that grows the table, so reclaiming the org's
 	// stale expired rows here bounds the list without a background job. Best-effort — a failed
 	// prune must not block the window an operator needs right now.
-	if _, err := s.windows.DeleteExpiredBefore(ctx, orgID, now.Add(-maintenanceWindowRetention)); err != nil {
+	if _, err := s.windows.PruneExpired(ctx, orgID, now,
+		maintenanceWindowRetention, maxRetainedExpiredWindowsPerOrg); err != nil {
 		slog.Warn("alerts.maintenance_window_prune_failed", "org_id", orgID, "error", err)
 	}
 	if err := s.requireWindowQuota(ctx, orgID, now, 0); err != nil {
@@ -1040,6 +1041,12 @@ const maxMaintenanceWindowsPerOrg = 100
 // How long an expired window stays listable as audit history before the creation-time prune
 // reclaims it.
 const maintenanceWindowRetention = 90 * 24 * time.Hour
+
+// Count backstop on that history: the unexpired-window cap can't see expired rows, so without
+// this a burst of short-lived windows could grow the org's table and list unboundedly for the
+// whole retention period. Far above organic use (100 unexpired cap × 90 days), so retention
+// alone decides what normal orgs keep.
+const maxRetainedExpiredWindowsPerOrg = 1000
 
 // A pause silence is structurally identical to a rule-scoped maintenance window
 // (org + alert-rule-UID matchers), so it carries a marker to tell the two apart.

@@ -80,14 +80,21 @@ func (s *Service) MigrateLegacyMaintenanceWindowSilences(ctx context.Context) (m
 }
 
 // legacyWindowRecord maps a legacy silence onto the DB model. The old UI only created
-// rule-scoped windows (org + rule-UID matchers), and a silence muted delivery everywhere, so
-// the record targets that one rule across every channel. Reports !ok for any other shape.
+// rule-scoped windows — exactly one org equality matcher and one rule-UID equality matcher —
+// and a silence muted delivery everywhere, so the record targets that one rule across every
+// channel. Any other shape reports !ok: an extra, regex, negated, or duplicate matcher narrows
+// (or empties) what the silence mutes, so translating the recognizable subset would widen the
+// replacement window beyond what the operator scheduled. Exactly-two plus the final validity
+// check covers duplicates: a doubled matcher leaves no slot for the other required one.
 func legacyWindowRecord(sil GrafanaSilence) (MaintenanceWindowRecord, bool) {
+	if len(sil.Matchers) != 2 {
+		return MaintenanceWindowRecord{}, false
+	}
 	var orgID int64
 	var ruleUID string
 	for _, m := range sil.Matchers {
 		if !m.IsEqual || m.IsRegex {
-			continue
+			return MaintenanceWindowRecord{}, false
 		}
 		switch m.Name {
 		case silenceLabelOrganizationID:
@@ -95,6 +102,8 @@ func legacyWindowRecord(sil GrafanaSilence) (MaintenanceWindowRecord, bool) {
 		// alertname_uid is the rule matcher name silences carried before alertRuleUIDMatcher.
 		case alertRuleUIDMatcher, "alertname_uid":
 			ruleUID = m.Value
+		default:
+			return MaintenanceWindowRecord{}, false
 		}
 	}
 	if orgID <= 0 || ruleUID == "" {

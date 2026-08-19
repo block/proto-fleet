@@ -54,26 +54,6 @@ func (q *Queries) DeleteAlertMaintenanceWindow(ctx context.Context, arg DeleteAl
 	return result.RowsAffected()
 }
 
-const deleteExpiredAlertMaintenanceWindows = `-- name: DeleteExpiredAlertMaintenanceWindows :execrows
-DELETE FROM alert_maintenance_window
-WHERE org_id = $1
-  AND ends_at < $2
-`
-
-type DeleteExpiredAlertMaintenanceWindowsParams struct {
-	OrgID  int64
-	Before time.Time
-}
-
-// Retention: reclaims windows that ended before the cutoff so the org's list stays bounded.
-func (q *Queries) DeleteExpiredAlertMaintenanceWindows(ctx context.Context, arg DeleteExpiredAlertMaintenanceWindowsParams) (int64, error) {
-	result, err := q.exec(ctx, q.deleteExpiredAlertMaintenanceWindowsStmt, deleteExpiredAlertMaintenanceWindows, arg.OrgID, arg.Before)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const insertAlertMaintenanceWindow = `-- name: InsertAlertMaintenanceWindow :one
 INSERT INTO alert_maintenance_window (org_id, rule_uids, channel_ids, starts_at, ends_at, comment, created_by)
 VALUES (
@@ -209,6 +189,44 @@ func (q *Queries) ListAlertMaintenanceWindows(ctx context.Context, orgID int64) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const pruneExpiredAlertMaintenanceWindows = `-- name: PruneExpiredAlertMaintenanceWindows :execrows
+DELETE FROM alert_maintenance_window
+WHERE alert_maintenance_window.org_id = $1
+  AND alert_maintenance_window.ends_at <= $2
+  AND (
+    alert_maintenance_window.ends_at < $3
+    OR alert_maintenance_window.id IN (
+        SELECT newest.id FROM alert_maintenance_window AS newest
+        WHERE newest.org_id = $1
+          AND newest.ends_at <= $2
+        ORDER BY newest.ends_at DESC, newest.id DESC
+        OFFSET $4::bigint
+    )
+  )
+`
+
+type PruneExpiredAlertMaintenanceWindowsParams struct {
+	OrgID      int64
+	Now        time.Time
+	Before     time.Time
+	KeepNewest int64
+}
+
+// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
+// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
+func (q *Queries) PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error) {
+	result, err := q.exec(ctx, q.pruneExpiredAlertMaintenanceWindowsStmt, pruneExpiredAlertMaintenanceWindows,
+		arg.OrgID,
+		arg.Now,
+		arg.Before,
+		arg.KeepNewest,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateAlertMaintenanceWindow = `-- name: UpdateAlertMaintenanceWindow :one

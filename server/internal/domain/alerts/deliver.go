@@ -166,13 +166,13 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 		}
 		// Window coverage depends only on the channel, so resolve it once here; a covering window
 		// that mutes every rule mutes the whole batch, skipping the channel's send entirely.
-		muting, muteAll := channelMutingWindows(windows, rec.ID)
+		muted, muteAll := channelMutedRules(windows, rec.ID)
 		if muteAll {
 			continue
 		}
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(rec ChannelRecord, idxs []int, muting []MaintenanceWindowRecord) {
+		go func(rec ChannelRecord, idxs []int, muted map[string]bool) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			// Materialize the channel's batch inside its concurrency slot: routing stays index-based, so a
@@ -185,12 +185,12 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 					alerts = append(alerts, orgAlerts[i])
 				}
 			}
-			alerts = dropMutedAlerts(alerts, muting)
+			alerts = dropMutedAlerts(alerts, muted)
 			if len(alerts) == 0 {
 				return
 			}
 			d.deliverChannel(ctx, orgID, rec, alerts, identities)
-		}(rec, idxs, muting)
+		}(rec, idxs, muted)
 	}
 	wg.Wait()
 }
@@ -211,10 +211,11 @@ func (d *Deliverer) activeMaintenanceWindows(ctx context.Context, orgID int64) [
 	return windows
 }
 
-// channelMutingWindows filters the org's active windows down to the ones covering this channel
-// (an empty channel list covers every channel). muteAll reports that a covering window has an
-// empty rule list, which mutes every alert on the channel.
-func channelMutingWindows(windows []MaintenanceWindowRecord, channelID int64) (covering []MaintenanceWindowRecord, muteAll bool) {
+// channelMutedRules resolves the org's active windows down to what they mute on this channel
+// (an empty channel list covers every channel): muteAll reports that a covering window has an
+// empty rule list, which mutes the channel's entire send; otherwise muted unions the covering
+// windows' rule UIDs, one set lookup per alert regardless of how many windows target the rule.
+func channelMutedRules(windows []MaintenanceWindowRecord, channelID int64) (muted map[string]bool, muteAll bool) {
 	for _, w := range windows {
 		if len(w.ChannelIDs) > 0 && !slices.Contains(w.ChannelIDs, channelID) {
 			continue
@@ -222,24 +223,33 @@ func channelMutingWindows(windows []MaintenanceWindowRecord, channelID int64) (c
 		if len(w.RuleUIDs) == 0 {
 			return nil, true
 		}
-		covering = append(covering, w)
+		if muted == nil {
+			muted = map[string]bool{}
+		}
+		for _, uid := range w.RuleUIDs {
+			muted[uid] = true
+		}
 	}
-	return covering, false
+	return muted, false
 }
 
-// dropMutedAlerts returns the channel's batch minus alerts a covering window's rule list claims.
-// Unattributed alerts stay: they carry no producing-rule UID, so a rule-scoped window can't
-// claim them. The input slice is shared across channel goroutines and never mutated.
-func dropMutedAlerts(alerts []Alert, covering []MaintenanceWindowRecord) []Alert {
-	if len(covering) == 0 {
+// dropMutedAlerts returns the channel's batch minus alerts whose producing rule the channel's
+// muted set claims. Unattributed alerts stay: they carry no producing-rule UID, so a rule-scoped
+// window can't claim them. The input slice is shared across channel goroutines and never
+// mutated; it is returned as-is (no copy) until an alert actually drops.
+func dropMutedAlerts(alerts []Alert, muted map[string]bool) []Alert {
+	if len(muted) == 0 {
 		return alerts
 	}
-	out := make([]Alert, 0, len(alerts))
-	for _, a := range alerts {
-		muted := a.RuleUID != "" && slices.ContainsFunc(covering, func(w MaintenanceWindowRecord) bool {
-			return slices.Contains(w.RuleUIDs, a.RuleUID)
-		})
-		if !muted {
+	isMuted := func(a Alert) bool { return a.RuleUID != "" && muted[a.RuleUID] }
+	first := slices.IndexFunc(alerts, isMuted)
+	if first < 0 {
+		return alerts
+	}
+	out := make([]Alert, 0, len(alerts)-1)
+	out = append(out, alerts[:first]...)
+	for _, a := range alerts[first+1:] {
+		if !isMuted(a) {
 			out = append(out, a)
 		}
 	}

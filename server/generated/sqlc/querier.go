@@ -352,8 +352,6 @@ type Querier interface {
 	// site delete cascade so they cannot outlive a soft-deleted site.
 	DeleteCurtailmentResponseProfilesBySite(ctx context.Context, arg DeleteCurtailmentResponseProfilesBySiteParams) (DeleteCurtailmentResponseProfilesBySiteRow, error)
 	DeleteDisabledMQTTSourceConfigByOrg(ctx context.Context, arg DeleteDisabledMQTTSourceConfigByOrgParams) (int64, error)
-	// Retention: reclaims windows that ended before the cutoff so the org's list stays bounded.
-	DeleteExpiredAlertMaintenanceWindows(ctx context.Context, arg DeleteExpiredAlertMaintenanceWindowsParams) (int64, error)
 	DeleteExpiredSessions(ctx context.Context, expiresAt time.Time) (sql.Result, error)
 	// Fleet dashboard metric rollups. The 90 second bucket width must match
 	// models.FleetMetricRollupBucketDuration and the client dashboard's shortest
@@ -1241,6 +1239,9 @@ type Querier interface {
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
+	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
+	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
+	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)
 	// Used by SUPER_ADMIN full reconciliation: keep only the permissions
 	// whose key is in the supplied set. ADMIN/FIELD_TECH reconciliation
 	// never calls this — they are additive-only.
