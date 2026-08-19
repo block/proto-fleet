@@ -3,10 +3,17 @@ import { create } from "@bufbuild/protobuf";
 import {
   type CurtailmentScope,
   CurtailmentScopeSchema,
+  ScopeBuildingSchema,
   ScopeDeviceListSchema,
+  ScopeGroupSchema,
+  ScopeRackSchema,
   ScopeSiteSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+
+export type CurtailmentTerminalScopeType = "wholeOrg" | "site" | "building" | "rack" | "group" | "explicitMiners";
+
+export const curtailmentScopeSchemaVersion = 1;
 
 export type CurtailmentTerminalScope =
   | { type: "wholeOrg" }
@@ -16,12 +23,25 @@ export type CurtailmentTerminalScope =
   | { type: "group"; groupIds: string[] }
   | { type: "deviceIdentifiers"; deviceIdentifiers: string[] };
 
-type CurtailmentScopeSummarySelection = {
+export type CurtailmentScopeSelection = {
+  scopeType?: CurtailmentTerminalScopeType | "deviceSet";
   minerSelectionMode?: "all" | "subset";
   siteSelection?: "none" | "site" | "allSites";
   siteId?: string;
   siteIds?: readonly string[];
+  buildingTargetIds?: readonly string[];
+  rackTargetIds?: readonly string[];
+  groupTargetIds?: readonly string[];
   deviceIdentifiers?: readonly string[];
+};
+
+export type CurtailmentScopeFormFields = {
+  scopeType: CurtailmentTerminalScopeType;
+  siteIds: string[];
+  buildingTargetIds: string[];
+  rackTargetIds: string[];
+  groupTargetIds: string[];
+  deviceIdentifiers: string[];
 };
 
 type CurtailmentScopeSummaryOptions = {
@@ -33,12 +53,64 @@ export function normalizeCurtailmentSelectionValues(values: readonly string[]): 
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+export function parseCurtailmentTargetId(value: string | undefined): bigint | undefined {
+  const normalized = value?.trim() ?? "";
+  if (!/^\d+$/.test(normalized)) {
+    return undefined;
+  }
+
+  const parsed = BigInt(normalized);
+  return parsed > 0n && BigInt.asIntN(64, parsed) === parsed ? parsed : undefined;
+}
+
+function getSelectedSiteIds(selection: CurtailmentScopeSelection): string[] {
+  const siteIds =
+    selection.siteIds !== undefined && selection.siteIds.length > 0
+      ? selection.siteIds
+      : selection.siteId
+        ? [selection.siteId]
+        : [];
+  return normalizeCurtailmentSelectionValues(siteIds);
+}
+
+export function getCurtailmentTerminalScope(
+  selection: CurtailmentScopeSelection,
+): CurtailmentTerminalScope | undefined {
+  switch (selection.scopeType) {
+    case "wholeOrg":
+      return { type: "wholeOrg" };
+    case "site": {
+      const siteIds = getSelectedSiteIds(selection);
+      return siteIds.length > 0 ? { type: "site", siteIds } : undefined;
+    }
+    case "building": {
+      const buildingIds = normalizeCurtailmentSelectionValues(selection.buildingTargetIds ?? []);
+      return buildingIds.length > 0 ? { type: "building", buildingIds } : undefined;
+    }
+    case "rack": {
+      const rackIds = normalizeCurtailmentSelectionValues(selection.rackTargetIds ?? []);
+      return rackIds.length > 0 ? { type: "rack", rackIds } : undefined;
+    }
+    case "group": {
+      const groupIds = normalizeCurtailmentSelectionValues(selection.groupTargetIds ?? []);
+      return groupIds.length > 0 ? { type: "group", groupIds } : undefined;
+    }
+    case "explicitMiners": {
+      const deviceIdentifiers = normalizeCurtailmentSelectionValues(selection.deviceIdentifiers ?? []);
+      return deviceIdentifiers.length > 0 ? { type: "deviceIdentifiers", deviceIdentifiers } : undefined;
+    }
+    case "deviceSet":
+    case undefined:
+      return undefined;
+  }
+}
+
 function formatScopeCount(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
 
 export function getCurtailmentScopeSummary(
-  scopeOrSelection: CurtailmentTerminalScope | CurtailmentScopeSummarySelection,
+  scopeOrSelection: CurtailmentTerminalScope | CurtailmentScopeSelection,
   { fallbackLabel, getSiteLabel }: CurtailmentScopeSummaryOptions,
 ): string {
   let scope: CurtailmentTerminalScope | undefined;
@@ -46,28 +118,19 @@ export function getCurtailmentScopeSummary(
 
   if ("type" in scopeOrSelection) {
     scope = scopeOrSelection;
-  } else if (scopeOrSelection.minerSelectionMode === "all") {
-    scope = { type: "wholeOrg" };
-  } else if ((scopeOrSelection.deviceIdentifiers?.length ?? 0) > 0) {
-    scope = {
-      type: "deviceIdentifiers",
-      deviceIdentifiers: [...(scopeOrSelection.deviceIdentifiers ?? [])],
-    };
   } else {
-    const siteIds = normalizeCurtailmentSelectionValues(
-      scopeOrSelection.siteIds !== undefined && scopeOrSelection.siteIds.length > 0
-        ? scopeOrSelection.siteIds
-        : scopeOrSelection.siteId
-          ? [scopeOrSelection.siteId]
-          : [],
-    );
     isAllSites = scopeOrSelection.siteSelection === "allSites";
-    const hasSiteScope =
-      isAllSites ||
-      ((scopeOrSelection.siteSelection === "site" || scopeOrSelection.siteSelection === undefined) &&
-        siteIds.length > 0);
-    if (hasSiteScope) {
-      scope = { type: "site", siteIds };
+    scope = getCurtailmentTerminalScope(scopeOrSelection);
+    if (!scope && scopeOrSelection.scopeType === undefined) {
+      const deviceIdentifiers = normalizeCurtailmentSelectionValues(scopeOrSelection.deviceIdentifiers ?? []);
+      const siteIds = getSelectedSiteIds(scopeOrSelection);
+      if (scopeOrSelection.minerSelectionMode === "all") {
+        scope = { type: "wholeOrg" };
+      } else if (deviceIdentifiers.length > 0) {
+        scope = { type: "deviceIdentifiers", deviceIdentifiers };
+      } else if (isAllSites || siteIds.length > 0) {
+        scope = { type: "site", siteIds };
+      }
     }
   }
 
@@ -92,22 +155,134 @@ export function getCurtailmentScopeSummary(
   return formatScopeCount(ids.length, scope.type);
 }
 
-export function createWholeOrgCurtailmentScope(): CurtailmentScope {
+function createWholeOrgCurtailmentScope(): CurtailmentScope {
   return create(CurtailmentScopeSchema, {
     scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) },
   });
 }
 
-export function createSiteCurtailmentScope(siteId: bigint): CurtailmentScope {
+function createSiteCurtailmentScope(siteId: bigint): CurtailmentScope {
   return create(CurtailmentScopeSchema, {
     scope: { case: "site", value: create(ScopeSiteSchema, { siteId }) },
   });
 }
 
-export function createDeviceCurtailmentScope(deviceIdentifiers: string[]): CurtailmentScope {
+function createDeviceCurtailmentScope(deviceIdentifiers: string[]): CurtailmentScope {
   return create(CurtailmentScopeSchema, {
     scope: { case: "deviceIdentifiers", value: create(ScopeDeviceListSchema, { deviceIdentifiers }) },
   });
+}
+
+function createBuildingCurtailmentScope(buildingId: bigint): CurtailmentScope {
+  return create(CurtailmentScopeSchema, {
+    scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId }) },
+  });
+}
+
+function createRackCurtailmentScope(rackId: bigint): CurtailmentScope {
+  return create(CurtailmentScopeSchema, {
+    scope: { case: "rack", value: create(ScopeRackSchema, { rackId }) },
+  });
+}
+
+function createGroupCurtailmentScope(groupId: bigint): CurtailmentScope {
+  return create(CurtailmentScopeSchema, {
+    scope: { case: "group", value: create(ScopeGroupSchema, { groupId }) },
+  });
+}
+
+function createNumericCurtailmentScopes(
+  values: readonly string[],
+  createScope: (value: bigint) => CurtailmentScope,
+): CurtailmentScope[] | undefined {
+  const parsedValues = new Set<bigint>();
+  for (const value of normalizeCurtailmentSelectionValues(values)) {
+    const parsed = parseCurtailmentTargetId(value);
+    if (parsed === undefined) {
+      return undefined;
+    }
+    parsedValues.add(parsed);
+  }
+  return parsedValues.size > 0 ? [...parsedValues].map(createScope) : undefined;
+}
+
+function createCurtailmentScopes(scope: CurtailmentTerminalScope): CurtailmentScope[] | undefined {
+  switch (scope.type) {
+    case "wholeOrg":
+      return [createWholeOrgCurtailmentScope()];
+    case "site":
+      return createNumericCurtailmentScopes(scope.siteIds, createSiteCurtailmentScope);
+    case "building":
+      return createNumericCurtailmentScopes(scope.buildingIds, createBuildingCurtailmentScope);
+    case "rack":
+      return createNumericCurtailmentScopes(scope.rackIds, createRackCurtailmentScope);
+    case "group":
+      return createNumericCurtailmentScopes(scope.groupIds, createGroupCurtailmentScope);
+    case "deviceIdentifiers": {
+      const deviceIdentifiers = normalizeCurtailmentSelectionValues(scope.deviceIdentifiers);
+      return deviceIdentifiers.length > 0 ? [createDeviceCurtailmentScope(deviceIdentifiers)] : undefined;
+    }
+  }
+}
+
+export function buildCurtailmentScopes(selection: CurtailmentScopeSelection): CurtailmentScope[] | undefined {
+  const scope = getCurtailmentTerminalScope(selection);
+  return scope ? createCurtailmentScopes(scope) : undefined;
+}
+
+export function getCurtailmentScopeFormFields(scope: CurtailmentTerminalScope): CurtailmentScopeFormFields {
+  const fields: CurtailmentScopeFormFields = {
+    scopeType: scope.type === "deviceIdentifiers" ? "explicitMiners" : scope.type,
+    siteIds: [],
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
+    deviceIdentifiers: [],
+  };
+
+  switch (scope.type) {
+    case "site":
+      fields.siteIds = [...scope.siteIds];
+      break;
+    case "building":
+      fields.buildingTargetIds = [...scope.buildingIds];
+      break;
+    case "rack":
+      fields.rackTargetIds = [...scope.rackIds];
+      break;
+    case "group":
+      fields.groupTargetIds = [...scope.groupIds];
+      break;
+    case "deviceIdentifiers":
+      fields.deviceIdentifiers = [...scope.deviceIdentifiers];
+      break;
+    case "wholeOrg":
+      break;
+  }
+
+  return fields;
+}
+
+function getCurtailmentScopeCount(scope: CurtailmentTerminalScope): number | undefined {
+  switch (scope.type) {
+    case "wholeOrg":
+      return undefined;
+    case "site":
+      return scope.siteIds.length;
+    case "building":
+      return scope.buildingIds.length;
+    case "rack":
+      return scope.rackIds.length;
+    case "group":
+      return scope.groupIds.length;
+    case "deviceIdentifiers":
+      return scope.deviceIdentifiers.length;
+  }
+}
+
+export function getCurtailmentScopeSelectionCount(selection: CurtailmentScopeSelection): number | undefined {
+  const scopes = buildCurtailmentScopes(selection);
+  return scopes ? getCurtailmentScopeCount(parseCurtailmentTerminalScopes(scopes)) : undefined;
 }
 
 export function parseCurtailmentTerminalScopes(scopes: readonly CurtailmentScope[]): CurtailmentTerminalScope {
