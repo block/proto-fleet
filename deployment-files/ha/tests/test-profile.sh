@@ -68,9 +68,13 @@ test_patroni_contract() {
     assert_contains "$template" "synchronous_mode_strict: false"
     assert_contains "$template" "sslmode: verify-full"
     assert_contains "$template" 'post_bootstrap: /usr/local/bin/patroni-post-bootstrap'
+    assert_contains "$template" 'hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256'
     assert_not_contains "$template" "0.0.0.0/0"
     assert_contains "$entrypoint" "render-patroni-config"
     assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
+    assert_contains "$bootstrap" 'CREATE ROLE grafana_ha_ro LOGIN PASSWORD'
+    assert_not_contains "$bootstrap" 'GRANT SELECT ON ALL TABLES'
+    assert_not_contains "$bootstrap" 'ALTER DEFAULT PRIVILEGES'
     assert_not_contains "$bootstrap" 'PGDATABASE="$connection_url"'
     assert_contains "$dockerfile" 'ARG TIMESCALEDB_IMAGE_TAG=latest'
     assert_contains "$dockerfile" 'FROM proto-fleet-timescaledb:${TIMESCALEDB_IMAGE_TAG}'
@@ -86,21 +90,30 @@ test_patroni_contract() {
 
 test_fleet_ha_contract() {
     local rendered release_dir secret_mount_count
+    local ha_rules="${HA_DIR}/../../server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml"
+    local notification_policies="${HA_DIR}/../../server/monitoring/grafana/provisioning/alerting/notification-policies.yaml"
     rendered="$(mktemp)"
     release_dir="$(mktemp -d)"
     trap 'rm -f "$rendered"; rm -rf "$release_dir"' RETURN
 
     mkdir -p "${release_dir}/ha" "${release_dir}/server"
     cp "${HA_DIR}/../docker-compose.yaml" "${release_dir}/docker-compose.yaml"
+    cp "${HA_DIR}/../docker-compose.alerts.yaml" "${release_dir}/docker-compose.alerts.yaml"
     cp "${HA_DIR}/fleet-compose.yaml" "${release_dir}/ha/fleet-compose.yaml"
     cp "${HA_DIR}/../../server/docker-compose.base.yaml" "${release_dir}/server/docker-compose.base.yaml"
+    cp -r "${HA_DIR}/../../server/monitoring" "${release_dir}/server/monitoring"
 
     AUTH_CLIENT_SECRET_KEY=test-auth-secret \
     DB_USERNAME=fleet \
     DB_PASSWORD=test-db-password \
     DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet \
     ENCRYPT_SERVICE_MASTER_KEY=test-master-key \
+    GRAFANA_ADMIN_PASSWORD=test-grafana-admin-password \
+    GRAFANA_DB_PASSWORD=test-grafana-db-password \
+    GRAFANA_SECRET_KEY=test-grafana-secret-key \
+    FLEET_ALERTS_WEBHOOK_TOKEN=test-alert-webhook-token \
     UPDATES_ENABLED=true \
+    HA_NODE_IP=10.40.0.11 \
     HA_DB_A_IP=10.40.0.11 \
     HA_DB_B_IP=10.40.0.12 \
     HA_DCS_C_IP=10.40.0.13 \
@@ -109,8 +122,9 @@ test_fleet_ha_contract() {
     HA_SECRETS_DIR=/etc/proto-fleet/ha \
         docker compose \
         --file "${release_dir}/docker-compose.yaml" \
+        --file "${release_dir}/docker-compose.alerts.yaml" \
         --file "${release_dir}/ha/fleet-compose.yaml" \
-        config fleet-api fleet-client >"$rendered"
+        config fleet-api fleet-client grafana >"$rendered"
 
     if grep -q '^  timescaledb:$' "$rendered"; then
         fail "HA Fleet targets must not include the standalone database service"
@@ -121,14 +135,17 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
+    assert_contains "$rendered" "FLEET_ALERTS_ENABLED: \"true\""
+    assert_contains "$rendered" "FLEET_PUBLIC_URL: https://10.40.0.100"
     assert_contains "$rendered" "sleep 15; exec /app/fleetd"
-    [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 2 ]] ||
+    [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 3 ]] ||
         fail "Fleet services must restart process failures without bypassing the systemd start gate"
     assert_contains "$rendered" "NET_RAW"
     assert_not_contains "$rendered" "NET_ADMIN"
     assert_not_contains "$rendered" "/app/dlv"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/service-ca.crt"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-etcd-password"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/node.env"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.crt"
     assert_contains "$rendered" "target: /etc/nginx/ssl/cert.pem"
     assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.key"
@@ -136,8 +153,31 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "target: /usr/share/nginx/html/proto-fleet-ha-service-ca.crt"
     assert_contains "${HA_DIR}/fleet-compose.yaml" '${HA_SECRETS_DIR}/service-ca.crt:/usr/share/nginx/html/proto-fleet-ha-service-ca.crt:ro'
     assert_not_contains "${HA_DIR}/fleet-compose.yaml" '.key:/usr/share/nginx/html/'
+    assert_contains "$rendered" "GF_SERVER_HTTP_ADDR: 127.0.0.1"
+    assert_contains "$rendered" "GF_SERVER_HTTP_PORT: \"3030\""
+    assert_contains "$rendered" "HA_DB_A_IP: 10.40.0.11"
+    assert_contains "$rendered" "HA_DB_B_IP: 10.40.0.12"
+    assert_contains "$rendered" "image: grafana/grafana:13.0@sha256:e78917cdd3336d0d679d345b2e6d0f60a0fe85ed7ac3882b68f089fdb6ff2ace"
+    assert_contains "$rendered" "GRAFANA_DB_USERNAME: grafana_ha_ro"
+    assert_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD: test-grafana-admin-password"
+    assert_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-ha-rules.yaml"
+    assert_not_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-rules.yaml"
+    assert_contains "$rendered" "target: /etc/grafana/proto-fleet-ha/service-ca.crt"
+    assert_contains "$rendered" "/api/v1/provisioning/alert-rules/protofleet-ha-readiness"
+    assert_not_contains "$rendered" "--password"
+    assert_contains "$rendered" "Authorization: Basic"
+    assert_contains "$rendered" ">/dev/null 2>&1"
+    assert_contains "${release_dir}/server/monitoring/grafana/ha/timescaledb.yaml" 'url: ${HA_DB_A_IP},${HA_DB_B_IP}:5432'
+    assert_contains "$ha_rules" "for: 0s"
+    assert_not_contains "$ha_rules" "for: 1m"
+    awk '
+        /\["template", "=", "ha-readiness"\]/ { in_ha_route = 1; next }
+        in_ha_route && /group_wait: 5s/ { found = 1; exit }
+        in_ha_route && /^[[:space:]]+- receiver:/ { exit }
+        END { exit !found }
+    ' "$notification_policies" || fail "HA readiness notifications must use a five-second group wait"
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
-    [[ "$secret_mount_count" -eq 5 ]] || fail "Fleet services must mount only their required HA secret files"
+    [[ "$secret_mount_count" -eq 7 ]] || fail "Fleet services must mount only their required HA secret files"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
     assert_not_contains "$rendered" "/run/proto-fleet-updater"
 

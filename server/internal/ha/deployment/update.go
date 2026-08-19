@@ -101,17 +101,30 @@ func ValidateActiveUpdate(ctx context.Context, envPath, targetVersion string) er
 	return requireUpdatedPeer(ctx, envPath, targetVersion)
 }
 
-// PrepareApplicationUpdate loads only the Fleet API and client from a verified release.
+// PrepareApplicationUpdate loads the HA application from a verified release.
 func PrepareApplicationUpdate(ctx context.Context, root string) error {
+	if err := requireUpdateCompatibleProfile(filepath.Join(configRoot, fleetEnvironmentFile)); err != nil {
+		return err
+	}
 	return prepareApplicationUpdate(ctx, root, defaultInstallDependencies(), RunCompose)
+}
+
+func requireUpdateCompatibleProfile(path string) error {
+	if err := validateFleetEnvironment(path); err != nil {
+		return fmt.Errorf("installed HA profile is incompatible with this release; reinstall both database hosts before updating: %w", err)
+	}
+	return nil
 }
 
 func prepareApplicationUpdate(ctx context.Context, root string, deps installDependencies, runCompose func(context.Context, []string) error) error {
 	if err := validateRelease(root, deps.readFile); err != nil {
 		return err
 	}
-	if err := runCompose(ctx, fleetComposeArgsAt(root, "config", "--quiet", "fleet-api", "fleet-client")); err != nil {
+	if err := runCompose(ctx, fleetApplicationComposeArgsAt(root, "config", "--quiet")); err != nil {
 		return fmt.Errorf("validate HA application update Compose model: %w", err)
+	}
+	if err := runCompose(ctx, fleetComposeArgsAt(root, "pull", "grafana")); err != nil {
+		return fmt.Errorf("stage HA Grafana image: %w", err)
 	}
 	if output, err := deps.run(ctx, "docker", "load", "--input", filepath.Join(root, "images", "fleet.tar.gz")); err != nil {
 		return fmt.Errorf("load HA application update images: %s", commandError(output, err))
@@ -128,7 +141,7 @@ func prepareApplicationUpdate(ctx context.Context, root string, deps installDepe
 	return nil
 }
 
-// StopApplication rechecks the expected role, then stops only Fleet containers.
+// StopApplication rechecks the expected role, then stops the HA application containers.
 func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRole) error {
 	var err error
 	switch expectedRole {
@@ -145,14 +158,14 @@ func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRo
 	// The crash-only design intentionally has no maintenance lease. If the role
 	// changes after this final proof, normal update recovery restarts Fleet.
 	composeCtx := ctx
-	args := fleetComposeArgsAt(root, "stop", "fleet-api", "fleet-client")
+	args := fleetApplicationComposeArgsAt(root, "stop")
 	if expectedRole == ha.RoleActive {
 		// Bound only the serving node's interruption. A passive stop is not on the
 		// availability path and can use Compose's normal shutdown behavior.
 		stopCtx, cancel := context.WithTimeout(ctx, ha.UpdateActiveStopTimeout)
 		defer cancel()
 		composeCtx = stopCtx
-		args = fleetComposeArgsAt(root, "stop", "--timeout", "1", "fleet-api", "fleet-client")
+		args = fleetApplicationComposeArgsAt(root, "stop", "--timeout", "1")
 	}
 	if err := RunCompose(composeCtx, args); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
@@ -186,18 +199,14 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 		if readinessErr != nil {
 			return readinessErr
 		}
-		if ready {
-			_, _ = defaultInstallDependencies().run(ctx, "docker", "image", "prune", "--force")
-			return nil
-		}
-		if !applicationMayConverge(localReport.Runtime, targetVersion, requirePassive) {
+		if !ready && !applicationMayConverge(localReport.Runtime, targetVersion, requirePassive) {
 			return errors.New("running HA application is not ready; refusing to replace it")
 		}
 	}
 	if statusErr != nil && !errors.Is(statusErr, syscall.ECONNREFUSED) {
 		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
-	args := fleetComposeArgsAt(root, "up", "-d", "--no-deps", "--no-build", "--pull", "never", "fleet-api", "fleet-client")
+	args := fleetApplicationComposeArgsAt(root, "up", "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60")
 	if err := RunCompose(ctx, args); err != nil {
 		return fmt.Errorf("start HA application: %w", err)
 	}

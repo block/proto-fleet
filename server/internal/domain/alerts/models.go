@@ -70,6 +70,9 @@ const (
 	// Self-monitoring: metric ingest has stalled. Operator-owned but fanned out
 	// to every org's history, so it needs the same device-less recognition.
 	RuleTemplateMetricIngest RuleTemplate = "metric-ingest"
+
+	// HA control and redundancy readiness is a cluster-wide, device-less rule.
+	RuleTemplateHAReadiness RuleTemplate = "ha-readiness"
 )
 
 // Origin decides mutability: only user rules accept UpdateRule/DeleteRule.

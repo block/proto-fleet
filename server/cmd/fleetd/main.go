@@ -98,6 +98,8 @@ import (
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/ha/deployment"
+	"github.com/block/proto-fleet/server/internal/ha/readiness"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
 	"github.com/block/proto-fleet/server/internal/handlers/alertmanagerwebhook"
 	alertsHandler "github.com/block/proto-fleet/server/internal/handlers/alerts"
@@ -647,6 +649,23 @@ func start(config *Config) (result error) {
 			}
 		})
 	}
+	var haReadiness runtimejobs.Lifecycle
+	if config.HA.Enabled && metricsProvider.Enabled() {
+		collector := readiness.New(func(ctx context.Context) (bool, error) {
+			report, err := deployment.StatusWithDatabase(ctx, "/etc/proto-fleet/ha/node.env", conn)
+			if err != nil {
+				return false, err
+			}
+			return report.Control != nil && report.Control.FailoverReady, nil
+		}, metricsProvider)
+		haReadiness = newBackgroundLoop(func(ctx context.Context) {
+			select {
+			case <-listenerBound:
+				collector.Run(ctx)
+			case <-ctx.Done():
+			}
+		})
+	}
 
 	chunkedMgr := firmwareHandler.NewChunkedUploadManager()
 	chunkedUploadCleanup := newBackgroundLoop(func(ctx context.Context) {
@@ -672,6 +691,7 @@ func start(config *Config) (result error) {
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
 		systemMonitoring:          systemMonitoring,
+		haReadiness:               haReadiness,
 		releaseChecker:            releaseCheckerJob,
 	})
 	if err != nil {

@@ -76,6 +76,7 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	require.NotContains(t, joined, "fleet-ha status")
 	require.Contains(t, joined, "sudo install -D -o root -g root -m 0644 "+filepath.Join(secrets, "service-ca.crt")+" "+filepath.Join(configRoot, "service-ca.crt"))
 	require.Contains(t, joined, "sudo install -D -o root -g root -m 0600 "+filepath.Join(secrets, "fleet-client.key")+" "+filepath.Join(configRoot, "fleet-client.key"))
+	require.Contains(t, joined, "sudo install -o root -g root -m 0600 /dev/null "+haGrafanaVolumeOwnershipMarker)
 }
 
 func TestInstallRejectsExistingNftablesInputFilteringBeforeConfiguration(t *testing.T) {
@@ -944,9 +945,14 @@ func testInstallRelease(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	required := map[string]string{
-		"version.txt":                                            "version: test\n",
-		"docker-compose.yaml":                                    "services:\n  fleet-api:\n    image: proto-fleet-api:test\n  fleet-client:\n    image: proto-fleet-client:test\n",
-		"server/docker-compose.base.yaml":                        "services: {}\n",
+		"version.txt":                           "version: test\n",
+		"docker-compose.yaml":                   "services:\n  fleet-api:\n    image: proto-fleet-api:test\n  fleet-client:\n    image: proto-fleet-client:test\n",
+		"docker-compose.alerts.yaml":            "services:\n  grafana:\n    image: grafana/grafana:13.0\n",
+		"server/docker-compose.base.yaml":       "services: {}\n",
+		"server/monitoring/grafana/grafana.ini": "[unified_alerting]\nenabled = true\n",
+		"server/monitoring/grafana/provisioning/alerting/notification-policies.yaml": "apiVersion: 1\n",
+		"server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml":                     "apiVersion: 1\n",
+		"server/monitoring/grafana/ha/timescaledb.yaml":                              "apiVersion: 1\n",
 		"server/Dockerfile":                                      "FROM scratch\n",
 		"server/fleetd":                                          "binary",
 		"server/proto-plugin":                                    "binary",
@@ -1001,7 +1007,11 @@ func writeTestSecretBundle(t *testing.T, config NodeConfig) {
 		if name == fleetEnvironmentFile {
 			contents = "AUTH_CLIENT_SECRET_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
 				"ENCRYPT_SERVICE_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n" +
-				"DB_DSN=postgresql://fleet:test@db/fleet\n"
+				"DB_DSN=postgresql://fleet:test@db/fleet\n" +
+				"GRAFANA_ADMIN_PASSWORD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n" +
+				"GRAFANA_DB_PASSWORD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n" +
+				"GRAFANA_SECRET_KEY=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n" +
+				"FLEET_ALERTS_WEBHOOK_TOKEN=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n"
 		}
 		require.NoError(t, os.WriteFile(filepath.Join(config.SecretsDir, name), []byte(contents), 0o600))
 	}

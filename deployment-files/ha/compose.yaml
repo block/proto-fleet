@@ -71,6 +71,7 @@ services:
       - ${HA_SECRETS_DIR}/postgres-superuser-password:/run/proto-fleet-ha-source/postgres-superuser-password:ro
       - ${HA_SECRETS_DIR}/postgres-replication-password:/run/proto-fleet-ha-source/postgres-replication-password:ro
       - ${HA_SECRETS_DIR}/fleet-db-password:/run/proto-fleet-ha-source/fleet-db-password:ro
+      - ${HA_SECRETS_DIR}/grafana-db-password:/run/proto-fleet-ha-source/grafana-db-password:ro
     healthcheck:
       test:
         - CMD-SHELL

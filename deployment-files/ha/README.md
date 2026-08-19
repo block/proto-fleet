@@ -5,7 +5,7 @@ packaged release.
 
 The topology is:
 
-- `ha-a` and `ha-b`: Fleet, PostgreSQL + TimescaleDB managed by Patroni, and etcd;
+- `ha-a` and `ha-b`: Fleet, a loopback-only Grafana sidecar, PostgreSQL + TimescaleDB managed by Patroni, and etcd;
 - `ha-c`: etcd witness only;
 - one stable LAN IPv4 address per host;
 - one unused LAN IPv4 address shared by keepalived on `ha-a` and `ha-b`;
@@ -129,7 +129,7 @@ repository plus the HA networking packages, then installs the release at
 `/opt/proto-fleet/deployment`, configuration at `/etc/proto-fleet/ha`, and data
 at `/var/lib/proto-fleet/ha`. Docker requires the HA firewall unit, and Docker
 restarts propagate through the role-aware HA service before keepalived can
-return. That service starts etcd, then Patroni and Fleet on `ha-a` and `ha-b`.
+return. That service starts etcd, then Patroni, Fleet, and Grafana on `ha-a` and `ha-b`.
 keepalived is enabled only on those two Fleet hosts and remains ineligible for
 the VIP until local active health passes. The witness starts etcd only.
 Only allowlisted host secret files are installed. A successful peer install
@@ -158,6 +158,34 @@ The Docker repository setup follows the official instructions for
 [Ubuntu](https://docs.docker.com/engine/install/ubuntu/), and
 [64-bit Raspberry Pi OS](https://docs.docker.com/engine/install/raspberry-pi-os/).
 
+### HA readiness alerts
+
+Each database host runs the same file-provisioned Grafana rule. The active
+Fleet runtime evaluates the full `fleet-ha status` failover-readiness check
+every 30 seconds and writes `fleet_ha_failover_ready` to the shared TimescaleDB
+metric table. The first value of zero, or no fresh sample for two minutes,
+creates the **HA Failover Readiness Degraded** alert for every active
+organization. Its dedicated five-second notification group normally delivers
+within 5–35 seconds of a failed sample without increasing status-probe load.
+
+Grafana remains standalone on each host and listens only on
+`127.0.0.1:3030`. Both instances use the same ordered two-host PostgreSQL
+datasource, so either Patroni member can serve the replicated metric table.
+Each Grafana posts its webhook to the local Fleet API; only the active Fleet
+runtime accepts and delivers it. Configure an alert channel in Proto Fleet as
+usual. No Datadog integration or separate HA monitoring service is required.
+
+Only the file-provisioned HA readiness rule is identical on both hosts.
+Grafana silences, UI-created rules, and other SQLite-backed Grafana state stay
+local to one host and do not follow Fleet ownership during failover.
+
+Alerting is deliberately best-effort and does not replace the operator status
+contract. If the active host's local PostgreSQL is unavailable, Grafana falls
+back to the peer PostgreSQL member. A complete PostgreSQL outage or loss of the
+active host's Grafana or Fleet delivery path can still delay notification until
+an evaluator and active Fleet delivery path are available on the same host. Use
+`fleet-ha status` for the authoritative current reason codes.
+
 ## Update a passive Fleet host
 
 HA disables application-triggered updates. On the passive database host, run:
@@ -169,9 +197,9 @@ sudo /opt/proto-fleet/deployment/ha/fleet-ha update v0.2.11
 The local updater downloads the release from the fixed Proto Fleet GitHub
 release origin, verifies its SHA256 checksum, builds and persists the staged
 Fleet images, then rechecks that this host is passive. It stops and replaces
-only `fleet-api` and `fleet-client`; etcd, Patroni, PostgreSQL, and keepalived
-remain running. The command returns only after the target version is healthy
-and passive.
+`fleet-api`, `fleet-client`, and the local Grafana sidecar; etcd, Patroni,
+PostgreSQL, and keepalived remain running. The command returns only after the
+target version is healthy and passive.
 
 After the peer is confirmed on the target release, complete the update from
 the old active host:
@@ -187,6 +215,12 @@ The source release must already contain this HA update protocol. HA is being
 introduced for new deployments, so an older experimental HA installation that
 predates `update --complete` must be reinstalled at the supported baseline
 rather than upgraded through this workflow.
+
+An HA profile installed from a release without the bundled Grafana readiness
+alert cannot adopt it through an application-only update: the fresh install
+creates shared Grafana credentials and the read-only `grafana_ha_ro` database
+role. Reinstall both database hosts at this baseline before using later rolling
+updates.
 
 The updater stages everything first, stops the local Fleet containers, and
 waits for the updated peer to serve the VIP with the target version. Only then
@@ -213,16 +247,20 @@ sudo ./deployment/ha/fleet-ha uninstall --purge-data
 ```
 
 Use `--purge-data` when preparing the host for a fresh guided installation. It
-removes the HA configuration, credentials, PostgreSQL and etcd data only after
-the local services and firewall have stopped successfully. Without the flag,
-the command preserves `/etc/proto-fleet/ha` and `/var/lib/proto-fleet/ha` as
+removes the HA configuration, credentials, PostgreSQL and etcd data, plus the
+exact HA Grafana volume when the installed HA profile's ownership marker is
+present, only after the local services have stopped successfully. Older HA
+profiles without that marker leave any same-named Grafana volume untouched.
+Without the flag, the command preserves
+`/etc/proto-fleet/ha`, `/var/lib/proto-fleet/ha`, and Grafana's local state as
 inert local state. That retained state blocks a fresh install and cannot be
 purged by a later uninstall invocation.
 
-The command preserves Docker, installed packages, images, volumes, unrelated
-nftables configuration, host networking, and SSH access. For a complete
-three-host reset, run it on the witness, then the passive Fleet host, then the
-active Fleet host. It does not connect to or modify the peer hosts.
+The command preserves Docker, installed packages, images, unrelated Docker
+volumes, unrelated nftables configuration, host networking, and SSH access.
+For a complete three-host reset, run it on the witness, then the passive Fleet
+host, then the active Fleet host. It does not connect to or modify the peer
+hosts.
 
 The uninstaller supports intact HA installations only. Missing or corrupt
 installation ownership files still require manual recovery or reimaging.

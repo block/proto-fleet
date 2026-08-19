@@ -2,12 +2,48 @@ package deployment
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
+func TestInstalledFleetComposeArgsSupportLegacyAndGrafanaProfiles(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		ownsGrafana bool
+	}{
+		{name: "legacy"},
+		{name: "Grafana", ownsGrafana: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			alertsPath := filepath.Join(root, "docker-compose.alerts.yaml")
+			if err := os.WriteFile(alertsPath, []byte("services: {}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ownershipMarker := filepath.Join(root, "grafana-volume-owned")
+			if test.ownsGrafana {
+				if err := os.WriteFile(ownershipMarker, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			args, err := fleetComposeArgsForInstalledProfileAt(root, ownershipMarker, "down")
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasAlerts := slices.Contains(args, alertsPath)
+			if hasAlerts != test.ownsGrafana {
+				t.Fatalf("alerts Compose included = %t, want %t; args = %q", hasAlerts, test.ownsGrafana, args)
+			}
+		})
+	}
+}
+
 func TestRunComposeRejectsParentOverrides(t *testing.T) {
-	for _, key := range []string{"AUTH_CLIENT_SECRET_KEY", "COMPOSE_PROJECT_NAME", "DB_DSN", "HA_NODE_IP"} {
+	for _, key := range []string{"AUTH_CLIENT_SECRET_KEY", "COMPOSE_PROJECT_NAME", "DB_DSN", "HA_NODE_IP", "GRAFANA_DB_PASSWORD", "FLEET_ALERTS_GRAFANA_URL"} {
 		t.Run(key, func(t *testing.T) {
 			// Arrange
 			const value = "must-not-appear-in-errors"

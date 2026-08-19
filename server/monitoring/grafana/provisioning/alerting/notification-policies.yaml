@@ -12,6 +12,16 @@ policies:
     group_interval: 5m
     repeat_interval: 1h
     routes:
+      # HA readiness is already debounced by Fleet's 30s status sampler. Flush
+      # its first failed sample quickly instead of adding the root 30s wait.
+      - receiver: protofleet-internal
+        object_matchers:
+          - ["template", "=", "ha-readiness"]
+        group_by:
+          - organization_id
+        group_wait: 5s
+        group_interval: 30s
+        repeat_interval: 1h
       # Curtailment state tracks the source in real time, so its alerts skip
       # the org batch; per-alertname groups keep Active and Unreachable from
       # gating each other's flushes.

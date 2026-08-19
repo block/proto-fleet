@@ -33,6 +33,7 @@ const (
 	firewallReplaceConfig = configRoot + "/firewall-replace.nft"
 	dockerDropIn          = "/etc/systemd/system/docker.service.d/proto-fleet-ha.conf"
 	dockerRecoveryDropIn  = "/etc/systemd/system/docker.service.d/proto-fleet-ha-recovery.conf"
+	fleetComposeProject   = "deployment"
 	minimumComposeVersion = "v2.24.4" // fleet-compose.yaml uses !override, added in this Compose release.
 	updaterDropIn         = "/etc/systemd/system/proto-fleet-updater.service.d/proto-fleet-ha.conf"
 	haUpdaterDropIn       = "/etc/systemd/system/proto-fleet-ha.service.d/proto-fleet-updater.conf"
@@ -413,7 +414,9 @@ func parseOSRelease(contents string) map[string]string {
 
 func validateRelease(source string, readFile func(string) ([]byte, error)) error {
 	required := []string{
-		"version.txt", "docker-compose.yaml", "server/docker-compose.base.yaml", "images/fleet.tar.gz", "images/timescaledb.tar.gz",
+		"version.txt", "docker-compose.yaml", "docker-compose.alerts.yaml", "server/docker-compose.base.yaml", "images/fleet.tar.gz", "images/timescaledb.tar.gz",
+		"server/monitoring/grafana/grafana.ini", "server/monitoring/grafana/provisioning/alerting/notification-policies.yaml",
+		"server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml", "server/monitoring/grafana/ha/timescaledb.yaml",
 		"server/Dockerfile", "server/fleetd", "server/proto-plugin", "server/antminer-plugin", "server/asicrs-plugin", "server/asicrs-config.yaml", "server/virtual-plugin", "server/virtual-plugin.json",
 		"client/Dockerfile", "client/nginx.https.conf", "client/protoFleet/index.html", "client/docker-entrypoint.d/40-render-runtime-config.sh",
 		"updater/proto-fleet-updater", "updater/proto-fleet-updater.service",
@@ -671,6 +674,12 @@ func installRelease(ctx context.Context, config NodeConfig, deps installDependen
 	if err := placeFile(ctx, deps, "install Fleet base environment", baseEnv, filepath.Join(configRoot, "base.env"), "0600"); err != nil {
 		return err
 	}
+	if config.isDatabaseNode() {
+		if err := sudoStep(ctx, deps, "record HA Grafana volume ownership",
+			"install", "-o", "root", "-g", "root", "-m", "0600", "/dev/null", haGrafanaVolumeOwnershipMarker); err != nil {
+			return err
+		}
+	}
 	for sourceName, target := range map[string]string{
 		"proto-fleet-ha.service":          serviceUnit,
 		"proto-fleet-ha-firewall.service": firewallUnit,
@@ -790,6 +799,10 @@ func prepareImages(ctx context.Context, source string, config NodeConfig, deps i
 		return fmt.Errorf("pull etcd image: %s", commandError(output, err))
 	}
 	if config.isDatabaseNode() {
+		pullArgs := fleetComposeArgs("pull", "grafana")
+		if output, err := deps.run(ctx, "sudo", append([]string{filepath.Join(installRoot, "ha", "fleet-ha"), "compose"}, pullArgs...)...); err != nil {
+			return fmt.Errorf("pull Grafana image: %s", commandError(output, err))
+		}
 		for _, archive := range []string{"timescaledb.tar.gz", "fleet.tar.gz"} {
 			if output, err := deps.run(ctx, "sudo", "docker", "load", "--input", filepath.Join(installRoot, "images", archive)); err != nil {
 				return fmt.Errorf("load release images from %s: %s", archive, commandError(output, err))
@@ -958,14 +971,21 @@ func fleetComposeArgs(operation string, services ...string) []string {
 }
 
 func fleetComposeArgsAt(root, operation string, services ...string) []string {
+	return fleetComposeArgsAtProfile(root, true, operation, services...)
+}
+
+func fleetComposeArgsAtProfile(root string, includeAlerts bool, operation string, services ...string) []string {
 	args := []string{
-		"--project-name", "deployment",
+		"--project-name", fleetComposeProject,
 		"--env-file", filepath.Join(configRoot, "base.env"),
 		"--env-file", filepath.Join(configRoot, fleetEnvironmentFile),
 		"--env-file", filepath.Join(configRoot, "node.env"),
 		"--file", filepath.Join(root, "docker-compose.yaml"),
-		"--file", filepath.Join(root, "ha", "fleet-compose.yaml"), operation,
 	}
+	if includeAlerts {
+		args = append(args, "--file", filepath.Join(root, "docker-compose.alerts.yaml"))
+	}
+	args = append(args, "--file", filepath.Join(root, "ha", "fleet-compose.yaml"), operation)
 	return append(args, services...)
 }
 
