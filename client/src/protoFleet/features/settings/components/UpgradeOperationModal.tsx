@@ -366,7 +366,6 @@ const UpgradeOperationModal = ({
     <Dialog
       open={open}
       onDismiss={onDismiss}
-      dismissButton
       testId="upgrade-operation-modal"
       icon={dialogVisual.icon}
       title={dialogVisual.title}

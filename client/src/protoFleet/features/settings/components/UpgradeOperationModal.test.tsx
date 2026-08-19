@@ -80,6 +80,7 @@ describe("UpgradeOperationModal", () => {
 
     const confirmButton = screen.getByRole("button", { name: "Update now" });
     expect(screen.getByTestId("upgrade-dialog-icon")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close dialog" })).not.toBeInTheDocument();
     expect(confirmButton).toBeInTheDocument();
     fireEvent.click(confirmButton);
 
