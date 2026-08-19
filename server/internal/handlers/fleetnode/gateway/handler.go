@@ -686,17 +686,17 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	var first *pb.ControlStreamRequest
 	select {
 	case <-helloTimer.C:
-		return controlStreamHandshakeError(ctx, fleeterror.NewFailedPreconditionErrorf("control stream Hello not received within %s", HelloTimeout))
+		return controlStreamExitError(ctx, fleeterror.NewFailedPreconditionErrorf("control stream Hello not received within %s", HelloTimeout))
 	case <-ctx.Done():
-		return controlStreamHandshakeError(ctx, fleeterror.NewInternalErrorf("control stream closed before hello: %v", ctx.Err()))
+		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream closed before hello: %v", ctx.Err()))
 	case r := <-helloCh:
 		if r.err != nil {
-			return controlStreamHandshakeError(ctx, fleeterror.NewInvalidArgumentErrorf("control stream closed before hello: %v", r.err))
+			return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentErrorf("control stream closed before hello: %v", r.err))
 		}
 		first = r.msg
 	}
 	if first.GetHello() == nil {
-		return fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello")
+		return controlStreamExitError(ctx, fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello"))
 	}
 
 	regHandle := h.registry.Register(subject.FleetNodeID)
@@ -726,21 +726,21 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	for {
 		select {
 		case <-ctx.Done():
-			return controlStreamContextError(ctx)
+			return controlStreamExitError(ctx, nil)
 		case <-regHandle.Done:
 			// Newest-wins eviction or Unregister fired; let the handler
 			// exit so connect-go closes the stream.
-			return nil
+			return controlStreamExitError(ctx, nil)
 		case cmd := <-regHandle.Outgoing:
 			if sendErr := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: cmd}}); sendErr != nil {
-				return fleeterror.NewInternalErrorf("send command: %v", sendErr)
+				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send command: %v", sendErr))
 			}
 		case r := <-incoming:
 			if r.err != nil {
 				if errors.Is(r.err, io.EOF) {
-					return nil
+					return controlStreamExitError(ctx, nil)
 				}
-				return fleeterror.NewInternalErrorf("control stream recv: %v", r.err)
+				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream recv: %v", r.err))
 			}
 			if ack := r.msg.GetAck(); ack != nil {
 				// Trust boundary for node input: drop a malformed/oversized ack rather than
@@ -756,17 +756,10 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	}
 }
 
-func controlStreamContextError(ctx context.Context) error {
+func controlStreamExitError(ctx context.Context, fallback error) error {
 	activeLifetime, admitted := admissionctx.ActiveLifetime(ctx)
 	if admitted && activeLifetime.Err() != nil {
 		return fleeterror.NewNotActiveError()
-	}
-	return nil
-}
-
-func controlStreamHandshakeError(ctx context.Context, fallback error) error {
-	if err := controlStreamContextError(ctx); err != nil {
-		return err
 	}
 	return fallback
 }
@@ -775,7 +768,7 @@ func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamR
 	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
 		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
 	}}); err != nil {
-		return controlStreamHandshakeError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
+		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
 	}
 	return nil
 }

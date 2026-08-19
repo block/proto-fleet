@@ -62,14 +62,14 @@ func TestCommandArtifactUploadReaderRejectsOversizedChunk(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 }
 
-func TestControlStreamContextErrorDistinguishesDemotionFromClientCancellation(t *testing.T) {
-	t.Run("active lifetime ended", func(t *testing.T) {
+func TestControlStreamExitErrorDistinguishesDemotionFromClientCancellation(t *testing.T) {
+	t.Run("nil fallback becomes not-active when active lifetime ended", func(t *testing.T) {
 		activeCtx, cancelActive := context.WithCancel(t.Context())
 		requestCtx, cancelRequest := context.WithCancel(admissionctx.WithActiveLifetime(t.Context(), activeCtx))
 		cancelActive()
 		cancelRequest()
 
-		err := controlStreamContextError(requestCtx)
+		err := controlStreamExitError(requestCtx, nil)
 
 		var fleetErr fleeterror.FleetError
 		require.ErrorAs(t, err, &fleetErr)
@@ -77,17 +77,41 @@ func TestControlStreamContextErrorDistinguishesDemotionFromClientCancellation(t 
 		assert.Equal(t, int32(commonpb.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE), fleetErr.FleetErrorCode)
 	})
 
-	t.Run("client canceled while activation remains live", func(t *testing.T) {
+	t.Run("nil fallback remains nil while activation remains live", func(t *testing.T) {
 		activeCtx := context.Background()
 		requestCtx, cancelRequest := context.WithCancel(admissionctx.WithActiveLifetime(t.Context(), activeCtx))
 		cancelRequest()
 
-		assert.NoError(t, controlStreamContextError(requestCtx))
+		assert.NoError(t, controlStreamExitError(requestCtx, nil))
+	})
+
+	t.Run("stream failure while activation remains live", func(t *testing.T) {
+		fallback := fleeterror.NewInternalError("send command")
+		requestCtx := admissionctx.WithActiveLifetime(t.Context(), context.Background())
+
+		assert.Equal(t, fallback, controlStreamExitError(requestCtx, fallback))
 	})
 
 	t.Run("normal stream replacement has no activation cancellation", func(t *testing.T) {
-		assert.NoError(t, controlStreamContextError(t.Context()))
+		assert.NoError(t, controlStreamExitError(t.Context(), nil))
 	})
+}
+
+func TestControlStreamExitErrorPrefersDemotionOverConcurrentStreamFailure(t *testing.T) {
+	for _, name := range []string{"send command failure", "receive failure"} {
+		t.Run(name, func(t *testing.T) {
+			activeCtx, cancelActive := context.WithCancel(t.Context())
+			requestCtx := admissionctx.WithActiveLifetime(t.Context(), activeCtx)
+			cancelActive()
+
+			err := controlStreamExitError(requestCtx, fleeterror.NewInternalError(name))
+
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodeUnavailable, fleetErr.GRPCCode)
+			assert.Equal(t, int32(commonpb.FleetErrorCode_FLEET_ERROR_CODE_NOT_ACTIVE), fleetErr.FleetErrorCode)
+		})
+	}
 }
 
 func TestSendControlStreamAcceptedClassifiesDemotion(t *testing.T) {
