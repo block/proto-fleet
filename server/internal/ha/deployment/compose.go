@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 )
 
@@ -23,15 +22,14 @@ func fleetApplicationComposeArgsAt(root, operation string, flags ...string) []st
 }
 
 func fleetComposeArgsForInstalledProfile(operation string, flags ...string) ([]string, error) {
-	return fleetComposeArgsForInstalledProfileAt(installRoot, operation, flags...)
+	return fleetComposeArgsForInstalledProfileAt(installRoot, haGrafanaVolumeOwnershipMarker, operation, flags...)
 }
 
-func fleetComposeArgsForInstalledProfileAt(root, operation string, flags ...string) ([]string, error) {
-	alertsPath := filepath.Join(root, "docker-compose.alerts.yaml")
-	if _, err := os.Stat(alertsPath); err == nil {
+func fleetComposeArgsForInstalledProfileAt(root, ownershipMarker, operation string, flags ...string) ([]string, error) {
+	if _, err := os.Stat(ownershipMarker); err == nil {
 		return fleetComposeArgsAtProfile(root, true, operation, flags...), nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect installed alerts Compose file: %w", err)
+		return nil, fmt.Errorf("inspect installed HA Grafana ownership marker: %w", err)
 	}
 	return fleetComposeArgsAtProfile(root, false, operation, flags...), nil
 }

@@ -11,28 +11,32 @@ import (
 
 func TestInstalledFleetComposeArgsSupportLegacyAndGrafanaProfiles(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		withAlerts bool
+		name        string
+		ownsGrafana bool
 	}{
 		{name: "legacy"},
-		{name: "Grafana", withAlerts: true},
+		{name: "Grafana", ownsGrafana: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			alertsPath := filepath.Join(root, "docker-compose.alerts.yaml")
-			if test.withAlerts {
-				if err := os.WriteFile(alertsPath, []byte("services: {}\n"), 0o600); err != nil {
+			if err := os.WriteFile(alertsPath, []byte("services: {}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ownershipMarker := filepath.Join(root, "grafana-volume-owned")
+			if test.ownsGrafana {
+				if err := os.WriteFile(ownershipMarker, nil, 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
 
-			args, err := fleetComposeArgsForInstalledProfileAt(root, "down")
+			args, err := fleetComposeArgsForInstalledProfileAt(root, ownershipMarker, "down")
 			if err != nil {
 				t.Fatal(err)
 			}
 			hasAlerts := slices.Contains(args, alertsPath)
-			if hasAlerts != test.withAlerts {
-				t.Fatalf("alerts Compose included = %t, want %t; args = %q", hasAlerts, test.withAlerts, args)
+			if hasAlerts != test.ownsGrafana {
+				t.Fatalf("alerts Compose included = %t, want %t; args = %q", hasAlerts, test.ownsGrafana, args)
 			}
 		})
 	}
