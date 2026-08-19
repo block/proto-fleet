@@ -1,10 +1,10 @@
 {
-  "version": "nightly-20260818-01d0759794f4",
-  "tag": "nightly-20260818-01d0759794f4",
-  "commit": "01d0759794f43e98b9968a22af85978799d2cd65",
-  "build_date": "2026-08-18T04:16:29Z",
-  "run_id": "32098524393",
-  "run_number": "115",
+  "version": "nightly-20260819-b350af2dcd15",
+  "tag": "nightly-20260819-b350af2dcd15",
+  "commit": "b350af2dcd159151849f3525b36e526aa663dd72",
+  "build_date": "2026-08-19T04:16:29Z",
+  "run_id": "32215156067",
+  "run_number": "116",
   "run_attempt": "1",
-  "release_url": "https://github.com/block/proto-fleet/releases/tag/nightly-20260818-01d0759794f4"
+  "release_url": "https://github.com/block/proto-fleet/releases/tag/nightly-20260819-b350af2dcd15"
 }
