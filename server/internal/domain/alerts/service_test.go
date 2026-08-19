@@ -246,10 +246,10 @@ func (f *fakeWindowStore) ListActive(_ context.Context, orgID int64, now time.Ti
 	return out, nil
 }
 
-func (f *fakeWindowStore) CountUnexpired(_ context.Context, orgID int64, now time.Time) (int64, error) {
+func (f *fakeWindowStore) CountUnexpired(_ context.Context, orgID int64, now time.Time, excludingID int64) (int64, error) {
 	var n int64
 	for _, rec := range f.rows {
-		if rec.OrganizationID == orgID && rec.EndsAt.After(now) {
+		if rec.OrganizationID == orgID && rec.EndsAt.After(now) && rec.ID != excludingID {
 			n++
 		}
 	}
@@ -276,13 +276,34 @@ func (f *fakeWindowStore) Delete(_ context.Context, orgID, id int64) error {
 	return nil
 }
 
-// newMaintenanceWindowService wires a service whose Grafana knows one shared rule ("rule-9").
+// windowTestNow sits before the Unix(1000)…Unix(3000) fixture windows so they read as upcoming
+// (writes require ends_at in the future).
+var windowTestNow = time.Unix(500, 0)
+
+// newMaintenanceWindowService wires a service whose Grafana knows one shared rule ("rule-9")
+// and whose clock is pinned to windowTestNow.
 func newMaintenanceWindowService(t *testing.T) (*Service, *fakeWindowStore, *fakeChannelStore) {
 	t.Helper()
 	windows := newFakeWindowStore()
 	channels := newFakeChannelStore()
 	svc := NewService(fakeGrafanaSilences(t, nil, nil), channels, nil, nil, windows, nil, nil, nil, DestinationPolicy{})
+	svc.now = func() time.Time { return windowTestNow }
 	return svc, windows, channels
+}
+
+// fillWindowsToCap inserts maxMaintenanceWindowsPerOrg active windows for org 7 and returns the
+// last one, putting the org exactly at the write quota.
+func fillWindowsToCap(t *testing.T, windows *fakeWindowStore, now time.Time) MaintenanceWindowRecord {
+	t.Helper()
+	var last MaintenanceWindowRecord
+	for range maxMaintenanceWindowsPerOrg {
+		var err error
+		last, err = windows.Insert(context.Background(), MaintenanceWindowRecord{
+			OrganizationID: 7, StartsAt: now, EndsAt: now.Add(time.Hour),
+		})
+		require.NoError(t, err)
+	}
+	return last
 }
 
 func TestCreateMaintenanceWindowResolvesTargets(t *testing.T) {
@@ -314,6 +335,7 @@ func TestCreateMaintenanceWindowResolvesTargets(t *testing.T) {
 func TestCreateMaintenanceWindowEmptyTargetsMeanAll(t *testing.T) {
 	windows := newFakeWindowStore()
 	svc := NewService(nil, nil, nil, nil, windows, nil, nil, nil, DestinationPolicy{})
+	svc.now = func() time.Time { return windowTestNow }
 
 	out, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		StartsAt: time.Unix(1000, 0),
@@ -413,8 +435,9 @@ func TestListMaintenanceWindowsComputesActive(t *testing.T) {
 
 // Pre-migration windows lived as marked Grafana silences; the startup sweep must copy the
 // representable live ones into the window store before deleting them (deleting alone would
-// silently lift active suppression mid-maintenance), while leaving pause silences, operator
-// silences, and already-expired legacy windows alone.
+// silently lift active suppression mid-maintenance), retain live ones the DB model can't
+// represent until they expire on their own, and leave pause silences, operator silences, and
+// already-expired legacy windows alone.
 func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
 	ruleMatchers := []GrafanaSilenceMatcher{
 		{Name: "organization_id", Value: "7", IsEqual: true},
@@ -429,7 +452,8 @@ func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
 			CreatedBy: "alice@example.com",
 			Matchers:  ruleMatchers,
 		},
-		// Device-scoped (no rule matcher): unrepresentable in the rule×channel model, deleted only.
+		// Device-scoped (no rule matcher): unrepresentable in the rule×channel model, so its live
+		// suppression is left to expire in Grafana rather than lifted mid-maintenance.
 		{ID: "legacy-device", Comment: legacyMaintenanceWindowCommentMarker, StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(9000, 0), Matchers: []GrafanaSilenceMatcher{
 			{Name: "organization_id", Value: "7", IsEqual: true},
 			{Name: "device_id", Value: "miner-1", IsEqual: true},
@@ -447,8 +471,9 @@ func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
 	migrated, removed, err := svc.MigrateLegacyMaintenanceWindowSilences(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 1, migrated)
-	assert.Equal(t, 3, removed)
-	assert.ElementsMatch(t, []string{"legacy-rule", "legacy-device", "legacy-ended"}, fake.deletedSilences)
+	assert.Equal(t, 2, removed)
+	assert.ElementsMatch(t, []string{"legacy-rule", "legacy-ended"}, fake.deletedSilences,
+		"the live device-scoped silence must be retained, not deleted")
 
 	require.Len(t, windows.rows, 1)
 	rec := windows.rows[1]
@@ -475,12 +500,7 @@ func TestCreateMaintenanceWindowQuotaAndPrune(t *testing.T) {
 	now := time.Unix(1_000_000_000, 0)
 	svc.now = func() time.Time { return now }
 
-	for range maxMaintenanceWindowsPerOrg {
-		_, err := windows.Insert(context.Background(), MaintenanceWindowRecord{
-			OrganizationID: 7, StartsAt: now, EndsAt: now.Add(time.Hour),
-		})
-		require.NoError(t, err)
-	}
+	fillWindowsToCap(t, windows, now)
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		StartsAt: now, EndsAt: now.Add(time.Hour),
 	})
@@ -502,6 +522,34 @@ func TestCreateMaintenanceWindowQuotaAndPrune(t *testing.T) {
 	require.NotNil(t, created)
 	_, stillThere := windows.rows[ancient.ID]
 	assert.False(t, stillThere, "creation prunes windows expired past retention")
+}
+
+// Every accepted write leaves the row unexpired, so an update can revive an expired row; it
+// must be held to the same per-org cap as a create, while an edit of a window that already
+// counts (excluded as the row being rewritten) still saves at cap.
+func TestUpdateMaintenanceWindowQuota(t *testing.T) {
+	svc, windows, _ := newMaintenanceWindowService(t)
+	now := time.Unix(1_000_000_000, 0)
+	svc.now = func() time.Time { return now }
+
+	expired, err := windows.Insert(context.Background(), MaintenanceWindowRecord{
+		OrganizationID: 7, StartsAt: now.Add(-2 * time.Hour), EndsAt: now.Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	active := fillWindowsToCap(t, windows, now)
+
+	_, err = svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ID: strconv.FormatInt(expired.ID, 10), StartsAt: now, EndsAt: now.Add(time.Hour),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err),
+		"reviving an expired window past the cap must be rejected, got %v", err)
+
+	updated, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ID: strconv.FormatInt(active.ID, 10), StartsAt: now, EndsAt: now.Add(2 * time.Hour),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, now.Add(2*time.Hour), updated.EndsAt, "editing an at-cap active window must still save")
 }
 
 // Without pause-silence state, a muted rule is indistinguishable from an enabled one, so
@@ -601,14 +649,17 @@ func TestMaintenanceWindowRequiresVisibleRule(t *testing.T) {
 	assert.Empty(t, windows.rows, "window for an unknown rule must not persist")
 }
 
-// Maintenance windows are finite: the server must reject a missing or non-increasing time
-// range even though the UI enforces it, so a direct RPC can't open a decades-long silence.
+// Maintenance windows are finite and forward-looking: the server must reject a missing or
+// non-increasing time range even though the UI enforces it, so a direct RPC can't open a
+// decades-long silence — and an already-ended range, which would occupy a row invisible to
+// the unexpired-count quota. The service clock is pinned to Unix(500) by the helper.
 func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
 	cases := map[string]MaintenanceWindow{
 		"missing ends_at":    {StartsAt: time.Unix(1000, 0)},
 		"missing starts_at":  {EndsAt: time.Unix(2000, 0)},
 		"ends before starts": {StartsAt: time.Unix(2000, 0), EndsAt: time.Unix(1000, 0)},
 		"ends equals starts": {StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(1000, 0)},
+		"already ended":      {StartsAt: time.Unix(100, 0), EndsAt: time.Unix(400, 0)},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

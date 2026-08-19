@@ -296,8 +296,9 @@ type Querier interface {
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
-	// Backs the per-org creation cap: only windows still active or scheduled count against it,
-	// so expired history can never block creating a new window.
+	// Backs the per-org write quota: only windows still active or scheduled count against it, so
+	// expired history can never block a write. excluding_id skips the row an update rewrites
+	// (0 on insert, which no BIGSERIAL id equals).
 	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
 	// `site_id` is nullable. Name is unique per (site_id, name) when site_id

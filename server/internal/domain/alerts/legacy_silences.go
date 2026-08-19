@@ -29,6 +29,7 @@ func isLegacyMaintenanceWindowSilence(sil GrafanaSilence) bool {
 // the delete would silently lift suppression mid-maintenance and flood operators. Runs across
 // all orgs at startup. Each silence is deleted only after its replacement row is stored, and a
 // re-run skips rows a previous partially-failed sweep already inserted, so retries converge.
+// Live silences the DB model can't represent are left in place until they expire on their own.
 func (s *Service) MigrateLegacyMaintenanceWindowSilences(ctx context.Context) (migrated, removed int, err error) {
 	sils, err := s.grafana.ListSilences(ctx)
 	if err != nil {
@@ -45,25 +46,29 @@ func (s *Service) MigrateLegacyMaintenanceWindowSilences(ctx context.Context) (m
 		}
 		// Only a still-live window has suppression to preserve; an already-ended one is just removed.
 		if sil.EndsAt.After(now) {
-			if rec, ok := legacyWindowRecord(sil); !ok {
+			rec, ok := legacyWindowRecord(sil)
+			if !ok {
 				// Not representable in the rule×channel model (device-scoped silences from even older
-				// builds, or foreign matcher shapes). Deleting lifts its suppression, but keeping it
-				// would mute alerts — including history — invisibly and unliftably.
-				slog.Warn("alerts.legacy_window_not_migrated", "silence_id", sil.ID, "comment", sil.Comment)
-			} else {
-				// Re-list per silence rather than caching: the one-shot sweep is tiny, and a fresh
-				// read naturally skips rows already inserted by an earlier partially-failed pass or
-				// by an identical silence earlier in this one.
-				orgWindows, err := s.windows.List(ctx, rec.OrganizationID)
-				if err != nil {
+				// builds, or foreign matcher shapes). Someone scheduled this suppression, so leave it
+				// to run out: silences are finite and Grafana expires then garbage-collects them, so
+				// the muting lifts itself and the sweep stops seeing it. Deleting now would flood
+				// operators mid-maintenance instead.
+				slog.Warn("alerts.legacy_window_retained_until_expiry",
+					"silence_id", sil.ID, "comment", sil.Comment, "ends_at", sil.EndsAt)
+				continue
+			}
+			// Re-list per silence rather than caching: the one-shot sweep is tiny, and a fresh
+			// read naturally skips rows already inserted by an earlier partially-failed pass or
+			// by an identical silence earlier in this one.
+			orgWindows, err := s.windows.List(ctx, rec.OrganizationID)
+			if err != nil {
+				return migrated, removed, err
+			}
+			if !hasEquivalentWindow(orgWindows, rec) {
+				if _, err := s.windows.Insert(ctx, rec); err != nil {
 					return migrated, removed, err
 				}
-				if !hasEquivalentWindow(orgWindows, rec) {
-					if _, err := s.windows.Insert(ctx, rec); err != nil {
-						return migrated, removed, err
-					}
-					migrated++
-				}
+				migrated++
 			}
 		}
 		if err := s.grafana.DeleteSilence(ctx, sil.ID); err != nil && !IsNotFound(err) {

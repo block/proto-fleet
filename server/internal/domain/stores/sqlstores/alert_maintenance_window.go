@@ -85,10 +85,11 @@ func (s *SQLAlertMaintenanceWindowStore) ListActive(ctx context.Context, orgID i
 	return maintenanceWindowRecordsFromRows(rows), nil
 }
 
-func (s *SQLAlertMaintenanceWindowStore) CountUnexpired(ctx context.Context, orgID int64, now time.Time) (int64, error) {
+func (s *SQLAlertMaintenanceWindowStore) CountUnexpired(ctx context.Context, orgID int64, now time.Time, excludingID int64) (int64, error) {
 	return s.GetQueries(ctx).CountUnexpiredAlertMaintenanceWindows(ctx, sqlc.CountUnexpiredAlertMaintenanceWindowsParams{
-		OrgID: orgID,
-		Now:   now,
+		OrgID:       orgID,
+		Now:         now,
+		ExcludingID: excludingID,
 	})
 }
 

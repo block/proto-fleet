@@ -37,11 +37,13 @@ WHERE org_id = sqlc.arg('org_id')
   AND ends_at > sqlc.arg('now');
 
 -- name: CountUnexpiredAlertMaintenanceWindows :one
--- Backs the per-org creation cap: only windows still active or scheduled count against it,
--- so expired history can never block creating a new window.
+-- Backs the per-org write quota: only windows still active or scheduled count against it, so
+-- expired history can never block a write. excluding_id skips the row an update rewrites
+-- (0 on insert, which no BIGSERIAL id equals).
 SELECT count(*) FROM alert_maintenance_window
 WHERE org_id = sqlc.arg('org_id')
-  AND ends_at > sqlc.arg('now');
+  AND ends_at > sqlc.arg('now')
+  AND id <> sqlc.arg('excluding_id');
 
 -- name: DeleteExpiredAlertMaintenanceWindows :execrows
 -- Retention: reclaims windows that ended before the cutoff so the org's list stays bounded.

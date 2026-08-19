@@ -835,26 +835,19 @@ func (s *Service) ListMaintenanceWindows(ctx context.Context, orgID int64) ([]Ma
 }
 
 func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, w MaintenanceWindow) (*MaintenanceWindow, error) {
-	rec, err := s.resolveMaintenanceWindowRecord(ctx, orgID, w)
+	now := s.now()
+	rec, err := s.resolveMaintenanceWindowRecord(ctx, orgID, w, now)
 	if err != nil {
 		return nil, err
 	}
-	now := s.now()
 	// Prune-on-create: creation is the only path that grows the table, so reclaiming the org's
 	// stale expired rows here bounds the list without a background job. Best-effort — a failed
 	// prune must not block the window an operator needs right now.
 	if _, err := s.windows.DeleteExpiredBefore(ctx, orgID, now.Add(-maintenanceWindowRetention)); err != nil {
 		slog.Warn("alerts.maintenance_window_prune_failed", "org_id", orgID, "error", err)
 	}
-	// Soft cap (read-then-insert, like the user-rule quota but without its mutex): a racing
-	// duplicate can overshoot by a few rows, which is fine for a growth bound.
-	unexpired, err := s.windows.CountUnexpired(ctx, orgID, now)
-	if err != nil {
+	if err := s.requireWindowQuota(ctx, orgID, now, 0); err != nil {
 		return nil, err
-	}
-	if unexpired >= maxMaintenanceWindowsPerOrg {
-		return nil, fleeterror.NewFailedPreconditionErrorf(
-			"maintenance window limit reached (%d active or scheduled); delete one first", maxMaintenanceWindowsPerOrg)
 	}
 	stored, err := s.windows.Insert(ctx, *rec)
 	if err != nil {
@@ -872,18 +865,41 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, w Ma
 	if err != nil {
 		return nil, err
 	}
-	rec, err := s.resolveMaintenanceWindowRecord(ctx, orgID, w)
+	now := s.now()
+	rec, err := s.resolveMaintenanceWindowRecord(ctx, orgID, w, now)
 	if err != nil {
 		return nil, err
 	}
 	rec.ID = id
+	// Accepted writes always end in the future, so an update can revive an expired row —
+	// hold it to the create quota (see requireWindowQuota).
+	if err := s.requireWindowQuota(ctx, orgID, now, id); err != nil {
+		return nil, err
+	}
 	// The store update leaves created_by/created_at untouched, so the audit owner survives edits.
 	stored, err := s.windows.Update(ctx, *rec)
 	if err != nil {
 		return nil, err
 	}
-	out := maintenanceWindowFromRecord(stored, s.now())
+	out := maintenanceWindowFromRecord(stored, now)
 	return &out, nil
+}
+
+// requireWindowQuota rejects a write that would leave the org with more than
+// maxMaintenanceWindowsPerOrg unexpired windows. excludingID names the row being rewritten so
+// an edit of an at-cap active window still saves while reviving an expired row is held to the
+// cap; 0 on create. Soft cap (read-then-write, like the user-rule quota but without its mutex):
+// racing writes can overshoot by a few rows, which is fine for a growth bound.
+func (s *Service) requireWindowQuota(ctx context.Context, orgID int64, now time.Time, excludingID int64) error {
+	unexpired, err := s.windows.CountUnexpired(ctx, orgID, now, excludingID)
+	if err != nil {
+		return err
+	}
+	if unexpired >= maxMaintenanceWindowsPerOrg {
+		return fleeterror.NewFailedPreconditionErrorf(
+			"maintenance window limit reached (%d active or scheduled); delete one first", maxMaintenanceWindowsPerOrg)
+	}
+	return nil
 }
 
 func (s *Service) DeleteMaintenanceWindow(ctx context.Context, orgID int64, id string) error {
@@ -899,11 +915,11 @@ func (s *Service) DeleteMaintenanceWindow(ctx context.Context, orgID int64, id s
 
 // resolveMaintenanceWindowRecord validates a submitted window and resolves its rule and channel
 // targets into the persisted form, shared by create and update.
-func (s *Service) resolveMaintenanceWindowRecord(ctx context.Context, orgID int64, w MaintenanceWindow) (*MaintenanceWindowRecord, error) {
+func (s *Service) resolveMaintenanceWindowRecord(ctx context.Context, orgID int64, w MaintenanceWindow, now time.Time) (*MaintenanceWindowRecord, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
-	if err := validateMaintenanceWindowTimes(w.StartsAt, w.EndsAt); err != nil {
+	if err := validateMaintenanceWindowTimes(w.StartsAt, w.EndsAt, now); err != nil {
 		return nil, err
 	}
 	ruleUIDs, err := s.resolveVisibleRuleIDs(ctx, orgID, w.RuleIDs)
@@ -992,10 +1008,12 @@ func maintenanceWindowFromRecord(rec MaintenanceWindowRecord, now time.Time) Mai
 	return w
 }
 
-// Maintenance windows are finite: the UI enforces this, but a direct RPC could omit ends_at
-// (which would compile to the far-future sentinel and silence alerts for decades) or pass an
-// end at/before the start. Indefinite suppression is only available via PauseRule.
-func validateMaintenanceWindowTimes(startsAt, endsAt time.Time) error {
+// Maintenance windows are finite and forward-looking: the UI enforces this, but a direct RPC
+// could omit ends_at (which would compile to the far-future sentinel and silence alerts for
+// decades), pass an end at/before the start, or write an already-ended window — which mutes
+// nothing but would bloat the table beyond the unexpired-count quota's reach. Indefinite
+// suppression is only available via PauseRule; ending a window early is done by deleting it.
+func validateMaintenanceWindowTimes(startsAt, endsAt, now time.Time) error {
 	if startsAt.IsZero() {
 		return fleeterror.NewInvalidArgumentError("starts_at is required for a maintenance window")
 	}
@@ -1004,6 +1022,9 @@ func validateMaintenanceWindowTimes(startsAt, endsAt time.Time) error {
 	}
 	if !endsAt.After(startsAt) {
 		return fleeterror.NewInvalidArgumentError("ends_at must be after starts_at")
+	}
+	if !endsAt.After(now) {
+		return fleeterror.NewInvalidArgumentError("ends_at must be in the future; to end a window early, delete it")
 	}
 	return nil
 }

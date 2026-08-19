@@ -16,17 +16,20 @@ const countUnexpiredAlertMaintenanceWindows = `-- name: CountUnexpiredAlertMaint
 SELECT count(*) FROM alert_maintenance_window
 WHERE org_id = $1
   AND ends_at > $2
+  AND id <> $3
 `
 
 type CountUnexpiredAlertMaintenanceWindowsParams struct {
-	OrgID int64
-	Now   time.Time
+	OrgID       int64
+	Now         time.Time
+	ExcludingID int64
 }
 
-// Backs the per-org creation cap: only windows still active or scheduled count against it,
-// so expired history can never block creating a new window.
+// Backs the per-org write quota: only windows still active or scheduled count against it, so
+// expired history can never block a write. excluding_id skips the row an update rewrites
+// (0 on insert, which no BIGSERIAL id equals).
 func (q *Queries) CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error) {
-	row := q.queryRow(ctx, q.countUnexpiredAlertMaintenanceWindowsStmt, countUnexpiredAlertMaintenanceWindows, arg.OrgID, arg.Now)
+	row := q.queryRow(ctx, q.countUnexpiredAlertMaintenanceWindowsStmt, countUnexpiredAlertMaintenanceWindows, arg.OrgID, arg.Now, arg.ExcludingID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

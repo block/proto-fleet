@@ -126,14 +126,18 @@ func TestAlertMaintenanceWindowStoreCountAndPrune(t *testing.T) {
 		require.NoError(t, err)
 		return rec
 	}
-	insert(now.Add(-time.Hour), now.Add(time.Hour))               // active
+	active := insert(now.Add(-time.Hour), now.Add(time.Hour))     // active
 	insert(now.Add(24*time.Hour), now.Add(25*time.Hour))          // scheduled
 	insert(now.Add(-2*time.Hour), now.Add(-time.Hour))            // freshly expired
 	old := insert(now.Add(-72*time.Hour), now.Add(-48*time.Hour)) // expired past the cutoff
 
-	n, err := store.CountUnexpired(ctx, 21, now)
+	n, err := store.CountUnexpired(ctx, 21, now, 0)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), n, "only active and scheduled windows count")
+
+	n, err = store.CountUnexpired(ctx, 21, now, active.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n, "the row an update rewrites is excluded from its own quota check")
 
 	deleted, err := store.DeleteExpiredBefore(ctx, 21, now.Add(-24*time.Hour))
 	require.NoError(t, err)
