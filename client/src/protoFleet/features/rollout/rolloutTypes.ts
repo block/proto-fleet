@@ -181,6 +181,9 @@ export interface RolloutLanePreview {
   matchingCount: number;
   mismatchedCount: number;
   unknownCount: number;
+  reassignments: RolloutLaneMembershipReassignment[];
+  requiresReassignmentConfirmation: boolean;
+  reassignmentConfirmationToken: string;
 }
 
 export type FirmwareTransitionState = "pending" | "updating" | "verifying" | "confirmed" | "needsAttention";
@@ -227,6 +230,12 @@ export interface RolloutLaneMembershipReassignment {
   deviceIdentifier: string;
   sourceLaneId: string;
   sourceLaneLabel: string;
+}
+
+export interface RolloutLaneAssignment {
+  deviceIdentifier: string;
+  laneId: string;
+  laneLabel: string;
 }
 
 export interface RolloutLaneMembershipPage {

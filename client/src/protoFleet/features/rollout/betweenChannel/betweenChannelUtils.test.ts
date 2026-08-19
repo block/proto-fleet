@@ -347,6 +347,23 @@ describe("between-channel rollout helpers", () => {
     ).toBeNull();
   });
 
+  it("directs empty lanes to add miners before starting", () => {
+    expect(
+      rolloutLaneStartBlockedReason(
+        {
+          ...lane,
+          memberCount: 0,
+          firmwareConvergence: {
+            ...lane.firmwareConvergence,
+            totalCount: 0,
+            confirmedCount: 0,
+          },
+        },
+        undefined,
+      ),
+    ).toBe("Add miners before starting a rollout.");
+  });
+
   it("offers explicit failure completion only after the final batch settles in review", () => {
     const finalFailure = rolloutWithMembers("review", ["succeeded", "attentionRequired"]);
     const pendingBatch = rolloutWithMembers("review", ["succeeded", "failed"], {

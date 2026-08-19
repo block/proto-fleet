@@ -414,6 +414,7 @@ export default function ManageRolloutLaneMembersModal({
         open={showMinerSelection}
         selectedMinerIds={currentMemberIdentifiers}
         showSelectAllFooter={false}
+        showRolloutLaneColumn
         onDismiss={() => setShowMinerSelection(false)}
         onSave={(selection) => void handleMinerSelection(selection)}
       />

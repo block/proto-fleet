@@ -127,6 +127,9 @@ export function isFirmwareConvergenceReady(lane: RolloutLane): boolean {
 }
 
 export function rolloutLaneStartBlockedReason(lane: RolloutLane, rollout: RolloutRecord | undefined): string | null {
+  if (lane.memberCount === 0) {
+    return "Add miners before starting a rollout.";
+  }
   if (lane.firmwareConvergence.attentionCount > 0) {
     return "Resolve miners that need attention before starting a rollout.";
   }

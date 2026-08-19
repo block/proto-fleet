@@ -43,9 +43,15 @@ func (s *SQLRolloutLaneStore) PreviewLane(
 	ctx context.Context,
 	req betweenchannel.PreviewLaneRequest,
 ) (betweenchannel.InitialEnforcementPreview, error) {
-	rows, err := s.GetQueries(ctx).ListBetweenChannelDeviceModels(
+	if len(req.DeviceIdentifiers) == 0 {
+		return betweenchannel.InitialEnforcementPreview{
+			Targets: req.ReleaseTargets,
+		}, nil
+	}
+	q := s.GetQueries(ctx)
+	candidates, err := q.ListRolloutLaneMembershipCandidates(
 		ctx,
-		sqlc.ListBetweenChannelDeviceModelsParams{
+		sqlc.ListRolloutLaneMembershipCandidatesParams{
 			OrgID:             req.OrgID,
 			DeviceIdentifiers: req.DeviceIdentifiers,
 		},
@@ -56,14 +62,29 @@ func (s *SQLRolloutLaneStore) PreviewLane(
 			err,
 		)
 	}
-	devices := initialDevicesFromPreviewRows(rows)
-	if len(devices) != len(req.DeviceIdentifiers) {
+	if len(candidates) != len(req.DeviceIdentifiers) {
 		return betweenchannel.InitialEnforcementPreview{}, betweenchannel.ErrMembershipConflict
 	}
-	if err = validateInitialLaneTargets(devices, req.ReleaseTargets); err != nil {
+	preview, sourceLaneIDs, err := previewLaneWithCandidates(req, candidates)
+	if err != nil {
 		return betweenchannel.InitialEnforcementPreview{}, err
 	}
-	return buildInitialEnforcementPreview(devices, req.ReleaseTargets), nil
+	if len(sourceLaneIDs) > 0 {
+		active, checkErr := q.HasActiveRolloutLaneManagementWork(
+			ctx,
+			sqlc.HasActiveRolloutLaneManagementWorkParams{
+				OrgID:   req.OrgID,
+				LaneIds: sourceLaneIDs,
+			},
+		)
+		if checkErr != nil {
+			return betweenchannel.InitialEnforcementPreview{}, checkErr
+		}
+		if active.Valid && active.Bool {
+			return betweenchannel.InitialEnforcementPreview{}, betweenchannel.ErrLaneWorkActive
+		}
+	}
+	return preview, nil
 }
 
 func (s *SQLRolloutLaneStore) CreateLane(
@@ -91,24 +112,141 @@ func (s *SQLRolloutLaneStore) CreateLane(
 				return nil, getErr
 			}
 
-			models, modelErr := q.LockBetweenChannelInitialDevices(
-				txCtx,
-				sqlc.LockBetweenChannelInitialDevicesParams{
-					OrgID:             req.OrgID,
-					DeviceIdentifiers: req.DeviceIdentifiers,
-				},
+			var (
+				candidates    []sqlc.ListRolloutLaneMembershipCandidatesRow
+				sourceLaneIDs []uuid.UUID
+				preview       betweenchannel.InitialEnforcementPreview
 			)
-			if modelErr != nil {
-				return nil, modelErr
+			if len(req.DeviceIdentifiers) > 0 {
+				var candidateErr error
+				candidates, candidateErr = q.ListRolloutLaneMembershipCandidates(
+					txCtx,
+					sqlc.ListRolloutLaneMembershipCandidatesParams{
+						OrgID:             req.OrgID,
+						DeviceIdentifiers: req.DeviceIdentifiers,
+					},
+				)
+				if candidateErr != nil {
+					return nil, candidateErr
+				}
+				if len(candidates) != len(req.DeviceIdentifiers) {
+					return nil, betweenchannel.ErrMembershipConflict
+				}
+				_, sourceLaneIDs, candidateErr = previewLaneWithCandidates(
+					createLanePreviewRequest(req),
+					candidates,
+				)
+				if candidateErr != nil {
+					return nil, candidateErr
+				}
+
+				if len(sourceLaneIDs) > 0 {
+					lockedLanes, lockErr := q.LockRolloutLanes(
+						txCtx,
+						sqlc.LockRolloutLanesParams{
+							OrgID:   req.OrgID,
+							LaneIds: sourceLaneIDs,
+						},
+					)
+					if lockErr != nil {
+						return nil, lockErr
+					}
+					if len(lockedLanes) != len(sourceLaneIDs) {
+						return nil, betweenchannel.ErrMembershipConflict
+					}
+					channelIDs, listErr := rolloutLaneChannelIDs(
+						txCtx,
+						q,
+						req.OrgID,
+						sourceLaneIDs,
+					)
+					if listErr != nil {
+						return nil, listErr
+					}
+					lockedChannels, lockErr := q.LockBetweenChannelChannels(
+						txCtx,
+						sqlc.LockBetweenChannelChannelsParams{
+							OrgID:      req.OrgID,
+							ChannelIds: channelIDs,
+						},
+					)
+					if lockErr != nil {
+						return nil, lockErr
+					}
+					if len(lockedChannels) != len(channelIDs) {
+						return nil, betweenchannel.ErrMembershipConflict
+					}
+				}
+
+				deviceIDs := candidateDeviceIDs(candidates)
+				lockedDevices, lockErr := q.LockBetweenChannelDevices(
+					txCtx,
+					sqlc.LockBetweenChannelDevicesParams{
+						OrgID:     req.OrgID,
+						DeviceIds: deviceIDs,
+					},
+				)
+				if lockErr != nil {
+					return nil, lockErr
+				}
+				if len(lockedDevices) != len(deviceIDs) {
+					return nil, betweenchannel.ErrMembershipConflict
+				}
+				revalidated, revalidateErr := q.ListRolloutLaneMembershipCandidates(
+					txCtx,
+					sqlc.ListRolloutLaneMembershipCandidatesParams{
+						OrgID:             req.OrgID,
+						DeviceIdentifiers: req.DeviceIdentifiers,
+					},
+				)
+				if revalidateErr != nil {
+					return nil, revalidateErr
+				}
+				revalidatedPreview, revalidatedSourceLaneIDs, revalidateErr := previewLaneWithCandidates(
+					createLanePreviewRequest(req),
+					revalidated,
+				)
+				if revalidateErr != nil ||
+					!slices.Equal(sourceLaneIDs, revalidatedSourceLaneIDs) {
+					return nil, betweenchannel.ErrMembershipConflict
+				}
+				candidates = revalidated
+				preview = revalidatedPreview
+
+				if len(sourceLaneIDs) > 0 {
+					if _, lockErr = q.LockRolloutLaneManagementAuthorities(
+						txCtx,
+						sqlc.LockRolloutLaneManagementAuthoritiesParams{
+							OrgID:   req.OrgID,
+							LaneIds: sourceLaneIDs,
+						},
+					); lockErr != nil {
+						return nil, lockErr
+					}
+					if _, lockErr = q.LockRolloutLaneOwnedRolloutMembers(
+						txCtx,
+						sqlc.LockRolloutLaneOwnedRolloutMembersParams{
+							OrgID:   req.OrgID,
+							LaneIds: sourceLaneIDs,
+						},
+					); lockErr != nil {
+						return nil, lockErr
+					}
+					active, checkErr := q.HasActiveRolloutLaneManagementWork(
+						txCtx,
+						sqlc.HasActiveRolloutLaneManagementWorkParams{
+							OrgID:   req.OrgID,
+							LaneIds: sourceLaneIDs,
+						},
+					)
+					if checkErr != nil {
+						return nil, checkErr
+					}
+					if active.Valid && active.Bool {
+						return nil, betweenchannel.ErrLaneWorkActive
+					}
+				}
 			}
-			if len(models) != len(req.DeviceIdentifiers) {
-				return nil, betweenchannel.ErrMembershipConflict
-			}
-			devices := initialDevicesFromLockedRows(models)
-			if compatibilityErr := validateInitialLaneTargets(devices, req.ReleaseTargets); compatibilityErr != nil {
-				return nil, compatibilityErr
-			}
-			preview := buildInitialEnforcementPreview(devices, req.ReleaseTargets)
 			if preview.RequiresConfirmation() && !req.ConfirmInitialEnforcement {
 				return nil, fmt.Errorf(
 					"%w: %d mismatched and %d unknown miners",
@@ -116,6 +254,24 @@ func (s *SQLRolloutLaneStore) CreateLane(
 					preview.MismatchedCount,
 					preview.UnknownCount,
 				)
+			}
+			if preview.RequiresReassignConfirmation && !req.ConfirmReassignment {
+				return nil, betweenchannel.ErrReassignmentConfirmationRequired
+			}
+			if !preview.RequiresReassignConfirmation && req.ReassignmentConfirmationToken != "" {
+				return nil, betweenchannel.ErrReassignmentConfirmationRequired
+			}
+			if preview.RequiresReassignConfirmation {
+				expectedToken, tokenErr := betweenchannel.ReassignmentConfirmationToken(
+					createLanePreviewRequest(req),
+					preview,
+				)
+				if tokenErr != nil {
+					return nil, tokenErr
+				}
+				if req.ReassignmentConfirmationToken != expectedToken {
+					return nil, betweenchannel.ErrReassignmentConfirmationRequired
+				}
 			}
 
 			releaseSetID, createErr := createLaneReleaseSet(
@@ -137,6 +293,34 @@ func (s *SQLRolloutLaneStore) CreateLane(
 			)
 			if createErr != nil {
 				return nil, createErr
+			}
+			candidateByIdentifier := membershipCandidatesByIdentifier(candidates)
+			reassignmentIdentifiers := make([]string, 0, len(preview.Reassignments))
+			for _, reassignment := range preview.Reassignments {
+				reassignmentIdentifiers = append(
+					reassignmentIdentifiers,
+					reassignment.DeviceIdentifier,
+				)
+			}
+			if len(reassignmentIdentifiers) > 0 {
+				reassignedDeviceIDs := candidateIDsForIdentifiers(
+					candidateByIdentifier,
+					reassignmentIdentifiers,
+				)
+				removed, removeErr := q.RemoveRolloutLaneMembershipDevices(
+					txCtx,
+					sqlc.RemoveRolloutLaneMembershipDevicesParams{
+						OrgID:     req.OrgID,
+						LaneIds:   sourceLaneIDs,
+						DeviceIds: reassignedDeviceIDs,
+					},
+				)
+				if removeErr != nil {
+					return nil, removeErr
+				}
+				if len(removed) != len(reassignedDeviceIDs) {
+					return nil, betweenchannel.ErrMembershipConflict
+				}
 			}
 			added, addErr := q.AddDevicesToDeviceSet(
 				txCtx,
@@ -209,6 +393,47 @@ func (s *SQLRolloutLaneStore) CreateLane(
 			}
 			if enforcementCount != int64(len(req.DeviceIdentifiers)) {
 				return nil, betweenchannel.ErrMembershipConflict
+			}
+			if len(sourceLaneIDs) > 0 {
+				revisions, bumpErr := q.BumpRolloutLaneMembershipRevisions(
+					txCtx,
+					sqlc.BumpRolloutLaneMembershipRevisionsParams{
+						OrgID:   req.OrgID,
+						LaneIds: sourceLaneIDs,
+					},
+				)
+				if bumpErr != nil {
+					return nil, bumpErr
+				}
+				if len(revisions) != len(sourceLaneIDs) {
+					return nil, betweenchannel.ErrLaneConflict
+				}
+				requestedJSON, appliedJSON, marshalErr := laneCreateMembershipAuditJSON(
+					req,
+					preview,
+				)
+				if marshalErr != nil {
+					return nil, marshalErr
+				}
+				if _, createErr = q.CreateRolloutLaneMembershipChange(
+					txCtx,
+					sqlc.CreateRolloutLaneMembershipChangeParams{
+						ChangeID:           req.ChangeID,
+						OrgID:              req.OrgID,
+						TargetLaneID:       req.ID,
+						AuthorityID:        uuid.NullUUID{UUID: authority.ID, Valid: true},
+						IdempotencyKey:     req.IdempotencyKey,
+						RequestFingerprint: req.RequestFingerprint,
+						Requested:          requestedJSON,
+						Applied:            appliedJSON,
+						Reason:             "Initial rollout lane membership reassignment",
+						ActorUserID:        req.ActorUserID,
+						ActorType:          persistedActorType(req.ActorType),
+						ActorCredentialID:  ptrToNullString(req.ActorCredentialID),
+					},
+				); createErr != nil {
+					return nil, createErr
+				}
 			}
 			return loadRolloutLane(txCtx, q, laneRow, true, nil)
 		},
@@ -442,6 +667,32 @@ func (s *SQLRolloutLaneStore) ListMembers(
 		)
 	}
 	return result, nil
+}
+
+func (s *SQLRolloutLaneStore) GetAssignments(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+) ([]betweenchannel.LaneAssignment, error) {
+	rows, err := s.GetQueries(ctx).GetRolloutLaneAssignments(
+		ctx,
+		sqlc.GetRolloutLaneAssignmentsParams{
+			OrgID:             orgID,
+			DeviceIdentifiers: deviceIdentifiers,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get rollout lane assignments: %w", err)
+	}
+	assignments := make([]betweenchannel.LaneAssignment, 0, len(rows))
+	for _, row := range rows {
+		assignments = append(assignments, betweenchannel.LaneAssignment{
+			DeviceIdentifier: row.DeviceIdentifier,
+			LaneID:           row.LaneID,
+			LaneLabel:        row.LaneLabel,
+		})
+	}
+	return assignments, nil
 }
 
 func (s *SQLRolloutLaneStore) PreviewMembershipChange(
@@ -1096,6 +1347,19 @@ func (s *SQLRolloutLaneStore) StartRollout(
 				}, laneErr
 			case !errors.Is(getErr, sql.ErrNoRows):
 				return nil, getErr
+			}
+			memberCount, countErr := q.CountRolloutLaneMembers(
+				txCtx,
+				sqlc.CountRolloutLaneMembersParams{
+					LaneID: req.LaneID,
+					OrgID:  req.OrgID,
+				},
+			)
+			if countErr != nil {
+				return nil, countErr
+			}
+			if memberCount == 0 {
+				return nil, betweenchannel.ErrLaneEmpty
 			}
 			convergenceStatus, countErr := q.GetRolloutLaneFirmwareConvergenceStatus(
 				txCtx,
@@ -2097,6 +2361,75 @@ func previewMembershipChange(
 	return previewMembershipChangeWithCandidates(ctx, q, req, candidates)
 }
 
+func previewLaneWithCandidates(
+	req betweenchannel.PreviewLaneRequest,
+	candidates []sqlc.ListRolloutLaneMembershipCandidatesRow,
+) (betweenchannel.InitialEnforcementPreview, []uuid.UUID, error) {
+	candidateByIdentifier := membershipCandidatesByIdentifier(candidates)
+	devices := make([]initialLaneDevice, 0, len(req.DeviceIdentifiers))
+	reassignments := make([]betweenchannel.MembershipReassignment, 0)
+	sourceLaneSet := make(map[uuid.UUID]struct{})
+	for _, identifier := range req.DeviceIdentifiers {
+		candidate, ok := candidateByIdentifier[identifier]
+		if !ok {
+			return betweenchannel.InitialEnforcementPreview{}, nil, betweenchannel.ErrMembershipConflict
+		}
+		if candidate.ChannelID.Valid && !candidate.SourceLaneID.Valid {
+			return betweenchannel.InitialEnforcementPreview{}, nil, fmt.Errorf(
+				"%w: device %s belongs to a non-lane channel",
+				betweenchannel.ErrMembershipConflict,
+				identifier,
+			)
+		}
+		if candidate.SourceLaneID.Valid {
+			sourceLaneSet[candidate.SourceLaneID.UUID] = struct{}{}
+			reassignments = append(reassignments, betweenchannel.MembershipReassignment{
+				DeviceIdentifier:      identifier,
+				SourceLaneID:          candidate.SourceLaneID.UUID,
+				SourceLaneLabel:       candidate.SourceLaneLabel.String,
+				SourceChannelID:       candidate.ChannelID.Int64,
+				SourceChannelPosition: candidate.SourceChannelPosition.Int32,
+				SourceReleaseVersion:  candidate.SourceReleaseVersion,
+				SourceLaneRevision:    candidate.SourceLaneRevision.Int64,
+			})
+		}
+		devices = append(devices, initialLaneDevice{
+			DeviceID:               candidate.DeviceID,
+			DeviceIdentifier:       candidate.DeviceIdentifier,
+			Manufacturer:           candidate.Manufacturer,
+			Model:                  candidate.Model,
+			CurrentFirmwareVersion: candidate.ObservedFirmwareVersion,
+		})
+	}
+	if err := validateInitialLaneTargets(devices, req.ReleaseTargets); err != nil {
+		return betweenchannel.InitialEnforcementPreview{}, nil, err
+	}
+	sort.Slice(reassignments, func(i, j int) bool {
+		return reassignments[i].DeviceIdentifier < reassignments[j].DeviceIdentifier
+	})
+	sourceLaneIDs := make([]uuid.UUID, 0, len(sourceLaneSet))
+	for laneID := range sourceLaneSet {
+		sourceLaneIDs = append(sourceLaneIDs, laneID)
+	}
+	sort.Slice(sourceLaneIDs, func(i, j int) bool {
+		return sourceLaneIDs[i].String() < sourceLaneIDs[j].String()
+	})
+	preview := buildInitialEnforcementPreview(devices, req.ReleaseTargets)
+	preview.Reassignments = reassignments
+	preview.RequiresReassignConfirmation = len(reassignments) > 0
+	return preview, sourceLaneIDs, nil
+}
+
+func createLanePreviewRequest(
+	req betweenchannel.CreateLaneRequest,
+) betweenchannel.PreviewLaneRequest {
+	return betweenchannel.PreviewLaneRequest{
+		OrgID:             req.OrgID,
+		ReleaseTargets:    req.ReleaseTargets,
+		DeviceIdentifiers: req.DeviceIdentifiers,
+	}
+}
+
 func previewMembershipChangeWithCandidates(
 	ctx context.Context,
 	q sqlc.Querier,
@@ -2156,6 +2489,7 @@ func previewMembershipChangeWithCandidates(
 				SourceChannelID:       candidate.ChannelID.Int64,
 				SourceChannelPosition: candidate.SourceChannelPosition.Int32,
 				SourceReleaseVersion:  candidate.SourceReleaseVersion,
+				SourceLaneRevision:    candidate.SourceLaneRevision.Int64,
 			})
 		}
 		addDevices = append(addDevices, initialLaneDevice{
@@ -2332,6 +2666,46 @@ func membershipChangeAuditJSON(
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal applied membership change: %w", err)
+	}
+	return requested, applied, nil
+}
+
+func laneCreateMembershipAuditJSON(
+	req betweenchannel.CreateLaneRequest,
+	preview betweenchannel.InitialEnforcementPreview,
+) (json.RawMessage, json.RawMessage, error) {
+	requested, err := json.Marshal(struct {
+		TargetLaneID      string   `json:"target_lane_id"`
+		DeviceIdentifiers []string `json:"add_device_identifiers"`
+		ConfirmFirmware   bool     `json:"confirm_firmware"`
+		ConfirmReassign   bool     `json:"confirm_reassign"`
+	}{
+		TargetLaneID:      req.ID.String(),
+		DeviceIdentifiers: req.DeviceIdentifiers,
+		ConfirmFirmware:   req.ConfirmInitialEnforcement,
+		ConfirmReassign:   req.ConfirmReassignment,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal requested lane creation membership: %w", err)
+	}
+	reassigned := make([]membershipReassignmentAudit, 0, len(preview.Reassignments))
+	for _, reassignment := range preview.Reassignments {
+		reassigned = append(reassigned, membershipReassignmentAudit{
+			DeviceIdentifier:      reassignment.DeviceIdentifier,
+			SourceLaneID:          reassignment.SourceLaneID,
+			SourceLaneLabel:       reassignment.SourceLaneLabel,
+			SourceChannelID:       reassignment.SourceChannelID,
+			SourceChannelPosition: reassignment.SourceChannelPosition,
+			SourceReleaseVersion:  reassignment.SourceReleaseVersion,
+		})
+	}
+	applied, err := json.Marshal(membershipAppliedAudit{
+		Added:      req.DeviceIdentifiers,
+		Reassigned: reassigned,
+		Removed:    []membershipRemovalAudit{},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal applied lane creation membership: %w", err)
 	}
 	return requested, applied, nil
 }

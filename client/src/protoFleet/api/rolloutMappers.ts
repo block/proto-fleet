@@ -14,6 +14,7 @@ import {
   type RolloutLane as ProtoRolloutLane,
   type RolloutLaneChannel as ProtoRolloutLaneChannel,
   type RolloutLaneMember as ProtoRolloutLaneMember,
+  type RolloutLaneMembershipReassignment as ProtoRolloutLaneMembershipReassignment,
   type RolloutLanePreview as ProtoRolloutLanePreview,
   type RolloutMember as ProtoRolloutMember,
   RolloutMemberState as ProtoRolloutMemberState,
@@ -297,6 +298,14 @@ export function mapRolloutLaneMembershipMember(member: ProtoRolloutLaneMember): 
   };
 }
 
+function mapRolloutLaneMembershipReassignment(reassignment: ProtoRolloutLaneMembershipReassignment) {
+  return {
+    deviceIdentifier: reassignment.deviceIdentifier,
+    sourceLaneId: reassignment.sourceLaneId,
+    sourceLaneLabel: reassignment.sourceLaneLabel,
+  };
+}
+
 export function mapRolloutLaneMembershipPage(page: ProtoMembershipPage): RolloutLaneMembershipPage {
   return {
     members: page.members.map(mapRolloutLaneMembershipMember),
@@ -313,11 +322,7 @@ export function mapRolloutLaneMembershipChangePreview(
   }
   return {
     targetFirmwarePreview: mapRolloutLanePreview(preview.targetFirmwarePreview),
-    reassignments: preview.reassignments.map((reassignment) => ({
-      deviceIdentifier: reassignment.deviceIdentifier,
-      sourceLaneId: reassignment.sourceLaneId,
-      sourceLaneLabel: reassignment.sourceLaneLabel,
-    })),
+    reassignments: preview.reassignments.map(mapRolloutLaneMembershipReassignment),
     removals: preview.removals.map(mapRolloutLaneMembershipMember),
     requiresFirmwareConfirmation: preview.requiresFirmwareConfirmation,
     requiresReassignmentConfirmation: preview.requiresReassignmentConfirmation,
@@ -354,6 +359,9 @@ export function mapRolloutLanePreview(preview: ProtoRolloutLanePreview): Rollout
     matchingCount: preview.matchingCount,
     mismatchedCount: preview.mismatchedCount,
     unknownCount: preview.unknownCount,
+    reassignments: preview.reassignments.map(mapRolloutLaneMembershipReassignment),
+    requiresReassignmentConfirmation: preview.requiresReassignmentConfirmation,
+    reassignmentConfirmationToken: preview.reassignmentConfirmationToken,
   };
 }
 

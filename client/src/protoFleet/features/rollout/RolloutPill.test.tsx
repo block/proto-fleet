@@ -45,4 +45,18 @@ describe("RolloutPill", () => {
       "/settings/firmware?tab=rolloutLanes&setupLane=lane-1",
     );
   });
+
+  it.each([
+    ["completed", "bg-intent-success-fill"],
+    ["reverted", "bg-intent-success-fill"],
+    ["completedWithFailures", "bg-intent-critical-fill"],
+  ] as const)("styles %s rollout results with the existing state intent", (state, dotClass) => {
+    const { container } = render(
+      <MemoryRouter>
+        <RolloutPill event={{ ...event, state }} />
+      </MemoryRouter>,
+    );
+
+    expect(container.querySelector(`.${dotClass}`)).not.toBeNull();
+  });
 });

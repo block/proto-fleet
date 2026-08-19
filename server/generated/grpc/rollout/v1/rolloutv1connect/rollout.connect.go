@@ -49,6 +49,9 @@ const (
 	// RolloutServiceListRolloutLaneMembersProcedure is the fully-qualified name of the RolloutService's
 	// ListRolloutLaneMembers RPC.
 	RolloutServiceListRolloutLaneMembersProcedure = "/rollout.v1.RolloutService/ListRolloutLaneMembers"
+	// RolloutServiceGetRolloutLaneAssignmentsProcedure is the fully-qualified name of the
+	// RolloutService's GetRolloutLaneAssignments RPC.
+	RolloutServiceGetRolloutLaneAssignmentsProcedure = "/rollout.v1.RolloutService/GetRolloutLaneAssignments"
 	// RolloutServicePreviewRolloutLaneMembershipChangeProcedure is the fully-qualified name of the
 	// RolloutService's PreviewRolloutLaneMembershipChange RPC.
 	RolloutServicePreviewRolloutLaneMembershipChangeProcedure = "/rollout.v1.RolloutService/PreviewRolloutLaneMembershipChange"
@@ -100,6 +103,7 @@ type RolloutServiceClient interface {
 	GetRolloutLane(context.Context, *connect.Request[v1.GetRolloutLaneRequest]) (*connect.Response[v1.GetRolloutLaneResponse], error)
 	ListRolloutLanes(context.Context, *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error)
 	ListRolloutLaneMembers(context.Context, *connect.Request[v1.ListRolloutLaneMembersRequest]) (*connect.Response[v1.ListRolloutLaneMembersResponse], error)
+	GetRolloutLaneAssignments(context.Context, *connect.Request[v1.GetRolloutLaneAssignmentsRequest]) (*connect.Response[v1.GetRolloutLaneAssignmentsResponse], error)
 	PreviewRolloutLaneMembershipChange(context.Context, *connect.Request[v1.PreviewRolloutLaneMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneMembershipChangeResponse], error)
 	UpdateRolloutLaneMembership(context.Context, *connect.Request[v1.UpdateRolloutLaneMembershipRequest]) (*connect.Response[v1.UpdateRolloutLaneMembershipResponse], error)
 	DeleteRolloutLane(context.Context, *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error)
@@ -149,6 +153,11 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 		listRolloutLaneMembers: connect.NewClient[v1.ListRolloutLaneMembersRequest, v1.ListRolloutLaneMembersResponse](
 			httpClient,
 			baseURL+RolloutServiceListRolloutLaneMembersProcedure,
+			opts...,
+		),
+		getRolloutLaneAssignments: connect.NewClient[v1.GetRolloutLaneAssignmentsRequest, v1.GetRolloutLaneAssignmentsResponse](
+			httpClient,
+			baseURL+RolloutServiceGetRolloutLaneAssignmentsProcedure,
 			opts...,
 		),
 		previewRolloutLaneMembershipChange: connect.NewClient[v1.PreviewRolloutLaneMembershipChangeRequest, v1.PreviewRolloutLaneMembershipChangeResponse](
@@ -231,6 +240,7 @@ type rolloutServiceClient struct {
 	getRolloutLane                     *connect.Client[v1.GetRolloutLaneRequest, v1.GetRolloutLaneResponse]
 	listRolloutLanes                   *connect.Client[v1.ListRolloutLanesRequest, v1.ListRolloutLanesResponse]
 	listRolloutLaneMembers             *connect.Client[v1.ListRolloutLaneMembersRequest, v1.ListRolloutLaneMembersResponse]
+	getRolloutLaneAssignments          *connect.Client[v1.GetRolloutLaneAssignmentsRequest, v1.GetRolloutLaneAssignmentsResponse]
 	previewRolloutLaneMembershipChange *connect.Client[v1.PreviewRolloutLaneMembershipChangeRequest, v1.PreviewRolloutLaneMembershipChangeResponse]
 	updateRolloutLaneMembership        *connect.Client[v1.UpdateRolloutLaneMembershipRequest, v1.UpdateRolloutLaneMembershipResponse]
 	deleteRolloutLane                  *connect.Client[v1.DeleteRolloutLaneRequest, v1.DeleteRolloutLaneResponse]
@@ -270,6 +280,11 @@ func (c *rolloutServiceClient) ListRolloutLanes(ctx context.Context, req *connec
 // ListRolloutLaneMembers calls rollout.v1.RolloutService.ListRolloutLaneMembers.
 func (c *rolloutServiceClient) ListRolloutLaneMembers(ctx context.Context, req *connect.Request[v1.ListRolloutLaneMembersRequest]) (*connect.Response[v1.ListRolloutLaneMembersResponse], error) {
 	return c.listRolloutLaneMembers.CallUnary(ctx, req)
+}
+
+// GetRolloutLaneAssignments calls rollout.v1.RolloutService.GetRolloutLaneAssignments.
+func (c *rolloutServiceClient) GetRolloutLaneAssignments(ctx context.Context, req *connect.Request[v1.GetRolloutLaneAssignmentsRequest]) (*connect.Response[v1.GetRolloutLaneAssignmentsResponse], error) {
+	return c.getRolloutLaneAssignments.CallUnary(ctx, req)
 }
 
 // PreviewRolloutLaneMembershipChange calls
@@ -350,6 +365,7 @@ type RolloutServiceHandler interface {
 	GetRolloutLane(context.Context, *connect.Request[v1.GetRolloutLaneRequest]) (*connect.Response[v1.GetRolloutLaneResponse], error)
 	ListRolloutLanes(context.Context, *connect.Request[v1.ListRolloutLanesRequest]) (*connect.Response[v1.ListRolloutLanesResponse], error)
 	ListRolloutLaneMembers(context.Context, *connect.Request[v1.ListRolloutLaneMembersRequest]) (*connect.Response[v1.ListRolloutLaneMembersResponse], error)
+	GetRolloutLaneAssignments(context.Context, *connect.Request[v1.GetRolloutLaneAssignmentsRequest]) (*connect.Response[v1.GetRolloutLaneAssignmentsResponse], error)
 	PreviewRolloutLaneMembershipChange(context.Context, *connect.Request[v1.PreviewRolloutLaneMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneMembershipChangeResponse], error)
 	UpdateRolloutLaneMembership(context.Context, *connect.Request[v1.UpdateRolloutLaneMembershipRequest]) (*connect.Response[v1.UpdateRolloutLaneMembershipResponse], error)
 	DeleteRolloutLane(context.Context, *connect.Request[v1.DeleteRolloutLaneRequest]) (*connect.Response[v1.DeleteRolloutLaneResponse], error)
@@ -395,6 +411,11 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 	rolloutServiceListRolloutLaneMembersHandler := connect.NewUnaryHandler(
 		RolloutServiceListRolloutLaneMembersProcedure,
 		svc.ListRolloutLaneMembers,
+		opts...,
+	)
+	rolloutServiceGetRolloutLaneAssignmentsHandler := connect.NewUnaryHandler(
+		RolloutServiceGetRolloutLaneAssignmentsProcedure,
+		svc.GetRolloutLaneAssignments,
 		opts...,
 	)
 	rolloutServicePreviewRolloutLaneMembershipChangeHandler := connect.NewUnaryHandler(
@@ -479,6 +500,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceListRolloutLanesHandler.ServeHTTP(w, r)
 		case RolloutServiceListRolloutLaneMembersProcedure:
 			rolloutServiceListRolloutLaneMembersHandler.ServeHTTP(w, r)
+		case RolloutServiceGetRolloutLaneAssignmentsProcedure:
+			rolloutServiceGetRolloutLaneAssignmentsHandler.ServeHTTP(w, r)
 		case RolloutServicePreviewRolloutLaneMembershipChangeProcedure:
 			rolloutServicePreviewRolloutLaneMembershipChangeHandler.ServeHTTP(w, r)
 		case RolloutServiceUpdateRolloutLaneMembershipProcedure:
@@ -534,6 +557,10 @@ func (UnimplementedRolloutServiceHandler) ListRolloutLanes(context.Context, *con
 
 func (UnimplementedRolloutServiceHandler) ListRolloutLaneMembers(context.Context, *connect.Request[v1.ListRolloutLaneMembersRequest]) (*connect.Response[v1.ListRolloutLaneMembersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRolloutLaneMembers is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) GetRolloutLaneAssignments(context.Context, *connect.Request[v1.GetRolloutLaneAssignmentsRequest]) (*connect.Response[v1.GetRolloutLaneAssignmentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.GetRolloutLaneAssignments is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) PreviewRolloutLaneMembershipChange(context.Context, *connect.Request[v1.PreviewRolloutLaneMembershipChangeRequest]) (*connect.Response[v1.PreviewRolloutLaneMembershipChangeResponse], error) {

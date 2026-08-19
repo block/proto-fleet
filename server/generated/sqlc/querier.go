@@ -807,6 +807,7 @@ type Querier interface {
 	// record.
 	GetRoleByIDForUpdate(ctx context.Context, id int64) (Role, error)
 	GetRolloutLane(ctx context.Context, arg GetRolloutLaneParams) (RolloutLane, error)
+	GetRolloutLaneAssignments(ctx context.Context, arg GetRolloutLaneAssignmentsParams) ([]GetRolloutLaneAssignmentsRow, error)
 	GetRolloutLaneByIdempotencyKey(ctx context.Context, arg GetRolloutLaneByIdempotencyKeyParams) (RolloutLane, error)
 	GetRolloutLaneChannelByStartKey(ctx context.Context, arg GetRolloutLaneChannelByStartKeyParams) (RolloutLaneChannel, error)
 	GetRolloutLaneFirmwareConvergenceStatus(ctx context.Context, arg GetRolloutLaneFirmwareConvergenceStatusParams) (GetRolloutLaneFirmwareConvergenceStatusRow, error)

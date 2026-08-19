@@ -12,6 +12,7 @@ service RolloutService {
     rpc GetRolloutLane(GetRolloutLaneRequest) returns (GetRolloutLaneResponse);
     rpc ListRolloutLanes(ListRolloutLanesRequest) returns (ListRolloutLanesResponse);
     rpc ListRolloutLaneMembers(ListRolloutLaneMembersRequest) returns (ListRolloutLaneMembersResponse);
+    rpc GetRolloutLaneAssignments(GetRolloutLaneAssignmentsRequest) returns (GetRolloutLaneAssignmentsResponse);
     rpc PreviewRolloutLaneMembershipChange(PreviewRolloutLaneMembershipChangeRequest) returns (PreviewRolloutLaneMembershipChangeResponse);
     rpc UpdateRolloutLaneMembership(UpdateRolloutLaneMembershipRequest) returns (UpdateRolloutLaneMembershipResponse);
     rpc DeleteRolloutLane(DeleteRolloutLaneRequest) returns (DeleteRolloutLaneResponse);
@@ -60,13 +61,14 @@ message CreateRolloutLaneRequest {
         items: {string: {min_len: 1}}
     }];
     repeated string device_identifiers = 4 [(buf.validate.field).repeated = {
-        min_items: 1
         max_items: 10000
         unique: true
         items: {string: {min_len: 1}}
     }];
     string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
     bool confirm_initial_enforcement = 6;
+    bool confirm_reassignment = 7;
+    string reassignment_confirmation_token = 8;
 }
 
 message CreateRolloutLaneResponse {
@@ -114,6 +116,25 @@ message ListRolloutLaneMembersResponse {
     repeated RolloutLaneMember members = 1;
     string next_page_token = 2;
     uint32 total_count = 3;
+}
+
+message RolloutLaneAssignment {
+    string device_identifier = 1;
+    string lane_id = 2;
+    string lane_label = 3;
+}
+
+message GetRolloutLaneAssignmentsRequest {
+    repeated string device_identifiers = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 50
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+}
+
+message GetRolloutLaneAssignmentsResponse {
+    repeated RolloutLaneAssignment assignments = 1;
 }
 
 message RolloutLaneMembershipReassignment {
@@ -486,6 +507,9 @@ message RolloutLanePreview {
     uint32 matching_count = 3;
     uint32 mismatched_count = 4;
     uint32 unknown_count = 5;
+    repeated RolloutLaneMembershipReassignment reassignments = 6;
+    bool requires_reassignment_confirmation = 7;
+    string reassignment_confirmation_token = 8;
 }
 
 message PreviewRolloutLaneRequest {
@@ -496,7 +520,6 @@ message PreviewRolloutLaneRequest {
         items: {string: {min_len: 1}}
     }];
     repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
-        min_items: 1
         max_items: 10000
         unique: true
         items: {string: {min_len: 1}}

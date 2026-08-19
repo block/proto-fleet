@@ -3842,6 +3842,18 @@ func (q *retryingQuerier) GetRolloutLane(ctx context.Context, arg GetRolloutLane
 	return result, err
 }
 
+func (q *retryingQuerier) GetRolloutLaneAssignments(ctx context.Context, arg GetRolloutLaneAssignmentsParams) ([]GetRolloutLaneAssignmentsRow, error) {
+	var result []GetRolloutLaneAssignmentsRow
+	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneAssignments", func() error {
+		callResult, callErr := q.next.GetRolloutLaneAssignments(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetRolloutLaneByIdempotencyKey(ctx context.Context, arg GetRolloutLaneByIdempotencyKeyParams) (RolloutLane, error) {
 	var result RolloutLane
 	err := q.retrier.RetryQuery(ctx, "GetRolloutLaneByIdempotencyKey", func() error {

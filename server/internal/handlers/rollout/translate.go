@@ -164,11 +164,14 @@ func firmwareTransitionStateToProto(
 
 func lanePreviewToProto(input betweenchannel.InitialEnforcementPreview) *pb.RolloutLanePreview {
 	result := &pb.RolloutLanePreview{
-		Targets:         make([]*pb.RolloutLanePreviewTarget, 0, len(input.Targets)),
-		Miners:          make([]*pb.RolloutLanePreviewMiner, 0, len(input.Miners)),
-		MatchingCount:   nonNegativeUint32(input.MatchingCount),
-		MismatchedCount: nonNegativeUint32(input.MismatchedCount),
-		UnknownCount:    nonNegativeUint32(input.UnknownCount),
+		Targets:                          make([]*pb.RolloutLanePreviewTarget, 0, len(input.Targets)),
+		Miners:                           make([]*pb.RolloutLanePreviewMiner, 0, len(input.Miners)),
+		MatchingCount:                    nonNegativeUint32(input.MatchingCount),
+		MismatchedCount:                  nonNegativeUint32(input.MismatchedCount),
+		UnknownCount:                     nonNegativeUint32(input.UnknownCount),
+		Reassignments:                    make([]*pb.RolloutLaneMembershipReassignment, 0, len(input.Reassignments)),
+		RequiresReassignmentConfirmation: input.RequiresReassignConfirmation,
+		ReassignmentConfirmationToken:    input.ReassignmentConfirmationToken,
 	}
 	for _, target := range input.Targets {
 		result.Targets = append(result.Targets, &pb.RolloutLanePreviewTarget{
@@ -188,6 +191,13 @@ func lanePreviewToProto(input betweenchannel.InitialEnforcementPreview) *pb.Roll
 			TargetFirmwareVersion:  miner.TargetFirmwareVersion,
 			TargetFirmwareFileId:   miner.TargetFirmwareFileID,
 			Status:                 initialFirmwareStatusToProto(miner.Status),
+		})
+	}
+	for _, reassignment := range input.Reassignments {
+		result.Reassignments = append(result.Reassignments, &pb.RolloutLaneMembershipReassignment{
+			DeviceIdentifier: reassignment.DeviceIdentifier,
+			SourceLaneId:     reassignment.SourceLaneID.String(),
+			SourceLaneLabel:  reassignment.SourceLaneLabel,
 		})
 	}
 	return result

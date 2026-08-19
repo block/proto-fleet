@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 
 import { rolloutClient } from "@/protoFleet/api/clients";
@@ -17,6 +18,10 @@ import {
   shouldMonitorRollout,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import { mapFirmwareTransitionToRolloutEvent } from "@/protoFleet/features/rollout/firmwareTransitionRolloutEvent";
+import {
+  latestCompletedRolloutResult,
+  useAcknowledgedRolloutResultId,
+} from "@/protoFleet/features/rollout/rolloutResultAcknowledgement";
 import type { RolloutEvent, RolloutLane, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
 
@@ -28,25 +33,30 @@ export interface UseRolloutPillDataResult {
   activeEvent: RolloutEvent | null;
   detailsPath: string | null;
   hasVisiblePill: boolean;
+  onViewRollout: (() => void) | null;
 }
 
 interface RolloutPillSelection {
   event: RolloutEvent;
   detailsPath: string;
   fingerprint: string;
-  source: "convergence" | "rollout";
+  rolloutId?: string;
+  source: "completedRollout" | "convergence" | "rollout";
 }
 
 const idlePollIntervalMs = 30_000;
 const activePollIntervalMs = 5_000;
 const rolloutLanesPath = "/settings/firmware?tab=rolloutLanes";
-const activeRolloutStates = [
+const pillRolloutStates = [
   RolloutState.CREATED,
   RolloutState.RUNNING,
   RolloutState.PAUSED,
   RolloutState.REVIEW,
   RolloutState.ABORTED,
   RolloutState.REVERTING,
+  RolloutState.COMPLETED,
+  RolloutState.COMPLETED_WITH_FAILURES,
+  RolloutState.REVERTED,
 ];
 
 function activeFirmwareRollout(rollouts: RolloutRecord[]): RolloutRecord | undefined {
@@ -59,12 +69,14 @@ function selection(
   event: RolloutEvent,
   detailsPath: string,
   source: RolloutPillSelection["source"],
+  rolloutId?: string,
 ): RolloutPillSelection {
   return {
     event,
     detailsPath,
-    fingerprint: JSON.stringify({ detailsPath, event, source }),
+    fingerprint: JSON.stringify({ detailsPath, event, rolloutId, source }),
     source,
+    rolloutId,
   };
 }
 
@@ -78,28 +90,45 @@ function selectPill(rollouts: RolloutRecord[], lanes: RolloutLane[]): RolloutPil
       }),
       rolloutLanesPath,
       "rollout",
+      rollout.id,
     );
   }
 
   const lane = firstActiveFirmwareConvergenceLane(lanes);
-  if (!lane) {
-    return null;
+  if (lane) {
+    return selection(
+      mapFirmwareTransitionToRolloutEvent(lane.firmwareConvergence, {
+        scopeLabel: lane.label,
+        startedAt: lane.createdAt,
+      }),
+      `${rolloutLanesPath}&setupLane=${encodeURIComponent(lane.id)}`,
+      "convergence",
+    );
   }
 
+  const completedRollout = latestCompletedRolloutResult(
+    rollouts.filter((candidate) => candidate.strategyKey === BETWEEN_CHANNEL_STRATEGY_KEY),
+  );
+  if (!completedRollout) {
+    return null;
+  }
+  const completedLane = laneForRollout(lanes, completedRollout.id);
   return selection(
-    mapFirmwareTransitionToRolloutEvent(lane.firmwareConvergence, {
-      scopeLabel: lane.label,
-      startedAt: lane.createdAt,
+    mapRolloutToEvent(completedRollout, {
+      laneLabel: completedLane?.label,
     }),
-    `${rolloutLanesPath}&setupLane=${encodeURIComponent(lane.id)}`,
-    "convergence",
+    `${rolloutLanesPath}&rollout=${encodeURIComponent(completedRollout.id)}`,
+    "completedRollout",
+    completedRollout.id,
   );
 }
 
 export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions = {}): UseRolloutPillDataResult {
+  const navigate = useNavigate();
   const { handleAuthErrors } = useAuthErrors();
   const canReadRollouts = useHasPermission("rollout:read");
   const canReadChannels = useHasPermission("channel:read");
+  const [acknowledgedResultId, setAcknowledgedResultId] = useAcknowledgedRolloutResultId();
   const [selection, setSelection] = useState<RolloutPillSelection | null>(null);
   const rolloutsRef = useRef<RolloutRecord[]>([]);
   const lanesRef = useRef<RolloutLane[]>([]);
@@ -107,10 +136,13 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
   const pendingFreshRefreshRef = useRef(false);
   const visibleSelection =
     enabled &&
-    ((selection?.source === "rollout" && canReadRollouts) || (selection?.source === "convergence" && canReadChannels))
+    ((selection?.source !== "convergence" && canReadRollouts) ||
+      (selection?.source === "convergence" && canReadChannels)) &&
+    !(selection?.source === "completedRollout" && selection.rolloutId === acknowledgedResultId)
       ? selection
       : null;
-  const pollIntervalMs = visibleSelection ? activePollIntervalMs : idlePollIntervalMs;
+  const pollIntervalMs =
+    visibleSelection && visibleSelection.source !== "completedRollout" ? activePollIntervalMs : idlePollIntervalMs;
 
   const refresh = useCallback(
     (signal: AbortSignal, forceFresh = false): Promise<void> => {
@@ -142,7 +174,7 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
         }
         const [rolloutsResult, lanesResult] = await Promise.allSettled([
           canReadRollouts
-            ? rolloutClient.listRollouts(create(ListRolloutsRequestSchema, { states: activeRolloutStates }), { signal })
+            ? rolloutClient.listRollouts(create(ListRolloutsRequestSchema, { states: pillRolloutStates }), { signal })
             : Promise.resolve(null),
           canReadChannels
             ? rolloutClient.listRolloutLanes(
@@ -192,6 +224,17 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
     [canReadChannels, canReadRollouts, enabled, handleAuthErrors],
   );
 
+  const onViewRollout = useMemo(() => {
+    if (!canReadChannels || visibleSelection?.source !== "completedRollout" || !visibleSelection.rolloutId) {
+      return null;
+    }
+    const { detailsPath, rolloutId } = visibleSelection;
+    return () => {
+      setAcknowledgedResultId(rolloutId);
+      navigate(detailsPath);
+    };
+  }, [canReadChannels, navigate, setAcknowledgedResultId, visibleSelection]);
+
   useEffect(() => {
     pendingFreshRefreshRef.current = false;
     inFlightRefreshRef.current = null;
@@ -240,6 +283,7 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
       activeEvent,
       detailsPath: canReadChannels ? (visibleSelection?.detailsPath ?? null) : null,
       hasVisiblePill: activeEvent !== null,
+      onViewRollout,
     };
-  }, [canReadChannels, visibleSelection]);
+  }, [canReadChannels, onViewRollout, visibleSelection]);
 }

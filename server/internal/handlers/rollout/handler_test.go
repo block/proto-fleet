@@ -54,6 +54,15 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 			)
 			return err
 		}},
+		{"GetRolloutLaneAssignments", func() error {
+			_, err := handler.GetRolloutLaneAssignments(
+				ctx,
+				connect.NewRequest(&pb.GetRolloutLaneAssignmentsRequest{
+					DeviceIdentifiers: []string{"miner-a"},
+				}),
+			)
+			return err
+		}},
 		{"PreviewRolloutLaneMembershipChange", func() error {
 			_, err := handler.PreviewRolloutLaneMembershipChange(
 				ctx,
@@ -263,6 +272,85 @@ func TestListRolloutLanesForwardsActiveFirmwareConvergenceFilter(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, laneService.activeFirmwareConvergenceOnly)
 	assert.Equal(t, int64(42), laneService.listOrgID)
+}
+
+func TestGetRolloutLaneAssignmentsUsesChannelReadAndOrganizationScope(t *testing.T) {
+	t.Parallel()
+
+	laneID := uuid.New()
+	laneService := &recordingLaneService{
+		assignments: []betweenchannel.LaneAssignment{{
+			DeviceIdentifier: "miner-a",
+			LaneID:           laneID,
+			LaneLabel:        "Stable",
+		}},
+	}
+	handler := NewHandler(nil, laneService)
+	request := connect.NewRequest(&pb.GetRolloutLaneAssignmentsRequest{
+		DeviceIdentifiers: []string{"miner-a", "miner-b"},
+	})
+
+	_, err := handler.GetRolloutLaneAssignments(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelManage),
+		request,
+	)
+	assertPermissionDenied(t, err)
+
+	response, err := handler.GetRolloutLaneAssignments(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelRead),
+		request,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), laneService.assignmentOrgID)
+	assert.Equal(t, []string{"miner-a", "miner-b"}, laneService.assignmentIdentifiers)
+	require.Len(t, response.Msg.GetAssignments(), 1)
+	assert.Equal(t, laneID.String(), response.Msg.GetAssignments()[0].GetLaneId())
+}
+
+func TestCreateRolloutLaneForwardsReassignmentConfirmation(t *testing.T) {
+	t.Parallel()
+
+	laneService := &recordingLaneService{}
+	handler := NewHandler(nil, laneService)
+	_, err := handler.CreateRolloutLane(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelManage),
+		connect.NewRequest(&pb.CreateRolloutLaneRequest{
+			Label:                         "Stable",
+			FirmwareFileIds:               []string{"firmware-a"},
+			DeviceIdentifiers:             []string{"miner-a"},
+			IdempotencyKey:                "create-reassigned-lane",
+			ConfirmReassignment:           true,
+			ReassignmentConfirmationToken: "preview-token",
+		}),
+	)
+	require.NoError(t, err)
+	assert.True(t, laneService.created.ConfirmReassignment)
+	assert.Equal(t, "preview-token", laneService.created.ReassignmentConfirmationToken)
+	assert.Equal(t, []string{"miner-a"}, laneService.created.DeviceIdentifiers)
+	assert.Equal(t, rolloutDomain.ActorTypeUser, laneService.created.ActorType)
+	assert.Nil(t, laneService.created.ActorCredentialID)
+}
+
+func TestPreviewRolloutLaneReturnsReassignmentConfirmationToken(t *testing.T) {
+	t.Parallel()
+
+	laneService := &recordingLaneService{
+		preview: betweenchannel.InitialEnforcementPreview{
+			RequiresReassignConfirmation:  true,
+			ReassignmentConfirmationToken: "preview-token",
+		},
+	}
+	handler := NewHandler(nil, laneService)
+	response, err := handler.PreviewRolloutLane(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelManage),
+		connect.NewRequest(&pb.PreviewRolloutLaneRequest{
+			FirmwareFileIds:   []string{"firmware-a"},
+			DeviceIdentifiers: []string{"miner-a"},
+		}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, response.Msg.GetPreview())
+	assert.Equal(t, "preview-token", response.Msg.GetPreview().GetReassignmentConfirmationToken())
 }
 
 func TestListRolloutLaneMembersBindsPageTokenToLaneAndRevision(t *testing.T) {
@@ -636,6 +724,36 @@ type recordingLaneService struct {
 	listMembersRequest            betweenchannel.ListMembersRequest
 	listMembersResult             betweenchannel.ListMembersResult
 	listMembersErr                error
+	assignments                   []betweenchannel.LaneAssignment
+	assignmentOrgID               int64
+	assignmentIdentifiers         []string
+	created                       betweenchannel.CreateLaneRequest
+	preview                       betweenchannel.InitialEnforcementPreview
+}
+
+func (s *recordingLaneService) PreviewLane(
+	_ context.Context,
+	_ betweenchannel.PreviewLaneRequest,
+) (betweenchannel.InitialEnforcementPreview, error) {
+	return s.preview, nil
+}
+
+func (s *recordingLaneService) CreateLane(
+	_ context.Context,
+	req betweenchannel.CreateLaneRequest,
+) (*betweenchannel.Lane, error) {
+	s.created = req
+	return &betweenchannel.Lane{ID: uuid.New(), OrgID: req.OrgID, Label: req.Label}, nil
+}
+
+func (s *recordingLaneService) GetAssignments(
+	_ context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+) ([]betweenchannel.LaneAssignment, error) {
+	s.assignmentOrgID = orgID
+	s.assignmentIdentifiers = deviceIdentifiers
+	return s.assignments, nil
 }
 
 func (s *recordingLaneService) ListLanes(

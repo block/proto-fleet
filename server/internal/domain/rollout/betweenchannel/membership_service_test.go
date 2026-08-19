@@ -17,6 +17,62 @@ type recordingMembershipLaneStore struct {
 	updateRequest  UpdateMembershipRequest
 }
 
+type recordingCreateLaneStore struct {
+	LaneStore
+	previewRequest PreviewLaneRequest
+	createRequest  CreateLaneRequest
+}
+
+func (s *recordingCreateLaneStore) PreviewLane(
+	_ context.Context,
+	req PreviewLaneRequest,
+) (InitialEnforcementPreview, error) {
+	s.previewRequest = req
+	return InitialEnforcementPreview{Targets: req.ReleaseTargets}, nil
+}
+
+func (s *recordingCreateLaneStore) CreateLane(
+	_ context.Context,
+	req CreateLaneRequest,
+) (*Lane, error) {
+	s.createRequest = req
+	return &Lane{ID: req.ID, OrgID: req.OrgID, Label: req.Label}, nil
+}
+
+func TestServiceAllowsEmptyRolloutLanePreviewAndCreation(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingCreateLaneStore{}
+	service := NewService(store, nil)
+	targets := []ReleaseTarget{{
+		FirmwareFileID:  "firmware-a",
+		Manufacturer:    "Proto",
+		Model:           "Alpha",
+		FirmwareVersion: "1.0.0",
+		SHA256:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}}
+
+	preview, err := service.PreviewLane(t.Context(), PreviewLaneRequest{
+		OrgID:          42,
+		ReleaseTargets: targets,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, preview.Miners)
+
+	lane, err := service.CreateLane(t.Context(), CreateLaneRequest{
+		OrgID:          42,
+		Label:          "Empty lane",
+		ReleaseTargets: targets,
+		IdempotencyKey: "empty-lane",
+		ActorUserID:    9,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, lane)
+	assert.Empty(t, store.createRequest.DeviceIdentifiers)
+	assert.NotEqual(t, uuid.Nil, store.createRequest.ID)
+	assert.NotEqual(t, uuid.Nil, store.createRequest.ChangeID)
+}
+
 func (s *recordingMembershipLaneStore) PreviewMembershipChange(
 	_ context.Context,
 	req PreviewMembershipChangeRequest,

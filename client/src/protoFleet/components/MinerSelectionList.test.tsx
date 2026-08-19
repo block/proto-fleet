@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import MinerSelectionList from "./MinerSelectionList";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -9,13 +10,16 @@ import {
   FLEET_VISIBLE_PAIRING_STATUSES,
 } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 
-const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock } = vi.hoisted(() => ({
-  fleetArgsSpy: vi.fn(),
-  listPropsSpy: vi.fn(),
-  listRacksMock: vi.fn(),
-  listGroupsMock: vi.fn(),
-  hasPermMock: vi.fn((_perm: string) => true),
-}));
+const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock, getAssignmentsMock } = vi.hoisted(
+  () => ({
+    fleetArgsSpy: vi.fn(),
+    listPropsSpy: vi.fn(),
+    listRacksMock: vi.fn(),
+    listGroupsMock: vi.fn(),
+    hasPermMock: vi.fn((_perm: string) => true),
+    getAssignmentsMock: vi.fn(),
+  }),
+);
 
 vi.mock("@/protoFleet/api/useFleet", () => ({
   __esModule: true,
@@ -48,6 +52,10 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
     listRacks: listRacksMock,
     listGroups: listGroupsMock,
   }),
+}));
+
+vi.mock("@/protoFleet/api/rolloutLaneAssignments", () => ({
+  getRolloutLaneAssignments: getAssignmentsMock,
 }));
 
 vi.mock("@/protoFleet/api/sites", () => ({
@@ -201,6 +209,127 @@ describe("MinerSelectionList site scope", () => {
     });
 
     expect(screen.getByText("Select all")).toBeInTheDocument();
+  });
+});
+
+describe("MinerSelectionList rollout lane column", () => {
+  const latestListProps = () => listPropsSpy.mock.calls[listPropsSpy.mock.calls.length - 1]?.[0];
+  const rolloutLaneCellText = () => {
+    const props = latestListProps();
+    const { container } = render(<>{props.colConfig.rolloutLane.component(props.items[0])}</>);
+    return container.textContent;
+  };
+
+  beforeEach(() => {
+    listPropsSpy.mockReset();
+    getAssignmentsMock.mockReset();
+    getAssignmentsMock.mockResolvedValue([]);
+    hasPermMock.mockReturnValue(true);
+  });
+
+  it("does not fetch or render the optional column by default", () => {
+    render(<MinerSelectionList />);
+
+    expect(getAssignmentsMock).not.toHaveBeenCalled();
+    expect(latestListProps().activeCols).not.toContain("rolloutLane");
+  });
+
+  it("fetches assignments only for the visible page and renders labels", async () => {
+    getAssignmentsMock.mockResolvedValue([{ deviceIdentifier: "miner-1", laneId: "lane-1", laneLabel: "Stable" }]);
+    render(<MinerSelectionList showRolloutLaneColumn />);
+
+    await waitFor(() => expect(getAssignmentsMock).toHaveBeenCalledWith(["miner-1"], expect.any(AbortSignal)));
+    await waitFor(() => expect(latestListProps().items[0].rolloutLaneLabel).toBe("Stable"));
+    expect(rolloutLaneCellText()).toBe("Stable");
+    expect(latestListProps().activeCols).toContain("rolloutLane");
+    expect(latestListProps().colTitles.rolloutLane).toBe("Rollout lane");
+  });
+
+  it("renders a loading state while the current page assignment request is pending", async () => {
+    getAssignmentsMock.mockImplementation(() => new Promise(() => {}));
+    render(<MinerSelectionList showRolloutLaneColumn />);
+
+    await waitFor(() => expect(getAssignmentsMock).toHaveBeenCalled());
+    expect(latestListProps().items[0].rolloutLaneAssignmentState).toBe("loading");
+    expect(rolloutLaneCellText()).toBe("Loading…");
+  });
+
+  it("renders an em dash only after a successful unassigned response", async () => {
+    render(<MinerSelectionList showRolloutLaneColumn />);
+
+    await waitFor(() => expect(latestListProps().items[0].rolloutLaneAssignmentState).toBe("success"));
+    expect(latestListProps().items[0].rolloutLaneLabel).toBeUndefined();
+    expect(rolloutLaneCellText()).toBe("—");
+  });
+
+  it("renders unavailable for unresolved rows after a non-auth failure", async () => {
+    getAssignmentsMock.mockRejectedValue(new Error("temporarily unavailable"));
+    render(<MinerSelectionList showRolloutLaneColumn />);
+
+    await waitFor(() => expect(latestListProps().items[0].rolloutLaneAssignmentState).toBe("error"));
+    expect(latestListProps().items[0].rolloutLaneLabel).toBeUndefined();
+    expect(rolloutLaneCellText()).toBe("Unavailable");
+  });
+
+  it("preserves known assignment labels after a later non-auth failure", async () => {
+    getAssignmentsMock.mockResolvedValueOnce([{ deviceIdentifier: "miner-1", laneId: "lane-1", laneLabel: "Stable" }]);
+    const { rerender } = render(<MinerSelectionList showRolloutLaneColumn />);
+    await waitFor(() => expect(latestListProps().items[0].rolloutLaneLabel).toBe("Stable"));
+
+    rerender(<MinerSelectionList showRolloutLaneColumn={false} />);
+    getAssignmentsMock.mockRejectedValueOnce(new Error("temporarily unavailable"));
+    rerender(<MinerSelectionList showRolloutLaneColumn />);
+
+    await waitFor(() => expect(latestListProps().items[0].rolloutLaneAssignmentState).toBe("error"));
+    expect(latestListProps().items[0].rolloutLaneLabel).toBe("Stable");
+    expect(rolloutLaneCellText()).toBe("Stable");
+  });
+
+  it("hides the column through the permission gate after permission revocation", async () => {
+    getAssignmentsMock.mockRejectedValue(new ConnectError("denied", Code.PermissionDenied));
+    const { rerender } = render(<MinerSelectionList showRolloutLaneColumn />);
+    await waitFor(() => expect(latestListProps().items[0].rolloutLaneAssignmentState).toBe("error"));
+
+    hasPermMock.mockImplementation((permission: string) => permission !== "channel:read");
+    rerender(<MinerSelectionList showRolloutLaneColumn />);
+
+    expect(latestListProps().activeCols).not.toContain("rolloutLane");
+  });
+
+  it("aborts stale assignment requests when the column is disabled", async () => {
+    let requestSignal: AbortSignal | undefined;
+    getAssignmentsMock.mockImplementation((_identifiers: string[], signal: AbortSignal) => {
+      requestSignal = signal;
+      return new Promise(() => {});
+    });
+    const { rerender } = render(<MinerSelectionList showRolloutLaneColumn />);
+    await waitFor(() => expect(getAssignmentsMock).toHaveBeenCalled());
+
+    rerender(<MinerSelectionList showRolloutLaneColumn={false} />);
+    expect(requestSignal?.aborted).toBe(true);
+    expect(latestListProps().activeCols).not.toContain("rolloutLane");
+  });
+
+  it("ignores a stale assignment response after its request is aborted", async () => {
+    let resolveStale!: (value: Array<{ deviceIdentifier: string; laneId: string; laneLabel: string }>) => void;
+    getAssignmentsMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStale = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([{ deviceIdentifier: "miner-1", laneId: "lane-new", laneLabel: "Current" }]);
+    const { rerender } = render(<MinerSelectionList showRolloutLaneColumn />);
+    await waitFor(() => expect(getAssignmentsMock).toHaveBeenCalledTimes(1));
+
+    rerender(<MinerSelectionList showRolloutLaneColumn={false} />);
+    rerender(<MinerSelectionList showRolloutLaneColumn />);
+    await waitFor(() => expect(latestListProps().items[0].rolloutLaneLabel).toBe("Current"));
+
+    resolveStale([{ deviceIdentifier: "miner-1", laneId: "lane-old", laneLabel: "Stale" }]);
+    await act(async () => Promise.resolve());
+    expect(latestListProps().items[0].rolloutLaneLabel).toBe("Current");
   });
 });
 

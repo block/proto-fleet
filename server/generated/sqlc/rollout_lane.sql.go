@@ -1926,6 +1926,58 @@ func (q *Queries) GetRolloutLane(ctx context.Context, arg GetRolloutLaneParams) 
 	return i, err
 }
 
+const getRolloutLaneAssignments = `-- name: GetRolloutLaneAssignments :many
+SELECT membership.device_identifier,
+       lane.id AS lane_id,
+       lane.label AS lane_label
+FROM device_set_membership membership
+JOIN rollout_lane_channel attachment
+  ON attachment.channel_id = membership.device_set_id
+ AND attachment.org_id = membership.org_id
+JOIN rollout_lane lane
+  ON lane.id = attachment.lane_id
+ AND lane.org_id = attachment.org_id
+ AND lane.deleted_at IS NULL
+WHERE membership.org_id = $1
+  AND membership.device_set_type = 'channel'
+  AND membership.device_identifier = ANY($2::text[])
+ORDER BY membership.device_identifier
+`
+
+type GetRolloutLaneAssignmentsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type GetRolloutLaneAssignmentsRow struct {
+	DeviceIdentifier string
+	LaneID           uuid.UUID
+	LaneLabel        string
+}
+
+func (q *Queries) GetRolloutLaneAssignments(ctx context.Context, arg GetRolloutLaneAssignmentsParams) ([]GetRolloutLaneAssignmentsRow, error) {
+	rows, err := q.query(ctx, q.getRolloutLaneAssignmentsStmt, getRolloutLaneAssignments, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetRolloutLaneAssignmentsRow
+	for rows.Next() {
+		var i GetRolloutLaneAssignmentsRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.LaneID, &i.LaneLabel); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRolloutLaneByIdempotencyKey = `-- name: GetRolloutLaneByIdempotencyKey :one
 SELECT id, org_id, label, description, current_channel_id, revision, idempotency_key, create_fingerprint, created_by_user_id, created_at, updated_at, deleted_at, deleted_by_user_id, deleted_actor_type, deleted_actor_credential_id, delete_reason, delete_idempotency_key, delete_fingerprint
 FROM rollout_lane
@@ -3706,6 +3758,7 @@ SELECT device.id AS device_id,
        membership.device_set_id AS channel_id,
        source_lane.id AS source_lane_id,
        source_lane.label AS source_lane_label,
+       source_lane.revision AS source_lane_revision,
        source_attachment.position AS source_channel_position,
        COALESCE(source_target.firmware_version, '') AS source_release_version
 FROM device
@@ -3754,6 +3807,7 @@ type ListRolloutLaneMembershipCandidatesRow struct {
 	ChannelID               sql.NullInt64
 	SourceLaneID            uuid.NullUUID
 	SourceLaneLabel         sql.NullString
+	SourceLaneRevision      sql.NullInt64
 	SourceChannelPosition   sql.NullInt32
 	SourceReleaseVersion    string
 }
@@ -3776,6 +3830,7 @@ func (q *Queries) ListRolloutLaneMembershipCandidates(ctx context.Context, arg L
 			&i.ChannelID,
 			&i.SourceLaneID,
 			&i.SourceLaneLabel,
+			&i.SourceLaneRevision,
 			&i.SourceChannelPosition,
 			&i.SourceReleaseVersion,
 		); err != nil {

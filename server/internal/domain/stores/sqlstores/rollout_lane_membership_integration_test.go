@@ -84,9 +84,410 @@ func TestRolloutLaneMembersListUsesHistoricalAndCurrentChannels(t *testing.T) {
 	assert.NotEqual(t, first.Members[0].ChannelPosition, second.Members[0].ChannelPosition)
 	assert.NotEqual(t, first.Members[0].OnCurrentChannel, second.Members[0].OnCurrentChannel)
 
+	assignments, err := service.GetAssignments(t.Context(), orgID, deviceIDs)
+	require.NoError(t, err)
+	require.Len(t, assignments, 2)
+	for _, assignment := range assignments {
+		assert.Equal(t, lane.ID, assignment.LaneID)
+		assert.Equal(t, lane.Label, assignment.LaneLabel)
+	}
+
 	reloaded, err := service.GetLane(t.Context(), orgID, lane.ID, false, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), reloaded.MemberCount)
+}
+
+func TestRolloutLaneCreationAllowsEmptyLaneAndBlocksStart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	before := membershipMutationCounts(t, db, orgID)
+
+	lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:          orgID,
+		Label:          "Empty lane",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "e")},
+		IdempotencyKey: "create-empty-lane",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+	assert.Zero(t, lane.MemberCount)
+	assert.Zero(t, lane.FirmwareConvergence.TotalCount)
+	assert.Zero(t, lane.FirmwareConvergence.PendingCount)
+	require.Len(t, lane.Channels, 1)
+	after := membershipMutationCounts(t, db, orgID)
+	assert.Equal(t, before.Memberships, after.Memberships)
+	assert.Equal(t, before.Authorities+1, after.Authorities)
+	assert.Equal(t, before.Enforcements, after.Enforcements)
+	assert.Equal(t, before.Changes, after.Changes)
+
+	_, err = service.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Empty lane rollout",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "f")},
+		Batches: []rollout.CreateBatch{{
+			Label:   "all",
+			Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+		}},
+		IdempotencyKey: "start-empty-lane",
+		Reason:         "prove empty lane guard",
+		ActorUserID:    actorID,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, betweenchannel.ErrLaneEmpty.Error())
+
+	err = service.DeleteLane(t.Context(), betweenchannel.DeleteLaneRequest{
+		OrgID:            orgID,
+		LaneID:           lane.ID,
+		ExpectedRevision: lane.Revision,
+		IdempotencyKey:   "delete-empty-lane",
+		Reason:           "empty lane lifecycle proof",
+		ActorUserID:      actorID,
+		ActorType:        rollout.ActorTypeUser,
+	})
+	require.NoError(t, err)
+}
+
+func TestRolloutLaneCreationReassignsAtomicallyAndAudits(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
+	q := sqlc.New(db)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	source := createMembershipTestLane(t, service, orgID, actorID, "Creation source", deviceIDs[:1])
+
+	preview, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "b")},
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+	assert.True(t, preview.RequiresReassignConfirmation)
+	require.Len(t, preview.Reassignments, 1)
+	assert.Equal(t, source.ID, preview.Reassignments[0].SourceLaneID)
+
+	request := betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Creation target",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "b")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "create-with-reassignment",
+		ActorUserID:       actorID,
+	}
+	_, err = service.CreateLane(t.Context(), request)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, betweenchannel.ErrReassignmentConfirmationRequired.Error())
+	assert.Equal(t, []string{deviceIDs[0]}, channelMembers(t, db, orgID, source.CurrentChannelID))
+
+	request.ConfirmReassignment = true
+	request.ReassignmentConfirmationToken = "tampered"
+	_, err = service.CreateLane(t.Context(), request)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, betweenchannel.ErrReassignmentConfirmationRequired.Error())
+	assert.Equal(t, []string{deviceIDs[0]}, channelMembers(t, db, orgID, source.CurrentChannelID))
+
+	request.ReassignmentConfirmationToken = preview.ReassignmentConfirmationToken
+	target, err := service.CreateLane(t.Context(), request)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, deviceIDs, channelMembers(t, db, orgID, target.CurrentChannelID))
+	assert.Empty(t, channelMembers(t, db, orgID, source.CurrentChannelID))
+
+	reloadedSource, err := service.GetLane(t.Context(), orgID, source.ID, false, nil)
+	require.NoError(t, err)
+	assert.Equal(t, source.Revision+1, reloadedSource.Revision)
+	audit, err := q.GetRolloutLaneMembershipChangeTestState(
+		t.Context(),
+		sqlc.GetRolloutLaneMembershipChangeTestStateParams{
+			OrgID:          orgID,
+			IdempotencyKey: request.IdempotencyKey,
+		},
+	)
+	require.NoError(t, err)
+	assert.True(t, audit.HasAuthority)
+	assert.Contains(t, audit.Applied, source.ID.String())
+	assert.Contains(t, audit.Applied, source.Label)
+
+	replayed, err := service.CreateLane(t.Context(), request)
+	require.NoError(t, err)
+	assert.Equal(t, target.ID, replayed.ID)
+	reloadedSource, err = service.GetLane(t.Context(), orgID, source.ID, false, nil)
+	require.NoError(t, err)
+	assert.Equal(t, source.Revision+1, reloadedSource.Revision)
+	changedToken := request
+	changedToken.ReassignmentConfirmationToken = "different-token"
+	_, err = service.CreateLane(t.Context(), changedToken)
+	require.ErrorIs(t, err, betweenchannel.ErrIdempotencyConflict)
+
+	assignments, err := service.GetAssignments(t.Context(), orgID, deviceIDs)
+	require.NoError(t, err)
+	require.Len(t, assignments, 2)
+	for _, assignment := range assignments {
+		assert.Equal(t, target.ID, assignment.LaneID)
+	}
+	crossOrgAssignments, err := service.GetAssignments(t.Context(), orgID+999999, deviceIDs)
+	require.NoError(t, err)
+	assert.Empty(t, crossOrgAssignments)
+
+	err = service.DeleteLane(t.Context(), betweenchannel.DeleteLaneRequest{
+		OrgID:            orgID,
+		LaneID:           target.ID,
+		ExpectedRevision: target.Revision,
+		IdempotencyKey:   "delete-created-target",
+		Reason:           "prove archived assignments are excluded",
+		ActorUserID:      actorID,
+		ActorType:        rollout.ActorTypeUser,
+	})
+	require.NoError(t, err)
+	assignments, err = service.GetAssignments(t.Context(), orgID, deviceIDs)
+	require.NoError(t, err)
+	assert.Empty(t, assignments)
+}
+
+func TestRolloutLaneCreationRejectsPreviewAfterSourceRevisionChanges(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	source := createMembershipTestLane(t, service, orgID, actorID, "Revision source", deviceIDs)
+	targets := []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "r")}
+	preview, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    targets,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+
+	revisions, err := sqlc.New(db).BumpRolloutLaneMembershipRevisions(
+		t.Context(),
+		sqlc.BumpRolloutLaneMembershipRevisionsParams{
+			OrgID:   orgID,
+			LaneIds: []uuid.UUID{source.ID},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+	before := membershipMutationCounts(t, db, orgID)
+
+	_, err = service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:                         orgID,
+		Label:                         "Stale revision target",
+		ReleaseTargets:                targets,
+		DeviceIdentifiers:             deviceIDs,
+		IdempotencyKey:                "stale-source-revision",
+		ActorUserID:                   actorID,
+		ConfirmReassignment:           true,
+		ReassignmentConfirmationToken: preview.ReassignmentConfirmationToken,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, betweenchannel.ErrReassignmentConfirmationRequired.Error())
+	assert.Equal(t, before, membershipMutationCounts(t, db, orgID))
+	assert.ElementsMatch(t, deviceIDs, channelMembers(t, db, orgID, source.CurrentChannelID))
+}
+
+func TestRolloutLaneCreationRejectsPreviewAfterMinerMovesSourceLanes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	sourceA := createMembershipTestLane(t, service, orgID, actorID, "Movement source A", deviceIDs)
+	sourceB := createMembershipTestLane(t, service, orgID, actorID, "Movement source B", nil)
+	targets := []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "m")}
+	preview, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    targets,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+	require.Equal(t, sourceA.ID, preview.Reassignments[0].SourceLaneID)
+
+	moved, err := service.UpdateMembership(t.Context(), betweenchannel.UpdateMembershipRequest{
+		OrgID:            orgID,
+		LaneID:           sourceB.ID,
+		ExpectedRevision: sourceB.Revision,
+		AddIdentifiers:   deviceIDs,
+		ConfirmReassign:  true,
+		IdempotencyKey:   "move-between-preview-and-create",
+		Reason:           "exercise stale reassignment confirmation",
+		ActorUserID:      actorID,
+		ActorType:        rollout.ActorTypeUser,
+	})
+	require.NoError(t, err)
+	before := membershipMutationCounts(t, db, orgID)
+
+	_, err = service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:                         orgID,
+		Label:                         "Stale movement target",
+		ReleaseTargets:                targets,
+		DeviceIdentifiers:             deviceIDs,
+		IdempotencyKey:                "stale-source-movement",
+		ActorUserID:                   actorID,
+		ConfirmReassignment:           true,
+		ReassignmentConfirmationToken: preview.ReassignmentConfirmationToken,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, betweenchannel.ErrReassignmentConfirmationRequired.Error())
+	assert.Equal(t, before, membershipMutationCounts(t, db, orgID))
+	assert.Empty(t, channelMembers(t, db, orgID, sourceA.CurrentChannelID))
+	assert.ElementsMatch(t, deviceIDs, channelMembers(t, db, orgID, moved.Lane.CurrentChannelID))
+}
+
+func TestRolloutLaneCreationRejectsActiveSourceWorkWithoutMutation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	source := createMembershipTestLane(t, service, orgID, actorID, "Active creation source", deviceIDs)
+	setLaneInitialEnforcementState(t, db, orgID, source.ID.String(), "pending")
+
+	_, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "c")},
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, betweenchannel.ErrLaneWorkActive.Error())
+
+	_, err = service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:                     orgID,
+		Label:                     "Blocked creation target",
+		ReleaseTargets:            []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "c")},
+		DeviceIdentifiers:         deviceIDs,
+		IdempotencyKey:            "blocked-create-reassignment",
+		ActorUserID:               actorID,
+		ConfirmInitialEnforcement: true,
+		ConfirmReassignment:       true,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, betweenchannel.ErrLaneWorkActive.Error())
+	assert.Equal(t, []string{deviceIDs[0]}, channelMembers(t, db, orgID, source.CurrentChannelID))
+}
+
+func TestRolloutLaneCreationRollsBackSourceRemovalOnLateConflict(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	source := createMembershipTestLane(t, service, orgID, actorID, "Rollback source", deviceIDs)
+	_ = createMembershipTestLane(t, service, orgID, actorID, "Duplicate target", nil)
+	targets := []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "d")}
+	preview, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    targets,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+
+	_, err = service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:                         orgID,
+		Label:                         "Duplicate target",
+		ReleaseTargets:                targets,
+		DeviceIdentifiers:             deviceIDs,
+		IdempotencyKey:                "late-conflict-create",
+		ActorUserID:                   actorID,
+		ConfirmReassignment:           true,
+		ReassignmentConfirmationToken: preview.ReassignmentConfirmationToken,
+	})
+	require.Error(t, err)
+	assert.ElementsMatch(t, deviceIDs, channelMembers(t, db, orgID, source.CurrentChannelID))
+	reloadedSource, reloadErr := service.GetLane(t.Context(), orgID, source.ID, false, nil)
+	require.NoError(t, reloadErr)
+	assert.Equal(t, source.Revision, reloadedSource.Revision)
+}
+
+func TestRolloutLaneConcurrentCreationReassignmentUsesCanonicalLockOrder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 2)
+	actorID := testOrganizationUserID(t, db, orgID)
+	service := betweenchannel.NewService(sqlstores.NewSQLRolloutLaneStore(db), nil)
+	sourceA := createMembershipTestLane(t, service, orgID, actorID, "Creation lock source A", deviceIDs[:1])
+	sourceB := createMembershipTestLane(t, service, orgID, actorID, "Creation lock source B", deviceIDs[1:])
+
+	start := make(chan struct{})
+	type createResult struct {
+		lane *betweenchannel.Lane
+		err  error
+	}
+	results := make(chan createResult, 2)
+	var wg sync.WaitGroup
+	requests := [][]string{
+		{deviceIDs[0], deviceIDs[1]},
+		{deviceIDs[1], deviceIDs[0]},
+	}
+	tokens := make([]string, len(requests))
+	for index, identifiers := range requests {
+		preview, err := service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+			OrgID:             orgID,
+			ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", string(rune('e'+index)))},
+			DeviceIdentifiers: identifiers,
+		})
+		require.NoError(t, err)
+		tokens[index] = preview.ReassignmentConfirmationToken
+	}
+	for index, identifiers := range requests {
+		wg.Add(1)
+		go func(index int, identifiers []string) {
+			defer wg.Done()
+			<-start
+			lane, err := service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+				OrgID:                         orgID,
+				Label:                         "Concurrent creation target " + string(rune('A'+index)),
+				ReleaseTargets:                []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", string(rune('e'+index)))},
+				DeviceIdentifiers:             identifiers,
+				IdempotencyKey:                "concurrent-create-" + string(rune('a'+index)),
+				ActorUserID:                   actorID,
+				ConfirmReassignment:           true,
+				ReassignmentConfirmationToken: tokens[index],
+			})
+			results <- createResult{lane: lane, err: err}
+		}(index, identifiers)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var winner *betweenchannel.Lane
+	var failures int
+	for result := range results {
+		if result.err == nil {
+			require.Nil(t, winner)
+			winner = result.lane
+			continue
+		}
+		failures++
+		require.ErrorIs(t, result.err, betweenchannel.ErrMembershipConflict)
+	}
+	require.NotNil(t, winner)
+	assert.Equal(t, 1, failures)
+	assert.ElementsMatch(t, deviceIDs, channelMembers(t, db, orgID, winner.CurrentChannelID))
+	for _, source := range []*betweenchannel.Lane{sourceA, sourceB} {
+		reloaded, err := service.GetLane(t.Context(), orgID, source.ID, false, nil)
+		require.NoError(t, err)
+		assert.Equal(t, source.Revision+1, reloaded.Revision)
+		assert.Zero(t, reloaded.MemberCount)
+	}
 }
 
 func TestRolloutLaneMembersListHoldsRevisionSnapshotThroughPageQuery(t *testing.T) {
@@ -559,6 +960,18 @@ func TestRolloutLaneMembershipPreviewRejectsMixedModelAndNonLaneChannel(t *testi
 		},
 	)
 	require.ErrorIs(t, err, betweenchannel.ErrCompatibility)
+	_, err = service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: []string{"missing-miner"},
+	})
+	require.ErrorIs(t, err, betweenchannel.ErrMembershipConflict)
+	_, err = service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "b")},
+		DeviceIdentifiers: []string{deviceIDs[1]},
+	})
+	require.ErrorIs(t, err, betweenchannel.ErrCompatibility)
 
 	q := sqlc.New(db)
 	releaseSet, err := q.CreateFirmwareReleaseSet(t.Context(), orgID)
@@ -591,6 +1004,23 @@ func TestRolloutLaneMembershipPreviewRejectsMixedModelAndNonLaneChannel(t *testi
 		},
 	)
 	require.ErrorIs(t, err, betweenchannel.ErrMembershipConflict)
+	_, err = service.PreviewLane(t.Context(), betweenchannel.PreviewLaneRequest{
+		OrgID:             orgID,
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "c")},
+		DeviceIdentifiers: []string{deviceIDs[2]},
+	})
+	require.ErrorIs(t, err, betweenchannel.ErrMembershipConflict)
+	_, err = service.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:               orgID,
+		Label:               "Rejected generic reassignment",
+		ReleaseTargets:      []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "c")},
+		DeviceIdentifiers:   []string{deviceIDs[2]},
+		IdempotencyKey:      "reject-generic-create",
+		ActorUserID:         actorID,
+		ConfirmReassignment: true,
+	})
+	require.ErrorIs(t, err, betweenchannel.ErrMembershipConflict)
+	assert.Equal(t, channelSet.ID, deviceChannel(t, db, orgID, deviceIDs[2]))
 }
 
 func TestRolloutLaneConcurrentMembershipUpdatesLeaveNoPartialWrites(t *testing.T) {

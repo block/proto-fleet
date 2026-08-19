@@ -296,6 +296,23 @@ WHERE lane.id = sqlc.arg('lane_id')
   AND device.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
 ORDER BY device.device_identifier;
 
+-- name: GetRolloutLaneAssignments :many
+SELECT membership.device_identifier,
+       lane.id AS lane_id,
+       lane.label AS lane_label
+FROM device_set_membership membership
+JOIN rollout_lane_channel attachment
+  ON attachment.channel_id = membership.device_set_id
+ AND attachment.org_id = membership.org_id
+JOIN rollout_lane lane
+  ON lane.id = attachment.lane_id
+ AND lane.org_id = attachment.org_id
+ AND lane.deleted_at IS NULL
+WHERE membership.org_id = sqlc.arg('org_id')
+  AND membership.device_set_type = 'channel'
+  AND membership.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+ORDER BY membership.device_identifier;
+
 -- name: ListRolloutLaneMembershipCandidates :many
 SELECT device.id AS device_id,
        device.device_identifier,
@@ -305,6 +322,7 @@ SELECT device.id AS device_id,
        membership.device_set_id AS channel_id,
        source_lane.id AS source_lane_id,
        source_lane.label AS source_lane_label,
+       source_lane.revision AS source_lane_revision,
        source_attachment.position AS source_channel_position,
        COALESCE(source_target.firmware_version, '') AS source_release_version
 FROM device

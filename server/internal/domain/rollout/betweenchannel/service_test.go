@@ -147,6 +147,70 @@ func TestMapStoreErrorDistinguishesMissingLaneFromIdempotencyConflict(t *testing
 	assert.True(t, fleeterror.IsAlreadyExistsError(conflict), "got %v", conflict)
 }
 
+func TestReassignmentConfirmationTokenBindsCanonicalSourceState(t *testing.T) {
+	t.Parallel()
+
+	laneA := uuid.New()
+	laneB := uuid.New()
+	req := PreviewLaneRequest{
+		OrgID:             42,
+		DeviceIdentifiers: []string{"miner-b", "miner-a"},
+		ReleaseTargets: []ReleaseTarget{{
+			FirmwareFileID:  "firmware-a",
+			Manufacturer:    "Proto",
+			Model:           "Alpha",
+			FirmwareVersion: "2.0.0",
+			SHA256:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+	}
+	preview := InitialEnforcementPreview{
+		RequiresReassignConfirmation: true,
+		Reassignments: []MembershipReassignment{
+			{
+				DeviceIdentifier:   "miner-b",
+				SourceLaneID:       laneB,
+				SourceChannelID:    12,
+				SourceLaneRevision: 4,
+			},
+			{
+				DeviceIdentifier:   "miner-a",
+				SourceLaneID:       laneA,
+				SourceChannelID:    11,
+				SourceLaneRevision: 3,
+			},
+		},
+	}
+
+	token, err := ReassignmentConfirmationToken(req, preview)
+	require.NoError(t, err)
+	assert.Len(t, token, 64)
+
+	reorderedReq := req
+	reorderedReq.DeviceIdentifiers = []string{"miner-a", "miner-b"}
+	reorderedPreview := preview
+	reorderedPreview.Reassignments = []MembershipReassignment{
+		preview.Reassignments[1],
+		preview.Reassignments[0],
+	}
+	reorderedToken, err := ReassignmentConfirmationToken(reorderedReq, reorderedPreview)
+	require.NoError(t, err)
+	assert.Equal(t, token, reorderedToken)
+
+	changedRevision := preview
+	changedRevision.Reassignments = append([]MembershipReassignment(nil), preview.Reassignments...)
+	changedRevision.Reassignments[0].SourceLaneRevision++
+	changedToken, err := ReassignmentConfirmationToken(req, changedRevision)
+	require.NoError(t, err)
+	assert.NotEqual(t, token, changedToken)
+
+	changedChannel := preview
+	changedChannel.Reassignments = append([]MembershipReassignment(nil), preview.Reassignments...)
+	changedChannel.Reassignments[0].SourceChannelID++
+	changedToken, err = ReassignmentConfirmationToken(req, changedChannel)
+	require.NoError(t, err)
+	assert.NotEqual(t, token, changedToken)
+}
+
 func TestValidateTransitionTargetsFailsClosed(t *testing.T) {
 	t.Parallel()
 

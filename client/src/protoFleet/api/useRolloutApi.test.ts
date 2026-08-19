@@ -802,6 +802,8 @@ describe("useRolloutApi", () => {
         matchingCount: 1,
         mismatchedCount: 1,
         unknownCount: 1,
+        requiresReassignmentConfirmation: true,
+        reassignmentConfirmationToken: "preview-token",
         miners: [
           create(RolloutLanePreviewMinerSchema, {
             deviceIdentifier: "miner-1",
@@ -833,6 +835,8 @@ describe("useRolloutApi", () => {
         ...selection,
         idempotencyKey: "create-confirmed",
         confirmInitialEnforcement: true,
+        confirmReassignment: true,
+        reassignmentConfirmationToken: preview.reassignmentConfirmationToken,
       });
     });
 
@@ -853,6 +857,8 @@ describe("useRolloutApi", () => {
     expect(rolloutClientMock.createRolloutLane.mock.calls[0][0]).toMatchObject({
       idempotencyKey: "create-confirmed",
       confirmInitialEnforcement: true,
+      confirmReassignment: true,
+      reassignmentConfirmationToken: "preview-token",
     });
   });
 

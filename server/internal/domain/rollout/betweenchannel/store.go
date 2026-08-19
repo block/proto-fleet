@@ -21,6 +21,7 @@ type LaneStore interface {
 	) (*Lane, error)
 	ListLanes(ctx context.Context, orgID int64, activeFirmwareConvergenceOnly bool) ([]Lane, error)
 	ListMembers(ctx context.Context, req ListMembersRequest) (ListMembersResult, error)
+	GetAssignments(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]LaneAssignment, error)
 	PreviewMembershipChange(
 		ctx context.Context,
 		req PreviewMembershipChangeRequest,

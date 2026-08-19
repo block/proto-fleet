@@ -50,6 +50,11 @@ type laneService interface {
 		ctx context.Context,
 		req betweenchannel.ListMembersRequest,
 	) (betweenchannel.ListMembersResult, error)
+	GetAssignments(
+		ctx context.Context,
+		orgID int64,
+		deviceIdentifiers []string,
+	) ([]betweenchannel.LaneAssignment, error)
 	PreviewMembershipChange(
 		ctx context.Context,
 		req betweenchannel.PreviewMembershipChangeRequest,
@@ -123,15 +128,20 @@ func (h *Handler) CreateRolloutLane(
 			"rollout lane service is not registered",
 		)
 	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
 	lane, err := h.laneService.CreateLane(ctx, betweenchannel.CreateLaneRequest{
-		OrgID:                     info.OrganizationID,
-		Label:                     req.Msg.GetLabel(),
-		Description:               req.Msg.GetDescription(),
-		FirmwareFileIDs:           req.Msg.GetFirmwareFileIds(),
-		DeviceIdentifiers:         req.Msg.GetDeviceIdentifiers(),
-		IdempotencyKey:            req.Msg.GetIdempotencyKey(),
-		ActorUserID:               info.UserID,
-		ConfirmInitialEnforcement: req.Msg.GetConfirmInitialEnforcement(),
+		OrgID:                         info.OrganizationID,
+		Label:                         req.Msg.GetLabel(),
+		Description:                   req.Msg.GetDescription(),
+		FirmwareFileIDs:               req.Msg.GetFirmwareFileIds(),
+		DeviceIdentifiers:             req.Msg.GetDeviceIdentifiers(),
+		IdempotencyKey:                req.Msg.GetIdempotencyKey(),
+		ActorUserID:                   info.UserID,
+		ActorType:                     actorType,
+		ActorCredentialID:             actorCredentialID,
+		ConfirmInitialEnforcement:     req.Msg.GetConfirmInitialEnforcement(),
+		ConfirmReassignment:           req.Msg.GetConfirmReassignment(),
+		ReassignmentConfirmationToken: req.Msg.GetReassignmentConfirmationToken(),
 	})
 	if err != nil {
 		return nil, err
@@ -139,6 +149,44 @@ func (h *Handler) CreateRolloutLane(
 	return connect.NewResponse(&pb.CreateRolloutLaneResponse{
 		Lane: laneToProto(lane),
 	}), nil
+}
+
+func (h *Handler) GetRolloutLaneAssignments(
+	ctx context.Context,
+	req *connect.Request[pb.GetRolloutLaneAssignmentsRequest],
+) (*connect.Response[pb.GetRolloutLaneAssignmentsResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelRead,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	assignments, err := h.laneService.GetAssignments(
+		ctx,
+		info.OrganizationID,
+		req.Msg.GetDeviceIdentifiers(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.GetRolloutLaneAssignmentsResponse{
+		Assignments: make([]*pb.RolloutLaneAssignment, 0, len(assignments)),
+	}
+	for _, assignment := range assignments {
+		response.Assignments = append(response.Assignments, &pb.RolloutLaneAssignment{
+			DeviceIdentifier: assignment.DeviceIdentifier,
+			LaneId:           assignment.LaneID.String(),
+			LaneLabel:        assignment.LaneLabel,
+		})
+	}
+	return connect.NewResponse(response), nil
 }
 
 func (h *Handler) GetRolloutLane(

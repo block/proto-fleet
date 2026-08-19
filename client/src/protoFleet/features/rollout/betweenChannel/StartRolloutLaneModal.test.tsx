@@ -81,6 +81,31 @@ const files: FirmwareFileInfo[] = [
 ];
 
 describe("StartRolloutLaneModal", () => {
+  it("blocks an empty lane with the settled guidance", () => {
+    render(
+      <StartRolloutLaneModal
+        open
+        lane={{
+          ...lane,
+          memberCount: 0,
+          memberIdentifiers: [],
+          firmwareConvergence: {
+            ...lane.firmwareConvergence,
+            totalCount: 0,
+            confirmedCount: 0,
+          },
+        }}
+        files={files}
+        isSubmitting={false}
+        onDismiss={vi.fn()}
+        onStart={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Add miners before starting a rollout.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start rollout" })).toBeDisabled();
+  });
+
   it("blocks missing and no-op targets and hides unsupported automation", () => {
     render(
       <StartRolloutLaneModal

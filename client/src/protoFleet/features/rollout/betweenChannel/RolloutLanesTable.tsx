@@ -60,6 +60,9 @@ function rolloutStateLabel(state: RolloutRecord["state"]): string {
 
 function firmwareConvergenceSummary(lane: RolloutLane): string {
   const { totalCount, confirmedCount, attentionCount } = lane.firmwareConvergence;
+  if (lane.memberCount === 0) {
+    return "No miners";
+  }
   const dominantState = dominantFirmwareConvergenceState(lane);
   if (dominantState === "needsAttention") {
     const attentionLabel = attentionCount === 1 ? "needs attention" : "need attention";

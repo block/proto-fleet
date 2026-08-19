@@ -1014,6 +1014,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRolloutLaneStmt, err = db.PrepareContext(ctx, getRolloutLane); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRolloutLane: %w", err)
 	}
+	if q.getRolloutLaneAssignmentsStmt, err = db.PrepareContext(ctx, getRolloutLaneAssignments); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRolloutLaneAssignments: %w", err)
+	}
 	if q.getRolloutLaneByIdempotencyKeyStmt, err = db.PrepareContext(ctx, getRolloutLaneByIdempotencyKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRolloutLaneByIdempotencyKey: %w", err)
 	}
@@ -3785,6 +3788,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRolloutLaneStmt: %w", cerr)
 		}
 	}
+	if q.getRolloutLaneAssignmentsStmt != nil {
+		if cerr := q.getRolloutLaneAssignmentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRolloutLaneAssignmentsStmt: %w", cerr)
+		}
+	}
 	if q.getRolloutLaneByIdempotencyKeyStmt != nil {
 		if cerr := q.getRolloutLaneByIdempotencyKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRolloutLaneByIdempotencyKeyStmt: %w", cerr)
@@ -6014,6 +6022,7 @@ type Queries struct {
 	getRoleByIDStmt                                              *sql.Stmt
 	getRoleByIDForUpdateStmt                                     *sql.Stmt
 	getRolloutLaneStmt                                           *sql.Stmt
+	getRolloutLaneAssignmentsStmt                                *sql.Stmt
 	getRolloutLaneByIdempotencyKeyStmt                           *sql.Stmt
 	getRolloutLaneChannelByStartKeyStmt                          *sql.Stmt
 	getRolloutLaneFirmwareConvergenceStatusStmt                  *sql.Stmt
@@ -6722,6 +6731,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRoleByIDStmt:                                              q.getRoleByIDStmt,
 		getRoleByIDForUpdateStmt:                                     q.getRoleByIDForUpdateStmt,
 		getRolloutLaneStmt:                                           q.getRolloutLaneStmt,
+		getRolloutLaneAssignmentsStmt:                                q.getRolloutLaneAssignmentsStmt,
 		getRolloutLaneByIdempotencyKeyStmt:                           q.getRolloutLaneByIdempotencyKeyStmt,
 		getRolloutLaneChannelByStartKeyStmt:                          q.getRolloutLaneChannelByStartKeyStmt,
 		getRolloutLaneFirmwareConvergenceStatusStmt:                  q.getRolloutLaneFirmwareConvergenceStatusStmt,

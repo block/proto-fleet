@@ -103,6 +103,8 @@ export interface CreateRolloutLaneInput extends RolloutRequestOptions {
   deviceIdentifiers: string[];
   idempotencyKey: string;
   confirmInitialEnforcement?: boolean;
+  confirmReassignment?: boolean;
+  reassignmentConfirmationToken?: string;
 }
 
 export interface PreviewRolloutLaneInput extends RolloutRequestOptions {
@@ -734,6 +736,8 @@ export function useRolloutApi(): UseRolloutApiResult {
               deviceIdentifiers: input.deviceIdentifiers,
               idempotencyKey: input.idempotencyKey,
               confirmInitialEnforcement: input.confirmInitialEnforcement ?? false,
+              confirmReassignment: input.confirmReassignment ?? false,
+              reassignmentConfirmationToken: input.reassignmentConfirmationToken ?? "",
             }),
             rpcOptions(input.signal),
           ),

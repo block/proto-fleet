@@ -68,6 +68,13 @@ func (s *Service) PreviewLane(
 		return InitialEnforcementPreview{}, mapStoreError(err)
 	}
 	preview.Targets = sortedTargets(targets)
+	preview.ReassignmentConfirmationToken, err = ReassignmentConfirmationToken(req, preview)
+	if err != nil {
+		return InitialEnforcementPreview{}, fleeterror.NewInvalidArgumentErrorf(
+			"rollout lane reassignment confirmation cannot be generated: %v",
+			err,
+		)
+	}
 	return preview, nil
 }
 
@@ -75,6 +82,9 @@ func (s *Service) CreateLane(
 	ctx context.Context,
 	req CreateLaneRequest,
 ) (*Lane, error) {
+	if req.ActorType == "" {
+		req.ActorType = rollout.ActorTypeUser
+	}
 	if err := validateCreateLaneRequest(req); err != nil {
 		return nil, err
 	}
@@ -84,8 +94,12 @@ func (s *Service) CreateLane(
 	}
 	defer release()
 	req.ReleaseTargets = targets
+	req.DeviceIdentifiers = sortedStrings(req.DeviceIdentifiers)
 	if req.ID == uuid.Nil {
 		req.ID = uuid.New()
+	}
+	if req.ChangeID == uuid.Nil {
+		req.ChangeID = uuid.New()
 	}
 	req.RequestFingerprint, err = fingerprintLaneCreate(req)
 	if err != nil {
@@ -163,6 +177,27 @@ func (s *Service) ListMembers(
 		return ListMembersResult{}, mapStoreError(err)
 	}
 	return result, nil
+}
+
+func (s *Service) GetAssignments(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+) ([]LaneAssignment, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("organization ID is required")
+	}
+	if len(deviceIdentifiers) > 50 {
+		return nil, fleeterror.NewInvalidArgumentError("at most 50 device identifiers are allowed")
+	}
+	if err := validateIdentifiers(deviceIdentifiers); err != nil {
+		return nil, err
+	}
+	assignments, err := s.store.GetAssignments(ctx, orgID, sortedStrings(deviceIdentifiers))
+	if err != nil {
+		return nil, mapStoreError(err)
+	}
+	return assignments, nil
 }
 
 func (s *Service) PreviewMembershipChange(
@@ -322,11 +357,16 @@ func validateCreateLaneRequest(req CreateLaneRequest) error {
 	if strings.TrimSpace(req.IdempotencyKey) == "" {
 		return fleeterror.NewInvalidArgumentError("idempotency key is required")
 	}
+	if err := validateLaneMutationActor(req.ActorType, req.ActorCredentialID); err != nil {
+		return err
+	}
 	if err := validateReleaseInput(req.FirmwareFileIDs, req.ReleaseTargets); err != nil {
 		return err
 	}
-	if err := validateIdentifiers(req.DeviceIdentifiers); err != nil {
-		return err
+	if len(req.DeviceIdentifiers) > 0 {
+		if err := validateIdentifiers(req.DeviceIdentifiers); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -337,6 +377,9 @@ func validatePreviewLaneRequest(req PreviewLaneRequest) error {
 	}
 	if err := validateReleaseInput(req.FirmwareFileIDs, req.ReleaseTargets); err != nil {
 		return err
+	}
+	if len(req.DeviceIdentifiers) == 0 {
+		return nil
 	}
 	return validateIdentifiers(req.DeviceIdentifiers)
 }
@@ -554,28 +597,86 @@ func ModelKey(manufacturer, model string) string {
 }
 
 func fingerprintLaneCreate(req CreateLaneRequest) (string, error) {
-	// Confirmation acknowledges the initial updates but does not change the
-	// desired lane, so confirmed retries share the original idempotency identity.
+	// Confirmation booleans acknowledge side effects but do not change the
+	// desired lane. The preview token does identify the exact source state that
+	// was acknowledged, so it participates in idempotency.
 	payload := struct {
-		Label             string
-		Description       string
-		FirmwareFileIDs   []string
-		ReleaseTargets    []ReleaseTarget
-		DeviceIdentifiers []string
-		ActorUserID       int64
+		Label                         string
+		Description                   string
+		FirmwareFileIDs               []string
+		ReleaseTargets                []ReleaseTarget
+		DeviceIdentifiers             []string
+		ReassignmentConfirmationToken string
+		ActorUserID                   int64
+		ActorType                     rollout.ActorType
+		ActorCredentialID             string
 	}{
-		Label:             req.Label,
-		Description:       req.Description,
-		FirmwareFileIDs:   sortedStrings(req.FirmwareFileIDs),
-		ReleaseTargets:    sortedTargets(req.ReleaseTargets),
-		DeviceIdentifiers: sortedStrings(req.DeviceIdentifiers),
-		ActorUserID:       req.ActorUserID,
+		Label:                         req.Label,
+		Description:                   req.Description,
+		FirmwareFileIDs:               sortedStrings(req.FirmwareFileIDs),
+		ReleaseTargets:                sortedTargets(req.ReleaseTargets),
+		DeviceIdentifiers:             sortedStrings(req.DeviceIdentifiers),
+		ReassignmentConfirmationToken: req.ReassignmentConfirmationToken,
+		ActorUserID:                   req.ActorUserID,
+		ActorType:                     req.ActorType,
+		ActorCredentialID:             actorCredentialValue(req.ActorCredentialID),
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshal lane create fingerprint: %w", err)
 	}
 	return cryptohash.Sha256Hex(string(encoded)), nil
+}
+
+func ReassignmentConfirmationToken(
+	req PreviewLaneRequest,
+	preview InitialEnforcementPreview,
+) (string, error) {
+	if !preview.RequiresReassignConfirmation {
+		return "", nil
+	}
+	reassignments := append([]MembershipReassignment(nil), preview.Reassignments...)
+	sort.Slice(reassignments, func(i, j int) bool {
+		return reassignments[i].DeviceIdentifier < reassignments[j].DeviceIdentifier
+	})
+	type sourceState struct {
+		DeviceIdentifier   string
+		SourceLaneID       uuid.UUID
+		SourceChannelID    int64
+		SourceLaneRevision int64
+	}
+	sources := make([]sourceState, 0, len(reassignments))
+	for _, reassignment := range reassignments {
+		sources = append(sources, sourceState{
+			DeviceIdentifier:   reassignment.DeviceIdentifier,
+			SourceLaneID:       reassignment.SourceLaneID,
+			SourceChannelID:    reassignment.SourceChannelID,
+			SourceLaneRevision: reassignment.SourceLaneRevision,
+		})
+	}
+	payload := struct {
+		OrgID             int64
+		DeviceIdentifiers []string
+		ReleaseTargets    []ReleaseTarget
+		Sources           []sourceState
+	}{
+		OrgID:             req.OrgID,
+		DeviceIdentifiers: sortedStrings(req.DeviceIdentifiers),
+		ReleaseTargets:    sortedTargets(req.ReleaseTargets),
+		Sources:           sources,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal reassignment confirmation token: %w", err)
+	}
+	return cryptohash.Sha256Hex(string(encoded)), nil
+}
+
+func actorCredentialValue(credentialID *string) string {
+	if credentialID == nil {
+		return ""
+	}
+	return *credentialID
 }
 
 func fingerprintLaneStart(req StartRolloutRequest) (string, error) {
@@ -689,7 +790,8 @@ func mapStoreError(err error) error {
 		errors.Is(err, ErrFirmwareConfirmationRequired),
 		errors.Is(err, ErrReassignmentConfirmationRequired),
 		errors.Is(err, ErrFirmwareConvergenceActive),
-		errors.Is(err, ErrLaneWorkActive):
+		errors.Is(err, ErrLaneWorkActive),
+		errors.Is(err, ErrLaneEmpty):
 		return fleeterror.NewFailedPreconditionErrorf("%w", err)
 	case errors.Is(err, ErrIdempotencyConflict):
 		return fleeterror.NewAlreadyExistsErrorf("%w", err)

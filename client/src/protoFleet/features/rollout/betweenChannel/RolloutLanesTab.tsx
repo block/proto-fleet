@@ -27,6 +27,10 @@ import RolloutLanesTable, { type LaneTableRow } from "@/protoFleet/features/roll
 import StartRolloutLaneModal, {
   type StartRolloutLaneValues,
 } from "@/protoFleet/features/rollout/betweenChannel/StartRolloutLaneModal";
+import {
+  isCompletedRolloutResult,
+  useAcknowledgedRolloutResultId,
+} from "@/protoFleet/features/rollout/rolloutResultAcknowledgement";
 import type {
   RolloutLane,
   RolloutLaneMembershipUpdateResult,
@@ -96,6 +100,7 @@ function resolveLane(
 
 export default function RolloutLanesTab() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const [acknowledgedResultId, setAcknowledgedResultId] = useAcknowledgedRolloutResultId();
   const {
     lane: loadedLane,
     lanes,
@@ -142,6 +147,9 @@ export default function RolloutLanesTab() {
   const skipSetupHydrationLaneIdRef = useRef<string | null>(null);
   const setupLaneRef = useRef<RolloutLane | undefined>(undefined);
   const setupLaneId = searchParams.get("setupLane");
+  const resultRolloutId = searchParams.get("rollout");
+  const resultRollout =
+    resultRolloutId && permissions.canRead ? rollouts.find((rollout) => rollout.id === resultRolloutId) : undefined;
   const activeFirmwareConvergenceLane = useMemo(() => firstActiveFirmwareConvergenceLane(lanes), [lanes]);
   const selectedSetupLaneId = setupLaneId ?? activeFirmwareConvergenceLane?.id ?? null;
 
@@ -198,6 +206,30 @@ export default function RolloutLanesTab() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- loads durable lane state from external APIs
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!resultRolloutId || !permissions.canRead) {
+      return;
+    }
+    if (resultRollout) {
+      if (isCompletedRolloutResult(resultRollout) && acknowledgedResultId !== resultRollout.id) {
+        setAcknowledgedResultId(resultRollout.id);
+      }
+      return;
+    }
+
+    const controller = new AbortController();
+    void getRollout({ rolloutId: resultRolloutId, signal: controller.signal })
+      .then((rollout) => {
+        if (!controller.signal.aborted && isCompletedRolloutResult(rollout) && acknowledgedResultId !== rollout.id) {
+          setAcknowledgedResultId(rollout.id);
+        }
+      })
+      .catch(() => {
+        // The API hook exposes invalid or inaccessible rollout IDs through its normal load error.
+      });
+    return () => controller.abort();
+  }, [acknowledgedResultId, getRollout, permissions.canRead, resultRollout, resultRolloutId, setAcknowledgedResultId]);
 
   const hydrateSetupLane = useCallback(
     async (laneId: string, signal: AbortSignal, firmwareConvergenceMembersUpdatedAfter?: Timestamp): Promise<void> => {
@@ -271,9 +303,11 @@ export default function RolloutLanesTab() {
   );
   const hasMonitoredFirmwareConvergence = activeFirmwareConvergenceLane !== undefined;
   const monitoredRollout =
-    focusedRollout ??
-    rows.find((row) => shouldMonitorRollout(row.latestRollout))?.latestRollout ??
-    rows.find((row) => row.latestRollout && canRevertRollout(row.latestRollout))?.latestRollout;
+    resultRolloutId !== null
+      ? resultRollout
+      : (focusedRollout ??
+        rows.find((row) => shouldMonitorRollout(row.latestRollout))?.latestRollout ??
+        rows.find((row) => row.latestRollout && canRevertRollout(row.latestRollout))?.latestRollout);
   const monitoredLane = monitoredRollout ? laneForRollout(lanes, monitoredRollout.id) : undefined;
   const canManageLanes = permissions.canManageChannels;
   const canStartLane = permissions.canManageChannels && permissions.canManage;

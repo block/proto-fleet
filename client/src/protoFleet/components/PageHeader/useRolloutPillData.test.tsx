@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
   RolloutLaneSchema,
@@ -12,12 +13,20 @@ import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import { useRolloutPillData } from "@/protoFleet/components/PageHeader/useRolloutPillData";
 import { BETWEEN_CHANNEL_STRATEGY_KEY } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 
-const { listRolloutLanes, listRollouts, getDeviceSet, handleAuthErrors, useHasPermission } = vi.hoisted(() => ({
-  listRolloutLanes: vi.fn(),
-  listRollouts: vi.fn(),
-  getDeviceSet: vi.fn(),
-  handleAuthErrors: vi.fn(),
-  useHasPermission: vi.fn(),
+const { listRolloutLanes, listRollouts, getDeviceSet, handleAuthErrors, navigate, useHasPermission } = vi.hoisted(
+  () => ({
+    listRolloutLanes: vi.fn(),
+    listRollouts: vi.fn(),
+    getDeviceSet: vi.fn(),
+    handleAuthErrors: vi.fn(),
+    navigate: vi.fn(),
+    useHasPermission: vi.fn(),
+  }),
+);
+
+vi.mock("react-router-dom", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-router-dom")>()),
+  useNavigate: () => navigate,
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
@@ -65,6 +74,22 @@ function rollout(
   });
 }
 
+function completedRollout(
+  rolloutId: string,
+  state: RolloutState.COMPLETED | RolloutState.COMPLETED_WITH_FAILURES | RolloutState.REVERTED,
+  finishedAt: string,
+) {
+  const finishedTimestamp = timestampFromDate(new Date(finishedAt));
+  return create(RolloutSchema, {
+    rolloutId,
+    name: `Completed ${rolloutId}`,
+    strategyKey: BETWEEN_CHANNEL_STRATEGY_KEY,
+    state,
+    completedAt: state === RolloutState.REVERTED ? undefined : finishedTimestamp,
+    revertedAt: state === RolloutState.REVERTED ? finishedTimestamp : undefined,
+  });
+}
+
 function grantPermissions(...permissions: string[]) {
   useHasPermission.mockImplementation((permission: string) => permissions.includes(permission));
 }
@@ -77,8 +102,15 @@ async function runInitialRefresh() {
 
 describe("useRolloutPillData", () => {
   beforeEach(() => {
+    const storedValues = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      clear: () => storedValues.clear(),
+      getItem: (key: string) => storedValues.get(key) ?? null,
+      setItem: (key: string, value: string) => storedValues.set(key, value),
+    });
     vi.useFakeTimers();
     vi.clearAllMocks();
+    localStorage.clear();
     grantPermissions("rollout:read", "channel:read");
     listRolloutLanes.mockResolvedValue({ lanes: [] });
     listRollouts.mockResolvedValue({ rollouts: [] });
@@ -86,11 +118,14 @@ describe("useRolloutPillData", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("prefers an active persisted firmware rollout over active firmware convergence", async () => {
     listRolloutLanes.mockResolvedValue({ lanes: [lane()] });
-    listRollouts.mockResolvedValue({ rollouts: [rollout()] });
+    listRollouts.mockResolvedValue({
+      rollouts: [completedRollout("completed", RolloutState.COMPLETED, "2026-08-19T01:00:00Z"), rollout()],
+    });
 
     const { result } = renderHook(() => useRolloutPillData());
     await runInitialRefresh();
@@ -104,6 +139,9 @@ describe("useRolloutPillData", () => {
     listRolloutLanes.mockResolvedValue({
       lanes: [lane(true, "lane-2", "Canary"), lane(true, "lane-1", "Stable production")],
     });
+    listRollouts.mockResolvedValue({
+      rollouts: [completedRollout("completed", RolloutState.COMPLETED, "2026-08-19T01:00:00Z")],
+    });
 
     const { result } = renderHook(() => useRolloutPillData());
     await runInitialRefresh();
@@ -111,6 +149,51 @@ describe("useRolloutPillData", () => {
     expect(result.current.activeEvent?.title).toBe("Firmware convergence");
     expect(result.current.activeEvent?.scopeLabel).toBe("Canary");
     expect(result.current.detailsPath).toBe("/settings/firmware?tab=rolloutLanes&setupLane=lane-2");
+    expect(result.current.hasVisiblePill).toBe(true);
+  });
+
+  it("shows only the latest unacknowledged completed rollout across remounts", async () => {
+    listRollouts.mockResolvedValue({
+      rollouts: [
+        completedRollout("older", RolloutState.COMPLETED, "2026-08-18T01:00:00Z"),
+        completedRollout("latest", RolloutState.COMPLETED, "2026-08-19T01:00:00Z"),
+      ],
+    });
+
+    const first = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(first.result.current.activeEvent?.title).toBe("Completed latest");
+    expect(first.result.current.detailsPath).toBe("/settings/firmware?tab=rolloutLanes&rollout=latest");
+    first.unmount();
+
+    const second = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(second.result.current.activeEvent?.title).toBe("Completed latest");
+
+    act(() => second.result.current.onViewRollout?.());
+
+    expect(localStorage.getItem("protoFleet.acknowledgedRolloutResultId")).toBe('"latest"');
+    expect(navigate).toHaveBeenCalledWith("/settings/firmware?tab=rolloutLanes&rollout=latest");
+    expect(second.result.current.hasVisiblePill).toBe(false);
+
+    second.unmount();
+    const third = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+    expect(third.result.current.activeEvent).toBeNull();
+  });
+
+  it.each([
+    [RolloutState.COMPLETED_WITH_FAILURES, "completedWithFailures"],
+    [RolloutState.REVERTED, "reverted"],
+  ] as const)("shows terminal rollout state %s", async (state, expectedState) => {
+    listRollouts.mockResolvedValue({
+      rollouts: [completedRollout("terminal", state, "2026-08-19T01:00:00Z")],
+    });
+
+    const { result } = renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+
+    expect(result.current.activeEvent?.state).toBe(expectedState);
     expect(result.current.hasVisiblePill).toBe(true);
   });
 
@@ -253,6 +336,23 @@ describe("useRolloutPillData", () => {
     expect(listRollouts).toHaveBeenCalledTimes(4);
   });
 
+  it("keeps completed rollout pills on the idle polling cadence", async () => {
+    listRollouts.mockResolvedValue({
+      rollouts: [completedRollout("completed", RolloutState.COMPLETED, "2026-08-19T01:00:00Z")],
+    });
+    renderHook(() => useRolloutPillData());
+    await runInitialRefresh();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect(listRollouts).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(listRollouts).toHaveBeenCalledTimes(2);
+  });
+
   it("refreshes immediately after rollout changes", async () => {
     renderHook(() => useRolloutPillData());
     await runInitialRefresh();
@@ -329,6 +429,9 @@ describe("useRolloutPillData", () => {
       RolloutState.REVIEW,
       RolloutState.ABORTED,
       RolloutState.REVERTING,
+      RolloutState.COMPLETED,
+      RolloutState.COMPLETED_WITH_FAILURES,
+      RolloutState.REVERTED,
     ]);
     expect(getDeviceSet).not.toHaveBeenCalled();
   });

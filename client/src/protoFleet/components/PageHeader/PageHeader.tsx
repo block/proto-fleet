@@ -72,6 +72,7 @@ const noActiveRollout: UseRolloutPillDataResult = {
   activeEvent: null,
   detailsPath: null,
   hasVisiblePill: false,
+  onViewRollout: null,
 };
 type HeaderWidgetKind = "alerts" | "curtailment" | "rollout" | "schedule" | "update" | "setup";
 
@@ -130,6 +131,7 @@ function HeaderWidgets({
                 key={widget}
                 event={rolloutPillData.activeEvent}
                 {...(rolloutPillData.detailsPath ? { detailsPath: rolloutPillData.detailsPath } : {})}
+                {...(rolloutPillData.onViewRollout ? { onViewRollout: rolloutPillData.onViewRollout } : {})}
               />
             ) : null;
           case "schedule":

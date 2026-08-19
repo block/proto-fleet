@@ -295,12 +295,16 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/StartRolloutLaneModal", ()
 }));
 
 vi.mock("@/protoFleet/features/rollout/betweenChannel/BetweenChannelRolloutStatus", () => ({
-  default: ({ onCompleteWithFailures }: { onCompleteWithFailures?: () => void }) =>
-    onCompleteWithFailures ? (
-      <button type="button" onClick={onCompleteWithFailures}>
-        Complete with failures
-      </button>
-    ) : null,
+  default: ({ rollout, onCompleteWithFailures }: { rollout: RolloutRecord; onCompleteWithFailures?: () => void }) => (
+    <div>
+      <span>Rollout status for {rollout.id}</span>
+      {onCompleteWithFailures ? (
+        <button type="button" onClick={onCompleteWithFailures}>
+          Complete with failures
+        </button>
+      ) : null}
+    </div>
+  ),
 }));
 
 const { default: RolloutLanesTab } = await import("./RolloutLanesTab");
@@ -425,6 +429,12 @@ function deferred<T>() {
 
 describe("RolloutLanesTab", () => {
   beforeEach(() => {
+    const storedValues = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      clear: () => storedValues.clear(),
+      getItem: (key: string) => storedValues.get(key) ?? null,
+      setItem: (key: string, value: string) => storedValues.set(key, value),
+    });
     vi.useRealTimers();
     vi.clearAllMocks();
     capturedTable.onStart = null;
@@ -471,6 +481,9 @@ describe("RolloutLanesTab", () => {
         matchingCount: 0,
         mismatchedCount: 0,
         unknownCount: 0,
+        reassignments: [],
+        requiresReassignmentConfirmation: false,
+        reassignmentConfirmationToken: "",
       },
       reassignments: [],
       removals: [],
@@ -484,6 +497,9 @@ describe("RolloutLanesTab", () => {
       matchingCount: 2,
       mismatchedCount: 0,
       unknownCount: 0,
+      reassignments: [],
+      requiresReassignmentConfirmation: false,
+      reassignmentConfirmationToken: "",
     });
     listFirmwareFiles.mockResolvedValue([]);
   });
@@ -844,6 +860,54 @@ describe("RolloutLanesTab", () => {
     );
     expect(screen.getByText("Firmware convergence for Selected lane")).toBeInTheDocument();
     expect(screen.getByTestId("location-probe")).toHaveTextContent(initialEntry);
+  });
+
+  it("restores the exact URL-selected rollout result and acknowledges it after remount", async () => {
+    const active = rollout("active", "running", ["admitted"]);
+    const completed = rollout("completed", "completed");
+    rolloutApi.rollouts = [active, completed];
+    rolloutApi.lanes = [
+      lane("lane-active", "Active lane", active.id),
+      lane("lane-completed", "Completed lane", completed.id, 42n),
+    ];
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
+    const initialEntry = "/settings/firmware?tab=rolloutLanes&rollout=completed";
+
+    const firstView = renderRolloutLanesTab(initialEntry);
+    expect(await screen.findByText("Rollout status for completed")).toBeInTheDocument();
+    expect(screen.queryByText("Rollout status for active")).not.toBeInTheDocument();
+    await waitFor(() => expect(localStorage.getItem("protoFleet.acknowledgedRolloutResultId")).toBe('"completed"'));
+
+    firstView.unmount();
+    renderRolloutLanesTab(initialEntry);
+    expect(await screen.findByText("Rollout status for completed")).toBeInTheDocument();
+  });
+
+  it("does not crash on an invalid URL-selected rollout", async () => {
+    rolloutApi.getRollout.mockRejectedValue(new Error("Rollout not found"));
+
+    renderRolloutLanesTab("/settings/firmware?tab=rolloutLanes&rollout=not-a-rollout");
+
+    await waitFor(() =>
+      expect(rolloutApi.getRollout).toHaveBeenCalledWith(expect.objectContaining({ rolloutId: "not-a-rollout" })),
+    );
+    expect(screen.getByTestId("rollout-lanes-table")).toBeInTheDocument();
+    expect(localStorage.getItem("protoFleet.acknowledgedRolloutResultId")).toBeNull();
+  });
+
+  it("does not load or acknowledge a URL-selected rollout without rollout read permission", async () => {
+    const completed = rollout("completed", "completed");
+    rolloutApi.rollouts = [completed];
+    rolloutApi.lanes = [lane("lane-completed", "Completed lane", completed.id, 42n)];
+    rolloutApi.permissions.canRead = false;
+
+    renderRolloutLanesTab("/settings/firmware?tab=rolloutLanes&rollout=completed");
+    await waitFor(() => expect(rolloutApi.listRolloutLanes).toHaveBeenCalledOnce());
+
+    expect(rolloutApi.getRollout).not.toHaveBeenCalled();
+    expect(screen.queryByText("Rollout status for completed")).not.toBeInTheDocument();
+    expect(localStorage.getItem("protoFleet.acknowledgedRolloutResultId")).toBeNull();
   });
 
   it("closing setup removes only setupLane from the URL", async () => {

@@ -33,7 +33,11 @@ vi.mock("./SchedulePill", () => ({
 }));
 
 vi.mock("@/protoFleet/features/rollout/RolloutPill", () => ({
-  default: ({ detailsPath }: { detailsPath?: string }) => <div>Rollout pill ({detailsPath ?? "no details link"})</div>,
+  default: ({ detailsPath, onViewRollout }: { detailsPath?: string; onViewRollout?: () => void }) => (
+    <button type="button" onClick={onViewRollout}>
+      Rollout pill ({detailsPath ?? "no details link"})
+    </button>
+  ),
 }));
 
 vi.mock("./ActiveAlertsPill", () => ({
@@ -162,10 +166,17 @@ const rolloutPillData: UseRolloutPillDataResult = {
     rollups: [],
   },
   detailsPath: "/settings/firmware?tab=rolloutLanes",
+  onViewRollout: vi.fn(),
 };
 
 describe("PageHeader", () => {
   beforeEach(() => {
+    const storedValues = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      clear: () => storedValues.clear(),
+      getItem: (key: string) => storedValues.get(key) ?? null,
+      setItem: (key: string, value: string) => storedValues.set(key, value),
+    });
     vi.clearAllMocks();
     mockListSites.mockReturnValue(undefined);
     sitesCtx.current = {
@@ -365,6 +376,26 @@ describe("PageHeader", () => {
     );
 
     expect(screen.queryByText(/Rollout pill/)).not.toBeInTheDocument();
+  });
+
+  it("passes the rollout view action through to the pill", async () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+    const onViewRollout = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <PageHeader
+          schedulePillData={createSchedulePillData()}
+          rolloutPillData={{ ...rolloutPillData, onViewRollout }}
+        />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Rollout pill/ }));
+
+    expect(onViewRollout).toHaveBeenCalledOnce();
   });
 
   it("renders a visible rollout pill without a details link", () => {

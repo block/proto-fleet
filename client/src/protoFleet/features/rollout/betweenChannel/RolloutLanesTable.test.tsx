@@ -98,6 +98,35 @@ describe("RolloutLanesTable", () => {
     expect(screen.queryByRole("button", { name: /start rollout/i })).not.toBeInTheDocument();
   });
 
+  it("shows an empty lane without implying completed firmware work", () => {
+    render(
+      <RolloutLanesTable
+        rows={[
+          {
+            ...rows[0],
+            lane: {
+              ...rows[0].lane,
+              memberCount: 0,
+              firmwareConvergence: {
+                ...rows[0].lane.firmwareConvergence,
+                totalCount: 0,
+                confirmedCount: 0,
+              },
+            },
+          },
+        ]}
+        canStart
+        onSetup={vi.fn()}
+        onManageMembers={vi.fn()}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("No miners")).toBeInTheDocument();
+    expect(screen.getByText("Add miners before starting a rollout.")).toBeInTheDocument();
+  });
+
   it.each([
     {
       name: "attention",

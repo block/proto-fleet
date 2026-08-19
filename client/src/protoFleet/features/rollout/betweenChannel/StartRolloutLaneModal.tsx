@@ -198,7 +198,9 @@ export default function StartRolloutLaneModal({
               subtitle={error}
             />
           ) : null}
-          {!hasFreshMembership ? (
+          {lane.memberCount === 0 ? (
+            <Callout intent={intents.danger} prefixIcon={<Alert />} title="Add miners before starting a rollout." />
+          ) : !hasFreshMembership ? (
             <Callout
               intent={intents.danger}
               prefixIcon={<Alert />}

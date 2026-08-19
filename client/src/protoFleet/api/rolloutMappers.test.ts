@@ -24,6 +24,7 @@ import {
   mapRollout,
   mapRolloutLane,
   mapRolloutLaneMembershipChangePreview,
+  mapRolloutLanePreview,
   mapRolloutMemberState,
   mapRolloutState,
   mapRolloutToEvent,
@@ -33,6 +34,15 @@ import {
 const timestamp = (iso: string) => timestampFromDate(new Date(iso));
 
 describe("rollout mappers", () => {
+  it("retains reassignment confirmation tokens from lane previews", () => {
+    const preview = create(RolloutLanePreviewSchema, {
+      requiresReassignmentConfirmation: true,
+      reassignmentConfirmationToken: "preview-token",
+    });
+
+    expect(mapRolloutLanePreview(preview).reassignmentConfirmationToken).toBe("preview-token");
+  });
+
   it("maps stable lane identity without exposing physical channel labels", () => {
     const lane = create(RolloutLaneSchema, {
       laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",

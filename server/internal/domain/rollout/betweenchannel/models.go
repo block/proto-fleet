@@ -23,6 +23,7 @@ var (
 	ErrReassignmentConfirmationRequired       = errors.New("rollout lane reassignment confirmation required")
 	ErrFirmwareConvergenceActive              = errors.New("firmware convergence is still active")
 	ErrLaneWorkActive                         = errors.New("rollout lane still has active work")
+	ErrLaneEmpty                              = errors.New("Add miners before starting a rollout.")
 )
 
 type ReleaseTarget struct {
@@ -53,11 +54,14 @@ type InitialFirmwareMiner struct {
 }
 
 type InitialEnforcementPreview struct {
-	Targets         []ReleaseTarget
-	Miners          []InitialFirmwareMiner
-	MatchingCount   int32
-	MismatchedCount int32
-	UnknownCount    int32
+	Targets                       []ReleaseTarget
+	Miners                        []InitialFirmwareMiner
+	MatchingCount                 int32
+	MismatchedCount               int32
+	UnknownCount                  int32
+	Reassignments                 []MembershipReassignment
+	RequiresReassignConfirmation  bool
+	ReassignmentConfirmationToken string
 }
 
 func (p InitialEnforcementPreview) RequiresConfirmation() bool {
@@ -109,17 +113,22 @@ type LaneChannel struct {
 }
 
 type CreateLaneRequest struct {
-	ID                        uuid.UUID
-	OrgID                     int64
-	Label                     string
-	Description               string
-	FirmwareFileIDs           []string
-	ReleaseTargets            []ReleaseTarget
-	DeviceIdentifiers         []string
-	IdempotencyKey            string
-	RequestFingerprint        string
-	ActorUserID               int64
-	ConfirmInitialEnforcement bool
+	ChangeID                      uuid.UUID
+	ID                            uuid.UUID
+	OrgID                         int64
+	Label                         string
+	Description                   string
+	FirmwareFileIDs               []string
+	ReleaseTargets                []ReleaseTarget
+	DeviceIdentifiers             []string
+	IdempotencyKey                string
+	RequestFingerprint            string
+	ActorUserID                   int64
+	ActorType                     rollout.ActorType
+	ActorCredentialID             *string
+	ConfirmInitialEnforcement     bool
+	ConfirmReassignment           bool
+	ReassignmentConfirmationToken string
 }
 
 type PreviewLaneRequest struct {
@@ -127,6 +136,12 @@ type PreviewLaneRequest struct {
 	FirmwareFileIDs   []string
 	ReleaseTargets    []ReleaseTarget
 	DeviceIdentifiers []string
+}
+
+type LaneAssignment struct {
+	DeviceIdentifier string
+	LaneID           uuid.UUID
+	LaneLabel        string
 }
 
 type DeleteLaneRequest struct {
@@ -184,6 +199,7 @@ type MembershipReassignment struct {
 	SourceChannelID       int64
 	SourceChannelPosition int32
 	SourceReleaseVersion  string
+	SourceLaneRevision    int64
 }
 
 type MembershipChangePreview struct {

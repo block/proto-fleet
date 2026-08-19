@@ -21,6 +21,8 @@ export interface CreateRolloutLaneValues {
   firmwareFileIds: string[];
   deviceIdentifiers: string[];
   confirmInitialEnforcement: boolean;
+  confirmReassignment: boolean;
+  reassignmentConfirmationToken?: string;
 }
 
 type PreviewRolloutLaneValues = Pick<CreateRolloutLaneValues, "firmwareFileIds" | "deviceIdentifiers">;
@@ -50,7 +52,10 @@ export default function CreateRolloutLaneModal({
   const [deviceIdentifiers, setDeviceIdentifiers] = useState<string[]>([]);
   const [showMinerSelection, setShowMinerSelection] = useState(false);
   const [confirmation, setConfirmation] = useState<{
-    values: Omit<CreateRolloutLaneValues, "confirmInitialEnforcement">;
+    values: Omit<
+      CreateRolloutLaneValues,
+      "confirmInitialEnforcement" | "confirmReassignment" | "reassignmentConfirmationToken"
+    >;
     preview: RolloutLanePreview;
   } | null>(null);
   const targetFiles = useMemo(
@@ -76,8 +81,14 @@ export default function CreateRolloutLaneModal({
     return [...groups.entries()];
   }, [targetFiles]);
   const selectedFiles = Object.values(selectedFileByModel);
-  const canCreate = label.trim().length > 0 && selectedFiles.length > 0 && deviceIdentifiers.length > 0;
-  const selectedValues = (): Omit<CreateRolloutLaneValues, "confirmInitialEnforcement"> => ({
+  const confirmationSourceLabels = confirmation
+    ? [...new Set(confirmation.preview.reassignments.map((reassignment) => reassignment.sourceLaneLabel))]
+    : [];
+  const canCreate = label.trim().length > 0 && selectedFiles.length > 0;
+  const selectedValues = (): Omit<
+    CreateRolloutLaneValues,
+    "confirmInitialEnforcement" | "confirmReassignment" | "reassignmentConfirmationToken"
+  > => ({
     label: label.trim(),
     description: description.trim(),
     firmwareFileIds: selectedFiles,
@@ -85,16 +96,20 @@ export default function CreateRolloutLaneModal({
   });
   const previewAndCreate = async () => {
     const values = selectedValues();
+    if (values.deviceIdentifiers.length === 0) {
+      onCreate({ ...values, confirmInitialEnforcement: false, confirmReassignment: false });
+      return;
+    }
     try {
       const preview = await onPreview({
         firmwareFileIds: values.firmwareFileIds,
         deviceIdentifiers: values.deviceIdentifiers,
       });
-      if (preview.mismatchedCount > 0 || preview.unknownCount > 0) {
+      if (preview.mismatchedCount > 0 || preview.unknownCount > 0 || preview.requiresReassignmentConfirmation) {
         setConfirmation({ values, preview });
         return;
       }
-      onCreate({ ...values, confirmInitialEnforcement: false });
+      onCreate({ ...values, confirmInitialEnforcement: false, confirmReassignment: false });
     } catch {
       // The API error remains visible in the lane creator.
     }
@@ -212,7 +227,7 @@ export default function CreateRolloutLaneModal({
                   <div className="text-emphasis-300 text-text-primary">Miners</div>
                   <div className="text-300 text-text-primary-70">
                     {deviceIdentifiers.length === 0
-                      ? "Select the initial lane membership."
+                      ? "0 miners selected"
                       : `${deviceIdentifiers.length.toLocaleString()} miners selected`}
                   </div>
                 </div>
@@ -232,6 +247,7 @@ export default function CreateRolloutLaneModal({
       <MinerSelectionModal
         open={showMinerSelection}
         selectedMinerIds={deviceIdentifiers}
+        showRolloutLaneColumn
         onDismiss={() => setShowMinerSelection(false)}
         onSave={(selection) => {
           setDeviceIdentifiers(selection.selectedMinerIds);
@@ -240,7 +256,7 @@ export default function CreateRolloutLaneModal({
       />
       <Dialog
         open={confirmation !== null}
-        title="Creating this lane starts firmware updates"
+        title="Review lane creation changes"
         testId="initial-enforcement-confirmation"
         onDismiss={() => setConfirmation(null)}
         icon={
@@ -256,12 +272,20 @@ export default function CreateRolloutLaneModal({
             disabled: isSubmitting,
           },
           {
-            text: "Create and update firmware",
+            text: "Confirm and create lane",
             onClick: () => {
               if (!confirmation) {
                 return;
               }
-              onCreate({ ...confirmation.values, confirmInitialEnforcement: true });
+              onCreate({
+                ...confirmation.values,
+                confirmInitialEnforcement:
+                  confirmation.preview.mismatchedCount > 0 || confirmation.preview.unknownCount > 0,
+                confirmReassignment: confirmation.preview.requiresReassignmentConfirmation,
+                ...(confirmation.preview.requiresReassignmentConfirmation
+                  ? { reassignmentConfirmationToken: confirmation.preview.reassignmentConfirmationToken }
+                  : {}),
+              });
             },
             variant: variants.primary,
             loading: isSubmitting,
@@ -270,17 +294,28 @@ export default function CreateRolloutLaneModal({
       >
         {confirmation ? (
           <div className="grid gap-3 text-300 text-text-primary-70">
-            <p>
-              {confirmation.preview.mismatchedCount.toLocaleString()} mismatched{" "}
-              {confirmation.preview.mismatchedCount === 1 ? "miner" : "miners"} and{" "}
-              {confirmation.preview.unknownCount.toLocaleString()}{" "}
-              {confirmation.preview.unknownCount === 1 ? "miner" : "miners"} with unknown firmware require updates.
-            </p>
-            <p>
-              Creating the lane immediately starts firmware updates for{" "}
-              {(confirmation.preview.mismatchedCount + confirmation.preview.unknownCount).toLocaleString()} miners.
-              Matching miners are recorded as already confirmed.
-            </p>
+            {confirmation.preview.requiresReassignmentConfirmation ? (
+              <p>
+                {confirmation.preview.reassignments.length.toLocaleString()} selected{" "}
+                {confirmation.preview.reassignments.length === 1 ? "miner is" : "miners are"} already assigned to{" "}
+                {confirmationSourceLabels.join(", ")} and will be reassigned.
+              </p>
+            ) : null}
+            {confirmation.preview.mismatchedCount > 0 || confirmation.preview.unknownCount > 0 ? (
+              <>
+                <p>
+                  {confirmation.preview.mismatchedCount.toLocaleString()} mismatched{" "}
+                  {confirmation.preview.mismatchedCount === 1 ? "miner" : "miners"} and{" "}
+                  {confirmation.preview.unknownCount.toLocaleString()}{" "}
+                  {confirmation.preview.unknownCount === 1 ? "miner" : "miners"} with unknown firmware require updates.
+                </p>
+                <p>
+                  Creating the lane immediately starts firmware updates for{" "}
+                  {(confirmation.preview.mismatchedCount + confirmation.preview.unknownCount).toLocaleString()} miners.
+                  Matching miners are recorded as already confirmed.
+                </p>
+              </>
+            ) : null}
           </div>
         ) : null}
       </Dialog>
