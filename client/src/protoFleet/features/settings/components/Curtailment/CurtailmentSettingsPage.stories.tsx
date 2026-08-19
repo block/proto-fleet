@@ -85,6 +85,7 @@ const storyResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 15 min",
+    isExecutionReady: true,
   },
   {
     id: "emergency-shed",
@@ -94,6 +95,7 @@ const storyResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 15 min",
+    isExecutionReady: true,
     formValues: {
       name: "Emergency shed",
       actionType: "fullFleet",
@@ -125,6 +127,7 @@ const storyResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 15 min",
+    isExecutionReady: true,
     formValues: {
       name: "Partial reduction",
       actionType: "fixedKwReduction",
@@ -156,6 +159,7 @@ const storyResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 15 min",
+    isExecutionReady: true,
     formValues: {
       name: "Staged reduction",
       actionType: "fixedKwReduction",

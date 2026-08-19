@@ -32,9 +32,10 @@ import {
   immediateRestoreBatchSize,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
-import type {
-  ResponseProfile,
-  ResponseProfileFormValues,
+import {
+  isResponseProfileScopeExecutionReady,
+  type ResponseProfile,
+  type ResponseProfileFormValues,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
 
@@ -278,6 +279,7 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     deadlineSummary: responseDeadlineMinutes === "1" ? "Within 1 min" : `Within ${responseDeadlineMinutes} min`,
     formValues: readOnlyScopeSummary ? undefined : mergedFormValues,
     isReadOnly: Boolean(readOnlyScopeSummary),
+    isExecutionReady: isResponseProfileScopeExecutionReady(scopeFormValues.scopeType),
   };
 }
 
@@ -322,9 +324,6 @@ function getApiResponseProfileScopeValues(
       getResponseProfileSiteName(currentSiteId, cachedFormValues, siteNameById),
     ]),
   );
-  const isTopologyScope =
-    terminalScope.type === "building" || terminalScope.type === "rack" || terminalScope.type === "group";
-
   return {
     ...scopeFields,
     siteSelection,
@@ -332,11 +331,7 @@ function getApiResponseProfileScopeValues(
     siteName: siteId ? siteNamesById[siteId] : "",
     siteNamesById,
     minerSelectionMode: terminalScope.type === "wholeOrg" ? "all" : "subset",
-    readOnlyScopeSummary: isTopologyScope
-      ? getCurtailmentScopeSummary(terminalScope, {
-          fallbackLabel: getResponseProfileScopeLabel(profile.mode),
-        })
-      : undefined,
+    readOnlyScopeSummary: undefined,
   };
 }
 
@@ -411,9 +406,9 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   if (scopes === undefined) {
     throw new Error("Select a curtailment target scope.");
   }
-  // All-paired targeting requires a closed-loop scope (whole org or sites);
-  // the server rejects explicit-miner scopes. Enabling it also opts in
-  // maintenance-flagged miners, mirroring the Start request builders. The
+  // All-paired targeting requires a logical scope; explicit miner snapshots
+  // remain unsupported. Enabling it also opts in maintenance-flagged miners,
+  // mirroring the Start request builders. The
   // proto validator requires include_maintenance == force_include_maintenance.
   //
   // The maintenance pair derives SOLELY from the all-paired flag: the form
@@ -424,7 +419,7 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
   const forceIncludeAllPairedMiners =
     values.actionType === "fullFleet" &&
     Boolean(values.forceIncludeAllPairedMiners) &&
-    scopes.every((scope) => scope.scope.case === "wholeOrg" || scope.scope.case === "site");
+    scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
   const includeMaintenance = forceIncludeAllPairedMiners;
   return {
     profileName: values.name.trim(),

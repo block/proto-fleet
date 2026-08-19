@@ -52,6 +52,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 15 min",
+    isExecutionReady: true,
   },
   {
     id: "partial-reduction",
@@ -61,6 +62,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 10 min",
+    isExecutionReady: true,
   },
 ];
 
@@ -169,6 +171,50 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
     const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
     expect(responseProfileSelect).toHaveTextContent("Facility fan shed");
+  });
+
+  it("excludes profiles whose target scope is not ready for execution", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "building-shed",
+      name: "Building shed",
+      isExecutionReady: false,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={[topologyProfile, ...testResponseProfiles]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
+
+    expect(responseProfileSelect).toHaveTextContent("Standard shed");
+    expect(responseProfileSelect).not.toHaveTextContent("Building shed");
+  });
+
+  it("disables an existing automation whose response profile is not ready for execution", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "building-shed",
+      name: "Building shed",
+      isExecutionReady: false,
+    };
+    const topologyRule: AutomationRule = {
+      ...testAutomationRules[0],
+      responseProfileId: topologyProfile.id,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={[topologyRule]}
+        sources={testSources}
+        responseProfiles={[topologyProfile]}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    expect(toggle).toBeDisabled();
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {

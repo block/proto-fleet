@@ -31,6 +31,7 @@ import {
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+  isResponseProfileScopeExecutionReady,
   MAX_SOURCE_STALENESS_THRESHOLD_SEC,
   type ResponseProfile,
   type ResponseProfileFormValues,
@@ -389,6 +390,7 @@ function createResponseProfileFromFormValues(
     restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
     deadlineSummary: getResponseProfileDeadlineSummary(normalizedValues),
     formValues: normalizedValues,
+    isExecutionReady: isResponseProfileScopeExecutionReady(normalizedValues.scopeType),
   };
 }
 
@@ -838,7 +840,7 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
-          ariaLabel={profile.isReadOnly ? "Editing topology-scoped profiles is not available yet" : "Edit"}
+          ariaLabel={profile.isReadOnly ? "Editing this profile is unavailable" : "Edit"}
           className="!h-8 !px-3 !py-0"
           disabled={profile.isReadOnly}
           onClick={() => onEdit(profile)}
@@ -1313,6 +1315,8 @@ type CurtailmentSettingsContentProps = {
   updatingAutomationRuleIds?: ReadonlySet<string>;
   siteOptions?: CurtailmentSiteOption[];
   defaultResponseProfileSiteScope?: CurtailmentSiteOption;
+  buildingScopeEnabled?: boolean;
+  rackAndGroupScopeEnabled?: boolean;
   isLoadingSiteOptions?: boolean;
   siteScopeDisabledReason?: string;
   infrastructureDevices?: FacilityFanDeviceOption[];
@@ -1382,6 +1386,8 @@ export function CurtailmentSettingsContent({
   updatingAutomationRuleIds = emptyUpdatingAutomationRuleIds,
   siteOptions = [],
   defaultResponseProfileSiteScope,
+  buildingScopeEnabled = true,
+  rackAndGroupScopeEnabled = true,
   isLoadingSiteOptions = false,
   siteScopeDisabledReason,
   infrastructureDevices = [],
@@ -1753,6 +1759,8 @@ export function CurtailmentSettingsContent({
         responseProfileMode={responseProfileModalMode}
         initialValues={responseProfileCurtailmentInitialValues}
         siteOptions={siteOptions}
+        buildingScopeEnabled={buildingScopeEnabled}
+        rackAndGroupScopeEnabled={rackAndGroupScopeEnabled}
         defaultSiteScope={responseProfileModalMode === "create" ? defaultResponseProfileSiteScope : undefined}
         siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
         isSiteScopeLoading={isLoadingSiteOptions}
@@ -1793,6 +1801,7 @@ export function CurtailmentSettingsContent({
 function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
   const canReadSiteCatalog = useHasPermission("site:read");
+  const canReadRackCatalog = useHasPermission("rack:read");
   const navigate = useNavigate();
   const { activeSite } = useActiveSite({});
   const { listSites } = useSites();
@@ -2139,6 +2148,8 @@ function CurtailmentSettingsPage(): ReactElement {
       updatingAutomationRuleIds={updatingAutomationRuleIds}
       siteOptions={effectiveSiteOptions}
       defaultResponseProfileSiteScope={defaultResponseProfileSiteScope}
+      buildingScopeEnabled={canReadSiteCatalog}
+      rackAndGroupScopeEnabled={canReadRackCatalog}
       isLoadingSiteOptions={canLoadSiteOptions ? isLoadingSiteOptions : false}
       siteScopeDisabledReason={siteScopeDisabledReason}
       infrastructureDevices={infrastructureDevices}
