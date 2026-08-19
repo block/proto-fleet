@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 
 import clsx from "clsx";
 import FirmwareUpdateStatusWidget from "./FirmwareUpdateStatusWidget";
-import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 import FirmwareUpdateStatusModal from "@/protoOS/features/firmwareUpdate/components/FirmwareUpdateStatusModal";
 import { statusLabelFromUpdateStatus } from "@/protoOS/features/firmwareUpdate/utility";
+import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 
 interface FirmwareUpdateStatusProps {
   updateStatus?: FirmwareUpdateInfo;

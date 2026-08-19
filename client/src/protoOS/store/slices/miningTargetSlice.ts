@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 
-import { ROOT_MODULE_ID, type MiningTarget, type MiningTargetState, type PerformanceMode } from "../contract";
+import { type MiningTarget, type MiningTargetState, type PerformanceMode, ROOT_MODULE_ID } from "../contract";
 import type { MinerStore } from "../useMinerStore";
 
 export interface MiningTargetSlice extends MiningTargetState {

@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 
-import { ROOT_MODULE_KEY, type MinerError, type MinerStatusState, type OperationalStatus } from "../contract";
+import { type MinerError, type MinerStatusState, type OperationalStatus, ROOT_MODULE_KEY } from "../contract";
 import type { MinerStore } from "../useMinerStore";
 
 export interface MinerStatusSlice extends MinerStatusState {

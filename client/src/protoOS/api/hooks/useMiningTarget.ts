@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 import {
   useAuthRetry,
   useMiningTargetBounds,
@@ -13,6 +12,7 @@ import {
   useSetMiningTargetFromResponse,
   useSetMiningTargetPending,
 } from "@/protoOS/store";
+import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 
 const useMiningTarget = () => {
   const { adapter } = useMinerHosting();

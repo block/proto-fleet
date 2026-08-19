@@ -19,8 +19,8 @@ import ComponentSection from "../ComponentSection";
 import HashboardStatusCard from "../HashboardStatusCard/HashboardStatusCard";
 import HashboardTemperature from "./HashboardTemperature";
 import { CONTAINER_HASHBOARD_COLUMNS, CONTAINER_HASHBOARD_ROWS } from "@/protoOS/store";
-import useMinerStore from "@/protoOS/store/useMinerStore";
 import { asDeviceId } from "@/protoOS/store/contract";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 const N = CONTAINER_HASHBOARD_COLUMNS; // 26
 const ROWS = CONTAINER_HASHBOARD_ROWS; // 12

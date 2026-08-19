@@ -2,8 +2,8 @@
 // Mining Target Hooks
 // =============================================================================
 
-import useMinerStore from "../useMinerStore";
 import { ROOT_MODULE_ID } from "../contract";
+import useMinerStore from "../useMinerStore";
 
 const selectTarget = (state: ReturnType<typeof useMinerStore.getState>) =>
   state.miningTarget.byModule.get(ROOT_MODULE_ID);

@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 
-import type { PoolInfo } from "@/protoOS/store/contract";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { usePoolsInfo as useStoredPoolsInfo, useSetPoolsInfo } from "@/protoOS/store";
+import { useSetPoolsInfo, usePoolsInfo as useStoredPoolsInfo } from "@/protoOS/store";
+import type { PoolInfo } from "@/protoOS/store/contract";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { usePoll } from "@/shared/hooks/usePoll";
 

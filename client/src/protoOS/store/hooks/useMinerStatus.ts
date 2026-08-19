@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ROOT_MODULE_KEY, type MinerError as NormalizedMinerError } from "../contract";
+import { type MinerError as NormalizedMinerError, ROOT_MODULE_KEY } from "../contract";
 import type { ErrorSource, MinerError } from "../types";
 import useMinerStore from "../useMinerStore";
 

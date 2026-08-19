@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { MetricUnit, PerformanceMode } from "@/protoOS/api/generatedApi";
-import { ROOT_MODULE_KEY, asHashboardId } from "@/protoOS/store/contract";
 import {
   normalizeV1Errors,
   normalizeV1Hardware,
@@ -12,6 +10,8 @@ import {
   normalizeV1Telemetry,
   normalizeV1TimeSeries,
 } from "./normalize";
+import { MetricUnit, PerformanceMode } from "@/protoOS/api/generatedApi";
+import { asHashboardId, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 
 describe("MDK v1 normalization", () => {
   it("maps a CU model to the container product family and CT1 module profile", () => {

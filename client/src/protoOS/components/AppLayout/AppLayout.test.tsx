@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import AppLayout from "./AppLayout";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
-import useMinerStore from "@/protoOS/store/useMinerStore";
 import { asDeviceId } from "@/protoOS/store/contract";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 describe("AppLayout", () => {
   beforeEach(() => {

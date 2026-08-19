@@ -1,8 +1,8 @@
 import { createContext, ReactNode, useMemo } from "react";
 import { useResetDeviceStateOnMinerChange } from "./useResetDeviceStateOnMinerChange";
-import { Api, RequestParams } from "@/protoOS/api/generatedApi";
 import { MdkV1Adapter } from "@/protoOS/api/adapters/mdkV1/MdkV1Adapter";
 import type { MinerAdapter } from "@/protoOS/api/adapters/types";
+import { Api, RequestParams } from "@/protoOS/api/generatedApi";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 import type { MinerMetadata } from "@/shared/types/minerMetadata";
 

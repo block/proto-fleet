@@ -16,8 +16,8 @@ import { MemoryRouter } from "react-router-dom";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { type ControllerConfig, OtherHardwareSection } from "./DiagnosticView";
-import useMinerStore from "@/protoOS/store/useMinerStore";
 import { asDeviceId } from "@/protoOS/store/contract";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
 // One PSU per container module (design shows a single "Other hardware" PSU).
 const PSU_SLOT = 1;

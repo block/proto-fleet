@@ -1,5 +1,3 @@
-import { PerformanceMode as V1PerformanceMode, type Api, type RequestParams } from "@/protoOS/api/generatedApi";
-import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 import type { MinerAdapter } from "../types";
 import {
   normalizeV1Errors,
@@ -12,6 +10,8 @@ import {
   normalizeV1Telemetry,
   normalizeV1TimeSeries,
 } from "./normalize";
+import { type Api, type RequestParams, PerformanceMode as V1PerformanceMode } from "@/protoOS/api/generatedApi";
+import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 
 export type MdkV1Client = InstanceType<typeof Api>["api"];
 

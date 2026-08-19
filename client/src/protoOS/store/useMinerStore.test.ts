@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
-import useMinerStore from "./useMinerStore";
 import { asDeviceId, ROOT_MODULE_KEY } from "./contract";
+import useMinerStore from "./useMinerStore";
 
 const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
   identity: {

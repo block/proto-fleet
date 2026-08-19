@@ -12,9 +12,9 @@ import {
   useBayCount,
   useControlBoard,
   useCoolingMode,
-  useModuleProfile,
   useFanIds,
   useHashboardSerialsByBay,
+  useModuleProfile,
   usePsuIds,
   useSlotsPerBay,
 } from "@/protoOS/store";

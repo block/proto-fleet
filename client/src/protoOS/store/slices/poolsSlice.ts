@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand";
-import { ROOT_MODULE_KEY, type PoolInfo, type PoolsState, type ResourceState } from "../contract";
+import { type PoolInfo, type PoolsState, type ResourceState, ROOT_MODULE_KEY } from "../contract";
 import type { MinerStore } from "../useMinerStore";
 
 export interface PoolsSlice extends PoolsState {

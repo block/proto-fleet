@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useMiningStatus as useStoredMiningStatus, useSetMiningStatus } from "@/protoOS/store";
+import { useSetMiningStatus, useMiningStatus as useStoredMiningStatus } from "@/protoOS/store";
 import type { OperationalStatus } from "@/protoOS/store/contract";
 import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { usePoll } from "@/shared/hooks/usePoll";

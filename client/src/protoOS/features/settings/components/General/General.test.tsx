@@ -42,7 +42,7 @@ vi.mock("@/protoOS/store", () => ({
   useSetPausedAuthAction: vi.fn(() => mockSetPausedAuthAction),
   useSetTemperatureUnit: vi.fn(() => vi.fn()),
   useSetTheme: vi.fn(() => vi.fn()),
-  useSystemInfo: vi.fn(() => ({ product_name: "Rig Alpha", os: { version: "1.2.3" } })),
+  useSystemInfo: vi.fn(() => ({ identity: { productName: "Rig Alpha" }, operatingSystem: { version: "1.2.3" } })),
   useTemperatureUnit: vi.fn(() => "C"),
   useTheme: vi.fn(() => "dark"),
 }));

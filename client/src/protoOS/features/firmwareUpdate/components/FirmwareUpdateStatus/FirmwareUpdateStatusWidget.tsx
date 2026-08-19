@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import clsx from "clsx";
 
-import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
+import type { FirmwareUpdateInfo } from "@/protoOS/store/contract";
 import { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, { type StatusCircleProps, variants } from "@/shared/components/StatusCircle";

@@ -1,5 +1,5 @@
-import useMinerStore from "../useMinerStore";
 import { ROOT_MODULE_KEY } from "../contract";
+import useMinerStore from "../useMinerStore";
 
 // =============================================================================
 // State Hooks

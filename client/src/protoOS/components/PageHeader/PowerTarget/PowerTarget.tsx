@@ -5,7 +5,6 @@ import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
 import WidgetWrapper from "@/protoOS/components/PageHeader/WidgetWrapper";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAccessToken } from "@/protoOS/store";
-import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 import {
   AUTH_ACTIONS,
   useDismissedLoginModal,
@@ -13,6 +12,7 @@ import {
   useSetDismissedLoginModal,
   useSetPausedAuthAction,
 } from "@/protoOS/store";
+import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 import { useResponsivePopover } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
