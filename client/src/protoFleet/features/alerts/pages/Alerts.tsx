@@ -3,7 +3,6 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { AlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import { useAlerts } from "@/protoFleet/features/alerts/api/useAlerts";
 import ChannelsSection from "@/protoFleet/features/alerts/components/ChannelsSection";
-import HistorySection from "@/protoFleet/features/alerts/components/HistorySection";
 import MaintenanceWindowsSection from "@/protoFleet/features/alerts/components/MaintenanceWindowsSection";
 import RulesSection from "@/protoFleet/features/alerts/components/RulesSection";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -32,7 +31,6 @@ const Alerts = () => {
           <RulesSection />
           <MaintenanceWindowsSection />
           <ChannelsSection />
-          <HistorySection />
         </div>
       </div>
     </AlertsContext.Provider>

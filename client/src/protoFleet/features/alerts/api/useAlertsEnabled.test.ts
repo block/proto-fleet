@@ -1,7 +1,11 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { _resetAlertsEnabledCache, useAlertsEnabled } from "@/protoFleet/features/alerts/api/useAlertsEnabled";
+import {
+  _resetAlertsEnabledCache,
+  useAlertsEnabled,
+  useAlertsEnabledState,
+} from "@/protoFleet/features/alerts/api/useAlertsEnabled";
 
 const okResponse = (enabled: boolean) => ({ ok: true, json: async () => ({ enabled }) }) as unknown as Response;
 
@@ -80,6 +84,25 @@ describe("useAlertsEnabled", () => {
     fetchMock.mockResolvedValue(okResponse(true));
     await vi.advanceTimersByTimeAsync(120_000);
     await waitFor(() => expect(result.current).toBe(true));
+  });
+
+  it("reports a failing probe within one attempt, then clears it when a retry answers", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(okResponse(true));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useAlertsEnabledState());
+
+    // The first failed attempt is enough to flag failing — no unbounded wait before a page can react.
+    await waitFor(() => expect(result.current.failing).toBe(true));
+    expect(result.current.resolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await waitFor(() => expect(result.current.resolved).toBe(true));
+    expect(result.current.enabled).toBe(true);
+    expect(result.current.failing).toBe(false);
   });
 
   it("stops probing once unmounted", async () => {

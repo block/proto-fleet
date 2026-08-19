@@ -5,13 +5,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import ActiveAlertsPill from "./ActiveAlertsPill";
-import type { PagedAlertsFilter, UsePagedAlertsResult } from "@/protoFleet/features/alerts/api/usePagedAlerts";
+import { buildAlertHistoryEntry, buildPagedAlertsResult } from "@/protoFleet/features/alerts/alertHistory.fixtures";
+import type { PagedAlertsFilter } from "@/protoFleet/features/alerts/api/usePagedAlerts";
 import AlertInstancesModal from "@/protoFleet/features/alerts/components/AlertInstancesModal";
 import type { ActiveAlertGroup, AlertHistoryEntry } from "@/protoFleet/features/alerts/types";
 
 const pagedAlertsMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/protoFleet/features/alerts/api/usePagedAlerts", () => ({
+vi.mock("@/protoFleet/features/alerts/api/usePagedAlerts", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/features/alerts/api/usePagedAlerts")>()),
   usePagedAlerts: (filter: PagedAlertsFilter) => pagedAlertsMock(filter),
 }));
 
@@ -32,32 +34,8 @@ const buildGroup = (overrides: Partial<ActiveAlertGroup> = {}): ActiveAlertGroup
   return { ...group, key: JSON.stringify([group.rule_group, group.stored_alert_name]) };
 };
 
-const buildInstance = (overrides: Partial<AlertHistoryEntry> = {}): AlertHistoryEntry => ({
-  id: "alert-1",
-  received_at: "2026-07-01T00:00:00Z",
-  alert_name: "Hashrate dropped",
-  status: "firing",
-  severity: "warning",
-  rule_group: "miner",
-  fingerprint: "fp-1",
-  device_id: "device-1",
-  device_name: "Rig 1",
-  device_mac: "AA:BB:CC:DD:EE:FF",
-  template: "",
-  summary: "Hashrate below expected",
-  starts_at: null,
-  ends_at: null,
-  ...overrides,
-});
-
-const buildInstancesResult = (overrides: Partial<UsePagedAlertsResult> = {}): UsePagedAlertsResult => ({
-  items: [],
-  loading: false,
-  error: null,
-  hasMore: false,
-  loadMore: vi.fn(),
-  ...overrides,
-});
+const buildInstance = (overrides: Partial<AlertHistoryEntry> = {}): AlertHistoryEntry =>
+  buildAlertHistoryEntry({ device_name: "Rig 1", device_mac: "AA:BB:CC:DD:EE:FF", ...overrides });
 
 interface RenderOptions {
   groups: ActiveAlertGroup[];
@@ -107,7 +85,7 @@ describe("ActiveAlertsPill", () => {
     // Without this, a `toHaveBeenCalledWith` assertion matches any earlier test's render instead of its own.
     vi.clearAllMocks();
     // Most cases never drill in; the ones that do override this with their own instances.
-    pagedAlertsMock.mockReturnValue(buildInstancesResult());
+    pagedAlertsMock.mockReturnValue(buildPagedAlertsResult());
   });
 
   it("counts the firing alerts on the trigger behind the alert icon", () => {
@@ -143,7 +121,7 @@ describe("ActiveAlertsPill", () => {
       stored_alert_name: "HashrateDropped",
       device_count: 12,
     });
-    pagedAlertsMock.mockReturnValue(buildInstancesResult({ items: [buildInstance()] }));
+    pagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ items: [buildInstance()] }));
 
     renderPill({ groups: [group] });
     await openPopover();
@@ -161,7 +139,7 @@ describe("ActiveAlertsPill", () => {
 
   it("keeps the drill-in open when the alert it lists resolves and the pill disappears", async () => {
     const group = buildGroup({ alert_name: "Hashrate dropped", device_count: 12 });
-    pagedAlertsMock.mockReturnValue(buildInstancesResult({ items: [buildInstance()] }));
+    pagedAlertsMock.mockReturnValue(buildPagedAlertsResult({ items: [buildInstance()] }));
 
     const { rerenderPill } = renderPill({ groups: [group] });
     await openPopover();
@@ -242,7 +220,7 @@ describe("ActiveAlertsPill", () => {
       summary: "maestro-b is unreachable",
     });
     pagedAlertsMock.mockReturnValue(
-      buildInstancesResult({
+      buildPagedAlertsResult({
         items: [
           buildInstance({
             id: "src-a",
