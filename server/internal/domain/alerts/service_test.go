@@ -459,6 +459,16 @@ func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
 			CreatedBy: "alice@example.com",
 			Matchers:  ruleMatchers,
 		},
+		// Same rule and interval as legacy-rule but a different operator and comment: a distinct
+		// window whose audit record must survive migration, not be deduped away.
+		{
+			ID:        "legacy-rule-twin",
+			Comment:   legacyMaintenanceWindowCommentMarker + " other crew",
+			StartsAt:  time.Unix(1000, 0),
+			EndsAt:    time.Unix(9000, 0),
+			CreatedBy: "bob@example.com",
+			Matchers:  ruleMatchers,
+		},
 		// Device-scoped (no rule matcher): unrepresentable in the rule×channel model, so its live
 		// suppression is left to expire in Grafana rather than lifted mid-maintenance.
 		{ID: "legacy-device", Comment: legacyMaintenanceWindowCommentMarker, StartsAt: time.Unix(1000, 0), EndsAt: time.Unix(9000, 0), Matchers: []GrafanaSilenceMatcher{
@@ -477,12 +487,13 @@ func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
 
 	migrated, removed, err := svc.MigrateLegacyMaintenanceWindowSilences(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 1, migrated)
-	assert.Equal(t, 2, removed)
-	assert.ElementsMatch(t, []string{"legacy-rule", "legacy-ended"}, fake.deletedSilences,
+	assert.Equal(t, 2, migrated, "the same-interval twin is a distinct window, not a duplicate")
+	assert.Equal(t, 3, removed)
+	assert.ElementsMatch(t, []string{"legacy-rule", "legacy-rule-twin", "legacy-ended"}, fake.deletedSilences,
 		"live silences the DB model can't represent must be retained, not deleted")
 
-	require.Len(t, windows.rows, 1)
+	require.Len(t, windows.rows, 2)
+	assert.Equal(t, "bob@example.com", windows.rows[2].CreatedBy, "the twin keeps its own audit record")
 	rec := windows.rows[1]
 	assert.Equal(t, int64(7), rec.OrganizationID)
 	assert.Equal(t, []string{"rule-9"}, rec.RuleUIDs)
@@ -497,7 +508,7 @@ func TestMigrateLegacyMaintenanceWindowSilences(t *testing.T) {
 	migrated, _, err = svc.MigrateLegacyMaintenanceWindowSilences(context.Background())
 	require.NoError(t, err)
 	assert.Zero(t, migrated, "an already-migrated silence must not insert a duplicate window")
-	assert.Len(t, windows.rows, 1)
+	assert.Len(t, windows.rows, 2)
 }
 
 // legacyWindowRecord must accept exactly the shape the old UI wrote — one org equality matcher

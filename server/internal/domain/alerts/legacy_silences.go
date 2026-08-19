@@ -120,14 +120,17 @@ func legacyWindowRecord(sil GrafanaSilence) (MaintenanceWindowRecord, bool) {
 	}, true
 }
 
-// hasEquivalentWindow reports whether ws already holds the legacy record (same single rule,
-// every channel, same interval) — the trace of a previous sweep that inserted the row but
-// failed before deleting the silence.
+// hasEquivalentWindow reports whether ws already holds the legacy record — the trace of a
+// previous sweep that inserted the row but failed before deleting the silence. All migrated
+// fields must match, comment and creator included: distinct silences can legitimately share a
+// rule and interval, and each deserves its own audit record; a true re-encounter round-trips
+// every field identically.
 func hasEquivalentWindow(ws []MaintenanceWindowRecord, rec MaintenanceWindowRecord) bool {
 	for _, w := range ws {
 		if len(w.RuleUIDs) == 1 && w.RuleUIDs[0] == rec.RuleUIDs[0] &&
 			len(w.ChannelIDs) == 0 &&
-			w.StartsAt.Equal(rec.StartsAt) && w.EndsAt.Equal(rec.EndsAt) {
+			w.StartsAt.Equal(rec.StartsAt) && w.EndsAt.Equal(rec.EndsAt) &&
+			w.Comment == rec.Comment && w.CreatedBy == rec.CreatedBy {
 			return true
 		}
 	}
