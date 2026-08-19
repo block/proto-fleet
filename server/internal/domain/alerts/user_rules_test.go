@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -413,7 +412,7 @@ func userRuleFixture(uid string, org string) GrafanaAlertRule {
 
 func TestCreateRule(t *testing.T) {
 	fake := &fakeGrafanaRules{}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	rule, err := svc.CreateRule(context.Background(), 7, offlineConfig("Offline too long", 1800), RouteModeDefault, nil)
 	require.NoError(t, err)
@@ -441,7 +440,7 @@ func TestCreateRuleQuota(t *testing.T) {
 	for i := range maxUserRulesPerOrg {
 		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "7"))
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("One more", 1800), RouteModeDefault, nil)
 	require.Error(t, err)
@@ -455,7 +454,7 @@ func TestCreateRuleQuotaIsPerOrg(t *testing.T) {
 	for i := range maxUserRulesPerOrg {
 		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "8"))
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("First for org 7", 1800), RouteModeDefault, nil)
 	require.NoError(t, err)
@@ -472,7 +471,7 @@ func TestUpdateRuleGuards(t *testing.T) {
 	hidden := userRuleFixture("pfu-hidden", "7")
 	hidden.Labels[ruleLabelScope] = ruleScopeInternal
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{provisioned, otherOrg, hidden}}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	ids := []string{"protofleet-device-offline", "pfu-other", "pfu-missing", "pfu-hidden"}
 	for _, id := range ids {
@@ -491,7 +490,7 @@ func TestUpdateRuleGuards(t *testing.T) {
 func TestUpdateRuleKeepsIdentity(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{existing}}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	updated, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", RuleConfig{
 		Name: "Hotter", DurationSeconds: 600,
@@ -518,18 +517,9 @@ func TestSilenceWritesUndoneWhenRuleDeletedConcurrently(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
 	existing.Labels[ruleLabelRuleGroup] = "proto-fleet-user-7"
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{existing}, getRuleGone: true}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.PauseRule(context.Background(), 7, "pfu-mine", "alice")
-	assert.ErrorIs(t, err, ErrNotFound)
-	assert.Equal(t, []string{"sil-new"}, fake.deletedSilences)
-
-	fake.deletedSilences = nil
-	_, err = svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "pfu-mine"},
-		StartsAt: time.Unix(1000, 0),
-		EndsAt:   time.Unix(2000, 0),
-	})
 	assert.ErrorIs(t, err, ErrNotFound)
 	assert.Equal(t, []string{"sil-new"}, fake.deletedSilences)
 
@@ -542,29 +532,6 @@ func TestSilenceWritesUndoneWhenRuleDeletedConcurrently(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNotFound)
 	assert.Equal(t, []string{"sil-new"}, fake.deletedSilences)
-
-	// An UPDATE already replaced the previous window; an inconclusive recheck
-	// must not delete it, or a failed edit would lift planned suppression.
-	fake.silences = []GrafanaSilence{{
-		ID:       "sil-old",
-		Comment:  maintenanceWindowCommentMarker + " planned work",
-		StartsAt: time.Unix(1000, 0),
-		EndsAt:   time.Unix(2000, 0),
-		Matchers: []GrafanaSilenceMatcher{
-			{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
-			{Name: alertRuleUIDMatcher, Value: "pfu-mine", IsEqual: true},
-		},
-	}}
-	fake.deletedSilences = nil
-	_, err = svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
-		ID:       "sil-old",
-		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "pfu-mine"},
-		StartsAt: time.Unix(1000, 0),
-		EndsAt:   time.Unix(3000, 0),
-	})
-	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrNotFound)
-	assert.Empty(t, fake.deletedSilences)
 }
 
 // A delete retry after a half-failed earlier delete (rule gone, silences left)
@@ -590,7 +557,7 @@ func TestDeleteRuleSweepIsIdempotentButGuarded(t *testing.T) {
 		listed:   []GrafanaAlertRule{provisioned},
 		silences: []GrafanaSilence{pauseFor("pfu-gone"), pauseFor("protofleet-device-offline")},
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	// Missing rule: uniform NotFound, but the orphaned silence is swept.
 	err := svc.DeleteRule(context.Background(), 7, "pfu-gone")
@@ -603,7 +570,7 @@ func TestDeleteRuleSweepIsIdempotentButGuarded(t *testing.T) {
 	assert.Equal(t, []string{"sil-pfu-gone"}, fake.deletedSilences)
 }
 
-func TestDeleteRuleCleansRuleScopedSilences(t *testing.T) {
+func TestDeleteRuleCleansPauseSilence(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
 	ruleMatchers := []GrafanaSilenceMatcher{
 		{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
@@ -613,18 +580,12 @@ func TestDeleteRuleCleansRuleScopedSilences(t *testing.T) {
 		listed: []GrafanaAlertRule{existing},
 		silences: []GrafanaSilence{
 			{ID: "sil-pause", Comment: pauseSilenceCommentMarker, Matchers: ruleMatchers},
-			// Rule-scoped maintenance window: must not outlive the rule.
-			{ID: "sil-mw", Comment: maintenanceWindowCommentMarker + " planned work", Matchers: ruleMatchers},
-			// Device-scoped maintenance window: untouched (no rule matcher).
-			{ID: "sil-device", Comment: maintenanceWindowCommentMarker, Matchers: []GrafanaSilenceMatcher{
-				{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
-				{Name: "device_id", Value: "dev-1", IsEqual: true},
-			}},
+			{ID: "sil-operator", Comment: "operator silence", Matchers: ruleMatchers},
 		},
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 
 	require.NoError(t, svc.DeleteRule(context.Background(), 7, "pfu-mine"))
 	assert.Equal(t, "pfu-mine", fake.deletedUID)
-	assert.ElementsMatch(t, []string{"sil-pause", "sil-mw"}, fake.deletedSilences)
+	assert.Equal(t, []string{"sil-pause"}, fake.deletedSilences)
 }

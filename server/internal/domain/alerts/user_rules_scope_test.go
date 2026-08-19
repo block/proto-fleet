@@ -176,7 +176,7 @@ func TestValidateRuleScope(t *testing.T) {
 			"group": {6: true},
 		},
 	}
-	svc := NewService(nil, nil, nil, nil, nil, nil, lookup, DestinationPolicy{})
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, lookup, DestinationPolicy{})
 
 	manyIDs := make([]int64, maxRuleScopePlacementIDs+1)
 	for i := range manyIDs {
@@ -224,7 +224,7 @@ func TestValidateRuleScope(t *testing.T) {
 // keep lets an update retain a stored placement id whose target was deleted
 // after the rule was created, without loosening the check for added ids.
 func TestValidateRuleScopeKeepsStoredIDs(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}, sets: map[string]map[int64]bool{"group": {6: true}}}, DestinationPolicy{})
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}, sets: map[string]map[int64]bool{"group": {6: true}}}, DestinationPolicy{})
 	keep := &RuleScope{SiteIDs: []int64{9}, GroupIDs: []int64{11}}
 	require.NoError(t, svc.validateRuleScope(context.Background(), 7, &RuleScope{SiteIDs: []int64{3, 9}, GroupIDs: []int64{6, 11}}, keep))
 	err := svc.validateRuleScope(context.Background(), 7, &RuleScope{SiteIDs: []int64{3, 9, 4}}, keep)
@@ -235,7 +235,7 @@ func TestValidateRuleScopeKeepsStoredIDs(t *testing.T) {
 // A nil ScopeLookup (tests, partial wiring) skips only the ownership check; the
 // compiled SQL stays org-filtered so a foreign placement id is inert, not a leak.
 func TestValidateRuleScopeWithoutLookupSkipsOwnership(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, nil, DestinationPolicy{})
 	require.NoError(t, svc.validateRuleScope(context.Background(), 7, &RuleScope{SiteIDs: []int64{999}, GroupIDs: []int64{999}}, nil))
 	require.Error(t, svc.validateRuleScope(context.Background(), 7, &RuleScope{DeviceIDs: []string{"bad id"}}, nil))
 }
@@ -243,7 +243,7 @@ func TestValidateRuleScopeWithoutLookupSkipsOwnership(t *testing.T) {
 // A store failure must fail closed as an internal error, not be misreported as
 // the caller's bad input.
 func TestValidateRuleScopeLookupError(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, nil, nil, fakeScopeLookup{err: fmt.Errorf("db down")}, DestinationPolicy{})
+	svc := NewService(nil, nil, nil, nil, nil, nil, nil, fakeScopeLookup{err: fmt.Errorf("db down")}, DestinationPolicy{})
 	err := svc.validateRuleScope(context.Background(), 7, &RuleScope{SiteIDs: []int64{3}}, nil)
 	require.Error(t, err)
 	assert.False(t, fleeterror.IsInvalidArgumentError(err))
@@ -427,7 +427,7 @@ func TestScopeRoundTripsThroughConfigStore(t *testing.T) {
 	})
 	fake := &fakeGrafanaRules{}
 	configs := newFakeRuleConfigStore()
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{
 		sites:     map[int64]bool{3: true},
 		buildings: map[int64]bool{2: true},
 		sets:      map[string]map[int64]bool{"rack": {4: true}, "group": {6: true}},
@@ -513,7 +513,7 @@ HAVING last(value, time) < 0.75`, compiledSQL(t, compiled))
 
 func TestCreateRuleRejectsForeignSiteScope(t *testing.T) {
 	fake := &fakeGrafanaRules{}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 	_, err := svc.CreateRule(context.Background(), 7, scopedOfflineConfig(&RuleScope{SiteIDs: []int64{4}}), RouteModeDefault, nil)
 	require.Error(t, err)
@@ -523,7 +523,7 @@ func TestCreateRuleRejectsForeignSiteScope(t *testing.T) {
 
 func TestCreateRuleNormalizesAndCompilesScope(t *testing.T) {
 	fake := &fakeGrafanaRules{}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true, 5: true}}, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true, 5: true}}, DestinationPolicy{})
 
 	rule, err := svc.CreateRule(context.Background(), 7, scopedOfflineConfig(&RuleScope{SiteIDs: []int64{5, 3, 5}}), RouteModeDefault, nil)
 	require.NoError(t, err)
@@ -543,7 +543,7 @@ func TestUpdateRuleKeepsScopeWithDeletedSite(t *testing.T) {
 	configs := newFakeRuleConfigStore()
 	configs.configs["pfu-mine"] = storedCfg
 	// Site 9 no longer resolves (deleted); only site 3 is live.
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 	renamed := scopedOfflineConfig(&RuleScope{SiteIDs: []int64{9}})
 	renamed.Name = "Renamed"
@@ -563,7 +563,7 @@ func TestUpdateRuleClearsScope(t *testing.T) {
 	stored, err := compileUserRule(7, "pfu-mine", scopedOfflineConfig(&RuleScope{SiteIDs: []int64{3}}))
 	require.NoError(t, err)
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}}
-	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 	updated, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", orgWideOfflineConfig("Offline too long", 1800))
 	require.NoError(t, err)
@@ -583,7 +583,7 @@ func TestUpdateRuleRejectsScopelessWriteOfScopedRule(t *testing.T) {
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}}
 	configs := newFakeRuleConfigStore()
 	configs.configs["pfu-mine"] = storedCfg
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 	_, err = svc.UpdateRule(context.Background(), 7, "pfu-mine", offlineConfig("Renamed", 900))
 	require.Error(t, err)
@@ -608,7 +608,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}, updateErr: true}
 		configs := newFakeRuleConfigStore()
 		configs.configs["pfu-mine"] = storedCfg
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		_, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", orgWideOfflineConfig("Renamed", 900))
 		require.Error(t, err)
@@ -618,7 +618,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 	t.Run("rejected update writes no row", func(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}, updateErr: true}
 		configs := newFakeRuleConfigStore()
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		_, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", offlineConfig("Renamed", 900))
 		require.Error(t, err)
@@ -631,7 +631,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}, updateErrAfterCommit: true}
 		configs := newFakeRuleConfigStore()
 		configs.configs["pfu-mine"] = storedCfg
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		newCfg := orgWideOfflineConfig("Renamed", 900)
 		_, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", newCfg)
@@ -646,7 +646,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		configs := newFakeRuleConfigStore()
 		configs.configs["pfu-mine"] = storedCfg
 		configs.upsertErrAfterCommit = true
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		newCfg := orgWideOfflineConfig("Renamed", 900)
 		updated, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", newCfg)
@@ -665,7 +665,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		configs.configs["pfu-mine"] = storedCfg
 		configs.upsertErr = fmt.Errorf("db blip")
 		configs.upsertErrOnce = true
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		newCfg := orgWideOfflineConfig("Renamed", 900)
 		updated, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", newCfg)
@@ -682,7 +682,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		configs.configs["pfu-mine"] = storedCfg
 		configs.upsertErr = fmt.Errorf("db down")
 		configs.getErrAfterUpsert = fmt.Errorf("db still down")
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		_, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", orgWideOfflineConfig("Renamed", 900))
 		require.Error(t, err)
@@ -698,7 +698,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		configs := newFakeRuleConfigStore()
 		configs.configs["pfu-mine"] = storedCfg
 		configs.upsertErr = fmt.Errorf("db down")
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		_, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", orgWideOfflineConfig("Renamed", 900))
 		require.Error(t, err)
@@ -713,7 +713,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{stored}, updateErrAfterCommit: true, getRuleErrAfterUpdate: true}
 		configs := newFakeRuleConfigStore()
 		configs.configs["pfu-mine"] = storedCfg
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		_, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", orgWideOfflineConfig("Renamed", 900))
 		require.Error(t, err)
@@ -732,7 +732,7 @@ func TestUpdateRuleConfigFollowsGrafanaOutcome(t *testing.T) {
 		configs := newFakeRuleConfigStore()
 		configs.configs["pfu-mine"] = storedCfg
 		configs.upsertErr = fmt.Errorf("db down")
-		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+		svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 		_, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", orgWideOfflineConfig("Renamed", 900))
 		require.Error(t, err)
@@ -750,7 +750,7 @@ func TestListRulesFlagsConfigOutOfSync(t *testing.T) {
 	require.NoError(t, err)
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}}
 	configs := newFakeRuleConfigStore()
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true}}, DestinationPolicy{})
 
 	// Stored config matches the live SQL: no flag.
 	configs.configs["pfu-mine"] = liveCfg
@@ -778,7 +778,7 @@ func TestPauseRuleKeepsConfigOutOfSyncFlag(t *testing.T) {
 	configs := newFakeRuleConfigStore()
 	// The stored config diverges from the SQL the live rule evaluates.
 	configs.configs["pfu-mine"] = scopedOfflineConfig(&RuleScope{SiteIDs: []int64{3, 5}})
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true, 5: true}}, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, fakeScopeLookup{sites: map[int64]bool{3: true, 5: true}}, DestinationPolicy{})
 
 	paused, err := svc.PauseRule(context.Background(), 7, "pfu-mine", "alice")
 	require.NoError(t, err)
@@ -812,7 +812,7 @@ func TestListRulesFlagsConfigOutOfSyncBeyondSQL(t *testing.T) {
 			fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}}
 			configs := newFakeRuleConfigStore()
 			configs.configs["pfu-mine"] = tc.stored
-			svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, DestinationPolicy{})
+			svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, nil, DestinationPolicy{})
 
 			rules, err := svc.ListRules(context.Background(), 7)
 			require.NoError(t, err)
@@ -838,7 +838,7 @@ func TestListRulesFlagsConfigOutOfSyncOnMissingSQL(t *testing.T) {
 			fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}}
 			configs := newFakeRuleConfigStore()
 			configs.configs["pfu-mine"] = liveCfg
-			svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, DestinationPolicy{})
+			svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, nil, DestinationPolicy{})
 
 			rules, err := svc.ListRules(context.Background(), 7)
 			require.NoError(t, err)
@@ -858,7 +858,7 @@ func TestListRulesSweepsOrphanConfigs(t *testing.T) {
 	configs := newFakeRuleConfigStore()
 	configs.configs["pfu-mine"] = liveCfg
 	configs.configs["pfu-orphan"] = offlineConfig("Never created", 1800)
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, nil, DestinationPolicy{})
 
 	rules, err := svc.ListRules(context.Background(), 7)
 	require.NoError(t, err)
@@ -878,7 +878,7 @@ func TestListRulesFallsBackToLegacyAnnotationConfig(t *testing.T) {
 	live.Annotations[ruleAnnotationConfig] = string(legacyJSON)
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}}
 	configs := newFakeRuleConfigStore()
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, nil, DestinationPolicy{})
 
 	rules, err := svc.ListRules(context.Background(), 7)
 	require.NoError(t, err)
@@ -909,7 +909,7 @@ func TestListRulesIgnoresInvalidLegacyAnnotationConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			live.Annotations[ruleAnnotationConfig] = raw
 			fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}}
-			svc := NewService(fake.server(t), nil, nil, newFakeRuleConfigStore(), nil, nil, nil, DestinationPolicy{})
+			svc := NewService(fake.server(t), nil, nil, newFakeRuleConfigStore(), nil, nil, nil, nil, DestinationPolicy{})
 
 			rules, err := svc.ListRules(context.Background(), 7)
 			require.NoError(t, err)
@@ -931,7 +931,7 @@ func TestUpdateRuleAbortsWhenLegacyConfigStageFails(t *testing.T) {
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}}
 	configs := newFakeRuleConfigStore()
 	configs.upsertErr = fmt.Errorf("db down")
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err = svc.UpdateRule(context.Background(), 7, "pfu-legacy", offlineConfig("Renamed", 900))
 	require.Error(t, err)
@@ -952,7 +952,7 @@ func TestUpdateRuleKeepsStagedLegacyConfigThroughPublishFailure(t *testing.T) {
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}, updateErrAfterCommit: true}
 	configs := newFakeRuleConfigStore()
 	configs.upsertErrAfterFirst = true
-	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, configs, nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err = svc.UpdateRule(context.Background(), 7, "pfu-legacy", offlineConfig("Renamed", 900))
 	require.Error(t, err, "the caller still sees the PUT failure")
@@ -976,7 +976,7 @@ func TestPauseRuleFallsBackToLegacyAnnotationConfig(t *testing.T) {
 	require.NoError(t, err)
 	live.Annotations[ruleAnnotationConfig] = string(legacyJSON)
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{live}}
-	svc := NewService(fake.server(t), nil, nil, newFakeRuleConfigStore(), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, newFakeRuleConfigStore(), nil, nil, nil, nil, DestinationPolicy{})
 
 	paused, err := svc.PauseRule(context.Background(), 7, "pfu-legacy", "alice")
 	require.NoError(t, err)

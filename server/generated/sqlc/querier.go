@@ -296,6 +296,9 @@ type Querier interface {
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
+	// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
+	// expired history can never block a write.
+	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
 	// `site_id` is nullable. Name is unique per (site_id, name) when site_id
 	// is non-null; the partial index surfaces collisions to the service
@@ -338,6 +341,7 @@ type Querier interface {
 	// desired_state scope avoids blocking AdminTerminate on RESTORING events
 	// whose in-flight commands are Uncurtails.
 	CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error)
+	DeleteAlertMaintenanceWindow(ctx context.Context, arg DeleteAlertMaintenanceWindowParams) (int64, error)
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
 	DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error)
 	DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error
@@ -771,6 +775,7 @@ type Querier interface {
 	// path inserts only the activity_log row.
 	InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) error
 	InsertAlertChannel(ctx context.Context, arg InsertAlertChannelParams) (AlertChannel, error)
+	InsertAlertMaintenanceWindow(ctx context.Context, arg InsertAlertMaintenanceWindowParams) (AlertMaintenanceWindow, error)
 	// DO NOTHING tolerates duplicate ids in one call rather than aborting the surrounding SetPolicy transaction.
 	InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error
 	InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
@@ -814,6 +819,8 @@ type Querier interface {
 	InsertNotificationMetricSamples(ctx context.Context, arg InsertNotificationMetricSamplesParams) error
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
 	IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error)
+	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
+	ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
 	// enforce the per-device single-writer rule.
 	ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int64) ([]string, error)
@@ -862,6 +869,7 @@ type Querier interface {
 	// matching the ListBuildings / ListRacks / ListMiners contract.
 	ListActivityLogs(ctx context.Context, arg ListActivityLogsParams) ([]ListActivityLogsRow, error)
 	ListAlertChannels(ctx context.Context, orgID int64) ([]AlertChannel, error)
+	ListAlertMaintenanceWindows(ctx context.Context, orgID int64) ([]AlertMaintenanceWindow, error)
 	// channel_ids counts only the org's live channels, so a soft-deleted channel drops out of every policy that referenced it.
 	ListAlertRoutePolicies(ctx context.Context, orgID int64) ([]ListAlertRoutePoliciesRow, error)
 	// Bounded to the caller's rule UIDs so orphan rows (see SweepAlertRuleConfigs)
@@ -1121,6 +1129,9 @@ type Querier interface {
 	// (org_id, type, label), so a site/building-scoped rack list can't answer it.
 	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
+	// Serializes the quota check with mutations across every server instance. The transaction that
+	// takes this lock re-counts after its write and rolls back if the org would exceed its limit.
+	LockAlertMaintenanceWindowOrgForWrite(ctx context.Context, orgID int64) error
 	// Last-SUPER_ADMIN guard. Locks every live org-scope SUPER_ADMIN
 	// assignment in the org and returns the count. Callers that intend to
 	// demote/unassign/deactivate a SUPER_ADMIN compare against 1: if the
@@ -1233,6 +1244,9 @@ type Querier interface {
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
+	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
+	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
+	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)
 	// Used by SUPER_ADMIN full reconciliation: keep only the permissions
 	// whose key is in the supplied set. ADMIN/FIELD_TECH reconciliation
 	// never calls this — they are additive-only.
@@ -1517,6 +1531,8 @@ type Querier interface {
 	UndeleteRole(ctx context.Context, id int64) error
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
 	UpdateAlertChannel(ctx context.Context, arg UpdateAlertChannelParams) (AlertChannel, error)
+	// created_by/created_at are write-once: an update keeps the original creator for the audit trail.
+	UpdateAlertMaintenanceWindow(ctx context.Context, arg UpdateAlertMaintenanceWindowParams) (AlertMaintenanceWindow, error)
 	UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error
 	UpdateBuilding(ctx context.Context, arg UpdateBuildingParams) error
 	UpdateCurtailmentAutomationRule(ctx context.Context, arg UpdateCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)

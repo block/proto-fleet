@@ -619,9 +619,10 @@ func start(config *Config) (result error) {
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
 	alertRouteStore := sqlstores.NewSQLAlertRouteStore(conn)
 	alertRuleConfigStore := sqlstores.NewSQLAlertRuleConfigStore(conn)
-	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
+	alertMaintenanceWindowStore := sqlstores.NewSQLAlertMaintenanceWindowStore(conn)
+	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, alertMaintenanceWindowStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
 	alertScopeLookup := alertScopeStores{sites: siteStore, buildings: buildingStore, sets: collectionStore}
-	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, alertMaintenanceWindowStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
 
 	// Both updates URLs end up inside a copy-paste upgrade command, so an
 	// http:// base must fail startup (explicit Validate, like Plugins above —

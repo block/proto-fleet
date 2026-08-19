@@ -3,6 +3,7 @@ import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import { isMaintenanceWindowActive } from "@/protoFleet/features/alerts/api/useAlerts";
+import { countLabel } from "@/protoFleet/features/alerts/lib/alertCountLabels";
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import type { MaintenanceWindowWithActive } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
@@ -13,21 +14,28 @@ import List from "@/shared/components/List";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-type MaintenanceWindowColumns = "target" | "window" | "reason";
+type MaintenanceWindowColumns = "alerts" | "channels" | "window" | "reason";
 
 const colTitles: ColTitles<MaintenanceWindowColumns> = {
-  target: "Target",
+  alerts: "Alerts",
+  channels: "Channels",
   window: "Window",
   reason: "Reason",
 };
 
-const activeCols: MaintenanceWindowColumns[] = ["target", "window", "reason"];
+const activeCols: MaintenanceWindowColumns[] = ["alerts", "channels", "window", "reason"];
 
 const formatWindow = (maintenanceWindow: MaintenanceWindowWithActive): string => {
   const start = new Date(maintenanceWindow.starts_at).toLocaleString();
   const end = maintenanceWindow.ends_at ? new Date(maintenanceWindow.ends_at).toLocaleString() : "—";
   return `${start} → ${end}`;
 };
+
+// Channel names live in a separate lazily-loaded list; a count keeps this column dependency-free.
+const formatChannels = (maintenanceWindow: MaintenanceWindowWithActive): string =>
+  maintenanceWindow.channel_ids.length === 0
+    ? "All channels"
+    : countLabel(maintenanceWindow.channel_ids.length, "channel");
 
 const MaintenanceWindowsSection = () => {
   const { maintenanceWindows, rules, removeMaintenanceWindow } = useAlertsContext();
@@ -50,14 +58,9 @@ const MaintenanceWindowsSection = () => {
 
   const ruleNameById = useCallback((id: string) => rules.find((r) => r.id === id)?.name ?? id, [rules]);
 
-  const formatTarget = useCallback(
-    (maintenanceWindow: MaintenanceWindowWithActive): string => {
-      if (maintenanceWindow.scope.kind === "rule")
-        return maintenanceWindow.scope.rule_id ? ruleNameById(maintenanceWindow.scope.rule_id) : "—";
-      if (maintenanceWindow.scope.kind === "group") return `Group: ${maintenanceWindow.scope.group_id ?? "—"}`;
-      if (maintenanceWindow.scope.kind === "site") return `Site: ${maintenanceWindow.scope.site_id ?? "—"}`;
-      return `${(maintenanceWindow.scope.device_ids ?? []).length} devices`;
-    },
+  const formatAlerts = useCallback(
+    (maintenanceWindow: MaintenanceWindowWithActive): string =>
+      maintenanceWindow.rule_ids.length === 0 ? "All alerts" : maintenanceWindow.rule_ids.map(ruleNameById).join(", "),
     [ruleNameById],
   );
 
@@ -107,10 +110,10 @@ const MaintenanceWindowsSection = () => {
 
   const colConfig: ColConfig<MaintenanceWindowWithActive, string, MaintenanceWindowColumns> = useMemo(
     () => ({
-      target: {
+      alerts: {
         component: (maintenanceWindow) => (
           <span className="flex items-center gap-2">
-            <span className="text-emphasis-300 text-text-primary">{formatTarget(maintenanceWindow)}</span>
+            <span className="text-emphasis-300 text-text-primary">{formatAlerts(maintenanceWindow)}</span>
             {maintenanceWindow.active ? (
               <span className="bg-state-success-fill/10 text-state-success-fill rounded px-2 py-0.5 text-200">
                 Active
@@ -125,6 +128,13 @@ const MaintenanceWindowsSection = () => {
           </span>
         ),
         width: "w-64",
+        allowWrap: true,
+      },
+      channels: {
+        component: (maintenanceWindow) => (
+          <span className="text-text-primary-50">{formatChannels(maintenanceWindow)}</span>
+        ),
+        width: "w-32",
       },
       window: {
         component: (maintenanceWindow) => (
@@ -141,7 +151,7 @@ const MaintenanceWindowsSection = () => {
         allowWrap: true,
       },
     }),
-    [formatTarget, now],
+    [formatAlerts, now],
   );
 
   return (
@@ -153,7 +163,7 @@ const MaintenanceWindowsSection = () => {
         ) : null}
       </div>
       <p className="text-300 text-text-primary-50">
-        Temporary mutes that stop a rule from firing during a maintenance window or planned outage.
+        Temporary mutes that silence alert delivery during planned work. Muted alerts still show up in history.
       </p>
 
       <List<MaintenanceWindowWithActive, string, MaintenanceWindowColumns>
