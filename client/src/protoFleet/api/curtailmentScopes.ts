@@ -54,12 +54,13 @@ export function normalizeCurtailmentSelectionValues(values: readonly string[]): 
 }
 
 export function parseCurtailmentTargetId(value: string | undefined): bigint | undefined {
-  try {
-    const parsed = BigInt(value?.trim() ?? "");
-    return parsed > 0n ? parsed : undefined;
-  } catch {
+  const normalized = value?.trim() ?? "";
+  if (!/^\d+$/.test(normalized)) {
     return undefined;
   }
+
+  const parsed = BigInt(normalized);
+  return parsed > 0n && BigInt.asIntN(64, parsed) === parsed ? parsed : undefined;
 }
 
 function getSelectedSiteIds(selection: CurtailmentScopeSelection): string[] {

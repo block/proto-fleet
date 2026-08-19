@@ -6,6 +6,7 @@ import {
   type CurtailmentTerminalScope,
   getCurtailmentScopeFormFields,
   getCurtailmentScopeSummary,
+  parseCurtailmentTargetId,
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
 import {
@@ -31,6 +32,16 @@ function getTopologyScopeId(scope: CurtailmentScope): bigint | undefined {
       return undefined;
   }
 }
+
+describe("parseCurtailmentTargetId", () => {
+  it.each(["42", " 0042 "])("parses positive decimal ID %j", (value) => {
+    expect(parseCurtailmentTargetId(value)).toBe(42n);
+  });
+
+  it.each([undefined, "", "0", "-1", "+42", "0x2a", "9223372036854775808"])("rejects invalid int64 ID %j", (value) => {
+    expect(parseCurtailmentTargetId(value)).toBeUndefined();
+  });
+});
 
 describe("parseCurtailmentTerminalScopes", () => {
   it("normalizes repeated selectors of one terminal type", () => {
