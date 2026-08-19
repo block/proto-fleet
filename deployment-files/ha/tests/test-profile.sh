@@ -164,6 +164,9 @@ test_fleet_ha_contract() {
     assert_not_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-rules.yaml"
     assert_contains "$rendered" "target: /etc/grafana/proto-fleet-ha/service-ca.crt"
     assert_contains "$rendered" "/api/v1/provisioning/alert-rules/protofleet-ha-readiness"
+    assert_not_contains "$rendered" "--password"
+    assert_contains "$rendered" "Authorization: Basic"
+    assert_contains "$rendered" ">/dev/null 2>&1"
     assert_contains "${release_dir}/server/monitoring/grafana/ha/timescaledb.yaml" 'url: ${HA_DB_A_IP},${HA_DB_B_IP}:5432'
     assert_contains "$ha_rules" "for: 0s"
     assert_not_contains "$ha_rules" "for: 1m"

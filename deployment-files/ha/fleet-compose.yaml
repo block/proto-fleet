@@ -68,8 +68,10 @@ services:
       test:
         - CMD-SHELL
         - >-
+          { credential="$$(printf 'admin:%s' "$${GF_SECURITY_ADMIN_PASSWORD}" | base64 | tr -d '\n')" &&
           wget -q -O /dev/null http://127.0.0.1:3030/api/health &&
-          wget -q -O /dev/null --user=admin --password="$${GF_SECURITY_ADMIN_PASSWORD}"
-          http://127.0.0.1:3030/api/v1/provisioning/alert-rules/protofleet-ha-readiness
+          wget -q -O /dev/null --header "Authorization: Basic $${credential}"
+          http://127.0.0.1:3030/api/v1/provisioning/alert-rules/protofleet-ha-readiness; }
+          >/dev/null 2>&1
     # Keep Docker restarts behind the same systemd start gate as Fleet.
     restart: on-failure
