@@ -78,11 +78,16 @@ func (cmd *resetPasswordCommand) Run(ctx context.Context, runtime *commandRuntim
 		return err
 	}
 
-	// This is intentionally the only output containing the credential, and it
-	// happens only after the reset transaction commits.
-	if _, err := fmt.Fprintf(runtime.Stdout,
-		"Reset the password for SUPER_ADMIN %q.\nTemporary password: %s\n",
-		result.Username, password); err != nil {
+	return cmd.writeResult(runtime.Stdout, result.Username, password)
+}
+
+func (cmd *resetPasswordCommand) writeResult(output io.Writer, username, password string) error {
+	message := fmt.Sprintf("Reset the password for SUPER_ADMIN %q.\n", username)
+	if !cmd.PasswordStdin {
+		// Generated credentials are returned once, only after the transaction commits.
+		message += fmt.Sprintf("Temporary password: %s\n", password)
+	}
+	if _, err := io.WriteString(output, message); err != nil {
 		return fmt.Errorf("write reset result: %w", err)
 	}
 	return nil
@@ -135,6 +140,9 @@ func (cmd *resetPasswordCommand) password(stdin io.Reader) (string, error) {
 	password = strings.TrimSuffix(password, "\r")
 	if password == "" {
 		return "", fmt.Errorf("password from standard input must not be empty")
+	}
+	if err := authDomain.ValidatePassword(password); err != nil {
+		return "", err
 	}
 	return password, nil
 }

@@ -42,6 +42,48 @@ func TestInstalledFleetComposeArgsSupportLegacyAndGrafanaProfiles(t *testing.T) 
 	}
 }
 
+func TestResetSuperAdminPasswordComposeArgsUseInstalledHAProfile(t *testing.T) {
+	root := t.TempDir()
+	ownershipMarker := filepath.Join(root, "grafana-volume-owned")
+
+	args, err := resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(args, " ")
+	for _, expected := range []string{
+		"--project-name deployment",
+		"--env-file /etc/proto-fleet/ha/base.env",
+		"--env-file /etc/proto-fleet/ha/fleet.env",
+		"--env-file /etc/proto-fleet/ha/node.env",
+		"--file " + filepath.Join(root, "docker-compose.yaml"),
+		"--file " + filepath.Join(root, "ha/fleet-compose.yaml"),
+		"run --rm -T fleet-api /app/fleetd admin reset-password --password-stdin",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("reset args %q do not contain %q", args, expected)
+		}
+	}
+	if strings.Contains(joined, "docker-compose.alerts.yaml") {
+		t.Fatalf("legacy HA reset unexpectedly included alerts profile: %q", args)
+	}
+
+	if err := os.WriteFile(ownershipMarker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args, err = resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(args, " ")
+	if !strings.Contains(joined, "--file "+filepath.Join(root, "docker-compose.alerts.yaml")) {
+		t.Fatalf("Grafana-owning HA reset omitted alerts profile: %q", args)
+	}
+	if strings.Contains(joined, "--password-stdin") {
+		t.Fatalf("generated-password HA reset unexpectedly enabled stdin mode: %q", args)
+	}
+}
+
 func TestRunComposeRejectsParentOverrides(t *testing.T) {
 	for _, key := range []string{"AUTH_CLIENT_SECRET_KEY", "COMPOSE_PROJECT_NAME", "DB_DSN", "HA_NODE_IP", "GRAFANA_DB_PASSWORD", "FLEET_ALERTS_GRAFANA_URL"} {
 		t.Run(key, func(t *testing.T) {

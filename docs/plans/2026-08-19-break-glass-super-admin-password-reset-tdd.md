@@ -55,10 +55,10 @@ The operator-facing command is a release-bundled wrapper:
 ```
 
 - Add `deployment-files/reset-super-admin-password.sh` to release artifacts and
-  mark it executable. It resolves its own deployment directory and privately
-  runs the `fleet-api` image's `/app/fleetd admin reset-password` command with
-  the deployment's Compose project and `.env`; piped stdin uses non-TTY mode.
-  Raw Compose details are implementation, not operator documentation.
+  mark it executable. It detects the installed topology: standalone uses its
+  Compose project and `.env`; HA delegates to `fleet-ha reset-password`, which
+  selects the generated HA environment, project, and overlay. Piped stdin uses
+  non-TTY mode. Raw Compose details stay internal.
 - Restructure `fleetd` into kong commands with the server as the default and an
   `admin reset-password` command. Keep the current server `Config` at the kong
   root (or map it equivalently), so bare `fleetd` and existing root-level
@@ -87,7 +87,8 @@ a password.
 
 - Default: generate a strong temp password with the existing generator in
   `server/internal/domain/auth/password.go`.
-- `--password-stdin`: read a non-empty supplied password from piped stdin.
+- `--password-stdin`: read a supplied password from piped stdin and apply the
+  shared server policy (minimum 8 characters, maximum 72 bytes).
 - In both cases `requires_password_change = TRUE` is set — the supplied or
   generated password is a stopgap credential either way.
 
@@ -116,8 +117,9 @@ password reset” rather than using a fallback label.
 
 ### Output
 
-Print the temporary password once to stdout after commit and never log it.
-Failures are actionable and non-zero. There is no confirmation prompt.
+Print a generated temporary password once after commit. In stdin mode, print
+only a credential-free success message. Failures are actionable and non-zero;
+there is no confirmation prompt.
 
 ### Docs
 
@@ -144,8 +146,8 @@ Failures are actionable and non-zero. There is no confirmation prompt.
   one updated row.
 - **Audit/schema failure:** fail closed without changing credentials. Schema
   repair is outside this command.
-- **Credential leakage:** output once after commit; never log or persist it;
-  force change on login.
+- **Credential leakage:** only generated credentials are output, once after
+  commit; supplied credentials are never echoed; force change on login.
 - **Host takeover:** accepted because the host operator already controls the
   application database.
 
@@ -158,9 +160,8 @@ Failures are actionable and non-zero. There is no confirmation prompt.
   multiple SUPER_ADMINs, concurrent invalidation, zero-row update, and forced
   audit failure all exit without partial changes or password output.
 - **Compatibility:** bare `fleetd`, existing YAML/env/root flags, and admin
-  help. Wrapper tests pin project/env resolution, argument forwarding,
-  non-TTY stdin, executable release packaging, and the internal absolute binary
-  path.
+  help. Wrapper tests cover standalone and HA profile selection, argument/stdin
+  forwarding, non-TTY execution, packaging, and the absolute internal binary.
 - **Activity:** migration up/down restores the prior function; client tests
   cover row/detail/filter labels, target username, and icon.
 - **Smoke:** run `./reset-super-admin-password.sh`, log in with the printed

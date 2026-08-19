@@ -8,6 +8,11 @@ STAGE="$TMP_DIR/deployment"
 BIN_DIR="$TMP_DIR/bin"
 CALL_LOG="$TMP_DIR/docker-call.log"
 STDIN_LOG="$TMP_DIR/docker-stdin.log"
+HA_CONFIG_DIR="$TMP_DIR/ha-config"
+HA_NODE_ENV="$HA_CONFIG_DIR/node.env"
+HA_CALL_LOG="$TMP_DIR/fleet-ha-call.log"
+HA_STDIN_LOG="$TMP_DIR/fleet-ha-stdin.log"
+HA_DOCKER_CALL_LOG="$TMP_DIR/ha-docker-call.log"
 FAILURES=0
 
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -18,8 +23,8 @@ fail() {
 }
 
 assert_contains() {
-    local description="$1" expected="$2"
-    if grep -qF -- "$expected" "$CALL_LOG"; then
+    local description="$1" expected="$2" log_file="${3:-$CALL_LOG}"
+    if [ -f "$log_file" ] && grep -qF -- "$expected" "$log_file"; then
         echo "ok: $description"
     else
         fail "$description: expected '$expected'"
@@ -59,6 +64,44 @@ if [ "$(cat "$STDIN_LOG")" = "replacement-password" ]; then
     echo "ok: forwards stdin"
 else
     fail "stdin was not forwarded"
+fi
+
+mkdir -p "$STAGE/ha" "$HA_CONFIG_DIR"
+printf 'HA_NODE_NAME=fleet-1\n' > "$HA_NODE_ENV"
+cat > "$STAGE/ha/fleet-ha" <<'EOF'
+#!/usr/bin/env bash
+printf 'args=' > "$HA_CALL_LOG"
+printf ' <%s>' "$@" >> "$HA_CALL_LOG"
+printf '\n' >> "$HA_CALL_LOG"
+cat > "$HA_STDIN_LOG"
+EOF
+chmod +x "$STAGE/ha/fleet-ha"
+
+if ! printf 'ha-replacement-password\n' | \
+    PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
+    CALL_LOG="$HA_DOCKER_CALL_LOG" HA_CALL_LOG="$HA_CALL_LOG" HA_STDIN_LOG="$HA_STDIN_LOG" \
+    "$STAGE/reset-super-admin-password.sh" --password-stdin; then
+    fail "HA wrapper invocation failed"
+fi
+
+assert_contains "delegates installed HA recovery" "args= <reset-password> <--password-stdin>" "$HA_CALL_LOG"
+if [ "$(cat "$HA_STDIN_LOG")" = "ha-replacement-password" ]; then
+    echo "ok: forwards stdin to fleet-ha"
+else
+    fail "stdin was not forwarded to fleet-ha"
+fi
+if [ -e "$HA_DOCKER_CALL_LOG" ]; then
+    fail "HA recovery bypassed fleet-ha and invoked Docker directly"
+else
+    echo "ok: HA recovery does not invoke the standalone topology"
+fi
+
+chmod -x "$STAGE/ha/fleet-ha"
+if PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
+    CALL_LOG="$HA_DOCKER_CALL_LOG" "$STAGE/reset-super-admin-password.sh" >/dev/null 2>&1; then
+    fail "HA recovery succeeded without an executable fleet-ha"
+else
+    echo "ok: HA recovery fails closed when fleet-ha is unusable"
 fi
 
 if [ "$FAILURES" -ne 0 ]; then

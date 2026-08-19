@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -72,9 +73,51 @@ func TestResetPasswordCommandRejectsEmptyStdin(t *testing.T) {
 	require.ErrorContains(t, err, "must not be empty")
 }
 
+func TestResetPasswordCommandRejectsInvalidStdinPassword(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		wantErr  string
+	}{
+		{name: "too short", password: "short\n", wantErr: "at least 8 characters"},
+		{name: "too many bytes", password: strings.Repeat("a", 73) + "\n", wantErr: "at most 72 bytes"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := resetPasswordCommand{PasswordStdin: true}
+
+			_, err := cmd.password(strings.NewReader(test.password))
+
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}
+
 func TestResetPasswordCommandGeneratesPasswordByDefault(t *testing.T) {
 	password, err := (&resetPasswordCommand{}).password(strings.NewReader(""))
 
 	require.NoError(t, err)
 	require.Len(t, password, 32)
+}
+
+func TestResetPasswordCommandDoesNotEchoStdinPassword(t *testing.T) {
+	cmd := resetPasswordCommand{PasswordStdin: true}
+	var output bytes.Buffer
+
+	err := cmd.writeResult(&output, "owner", "supplied-secret")
+
+	require.NoError(t, err)
+	require.Equal(t, "Reset the password for SUPER_ADMIN \"owner\".\n", output.String())
+	require.NotContains(t, output.String(), "supplied-secret")
+}
+
+func TestResetPasswordCommandPrintsGeneratedPassword(t *testing.T) {
+	cmd := resetPasswordCommand{}
+	var output bytes.Buffer
+
+	err := cmd.writeResult(&output, "owner", "generated-secret")
+
+	require.NoError(t, err)
+	require.Contains(t, output.String(), "Temporary password: generated-secret")
 }

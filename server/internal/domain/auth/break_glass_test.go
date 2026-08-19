@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -152,12 +153,25 @@ func TestBreakGlassResetSuperAdminPasswordRollsBackWhenAuditFails(t *testing.T) 
 	require.False(t, tx.committed)
 }
 
-func TestBreakGlassResetSuperAdminPasswordHashesBeforeTransaction(t *testing.T) {
-	tx := &breakGlassTransactorStub{}
-	service := NewBreakGlassService(&breakGlassStoreStub{}, tx, &sessionRevokerStub{}, &activityLoggerStub{})
+func TestBreakGlassResetSuperAdminPasswordRejectsInvalidPasswordBeforeTransaction(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		wantErr  string
+	}{
+		{name: "too short", password: "short", wantErr: "at least 8 characters"},
+		{name: "too many bytes", password: strings.Repeat("a", 73), wantErr: "at most 72 bytes"},
+	}
 
-	_, err := service.ResetSuperAdminPassword(context.Background(), string(make([]byte, 73)))
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tx := &breakGlassTransactorStub{}
+			service := NewBreakGlassService(&breakGlassStoreStub{}, tx, &sessionRevokerStub{}, &activityLoggerStub{})
 
-	require.ErrorContains(t, err, "hash password")
-	require.False(t, tx.called)
+			_, err := service.ResetSuperAdminPassword(context.Background(), test.password)
+
+			require.ErrorContains(t, err, test.wantErr)
+			require.False(t, tx.called)
+		})
+	}
 }

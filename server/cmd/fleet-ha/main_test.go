@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/alecthomas/kong"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/ha"
@@ -18,6 +19,21 @@ type fakeUpdaterClient struct {
 	complete   bool
 	triggerErr error
 	operation  updaterapi.Operation
+}
+
+func TestResetPasswordCommandParsesStdinFlag(t *testing.T) {
+	var parsed cli
+	parser, err := kong.New(&parsed, kong.Vars{
+		"default_node_env":          defaultNodeEnv,
+		"default_firewall_template": defaultFirewallTemplate,
+	})
+	require.NoError(t, err)
+
+	ctx, err := parser.Parse([]string{"reset-password", "--password-stdin"})
+
+	require.NoError(t, err)
+	require.Equal(t, "reset-password", ctx.Command())
+	require.True(t, parsed.ResetPassword.PasswordStdin)
 }
 
 func (f *fakeUpdaterClient) TriggerComplete(_ context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {

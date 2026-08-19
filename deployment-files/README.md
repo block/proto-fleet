@@ -62,23 +62,32 @@ The script will:
 
 ## Resetting the SUPER_ADMIN password
 
-If the sole SUPER_ADMIN is locked out, run this from the installed
+If the sole SUPER_ADMIN is locked out, run this from the installed standalone
 `deployment` directory:
 
 ```bash
 ./reset-super-admin-password.sh
 ```
 
-The command prints a temporary password after the reset succeeds. It revokes
-the account's existing sessions and requires the password to be changed at the
-next login. To supply the temporary password through a pipeline instead:
+On an HA database host (`ha-a` or `ha-b`), run the same wrapper with the
+installed HA deployment user's permissions:
+
+```bash
+sudo /opt/proto-fleet/deployment/reset-super-admin-password.sh
+```
+
+The wrapper selects the installed standalone or HA Compose profile. With no
+flags it prints a generated temporary password after the reset succeeds. The
+reset revokes existing sessions and requires a password change at next login.
+To supply the temporary password through a pipeline instead:
 
 ```bash
 printf '%s\n' "$NEW_PASSWORD" | ./reset-super-admin-password.sh --password-stdin
 ```
 
-The command refuses to choose an account if the database contains zero or
-multiple live SUPER_ADMIN users.
+Supplied passwords must contain at least 8 characters and no more than 72
+bytes; the success message does not echo them. The command refuses to choose
+an account if the database contains zero or multiple live SUPER_ADMIN users.
 
 ## One-click upgrades
 

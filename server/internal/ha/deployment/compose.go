@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 )
 
@@ -32,6 +33,33 @@ func fleetComposeArgsForInstalledProfileAt(root, ownershipMarker, operation stri
 		return nil, fmt.Errorf("inspect installed HA Grafana ownership marker: %w", err)
 	}
 	return fleetComposeArgsAtProfile(root, false, operation, flags...), nil
+}
+
+// ResetSuperAdminPassword runs the offline fleetd recovery command against the
+// installed HA application profile. This preserves the generated environment,
+// Compose project, and HA overlay selected by fleet-ha.
+func ResetSuperAdminPassword(ctx context.Context, passwordStdin bool) error {
+	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
+	if err != nil {
+		return err
+	}
+	if !config.isDatabaseNode() {
+		return errors.New("HA password reset must run on ha-a or ha-b")
+	}
+
+	args, err := resetSuperAdminPasswordComposeArgsAt(installRoot, haGrafanaVolumeOwnershipMarker, passwordStdin)
+	if err != nil {
+		return err
+	}
+	return RunCompose(ctx, args)
+}
+
+func resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker string, passwordStdin bool) ([]string, error) {
+	command := []string{"--rm", "-T", "fleet-api", "/app/fleetd", "admin", "reset-password"}
+	if passwordStdin {
+		command = append(command, "--password-stdin")
+	}
+	return fleetComposeArgsForInstalledProfileAt(root, ownershipMarker, "run", command...)
 }
 
 // RunCompose prevents parent variables from overriding generated HA identity and secrets.

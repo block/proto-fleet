@@ -50,8 +50,8 @@ func NewBreakGlassService(
 // ResetSuperAdminPassword resets the sole live org-scope SUPER_ADMIN, revokes
 // its sessions, and writes the audit event in one transaction.
 func (s *BreakGlassService) ResetSuperAdminPassword(ctx context.Context, password string) (*BreakGlassResetResult, error) {
-	if password == "" {
-		return nil, fmt.Errorf("password must not be empty")
+	if err := ValidatePassword(password); err != nil {
+		return nil, err
 	}
 
 	// Do the expensive, fallible bcrypt work before opening a transaction.

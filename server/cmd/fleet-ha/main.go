@@ -31,6 +31,7 @@ type cli struct {
 	BootstrapEtcdAuth bootstrapEtcdAuthCmd `cmd:"" help:"enable etcd authentication and create service roles"`
 	RenderKeepalived  renderKeepalivedCmd  `cmd:"" help:"render the keepalived configuration"`
 	Compose           composeCmd           `cmd:"" help:"run Docker Compose with the installed HA environment" passthrough:""`
+	ResetPassword     resetPasswordCmd     `cmd:"" name:"reset-password" help:"reset the sole SUPER_ADMIN password"`
 	Status            statusCmd            `cmd:"" help:"print local HA status as JSON"`
 	Install           installCmd           `cmd:"" help:"prepare a new cluster or install a prepared host bundle"`
 	Uninstall         uninstallCmd         `cmd:"" help:"remove the local HA runtime"`
@@ -87,6 +88,14 @@ func (c *renderKeepalivedCmd) Run() error {
 
 type composeCmd struct {
 	Args []string `arg:"" name:"compose-arg" help:"arguments passed to Docker Compose"`
+}
+
+type resetPasswordCmd struct {
+	PasswordStdin bool `help:"read the replacement password from standard input"`
+}
+
+func (c *resetPasswordCmd) Run(ctx context.Context) error {
+	return deployment.ResetSuperAdminPassword(ctx, c.PasswordStdin)
 }
 
 func (c *composeCmd) Run(ctx context.Context) error {
