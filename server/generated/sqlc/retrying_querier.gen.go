@@ -4260,6 +4260,12 @@ func (q *retryingQuerier) ListUsersForOrganization(ctx context.Context, organiza
 	return result, err
 }
 
+func (q *retryingQuerier) LockAlertMaintenanceWindowOrgForWrite(ctx context.Context, orgID int64) error {
+	return q.retrier.RetryQuery(ctx, "LockAlertMaintenanceWindowOrgForWrite", func() error {
+		return q.next.LockAlertMaintenanceWindowOrgForWrite(ctx, orgID)
+	})
+}
+
 func (q *retryingQuerier) LockAndCountOrgScopeSuperAdmins(ctx context.Context, organizationID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockAndCountOrgScopeSuperAdmins", func() error {

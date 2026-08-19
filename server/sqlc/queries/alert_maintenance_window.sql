@@ -24,6 +24,13 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
 RETURNING *;
 
+-- name: LockAlertMaintenanceWindowOrgForWrite :exec
+-- Serializes the quota check with mutations across every server instance. The transaction that
+-- takes this lock re-counts after its write and rolls back if the org would exceed its limit.
+SELECT pg_advisory_xact_lock(
+    hashtextextended('alert_maintenance_window:' || sqlc.arg('org_id')::bigint::text, 0)
+);
+
 -- name: ListAlertMaintenanceWindows :many
 SELECT * FROM alert_maintenance_window
 WHERE org_id = sqlc.arg('org_id')
@@ -37,13 +44,11 @@ WHERE org_id = sqlc.arg('org_id')
   AND ends_at > sqlc.arg('now');
 
 -- name: CountUnexpiredAlertMaintenanceWindows :one
--- Backs the per-org write quota: only windows still active or scheduled count against it, so
--- expired history can never block a write. excluding_id skips the row an update rewrites
--- (0 on insert, which no BIGSERIAL id equals).
+-- Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
+-- expired history can never block a write.
 SELECT count(*) FROM alert_maintenance_window
 WHERE org_id = sqlc.arg('org_id')
-  AND ends_at > sqlc.arg('now')
-  AND id <> sqlc.arg('excluding_id');
+  AND ends_at > sqlc.arg('now');
 
 -- name: PruneExpiredAlertMaintenanceWindows :execrows
 -- Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,

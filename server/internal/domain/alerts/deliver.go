@@ -164,15 +164,12 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 		if len(defaultAlerts) == 0 && len(idxs) == 0 {
 			continue
 		}
-		// Window coverage depends only on the channel, so resolve it once here; a covering window
-		// that mutes every rule mutes the whole batch, skipping the channel's send entirely.
+		// Window coverage depends only on the channel, so resolve it once here. Resolutions still
+		// deliver through an all-rules window, so materialize and filter every covered batch.
 		muted, muteAll := channelMutedRules(windows, rec.ID)
-		if muteAll {
-			continue
-		}
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(rec ChannelRecord, idxs []int, muted map[string]bool) {
+		go func(rec ChannelRecord, idxs []int, muted map[string]bool, muteAll bool) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			// Materialize the channel's batch inside its concurrency slot: routing stays index-based, so a
@@ -185,12 +182,12 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 					alerts = append(alerts, orgAlerts[i])
 				}
 			}
-			alerts = dropMutedAlerts(alerts, muted)
+			alerts = dropMutedAlerts(alerts, muted, muteAll)
 			if len(alerts) == 0 {
 				return
 			}
 			d.deliverChannel(ctx, orgID, rec, alerts, identities)
-		}(rec, idxs, muted)
+		}(rec, idxs, muted, muteAll)
 	}
 	wg.Wait()
 }
@@ -233,15 +230,21 @@ func channelMutedRules(windows []MaintenanceWindowRecord, channelID int64) (mute
 	return muted, false
 }
 
-// dropMutedAlerts returns the channel's batch minus alerts whose producing rule the channel's
-// muted set claims. Unattributed alerts stay: they carry no producing-rule UID, so a rule-scoped
-// window can't claim them. The input slice is shared across channel goroutines and never
-// mutated; it is returned as-is (no copy) until an alert actually drops.
-func dropMutedAlerts(alerts []Alert, muted map[string]bool) []Alert {
-	if len(muted) == 0 {
+// dropMutedAlerts returns the channel's batch minus firing alerts covered by a maintenance
+// window. Resolutions always stay so a destination that saw a firing notification can close it.
+// Unattributed firing alerts stay under a rule-scoped window because no rule can claim them. The
+// input slice is shared across channel goroutines and never mutated; it is returned as-is (no
+// copy) until an alert actually drops.
+func dropMutedAlerts(alerts []Alert, muted map[string]bool, muteAll bool) []Alert {
+	if !muteAll && len(muted) == 0 {
 		return alerts
 	}
-	isMuted := func(a Alert) bool { return a.RuleUID != "" && muted[a.RuleUID] }
+	isMuted := func(a Alert) bool {
+		if a.Status == "resolved" {
+			return false
+		}
+		return muteAll || (a.RuleUID != "" && muted[a.RuleUID])
+	}
 	first := slices.IndexFunc(alerts, isMuted)
 	if first < 0 {
 		return alerts

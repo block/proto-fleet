@@ -1128,6 +1128,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
 	}
+	if q.lockAlertMaintenanceWindowOrgForWriteStmt, err = db.PrepareContext(ctx, lockAlertMaintenanceWindowOrgForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockAlertMaintenanceWindowOrgForWrite: %w", err)
+	}
 	if q.lockAndCountOrgScopeSuperAdminsStmt, err = db.PrepareContext(ctx, lockAndCountOrgScopeSuperAdmins); err != nil {
 		return nil, fmt.Errorf("error preparing query LockAndCountOrgScopeSuperAdmins: %w", err)
 	}
@@ -3501,6 +3504,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.lockAlertMaintenanceWindowOrgForWriteStmt != nil {
+		if cerr := q.lockAlertMaintenanceWindowOrgForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockAlertMaintenanceWindowOrgForWriteStmt: %w", cerr)
+		}
+	}
 	if q.lockAndCountOrgScopeSuperAdminsStmt != nil {
 		if cerr := q.lockAndCountOrgScopeSuperAdminsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockAndCountOrgScopeSuperAdminsStmt: %w", cerr)
@@ -4788,6 +4796,7 @@ type Queries struct {
 	listSitesStmt                                                *sql.Stmt
 	listTakenDeviceSetLabelsStmt                                 *sql.Stmt
 	listUsersForOrganizationStmt                                 *sql.Stmt
+	lockAlertMaintenanceWindowOrgForWriteStmt                    *sql.Stmt
 	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
 	lockBuildingForWriteStmt                                     *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
@@ -5338,6 +5347,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSitesStmt:                                                q.listSitesStmt,
 		listTakenDeviceSetLabelsStmt:                                 q.listTakenDeviceSetLabelsStmt,
 		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
+		lockAlertMaintenanceWindowOrgForWriteStmt:                    q.lockAlertMaintenanceWindowOrgForWriteStmt,
 		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                     q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,

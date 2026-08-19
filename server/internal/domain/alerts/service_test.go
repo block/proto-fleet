@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -194,6 +195,7 @@ func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte
 // fakeWindowStore is an in-memory MaintenanceWindowStore honoring the store contract:
 // write-once created_by/created_at, ErrNotFound for rows the org doesn't own.
 type fakeWindowStore struct {
+	mu                  sync.Mutex
 	next                int64
 	rows                map[int64]MaintenanceWindowRecord
 	listActiveErr       error
@@ -206,16 +208,50 @@ func newFakeWindowStore() *fakeWindowStore {
 }
 
 func (f *fakeWindowStore) Insert(_ context.Context, rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.insert(rec), nil
+}
+
+func (f *fakeWindowStore) InsertWithinLimit(_ context.Context, rec MaintenanceWindowRecord, now time.Time, maxUnexpired int64) (MaintenanceWindowRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.countUnexpired(rec.OrganizationID, now, 0) >= maxUnexpired {
+		return MaintenanceWindowRecord{}, ErrMaintenanceWindowLimitReached
+	}
+	return f.insert(rec), nil
+}
+
+func (f *fakeWindowStore) insert(rec MaintenanceWindowRecord) MaintenanceWindowRecord {
 	f.next++
 	rec.ID = f.next
 	if rec.CreatedAt.IsZero() {
 		rec.CreatedAt = time.Unix(500, 0)
 	}
 	f.rows[rec.ID] = rec
-	return rec, nil
+	return rec
 }
 
 func (f *fakeWindowStore) Update(_ context.Context, rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.update(rec)
+}
+
+func (f *fakeWindowStore) UpdateWithinLimit(_ context.Context, rec MaintenanceWindowRecord, now time.Time, maxUnexpired int64) (MaintenanceWindowRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cur, ok := f.rows[rec.ID]
+	if !ok || cur.OrganizationID != rec.OrganizationID {
+		return MaintenanceWindowRecord{}, ErrNotFound
+	}
+	if rec.EndsAt.After(now) && f.countUnexpired(rec.OrganizationID, now, rec.ID) >= maxUnexpired {
+		return MaintenanceWindowRecord{}, ErrMaintenanceWindowLimitReached
+	}
+	return f.update(rec)
+}
+
+func (f *fakeWindowStore) update(rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error) {
 	cur, ok := f.rows[rec.ID]
 	if !ok || cur.OrganizationID != rec.OrganizationID {
 		return MaintenanceWindowRecord{}, ErrNotFound
@@ -248,14 +284,14 @@ func (f *fakeWindowStore) ListActive(_ context.Context, orgID int64, now time.Ti
 	return out, nil
 }
 
-func (f *fakeWindowStore) CountUnexpired(_ context.Context, orgID int64, now time.Time, excludingID int64) (int64, error) {
+func (f *fakeWindowStore) countUnexpired(orgID int64, now time.Time, excludingID int64) int64 {
 	var n int64
 	for _, rec := range f.rows {
 		if rec.OrganizationID == orgID && rec.EndsAt.After(now) && rec.ID != excludingID {
 			n++
 		}
 	}
-	return n, nil
+	return n
 }
 
 // PruneExpired applies only the age cutoff and records its arguments; the keep-newest count

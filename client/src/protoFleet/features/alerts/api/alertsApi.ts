@@ -483,7 +483,12 @@ export interface MaintenanceWindowMutationInput {
 
 export async function createMaintenanceWindow(input: MaintenanceWindowMutationInput): Promise<MaintenanceWindow> {
   const res = await alertMaintenanceWindowClient.createMaintenanceWindow({
-    scope: { ruleIds: input.rule_ids, channelIds: input.channel_ids },
+    scope: {
+      ruleIds: input.rule_ids,
+      channelIds: input.channel_ids,
+      allRules: input.rule_ids.length === 0,
+      allChannels: input.channel_ids.length === 0,
+    },
     startsAt: tsFromIso(input.starts_at),
     endsAt: input.ends_at ? tsFromIso(input.ends_at) : undefined,
     comment: input.comment,
@@ -496,7 +501,12 @@ export async function updateMaintenanceWindow(
 ): Promise<MaintenanceWindow> {
   const res = await alertMaintenanceWindowClient.updateMaintenanceWindow({
     id: input.id,
-    scope: { ruleIds: input.rule_ids, channelIds: input.channel_ids },
+    scope: {
+      ruleIds: input.rule_ids,
+      channelIds: input.channel_ids,
+      allRules: input.rule_ids.length === 0,
+      allChannels: input.channel_ids.length === 0,
+    },
     startsAt: tsFromIso(input.starts_at),
     endsAt: input.ends_at ? tsFromIso(input.ends_at) : undefined,
     comment: input.comment,

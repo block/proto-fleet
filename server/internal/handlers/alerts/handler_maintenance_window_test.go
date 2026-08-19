@@ -32,9 +32,37 @@ func TestProtoToMaintenanceWindowMapping(t *testing.T) {
 	require.Error(t, err, "scope message is required")
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 
-	_, err = protoToMaintenanceWindow("", &alertsv1.MaintenanceWindowScope{}, nil, ends, "")
+	_, err = protoToMaintenanceWindow("", &alertsv1.MaintenanceWindowScope{AllRules: true, AllChannels: true}, nil, ends, "")
 	require.Error(t, err, "starts_at is required")
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestProtoToMaintenanceWindowRequiresExplicitScopeSelections(t *testing.T) {
+	starts := timestamppb.New(time.Unix(1000, 0))
+	ends := timestamppb.New(time.Unix(2000, 0))
+
+	for name, scope := range map[string]*alertsv1.MaintenanceWindowScope{
+		"missing selections": {},
+		"all rules and rule ids": {
+			AllRules: true, RuleIds: []string{"rule-a"}, AllChannels: true,
+		},
+		"all channels and channel ids": {
+			RuleIds: []string{"rule-a"}, AllChannels: true, ChannelIds: []string{"3"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := protoToMaintenanceWindow("", scope, starts, ends, "")
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		})
+	}
+
+	dom, err := protoToMaintenanceWindow("", &alertsv1.MaintenanceWindowScope{
+		AllRules: true, AllChannels: true,
+	}, starts, ends, "")
+	require.NoError(t, err)
+	assert.Empty(t, dom.RuleIDs)
+	assert.Empty(t, dom.ChannelIDs)
 }
 
 func TestMaintenanceWindowToProtoOmitsZeroEndsAt(t *testing.T) {
@@ -46,5 +74,7 @@ func TestMaintenanceWindowToProtoOmitsZeroEndsAt(t *testing.T) {
 	require.NotNil(t, out.GetScope())
 	assert.Equal(t, []string{"rule-a"}, out.GetScope().GetRuleIds())
 	assert.Empty(t, out.GetScope().GetChannelIds())
+	assert.False(t, out.GetScope().GetAllRules())
+	assert.True(t, out.GetScope().GetAllChannels())
 	assert.Nil(t, out.GetEndsAt())
 }

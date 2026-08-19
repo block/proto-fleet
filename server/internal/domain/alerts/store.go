@@ -72,15 +72,15 @@ type MaintenanceWindowRecord struct {
 // MaintenanceWindowStore persists maintenance windows; implementations return ErrNotFound when
 // an update or delete targets a row the org doesn't own.
 type MaintenanceWindowStore interface {
-	Insert(ctx context.Context, rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error)
-	// Update replaces the window's scope and times; CreatedBy/CreatedAt are write-once.
-	Update(ctx context.Context, rec MaintenanceWindowRecord) (MaintenanceWindowRecord, error)
+	// InsertWithinLimit atomically inserts only when the resulting number of unexpired org
+	// windows is at most maxUnexpired.
+	InsertWithinLimit(ctx context.Context, rec MaintenanceWindowRecord, now time.Time, maxUnexpired int64) (MaintenanceWindowRecord, error)
+	// UpdateWithinLimit replaces the window's scope and times under the same atomic quota;
+	// CreatedBy/CreatedAt are write-once.
+	UpdateWithinLimit(ctx context.Context, rec MaintenanceWindowRecord, now time.Time, maxUnexpired int64) (MaintenanceWindowRecord, error)
 	List(ctx context.Context, orgID int64) ([]MaintenanceWindowRecord, error)
 	// ListActive returns only the org's windows covering now — the delivery-path read.
 	ListActive(ctx context.Context, orgID int64, now time.Time) ([]MaintenanceWindowRecord, error)
-	// CountUnexpired counts the org's active-or-scheduled windows (ends_at > now), for the
-	// write quota; excludingID skips the row an update rewrites (0 on create).
-	CountUnexpired(ctx context.Context, orgID int64, now time.Time, excludingID int64) (int64, error)
 	// PruneExpired reclaims the org's expired windows (ends_at <= now) that ended more than
 	// retention ago, plus any beyond the newest keepNewest (a count backstop on history).
 	PruneExpired(ctx context.Context, orgID int64, now time.Time, retention time.Duration, keepNewest int64) (int64, error)

@@ -309,15 +309,17 @@ message ResumeRuleResponse {
     Rule rule = 1;
 }
 
-// What a maintenance window mutes: alerts from the listed rules stop delivering to the listed
-// channels while the window is active. Empty rule_ids means every rule; empty channel_ids means
-// every channel. Alert history records the muted alerts either way.
+// What a maintenance window mutes: firing alerts from the selected rules stop delivering to the
+// selected channels while the window is active. Resolution notifications and alert history are
+// preserved. Each dimension must explicitly select either all targets or a non-empty ID list.
 message MaintenanceWindowScope {
     reserved 1 to 5;
     reserved "kind", "rule_id", "group_id", "site_id", "device_ids";
     // 40 is Grafana's alert-rule UID cap.
     repeated string rule_ids = 6 [(buf.validate.field).repeated = {max_items: 100, items: {string: {min_len: 1, max_len: 40}}}];
     repeated string channel_ids = 7 [(buf.validate.field).repeated = {max_items: 100, items: {string: {min_len: 1, max_len: 20}}}];
+    bool all_rules = 8;
+    bool all_channels = 9;
 }
 
 message MaintenanceWindow {

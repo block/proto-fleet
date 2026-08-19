@@ -751,12 +751,17 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	out := &alertsv1.MaintenanceWindow{
 		Id:             s.ID,
 		OrganizationId: s.OrganizationID,
-		Scope:          &alertsv1.MaintenanceWindowScope{RuleIds: s.RuleIDs, ChannelIds: s.ChannelIDs},
-		StartsAt:       timestamppb.New(s.StartsAt),
-		Comment:        s.Comment,
-		CreatedBy:      s.CreatedBy,
-		CreatedAt:      timestamppb.New(s.CreatedAt),
-		Active:         s.Active,
+		Scope: &alertsv1.MaintenanceWindowScope{
+			RuleIds:     s.RuleIDs,
+			ChannelIds:  s.ChannelIDs,
+			AllRules:    len(s.RuleIDs) == 0,
+			AllChannels: len(s.ChannelIDs) == 0,
+		},
+		StartsAt:  timestamppb.New(s.StartsAt),
+		Comment:   s.Comment,
+		CreatedBy: s.CreatedBy,
+		CreatedAt: timestamppb.New(s.CreatedAt),
+		Active:    s.Active,
 	}
 	if !s.EndsAt.IsZero() {
 		out.EndsAt = timestamppb.New(s.EndsAt)
@@ -767,6 +772,12 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope, startsAt, endsAt *timestamppb.Timestamp, comment string) (alerts.MaintenanceWindow, error) {
 	if scope == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("scope is required")
+	}
+	if err := validateMaintenanceWindowTargetSelection("rules", scope.GetAllRules(), scope.GetRuleIds()); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	if err := validateMaintenanceWindowTargetSelection("channels", scope.GetAllChannels(), scope.GetChannelIds()); err != nil {
+		return alerts.MaintenanceWindow{}, err
 	}
 	if startsAt == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("starts_at is required")
@@ -782,6 +793,14 @@ func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope,
 		dom.EndsAt = endsAt.AsTime()
 	}
 	return dom, nil
+}
+
+func validateMaintenanceWindowTargetSelection(name string, all bool, ids []string) error {
+	if all == (len(ids) > 0) {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"scope must select either all %s or a non-empty %s list", name, name)
+	}
+	return nil
 }
 
 // includeDevice gates miner data behind miner:read: the structured device fields plus the free-text summary,

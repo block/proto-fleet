@@ -2,6 +2,7 @@ package sqlstores_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestAlertMaintenanceWindowStoreCRUD(t *testing.T) {
 	starts := time.Now().UTC().Truncate(time.Millisecond)
 	ends := starts.Add(2 * time.Hour)
 
-	created, err := store.Insert(ctx, alerts.MaintenanceWindowRecord{
+	created, err := store.InsertWithinLimit(ctx, alerts.MaintenanceWindowRecord{
 		OrganizationID: 7,
 		RuleUIDs:       []string{"rule-a", "rule-b"},
 		ChannelIDs:     []int64{3, 5},
@@ -35,7 +36,7 @@ func TestAlertMaintenanceWindowStoreCRUD(t *testing.T) {
 		EndsAt:         ends,
 		Comment:        "planned work",
 		CreatedBy:      "alice@example.com",
-	})
+	}, starts, 100)
 	require.NoError(t, err)
 	assert.NotZero(t, created.ID)
 	assert.Equal(t, []string{"rule-a", "rule-b"}, created.RuleUIDs)
@@ -43,11 +44,11 @@ func TestAlertMaintenanceWindowStoreCRUD(t *testing.T) {
 	assert.False(t, created.CreatedAt.IsZero())
 
 	// The empty-targets ("every rule/channel") form round-trips as empty, not null-ish garbage.
-	allAll, err := store.Insert(ctx, alerts.MaintenanceWindowRecord{
+	allAll, err := store.InsertWithinLimit(ctx, alerts.MaintenanceWindowRecord{
 		OrganizationID: 7,
 		StartsAt:       starts.Add(24 * time.Hour),
 		EndsAt:         ends.Add(24 * time.Hour),
-	})
+	}, starts, 100)
 	require.NoError(t, err)
 	assert.Empty(t, allAll.RuleUIDs)
 	assert.Empty(t, allAll.ChannelIDs)
@@ -66,7 +67,7 @@ func TestAlertMaintenanceWindowStoreCRUD(t *testing.T) {
 	created.ChannelIDs = []int64{5}
 	created.EndsAt = ends.Add(time.Hour)
 	created.CreatedBy = "mallory@example.com"
-	updated, err := store.Update(ctx, created)
+	updated, err := store.UpdateWithinLimit(ctx, created, starts, 100)
 	require.NoError(t, err)
 	assert.Empty(t, updated.RuleUIDs)
 	assert.Equal(t, []int64{5}, updated.ChannelIDs)
@@ -74,7 +75,7 @@ func TestAlertMaintenanceWindowStoreCRUD(t *testing.T) {
 
 	// Update and delete against the wrong org report NotFound instead of touching the row.
 	created.OrganizationID = 8
-	_, err = store.Update(ctx, created)
+	_, err = store.UpdateWithinLimit(ctx, created, starts, 100)
 	require.ErrorIs(t, err, alerts.ErrNotFound)
 	require.ErrorIs(t, store.Delete(ctx, 8, created.ID), alerts.ErrNotFound)
 
@@ -87,17 +88,17 @@ func TestAlertMaintenanceWindowStoreListActive(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
-	active, err := store.Insert(ctx, alerts.MaintenanceWindowRecord{
+	active, err := store.InsertWithinLimit(ctx, alerts.MaintenanceWindowRecord{
 		OrganizationID: 11, StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour),
-	})
+	}, now, 100)
 	require.NoError(t, err)
-	_, err = store.Insert(ctx, alerts.MaintenanceWindowRecord{
+	_, err = store.InsertWithinLimit(ctx, alerts.MaintenanceWindowRecord{
 		OrganizationID: 11, StartsAt: now.Add(-3 * time.Hour), EndsAt: now.Add(-2 * time.Hour),
-	})
+	}, now, 100)
 	require.NoError(t, err)
-	_, err = store.Insert(ctx, alerts.MaintenanceWindowRecord{
+	_, err = store.InsertWithinLimit(ctx, alerts.MaintenanceWindowRecord{
 		OrganizationID: 11, StartsAt: now.Add(2 * time.Hour), EndsAt: now.Add(3 * time.Hour),
-	})
+	}, now, 100)
 	require.NoError(t, err)
 
 	got, err := store.ListActive(ctx, 11, now)
@@ -114,30 +115,22 @@ func TestAlertMaintenanceWindowStoreListActive(t *testing.T) {
 	assert.Empty(t, atEnd)
 }
 
-func TestAlertMaintenanceWindowStoreCountAndPrune(t *testing.T) {
+func TestAlertMaintenanceWindowStorePrune(t *testing.T) {
 	store := newAlertMaintenanceWindowStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	insert := func(startsAt, endsAt time.Time) alerts.MaintenanceWindowRecord {
-		rec, err := store.Insert(ctx, alerts.MaintenanceWindowRecord{
+		rec, err := store.InsertWithinLimit(ctx, alerts.MaintenanceWindowRecord{
 			OrganizationID: 21, StartsAt: startsAt, EndsAt: endsAt,
-		})
+		}, now, 100)
 		require.NoError(t, err)
 		return rec
 	}
-	active := insert(now.Add(-time.Hour), now.Add(time.Hour))     // active
+	insert(now.Add(-time.Hour), now.Add(time.Hour))               // active
 	insert(now.Add(24*time.Hour), now.Add(25*time.Hour))          // scheduled
 	insert(now.Add(-2*time.Hour), now.Add(-time.Hour))            // freshly expired
 	old := insert(now.Add(-72*time.Hour), now.Add(-48*time.Hour)) // expired past the cutoff
-
-	n, err := store.CountUnexpired(ctx, 21, now, 0)
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), n, "only active and scheduled windows count")
-
-	n, err = store.CountUnexpired(ctx, 21, now, active.ID)
-	require.NoError(t, err)
-	assert.Equal(t, int64(1), n, "the row an update rewrites is excluded from its own quota check")
 
 	deleted, err := store.PruneExpired(ctx, 21, now, 24*time.Hour, 10)
 	require.NoError(t, err)
@@ -160,4 +153,49 @@ func TestAlertMaintenanceWindowStoreCountAndPrune(t *testing.T) {
 	listed, err = store.List(ctx, 21)
 	require.NoError(t, err)
 	assert.Len(t, listed, 3, "active, scheduled, and the newest expired row survive")
+}
+
+func TestAlertMaintenanceWindowStoreQuotaIsAtomic(t *testing.T) {
+	store := newAlertMaintenanceWindowStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	const (
+		orgID  = int64(31)
+		limit  = int64(3)
+		writes = 12
+	)
+
+	start := make(chan struct{})
+	results := make(chan error, writes)
+	for i := range writes {
+		go func(offset int) {
+			<-start
+			_, err := store.InsertWithinLimit(ctx, alerts.MaintenanceWindowRecord{
+				OrganizationID: orgID,
+				StartsAt:       now.Add(time.Duration(offset) * time.Minute),
+				EndsAt:         now.Add(time.Hour + time.Duration(offset)*time.Minute),
+			}, now, limit)
+			results <- err
+		}(i)
+	}
+	close(start)
+
+	var inserted, rejected int
+	for range writes {
+		err := <-results
+		switch {
+		case err == nil:
+			inserted++
+		case errors.Is(err, alerts.ErrMaintenanceWindowLimitReached):
+			rejected++
+		default:
+			require.NoError(t, err)
+		}
+	}
+	assert.Equal(t, int(limit), inserted)
+	assert.Equal(t, writes-int(limit), rejected)
+
+	listed, err := store.List(ctx, orgID)
+	require.NoError(t, err)
+	assert.Len(t, listed, int(limit), "concurrent writes cannot overshoot the quota")
 }

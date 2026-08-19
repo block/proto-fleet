@@ -296,9 +296,8 @@ type Querier interface {
 	CountRacksInBuilding(ctx context.Context, arg CountRacksInBuildingParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
-	// Backs the per-org write quota: only windows still active or scheduled count against it, so
-	// expired history can never block a write. excluding_id skips the row an update rewrites
-	// (0 on insert, which no BIGSERIAL id equals).
+	// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
+	// expired history can never block a write.
 	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
 	CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error
 	// `site_id` is nullable. Name is unique per (site_id, name) when site_id
@@ -1127,6 +1126,9 @@ type Querier interface {
 	// (org_id, type, label), so a site/building-scoped rack list can't answer it.
 	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
+	// Serializes the quota check with mutations across every server instance. The transaction that
+	// takes this lock re-counts after its write and rolls back if the org would exceed its limit.
+	LockAlertMaintenanceWindowOrgForWrite(ctx context.Context, orgID int64) error
 	// Last-SUPER_ADMIN guard. Locks every live org-scope SUPER_ADMIN
 	// assignment in the org and returns the count. Callers that intend to
 	// demote/unassign/deactivate a SUPER_ADMIN compare against 1: if the

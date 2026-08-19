@@ -59,6 +59,10 @@ var ErrZeroOrgID = errors.New("alerts: organization id is required")
 // Surfaced as permission_denied so id scans aren't a list oracle.
 var ErrNotFound = errors.New("alerts: not found")
 
+// ErrMaintenanceWindowLimitReached lets persistence enforce the per-org quota atomically while
+// the service translates it to the API's FailedPrecondition category.
+var ErrMaintenanceWindowLimitReached = errors.New("alerts: maintenance window limit reached")
+
 func requireOrg(orgID int64) error {
 	if orgID == 0 {
 		return ErrZeroOrgID
@@ -847,10 +851,10 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, w Ma
 		maintenanceWindowRetention, maxRetainedExpiredWindowsPerOrg); err != nil {
 		slog.Warn("alerts.maintenance_window_prune_failed", "org_id", orgID, "error", err)
 	}
-	if err := s.requireWindowQuota(ctx, orgID, now, 0); err != nil {
-		return nil, err
+	stored, err := s.windows.InsertWithinLimit(ctx, *rec, now, maxMaintenanceWindowsPerOrg)
+	if errors.Is(err, ErrMaintenanceWindowLimitReached) {
+		return nil, maintenanceWindowLimitError()
 	}
-	stored, err := s.windows.Insert(ctx, *rec)
 	if err != nil {
 		return nil, err
 	}
@@ -872,13 +876,11 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, w Ma
 		return nil, err
 	}
 	rec.ID = id
-	// Accepted writes always end in the future, so an update can revive an expired row —
-	// hold it to the create quota (see requireWindowQuota).
-	if err := s.requireWindowQuota(ctx, orgID, now, id); err != nil {
-		return nil, err
-	}
 	// The store update leaves created_by/created_at untouched, so the audit owner survives edits.
-	stored, err := s.windows.Update(ctx, *rec)
+	stored, err := s.windows.UpdateWithinLimit(ctx, *rec, now, maxMaintenanceWindowsPerOrg)
+	if errors.Is(err, ErrMaintenanceWindowLimitReached) {
+		return nil, maintenanceWindowLimitError()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -886,21 +888,9 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, w Ma
 	return &out, nil
 }
 
-// requireWindowQuota rejects a write that would leave the org with more than
-// maxMaintenanceWindowsPerOrg unexpired windows. excludingID names the row being rewritten so
-// an edit of an at-cap active window still saves while reviving an expired row is held to the
-// cap; 0 on create. Soft cap (read-then-write, like the user-rule quota but without its mutex):
-// racing writes can overshoot by a few rows, which is fine for a growth bound.
-func (s *Service) requireWindowQuota(ctx context.Context, orgID int64, now time.Time, excludingID int64) error {
-	unexpired, err := s.windows.CountUnexpired(ctx, orgID, now, excludingID)
-	if err != nil {
-		return err
-	}
-	if unexpired >= maxMaintenanceWindowsPerOrg {
-		return fleeterror.NewFailedPreconditionErrorf(
-			"maintenance window limit reached (%d active or scheduled); delete one first", maxMaintenanceWindowsPerOrg)
-	}
-	return nil
+func maintenanceWindowLimitError() error {
+	return fleeterror.NewFailedPreconditionErrorf(
+		"maintenance window limit reached (%d active or scheduled); delete one first", maxMaintenanceWindowsPerOrg)
 }
 
 func (s *Service) DeleteMaintenanceWindow(ctx context.Context, orgID int64, id string) error {

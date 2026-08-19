@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -31,7 +32,13 @@ func emptyIfNil[T any](s []T) []T {
 	return s
 }
 
-func (s *SQLAlertMaintenanceWindowStore) Insert(ctx context.Context, rec alerts.MaintenanceWindowRecord) (alerts.MaintenanceWindowRecord, error) {
+func (s *SQLAlertMaintenanceWindowStore) InsertWithinLimit(ctx context.Context, rec alerts.MaintenanceWindowRecord, now time.Time, maxUnexpired int64) (alerts.MaintenanceWindowRecord, error) {
+	return s.writeWithinLimit(ctx, rec.OrganizationID, now, maxUnexpired, func(txCtx context.Context) (alerts.MaintenanceWindowRecord, error) {
+		return s.insert(txCtx, rec)
+	})
+}
+
+func (s *SQLAlertMaintenanceWindowStore) insert(ctx context.Context, rec alerts.MaintenanceWindowRecord) (alerts.MaintenanceWindowRecord, error) {
 	row, err := s.GetQueries(ctx).InsertAlertMaintenanceWindow(ctx, sqlc.InsertAlertMaintenanceWindowParams{
 		OrgID:      rec.OrganizationID,
 		RuleUids:   emptyIfNil(rec.RuleUIDs),
@@ -47,7 +54,13 @@ func (s *SQLAlertMaintenanceWindowStore) Insert(ctx context.Context, rec alerts.
 	return maintenanceWindowRecordFromRow(row), nil
 }
 
-func (s *SQLAlertMaintenanceWindowStore) Update(ctx context.Context, rec alerts.MaintenanceWindowRecord) (alerts.MaintenanceWindowRecord, error) {
+func (s *SQLAlertMaintenanceWindowStore) UpdateWithinLimit(ctx context.Context, rec alerts.MaintenanceWindowRecord, now time.Time, maxUnexpired int64) (alerts.MaintenanceWindowRecord, error) {
+	return s.writeWithinLimit(ctx, rec.OrganizationID, now, maxUnexpired, func(txCtx context.Context) (alerts.MaintenanceWindowRecord, error) {
+		return s.update(txCtx, rec)
+	})
+}
+
+func (s *SQLAlertMaintenanceWindowStore) update(ctx context.Context, rec alerts.MaintenanceWindowRecord) (alerts.MaintenanceWindowRecord, error) {
 	row, err := s.GetQueries(ctx).UpdateAlertMaintenanceWindow(ctx, sqlc.UpdateAlertMaintenanceWindowParams{
 		RuleUids:   emptyIfNil(rec.RuleUIDs),
 		ChannelIds: emptyIfNil(rec.ChannelIDs),
@@ -64,6 +77,52 @@ func (s *SQLAlertMaintenanceWindowStore) Update(ctx context.Context, rec alerts.
 		return alerts.MaintenanceWindowRecord{}, err
 	}
 	return maintenanceWindowRecordFromRow(row), nil
+}
+
+func (s *SQLAlertMaintenanceWindowStore) writeWithinLimit(
+	ctx context.Context,
+	orgID int64,
+	now time.Time,
+	maxUnexpired int64,
+	write func(context.Context) (alerts.MaintenanceWindowRecord, error),
+) (alerts.MaintenanceWindowRecord, error) {
+	result, err := s.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		q := s.GetQueries(txCtx)
+		if err := q.LockAlertMaintenanceWindowOrgForWrite(txCtx, orgID); err != nil {
+			return nil, err
+		}
+		rec, err := write(txCtx)
+		if err != nil {
+			return nil, err
+		}
+		unexpired, err := q.CountUnexpiredAlertMaintenanceWindows(txCtx, sqlc.CountUnexpiredAlertMaintenanceWindowsParams{
+			OrgID: orgID,
+			Now:   now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if unexpired > maxUnexpired {
+			return nil, alerts.ErrMaintenanceWindowLimitReached
+		}
+		return rec, nil
+	})
+	if err != nil {
+		// WithTransaction wraps non-FleetError values; restore store-contract sentinels after the
+		// rollback so callers keep their expected API classifications.
+		if errors.Is(err, alerts.ErrNotFound) {
+			return alerts.MaintenanceWindowRecord{}, alerts.ErrNotFound
+		}
+		if errors.Is(err, alerts.ErrMaintenanceWindowLimitReached) {
+			return alerts.MaintenanceWindowRecord{}, alerts.ErrMaintenanceWindowLimitReached
+		}
+		return alerts.MaintenanceWindowRecord{}, err
+	}
+	rec, ok := result.(alerts.MaintenanceWindowRecord)
+	if !ok {
+		return alerts.MaintenanceWindowRecord{}, fmt.Errorf("unexpected maintenance window write result %T", result)
+	}
+	return rec, nil
 }
 
 func (s *SQLAlertMaintenanceWindowStore) List(ctx context.Context, orgID int64) ([]alerts.MaintenanceWindowRecord, error) {
@@ -83,14 +142,6 @@ func (s *SQLAlertMaintenanceWindowStore) ListActive(ctx context.Context, orgID i
 		return nil, err
 	}
 	return maintenanceWindowRecordsFromRows(rows), nil
-}
-
-func (s *SQLAlertMaintenanceWindowStore) CountUnexpired(ctx context.Context, orgID int64, now time.Time, excludingID int64) (int64, error) {
-	return s.GetQueries(ctx).CountUnexpiredAlertMaintenanceWindows(ctx, sqlc.CountUnexpiredAlertMaintenanceWindowsParams{
-		OrgID:       orgID,
-		Now:         now,
-		ExcludingID: excludingID,
-	})
 }
 
 func (s *SQLAlertMaintenanceWindowStore) PruneExpired(ctx context.Context, orgID int64, now time.Time, retention time.Duration, keepNewest int64) (int64, error) {

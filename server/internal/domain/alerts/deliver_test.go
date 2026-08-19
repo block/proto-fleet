@@ -405,6 +405,25 @@ func TestDeliverMutedByAllScopeWindow(t *testing.T) {
 	assert.Empty(t, *got, "an all-rules/all-channels window mutes everything, attributed or not")
 }
 
+func TestDeliverAllScopeWindowPreservesResolutions(t *testing.T) {
+	srv, got := captureServer(t)
+	d, store, windows, crypto := newMutingDeliverer(t)
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+	seedWindow(windows, 7, nil, nil, 0)
+	resolved := firingRuleAlert("7", "dev-b", "Resolved Rule", "rule-b")
+	resolved.Status = "resolved"
+
+	d.Deliver(context.Background(), []Alert{
+		firingRuleAlert("7", "dev-a", "Firing Rule", "rule-a"),
+		resolved,
+	})
+
+	require.Len(t, *got, 1)
+	body := string((*got)[0].body)
+	assert.NotContains(t, body, "Firing Rule")
+	assert.Contains(t, body, "Resolved Rule", "resolutions close alerts delivered before the window")
+}
+
 func TestDeliverWindowMutesOnlyListedChannels(t *testing.T) {
 	srvA, gotA := captureServer(t)
 	srvB, gotB := captureServer(t)
@@ -437,6 +456,25 @@ func TestDeliverWindowMutesOnlyListedRules(t *testing.T) {
 	assert.NotContains(t, body, "Muted Rule")
 	assert.Contains(t, body, "Other Rule")
 	assert.Contains(t, body, "Unattributed")
+}
+
+func TestDeliverRuleScopedWindowPreservesMutedRuleResolution(t *testing.T) {
+	srv, got := captureServer(t)
+	d, store, windows, crypto := newMutingDeliverer(t)
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+	seedWindow(windows, 7, []string{"rule-a"}, nil, 0)
+	resolved := firingRuleAlert("7", "dev-b", "Resolved Muted Rule", "rule-a")
+	resolved.Status = "resolved"
+
+	d.Deliver(context.Background(), []Alert{
+		firingRuleAlert("7", "dev-a", "Firing Muted Rule", "rule-a"),
+		resolved,
+	})
+
+	require.Len(t, *got, 1)
+	body := string((*got)[0].body)
+	assert.NotContains(t, body, "Firing Muted Rule")
+	assert.Contains(t, body, "Resolved Muted Rule")
 }
 
 func TestDeliverIgnoresExpiredAndFutureWindows(t *testing.T) {

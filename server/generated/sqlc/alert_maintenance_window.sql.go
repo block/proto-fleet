@@ -16,20 +16,17 @@ const countUnexpiredAlertMaintenanceWindows = `-- name: CountUnexpiredAlertMaint
 SELECT count(*) FROM alert_maintenance_window
 WHERE org_id = $1
   AND ends_at > $2
-  AND id <> $3
 `
 
 type CountUnexpiredAlertMaintenanceWindowsParams struct {
-	OrgID       int64
-	Now         time.Time
-	ExcludingID int64
+	OrgID int64
+	Now   time.Time
 }
 
-// Backs the per-org write quota: only windows still active or scheduled count against it, so
-// expired history can never block a write. excluding_id skips the row an update rewrites
-// (0 on insert, which no BIGSERIAL id equals).
+// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
+// expired history can never block a write.
 func (q *Queries) CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error) {
-	row := q.queryRow(ctx, q.countUnexpiredAlertMaintenanceWindowsStmt, countUnexpiredAlertMaintenanceWindows, arg.OrgID, arg.Now, arg.ExcludingID)
+	row := q.queryRow(ctx, q.countUnexpiredAlertMaintenanceWindowsStmt, countUnexpiredAlertMaintenanceWindows, arg.OrgID, arg.Now)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -189,6 +186,19 @@ func (q *Queries) ListAlertMaintenanceWindows(ctx context.Context, orgID int64) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockAlertMaintenanceWindowOrgForWrite = `-- name: LockAlertMaintenanceWindowOrgForWrite :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended('alert_maintenance_window:' || $1::bigint::text, 0)
+)
+`
+
+// Serializes the quota check with mutations across every server instance. The transaction that
+// takes this lock re-counts after its write and rolls back if the org would exceed its limit.
+func (q *Queries) LockAlertMaintenanceWindowOrgForWrite(ctx context.Context, orgID int64) error {
+	_, err := q.exec(ctx, q.lockAlertMaintenanceWindowOrgForWriteStmt, lockAlertMaintenanceWindowOrgForWrite, orgID)
+	return err
 }
 
 const pruneExpiredAlertMaintenanceWindows = `-- name: PruneExpiredAlertMaintenanceWindows :execrows

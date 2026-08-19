@@ -30,7 +30,7 @@ describe("createMaintenanceWindow", () => {
       maintenanceWindow: {
         id: "5",
         organizationId: 7n,
-        scope: { ruleIds: ["rule-a"], channelIds: ["3"] },
+        scope: { ruleIds: ["rule-a"], channelIds: ["3"], allRules: false, allChannels: false },
         startsAt: timestampFromDate(new Date("2026-08-18T10:00:00Z")),
         endsAt: timestampFromDate(new Date("2026-08-18T12:00:00Z")),
         comment: "planned",
@@ -49,10 +49,39 @@ describe("createMaintenanceWindow", () => {
     });
 
     expect(createMaintenanceWindowMock).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: { ruleIds: ["rule-a"], channelIds: ["3"] } }),
+      expect.objectContaining({
+        scope: { ruleIds: ["rule-a"], channelIds: ["3"], allRules: false, allChannels: false },
+      }),
     );
     expect(created.rule_ids).toEqual(["rule-a"]);
     expect(created.channel_ids).toEqual(["3"]);
     expect(created.ends_at).toBe("2026-08-18T12:00:00.000Z");
+  });
+
+  it("explicitly selects all targets instead of relying on empty lists", async () => {
+    createMaintenanceWindowMock.mockResolvedValue({
+      maintenanceWindow: {
+        id: "6",
+        organizationId: 7n,
+        scope: { allRules: true, allChannels: true, ruleIds: [], channelIds: [] },
+        startsAt: timestampFromDate(new Date("2026-08-18T10:00:00Z")),
+        endsAt: timestampFromDate(new Date("2026-08-18T12:00:00Z")),
+        createdAt: timestampFromDate(new Date("2026-08-18T09:00:00Z")),
+      },
+    });
+
+    await createMaintenanceWindow({
+      rule_ids: [],
+      channel_ids: [],
+      starts_at: "2026-08-18T10:00:00.000Z",
+      ends_at: "2026-08-18T12:00:00.000Z",
+      comment: "",
+    });
+
+    expect(createMaintenanceWindowMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: { ruleIds: [], channelIds: [], allRules: true, allChannels: true },
+      }),
+    );
   });
 });
