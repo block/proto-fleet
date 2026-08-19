@@ -22,7 +22,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
-const localHAStatusURL = "http://" + ha.LocalStatusAddress + "/health/ha"
+const (
+	localHAStatusURL           = "http://" + ha.LocalStatusAddress + "/health/ha"
+	patroniReadinessRetryDelay = 2 * time.Second
+)
 
 type StatusReport struct {
 	Runtime ha.Status      `json:"runtime"`
@@ -261,7 +264,7 @@ func patroniRoles(ctx context.Context, tlsConfig *tls.Config, config NodeConfig)
 		return roleResult{
 			primary: endpointReadyWithClient(ctx, client, baseURL+"/primary"),
 			synchronous: endpointReadyWithClient(ctx, client, baseURL+"/synchronous") &&
-				endpointReadyWithClient(ctx, client, baseURL+"/readiness?lag=1MB&mode=apply"),
+				patroniApplyReady(ctx, client, baseURL),
 		}
 	})
 	for _, result := range results {
@@ -273,6 +276,21 @@ func patroniRoles(ctx context.Context, tlsConfig *tls.Config, config NodeConfig)
 		}
 	}
 	return primary, synchronous
+}
+
+func patroniApplyReady(ctx context.Context, client *http.Client, baseURL string) bool {
+	endpoint := baseURL + "/readiness?lag=0&mode=apply"
+	if endpointReadyWithClient(ctx, client, endpoint) {
+		return true
+	}
+	timer := time.NewTimer(patroniReadinessRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return endpointReadyWithClient(ctx, client, endpoint)
+	}
 }
 
 type fleetHostStatus struct {
