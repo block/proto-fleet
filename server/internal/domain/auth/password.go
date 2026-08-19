@@ -13,10 +13,10 @@ const (
 	temporaryPasswordLength = 32
 )
 
-// generateTemporaryPassword creates a cryptographically secure random password
+// GenerateTemporaryPassword creates a cryptographically secure random password
 // using URL-safe base64 encoding which provides a good mix of uppercase, lowercase,
 // numbers, and special characters (-_) without needing a hardcoded charset
-func generateTemporaryPassword() (string, error) {
+func GenerateTemporaryPassword() (string, error) {
 	randomBytes := make([]byte, temporaryPasswordBytes)
 
 	if _, err := rand.Read(randomBytes); err != nil {

@@ -60,6 +60,26 @@ The script will:
   in-product one-click upgrades
 - Run the deployment script automatically
 
+## Resetting the SUPER_ADMIN password
+
+If the sole SUPER_ADMIN is locked out, run this from the installed
+`deployment` directory:
+
+```bash
+./reset-super-admin-password.sh
+```
+
+The command prints a temporary password after the reset succeeds. It revokes
+the account's existing sessions and requires the password to be changed at the
+next login. To supply the temporary password through a pipeline instead:
+
+```bash
+printf '%s\n' "$NEW_PASSWORD" | ./reset-super-admin-password.sh --password-stdin
+```
+
+The command refuses to choose an account if the database contains zero or
+multiple live SUPER_ADMIN users.
+
 ## One-click upgrades
 
 After one manual install of a release that includes the host updater,

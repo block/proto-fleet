@@ -33,6 +33,31 @@ func (q *Queries) AdminResetUserPassword(ctx context.Context, arg AdminResetUser
 	return err
 }
 
+const breakGlassResetUserPassword = `-- name: BreakGlassResetUserPassword :execrows
+UPDATE "user"
+SET
+    password_hash = $1,
+    requires_password_change = TRUE,
+    updated_at = NOW(),
+    password_updated_at = NOW()
+WHERE
+    id = $2
+    AND deleted_at IS NULL
+`
+
+type BreakGlassResetUserPasswordParams struct {
+	PasswordHash string
+	ID           int64
+}
+
+func (q *Queries) BreakGlassResetUserPassword(ctx context.Context, arg BreakGlassResetUserPasswordParams) (int64, error) {
+	result, err := q.exec(ctx, q.breakGlassResetUserPasswordStmt, breakGlassResetUserPassword, arg.PasswordHash, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO
     "user" (
@@ -212,6 +237,65 @@ func (q *Queries) ListUsersForOrganization(ctx context.Context, organizationID i
 			&i.LastLoginAt,
 			&i.RequiresPasswordChange,
 			&i.RoleName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockActiveSuperAdminUsers = `-- name: LockActiveSuperAdminUsers :many
+SELECT
+    u.id,
+    u.user_id AS external_user_id,
+    u.username,
+    uor.organization_id
+FROM user_organization_role AS uor
+JOIN role AS r
+    ON r.id = uor.role_id
+    AND r.organization_id = uor.organization_id
+JOIN "user" AS u ON u.id = uor.user_id
+WHERE uor.scope_type = 'org'
+    AND uor.scope_id IS NULL
+    AND uor.deleted_at IS NULL
+    AND r.deleted_at IS NULL
+    AND r.builtin_key = 'SUPER_ADMIN'
+    AND u.deleted_at IS NULL
+ORDER BY u.id
+FOR UPDATE OF uor, r, u
+`
+
+type LockActiveSuperAdminUsersRow struct {
+	ID             int64
+	ExternalUserID string
+	Username       string
+	OrganizationID int64
+}
+
+// Break-glass resets intentionally target the sole live org-scope
+// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
+// resets serialize on the same rows.
+func (q *Queries) LockActiveSuperAdminUsers(ctx context.Context) ([]LockActiveSuperAdminUsersRow, error) {
+	rows, err := q.query(ctx, q.lockActiveSuperAdminUsersStmt, lockActiveSuperAdminUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockActiveSuperAdminUsersRow
+	for rows.Next() {
+		var i LockActiveSuperAdminUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ExternalUserID,
+			&i.Username,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}

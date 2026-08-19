@@ -180,6 +180,18 @@ func (q *retryingQuerier) BindEnrollmentToFleetNode(ctx context.Context, arg Bin
 	return result, err
 }
 
+func (q *retryingQuerier) BreakGlassResetUserPassword(ctx context.Context, arg BreakGlassResetUserPasswordParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "BreakGlassResetUserPassword", func() error {
+		callResult, callErr := q.next.BreakGlassResetUserPassword(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsToOrgParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "BuildingBelongsToOrg", func() error {
@@ -4288,6 +4300,18 @@ func (q *retryingQuerier) ListUsersForOrganization(ctx context.Context, organiza
 	var result []ListUsersForOrganizationRow
 	err := q.retrier.RetryQuery(ctx, "ListUsersForOrganization", func() error {
 		callResult, callErr := q.next.ListUsersForOrganization(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockActiveSuperAdminUsers(ctx context.Context) ([]LockActiveSuperAdminUsersRow, error) {
+	var result []LockActiveSuperAdminUsersRow
+	err := q.retrier.RetryQuery(ctx, "LockActiveSuperAdminUsers", func() error {
+		callResult, callErr := q.next.LockActiveSuperAdminUsers(ctx)
 		if callErr == nil {
 			result = callResult
 		}

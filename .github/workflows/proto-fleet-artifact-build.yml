@@ -515,12 +515,13 @@ jobs:
           cp -a server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
+          cp deployment-files/reset-super-admin-password.sh deployment/
           cp deployment-files/uninstall.sh deployment/
           cp -r deployment-files/scripts deployment/
           cp -r deployment-files/profiles deployment/
           cp -r deployment-files/ha deployment/
           mv deployment/server/fleet-ha deployment/ha/fleet-ha
-          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
+          chmod +x deployment/run-fleet.sh deployment/reset-super-admin-password.sh deployment/uninstall.sh deployment/scripts/*.sh
           chmod +x deployment/ha/scripts/*.sh deployment/ha/tests/*.sh
           chmod +x deployment/updater/proto-fleet-updater
 
@@ -574,6 +575,7 @@ jobs:
           tar -tzf "$bundle" > "$RUNNER_TEMP/deployment-bundle-contents.txt"
           for required_path in \
             deployment/docker-compose.updater.yaml \
+            deployment/reset-super-admin-password.sh \
             deployment/images/fleet.tar.gz \
             deployment/updater/proto-fleet-updater \
             deployment/updater/proto-fleet-updater.service; do

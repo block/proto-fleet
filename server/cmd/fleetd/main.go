@@ -31,7 +31,6 @@ import (
 	"connectrpc.com/grpcreflect"
 	"connectrpc.com/validate"
 	"github.com/alecthomas/kong"
-	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
@@ -143,19 +142,24 @@ const shutdownTimeout = 10 * time.Second
 var version = "dev"
 
 func main() {
-	config := &Config{}
-
-	_ = kong.Parse(
-		config,
+	cli := &fleetdCLI{}
+	kctx := kong.Parse(
+		cli,
 		kong.Name("fleetd"),
-		kong.Configuration(kongyaml.Loader, "/etc/fleetd/config.yaml"),
+		kong.Configuration(fleetdYAMLLoader, "/etc/fleetd/config.yaml"),
+		kong.BindTo(context.Background(), (*context.Context)(nil)),
 	)
 
-	logging.InitLogger(config.Log)
+	logConfig := cli.Server.Log
+	if kctx.Command() != "server" {
+		logConfig = logging.Config{Level: slog.LevelInfo, BufferSize: 1000}
+	}
+	logging.InitLogger(logConfig)
 
-	slog.Info("fleetd starting", "version", version)
-
-	if err := start(config); err != nil {
+	if err := kctx.Run(&commandRuntime{
+		Stdin:  os.Stdin,
+		Stdout: os.Stdout,
+	}); err != nil {
 		slog.Error(fmt.Sprintf("%+v", err))
 		os.Exit(1)
 	}

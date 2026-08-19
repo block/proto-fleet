@@ -698,7 +698,7 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	orgID := orgs[0].ID
 
 	// Generate temporary password
-	tempPassword, err := generateTemporaryPassword()
+	tempPassword, err := GenerateTemporaryPassword()
 	if err != nil {
 		return nil, err
 	}
@@ -844,7 +844,7 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	}
 
 	// Generate new temporary password
-	tempPassword, err := generateTemporaryPassword()
+	tempPassword, err := GenerateTemporaryPassword()
 	if err != nil {
 		return nil, err
 	}
