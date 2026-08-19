@@ -352,9 +352,17 @@ type CollectionStore interface {
 	// stable identifier order and returns the owned identifiers.
 	LockDevicesForChannelAssignment(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
 
+	// ListCurrentChannelIDsForDevices re-reads current channel memberships
+	// after device locks are held so ownership checks use fresh state.
+	ListCurrentChannelIDsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]int64, error)
+
 	// IsRolloutLaneChannel reports whether a physical channel is retained as
 	// rollout-lane state, including after its lane is archived.
 	IsRolloutLaneChannel(ctx context.Context, orgID, channelID int64) (bool, error)
+
+	// ListRolloutLaneOwnedChannelIDs returns the requested channels retained as
+	// rollout-lane state, including channels belonging to archived lanes.
+	ListRolloutLaneOwnedChannelIDs(ctx context.Context, orgID int64, channelIDs []int64) ([]int64, error)
 
 	// ListActiveRolloutOwnedDeviceIdentifiers returns requested devices whose
 	// channel membership is currently owned by a rollout.

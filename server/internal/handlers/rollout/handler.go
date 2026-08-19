@@ -2,6 +2,8 @@ package rollout
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"time"
 
 	"connectrpc.com/connect"
@@ -40,10 +42,22 @@ type laneService interface {
 		ctx context.Context,
 		orgID int64,
 		laneID uuid.UUID,
-		includeInitialEnforcementMembers bool,
-		initialEnforcementMembersUpdatedAfter *time.Time,
+		includeFirmwareConvergenceMembers bool,
+		firmwareConvergenceMembersUpdatedAfter *time.Time,
 	) (*betweenchannel.Lane, error)
-	ListLanes(ctx context.Context, orgID int64, activeInitialOnly bool) ([]betweenchannel.Lane, error)
+	ListLanes(ctx context.Context, orgID int64, activeFirmwareConvergenceOnly bool) ([]betweenchannel.Lane, error)
+	ListMembers(
+		ctx context.Context,
+		req betweenchannel.ListMembersRequest,
+	) (betweenchannel.ListMembersResult, error)
+	PreviewMembershipChange(
+		ctx context.Context,
+		req betweenchannel.PreviewMembershipChangeRequest,
+	) (betweenchannel.MembershipChangePreview, error)
+	UpdateMembership(
+		ctx context.Context,
+		req betweenchannel.UpdateMembershipRequest,
+	) (betweenchannel.UpdateMembershipResult, error)
 	DeleteLane(ctx context.Context, req betweenchannel.DeleteLaneRequest) error
 	StartRollout(
 		ctx context.Context,
@@ -149,10 +163,10 @@ func (h *Handler) GetRolloutLane(
 		return nil, err
 	}
 	var membersUpdatedAfter *time.Time
-	if value := req.Msg.GetInitialEnforcementMembersUpdatedAfter(); value != nil {
+	if value := req.Msg.GetFirmwareConvergenceMembersUpdatedAfter(); value != nil {
 		if err = value.CheckValid(); err != nil {
 			return nil, fleeterror.NewInvalidArgumentError(
-				"initial_enforcement_members_updated_after must be a valid timestamp",
+				"firmware_convergence_members_updated_after must be a valid timestamp",
 			)
 		}
 		parsed := value.AsTime()
@@ -162,7 +176,7 @@ func (h *Handler) GetRolloutLane(
 		ctx,
 		info.OrganizationID,
 		laneID,
-		req.Msg.GetIncludeInitialEnforcementMembers(),
+		req.Msg.GetIncludeFirmwareConvergenceMembers(),
 		membersUpdatedAfter,
 	)
 	if err != nil {
@@ -193,7 +207,7 @@ func (h *Handler) ListRolloutLanes(
 	lanes, err := h.laneService.ListLanes(
 		ctx,
 		info.OrganizationID,
-		req.Msg.GetActiveInitialOnly(),
+		req.Msg.GetActiveFirmwareConvergenceOnly(),
 	)
 	if err != nil {
 		return nil, err
@@ -203,6 +217,176 @@ func (h *Handler) ListRolloutLanes(
 	}
 	for index := range lanes {
 		response.Lanes = append(response.Lanes, laneToProto(&lanes[index]))
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (h *Handler) ListRolloutLaneMembers(
+	ctx context.Context,
+	req *connect.Request[pb.ListRolloutLaneMembersRequest],
+) (*connect.Response[pb.ListRolloutLaneMembersResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelRead,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	pageToken, err := decodeLaneMemberPageToken(req.Msg.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	if pageToken.LaneID != uuid.Nil && pageToken.LaneID != laneID {
+		return nil, fleeterror.NewInvalidArgumentError(
+			"rollout lane member page token belongs to a different lane",
+		)
+	}
+	result, err := h.laneService.ListMembers(ctx, betweenchannel.ListMembersRequest{
+		OrgID:             info.OrganizationID,
+		LaneID:            laneID,
+		ExpectedRevision:  pageToken.Revision,
+		AfterIdentifier:   pageToken.Cursor,
+		Limit:             int32(req.Msg.GetPageSize()), //nolint:gosec // Proto validation caps page size at 1000.
+		IncludeTotalCount: req.Msg.GetIncludeTotalCount(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.ListRolloutLaneMembersResponse{
+		Members:    make([]*pb.RolloutLaneMember, 0, len(result.Members)),
+		TotalCount: nonNegativeUint32(int32(result.TotalCount)), //nolint:gosec // Lane membership is API bounded.
+	}
+	for _, member := range result.Members {
+		response.Members = append(response.Members, laneMemberToProto(member))
+	}
+	if result.NextIdentifier != "" {
+		response.NextPageToken = encodeLaneMemberPageToken(laneMemberPageToken{
+			Version:  laneMemberPageTokenVersion,
+			LaneID:   laneID,
+			Revision: result.Revision,
+			Cursor:   result.NextIdentifier,
+		})
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (h *Handler) PreviewRolloutLaneMembershipChange(
+	ctx context.Context,
+	req *connect.Request[pb.PreviewRolloutLaneMembershipChangeRequest],
+) (*connect.Response[pb.PreviewRolloutLaneMembershipChangeResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	preview, err := h.laneService.PreviewMembershipChange(
+		ctx,
+		betweenchannel.PreviewMembershipChangeRequest{
+			OrgID:             info.OrganizationID,
+			LaneID:            laneID,
+			AddIdentifiers:    req.Msg.GetAddDeviceIdentifiers(),
+			RemoveIdentifiers: req.Msg.GetRemoveDeviceIdentifiers(),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.PreviewRolloutLaneMembershipChangeResponse{
+		TargetFirmwarePreview:            lanePreviewToProto(preview.TargetFirmwarePreview),
+		Reassignments:                    make([]*pb.RolloutLaneMembershipReassignment, 0, len(preview.Reassignments)),
+		Removals:                         make([]*pb.RolloutLaneMember, 0, len(preview.Removals)),
+		RequiresFirmwareConfirmation:     preview.RequiresFirmwareConfirmation,
+		RequiresReassignmentConfirmation: preview.RequiresReassignConfirmation,
+	}
+	for _, reassignment := range preview.Reassignments {
+		response.Reassignments = append(
+			response.Reassignments,
+			&pb.RolloutLaneMembershipReassignment{
+				DeviceIdentifier: reassignment.DeviceIdentifier,
+				SourceLaneId:     reassignment.SourceLaneID.String(),
+				SourceLaneLabel:  reassignment.SourceLaneLabel,
+			},
+		)
+	}
+	for _, removal := range preview.Removals {
+		response.Removals = append(response.Removals, laneMemberToProto(removal))
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (h *Handler) UpdateRolloutLaneMembership(
+	ctx context.Context,
+	req *connect.Request[pb.UpdateRolloutLaneMembershipRequest],
+) (*connect.Response[pb.UpdateRolloutLaneMembershipResponse], error) {
+	info, err := middleware.RequirePermission(
+		ctx,
+		authz.PermChannelManage,
+		authz.ResourceContext{},
+	)
+	if err != nil {
+		return nil, err
+	}
+	if h.laneService == nil {
+		return nil, fleeterror.NewUnimplementedError(
+			"rollout lane service is not registered",
+		)
+	}
+	laneID, err := parseLaneID(req.Msg.GetLaneId())
+	if err != nil {
+		return nil, err
+	}
+	actorType, actorCredentialID := actorIdentityFromSession(info)
+	result, err := h.laneService.UpdateMembership(
+		ctx,
+		betweenchannel.UpdateMembershipRequest{
+			OrgID:             info.OrganizationID,
+			LaneID:            laneID,
+			ExpectedRevision:  int64(req.Msg.GetExpectedRevision()), //nolint:gosec // Overflow fails domain validation.
+			AddIdentifiers:    req.Msg.GetAddDeviceIdentifiers(),
+			RemoveIdentifiers: req.Msg.GetRemoveDeviceIdentifiers(),
+			ConfirmFirmware:   req.Msg.GetConfirmFirmware(),
+			ConfirmReassign:   req.Msg.GetConfirmReassign(),
+			IdempotencyKey:    req.Msg.GetIdempotencyKey(),
+			Reason:            req.Msg.GetReason(),
+			ActorUserID:       info.UserID,
+			ActorType:         actorType,
+			ActorCredentialID: actorCredentialID,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.UpdateRolloutLaneMembershipResponse{
+		Lane:              laneToProto(result.Lane),
+		TransitionMembers: make([]*pb.RolloutLaneMember, 0, len(result.TransitionMembers)),
+	}
+	for _, member := range result.TransitionMembers {
+		response.TransitionMembers = append(
+			response.TransitionMembers,
+			laneMemberToProto(member),
+		)
 	}
 	return connect.NewResponse(response), nil
 }
@@ -242,6 +426,46 @@ func (h *Handler) DeleteRolloutLane(
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteRolloutLaneResponse{}), nil
+}
+
+const laneMemberPageTokenVersion = 1
+
+type laneMemberPageToken struct {
+	Version  int       `json:"v"`
+	LaneID   uuid.UUID `json:"lane_id"`
+	Revision int64     `json:"revision"`
+	Cursor   string    `json:"cursor"`
+}
+
+func encodeLaneMemberPageToken(token laneMemberPageToken) string {
+	encoded, err := json.Marshal(token)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
+func decodeLaneMemberPageToken(value string) (laneMemberPageToken, error) {
+	if value == "" {
+		return laneMemberPageToken{}, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(decoded) == 0 {
+		return laneMemberPageToken{}, fleeterror.NewInvalidArgumentError(
+			"invalid rollout lane member page token",
+		)
+	}
+	var token laneMemberPageToken
+	if err = json.Unmarshal(decoded, &token); err != nil ||
+		token.Version != laneMemberPageTokenVersion ||
+		token.LaneID == uuid.Nil ||
+		token.Revision <= 0 ||
+		token.Cursor == "" {
+		return laneMemberPageToken{}, fleeterror.NewInvalidArgumentError(
+			"invalid rollout lane member page token",
+		)
+	}
+	return token, nil
 }
 
 func (h *Handler) StartRolloutLane(

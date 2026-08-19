@@ -208,7 +208,45 @@ export interface FirmwareTransitionProgress {
   members: FirmwareTransitionMiner[];
 }
 
-export type RolloutLaneInitialEnforcementStatus = FirmwareTransitionProgress;
+export type RolloutLaneFirmwareConvergenceStatus = FirmwareTransitionProgress;
+
+/** One miner currently managed by any physical channel in a rollout lane. */
+export interface RolloutLaneMembershipMember {
+  deviceIdentifier: string;
+  manufacturer: string;
+  model: string;
+  observedFirmwareVersion?: string;
+  channelId: bigint;
+  channelPosition: number;
+  onCurrentChannel: boolean;
+  pinnedReleaseVersion: string;
+  enforcement?: FirmwareTransitionMiner;
+}
+
+export interface RolloutLaneMembershipReassignment {
+  deviceIdentifier: string;
+  sourceLaneId: string;
+  sourceLaneLabel: string;
+}
+
+export interface RolloutLaneMembershipPage {
+  members: RolloutLaneMembershipMember[];
+  nextPageToken: string;
+  totalCount: number;
+}
+
+export interface RolloutLaneMembershipChangePreview {
+  targetFirmwarePreview: RolloutLanePreview;
+  reassignments: RolloutLaneMembershipReassignment[];
+  removals: RolloutLaneMembershipMember[];
+  requiresFirmwareConfirmation: boolean;
+  requiresReassignmentConfirmation: boolean;
+}
+
+export interface RolloutLaneMembershipUpdateResult {
+  lane: RolloutLane;
+  transitionMembers: RolloutLaneMembershipMember[];
+}
 
 /** One physical version channel in a stable operator-facing lane. */
 export interface RolloutLaneChannel {
@@ -234,7 +272,7 @@ export interface RolloutLane {
   memberCount: number;
   memberIdentifiers: string[];
   currentReleaseTargets: RolloutLaneReleaseTarget[];
-  initialEnforcement: RolloutLaneInitialEnforcementStatus;
+  firmwareConvergence: RolloutLaneFirmwareConvergenceStatus;
   createdAt?: string;
   updatedAt?: string;
 }

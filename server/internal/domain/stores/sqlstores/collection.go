@@ -991,6 +991,27 @@ func (s *SQLCollectionStore) LockDevicesForChannelAssignment(
 	return ids, nil
 }
 
+func (s *SQLCollectionStore) ListCurrentChannelIDsForDevices(
+	ctx context.Context,
+	orgID int64,
+	deviceIdentifiers []string,
+) ([]int64, error) {
+	ids, err := s.GetQueries(ctx).ListCurrentChannelIDsForDevices(
+		ctx,
+		sqlc.ListCurrentChannelIDsForDevicesParams{
+			OrgID:             orgID,
+			DeviceIdentifiers: deviceIdentifiers,
+		},
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf(
+			"failed to re-read current channel memberships: %v",
+			err,
+		)
+	}
+	return ids, nil
+}
+
 func (s *SQLCollectionStore) IsRolloutLaneChannel(
 	ctx context.Context,
 	orgID int64,
@@ -1003,6 +1024,27 @@ func (s *SQLCollectionStore) IsRolloutLaneChannel(
 	if err != nil {
 		return false, fleeterror.NewInternalErrorf(
 			"failed to check rollout-lane channel ownership: %v",
+			err,
+		)
+	}
+	return owned, nil
+}
+
+func (s *SQLCollectionStore) ListRolloutLaneOwnedChannelIDs(
+	ctx context.Context,
+	orgID int64,
+	channelIDs []int64,
+) ([]int64, error) {
+	owned, err := s.GetQueries(ctx).ListRolloutLaneOwnedChannelIDs(
+		ctx,
+		sqlc.ListRolloutLaneOwnedChannelIDsParams{
+			OrgID:      orgID,
+			ChannelIds: channelIDs,
+		},
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf(
+			"failed to list rollout-lane channel ownership: %v",
 			err,
 		)
 	}

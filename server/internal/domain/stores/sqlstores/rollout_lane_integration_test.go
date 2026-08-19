@@ -844,6 +844,16 @@ func TestRolloutLaneManualMembershipMoveConflictsInsteadOfOverwriting(t *testing
 			DeviceIdentifiers: deviceIDs,
 		},
 	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	_, err = sqlc.New(db).TestMoveDeviceChannelMembership(
+		t.Context(),
+		sqlc.TestMoveDeviceChannelMembershipParams{
+			TargetChannelID:  manualChannel.Id,
+			OrgID:            orgID,
+			DeviceIdentifier: deviceIDs[0],
+		},
+	)
 	require.NoError(t, err)
 
 	revertRequest := rollout.ControlRequest{
@@ -1031,18 +1041,18 @@ func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
 	request.ConfirmInitialEnforcement = true
 	lane, err := service.CreateLane(t.Context(), request)
 	require.NoError(t, err)
-	assert.Equal(t, int32(3), lane.InitialEnforcement.TotalCount)
-	assert.Equal(t, int32(2), lane.InitialEnforcement.PendingCount)
-	assert.Equal(t, int32(0), lane.InitialEnforcement.UpdatingCount)
-	assert.Equal(t, int32(0), lane.InitialEnforcement.VerifyingCount)
-	assert.Equal(t, int32(1), lane.InitialEnforcement.ConfirmedCount)
-	assert.Equal(t, int32(0), lane.InitialEnforcement.AttentionCount)
-	require.Len(t, lane.InitialEnforcement.Members, 3)
+	assert.Equal(t, int32(3), lane.FirmwareConvergence.TotalCount)
+	assert.Equal(t, int32(2), lane.FirmwareConvergence.PendingCount)
+	assert.Equal(t, int32(0), lane.FirmwareConvergence.UpdatingCount)
+	assert.Equal(t, int32(0), lane.FirmwareConvergence.VerifyingCount)
+	assert.Equal(t, int32(1), lane.FirmwareConvergence.ConfirmedCount)
+	assert.Equal(t, int32(0), lane.FirmwareConvergence.AttentionCount)
+	require.Len(t, lane.FirmwareConvergence.Members, 3)
 	initialByIdentifier := make(
 		map[string]channelDomain.FirmwareTransitionMiner,
-		len(lane.InitialEnforcement.Members),
+		len(lane.FirmwareConvergence.Members),
 	)
-	for _, miner := range lane.InitialEnforcement.Members {
+	for _, miner := range lane.FirmwareConvergence.Members {
 		initialByIdentifier[miner.DeviceIdentifier] = miner
 	}
 	assert.Equal(t, "TestCorp", initialByIdentifier[deviceIDs[0]].Manufacturer)
@@ -1070,18 +1080,19 @@ func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
 	)
 	summaryLane, err := service.GetLane(t.Context(), orgID, lane.ID, false, nil)
 	require.NoError(t, err)
-	assert.Empty(t, summaryLane.InitialEnforcement.Members)
+	assert.Empty(t, summaryLane.FirmwareConvergence.Members)
 	detailedLane, err := service.GetLane(t.Context(), orgID, lane.ID, true, nil)
 	require.NoError(t, err)
-	require.Len(t, detailedLane.InitialEnforcement.Members, 3)
+	require.Len(t, detailedLane.FirmwareConvergence.Members, 3)
 	lanes, err := service.ListLanes(t.Context(), orgID, false)
 	require.NoError(t, err)
 	require.Len(t, lanes, 1)
-	assert.Empty(t, lanes[0].InitialEnforcement.Members)
-	assert.Equal(t, lane.InitialEnforcement.TotalCount, lanes[0].InitialEnforcement.TotalCount)
-	assert.Equal(t, lane.InitialEnforcement.PendingCount, lanes[0].InitialEnforcement.PendingCount)
-	assert.Equal(t, lane.InitialEnforcement.VerifyingCount, lanes[0].InitialEnforcement.VerifyingCount)
-	assert.Equal(t, lane.InitialEnforcement.ConfirmedCount, lanes[0].InitialEnforcement.ConfirmedCount)
+	assert.Empty(t, lanes[0].FirmwareConvergence.Members)
+	assert.Equal(t, int32(3), lanes[0].MemberCount)
+	assert.Equal(t, lane.FirmwareConvergence.TotalCount, lanes[0].FirmwareConvergence.TotalCount)
+	assert.Equal(t, lane.FirmwareConvergence.PendingCount, lanes[0].FirmwareConvergence.PendingCount)
+	assert.Equal(t, lane.FirmwareConvergence.VerifyingCount, lanes[0].FirmwareConvergence.VerifyingCount)
+	assert.Equal(t, lane.FirmwareConvergence.ConfirmedCount, lanes[0].FirmwareConvergence.ConfirmedCount)
 
 	var confirmed, pending int64
 	require.NoError(t, db.QueryRowContext(t.Context(), `
@@ -1142,16 +1153,16 @@ func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
 	require.NoError(t, err)
 	lane, err = service.GetLane(t.Context(), orgID, lane.ID, true, nil)
 	require.NoError(t, err)
-	assert.Equal(t, int32(0), lane.InitialEnforcement.PendingCount)
-	assert.Equal(t, int32(0), lane.InitialEnforcement.UpdatingCount)
-	assert.Equal(t, int32(1), lane.InitialEnforcement.VerifyingCount)
-	assert.Equal(t, int32(1), lane.InitialEnforcement.ConfirmedCount)
-	assert.Equal(t, int32(1), lane.InitialEnforcement.AttentionCount)
+	assert.Equal(t, int32(0), lane.FirmwareConvergence.PendingCount)
+	assert.Equal(t, int32(0), lane.FirmwareConvergence.UpdatingCount)
+	assert.Equal(t, int32(1), lane.FirmwareConvergence.VerifyingCount)
+	assert.Equal(t, int32(1), lane.FirmwareConvergence.ConfirmedCount)
+	assert.Equal(t, int32(1), lane.FirmwareConvergence.AttentionCount)
 	initialByIdentifier = make(
 		map[string]channelDomain.FirmwareTransitionMiner,
-		len(lane.InitialEnforcement.Members),
+		len(lane.FirmwareConvergence.Members),
 	)
-	for _, miner := range lane.InitialEnforcement.Members {
+	for _, miner := range lane.FirmwareConvergence.Members {
 		initialByIdentifier[miner.DeviceIdentifier] = miner
 	}
 	assert.Equal(
@@ -1169,8 +1180,8 @@ func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
 		"firmware identity could not be confirmed",
 		initialByIdentifier[deviceIDs[2]].LastError,
 	)
-	membersUpdatedAfter := lane.InitialEnforcement.Members[0].UpdatedAt
-	for _, miner := range lane.InitialEnforcement.Members[1:] {
+	membersUpdatedAfter := lane.FirmwareConvergence.Members[0].UpdatedAt
+	for _, miner := range lane.FirmwareConvergence.Members[1:] {
 		if miner.UpdatedAt.After(membersUpdatedAfter) {
 			membersUpdatedAfter = miner.UpdatedAt
 		}
@@ -1199,15 +1210,15 @@ func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
 		&membersUpdatedAfter,
 	)
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), incrementalLane.InitialEnforcement.UpdatingCount)
-	require.Len(t, incrementalLane.InitialEnforcement.Members, 1)
-	assert.Equal(t, deviceIDs[1], incrementalLane.InitialEnforcement.Members[0].DeviceIdentifier)
-	assert.True(t, incrementalLane.InitialEnforcement.Members[0].UpdatedAt.After(membersUpdatedAfter))
+	assert.Equal(t, int32(1), incrementalLane.FirmwareConvergence.UpdatingCount)
+	require.Len(t, incrementalLane.FirmwareConvergence.Members, 1)
+	assert.Equal(t, deviceIDs[1], incrementalLane.FirmwareConvergence.Members[0].DeviceIdentifier)
+	assert.True(t, incrementalLane.FirmwareConvergence.Members[0].UpdatedAt.After(membersUpdatedAfter))
 	lane, err = service.GetLane(t.Context(), orgID, lane.ID, true, nil)
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), lane.InitialEnforcement.UpdatingCount)
-	assert.Equal(t, int32(0), lane.InitialEnforcement.VerifyingCount)
-	for _, miner := range lane.InitialEnforcement.Members {
+	assert.Equal(t, int32(1), lane.FirmwareConvergence.UpdatingCount)
+	assert.Equal(t, int32(0), lane.FirmwareConvergence.VerifyingCount)
+	for _, miner := range lane.FirmwareConvergence.Members {
 		if miner.DeviceIdentifier == deviceIDs[1] {
 			assert.Equal(t, channelDomain.FirmwareTransitionUpdating, miner.State)
 		}
@@ -1254,7 +1265,7 @@ func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
 		Reason:         "integration test",
 		ActorUserID:    actorID,
 	})
-	require.ErrorIs(t, err, betweenchannel.ErrInitialEnforcementActive)
+	require.ErrorIs(t, err, betweenchannel.ErrFirmwareConvergenceActive)
 
 	_, err = db.ExecContext(t.Context(), `
 		UPDATE discovered_device discovered
@@ -1268,9 +1279,9 @@ func TestRolloutLaneInitialEnforcementPreviewAndConfirmedCreate(t *testing.T) {
 	require.NoError(t, err)
 	laneWithMissingDiscovery, err := service.GetLane(t.Context(), orgID, lane.ID, true, nil)
 	require.NoError(t, err)
-	require.Len(t, laneWithMissingDiscovery.InitialEnforcement.Members, 3)
+	require.Len(t, laneWithMissingDiscovery.FirmwareConvergence.Members, 3)
 	foundMissingDiscovery := false
-	for _, miner := range laneWithMissingDiscovery.InitialEnforcement.Members {
+	for _, miner := range laneWithMissingDiscovery.FirmwareConvergence.Members {
 		if miner.DeviceIdentifier == deviceIDs[2] {
 			foundMissingDiscovery = true
 			assert.Empty(t, miner.Manufacturer)
@@ -1320,8 +1331,8 @@ func TestRolloutLaneDetailIncludesLegacySoftDeletedInitialBlocker(t *testing.T) 
 
 	laneWithLegacyDeletedBlocker, err := service.GetLane(t.Context(), orgID, lane.ID, true, nil)
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), laneWithLegacyDeletedBlocker.InitialEnforcement.TotalCount)
-	require.Len(t, laneWithLegacyDeletedBlocker.InitialEnforcement.Members, 1)
+	assert.Equal(t, int32(1), laneWithLegacyDeletedBlocker.FirmwareConvergence.TotalCount)
+	require.Len(t, laneWithLegacyDeletedBlocker.FirmwareConvergence.Members, 1)
 	legacyBlocker := initialEnforcementMemberByIdentifier(
 		t,
 		laneWithLegacyDeletedBlocker,
@@ -1341,10 +1352,23 @@ func TestSQLDeviceStoreSoftDeleteRespectsInitialLaneEnforcement(t *testing.T) {
 		name          string
 		state         string
 		archiveLane   bool
+		removeMember  bool
 		allowDeletion bool
 	}{
 		{name: "pending enforcement rejects deletion", state: "pending"},
 		{name: "attention-required enforcement rejects deletion", state: "attention_required"},
+		{
+			name:          "removed attention-required member permits deletion",
+			state:         "attention_required",
+			removeMember:  true,
+			allowDeletion: true,
+		},
+		{
+			name:          "removed cancelled member permits deletion",
+			state:         "cancelled",
+			removeMember:  true,
+			allowDeletion: true,
+		},
 		{
 			name:          "archived attention-required enforcement permits deletion",
 			state:         "attention_required",
@@ -1369,22 +1393,40 @@ func TestSQLDeviceStoreSoftDeleteRespectsInitialLaneEnforcement(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = db.ExecContext(t.Context(), `
-				UPDATE channel_firmware_enforcement enforcement
-				SET state = $3,
-				    confirmed_at = CASE WHEN $3 = 'confirmed' THEN CURRENT_TIMESTAMP ELSE NULL END,
-				    attention_required_at = CASE
-				        WHEN $3 = 'attention_required' THEN CURRENT_TIMESTAMP
-				        ELSE NULL
-				    END
-				FROM channel_firmware_authority authority
-				WHERE authority.id = enforcement.authority_id
-				  AND authority.org_id = enforcement.org_id
-				  AND authority.org_id = $1
-				  AND authority.authority_type = 'rollout_lane_initial'
-				  AND authority.authority_reference = $2
-			`, orgID, lane.ID.String(), test.state)
+			q := sqlc.New(db)
+			_, err = q.TestSetRolloutLaneMembershipEnforcementState(
+				t.Context(),
+				sqlc.TestSetRolloutLaneMembershipEnforcementStateParams{
+					State:              test.state,
+					OrgID:              orgID,
+					AuthorityType:      "rollout_lane_initial",
+					AuthorityReference: lane.ID.String(),
+					CurrentState:       "",
+				},
+			)
 			require.NoError(t, err)
+
+			if test.removeMember {
+				candidates, candidateErr := q.ListRolloutLaneMembershipCandidates(
+					t.Context(),
+					sqlc.ListRolloutLaneMembershipCandidatesParams{
+						OrgID:             orgID,
+						DeviceIdentifiers: deviceIdentifiers,
+					},
+				)
+				require.NoError(t, candidateErr)
+				require.Len(t, candidates, 1)
+				removed, removeErr := q.RemoveRolloutLaneMembershipDevices(
+					t.Context(),
+					sqlc.RemoveRolloutLaneMembershipDevicesParams{
+						OrgID:     orgID,
+						LaneIds:   []uuid.UUID{lane.ID},
+						DeviceIds: []int64{candidates[0].DeviceID},
+					},
+				)
+				require.NoError(t, removeErr)
+				require.Equal(t, []int64{candidates[0].DeviceID}, removed)
+			}
 
 			if test.archiveLane {
 				require.NoError(
@@ -1439,7 +1481,7 @@ func TestSQLDeviceStoreSoftDeleteRespectsInitialLaneEnforcement(t *testing.T) {
 
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsFailedPreconditionError(err), "got %v", err)
-			assert.Contains(t, err.Error(), "initial rollout lane firmware enforcement")
+			assert.Contains(t, err.Error(), "rollout lane firmware convergence")
 			assert.Zero(t, deletedCount)
 			assertDeletionState(t, db, deviceID, discoveredDeviceID, false)
 		})
@@ -1589,7 +1631,7 @@ func TestRolloutLaneConcurrentCreateReplaysIdempotently(t *testing.T) {
 	assert.Equal(t, first.lane.ID, second.lane.ID)
 }
 
-func TestListRolloutLanesActiveInitialOnlyStaysBoundedByActiveWork(t *testing.T) {
+func TestListRolloutLanesActiveFirmwareConvergenceOnlyStaysBoundedByActiveWork(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
@@ -1727,17 +1769,14 @@ func setDiscoveredFirmwareVersion(
 	version string,
 ) {
 	t.Helper()
-	result, err := db.ExecContext(t.Context(), `
-		UPDATE discovered_device discovered
-		SET firmware_version = NULLIF($3, '')
-		FROM device
-		WHERE device.discovered_device_id = discovered.id
-		  AND device.org_id = discovered.org_id
-		  AND device.org_id = $1
-		  AND device.device_identifier = $2
-	`, orgID, deviceIdentifier, version)
-	require.NoError(t, err)
-	rows, err := result.RowsAffected()
+	rows, err := sqlc.New(db).TestSetDiscoveredFirmwareVersion(
+		t.Context(),
+		sqlc.TestSetDiscoveredFirmwareVersionParams{
+			FirmwareVersion:  version,
+			OrgID:            orgID,
+			DeviceIdentifier: deviceIdentifier,
+		},
+	)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), rows)
 }
@@ -1786,7 +1825,7 @@ func initialEnforcementMemberByIdentifier(
 	deviceIdentifier string,
 ) channelDomain.FirmwareTransitionMiner {
 	t.Helper()
-	for _, member := range lane.InitialEnforcement.Members {
+	for _, member := range lane.FirmwareConvergence.Members {
 		if member.DeviceIdentifier == deviceIdentifier {
 			return member
 		}

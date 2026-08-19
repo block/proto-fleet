@@ -9,7 +9,7 @@ import type { RolloutEvent } from "./rolloutTypes";
 const event: RolloutEvent = {
   processType: "firmware",
   state: "inProgress",
-  title: "Initial firmware rollout",
+  title: "Firmware convergence",
   scopeLabel: "Stable production",
   strategy: "allAtOnce",
   order: "random",
@@ -36,7 +36,7 @@ describe("RolloutPill", () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole("button", { name: "View update details for Initial firmware rollout" }));
+    await user.click(screen.getByRole("button", { name: "View update details for Firmware convergence" }));
 
     expect(screen.getByText("Firmware update in progress")).toBeInTheDocument();
     expect(screen.getByText("Stable production")).toBeInTheDocument();

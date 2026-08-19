@@ -26,7 +26,7 @@ describe("mapFirmwareTransitionToRolloutEvent", () => {
     expect(event).toMatchObject({
       processType: "firmware",
       state: "inProgress",
-      title: "Initial firmware rollout",
+      title: "Firmware convergence",
       scopeLabel: "Stable production",
       strategy: "allAtOnce",
       startedAt: "2026-08-18T12:00:00.000Z",
@@ -110,7 +110,7 @@ describe("mapFirmwareTransitionToRolloutEvent", () => {
     expect(event.rollups).toContainEqual({ phase: "attentionRequired", count: 1 });
     expect(event.errors).toEqual([
       {
-        id: "initial-firmware-error-1",
+        id: "firmware-convergence-error-1",
         message: "Firmware identity could not be confirmed",
         impactedMiners: ["miner-2"],
       },

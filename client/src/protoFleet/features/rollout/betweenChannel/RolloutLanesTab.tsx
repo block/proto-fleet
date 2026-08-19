@@ -11,9 +11,9 @@ import BetweenChannelRolloutStatus from "@/protoFleet/features/rollout/betweenCh
 import {
   canCompleteWithFailures,
   canRevertRollout,
-  firstActiveInitialLane,
-  hasActiveInitialEnforcement,
-  isInitialFirmwareReady,
+  firstActiveFirmwareConvergenceLane,
+  hasActiveFirmwareConvergence,
+  isFirmwareConvergenceReady,
   laneForRollout,
   shouldMonitorRollout,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
@@ -21,12 +21,17 @@ import CreateRolloutLaneModal, {
   type CreateRolloutLaneValues,
 } from "@/protoFleet/features/rollout/betweenChannel/CreateRolloutLaneModal";
 import DeleteRolloutLaneDialog from "@/protoFleet/features/rollout/betweenChannel/DeleteRolloutLaneDialog";
-import InitialLaneFirmwareSetup from "@/protoFleet/features/rollout/betweenChannel/InitialLaneFirmwareSetup";
+import LaneFirmwareConvergenceStatus from "@/protoFleet/features/rollout/betweenChannel/LaneFirmwareConvergenceStatus";
+import ManageRolloutLaneMembersModal from "@/protoFleet/features/rollout/betweenChannel/ManageRolloutLaneMembersModal";
 import RolloutLanesTable, { type LaneTableRow } from "@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable";
 import StartRolloutLaneModal, {
   type StartRolloutLaneValues,
 } from "@/protoFleet/features/rollout/betweenChannel/StartRolloutLaneModal";
-import type { RolloutLane, RolloutRecord } from "@/protoFleet/features/rollout/rolloutTypes";
+import type {
+  RolloutLane,
+  RolloutLaneMembershipUpdateResult,
+  RolloutRecord,
+} from "@/protoFleet/features/rollout/rolloutTypes";
 import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
 import { Alert, Info } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -56,8 +61,8 @@ function latestRolloutForLane(
     .find((rollout): rollout is RolloutRecord => rollout !== undefined);
 }
 
-function latestInitialEnforcementMemberUpdate(lane: RolloutLane | undefined): Timestamp | undefined {
-  return lane?.initialEnforcement.members.reduce<Timestamp | undefined>(
+function latestFirmwareConvergenceMemberUpdate(lane: RolloutLane | undefined): Timestamp | undefined {
+  return lane?.firmwareConvergence.members.reduce<Timestamp | undefined>(
     (latest, member) =>
       !latest ||
       (member.updatedAt &&
@@ -67,6 +72,26 @@ function latestInitialEnforcementMemberUpdate(lane: RolloutLane | undefined): Ti
         : latest,
     undefined,
   );
+}
+
+function resolveLane(
+  lanes: RolloutLane[],
+  loadedLane: RolloutLane | null,
+  laneId: string | null,
+  preferDetailed = false,
+): RolloutLane | undefined {
+  if (!laneId) {
+    return undefined;
+  }
+  const aggregateLane = lanes.find((lane) => lane.id === laneId);
+  const detailedLane = loadedLane?.id === laneId ? loadedLane : undefined;
+  if (preferDetailed) {
+    return detailedLane ?? aggregateLane;
+  }
+  if (!aggregateLane || !detailedLane) {
+    return aggregateLane ?? detailedLane;
+  }
+  return detailedLane.revision >= aggregateLane.revision ? detailedLane : aggregateLane;
 }
 
 export default function RolloutLanesTab() {
@@ -81,6 +106,9 @@ export default function RolloutLanesTab() {
     permissions,
     listRolloutLanes,
     getRolloutLane,
+    listRolloutLaneMembers,
+    previewRolloutLaneMembershipChange,
+    updateRolloutLaneMembership,
     previewRolloutLane,
     createRolloutLane,
     deleteRolloutLane,
@@ -101,6 +129,7 @@ export default function RolloutLanesTab() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [manageMembersLaneId, setManageMembersLaneId] = useState<string | null>(null);
   const [deleteLaneId, setDeleteLaneId] = useState<string | null>(null);
   const [startLane, setStartLane] = useState<RolloutLane | null>(null);
   const [isPreparingLane, setIsPreparingLane] = useState(false);
@@ -113,8 +142,8 @@ export default function RolloutLanesTab() {
   const skipSetupHydrationLaneIdRef = useRef<string | null>(null);
   const setupLaneRef = useRef<RolloutLane | undefined>(undefined);
   const setupLaneId = searchParams.get("setupLane");
-  const activeInitialLane = useMemo(() => firstActiveInitialLane(lanes), [lanes]);
-  const selectedSetupLaneId = setupLaneId ?? activeInitialLane?.id ?? null;
+  const activeFirmwareConvergenceLane = useMemo(() => firstActiveFirmwareConvergenceLane(lanes), [lanes]);
+  const selectedSetupLaneId = setupLaneId ?? activeFirmwareConvergenceLane?.id ?? null;
 
   const updateSetupLaneParam = useCallback(
     (laneId: string | null) => {
@@ -171,18 +200,18 @@ export default function RolloutLanesTab() {
   }, [loadData]);
 
   const hydrateSetupLane = useCallback(
-    async (laneId: string, signal: AbortSignal, initialEnforcementMembersUpdatedAfter?: Timestamp): Promise<void> => {
+    async (laneId: string, signal: AbortSignal, firmwareConvergenceMembersUpdatedAfter?: Timestamp): Promise<void> => {
       try {
         await getRolloutLane({
           laneId,
           includeDeviceSetMembers: false,
-          includeInitialEnforcementMembers: true,
-          initialEnforcementMembersUpdatedAfter,
+          includeFirmwareConvergenceMembers: true,
+          firmwareConvergenceMembersUpdatedAfter,
           signal,
         });
       } catch (error) {
         if (!isAbortError(error, signal)) {
-          setPageError(toError(error, "Initial firmware setup is unavailable.").message);
+          setPageError(toError(error, "Firmware convergence status is unavailable.").message);
         }
       }
     },
@@ -215,31 +244,20 @@ export default function RolloutLanesTab() {
       latestRollout: latestRolloutForLane(lane, rolloutsById),
     }));
   }, [lanes, rollouts]);
-  const setupLane = useMemo(() => {
-    if (!selectedSetupLaneId) {
-      return undefined;
-    }
-    if (loadedLane?.id === selectedSetupLaneId) {
-      return loadedLane;
-    }
-    return lanes.find((lane) => lane.id === selectedSetupLaneId);
-  }, [lanes, loadedLane, selectedSetupLaneId]);
-  const laneToDelete = useMemo(() => {
-    if (!deleteLaneId) {
-      return undefined;
-    }
-    const aggregateLane = lanes.find((lane) => lane.id === deleteLaneId);
-    const detailedLane = loadedLane?.id === deleteLaneId ? loadedLane : undefined;
-    if (!aggregateLane) {
-      return detailedLane;
-    }
-    if (!detailedLane) {
-      return aggregateLane;
-    }
-    return detailedLane.revision >= aggregateLane.revision ? detailedLane : aggregateLane;
-  }, [deleteLaneId, lanes, loadedLane]);
+  const setupLane = useMemo(
+    () => resolveLane(lanes, loadedLane, selectedSetupLaneId, true),
+    [lanes, loadedLane, selectedSetupLaneId],
+  );
+  const laneToDelete = useMemo(() => resolveLane(lanes, loadedLane, deleteLaneId), [deleteLaneId, lanes, loadedLane]);
+  const managedMembersLane = useMemo(
+    () => resolveLane(lanes, loadedLane, manageMembersLaneId),
+    [lanes, loadedLane, manageMembersLaneId],
+  );
+  const managedMembersLatestRollout = manageMembersLaneId
+    ? rows.find((row) => row.id === manageMembersLaneId)?.latestRollout
+    : undefined;
   setupLaneRef.current = setupLane;
-  const shouldPollSetupLane = Boolean(setupLane && !isInitialFirmwareReady(setupLane));
+  const shouldPollSetupLane = Boolean(setupLane && !isFirmwareConvergenceReady(setupLane));
   const focusedRollout = focusedRolloutId ? rollouts.find((rollout) => rollout.id === focusedRolloutId) : undefined;
   const modalRollout = modalRolloutId ? rollouts.find((rollout) => rollout.id === modalRolloutId) : undefined;
   const monitoredRolloutIdsKey = rollouts
@@ -251,7 +269,7 @@ export default function RolloutLanesTab() {
     () => (monitoredRolloutIdsKey ? monitoredRolloutIdsKey.split("\0") : []),
     [monitoredRolloutIdsKey],
   );
-  const hasMonitoredInitialEnforcement = activeInitialLane !== undefined;
+  const hasMonitoredFirmwareConvergence = activeFirmwareConvergenceLane !== undefined;
   const monitoredRollout =
     focusedRollout ??
     rows.find((row) => shouldMonitorRollout(row.latestRollout))?.latestRollout ??
@@ -273,7 +291,7 @@ export default function RolloutLanesTab() {
               hydrateSetupLane(
                 selectedSetupLaneId,
                 controller.signal,
-                latestInitialEnforcementMemberUpdate(setupLaneRef.current),
+                latestFirmwareConvergenceMemberUpdate(setupLaneRef.current),
               ),
             ]
           : []),
@@ -320,7 +338,7 @@ export default function RolloutLanesTab() {
     };
     window.addEventListener(ROLLOUT_CHANGED_EVENT, refresh);
     const detailInterval =
-      monitoredRolloutIds.length > 0 || hasMonitoredInitialEnforcement || shouldPollSetupLane
+      monitoredRolloutIds.length > 0 || hasMonitoredFirmwareConvergence || shouldPollSetupLane
         ? window.setInterval(() => void refreshMonitoredDetails(), 5000)
         : undefined;
     const laneListPollIntervalMs = monitoredRolloutIds.length > 0 ? 5_000 : shouldPollSetupLane ? 30_000 : undefined;
@@ -338,7 +356,7 @@ export default function RolloutLanesTab() {
       }
     };
   }, [
-    hasMonitoredInitialEnforcement,
+    hasMonitoredFirmwareConvergence,
     monitoredRolloutIds.length,
     refreshLaneList,
     refreshMonitoredDetails,
@@ -370,7 +388,7 @@ export default function RolloutLanesTab() {
           idempotencyKey: idempotencyKey("create-lane"),
         });
         setShowCreate(false);
-        if (createdLane.initialEnforcement.members.length >= createdLane.initialEnforcement.totalCount) {
+        if (createdLane.firmwareConvergence.members.length >= createdLane.firmwareConvergence.totalCount) {
           skipSetupHydrationLaneIdRef.current = createdLane.id;
         }
         updateSetupLaneParam(createdLane.id);
@@ -393,7 +411,7 @@ export default function RolloutLanesTab() {
         const freshLane = await getRolloutLane({
           laneId: lane.id,
           includeDeviceSetMembers: true,
-          includeInitialEnforcementMembers: false,
+          includeFirmwareConvergenceMembers: false,
           signal: controller.signal,
         });
         if (controller.signal.aborted || prepareStartControllerRef.current !== controller) {
@@ -443,6 +461,18 @@ export default function RolloutLanesTab() {
       // mutationError is rendered in the open dialog.
     }
   }, [deleteRolloutLane, laneToDelete, selectedSetupLaneId, updateSetupLaneParam]);
+
+  const handleMembershipUpdated = useCallback(
+    (result: RolloutLaneMembershipUpdateResult) => {
+      if (result.transitionMembers.length > 0) {
+        setManageMembersLaneId(null);
+        skipSetupHydrationLaneIdRef.current = result.lane.id;
+        updateSetupLaneParam(result.lane.id);
+      }
+      pushToast({ message: `Updated ${result.lane.label} membership`, status: STATUSES.success });
+    },
+    [updateSetupLaneParam],
+  );
 
   useEffect(
     () => () => {
@@ -610,6 +640,7 @@ export default function RolloutLanesTab() {
           }
           isPreparingStart={isPreparingLane}
           onSetup={(lane) => void openSetup(lane)}
+          onManageMembers={(lane) => setManageMembersLaneId(lane.id)}
           onStart={(lane) => void prepareStart(lane)}
           onView={(rollout) => setModalRolloutId(rollout.id)}
           onDelete={(lane) => setDeleteLaneId(lane.id)}
@@ -617,10 +648,10 @@ export default function RolloutLanesTab() {
       )}
 
       {setupLane ? (
-        <InitialLaneFirmwareSetup
+        <LaneFirmwareConvergenceStatus
           lane={setupLane}
           canStart={canStartLane}
-          onClose={hasActiveInitialEnforcement(setupLane) ? undefined : () => updateSetupLaneParam(null)}
+          onClose={hasActiveFirmwareConvergence(setupLane) ? undefined : () => updateSetupLaneParam(null)}
           onStart={() => void prepareStart(setupLane)}
         />
       ) : null}
@@ -661,6 +692,22 @@ export default function RolloutLanesTab() {
           error={mutationError}
           onDismiss={() => setStartLane(null)}
           onStart={(values) => void handleStart(values)}
+        />
+      ) : null}
+
+      {managedMembersLane ? (
+        <ManageRolloutLaneMembersModal
+          open
+          lane={managedMembersLane}
+          latestRollout={managedMembersLatestRollout}
+          canManage={permissions.canManageChannels}
+          isSubmitting={isMutating}
+          error={mutationError}
+          onDismiss={() => setManageMembersLaneId(null)}
+          onListMembers={listRolloutLaneMembers}
+          onPreview={previewRolloutLaneMembershipChange}
+          onUpdate={updateRolloutLaneMembership}
+          onUpdated={handleMembershipUpdated}
         />
       ) : null}
 

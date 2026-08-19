@@ -47,6 +47,27 @@ func TestHandlerGatesEveryRolloutRPC(t *testing.T) {
 			_, err := handler.ListRolloutLanes(ctx, connect.NewRequest(&pb.ListRolloutLanesRequest{}))
 			return err
 		}},
+		{"ListRolloutLaneMembers", func() error {
+			_, err := handler.ListRolloutLaneMembers(
+				ctx,
+				connect.NewRequest(&pb.ListRolloutLaneMembersRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
+		{"PreviewRolloutLaneMembershipChange", func() error {
+			_, err := handler.PreviewRolloutLaneMembershipChange(
+				ctx,
+				connect.NewRequest(&pb.PreviewRolloutLaneMembershipChangeRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
+		{"UpdateRolloutLaneMembership", func() error {
+			_, err := handler.UpdateRolloutLaneMembership(
+				ctx,
+				connect.NewRequest(&pb.UpdateRolloutLaneMembershipRequest{LaneId: rolloutID}),
+			)
+			return err
+		}},
 		{"DeleteRolloutLane", func() error {
 			_, err := handler.DeleteRolloutLane(
 				ctx,
@@ -147,7 +168,81 @@ func TestDeleteRolloutLaneUsesChannelManagePermissionAndSessionIdentity(t *testi
 	assert.Equal(t, "remove broken demo lane", laneService.deleted.Reason)
 }
 
-func TestListRolloutLanesForwardsActiveInitialFilter(t *testing.T) {
+func TestUpdateRolloutLaneMembershipUsesChannelManageAndSessionIdentity(t *testing.T) {
+	t.Parallel()
+
+	laneID := uuid.New()
+	laneService := &recordingLaneService{}
+	handler := NewHandler(nil, laneService)
+	request := connect.NewRequest(&pb.UpdateRolloutLaneMembershipRequest{
+		LaneId:                  laneID.String(),
+		ExpectedRevision:        5,
+		AddDeviceIdentifiers:    []string{"miner-add"},
+		RemoveDeviceIdentifiers: []string{"miner-remove"},
+		ConfirmFirmware:         true,
+		ConfirmReassign:         true,
+		IdempotencyKey:          "membership-handler",
+		Reason:                  "rebalance lane",
+	})
+
+	_, err := handler.UpdateRolloutLaneMembership(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelRead),
+		request,
+	)
+	assertPermissionDenied(t, err)
+
+	response, err := handler.UpdateRolloutLaneMembership(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelManage),
+		request,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	assert.Equal(t, int64(42), laneService.updatedMembership.OrgID)
+	assert.Equal(t, int64(9), laneService.updatedMembership.ActorUserID)
+	assert.Equal(t, rolloutDomain.ActorTypeUser, laneService.updatedMembership.ActorType)
+	assert.Nil(t, laneService.updatedMembership.ActorCredentialID)
+	assert.Equal(t, laneID, laneService.updatedMembership.LaneID)
+	assert.Equal(t, int64(5), laneService.updatedMembership.ExpectedRevision)
+	assert.Equal(t, []string{"miner-add"}, laneService.updatedMembership.AddIdentifiers)
+	assert.Equal(t, []string{"miner-remove"}, laneService.updatedMembership.RemoveIdentifiers)
+	assert.True(t, laneService.updatedMembership.ConfirmFirmware)
+	assert.True(t, laneService.updatedMembership.ConfirmReassign)
+}
+
+func TestUpdateRolloutLaneMembershipDerivesAPIKeyCredential(t *testing.T) {
+	t.Parallel()
+
+	laneService := &recordingLaneService{}
+	handler := NewHandler(nil, laneService)
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodAPIKey,
+		APIKeyID:       "membership-key-77",
+		OrganizationID: 42,
+		UserID:         9,
+	})
+	ctx = middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  []string{authz.PermChannelManage},
+	}}))
+
+	_, err := handler.UpdateRolloutLaneMembership(
+		ctx,
+		connect.NewRequest(&pb.UpdateRolloutLaneMembershipRequest{
+			LaneId:               uuid.NewString(),
+			ExpectedRevision:     1,
+			AddDeviceIdentifiers: []string{"miner-a"},
+			IdempotencyKey:       "membership-api-key",
+			Reason:               "automation rebalance",
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, rolloutDomain.ActorTypeAPIKey, laneService.updatedMembership.ActorType)
+	require.NotNil(t, laneService.updatedMembership.ActorCredentialID)
+	assert.Equal(t, "apikey:membership-key-77", *laneService.updatedMembership.ActorCredentialID)
+}
+
+func TestListRolloutLanesForwardsActiveFirmwareConvergenceFilter(t *testing.T) {
 	t.Parallel()
 
 	laneService := &recordingLaneService{}
@@ -159,15 +254,91 @@ func TestListRolloutLanesForwardsActiveInitialFilter(t *testing.T) {
 		connect.NewRequest(&pb.ListRolloutLanesRequest{}),
 	)
 	require.NoError(t, err)
-	assert.False(t, laneService.activeInitialOnly)
+	assert.False(t, laneService.activeFirmwareConvergenceOnly)
 
 	_, err = handler.ListRolloutLanes(
 		ctx,
-		connect.NewRequest(&pb.ListRolloutLanesRequest{ActiveInitialOnly: true}),
+		connect.NewRequest(&pb.ListRolloutLanesRequest{ActiveFirmwareConvergenceOnly: true}),
 	)
 	require.NoError(t, err)
-	assert.True(t, laneService.activeInitialOnly)
+	assert.True(t, laneService.activeFirmwareConvergenceOnly)
 	assert.Equal(t, int64(42), laneService.listOrgID)
+}
+
+func TestListRolloutLaneMembersBindsPageTokenToLaneAndRevision(t *testing.T) {
+	t.Parallel()
+
+	laneID := uuid.New()
+	laneService := &recordingLaneService{
+		listMembersResult: betweenchannel.ListMembersResult{
+			NextIdentifier: "miner-b",
+			TotalCount:     3,
+			Revision:       7,
+		},
+	}
+	handler := NewHandler(nil, laneService)
+	ctx := rolloutHandlerContext(t, 42, 9, authz.PermChannelRead)
+
+	first, err := handler.ListRolloutLaneMembers(
+		ctx,
+		connect.NewRequest(&pb.ListRolloutLaneMembersRequest{
+			LaneId:            laneID.String(),
+			PageSize:          1,
+			IncludeTotalCount: true,
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(3), first.Msg.GetTotalCount())
+	token, err := decodeLaneMemberPageToken(first.Msg.GetNextPageToken())
+	require.NoError(t, err)
+	assert.Equal(t, laneMemberPageTokenVersion, token.Version)
+	assert.Equal(t, laneID, token.LaneID)
+	assert.Equal(t, int64(7), token.Revision)
+	assert.Equal(t, "miner-b", token.Cursor)
+
+	_, err = handler.ListRolloutLaneMembers(
+		ctx,
+		connect.NewRequest(&pb.ListRolloutLaneMembersRequest{
+			LaneId:    uuid.NewString(),
+			PageSize:  1,
+			PageToken: first.Msg.GetNextPageToken(),
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+}
+
+func TestListRolloutLaneMembersRejectsStaleRevisionContinuation(t *testing.T) {
+	t.Parallel()
+
+	laneID := uuid.New()
+	laneService := &recordingLaneService{
+		listMembersErr: fleeterror.NewFailedPreconditionError("rollout lane changed during pagination"),
+	}
+	handler := NewHandler(nil, laneService)
+	token := encodeLaneMemberPageToken(laneMemberPageToken{
+		Version:  laneMemberPageTokenVersion,
+		LaneID:   laneID,
+		Revision: 7,
+		Cursor:   "miner-b",
+	})
+
+	_, err := handler.ListRolloutLaneMembers(
+		rolloutHandlerContext(t, 42, 9, authz.PermChannelRead),
+		connect.NewRequest(&pb.ListRolloutLaneMembersRequest{
+			LaneId:    laneID.String(),
+			PageSize:  1,
+			PageToken: token,
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, fleetErr.GRPCCode)
+	assert.Equal(t, int64(7), laneService.listMembersRequest.ExpectedRevision)
+	assert.Equal(t, "miner-b", laneService.listMembersRequest.AfterIdentifier)
 }
 
 func TestDeleteRolloutLaneDerivesAPIKeyActorIdentity(t *testing.T) {
@@ -398,7 +569,8 @@ func TestLaneTranslationIncludesFirmwareTransitionDetails(t *testing.T) {
 
 	updatedAt := time.Date(2026, time.August, 18, 12, 0, 0, 0, time.UTC)
 	translated := laneToProto(&betweenchannel.Lane{
-		InitialEnforcement: betweenchannel.InitialEnforcementStatus{
+		MemberCount: 2,
+		FirmwareConvergence: betweenchannel.FirmwareConvergenceStatus{
 			TotalCount:     2,
 			VerifyingCount: 1,
 			AttentionCount: 1,
@@ -425,25 +597,26 @@ func TestLaneTranslationIncludesFirmwareTransitionDetails(t *testing.T) {
 		},
 	})
 
-	assert.Equal(t, uint32(1), translated.GetInitialEnforcement().GetVerifyingCount())
-	require.Len(t, translated.GetInitialEnforcement().GetMembers(), 2)
+	assert.Equal(t, uint32(2), translated.GetMemberCount())
+	assert.Equal(t, uint32(1), translated.GetFirmwareConvergence().GetVerifyingCount())
+	require.Len(t, translated.GetFirmwareConvergence().GetMembers(), 2)
 	assert.Equal(
 		t,
 		pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_VERIFYING,
-		translated.GetInitialEnforcement().GetMembers()[0].GetState(),
+		translated.GetFirmwareConvergence().GetMembers()[0].GetState(),
 	)
-	assert.Equal(t, "2.0.0", translated.GetInitialEnforcement().GetMembers()[0].GetLatestObservedFirmwareVersion())
-	assert.Equal(t, updatedAt, translated.GetInitialEnforcement().GetMembers()[0].GetUpdatedAt().AsTime())
-	assert.Nil(t, translated.GetInitialEnforcement().GetMembers()[1].LatestObservedFirmwareVersion)
+	assert.Equal(t, "2.0.0", translated.GetFirmwareConvergence().GetMembers()[0].GetLatestObservedFirmwareVersion())
+	assert.Equal(t, updatedAt, translated.GetFirmwareConvergence().GetMembers()[0].GetUpdatedAt().AsTime())
+	assert.Nil(t, translated.GetFirmwareConvergence().GetMembers()[1].LatestObservedFirmwareVersion)
 	assert.Equal(
 		t,
 		pb.FirmwareTransitionState_FIRMWARE_TRANSITION_STATE_NEEDS_ATTENTION,
-		translated.GetInitialEnforcement().GetMembers()[1].GetState(),
+		translated.GetFirmwareConvergence().GetMembers()[1].GetState(),
 	)
 	assert.Equal(
 		t,
 		"Firmware identity could not be confirmed",
-		translated.GetInitialEnforcement().GetMembers()[1].GetLastError(),
+		translated.GetFirmwareConvergence().GetMembers()[1].GetLastError(),
 	)
 }
 
@@ -455,20 +628,32 @@ type recordingRolloutService struct {
 
 type recordingLaneService struct {
 	laneService
-	deleted           betweenchannel.DeleteLaneRequest
-	deleteErr         error
-	listOrgID         int64
-	activeInitialOnly bool
+	deleted                       betweenchannel.DeleteLaneRequest
+	updatedMembership             betweenchannel.UpdateMembershipRequest
+	deleteErr                     error
+	listOrgID                     int64
+	activeFirmwareConvergenceOnly bool
+	listMembersRequest            betweenchannel.ListMembersRequest
+	listMembersResult             betweenchannel.ListMembersResult
+	listMembersErr                error
 }
 
 func (s *recordingLaneService) ListLanes(
 	_ context.Context,
 	orgID int64,
-	activeInitialOnly bool,
+	activeFirmwareConvergenceOnly bool,
 ) ([]betweenchannel.Lane, error) {
 	s.listOrgID = orgID
-	s.activeInitialOnly = activeInitialOnly
+	s.activeFirmwareConvergenceOnly = activeFirmwareConvergenceOnly
 	return nil, nil
+}
+
+func (s *recordingLaneService) ListMembers(
+	_ context.Context,
+	req betweenchannel.ListMembersRequest,
+) (betweenchannel.ListMembersResult, error) {
+	s.listMembersRequest = req
+	return s.listMembersResult, s.listMembersErr
 }
 
 func (s *recordingLaneService) DeleteLane(
@@ -477,6 +662,14 @@ func (s *recordingLaneService) DeleteLane(
 ) error {
 	s.deleted = req
 	return s.deleteErr
+}
+
+func (s *recordingLaneService) UpdateMembership(
+	_ context.Context,
+	req betweenchannel.UpdateMembershipRequest,
+) (betweenchannel.UpdateMembershipResult, error) {
+	s.updatedMembership = req
+	return betweenchannel.UpdateMembershipResult{}, nil
 }
 
 func (s *recordingRolloutService) Create(

@@ -1862,7 +1862,7 @@ func (q *Queries) GetTotalPairedDevices(ctx context.Context, arg GetTotalPairedD
 	return count, err
 }
 
-const hasUnconfirmedInitialRolloutLaneEnforcement = `-- name: HasUnconfirmedInitialRolloutLaneEnforcement :one
+const hasUnconfirmedRolloutLaneFirmwareConvergence = `-- name: HasUnconfirmedRolloutLaneFirmwareConvergence :one
 SELECT EXISTS (
     SELECT 1
     FROM channel_firmware_enforcement enforcement
@@ -1871,19 +1871,51 @@ SELECT EXISTS (
      AND authority.org_id = enforcement.org_id
     WHERE enforcement.org_id = $1
       AND enforcement.device_id = ANY($2::bigint[])
-      AND authority.authority_type = 'rollout_lane_initial'
+      AND (
+          (
+              authority.authority_type = 'rollout_lane_initial'
+              AND EXISTS (
+                  SELECT 1
+                  FROM rollout_lane_channel attachment
+                  JOIN device_set_membership membership
+                    ON membership.device_set_id = attachment.channel_id
+                   AND membership.org_id = attachment.org_id
+                   AND membership.device_set_type = 'channel'
+                   AND membership.device_id = enforcement.device_id
+                  WHERE attachment.lane_id::text = authority.authority_reference
+                    AND attachment.org_id = authority.org_id
+              )
+          )
+          OR (
+              authority.authority_type = 'rollout_lane_membership'
+              AND EXISTS (
+                  SELECT 1
+                  FROM rollout_lane_membership_change membership_change
+                  JOIN rollout_lane_channel attachment
+                    ON attachment.lane_id = membership_change.target_lane_id
+                   AND attachment.org_id = membership_change.org_id
+                  JOIN device_set_membership membership
+                    ON membership.device_set_id = attachment.channel_id
+                   AND membership.org_id = attachment.org_id
+                   AND membership.device_set_type = 'channel'
+                   AND membership.device_id = enforcement.device_id
+                  WHERE membership_change.authority_id = authority.id
+                    AND membership_change.org_id = authority.org_id
+              )
+          )
+      )
       AND authority.halted_at IS NULL
       AND enforcement.state <> 'confirmed'
 )
 `
 
-type HasUnconfirmedInitialRolloutLaneEnforcementParams struct {
+type HasUnconfirmedRolloutLaneFirmwareConvergenceParams struct {
 	OrgID     int64
 	DeviceIds []int64
 }
 
-func (q *Queries) HasUnconfirmedInitialRolloutLaneEnforcement(ctx context.Context, arg HasUnconfirmedInitialRolloutLaneEnforcementParams) (bool, error) {
-	row := q.queryRow(ctx, q.hasUnconfirmedInitialRolloutLaneEnforcementStmt, hasUnconfirmedInitialRolloutLaneEnforcement, arg.OrgID, pq.Array(arg.DeviceIds))
+func (q *Queries) HasUnconfirmedRolloutLaneFirmwareConvergence(ctx context.Context, arg HasUnconfirmedRolloutLaneFirmwareConvergenceParams) (bool, error) {
+	row := q.queryRow(ctx, q.hasUnconfirmedRolloutLaneFirmwareConvergenceStmt, hasUnconfirmedRolloutLaneFirmwareConvergence, arg.OrgID, pq.Array(arg.DeviceIds))
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

@@ -72,36 +72,28 @@ func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
 		Description:      input.Description,
 		CurrentChannelId: input.CurrentChannelID,
 		Revision:         uint64(input.Revision), //nolint:gosec // Database constraint requires a positive revision.
+		MemberCount:      nonNegativeUint32(input.MemberCount),
 		CreatedAt:        timestamppb.New(input.CreatedAt),
 		UpdatedAt:        timestamppb.New(input.UpdatedAt),
 		Channels:         make([]*pb.RolloutLaneChannel, 0, len(input.Channels)),
-		InitialEnforcement: &pb.RolloutLaneInitialEnforcementStatus{
-			TotalCount:     nonNegativeUint32(input.InitialEnforcement.TotalCount),
-			PendingCount:   nonNegativeUint32(input.InitialEnforcement.PendingCount),
-			UpdatingCount:  nonNegativeUint32(input.InitialEnforcement.UpdatingCount),
-			VerifyingCount: nonNegativeUint32(input.InitialEnforcement.VerifyingCount),
-			ConfirmedCount: nonNegativeUint32(input.InitialEnforcement.ConfirmedCount),
-			AttentionCount: nonNegativeUint32(input.InitialEnforcement.AttentionCount),
+		FirmwareConvergence: &pb.RolloutLaneFirmwareConvergenceStatus{
+			TotalCount:     nonNegativeUint32(input.FirmwareConvergence.TotalCount),
+			PendingCount:   nonNegativeUint32(input.FirmwareConvergence.PendingCount),
+			UpdatingCount:  nonNegativeUint32(input.FirmwareConvergence.UpdatingCount),
+			VerifyingCount: nonNegativeUint32(input.FirmwareConvergence.VerifyingCount),
+			ConfirmedCount: nonNegativeUint32(input.FirmwareConvergence.ConfirmedCount),
+			AttentionCount: nonNegativeUint32(input.FirmwareConvergence.AttentionCount),
 			Members: make(
 				[]*pb.FirmwareTransitionMiner,
 				0,
-				len(input.InitialEnforcement.Members),
+				len(input.FirmwareConvergence.Members),
 			),
 		},
 	}
-	for _, miner := range input.InitialEnforcement.Members {
-		result.InitialEnforcement.Members = append(
-			result.InitialEnforcement.Members,
-			&pb.FirmwareTransitionMiner{
-				DeviceIdentifier:              miner.DeviceIdentifier,
-				Manufacturer:                  miner.Manufacturer,
-				Model:                         miner.Model,
-				LatestObservedFirmwareVersion: optionalString(miner.LatestObservedFirmwareVersion),
-				TargetFirmwareVersion:         miner.TargetFirmwareVersion,
-				State:                         firmwareTransitionStateToProto(miner.State),
-				LastError:                     optionalString(miner.LastError),
-				UpdatedAt:                     timestamppb.New(miner.UpdatedAt),
-			},
+	for _, miner := range input.FirmwareConvergence.Members {
+		result.FirmwareConvergence.Members = append(
+			result.FirmwareConvergence.Members,
+			firmwareTransitionMinerToProto(miner),
 		)
 	}
 	for _, inputChannel := range input.Channels {
@@ -119,6 +111,36 @@ func laneToProto(input *betweenchannel.Lane) *pb.RolloutLane {
 		result.Channels = append(result.Channels, channel)
 	}
 	return result
+}
+
+func laneMemberToProto(input betweenchannel.LaneMember) *pb.RolloutLaneMember {
+	result := &pb.RolloutLaneMember{
+		DeviceIdentifier:        input.DeviceIdentifier,
+		Manufacturer:            input.Manufacturer,
+		Model:                   input.Model,
+		ObservedFirmwareVersion: optionalString(input.ObservedFirmwareVersion),
+		ChannelId:               input.ChannelID,
+		ChannelPosition:         nonNegativeUint32(input.ChannelPosition),
+		OnCurrentChannel:        input.OnCurrentChannel,
+		PinnedReleaseVersion:    input.PinnedReleaseVersion,
+	}
+	if input.Enforcement != nil {
+		result.Enforcement = firmwareTransitionMinerToProto(*input.Enforcement)
+	}
+	return result
+}
+
+func firmwareTransitionMinerToProto(input channel.FirmwareTransitionMiner) *pb.FirmwareTransitionMiner {
+	return &pb.FirmwareTransitionMiner{
+		DeviceIdentifier:              input.DeviceIdentifier,
+		Manufacturer:                  input.Manufacturer,
+		Model:                         input.Model,
+		LatestObservedFirmwareVersion: optionalString(input.LatestObservedFirmwareVersion),
+		TargetFirmwareVersion:         input.TargetFirmwareVersion,
+		State:                         firmwareTransitionStateToProto(input.State),
+		LastError:                     optionalString(input.LastError),
+		UpdatedAt:                     timestamppb.New(input.UpdatedAt),
+	}
 }
 
 func firmwareTransitionStateToProto(

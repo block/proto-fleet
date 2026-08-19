@@ -24,6 +24,7 @@ interface MinerSelectionModalProps {
   // Forwarded to MinerSelectionList to hide facets whose list RPCs the caller
   // can't call (e.g. rack/group filters need rack:read).
   filterConfig?: FilterConfig;
+  showSelectAllFooter?: boolean;
   onDismiss: () => void;
   onSave: (selection: MinerSelectionValue) => void;
 }
@@ -34,6 +35,7 @@ const MinerSelectionModal = ({
   selectedMinerIds,
   scope,
   filterConfig,
+  showSelectAllFooter,
   onDismiss,
   onSave,
 }: MinerSelectionModalProps) => {
@@ -87,6 +89,7 @@ const MinerSelectionModal = ({
           initialAllSelected={allMinersSelected}
           initialSelectedItems={selectedMinerIds}
           disableFilteredSelectAll
+          showSelectAllFooter={showSelectAllFooter}
           scope={scope}
           filterConfig={filterConfig}
           onSelectionChange={({ selectedItems, allSelected, totalMiners }) =>

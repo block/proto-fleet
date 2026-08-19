@@ -105,8 +105,8 @@ func (s *Service) GetLane(
 	ctx context.Context,
 	orgID int64,
 	laneID uuid.UUID,
-	includeInitialEnforcementMembers bool,
-	initialEnforcementMembersUpdatedAfter *time.Time,
+	includeFirmwareConvergenceMembers bool,
+	firmwareConvergenceMembersUpdatedAfter *time.Time,
 ) (*Lane, error) {
 	if orgID <= 0 || laneID == uuid.Nil {
 		return nil, fleeterror.NewInvalidArgumentError(
@@ -117,8 +117,8 @@ func (s *Service) GetLane(
 		ctx,
 		orgID,
 		laneID,
-		includeInitialEnforcementMembers,
-		initialEnforcementMembersUpdatedAfter,
+		includeFirmwareConvergenceMembers,
+		firmwareConvergenceMembersUpdatedAfter,
 	)
 	if err != nil {
 		return nil, mapStoreError(err)
@@ -129,16 +129,106 @@ func (s *Service) GetLane(
 func (s *Service) ListLanes(
 	ctx context.Context,
 	orgID int64,
-	activeInitialOnly bool,
+	activeFirmwareConvergenceOnly bool,
 ) ([]Lane, error) {
 	if orgID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("organization ID is required")
 	}
-	lanes, err := s.store.ListLanes(ctx, orgID, activeInitialOnly)
+	lanes, err := s.store.ListLanes(ctx, orgID, activeFirmwareConvergenceOnly)
 	if err != nil {
 		return nil, mapStoreError(err)
 	}
 	return lanes, nil
+}
+
+func (s *Service) ListMembers(
+	ctx context.Context,
+	req ListMembersRequest,
+) (ListMembersResult, error) {
+	if req.OrgID <= 0 || req.LaneID == uuid.Nil {
+		return ListMembersResult{}, fleeterror.NewInvalidArgumentError(
+			"organization and rollout lane IDs are required",
+		)
+	}
+	if req.Limit == 0 {
+		req.Limit = 100
+	}
+	if req.Limit < 1 || req.Limit > 1000 {
+		return ListMembersResult{}, fleeterror.NewInvalidArgumentError(
+			"page size must be between 1 and 1000",
+		)
+	}
+	result, err := s.store.ListMembers(ctx, req)
+	if err != nil {
+		return ListMembersResult{}, mapStoreError(err)
+	}
+	return result, nil
+}
+
+func (s *Service) PreviewMembershipChange(
+	ctx context.Context,
+	req PreviewMembershipChangeRequest,
+) (MembershipChangePreview, error) {
+	if err := validateMembershipOperations(
+		req.OrgID,
+		req.LaneID,
+		req.AddIdentifiers,
+		req.RemoveIdentifiers,
+	); err != nil {
+		return MembershipChangePreview{}, err
+	}
+	req.AddIdentifiers = sortedStrings(req.AddIdentifiers)
+	req.RemoveIdentifiers = sortedStrings(req.RemoveIdentifiers)
+	result, err := s.store.PreviewMembershipChange(ctx, req)
+	if err != nil {
+		return MembershipChangePreview{}, mapStoreError(err)
+	}
+	return result, nil
+}
+
+func (s *Service) UpdateMembership(
+	ctx context.Context,
+	req UpdateMembershipRequest,
+) (UpdateMembershipResult, error) {
+	if err := validateMembershipOperations(
+		req.OrgID,
+		req.LaneID,
+		req.AddIdentifiers,
+		req.RemoveIdentifiers,
+	); err != nil {
+		return UpdateMembershipResult{}, err
+	}
+	if req.ExpectedRevision <= 0 || req.ActorUserID <= 0 {
+		return UpdateMembershipResult{}, fleeterror.NewInvalidArgumentError(
+			"expected revision and actor are required",
+		)
+	}
+	if strings.TrimSpace(req.IdempotencyKey) == "" || strings.TrimSpace(req.Reason) == "" {
+		return UpdateMembershipResult{}, fleeterror.NewInvalidArgumentError(
+			"idempotency key and reason are required",
+		)
+	}
+	if err := validateLaneMutationActor(req.ActorType, req.ActorCredentialID); err != nil {
+		return UpdateMembershipResult{}, err
+	}
+	req.AddIdentifiers = sortedStrings(req.AddIdentifiers)
+	req.RemoveIdentifiers = sortedStrings(req.RemoveIdentifiers)
+	if req.ChangeID == uuid.Nil {
+		req.ChangeID = uuid.New()
+	}
+	var err error
+	req.RequestFingerprint, err = fingerprintMembershipUpdate(req)
+	if err != nil {
+		return UpdateMembershipResult{}, fleeterror.NewInvalidArgumentErrorf(
+			"rollout lane membership request cannot be fingerprinted: %v",
+			err,
+		)
+	}
+	result, err := s.store.UpdateMembership(ctx, req)
+	if err != nil {
+		return UpdateMembershipResult{}, mapStoreError(err)
+	}
+	return result, nil
 }
 
 func (s *Service) DeleteLane(ctx context.Context, req DeleteLaneRequest) error {
@@ -148,6 +238,47 @@ func (s *Service) DeleteLane(ctx context.Context, req DeleteLaneRequest) error {
 	req.RequestFingerprint = fingerprintLaneDelete(req)
 	if err := s.store.DeleteLane(ctx, req); err != nil {
 		return mapStoreError(err)
+	}
+	return nil
+}
+
+func validateMembershipOperations(
+	orgID int64,
+	laneID uuid.UUID,
+	addIdentifiers []string,
+	removeIdentifiers []string,
+) error {
+	if orgID <= 0 || laneID == uuid.Nil {
+		return fleeterror.NewInvalidArgumentError(
+			"organization and rollout lane IDs are required",
+		)
+	}
+	if len(addIdentifiers) == 0 && len(removeIdentifiers) == 0 {
+		return fleeterror.NewInvalidArgumentError(
+			"at least one add or remove device identifier is required",
+		)
+	}
+	if len(addIdentifiers) > 0 {
+		if err := validateIdentifiers(addIdentifiers); err != nil {
+			return err
+		}
+	}
+	if len(removeIdentifiers) > 0 {
+		if err := validateIdentifiers(removeIdentifiers); err != nil {
+			return err
+		}
+	}
+	added := make(map[string]struct{}, len(addIdentifiers))
+	for _, identifier := range addIdentifiers {
+		added[strings.TrimSpace(identifier)] = struct{}{}
+	}
+	for _, identifier := range removeIdentifiers {
+		if _, ok := added[strings.TrimSpace(identifier)]; ok {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"device identifier %q cannot be added and removed in the same request",
+				identifier,
+			)
+		}
 	}
 	return nil
 }
@@ -216,26 +347,28 @@ func validateDeleteLaneRequest(req DeleteLaneRequest) error {
 			"organization, rollout lane, actor, and expected revision are required",
 		)
 	}
-	if err := rollout.ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
+	if err := validateLaneMutationActor(req.ActorType, req.ActorCredentialID); err != nil {
 		return err
-	}
-	switch req.ActorType {
-	case "", rollout.ActorTypeUser:
-	case rollout.ActorTypeAPIKey:
-		if req.ActorCredentialID == nil {
-			return fleeterror.NewInvalidArgumentError(
-				"API key actor credential ID is required",
-			)
-		}
-	case rollout.ActorTypeSystem:
-		if req.ActorCredentialID != nil {
-			return fleeterror.NewInvalidArgumentError(
-				"system actor credential ID must be omitted",
-			)
-		}
 	}
 	if strings.TrimSpace(req.IdempotencyKey) == "" || strings.TrimSpace(req.Reason) == "" {
 		return fleeterror.NewInvalidArgumentError("idempotency key and reason are required")
+	}
+	return nil
+}
+
+func validateLaneMutationActor(actorType rollout.ActorType, credentialID *string) error {
+	if err := rollout.ValidateActorIdentity(actorType, credentialID); err != nil {
+		return err
+	}
+	if actorType == rollout.ActorTypeAPIKey && credentialID == nil {
+		return fleeterror.NewInvalidArgumentError(
+			"API key actor credential ID is required",
+		)
+	}
+	if actorType == rollout.ActorTypeSystem && credentialID != nil {
+		return fleeterror.NewInvalidArgumentError(
+			"system actor credential ID must be omitted",
+		)
 	}
 	return nil
 }
@@ -491,6 +624,45 @@ func fingerprintLaneDelete(req DeleteLaneRequest) string {
 	return cryptohash.Sha256Hex(payload)
 }
 
+func fingerprintMembershipUpdate(req UpdateMembershipRequest) (string, error) {
+	actorType := req.ActorType
+	if actorType == "" {
+		actorType = rollout.ActorTypeUser
+	}
+	actorCredentialID := ""
+	if req.ActorCredentialID != nil {
+		actorCredentialID = *req.ActorCredentialID
+	}
+	payload := struct {
+		LaneID            uuid.UUID
+		ExpectedRevision  int64
+		AddIdentifiers    []string
+		RemoveIdentifiers []string
+		ConfirmFirmware   bool
+		ConfirmReassign   bool
+		Reason            string
+		ActorUserID       int64
+		ActorType         rollout.ActorType
+		ActorCredentialID string
+	}{
+		LaneID:            req.LaneID,
+		ExpectedRevision:  req.ExpectedRevision,
+		AddIdentifiers:    sortedStrings(req.AddIdentifiers),
+		RemoveIdentifiers: sortedStrings(req.RemoveIdentifiers),
+		ConfirmFirmware:   req.ConfirmFirmware,
+		ConfirmReassign:   req.ConfirmReassign,
+		Reason:            req.Reason,
+		ActorUserID:       req.ActorUserID,
+		ActorType:         actorType,
+		ActorCredentialID: actorCredentialID,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal membership update fingerprint: %w", err)
+	}
+	return cryptohash.Sha256Hex(string(encoded)), nil
+}
+
 func sortedTargets(values []ReleaseTarget) []ReleaseTarget {
 	result := append([]ReleaseTarget(nil), values...)
 	sort.Slice(result, func(i, j int) bool {
@@ -514,7 +686,9 @@ func mapStoreError(err error) error {
 		errors.Is(err, ErrMembershipConflict),
 		errors.Is(err, ErrCompatibility),
 		errors.Is(err, ErrInitialEnforcementConfirmationRequired),
-		errors.Is(err, ErrInitialEnforcementActive),
+		errors.Is(err, ErrFirmwareConfirmationRequired),
+		errors.Is(err, ErrReassignmentConfirmationRequired),
+		errors.Is(err, ErrFirmwareConvergenceActive),
 		errors.Is(err, ErrLaneWorkActive):
 		return fleeterror.NewFailedPreconditionErrorf("%w", err)
 	case errors.Is(err, ErrIdempotencyConflict):

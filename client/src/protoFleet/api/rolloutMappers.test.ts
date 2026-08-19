@@ -5,10 +5,14 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   FirmwareTransitionMinerSchema,
   FirmwareTransitionState,
+  PreviewRolloutLaneMembershipChangeResponseSchema,
   RolloutEvidencePhase,
   RolloutEvidenceSchema,
   RolloutLaneChannelSchema,
-  RolloutLaneInitialEnforcementStatusSchema,
+  RolloutLaneFirmwareConvergenceStatusSchema,
+  RolloutLaneMemberSchema,
+  RolloutLaneMembershipReassignmentSchema,
+  RolloutLanePreviewSchema,
   RolloutLaneSchema,
   RolloutMemberSchema,
   RolloutMemberState,
@@ -19,6 +23,7 @@ import {
   getRolloutActionEligibility,
   mapRollout,
   mapRolloutLane,
+  mapRolloutLaneMembershipChangePreview,
   mapRolloutMemberState,
   mapRolloutState,
   mapRolloutToEvent,
@@ -35,6 +40,7 @@ describe("rollout mappers", () => {
       description: "Production firmware lane",
       currentChannelId: 41n,
       revision: 3n,
+      memberCount: 12,
       channels: [
         create(RolloutLaneChannelSchema, {
           channelId: 41n,
@@ -43,7 +49,7 @@ describe("rollout mappers", () => {
           current: true,
         }),
       ],
-      initialEnforcement: create(RolloutLaneInitialEnforcementStatusSchema, {
+      firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
         totalCount: 12,
         pendingCount: 2,
         updatingCount: 1,
@@ -75,7 +81,6 @@ describe("rollout mappers", () => {
 
     expect(
       mapRolloutLane(lane, {
-        memberCount: 12,
         memberIdentifiers: ["miner-1", "miner-2"],
         releaseTargets: [
           {
@@ -94,7 +99,7 @@ describe("rollout mappers", () => {
       memberCount: 12,
       memberIdentifiers: ["miner-1", "miner-2"],
       currentReleaseTargets: [{ targetModel: "Alpha", firmwareVersion: "1.0.0" }],
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 12,
         pendingCount: 2,
         updatingCount: 1,
@@ -118,6 +123,62 @@ describe("rollout mappers", () => {
       },
       updatedAt: "2026-08-18T01:00:00.000Z",
     });
+  });
+
+  it("maps rollout lane membership previews and transition details", () => {
+    const preview = create(PreviewRolloutLaneMembershipChangeResponseSchema, {
+      targetFirmwarePreview: create(RolloutLanePreviewSchema, {
+        matchingCount: 1,
+      }),
+      reassignments: [
+        create(RolloutLaneMembershipReassignmentSchema, {
+          deviceIdentifier: "miner-reassign",
+          sourceLaneId: "223da5d0-ab28-4f8e-95e5-496e4804317c",
+          sourceLaneLabel: "Canary",
+        }),
+      ],
+      removals: [
+        create(RolloutLaneMemberSchema, {
+          deviceIdentifier: "miner-remove",
+          manufacturer: "Proto",
+          model: "Alpha",
+          observedFirmwareVersion: "1.0.0",
+          channelId: 41n,
+          channelPosition: 0,
+          onCurrentChannel: true,
+          pinnedReleaseVersion: "1.0.0",
+        }),
+      ],
+      requiresFirmwareConfirmation: true,
+      requiresReassignmentConfirmation: true,
+    });
+
+    expect(mapRolloutLaneMembershipChangePreview(preview)).toMatchObject({
+      targetFirmwarePreview: { matchingCount: 1 },
+      reassignments: [
+        {
+          deviceIdentifier: "miner-reassign",
+          sourceLaneLabel: "Canary",
+        },
+      ],
+      removals: [
+        {
+          deviceIdentifier: "miner-remove",
+          channelId: 41n,
+          pinnedReleaseVersion: "1.0.0",
+        },
+      ],
+      requiresFirmwareConfirmation: true,
+      requiresReassignmentConfirmation: true,
+    });
+  });
+
+  it("rejects membership previews that omit the target firmware preview", () => {
+    const preview = create(PreviewRolloutLaneMembershipChangeResponseSchema);
+
+    expect(() => mapRolloutLaneMembershipChangePreview(preview)).toThrow(
+      "Rollout lane membership preview response is missing its target firmware preview.",
+    );
   });
 
   it.each([

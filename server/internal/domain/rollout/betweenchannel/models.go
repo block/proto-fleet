@@ -19,7 +19,9 @@ var (
 	ErrMembershipConflict                     = errors.New("rollout lane membership changed")
 	ErrCompatibility                          = errors.New("rollout lane release is incompatible")
 	ErrInitialEnforcementConfirmationRequired = errors.New("initial firmware enforcement confirmation required")
-	ErrInitialEnforcementActive               = errors.New("initial firmware enforcement is still active")
+	ErrFirmwareConfirmationRequired           = errors.New("firmware enforcement confirmation required")
+	ErrReassignmentConfirmationRequired       = errors.New("rollout lane reassignment confirmation required")
+	ErrFirmwareConvergenceActive              = errors.New("firmware convergence is still active")
 	ErrLaneWorkActive                         = errors.New("rollout lane still has active work")
 )
 
@@ -62,7 +64,7 @@ func (p InitialEnforcementPreview) RequiresConfirmation() bool {
 	return p.MismatchedCount > 0 || p.UnknownCount > 0
 }
 
-type InitialEnforcementStatus struct {
+type FirmwareConvergenceStatus struct {
 	TotalCount     int32
 	PendingCount   int32
 	UpdatingCount  int32
@@ -84,17 +86,18 @@ type DeviceTransition struct {
 }
 
 type Lane struct {
-	ID                 uuid.UUID
-	OrgID              int64
-	Label              string
-	Description        string
-	CurrentChannelID   int64
-	Revision           int64
-	CreatedByUserID    int64
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	Channels           []LaneChannel
-	InitialEnforcement InitialEnforcementStatus
+	ID                  uuid.UUID
+	OrgID               int64
+	Label               string
+	Description         string
+	CurrentChannelID    int64
+	Revision            int64
+	CreatedByUserID     int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Channels            []LaneChannel
+	MemberCount         int32
+	FirmwareConvergence FirmwareConvergenceStatus
 }
 
 type LaneChannel struct {
@@ -136,6 +139,81 @@ type DeleteLaneRequest struct {
 	ActorUserID        int64
 	ActorType          rollout.ActorType
 	ActorCredentialID  *string
+}
+
+type LaneMember struct {
+	DeviceID                int64
+	DeviceIdentifier        string
+	Manufacturer            string
+	Model                   string
+	ObservedFirmwareVersion string
+	ChannelID               int64
+	ChannelPosition         int32
+	OnCurrentChannel        bool
+	PinnedReleaseVersion    string
+	Enforcement             *channel.FirmwareTransitionMiner
+}
+
+type ListMembersRequest struct {
+	OrgID             int64
+	LaneID            uuid.UUID
+	ExpectedRevision  int64
+	AfterIdentifier   string
+	Limit             int32
+	IncludeTotalCount bool
+}
+
+type ListMembersResult struct {
+	Members        []LaneMember
+	NextIdentifier string
+	TotalCount     int64
+	Revision       int64
+}
+
+type PreviewMembershipChangeRequest struct {
+	OrgID             int64
+	LaneID            uuid.UUID
+	AddIdentifiers    []string
+	RemoveIdentifiers []string
+}
+
+type MembershipReassignment struct {
+	DeviceIdentifier      string
+	SourceLaneID          uuid.UUID
+	SourceLaneLabel       string
+	SourceChannelID       int64
+	SourceChannelPosition int32
+	SourceReleaseVersion  string
+}
+
+type MembershipChangePreview struct {
+	TargetFirmwarePreview        InitialEnforcementPreview
+	Reassignments                []MembershipReassignment
+	Removals                     []LaneMember
+	RequiresFirmwareConfirmation bool
+	RequiresReassignConfirmation bool
+}
+
+type UpdateMembershipRequest struct {
+	ChangeID           uuid.UUID
+	OrgID              int64
+	LaneID             uuid.UUID
+	ExpectedRevision   int64
+	AddIdentifiers     []string
+	RemoveIdentifiers  []string
+	ConfirmFirmware    bool
+	ConfirmReassign    bool
+	IdempotencyKey     string
+	RequestFingerprint string
+	Reason             string
+	ActorUserID        int64
+	ActorType          rollout.ActorType
+	ActorCredentialID  *string
+}
+
+type UpdateMembershipResult struct {
+	Lane              *Lane
+	TransitionMembers []LaneMember
 }
 
 type StartRolloutRequest struct {

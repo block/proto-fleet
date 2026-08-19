@@ -188,6 +188,24 @@ func TestRPCContract_FirmwareUpdateUsesFirmwareUpdatePermission(t *testing.T) {
 	)
 }
 
+func TestRPCContract_RolloutLaneMembershipUsesChannelPermissions(t *testing.T) {
+	require.Equal(
+		t,
+		authz.PermChannelRead,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceListRolloutLaneMembersProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServicePreviewRolloutLaneMembershipChangeProcedure],
+	)
+	require.Equal(
+		t,
+		authz.PermChannelManage,
+		middleware.ProcedurePermissions[rolloutv1connect.RolloutServiceUpdateRolloutLaneMembershipProcedure],
+	)
+}
+
 // mainConnectMountRe captures both the connect-package shortname and
 // the service-handler short name (e.g. "authv1connect" + "Auth") from
 // every Connect handler mount in main.go like

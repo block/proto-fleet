@@ -56,7 +56,7 @@ export const stableProductionLane: RolloutLane = {
   ],
   memberCount: 3,
   memberIdentifiers: ["miner-1", "miner-2", "miner-3"],
-  initialEnforcement: {
+  firmwareConvergence: {
     totalCount: 3,
     pendingCount: 0,
     updatingCount: 0,

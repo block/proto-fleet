@@ -43,7 +43,7 @@ function transitionErrors(progress: FirmwareTransitionProgress): RolloutErrorImp
   }
 
   return Array.from(minersByError, ([message, impactedMiners], index) => ({
-    id: `initial-firmware-error-${index + 1}`,
+    id: `firmware-convergence-error-${index + 1}`,
     message,
     impactedMiners,
   }));
@@ -57,7 +57,7 @@ export function mapFirmwareTransitionToRolloutEvent(
   return {
     processType: "firmware",
     state: transitionState(progress),
-    title: "Initial firmware rollout",
+    title: "Firmware convergence",
     scopeLabel: context.scopeLabel,
     strategy: "allAtOnce",
     order: "random",

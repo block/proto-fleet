@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import type { RolloutLane } from "../rolloutTypes";
-import InitialLaneFirmwareSetup from "./InitialLaneFirmwareSetup";
+import LaneFirmwareConvergenceStatus from "./LaneFirmwareConvergenceStatus";
 
-function lane(overrides: Partial<RolloutLane["initialEnforcement"]> = {}): RolloutLane {
+function lane(overrides: Partial<RolloutLane["firmwareConvergence"]> = {}): RolloutLane {
   return {
     id: "lane-1",
     label: "Stable production",
@@ -17,7 +17,7 @@ function lane(overrides: Partial<RolloutLane["initialEnforcement"]> = {}): Rollo
     memberIdentifiers: [],
     currentReleaseTargets: [],
     createdAt: "2026-08-18T12:00:00.000Z",
-    initialEnforcement: {
+    firmwareConvergence: {
       totalCount: 2,
       pendingCount: 0,
       updatingCount: 0,
@@ -30,10 +30,10 @@ function lane(overrides: Partial<RolloutLane["initialEnforcement"]> = {}): Rollo
   };
 }
 
-describe("InitialLaneFirmwareSetup", () => {
+describe("LaneFirmwareConvergenceStatus", () => {
   it("uses the normal firmware rollout status lockup and progress", () => {
     render(
-      <InitialLaneFirmwareSetup
+      <LaneFirmwareConvergenceStatus
         lane={lane({
           confirmedCount: 1,
           updatingCount: 1,
@@ -67,19 +67,19 @@ describe("InitialLaneFirmwareSetup", () => {
     expect(screen.getByTestId("active-rollout-convergence-progress")).toHaveTextContent("1 of 2");
     expect(screen.getByRole("progressbar", { name: "Firmware convergence" })).toHaveAttribute("aria-valuenow", "1");
     expect(screen.queryByRole("button", { name: /pause|abort|retry|force/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Close setup" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close status" })).not.toBeInTheDocument();
   });
 
   it("shows Lane ready and keeps terminal details closable", async () => {
     const user = userEvent.setup();
     const onStart = vi.fn();
     const onClose = vi.fn();
-    render(<InitialLaneFirmwareSetup lane={lane()} canStart onClose={onClose} onStart={onStart} />);
+    render(<LaneFirmwareConvergenceStatus lane={lane()} canStart onClose={onClose} onStart={onStart} />);
 
     expect(screen.getByText("Lane ready")).toBeInTheDocument();
     expect(screen.getByTestId("active-rollout-primary-lockup")).toHaveTextContent("Completed");
     await user.click(screen.getByRole("button", { name: "Start rollout" }));
-    await user.click(screen.getByRole("button", { name: "Close setup" }));
+    await user.click(screen.getByRole("button", { name: "Close status" }));
 
     expect(onStart).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
@@ -87,7 +87,7 @@ describe("InitialLaneFirmwareSetup", () => {
 
   it("uses the normal error presentation without recovery controls", () => {
     render(
-      <InitialLaneFirmwareSetup
+      <LaneFirmwareConvergenceStatus
         lane={lane({
           confirmedCount: 1,
           attentionCount: 1,

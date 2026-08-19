@@ -40,7 +40,7 @@ function lane(active = true, laneId = "lane-1", label = "Stable production") {
     laneId,
     label,
     channels: [{ channelId: 42n, releaseSetId: 8n, position: 1, rolloutId: "rollout-1" }],
-    initialEnforcement: {
+    firmwareConvergence: {
       totalCount: 6,
       pendingCount: active ? 3 : 0,
       updatingCount: active ? 1 : 0,
@@ -88,7 +88,7 @@ describe("useRolloutPillData", () => {
     vi.useRealTimers();
   });
 
-  it("prefers an active persisted firmware rollout over active initial enforcement", async () => {
+  it("prefers an active persisted firmware rollout over active firmware convergence", async () => {
     listRolloutLanes.mockResolvedValue({ lanes: [lane()] });
     listRollouts.mockResolvedValue({ rollouts: [rollout()] });
 
@@ -108,7 +108,7 @@ describe("useRolloutPillData", () => {
     const { result } = renderHook(() => useRolloutPillData());
     await runInitialRefresh();
 
-    expect(result.current.activeEvent?.title).toBe("Initial firmware rollout");
+    expect(result.current.activeEvent?.title).toBe("Firmware convergence");
     expect(result.current.activeEvent?.scopeLabel).toBe("Canary");
     expect(result.current.detailsPath).toBe("/settings/firmware?tab=rolloutLanes&setupLane=lane-2");
     expect(result.current.hasVisiblePill).toBe(true);
@@ -131,14 +131,14 @@ describe("useRolloutPillData", () => {
     expect(useHasPermission).toHaveBeenCalledWith("channel:read");
   });
 
-  it("shows initial enforcement with channel read permission alone", async () => {
+  it("shows firmware convergence with channel read permission alone", async () => {
     grantPermissions("channel:read");
     listRolloutLanes.mockResolvedValue({ lanes: [lane()] });
 
     const { result } = renderHook(() => useRolloutPillData());
     await runInitialRefresh();
 
-    expect(result.current.activeEvent?.title).toBe("Initial firmware rollout");
+    expect(result.current.activeEvent?.title).toBe("Firmware convergence");
     expect(listRolloutLanes).toHaveBeenCalledOnce();
     expect(listRollouts).not.toHaveBeenCalled();
   });
@@ -321,7 +321,7 @@ describe("useRolloutPillData", () => {
     await runInitialRefresh();
 
     expect(listRolloutLanes).toHaveBeenCalledOnce();
-    expect(listRolloutLanes.mock.calls[0]?.[0].activeInitialOnly).toBe(true);
+    expect(listRolloutLanes.mock.calls[0]?.[0].activeFirmwareConvergenceOnly).toBe(true);
     expect(listRollouts.mock.calls[0]?.[0].states).toEqual([
       RolloutState.CREATED,
       RolloutState.RUNNING,

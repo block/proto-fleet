@@ -9,7 +9,7 @@ import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components
 import {
   buildManualBatches,
   evaluateTargetCompatibility,
-  isInitialFirmwareReady,
+  isFirmwareConvergenceReady,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutLane, RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
@@ -115,7 +115,7 @@ export default function StartRolloutLaneModal({
   const canStart =
     name.trim().length > 0 &&
     reason.trim().length > 0 &&
-    isInitialFirmwareReady(lane) &&
+    isFirmwareConvergenceReady(lane) &&
     hasFreshMembership &&
     compatibilityReady &&
     hasValidBatchPlan;

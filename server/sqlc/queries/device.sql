@@ -892,7 +892,7 @@ WHERE device.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
 ORDER BY device.device_identifier
 FOR UPDATE OF device, discovered;
 
--- name: HasUnconfirmedInitialRolloutLaneEnforcement :one
+-- name: HasUnconfirmedRolloutLaneFirmwareConvergence :one
 SELECT EXISTS (
     SELECT 1
     FROM channel_firmware_enforcement enforcement
@@ -901,7 +901,39 @@ SELECT EXISTS (
      AND authority.org_id = enforcement.org_id
     WHERE enforcement.org_id = sqlc.arg('org_id')
       AND enforcement.device_id = ANY(sqlc.arg('device_ids')::bigint[])
-      AND authority.authority_type = 'rollout_lane_initial'
+      AND (
+          (
+              authority.authority_type = 'rollout_lane_initial'
+              AND EXISTS (
+                  SELECT 1
+                  FROM rollout_lane_channel attachment
+                  JOIN device_set_membership membership
+                    ON membership.device_set_id = attachment.channel_id
+                   AND membership.org_id = attachment.org_id
+                   AND membership.device_set_type = 'channel'
+                   AND membership.device_id = enforcement.device_id
+                  WHERE attachment.lane_id::text = authority.authority_reference
+                    AND attachment.org_id = authority.org_id
+              )
+          )
+          OR (
+              authority.authority_type = 'rollout_lane_membership'
+              AND EXISTS (
+                  SELECT 1
+                  FROM rollout_lane_membership_change membership_change
+                  JOIN rollout_lane_channel attachment
+                    ON attachment.lane_id = membership_change.target_lane_id
+                   AND attachment.org_id = membership_change.org_id
+                  JOIN device_set_membership membership
+                    ON membership.device_set_id = attachment.channel_id
+                   AND membership.org_id = attachment.org_id
+                   AND membership.device_set_type = 'channel'
+                   AND membership.device_id = enforcement.device_id
+                  WHERE membership_change.authority_id = authority.id
+                    AND membership_change.org_id = authority.org_id
+              )
+          )
+      )
       AND authority.halted_at IS NULL
       AND enforcement.state <> 'confirmed'
 );

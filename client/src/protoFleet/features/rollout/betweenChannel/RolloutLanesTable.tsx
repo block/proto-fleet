@@ -1,5 +1,5 @@
 import {
-  dominantInitialFirmwareState,
+  dominantFirmwareConvergenceState,
   rolloutLaneActionStatus,
   rolloutLaneDeleteBlockedReason,
   rolloutLaneStartBlockedReason,
@@ -24,19 +24,20 @@ interface RolloutLanesTableProps {
   deletePermissionBlockedReason?: string;
   isPreparingStart?: boolean;
   onSetup: (lane: RolloutLane) => void;
+  onManageMembers?: (lane: RolloutLane) => void;
   onStart: (lane: RolloutLane) => void;
   onView: (rollout: RolloutRecord) => void;
   onDelete?: (lane: RolloutLane) => void;
 }
 
-type LaneColumn = "lane" | "release" | "members" | "initial" | "rollout" | "actions";
+type LaneColumn = "lane" | "release" | "members" | "firmware" | "rollout" | "actions";
 
-const columns: LaneColumn[] = ["lane", "release", "members", "initial", "rollout", "actions"];
+const columns: LaneColumn[] = ["lane", "release", "members", "firmware", "rollout", "actions"];
 const titles: ColTitles<LaneColumn> = {
   lane: "Rollout lane",
   release: "Current release",
   members: "Miners",
-  initial: "Initial firmware",
+  firmware: "Firmware status",
   rollout: "Latest rollout",
   actions: "",
 };
@@ -57,9 +58,9 @@ function rolloutStateLabel(state: RolloutRecord["state"]): string {
   }
 }
 
-function initialFirmwareSummary(lane: RolloutLane): string {
-  const { totalCount, confirmedCount, attentionCount } = lane.initialEnforcement;
-  const dominantState = dominantInitialFirmwareState(lane);
+function firmwareConvergenceSummary(lane: RolloutLane): string {
+  const { totalCount, confirmedCount, attentionCount } = lane.firmwareConvergence;
+  const dominantState = dominantFirmwareConvergenceState(lane);
   if (dominantState === "needsAttention") {
     const attentionLabel = attentionCount === 1 ? "needs attention" : "need attention";
     return `${confirmedCount.toLocaleString()}/${totalCount.toLocaleString()} confirmed · ${attentionCount.toLocaleString()} ${attentionLabel}`;
@@ -76,6 +77,7 @@ export default function RolloutLanesTable({
   deletePermissionBlockedReason,
   isPreparingStart = false,
   onSetup,
+  onManageMembers,
   onStart,
   onView,
   onDelete,
@@ -97,18 +99,32 @@ export default function RolloutLanesTable({
       allowWrap: true,
     },
     members: {
-      component: ({ lane }) => lane.memberCount.toLocaleString(),
+      component: ({ lane }) =>
+        onManageMembers ? (
+          <button
+            type="button"
+            className="text-left text-300 text-text-primary underline underline-offset-2"
+            aria-label={`Manage members for ${lane.label}`}
+            onClick={() => onManageMembers(lane)}
+          >
+            {lane.memberCount.toLocaleString()} {lane.memberCount === 1 ? "miner" : "miners"}
+          </button>
+        ) : (
+          <span>
+            {lane.memberCount.toLocaleString()} {lane.memberCount === 1 ? "miner" : "miners"}
+          </span>
+        ),
       width: "w-28",
     },
-    initial: {
+    firmware: {
       component: ({ lane }) => (
         <button
           type="button"
           className="text-left text-200 whitespace-normal text-text-primary-70 underline-offset-2 hover:underline"
-          aria-label={`View initial firmware setup for ${lane.label}`}
+          aria-label={`View firmware status for ${lane.label}`}
           onClick={() => onSetup(lane)}
         >
-          <span>{initialFirmwareSummary(lane)}</span>
+          <span>{firmwareConvergenceSummary(lane)}</span>
         </button>
       ),
       width: "w-36",

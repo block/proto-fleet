@@ -16,10 +16,19 @@ type LaneStore interface {
 		ctx context.Context,
 		orgID int64,
 		laneID uuid.UUID,
-		includeInitialEnforcementMembers bool,
-		initialEnforcementMembersUpdatedAfter *time.Time,
+		includeFirmwareConvergenceMembers bool,
+		firmwareConvergenceMembersUpdatedAfter *time.Time,
 	) (*Lane, error)
-	ListLanes(ctx context.Context, orgID int64, activeInitialOnly bool) ([]Lane, error)
+	ListLanes(ctx context.Context, orgID int64, activeFirmwareConvergenceOnly bool) ([]Lane, error)
+	ListMembers(ctx context.Context, req ListMembersRequest) (ListMembersResult, error)
+	PreviewMembershipChange(
+		ctx context.Context,
+		req PreviewMembershipChangeRequest,
+	) (MembershipChangePreview, error)
+	UpdateMembership(
+		ctx context.Context,
+		req UpdateMembershipRequest,
+	) (UpdateMembershipResult, error)
 	DeleteLane(ctx context.Context, req DeleteLaneRequest) error
 	StartRollout(ctx context.Context, req StartRolloutRequest) (StartRolloutResult, error)
 }

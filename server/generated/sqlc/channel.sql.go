@@ -259,6 +259,45 @@ func (q *Queries) IsRolloutLaneChannel(ctx context.Context, arg IsRolloutLaneCha
 	return exists, err
 }
 
+const listCurrentChannelIDsForDevices = `-- name: ListCurrentChannelIDsForDevices :many
+SELECT DISTINCT membership.device_set_id
+FROM device_set_membership membership
+WHERE membership.org_id = $1
+  AND membership.device_set_type = 'channel'
+  AND membership.device_identifier = ANY($2::text[])
+ORDER BY membership.device_set_id
+`
+
+type ListCurrentChannelIDsForDevicesParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Re-reads source memberships after device locks are held. This closes the
+// READ COMMITTED window between the channel pre-lock and device-lock phases.
+func (q *Queries) ListCurrentChannelIDsForDevices(ctx context.Context, arg ListCurrentChannelIDsForDevicesParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.listCurrentChannelIDsForDevicesStmt, listCurrentChannelIDsForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var device_set_id int64
+		if err := rows.Scan(&device_set_id); err != nil {
+			return nil, err
+		}
+		items = append(items, device_set_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFirmwareReleaseTargets = `-- name: ListFirmwareReleaseTargets :many
 SELECT firmware_file_id, target_manufacturer, target_model, firmware_version, sha256
 FROM firmware_release_target
@@ -351,6 +390,42 @@ func (q *Queries) ListFirmwareReleaseTargetsBySetIDs(ctx context.Context, arg Li
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRolloutLaneOwnedChannelIDs = `-- name: ListRolloutLaneOwnedChannelIDs :many
+SELECT DISTINCT channel_id
+FROM rollout_lane_channel
+WHERE org_id = $1
+  AND channel_id = ANY($2::bigint[])
+ORDER BY channel_id
+`
+
+type ListRolloutLaneOwnedChannelIDsParams struct {
+	OrgID      int64
+	ChannelIds []int64
+}
+
+func (q *Queries) ListRolloutLaneOwnedChannelIDs(ctx context.Context, arg ListRolloutLaneOwnedChannelIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.listRolloutLaneOwnedChannelIDsStmt, listRolloutLaneOwnedChannelIDs, arg.OrgID, pq.Array(arg.ChannelIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var channel_id int64
+		if err := rows.Scan(&channel_id); err != nil {
+			return nil, err
+		}
+		items = append(items, channel_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

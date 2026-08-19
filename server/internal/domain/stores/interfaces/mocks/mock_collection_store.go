@@ -640,6 +640,21 @@ func (mr *MockCollectionStoreMockRecorder) ListCollections(ctx, orgID, collectio
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollections", reflect.TypeOf((*MockCollectionStore)(nil).ListCollections), ctx, orgID, collectionType, pageSize, pageToken, sort, filter)
 }
 
+// ListCurrentChannelIDsForDevices mocks base method.
+func (m *MockCollectionStore) ListCurrentChannelIDsForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCurrentChannelIDsForDevices", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCurrentChannelIDsForDevices indicates an expected call of ListCurrentChannelIDsForDevices.
+func (mr *MockCollectionStoreMockRecorder) ListCurrentChannelIDsForDevices(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCurrentChannelIDsForDevices", reflect.TypeOf((*MockCollectionStore)(nil).ListCurrentChannelIDsForDevices), ctx, orgID, deviceIdentifiers)
+}
+
 // ListRackTypes mocks base method.
 func (m *MockCollectionStore) ListRackTypes(ctx context.Context, orgID int64) ([]*collectionv1.RackType, error) {
 	m.ctrl.T.Helper()
@@ -683,6 +698,21 @@ func (m *MockCollectionStore) ListRackZones(ctx context.Context, orgID int64) ([
 func (mr *MockCollectionStoreMockRecorder) ListRackZones(ctx, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackZones", reflect.TypeOf((*MockCollectionStore)(nil).ListRackZones), ctx, orgID)
+}
+
+// ListRolloutLaneOwnedChannelIDs mocks base method.
+func (m *MockCollectionStore) ListRolloutLaneOwnedChannelIDs(ctx context.Context, orgID int64, channelIDs []int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRolloutLaneOwnedChannelIDs", ctx, orgID, channelIDs)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRolloutLaneOwnedChannelIDs indicates an expected call of ListRolloutLaneOwnedChannelIDs.
+func (mr *MockCollectionStoreMockRecorder) ListRolloutLaneOwnedChannelIDs(ctx, orgID, channelIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRolloutLaneOwnedChannelIDs", reflect.TypeOf((*MockCollectionStore)(nil).ListRolloutLaneOwnedChannelIDs), ctx, orgID, channelIDs)
 }
 
 // ListTakenLabels mocks base method.

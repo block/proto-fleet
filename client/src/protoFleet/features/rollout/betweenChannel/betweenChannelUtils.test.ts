@@ -5,12 +5,13 @@ import {
   buildManualBatches,
   canCompleteWithFailures,
   canRevertRollout,
-  dominantInitialFirmwareState,
+  dominantFirmwareConvergenceState,
   evaluateTargetCompatibility,
-  firstActiveInitialLane,
+  firstActiveFirmwareConvergenceLane,
   laneForRollout,
   rolloutLaneActionStatus,
   rolloutLaneDeleteBlockedReason,
+  rolloutLaneMembershipBlockedReason,
   rolloutLaneStartBlockedReason,
   shouldMonitorRollout,
 } from "./betweenChannelUtils";
@@ -134,7 +135,7 @@ const lane: RolloutLane = {
   memberCount: 2,
   memberIdentifiers: [],
   currentReleaseTargets: [],
-  initialEnforcement: {
+  firmwareConvergence: {
     totalCount: 2,
     pendingCount: 0,
     updatingCount: 0,
@@ -151,7 +152,7 @@ describe("between-channel rollout helpers", () => {
     const firstActiveLane = {
       ...lane,
       id: "first-active",
-      initialEnforcement: { ...lane.initialEnforcement, confirmedCount: 1, updatingCount: 1 },
+      firmwareConvergence: { ...lane.firmwareConvergence, confirmedCount: 1, updatingCount: 1 },
     };
     const secondActiveLane = {
       ...firstActiveLane,
@@ -164,7 +165,7 @@ describe("between-channel rollout helpers", () => {
     };
     const lanes = [inactiveLane, firstActiveLane, secondActiveLane, rolloutLane];
 
-    expect(firstActiveInitialLane(lanes)).toBe(firstActiveLane);
+    expect(firstActiveFirmwareConvergenceLane(lanes)).toBe(firstActiveLane);
     expect(laneForRollout(lanes, "rollout-1")).toBe(rolloutLane);
   });
 
@@ -174,12 +175,12 @@ describe("between-channel rollout helpers", () => {
     ["updating", { attentionCount: 0, verifyingCount: 0, updatingCount: 1, pendingCount: 1 }],
     ["pending", { attentionCount: 0, verifyingCount: 0, updatingCount: 0, pendingCount: 1 }],
     ["confirmed", { attentionCount: 0, verifyingCount: 0, updatingCount: 0, pendingCount: 0 }],
-  ] as const)("returns %s as the dominant initial firmware state", (expected, counts) => {
+  ] as const)("returns %s as the dominant firmware convergence state", (expected, counts) => {
     expect(
-      dominantInitialFirmwareState({
+      dominantFirmwareConvergenceState({
         ...lane,
-        initialEnforcement: {
-          ...lane.initialEnforcement,
+        firmwareConvergence: {
+          ...lane.firmwareConvergence,
           ...counts,
         },
       }),
@@ -189,7 +190,7 @@ describe("between-channel rollout helpers", () => {
   it("returns one concise action status for visible lane actions", () => {
     const activeInitialLane = {
       ...lane,
-      initialEnforcement: { ...lane.initialEnforcement, confirmedCount: 1, updatingCount: 1 },
+      firmwareConvergence: { ...lane.firmwareConvergence, confirmedCount: 1, updatingCount: 1 },
     };
     const activeRollout = rolloutWithMembers("running", ["admitted"]);
 
@@ -198,7 +199,7 @@ describe("between-channel rollout helpers", () => {
         canStart: true,
         canDelete: true,
       }),
-    ).toBe("Initial firmware rollout in progress.");
+    ).toBe("Firmware convergence in progress.");
     expect(
       rolloutLaneActionStatus(lane, activeRollout, {
         canStart: true,
@@ -279,14 +280,14 @@ describe("between-channel rollout helpers", () => {
   it("blocks lane deletion only while setup or rollout work is unsettled", () => {
     const activeInitialLane = {
       ...lane,
-      initialEnforcement: {
-        ...lane.initialEnforcement,
+      firmwareConvergence: {
+        ...lane.firmwareConvergence,
         pendingCount: 1,
         confirmedCount: 1,
       },
     };
 
-    expect(rolloutLaneDeleteBlockedReason(activeInitialLane, undefined)).toMatch(/initial firmware setup/i);
+    expect(rolloutLaneDeleteBlockedReason(activeInitialLane, undefined)).toMatch(/firmware convergence/i);
     expect(rolloutLaneDeleteBlockedReason(lane, rolloutWithMembers("running", ["admitted"]))).toMatch(/rollout work/i);
     expect(rolloutLaneDeleteBlockedReason(lane, rolloutWithMembers("aborted", ["admitted"]))).toMatch(/rollout work/i);
     expect(rolloutLaneDeleteBlockedReason(lane, rolloutWithMembers("aborted", ["succeeded", "cancelled"]))).toBeNull();
@@ -294,8 +295,8 @@ describe("between-channel rollout helpers", () => {
       rolloutLaneDeleteBlockedReason(
         {
           ...lane,
-          initialEnforcement: {
-            ...lane.initialEnforcement,
+          firmwareConvergence: {
+            ...lane.firmwareConvergence,
             confirmedCount: 1,
             attentionCount: 1,
           },
@@ -303,6 +304,28 @@ describe("between-channel rollout helpers", () => {
         undefined,
       ),
     ).toBeNull();
+  });
+
+  it("blocks membership changes while firmware enforcement or rollout work is active", () => {
+    const activeMembershipEnforcement = {
+      ...lane,
+      firmwareConvergence: {
+        ...lane.firmwareConvergence,
+        pendingCount: 1,
+        confirmedCount: 1,
+      },
+    };
+
+    expect(rolloutLaneMembershipBlockedReason(activeMembershipEnforcement, undefined)).toMatch(
+      /firmware updates to finish/i,
+    );
+    expect(rolloutLaneMembershipBlockedReason(lane, rolloutWithMembers("running", ["admitted"]))).toMatch(
+      /rollout work to settle/i,
+    );
+    expect(rolloutLaneMembershipBlockedReason(lane, rolloutWithMembers("aborted", ["admitted"]))).toMatch(
+      /rollout work to settle/i,
+    );
+    expect(rolloutLaneMembershipBlockedReason(lane, rolloutWithMembers("completed", ["succeeded"]))).toBeNull();
   });
 
   it("blocks a new rollout while members remain on a non-current lane channel", () => {

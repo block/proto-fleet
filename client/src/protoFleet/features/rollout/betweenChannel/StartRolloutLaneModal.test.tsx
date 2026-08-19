@@ -23,7 +23,7 @@ const lane: RolloutLane = {
   channels: [],
   memberCount: 2,
   memberIdentifiers: ["miner-1", "miner-2"],
-  initialEnforcement: {
+  firmwareConvergence: {
     totalCount: 2,
     pendingCount: 0,
     updatingCount: 0,

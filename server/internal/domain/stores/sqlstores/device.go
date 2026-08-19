@@ -1333,22 +1333,22 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 			return 0, fleeterror.NewForbiddenError("access denied to one or more requested devices")
 		}
 
-		hasUnconfirmedInitialEnforcement, err := q.HasUnconfirmedInitialRolloutLaneEnforcement(
+		hasUnresolvedFirmwareConvergence, err := q.HasUnconfirmedRolloutLaneFirmwareConvergence(
 			ctx,
-			sqlc.HasUnconfirmedInitialRolloutLaneEnforcementParams{
+			sqlc.HasUnconfirmedRolloutLaneFirmwareConvergenceParams{
 				OrgID:     orgID,
 				DeviceIds: deviceIDs,
 			},
 		)
 		if err != nil {
 			return 0, fleeterror.NewInternalErrorf(
-				"failed to check initial rollout lane firmware enforcement: %v",
+				"failed to check rollout lane firmware convergence: %v",
 				err,
 			)
 		}
-		if hasUnconfirmedInitialEnforcement {
+		if hasUnresolvedFirmwareConvergence {
 			return 0, fleeterror.NewFailedPreconditionError(
-				"cannot delete devices with unresolved initial rollout lane firmware enforcement; wait for firmware confirmation",
+				"cannot delete devices with unresolved rollout lane firmware convergence; wait for firmware confirmation",
 			)
 		}
 

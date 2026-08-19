@@ -27,6 +27,9 @@ const rolloutApi = vi.hoisted(() => ({
   },
   listRolloutLanes: vi.fn(),
   getRolloutLane: vi.fn(),
+  listRolloutLaneMembers: vi.fn(),
+  previewRolloutLaneMembershipChange: vi.fn(),
+  updateRolloutLaneMembership: vi.fn(),
   previewRolloutLane: vi.fn(),
   createRolloutLane: vi.fn(),
   deleteRolloutLane: vi.fn(),
@@ -44,6 +47,7 @@ const rolloutApi = vi.hoisted(() => ({
 const capturedTable = vi.hoisted(() => ({
   onStart: null as ((lane: RolloutLane) => void) | null,
   onSetup: null as ((lane: RolloutLane) => void) | null,
+  onManageMembers: null as ((lane: RolloutLane) => void) | null,
   onDelete: null as ((lane: RolloutLane) => void) | null,
 }));
 
@@ -71,6 +75,7 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
     deletePermissionBlockedReason,
     isPreparingStart,
     onSetup,
+    onManageMembers,
     onStart,
     onDelete,
   }: {
@@ -80,11 +85,13 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
     deletePermissionBlockedReason?: string;
     isPreparingStart?: boolean;
     onSetup: (lane: RolloutLane) => void;
+    onManageMembers: (lane: RolloutLane) => void;
     onStart: (lane: RolloutLane) => void;
     onDelete: (lane: RolloutLane) => void;
   }) => {
     capturedTable.onStart = onStart;
     capturedTable.onSetup = onSetup;
+    capturedTable.onManageMembers = onManageMembers;
     capturedTable.onDelete = onDelete;
     return (
       <div data-testid="rollout-lanes-table">
@@ -93,6 +100,9 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
             {lane.label}
             <button type="button" onClick={() => onSetup(lane)}>
               Setup {lane.label}
+            </button>
+            <button type="button" onClick={() => onManageMembers(lane)}>
+              Members {lane.label}
             </button>
             {canStart ? (
               <button type="button" disabled={isPreparingStart} onClick={() => onStart(lane)}>
@@ -143,6 +153,69 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/DeleteRolloutLaneDialog", 
   ),
 }));
 
+vi.mock("@/protoFleet/features/rollout/betweenChannel/ManageRolloutLaneMembersModal", () => ({
+  default: ({
+    lane,
+    canManage,
+    onDismiss,
+    onUpdated,
+  }: {
+    lane: RolloutLane;
+    canManage: boolean;
+    onDismiss: () => void;
+    onUpdated: (result: { lane: RolloutLane; transitionMembers: Array<{ deviceIdentifier: string }> }) => void;
+  }) => (
+    <div>
+      <span>Manage members for {lane.label}</span>
+      <span>{canManage ? "Membership manager" : "Membership read only"}</span>
+      <button type="button" onClick={onDismiss}>
+        Close membership
+      </button>
+      {canManage ? (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              const updatedLane = {
+                ...lane,
+                revision: lane.revision + 1n,
+                firmwareConvergence: {
+                  ...lane.firmwareConvergence,
+                  totalCount: lane.firmwareConvergence.totalCount + 1,
+                  pendingCount: 1,
+                  members: [
+                    {
+                      deviceIdentifier: "miner-new",
+                      manufacturer: "Proto",
+                      model: "Alpha",
+                      latestObservedFirmwareVersion: "1.0.0",
+                      targetFirmwareVersion: "2.0.0",
+                      state: "pending" as const,
+                    },
+                  ],
+                },
+              };
+              rolloutApi.lane = updatedLane;
+              onUpdated({
+                lane: updatedLane,
+                transitionMembers: [{ deviceIdentifier: "miner-new" }],
+              });
+            }}
+          >
+            Complete membership update with transition
+          </button>
+          <button
+            type="button"
+            onClick={() => onUpdated({ lane: { ...lane, revision: lane.revision + 1n }, transitionMembers: [] })}
+          >
+            Complete pure removal
+          </button>
+        </>
+      ) : null}
+    </div>
+  ),
+}));
+
 vi.mock("@/protoFleet/features/rollout/betweenChannel/CreateRolloutLaneModal", () => ({
   default: ({
     onCreate,
@@ -172,12 +245,12 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/CreateRolloutLaneModal", (
   ),
 }));
 
-vi.mock("@/protoFleet/features/rollout/betweenChannel/InitialLaneFirmwareSetup", () => ({
+vi.mock("@/protoFleet/features/rollout/betweenChannel/LaneFirmwareConvergenceStatus", () => ({
   default: ({ lane, onClose, onStart }: { lane: RolloutLane; onClose?: () => void; onStart?: () => void }) => (
     <div>
-      <span>Initial setup for {lane.label}</span>
+      <span>Firmware convergence for {lane.label}</span>
       <span data-testid="setup-member-states">
-        {lane.initialEnforcement.members.map((member) => `${member.deviceIdentifier}:${member.state}`).join(",")}
+        {lane.firmwareConvergence.members.map((member) => `${member.deviceIdentifier}:${member.state}`).join(",")}
       </span>
       {onClose ? (
         <button type="button" onClick={onClose}>
@@ -284,7 +357,7 @@ function lane(id: string, label: string, rolloutId?: string, currentChannelId = 
     memberCount: 2,
     memberIdentifiers: ["miner-1", "miner-2"],
     currentReleaseTargets: [],
-    initialEnforcement: {
+    firmwareConvergence: {
       totalCount: 2,
       pendingCount: 0,
       updatingCount: 0,
@@ -356,6 +429,7 @@ describe("RolloutLanesTab", () => {
     vi.clearAllMocks();
     capturedTable.onStart = null;
     capturedTable.onSetup = null;
+    capturedTable.onManageMembers = null;
     capturedTable.onDelete = null;
     rolloutApi.lane = null;
     rolloutApi.lanes = [lane("lane-1", "Stable production")];
@@ -389,6 +463,20 @@ describe("RolloutLanesTab", () => {
     });
     rolloutApi.completeRollout.mockImplementation(async () => rolloutApi.rollouts[0]);
     rolloutApi.deleteRolloutLane.mockResolvedValue(undefined);
+    rolloutApi.listRolloutLaneMembers.mockResolvedValue({ members: [], nextPageToken: "", totalCount: 0 });
+    rolloutApi.previewRolloutLaneMembershipChange.mockResolvedValue({
+      targetFirmwarePreview: {
+        targets: [],
+        miners: [],
+        matchingCount: 0,
+        mismatchedCount: 0,
+        unknownCount: 0,
+      },
+      reassignments: [],
+      removals: [],
+      requiresFirmwareConfirmation: false,
+      requiresReassignmentConfirmation: false,
+    });
     pushToastMock.mockReset();
     rolloutApi.previewRolloutLane.mockResolvedValue({
       targets: [],
@@ -439,6 +527,55 @@ describe("RolloutLanesTab", () => {
     await waitFor(() => expect(listFirmwareFiles).toHaveBeenCalledTimes(1));
   });
 
+  it("opens lane membership for channel readers without management controls", async () => {
+    const user = userEvent.setup();
+    renderRolloutLanesTab();
+
+    await user.click(await screen.findByRole("button", { name: "Members Stable production" }));
+
+    expect(screen.getByText("Manage members for Stable production")).toBeInTheDocument();
+    expect(screen.getByText("Membership read only")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Complete membership update with transition" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens live setup after a membership update creates transition members", async () => {
+    const user = userEvent.setup();
+    rolloutApi.permissions.canManageChannels = true;
+    renderRolloutLanesTab();
+
+    await user.click(await screen.findByRole("button", { name: "Members Stable production" }));
+    expect(screen.getByText("Membership manager")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Complete membership update with transition" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("location-probe")).toHaveTextContent(
+        "/settings/firmware?tab=rolloutLanes&setupLane=lane-1",
+      ),
+    );
+    expect(screen.queryByText("Manage members for Stable production")).not.toBeInTheDocument();
+    expect(screen.getByText("Firmware convergence for Stable production")).toBeInTheDocument();
+    expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
+    expect(pushToastMock).toHaveBeenCalledWith({
+      message: "Updated Stable production membership",
+      status: "success",
+    });
+  });
+
+  it("keeps membership management open after a pure removal", async () => {
+    const user = userEvent.setup();
+    rolloutApi.permissions.canManageChannels = true;
+    renderRolloutLanesTab();
+
+    await user.click(await screen.findByRole("button", { name: "Members Stable production" }));
+    await user.click(screen.getByRole("button", { name: "Complete pure removal" }));
+
+    expect(screen.getByText("Manage members for Stable production")).toBeInTheDocument();
+    expect(screen.queryByText("Firmware convergence for Stable production")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location-probe")).not.toHaveTextContent("setupLane=");
+  });
+
   it("disables deletion for channel managers without rollout read access", async () => {
     rolloutApi.permissions.canManageChannels = true;
     rolloutApi.permissions.canRead = false;
@@ -486,12 +623,12 @@ describe("RolloutLanesTab", () => {
     expect(rolloutApi.completeRollout).not.toHaveBeenCalled();
   });
 
-  it("polls lane status while initial firmware enforcement is active", async () => {
+  it("polls lane status while firmware convergence is active", async () => {
     vi.useFakeTimers();
     rolloutApi.lanes = [
       {
         ...lane("lane-initial", "Initial convergence"),
-        initialEnforcement: {
+        firmwareConvergence: {
           totalCount: 2,
           pendingCount: 1,
           updatingCount: 1,
@@ -509,7 +646,7 @@ describe("RolloutLanesTab", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Initial setup for Initial convergence")).toBeInTheDocument();
+    expect(screen.getByText("Firmware convergence for Initial convergence")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close setup" })).not.toBeInTheDocument();
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/settings/firmware?tab=rolloutLanes");
 
@@ -521,7 +658,7 @@ describe("RolloutLanesTab", () => {
       expect.objectContaining({
         laneId: "lane-initial",
         includeDeviceSetMembers: false,
-        includeInitialEnforcementMembers: true,
+        includeFirmwareConvergenceMembers: true,
       }),
     );
     expect(rolloutApi.getRollout).not.toHaveBeenCalled();
@@ -535,7 +672,7 @@ describe("RolloutLanesTab", () => {
   it("refreshes the lane table on rollout events during active setup", async () => {
     const activeLane = {
       ...lane("lane-initial", "Initial convergence"),
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 2,
         pendingCount: 1,
         updatingCount: 1,
@@ -566,7 +703,7 @@ describe("RolloutLanesTab", () => {
     const user = userEvent.setup();
     const activeLane = {
       ...lane("lane-initial", "Initial convergence"),
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 2,
         pendingCount: 1,
         updatingCount: 1,
@@ -582,13 +719,13 @@ describe("RolloutLanesTab", () => {
     rolloutApi.getRolloutLane.mockResolvedValue(activeLane);
 
     renderRolloutLanesTab("/settings/firmware?tab=rolloutLanes&setupLane=lane-initial");
-    expect(await screen.findByText("Initial setup for Initial convergence")).toBeInTheDocument();
+    expect(await screen.findByText("Firmware convergence for Initial convergence")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close setup" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Remove setup param" }));
 
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/settings/firmware?tab=rolloutLanes");
-    expect(screen.getByText("Initial setup for Initial convergence")).toBeInTheDocument();
+    expect(screen.getByText("Firmware convergence for Initial convergence")).toBeInTheDocument();
   });
 
   it("does not overlap bounded rollout refreshes", async () => {
@@ -624,7 +761,7 @@ describe("RolloutLanesTab", () => {
     const user = userEvent.setup();
     const created = {
       ...lane("lane-new", "New stable lane"),
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 1,
         pendingCount: 1,
         updatingCount: 0,
@@ -653,7 +790,7 @@ describe("RolloutLanesTab", () => {
     await user.click(await screen.findByRole("button", { name: "Create lane" }));
     await user.click(screen.getByRole("button", { name: "Submit lane creation" }));
 
-    expect(await screen.findByText("Initial setup for New stable lane")).toBeInTheDocument();
+    expect(await screen.findByText("Firmware convergence for New stable lane")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Submit lane creation" })).not.toBeInTheDocument();
     expect(screen.getByTestId("location-probe")).toHaveTextContent(
       "/settings/firmware?site=alpha&tab=rolloutLanes&setupLane=lane-new",
@@ -664,7 +801,7 @@ describe("RolloutLanesTab", () => {
   it("restores URL-selected setup details immediately after remount", async () => {
     const selectedLane = {
       ...lane("lane-selected", "Selected lane"),
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 1,
         pendingCount: 1,
         updatingCount: 0,
@@ -686,11 +823,11 @@ describe("RolloutLanesTab", () => {
         expect.objectContaining({
           laneId: selectedLane.id,
           includeDeviceSetMembers: false,
-          includeInitialEnforcementMembers: true,
+          includeFirmwareConvergenceMembers: true,
         }),
       ),
     );
-    expect(screen.getByText("Initial setup for Selected lane")).toBeInTheDocument();
+    expect(screen.getByText("Firmware convergence for Selected lane")).toBeInTheDocument();
 
     firstView.unmount();
     rolloutApi.getRolloutLane.mockClear();
@@ -701,11 +838,11 @@ describe("RolloutLanesTab", () => {
         expect.objectContaining({
           laneId: selectedLane.id,
           includeDeviceSetMembers: false,
-          includeInitialEnforcementMembers: true,
+          includeFirmwareConvergenceMembers: true,
         }),
       ),
     );
-    expect(screen.getByText("Initial setup for Selected lane")).toBeInTheDocument();
+    expect(screen.getByText("Firmware convergence for Selected lane")).toBeInTheDocument();
     expect(screen.getByTestId("location-probe")).toHaveTextContent(initialEntry);
   });
 
@@ -855,7 +992,7 @@ describe("RolloutLanesTab", () => {
     const user = userEvent.setup();
     const activeLane = {
       ...lane("lane-initial", "Initial convergence"),
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 1,
         pendingCount: 1,
         updatingCount: 0,
@@ -915,7 +1052,7 @@ describe("RolloutLanesTab", () => {
     vi.useFakeTimers();
     const activeLane = {
       ...lane("lane-initial", "Initial convergence"),
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 2,
         pendingCount: 1,
         updatingCount: 0,
@@ -955,7 +1092,7 @@ describe("RolloutLanesTab", () => {
       screen.getByRole("button", { name: "Setup Initial convergence" }).click();
       await Promise.resolve();
     });
-    expect(screen.getByText("Initial setup for Initial convergence")).toBeInTheDocument();
+    expect(screen.getByText("Firmware convergence for Initial convergence")).toBeInTheDocument();
     expect(screen.getByTestId("location-probe")).toHaveTextContent(
       "/settings/firmware?site=alpha&tab=rolloutLanes&setupLane=lane-initial",
     );
@@ -968,8 +1105,8 @@ describe("RolloutLanesTab", () => {
       expect.objectContaining({
         laneId: activeLane.id,
         includeDeviceSetMembers: false,
-        includeInitialEnforcementMembers: true,
-        initialEnforcementMembersUpdatedAfter: timestampFromDate(new Date("2026-08-18T12:00:05.000Z")),
+        includeFirmwareConvergenceMembers: true,
+        firmwareConvergenceMembersUpdatedAfter: timestampFromDate(new Date("2026-08-18T12:00:05.000Z")),
       }),
     );
     expect(rolloutApi.getRolloutLane).not.toHaveBeenCalledWith(
@@ -984,7 +1121,7 @@ describe("RolloutLanesTab", () => {
     const liveRollout = rollout("running", "running", ["admitted"]);
     const setupLane = {
       ...lane("lane-setup", "Setup lane"),
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 1,
         pendingCount: 1,
         updatingCount: 0,
@@ -1031,8 +1168,8 @@ describe("RolloutLanesTab", () => {
 
     const aggregateReady = {
       ...setupLane,
-      initialEnforcement: {
-        ...setupLane.initialEnforcement,
+      firmwareConvergence: {
+        ...setupLane.firmwareConvergence,
         pendingCount: 0,
         confirmedCount: 1,
         members: [],
@@ -1045,9 +1182,9 @@ describe("RolloutLanesTab", () => {
 
     const detailedReady = {
       ...aggregateReady,
-      initialEnforcement: {
-        ...aggregateReady.initialEnforcement,
-        members: [{ ...setupLane.initialEnforcement.members[0], state: "confirmed" as const }],
+      firmwareConvergence: {
+        ...aggregateReady.firmwareConvergence,
+        members: [{ ...setupLane.firmwareConvergence.members[0], state: "confirmed" as const }],
       },
     };
     await act(async () => {
@@ -1064,7 +1201,7 @@ describe("RolloutLanesTab", () => {
     vi.useFakeTimers();
     const attentionLane = {
       ...lane("lane-attention", "Attention lane"),
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 2,
         pendingCount: 0,
         updatingCount: 0,
@@ -1096,7 +1233,7 @@ describe("RolloutLanesTab", () => {
       expect.objectContaining({
         laneId: attentionLane.id,
         includeDeviceSetMembers: false,
-        includeInitialEnforcementMembers: true,
+        includeFirmwareConvergenceMembers: true,
       }),
     );
     expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(1);
@@ -1166,7 +1303,7 @@ describe("RolloutLanesTab", () => {
         expect.objectContaining({
           laneId: rolloutApi.lanes[0].id,
           includeDeviceSetMembers: true,
-          includeInitialEnforcementMembers: false,
+          includeFirmwareConvergenceMembers: false,
         }),
       ),
     );

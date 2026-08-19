@@ -13,9 +13,11 @@ import {
   DeleteRolloutLaneRequestSchema,
   GetRolloutLaneRequestSchema,
   GetRolloutRequestSchema,
+  ListRolloutLaneMembersRequestSchema,
   ListRolloutLanesRequestSchema,
   ListRolloutsRequestSchema,
   PauseRolloutRequestSchema,
+  PreviewRolloutLaneMembershipChangeRequestSchema,
   PreviewRolloutLaneRequestSchema,
   type Rollout as ProtoRollout,
   type RolloutLane as ProtoRolloutLane,
@@ -23,17 +25,24 @@ import {
   ResumeRolloutRequestSchema,
   RevertRolloutRequestSchema,
   StartRolloutLaneRequestSchema,
+  UpdateRolloutLaneMembershipRequestSchema,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { assertNotAborted, isAbortError, isAuthOrPermissionError, toError } from "@/protoFleet/api/requestErrors";
 import { emitRolloutChanged } from "@/protoFleet/api/rolloutEvents";
 import {
   mapRollout,
   mapRolloutLane,
+  mapRolloutLaneMembershipChangePreview,
+  mapRolloutLaneMembershipPage,
+  mapRolloutLaneMembershipUpdate,
   mapRolloutLanePreview,
   mapRolloutStateToProto,
 } from "@/protoFleet/api/rolloutMappers";
 import type {
   RolloutLane,
+  RolloutLaneMembershipChangePreview,
+  RolloutLaneMembershipPage,
+  RolloutLaneMembershipUpdateResult,
   RolloutLanePreview,
   RolloutLaneReleaseTarget,
   RolloutLifecycleState,
@@ -56,8 +65,8 @@ export interface GetRolloutOptions extends RolloutRequestOptions {
 export interface GetRolloutLaneOptions extends RolloutRequestOptions {
   laneId: string;
   includeDeviceSetMembers?: boolean;
-  includeInitialEnforcementMembers?: boolean;
-  initialEnforcementMembersUpdatedAfter?: Timestamp;
+  includeFirmwareConvergenceMembers?: boolean;
+  firmwareConvergenceMembersUpdatedAfter?: Timestamp;
 }
 
 export interface CreateRolloutMemberInput {
@@ -99,6 +108,27 @@ export interface CreateRolloutLaneInput extends RolloutRequestOptions {
 export interface PreviewRolloutLaneInput extends RolloutRequestOptions {
   firmwareFileIds: string[];
   deviceIdentifiers: string[];
+}
+
+export interface ListRolloutLaneMembersOptions extends RolloutRequestOptions {
+  laneId: string;
+  pageSize?: number;
+  pageToken?: string;
+  includeTotalCount?: boolean;
+}
+
+export interface PreviewRolloutLaneMembershipChangeInput extends RolloutRequestOptions {
+  laneId: string;
+  addDeviceIdentifiers: string[];
+  removeDeviceIdentifiers: string[];
+}
+
+export interface UpdateRolloutLaneMembershipInput extends PreviewRolloutLaneMembershipChangeInput {
+  expectedRevision: bigint;
+  confirmFirmware: boolean;
+  confirmReassign: boolean;
+  idempotencyKey: string;
+  reason: string;
 }
 
 export interface StartRolloutLaneInput extends RolloutRequestOptions {
@@ -157,6 +187,11 @@ export interface UseRolloutApiResult {
   permissions: RolloutPermissions;
   listRolloutLanes: (options?: RolloutRequestOptions) => Promise<RolloutLane[]>;
   getRolloutLane: (options: GetRolloutLaneOptions) => Promise<RolloutLane>;
+  listRolloutLaneMembers: (options: ListRolloutLaneMembersOptions) => Promise<RolloutLaneMembershipPage>;
+  previewRolloutLaneMembershipChange: (
+    input: PreviewRolloutLaneMembershipChangeInput,
+  ) => Promise<RolloutLaneMembershipChangePreview>;
+  updateRolloutLaneMembership: (input: UpdateRolloutLaneMembershipInput) => Promise<RolloutLaneMembershipUpdateResult>;
   previewRolloutLane: (input: PreviewRolloutLaneInput) => Promise<RolloutLanePreview>;
   createRolloutLane: (input: CreateRolloutLaneInput) => Promise<RolloutLane>;
   deleteRolloutLane: (input: DeleteRolloutLaneInput) => Promise<void>;
@@ -246,7 +281,6 @@ async function hydrateRolloutLane(
   }
 
   return mapRolloutLane(lane, {
-    memberCount: deviceSet.deviceCount,
     memberIdentifiers,
     releaseTargets,
   });
@@ -260,34 +294,40 @@ function preserveDetailedLaneState(existing: RolloutLane | undefined, aggregate:
     ...aggregate,
     memberIdentifiers:
       aggregate.memberIdentifiers.length > 0 ? aggregate.memberIdentifiers : existing.memberIdentifiers,
-    initialEnforcement: {
-      ...aggregate.initialEnforcement,
+    firmwareConvergence: {
+      ...aggregate.firmwareConvergence,
       members:
-        aggregate.initialEnforcement.members.length > 0
-          ? aggregate.initialEnforcement.members
-          : existing.initialEnforcement.members,
+        aggregate.firmwareConvergence.members.length > 0
+          ? aggregate.firmwareConvergence.members
+          : existing.firmwareConvergence.members,
     },
   };
 }
 
-function mergeTransitionMemberUpdates(existing: RolloutLane | undefined, incoming: RolloutLane): RolloutLane {
+function mergeTransitionMemberUpdates(
+  existing: RolloutLane | undefined,
+  incoming: RolloutLane,
+  removedIdentifiers: readonly string[] = [],
+): RolloutLane {
   if (!existing || existing.id !== incoming.id) {
     return incoming;
   }
+  const removed = new Set(removedIdentifiers);
   const incomingByIdentifier = new Map(
-    incoming.initialEnforcement.members.map((member) => [member.deviceIdentifier, member]),
+    incoming.firmwareConvergence.members.map((member) => [member.deviceIdentifier, member]),
   );
-  const existingIdentifiers = new Set(existing.initialEnforcement.members.map((member) => member.deviceIdentifier));
+  const existingMembers = existing.firmwareConvergence.members.filter(
+    (member) => !removed.has(member.deviceIdentifier),
+  );
+  const existingIdentifiers = new Set(existingMembers.map((member) => member.deviceIdentifier));
   return {
     ...incoming,
     memberIdentifiers: incoming.memberIdentifiers.length > 0 ? incoming.memberIdentifiers : existing.memberIdentifiers,
-    initialEnforcement: {
-      ...incoming.initialEnforcement,
+    firmwareConvergence: {
+      ...incoming.firmwareConvergence,
       members: [
-        ...existing.initialEnforcement.members.map(
-          (member) => incomingByIdentifier.get(member.deviceIdentifier) ?? member,
-        ),
-        ...incoming.initialEnforcement.members.filter((member) => !existingIdentifiers.has(member.deviceIdentifier)),
+        ...existingMembers.map((member) => incomingByIdentifier.get(member.deviceIdentifier) ?? member),
+        ...incoming.firmwareConvergence.members.filter((member) => !existingIdentifiers.has(member.deviceIdentifier)),
       ],
     },
   };
@@ -302,6 +342,7 @@ export function useRolloutApi(): UseRolloutApiResult {
   const canControl = useHasPermission("rollout:control");
   const [lane, setLane] = useState<RolloutLane | null>(null);
   const [lanes, setLanes] = useState<RolloutLane[]>([]);
+  const lanesRef = useRef(lanes);
   const [rollout, setRollout] = useState<RolloutRecord | null>(null);
   const [rollouts, setRollouts] = useState<RolloutRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -314,6 +355,12 @@ export function useRolloutApi(): UseRolloutApiResult {
   const latestLaneGetRequestIdRef = useRef(0);
   const activeLoadCountRef = useRef(0);
   const activeMutationCountRef = useRef(0);
+
+  const updateLanes = useCallback((updater: (current: RolloutLane[]) => RolloutLane[]) => {
+    const next = updater(lanesRef.current);
+    lanesRef.current = next;
+    setLanes(next);
+  }, []);
 
   const beginLoad = useCallback(() => {
     activeLoadCountRef.current += 1;
@@ -333,6 +380,21 @@ export function useRolloutApi(): UseRolloutApiResult {
     [handleAuthErrors],
   );
 
+  const executeIsolatedRequest = useCallback(
+    async <T>(operation: () => Promise<T>, signal: AbortSignal | undefined, fallbackMessage: string): Promise<T> => {
+      assertNotAborted(signal);
+      try {
+        return await operation();
+      } catch (error) {
+        if (isAbortError(error, signal)) {
+          throw error;
+        }
+        throw handleFailure(error, fallbackMessage);
+      }
+    },
+    [handleFailure],
+  );
+
   const applyMutationResult = useCallback((nextRollout: RolloutRecord) => {
     setRollout((current) => {
       return current?.id === nextRollout.id ? newestRollout(current, nextRollout) : nextRollout;
@@ -350,27 +412,38 @@ export function useRolloutApi(): UseRolloutApiResult {
     });
   }, []);
 
-  const applyLaneResult = useCallback((nextLane: RolloutLane, mergeTransitionMembers = false) => {
-    setLane((current) =>
-      mergeTransitionMembers ? mergeTransitionMemberUpdates(current ?? undefined, nextLane) : nextLane,
-    );
-    setLanes((current) => {
-      const existing = current.findIndex((item) => item.id === nextLane.id);
-      if (existing === -1) {
-        return [nextLane, ...current];
-      }
-      if (current[existing].revision > nextLane.revision) {
-        return current;
-      }
-      return current.map((item, index) =>
-        index === existing && mergeTransitionMembers
-          ? mergeTransitionMemberUpdates(item, nextLane)
-          : index === existing
-            ? nextLane
-            : item,
-      );
-    });
-  }, []);
+  const applyLaneResult = useCallback(
+    (nextLane: RolloutLane, mergeTransitionMembers = false, removedIdentifiers: readonly string[] = []) => {
+      setLane((current) => {
+        const aggregate = lanesRef.current.find((item) => item.id === nextLane.id);
+        const newestCached =
+          current?.id === nextLane.id && (!aggregate || current.revision >= aggregate.revision) ? current : aggregate;
+        const detailed = mergeTransitionMembers
+          ? mergeTransitionMemberUpdates(current ?? aggregate, nextLane, removedIdentifiers)
+          : nextLane;
+        return newestCached && newestCached.revision > nextLane.revision
+          ? preserveDetailedLaneState(detailed, newestCached)
+          : detailed;
+      });
+      updateLanes((current) => {
+        const existing = current.findIndex((item) => item.id === nextLane.id);
+        if (existing === -1) {
+          return [nextLane, ...current];
+        }
+        if (current[existing].revision > nextLane.revision) {
+          return current;
+        }
+        return current.map((item, index) =>
+          index === existing && mergeTransitionMembers
+            ? mergeTransitionMemberUpdates(item, nextLane, removedIdentifiers)
+            : index === existing
+              ? nextLane
+              : item,
+        );
+      });
+    },
+    [updateLanes],
+  );
 
   const listRolloutLanes = useCallback(
     async ({ signal }: RolloutRequestOptions = {}) => {
@@ -386,7 +459,7 @@ export function useRolloutApi(): UseRolloutApiResult {
         const mapped = await Promise.all(response.lanes.map((item) => hydrateRolloutLane(item, signal)));
         assertNotAborted(signal);
         if (requestId === latestLaneListRequestIdRef.current) {
-          setLanes((current) => {
+          updateLanes((current) => {
             const currentById = new Map(current.map((item) => [item.id, item]));
             return mapped.map((item) => preserveDetailedLaneState(currentById.get(item.id), item));
           });
@@ -400,7 +473,7 @@ export function useRolloutApi(): UseRolloutApiResult {
         if (requestId === latestLaneListRequestIdRef.current) {
           if (isAuthOrPermissionError(error)) {
             setLane(null);
-            setLanes([]);
+            updateLanes(() => []);
           }
           setLoadError(resolvedError.message);
         }
@@ -409,15 +482,15 @@ export function useRolloutApi(): UseRolloutApiResult {
         finishLoad();
       }
     },
-    [beginLoad, finishLoad, handleFailure],
+    [beginLoad, finishLoad, handleFailure, updateLanes],
   );
 
   const getRolloutLane = useCallback(
     async ({
       laneId,
       includeDeviceSetMembers = false,
-      includeInitialEnforcementMembers = false,
-      initialEnforcementMembersUpdatedAfter,
+      includeFirmwareConvergenceMembers = false,
+      firmwareConvergenceMembersUpdatedAfter,
       signal,
     }: GetRolloutLaneOptions) => {
       assertNotAborted(signal);
@@ -428,8 +501,8 @@ export function useRolloutApi(): UseRolloutApiResult {
         const response = await rolloutClient.getRolloutLane(
           create(GetRolloutLaneRequestSchema, {
             laneId,
-            includeInitialEnforcementMembers,
-            initialEnforcementMembersUpdatedAfter,
+            includeFirmwareConvergenceMembers,
+            firmwareConvergenceMembersUpdatedAfter,
           }),
           rpcOptions(signal),
         );
@@ -439,7 +512,7 @@ export function useRolloutApi(): UseRolloutApiResult {
         const mapped = await hydrateRolloutLane(response.lane, signal, includeDeviceSetMembers);
         assertNotAborted(signal);
         if (requestId === latestLaneGetRequestIdRef.current) {
-          applyLaneResult(mapped, initialEnforcementMembersUpdatedAfter !== undefined);
+          applyLaneResult(mapped, firmwareConvergenceMembersUpdatedAfter !== undefined);
         }
         return mapped;
       } catch (error) {
@@ -503,6 +576,28 @@ export function useRolloutApi(): UseRolloutApiResult {
       }
     },
     [beginLoad, finishLoad, handleFailure],
+  );
+
+  const listRolloutLaneMembers = useCallback(
+    ({ laneId, pageSize = 100, pageToken = "", includeTotalCount = false, signal }: ListRolloutLaneMembersOptions) =>
+      executeIsolatedRequest(
+        async () => {
+          const response = await rolloutClient.listRolloutLaneMembers(
+            create(ListRolloutLaneMembersRequestSchema, {
+              laneId,
+              pageSize,
+              pageToken,
+              includeTotalCount,
+            }),
+            rpcOptions(signal),
+          );
+          assertNotAborted(signal);
+          return mapRolloutLaneMembershipPage(response);
+        },
+        signal,
+        "Failed to load rollout lane members.",
+      ),
+    [executeIsolatedRequest],
   );
 
   const getRollout = useCallback(
@@ -679,6 +774,64 @@ export function useRolloutApi(): UseRolloutApiResult {
     [executeMutation],
   );
 
+  const previewRolloutLaneMembershipChange = useCallback(
+    (input: PreviewRolloutLaneMembershipChangeInput) =>
+      executeIsolatedRequest(
+        async () => {
+          const response = await rolloutClient.previewRolloutLaneMembershipChange(
+            create(PreviewRolloutLaneMembershipChangeRequestSchema, {
+              laneId: input.laneId,
+              addDeviceIdentifiers: input.addDeviceIdentifiers,
+              removeDeviceIdentifiers: input.removeDeviceIdentifiers,
+            }),
+            rpcOptions(input.signal),
+          );
+          assertNotAborted(input.signal);
+          return mapRolloutLaneMembershipChangePreview(response);
+        },
+        input.signal,
+        "Couldn't preview rollout lane membership changes. Try again.",
+      ),
+    [executeIsolatedRequest],
+  );
+
+  const updateRolloutLaneMembership = useCallback(
+    (input: UpdateRolloutLaneMembershipInput) =>
+      executeMutation(
+        async () => {
+          const response = await rolloutClient.updateRolloutLaneMembership(
+            create(UpdateRolloutLaneMembershipRequestSchema, {
+              laneId: input.laneId,
+              expectedRevision: input.expectedRevision,
+              addDeviceIdentifiers: input.addDeviceIdentifiers,
+              removeDeviceIdentifiers: input.removeDeviceIdentifiers,
+              confirmFirmware: input.confirmFirmware,
+              confirmReassign: input.confirmReassign,
+              idempotencyKey: input.idempotencyKey,
+              reason: input.reason,
+            }),
+            rpcOptions(input.signal),
+          );
+          assertNotAborted(input.signal);
+          const mapped = mapRolloutLaneMembershipUpdate(response);
+          const laneWithTransitionMembers: RolloutLane = {
+            ...mapped.lane,
+            firmwareConvergence: {
+              ...mapped.lane.firmwareConvergence,
+              members: mapped.transitionMembers.flatMap((member) => (member.enforcement ? [member.enforcement] : [])),
+            },
+          };
+          const result = { ...mapped, lane: laneWithTransitionMembers };
+          applyLaneResult(result.lane, true, input.removeDeviceIdentifiers);
+          emitRolloutChanged();
+          return result;
+        },
+        input.signal,
+        "Couldn't update rollout lane membership. Try again.",
+      ),
+    [applyLaneResult, executeMutation],
+  );
+
   const deleteRolloutLane = useCallback(
     (input: DeleteRolloutLaneInput) =>
       executeMutation(
@@ -696,7 +849,7 @@ export function useRolloutApi(): UseRolloutApiResult {
           latestLaneListRequestIdRef.current += 1;
           latestLaneGetRequestIdRef.current += 1;
           setLane((current) => (current?.id === input.laneId ? null : current));
-          setLanes((current) =>
+          updateLanes((current) =>
             current.some((item) => item.id === input.laneId)
               ? current.filter((item) => item.id !== input.laneId)
               : current,
@@ -706,7 +859,7 @@ export function useRolloutApi(): UseRolloutApiResult {
         input.signal,
         "Couldn't delete rollout lane. Try again.",
       ),
-    [executeMutation],
+    [executeMutation, updateLanes],
   );
 
   const startRolloutLane = useCallback(
@@ -826,6 +979,9 @@ export function useRolloutApi(): UseRolloutApiResult {
       permissions,
       listRolloutLanes,
       getRolloutLane,
+      listRolloutLaneMembers,
+      previewRolloutLaneMembershipChange,
+      updateRolloutLaneMembership,
       previewRolloutLane,
       createRolloutLane,
       deleteRolloutLane,
@@ -856,17 +1012,20 @@ export function useRolloutApi(): UseRolloutApiResult {
       lane,
       lanes,
       listRolloutLanes,
+      listRolloutLaneMembers,
       listRollouts,
       loadError,
       mutationError,
       pauseRollout,
       permissions,
       previewRolloutLane,
+      previewRolloutLaneMembershipChange,
       resumeRollout,
       revertRollout,
       rollout,
       rollouts,
       startRolloutLane,
+      updateRolloutLaneMembership,
     ],
   );
 }

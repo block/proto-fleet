@@ -4167,13 +4167,19 @@ func TestService_AssignDevicesToChannel_OrgScopedAtomicMove(t *testing.T) {
 	gomock.InOrder(
 		mockStore.EXPECT().
 			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
-			Return([]int64{12, 77}, nil),
+			Return([]int64{12, 13, 77}, nil),
 		mockStore.EXPECT().
 			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
 			Return(deviceIDs, nil),
 		mockStore.EXPECT().
+			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
+			Return([]int64{12, 13}, nil),
+		mockStore.EXPECT().
 			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
 			Return(false, nil),
+		mockStore.EXPECT().
+			ListRolloutLaneOwnedChannelIDs(gomock.Any(), testOrgID, []int64{12, 13}).
+			Return(nil, nil),
 		mockStore.EXPECT().
 			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
 			Return(nil, nil),
@@ -4242,6 +4248,9 @@ func TestService_AssignDevicesToChannel_RejectsRolloutLaneTarget(t *testing.T) {
 			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
 			Return(deviceIDs, nil),
 		mockStore.EXPECT().
+			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
+			Return(nil, nil),
+		mockStore.EXPECT().
 			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
 			Return(true, nil),
 	)
@@ -4268,6 +4277,12 @@ func TestService_AssignDevicesToChannel_UnassignDoesNotTouchRackPlacement(t *tes
 			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
 			Return(deviceIDs, nil),
 		mockStore.EXPECT().
+			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
+			Return([]int64{12}, nil),
+		mockStore.EXPECT().
+			ListRolloutLaneOwnedChannelIDs(gomock.Any(), testOrgID, []int64{12}).
+			Return(nil, nil),
+		mockStore.EXPECT().
 			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
 			Return(nil, nil),
 		mockStore.EXPECT().
@@ -4282,6 +4297,145 @@ func TestService_AssignDevicesToChannel_UnassignDoesNotTouchRackPlacement(t *tes
 
 	require.NoError(t, err)
 	assert.Zero(t, result.AssignedCount)
+	assert.Equal(t, int64(1), result.RemovedCount)
+}
+
+func TestService_AssignDevicesToChannel_RejectsRolloutLaneSource(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	targetChannelID := int64(77)
+	deviceIDs := []string{"d1"}
+	gomock.InOrder(
+		mockStore.EXPECT().
+			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
+			// Simulate a lane add committing after the channel pre-lock snapshot.
+			Return([]int64{77}, nil),
+		mockStore.EXPECT().
+			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
+			Return(deviceIDs, nil),
+		mockStore.EXPECT().
+			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
+			Return([]int64{12}, nil),
+		mockStore.EXPECT().
+			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
+			Return(false, nil),
+		mockStore.EXPECT().
+			ListRolloutLaneOwnedChannelIDs(gomock.Any(), testOrgID, []int64{12}).
+			Return([]int64{12}, nil),
+	)
+
+	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
+		OrgID:             testOrgID,
+		TargetChannelID:   &targetChannelID,
+		DeviceIdentifiers: deviceIDs,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+}
+
+func TestService_AssignDevicesToChannel_ConcurrentLaneAddWinsBeforePostLockRead(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	targetChannelID := int64(77)
+	laneChannelID := int64(12)
+	deviceIDs := []string{"d1"}
+	assignmentReachedDeviceLock := make(chan struct{})
+	laneAddCommitted := make(chan struct{})
+	go func() {
+		<-assignmentReachedDeviceLock
+		close(laneAddCommitted)
+	}()
+
+	gomock.InOrder(
+		mockStore.EXPECT().
+			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
+			Return([]int64{targetChannelID}, nil),
+		mockStore.EXPECT().
+			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
+			DoAndReturn(func(context.Context, int64, []string) ([]string, error) {
+				close(assignmentReachedDeviceLock)
+				<-laneAddCommitted
+				return deviceIDs, nil
+			}),
+		mockStore.EXPECT().
+			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
+			Return([]int64{laneChannelID}, nil),
+		mockStore.EXPECT().
+			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
+			Return(false, nil),
+		mockStore.EXPECT().
+			ListRolloutLaneOwnedChannelIDs(gomock.Any(), testOrgID, []int64{laneChannelID}).
+			Return([]int64{laneChannelID}, nil),
+	)
+
+	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
+		OrgID:             testOrgID,
+		TargetChannelID:   &targetChannelID,
+		DeviceIdentifiers: deviceIDs,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+}
+
+func TestService_AssignDevicesToChannel_ConcurrentGenericAssignmentWinsDeviceLock(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	targetChannelID := int64(77)
+	deviceIDs := []string{"d1"}
+	genericDeviceLocked := make(chan struct{})
+	laneAddAttempted := make(chan struct{})
+	go func() {
+		<-genericDeviceLocked
+		close(laneAddAttempted)
+	}()
+
+	gomock.InOrder(
+		mockStore.EXPECT().
+			LockChannelsForReparent(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
+			Return([]int64{targetChannelID}, nil),
+		mockStore.EXPECT().
+			LockDevicesForChannelAssignment(gomock.Any(), testOrgID, deviceIDs).
+			DoAndReturn(func(context.Context, int64, []string) ([]string, error) {
+				close(genericDeviceLocked)
+				<-laneAddAttempted
+				return deviceIDs, nil
+			}),
+		mockStore.EXPECT().
+			ListCurrentChannelIDsForDevices(gomock.Any(), testOrgID, deviceIDs).
+			Return(nil, nil),
+		mockStore.EXPECT().
+			IsRolloutLaneChannel(gomock.Any(), testOrgID, targetChannelID).
+			Return(false, nil),
+		mockStore.EXPECT().
+			ListActiveRolloutOwnedDeviceIdentifiers(gomock.Any(), testOrgID, deviceIDs).
+			Return(nil, nil),
+		mockStore.EXPECT().
+			GetCollection(gomock.Any(), testOrgID, targetChannelID).
+			Return(&pb.DeviceCollection{
+				Id:    targetChannelID,
+				Type:  pb.CollectionType_COLLECTION_TYPE_CHANNEL,
+				Label: "Stable",
+			}, nil),
+		mockStore.EXPECT().
+			GetChannelInfo(gomock.Any(), targetChannelID, testOrgID).
+			Return(&pb.ChannelInfo{ReleaseSetId: 91}, nil),
+		mockStore.EXPECT().
+			RemoveDevicesFromAnyChannel(gomock.Any(), testOrgID, deviceIDs, targetChannelID).
+			Return(int64(1), nil),
+		mockStore.EXPECT().
+			AddDevicesToCollection(gomock.Any(), testOrgID, targetChannelID, deviceIDs).
+			Return(int64(1), nil),
+	)
+
+	result, err := svc.AssignDevicesToChannel(testCtx(t), AssignDevicesToChannelParams{
+		OrgID:             testOrgID,
+		TargetChannelID:   &targetChannelID,
+		DeviceIdentifiers: deviceIDs,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), result.AssignedCount)
 	assert.Equal(t, int64(1), result.RemovedCount)
 }
 

@@ -1404,6 +1404,23 @@ type RolloutLaneChannel struct {
 	CreatedAt           time.Time
 }
 
+type RolloutLaneMembershipChange struct {
+	ID                 uuid.UUID
+	OrgID              int64
+	TargetLaneID       uuid.UUID
+	AuthorityID        uuid.NullUUID
+	IdempotencyKey     string
+	RequestFingerprint string
+	Requested          json.RawMessage
+	Applied            json.RawMessage
+	Reason             string
+	ActorUserID        int64
+	ActorType          string
+	ActorCredentialID  sql.NullString
+	RequestedAt        time.Time
+	AppliedAt          time.Time
+}
+
 type Schedule struct {
 	ID           int64
 	OrgID        int64

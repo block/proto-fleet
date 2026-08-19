@@ -88,8 +88,8 @@ function hasMemberOutsideCurrentChannel(lane: RolloutLane, rollout: RolloutRecor
   return true;
 }
 
-export function hasActiveInitialEnforcement(lane: RolloutLane): boolean {
-  const { totalCount, confirmedCount, attentionCount } = lane.initialEnforcement;
+export function hasActiveFirmwareConvergence(lane: RolloutLane): boolean {
+  const { totalCount, confirmedCount, attentionCount } = lane.firmwareConvergence;
   return totalCount > confirmedCount + attentionCount;
 }
 
@@ -97,13 +97,13 @@ export function laneForRollout(lanes: RolloutLane[], rolloutId: string): Rollout
   return lanes.find((lane) => lane.channels.some((channel) => channel.rolloutId === rolloutId));
 }
 
-export function firstActiveInitialLane(lanes: RolloutLane[]): RolloutLane | undefined {
+export function firstActiveFirmwareConvergenceLane(lanes: RolloutLane[]): RolloutLane | undefined {
   // Array.find preserves the server-provided lane order as the deterministic tie-breaker.
-  return lanes.find(hasActiveInitialEnforcement);
+  return lanes.find(hasActiveFirmwareConvergence);
 }
 
-export function dominantInitialFirmwareState(lane: RolloutLane): FirmwareTransitionState {
-  const { attentionCount, verifyingCount, updatingCount, pendingCount } = lane.initialEnforcement;
+export function dominantFirmwareConvergenceState(lane: RolloutLane): FirmwareTransitionState {
+  const { attentionCount, verifyingCount, updatingCount, pendingCount } = lane.firmwareConvergence;
   if (attentionCount > 0) {
     return "needsAttention";
   }
@@ -119,19 +119,19 @@ export function dominantInitialFirmwareState(lane: RolloutLane): FirmwareTransit
   return "confirmed";
 }
 
-export function isInitialFirmwareReady(lane: RolloutLane): boolean {
+export function isFirmwareConvergenceReady(lane: RolloutLane): boolean {
   return (
-    lane.initialEnforcement.totalCount > 0 &&
-    lane.initialEnforcement.confirmedCount === lane.initialEnforcement.totalCount
+    lane.firmwareConvergence.totalCount > 0 &&
+    lane.firmwareConvergence.confirmedCount === lane.firmwareConvergence.totalCount
   );
 }
 
 export function rolloutLaneStartBlockedReason(lane: RolloutLane, rollout: RolloutRecord | undefined): string | null {
-  if (lane.initialEnforcement.attentionCount > 0) {
+  if (lane.firmwareConvergence.attentionCount > 0) {
     return "Resolve miners that need attention before starting a rollout.";
   }
-  if (!isInitialFirmwareReady(lane)) {
-    return "Wait for initial firmware setup to finish before starting a rollout.";
+  if (!isFirmwareConvergenceReady(lane)) {
+    return "Wait for firmware convergence to finish before starting a rollout.";
   }
   if (!rollout) {
     return null;
@@ -148,11 +148,24 @@ export function rolloutLaneStartBlockedReason(lane: RolloutLane, rollout: Rollou
 }
 
 export function rolloutLaneDeleteBlockedReason(lane: RolloutLane, rollout: RolloutRecord | undefined): string | null {
-  if (hasActiveInitialEnforcement(lane)) {
-    return "Wait for initial firmware setup to finish before deleting this lane.";
+  if (hasActiveFirmwareConvergence(lane)) {
+    return "Wait for firmware convergence to finish before deleting this lane.";
   }
   if (shouldMonitorRollout(rollout)) {
     return "Wait for rollout work to settle before deleting this lane.";
+  }
+  return null;
+}
+
+export function rolloutLaneMembershipBlockedReason(
+  lane: RolloutLane,
+  rollout: RolloutRecord | undefined,
+): string | null {
+  if (hasActiveFirmwareConvergence(lane)) {
+    return "Wait for firmware updates to finish before changing miners.";
+  }
+  if (shouldMonitorRollout(rollout)) {
+    return "Wait for rollout work to settle before changing miners.";
   }
   return null;
 }
@@ -165,8 +178,8 @@ export function rolloutLaneActionStatus(
   if (!canStart && !canDelete) {
     return null;
   }
-  if (hasActiveInitialEnforcement(lane)) {
-    return "Initial firmware rollout in progress.";
+  if (hasActiveFirmwareConvergence(lane)) {
+    return "Firmware convergence in progress.";
   }
   if (shouldMonitorRollout(rollout)) {
     return "Rollout in progress.";

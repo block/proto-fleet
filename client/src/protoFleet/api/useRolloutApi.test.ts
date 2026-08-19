@@ -8,8 +8,10 @@ import {
   FirmwareTransitionMinerSchema,
   FirmwareTransitionState,
   InitialFirmwareMatchStatus,
+  PreviewRolloutLaneMembershipChangeResponseSchema,
   RolloutLaneChannelSchema,
-  RolloutLaneInitialEnforcementStatusSchema,
+  RolloutLaneFirmwareConvergenceStatusSchema,
+  RolloutLaneMemberSchema,
   RolloutLanePreviewMinerSchema,
   RolloutLanePreviewSchema,
   RolloutLaneSchema,
@@ -20,9 +22,12 @@ import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 
 const rolloutClientMock = vi.hoisted(() => ({
   previewRolloutLane: vi.fn(),
+  previewRolloutLaneMembershipChange: vi.fn(),
   createRolloutLane: vi.fn(),
   getRolloutLane: vi.fn(),
   listRolloutLanes: vi.fn(),
+  listRolloutLaneMembers: vi.fn(),
+  updateRolloutLaneMembership: vi.fn(),
   deleteRolloutLane: vi.fn(),
   startRolloutLane: vi.fn(),
   createRollout: vi.fn(),
@@ -71,6 +76,7 @@ function protoLane(id = "15bc6181-07d8-45ac-8424-50b5e938b871") {
     label: "Stable production",
     currentChannelId: 41n,
     revision: 2n,
+    memberCount: 2,
     channels: [
       create(RolloutLaneChannelSchema, {
         channelId: 41n,
@@ -143,7 +149,7 @@ describe("useRolloutApi", () => {
       await result.current.getRolloutLane({
         laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
         includeDeviceSetMembers: true,
-        includeInitialEnforcementMembers: true,
+        includeFirmwareConvergenceMembers: true,
       });
     });
 
@@ -157,7 +163,7 @@ describe("useRolloutApi", () => {
     });
     expect(rolloutClientMock.getRolloutLane.mock.calls[0][0]).toMatchObject({
       laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
-      includeInitialEnforcementMembers: true,
+      includeFirmwareConvergenceMembers: true,
     });
     expect(result.current.lane).toMatchObject({
       label: "Stable production",
@@ -168,6 +174,414 @@ describe("useRolloutApi", () => {
     expect(deviceSetClientMock.listDeviceSetMembers).toHaveBeenCalledTimes(1);
   });
 
+  it("lists, previews, and updates rollout lane membership through mapped RPCs", async () => {
+    const laneId = "15bc6181-07d8-45ac-8424-50b5e938b871";
+    const member = create(RolloutLaneMemberSchema, {
+      deviceIdentifier: "miner-1",
+      manufacturer: "Proto",
+      model: "Alpha",
+      observedFirmwareVersion: "0.9.0",
+      channelId: 40n,
+      channelPosition: 0,
+      onCurrentChannel: false,
+      pinnedReleaseVersion: "0.9.0",
+      enforcement: create(FirmwareTransitionMinerSchema, {
+        deviceIdentifier: "miner-1",
+        manufacturer: "Proto",
+        model: "Alpha",
+        latestObservedFirmwareVersion: "0.9.0",
+        targetFirmwareVersion: "1.0.0",
+        state: FirmwareTransitionState.PENDING,
+      }),
+    });
+    rolloutClientMock.listRolloutLaneMembers.mockResolvedValue({
+      members: [member],
+      nextPageToken: "page-2",
+      totalCount: 2,
+    });
+    rolloutClientMock.previewRolloutLaneMembershipChange.mockResolvedValue(
+      create(PreviewRolloutLaneMembershipChangeResponseSchema, {
+        targetFirmwarePreview: create(RolloutLanePreviewSchema, {
+          mismatchedCount: 1,
+        }),
+        removals: [member],
+        requiresFirmwareConfirmation: true,
+      }),
+    );
+    rolloutClientMock.updateRolloutLaneMembership.mockResolvedValue({
+      lane: protoLane(laneId),
+      transitionMembers: [member],
+    });
+    const rolloutChanged = vi.fn();
+    window.addEventListener(ROLLOUT_CHANGED_EVENT, rolloutChanged);
+    const { result } = renderHook(() => useRolloutApi());
+
+    let page!: Awaited<ReturnType<typeof result.current.listRolloutLaneMembers>>;
+    let preview!: Awaited<ReturnType<typeof result.current.previewRolloutLaneMembershipChange>>;
+    await act(async () => {
+      page = await result.current.listRolloutLaneMembers({
+        laneId,
+        pageSize: 100,
+        pageToken: "page-1",
+        includeTotalCount: true,
+      });
+      preview = await result.current.previewRolloutLaneMembershipChange({
+        laneId,
+        addDeviceIdentifiers: ["miner-2"],
+        removeDeviceIdentifiers: ["miner-1"],
+      });
+      await result.current.updateRolloutLaneMembership({
+        laneId,
+        expectedRevision: 2n,
+        addDeviceIdentifiers: ["miner-2"],
+        removeDeviceIdentifiers: ["miner-1"],
+        confirmFirmware: true,
+        confirmReassign: false,
+        idempotencyKey: "membership:lane-1:2:add-miner-2:remove-miner-1",
+        reason: "Update rollout lane membership",
+      });
+    });
+
+    expect(rolloutClientMock.listRolloutLaneMembers.mock.calls[0][0]).toMatchObject({
+      laneId,
+      pageSize: 100,
+      pageToken: "page-1",
+      includeTotalCount: true,
+    });
+    expect(page).toMatchObject({
+      members: [{ deviceIdentifier: "miner-1", pinnedReleaseVersion: "0.9.0", onCurrentChannel: false }],
+      nextPageToken: "page-2",
+      totalCount: 2,
+    });
+    expect(rolloutClientMock.previewRolloutLaneMembershipChange.mock.calls[0][0]).toMatchObject({
+      laneId,
+      addDeviceIdentifiers: ["miner-2"],
+      removeDeviceIdentifiers: ["miner-1"],
+    });
+    expect(preview).toMatchObject({
+      targetFirmwarePreview: { mismatchedCount: 1 },
+      removals: [{ deviceIdentifier: "miner-1" }],
+      requiresFirmwareConfirmation: true,
+    });
+    expect(rolloutClientMock.updateRolloutLaneMembership.mock.calls[0][0]).toMatchObject({
+      laneId,
+      expectedRevision: 2n,
+      addDeviceIdentifiers: ["miner-2"],
+      removeDeviceIdentifiers: ["miner-1"],
+      confirmFirmware: true,
+      confirmReassign: false,
+      idempotencyKey: "membership:lane-1:2:add-miner-2:remove-miner-1",
+      reason: "Update rollout lane membership",
+    });
+    expect(result.current.lane).toMatchObject({
+      id: laneId,
+      revision: 2n,
+      firmwareConvergence: {
+        members: [{ deviceIdentifier: "miner-1", state: "pending" }],
+      },
+    });
+    expect(result.current.lanes).toEqual([expect.objectContaining({ id: laneId })]);
+    expect(rolloutChanged).toHaveBeenCalledTimes(1);
+    window.removeEventListener(ROLLOUT_CHANGED_EVENT, rolloutChanged);
+  });
+
+  it("clears stale convergence details after a pure removal response", async () => {
+    const laneId = "15bc6181-07d8-45ac-8424-50b5e938b871";
+    const transitionMember = create(RolloutLaneMemberSchema, {
+      deviceIdentifier: "miner-removed",
+      manufacturer: "Proto",
+      model: "Alpha",
+      channelId: 41n,
+      onCurrentChannel: true,
+      enforcement: create(FirmwareTransitionMinerSchema, {
+        deviceIdentifier: "miner-removed",
+        targetFirmwareVersion: "1.0.0",
+        state: FirmwareTransitionState.CONFIRMED,
+      }),
+    });
+    rolloutClientMock.updateRolloutLaneMembership
+      .mockResolvedValueOnce({
+        lane: protoLane(laneId),
+        transitionMembers: [transitionMember],
+      })
+      .mockResolvedValueOnce({
+        lane: protoLane(laneId),
+        transitionMembers: [],
+      });
+    const { result } = renderHook(() => useRolloutApi());
+    const request = {
+      laneId,
+      expectedRevision: 2n,
+      addDeviceIdentifiers: ["miner-removed"],
+      removeDeviceIdentifiers: [] as string[],
+      confirmFirmware: false,
+      confirmReassign: false,
+      idempotencyKey: "membership-add",
+      reason: "add member",
+    };
+
+    await act(async () => {
+      await result.current.updateRolloutLaneMembership(request);
+    });
+    expect(result.current.lane?.firmwareConvergence.members).toHaveLength(1);
+
+    await act(async () => {
+      await result.current.updateRolloutLaneMembership({
+        ...request,
+        addDeviceIdentifiers: [],
+        removeDeviceIdentifiers: ["miner-removed"],
+        idempotencyKey: "membership-remove",
+        reason: "remove member",
+      });
+    });
+    expect(result.current.lane?.firmwareConvergence.members).toEqual([]);
+  });
+
+  it("keeps list and preview membership RPC state local to their caller", async () => {
+    const permissionError = new ConnectError("permission denied", Code.PermissionDenied);
+    rolloutClientMock.listRolloutLaneMembers.mockRejectedValueOnce(permissionError);
+    rolloutClientMock.previewRolloutLaneMembershipChange.mockRejectedValueOnce(new Error("Preview unavailable"));
+    const controller = new AbortController();
+    rolloutClientMock.previewRolloutLaneMembershipChange.mockImplementationOnce(
+      async (_request: unknown, options?: { signal?: AbortSignal }) => {
+        controller.abort();
+        if (options?.signal?.aborted) {
+          throw new DOMException("The operation was aborted.", "AbortError");
+        }
+        return {};
+      },
+    );
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await expect(
+        result.current.listRolloutLaneMembers({
+          laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+        }),
+      ).rejects.toThrow("permission denied");
+    });
+    expect(handleAuthErrorsMock).toHaveBeenCalledWith({ error: permissionError });
+    expect(result.current.loadError).toBeNull();
+    expect(result.current.isLoading).toBe(false);
+
+    await act(async () => {
+      await expect(
+        result.current.previewRolloutLaneMembershipChange({
+          laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+          addDeviceIdentifiers: ["miner-2"],
+          removeDeviceIdentifiers: [],
+        }),
+      ).rejects.toThrow("Preview unavailable");
+    });
+    expect(result.current.mutationError).toBeNull();
+    expect(result.current.isMutating).toBe(false);
+
+    await act(async () => {
+      await expect(
+        result.current.previewRolloutLaneMembershipChange({
+          laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+          addDeviceIdentifiers: ["miner-2"],
+          removeDeviceIdentifiers: [],
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: "AbortError" });
+    });
+    expect(result.current.mutationError).toBeNull();
+    expect(result.current.isMutating).toBe(false);
+  });
+
+  it("merges membership transition rows into existing lane detail", async () => {
+    const laneId = "15bc6181-07d8-45ac-8424-50b5e938b871";
+    const existing = create(RolloutLaneSchema, {
+      ...protoLane(laneId),
+      revision: 2n,
+      firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
+        totalCount: 2,
+        pendingCount: 2,
+        members: [
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-existing",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.PENDING,
+          }),
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-updated",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.PENDING,
+          }),
+        ],
+      }),
+    });
+    const transition = create(RolloutLaneMemberSchema, {
+      deviceIdentifier: "miner-updated",
+      enforcement: create(FirmwareTransitionMinerSchema, {
+        deviceIdentifier: "miner-updated",
+        targetFirmwareVersion: "2.0.0",
+        state: FirmwareTransitionState.UPDATING,
+      }),
+    });
+    rolloutClientMock.getRolloutLane.mockResolvedValue({ lane: existing });
+    rolloutClientMock.updateRolloutLaneMembership.mockResolvedValue({
+      lane: create(RolloutLaneSchema, {
+        ...protoLane(laneId),
+        revision: 3n,
+        firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
+          totalCount: 2,
+          pendingCount: 1,
+          updatingCount: 1,
+        }),
+      }),
+      transitionMembers: [transition],
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.getRolloutLane({ laneId, includeFirmwareConvergenceMembers: true });
+      await result.current.updateRolloutLaneMembership({
+        laneId,
+        expectedRevision: 2n,
+        addDeviceIdentifiers: ["miner-updated"],
+        removeDeviceIdentifiers: [],
+        confirmFirmware: true,
+        confirmReassign: false,
+        idempotencyKey: "membership-merge",
+        reason: "Update rollout lane membership",
+      });
+    });
+
+    expect(result.current.lane?.firmwareConvergence.members).toEqual([
+      expect.objectContaining({ deviceIdentifier: "miner-existing", state: "pending" }),
+      expect.objectContaining({ deviceIdentifier: "miner-updated", state: "updating" }),
+    ]);
+  });
+
+  it("removes cached convergence rows during a mixed membership update", async () => {
+    const laneId = "15bc6181-07d8-45ac-8424-50b5e938b871";
+    const existing = create(RolloutLaneSchema, {
+      ...protoLane(laneId),
+      revision: 2n,
+      firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
+        totalCount: 2,
+        pendingCount: 2,
+        members: [
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-kept",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.PENDING,
+          }),
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-removed",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.PENDING,
+          }),
+        ],
+      }),
+    });
+    const added = create(RolloutLaneMemberSchema, {
+      deviceIdentifier: "miner-added",
+      enforcement: create(FirmwareTransitionMinerSchema, {
+        deviceIdentifier: "miner-added",
+        targetFirmwareVersion: "2.0.0",
+        state: FirmwareTransitionState.UPDATING,
+      }),
+    });
+    rolloutClientMock.getRolloutLane.mockResolvedValue({ lane: existing });
+    rolloutClientMock.updateRolloutLaneMembership.mockResolvedValue({
+      lane: create(RolloutLaneSchema, {
+        ...protoLane(laneId),
+        revision: 3n,
+        firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
+          totalCount: 2,
+          pendingCount: 1,
+          updatingCount: 1,
+        }),
+      }),
+      transitionMembers: [added],
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.getRolloutLane({ laneId, includeFirmwareConvergenceMembers: true });
+      await result.current.updateRolloutLaneMembership({
+        laneId,
+        expectedRevision: 2n,
+        addDeviceIdentifiers: ["miner-added"],
+        removeDeviceIdentifiers: ["miner-removed"],
+        confirmFirmware: true,
+        confirmReassign: false,
+        idempotencyKey: "membership-mixed",
+        reason: "Replace a member",
+      });
+    });
+
+    expect(result.current.lane?.firmwareConvergence.members).toEqual([
+      expect.objectContaining({ deviceIdentifier: "miner-kept", state: "pending" }),
+      expect.objectContaining({ deviceIdentifier: "miner-added", state: "updating" }),
+    ]);
+  });
+
+  it("merges an older detail response onto the newest aggregate lane", async () => {
+    const laneId = "15bc6181-07d8-45ac-8424-50b5e938b871";
+    const detailResponse = deferred<{ lane: ReturnType<typeof protoLane> }>();
+    const detail = create(RolloutLaneSchema, {
+      ...protoLane(laneId),
+      revision: 2n,
+      memberCount: 2,
+      firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
+        totalCount: 2,
+        pendingCount: 1,
+        members: [
+          create(FirmwareTransitionMinerSchema, {
+            deviceIdentifier: "miner-detail",
+            targetFirmwareVersion: "2.0.0",
+            state: FirmwareTransitionState.PENDING,
+          }),
+        ],
+      }),
+    });
+    const aggregate = create(RolloutLaneSchema, {
+      ...protoLane(laneId),
+      revision: 3n,
+      memberCount: 3,
+      firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
+        totalCount: 3,
+        pendingCount: 2,
+        confirmedCount: 1,
+      }),
+    });
+    rolloutClientMock.getRolloutLane.mockReturnValue(detailResponse.promise);
+    rolloutClientMock.listRolloutLanes.mockResolvedValue({ lanes: [aggregate] });
+    const { result } = renderHook(() => useRolloutApi());
+    let detailRequest!: Promise<unknown>;
+
+    await act(async () => {
+      detailRequest = result.current.getRolloutLane({
+        laneId,
+        includeFirmwareConvergenceMembers: true,
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.listRolloutLanes();
+    });
+    await act(async () => {
+      detailResponse.resolve({ lane: detail });
+      await detailRequest;
+    });
+
+    expect(result.current.lane).toMatchObject({
+      id: laneId,
+      revision: 3n,
+      memberCount: 3,
+      firmwareConvergence: {
+        totalCount: 3,
+        pendingCount: 2,
+        confirmedCount: 1,
+        members: [expect.objectContaining({ deviceIdentifier: "miner-detail", state: "pending" })],
+      },
+    });
+  });
+
   it("skips full device-set membership unless a lane load requests it", async () => {
     rolloutClientMock.getRolloutLane.mockResolvedValue({ lane: protoLane() });
     const { result } = renderHook(() => useRolloutApi());
@@ -176,7 +590,7 @@ describe("useRolloutApi", () => {
       await result.current.getRolloutLane({
         laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
         includeDeviceSetMembers: false,
-        includeInitialEnforcementMembers: false,
+        includeFirmwareConvergenceMembers: false,
       });
     });
 
@@ -186,7 +600,7 @@ describe("useRolloutApi", () => {
       memberIdentifiers: [],
     });
     expect(rolloutClientMock.getRolloutLane.mock.calls[0][0]).toMatchObject({
-      includeInitialEnforcementMembers: false,
+      includeFirmwareConvergenceMembers: false,
     });
   });
 
@@ -279,7 +693,7 @@ describe("useRolloutApi", () => {
   it("preserves requested transition details when aggregate lane results refresh", async () => {
     const detailed = create(RolloutLaneSchema, {
       ...protoLane(),
-      initialEnforcement: create(RolloutLaneInitialEnforcementStatusSchema, {
+      firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
         totalCount: 1,
         pendingCount: 1,
         members: [
@@ -300,12 +714,12 @@ describe("useRolloutApi", () => {
     await act(async () => {
       await result.current.getRolloutLane({
         laneId: detailed.laneId,
-        includeInitialEnforcementMembers: true,
+        includeFirmwareConvergenceMembers: true,
       });
       await result.current.listRolloutLanes();
     });
 
-    expect(result.current.lanes[0].initialEnforcement.members).toEqual([
+    expect(result.current.lanes[0].firmwareConvergence.members).toEqual([
       expect.objectContaining({ deviceIdentifier: "miner-1", state: "pending" }),
     ]);
   });
@@ -317,7 +731,7 @@ describe("useRolloutApi", () => {
     const secondTimestamp = timestampFromDate(new Date(secondUpdatedAt));
     const initial = create(RolloutLaneSchema, {
       ...protoLane(),
-      initialEnforcement: create(RolloutLaneInitialEnforcementStatusSchema, {
+      firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
         totalCount: 2,
         pendingCount: 2,
         members: [
@@ -338,7 +752,7 @@ describe("useRolloutApi", () => {
     });
     const incremental = create(RolloutLaneSchema, {
       ...protoLane(),
-      initialEnforcement: create(RolloutLaneInitialEnforcementStatusSchema, {
+      firmwareConvergence: create(RolloutLaneFirmwareConvergenceStatusSchema, {
         totalCount: 2,
         pendingCount: 1,
         updatingCount: 1,
@@ -360,19 +774,19 @@ describe("useRolloutApi", () => {
     await act(async () => {
       await result.current.getRolloutLane({
         laneId: initial.laneId,
-        includeInitialEnforcementMembers: true,
+        includeFirmwareConvergenceMembers: true,
       });
       await result.current.getRolloutLane({
         laneId: initial.laneId,
-        includeInitialEnforcementMembers: true,
-        initialEnforcementMembersUpdatedAfter: firstTimestamp,
+        includeFirmwareConvergenceMembers: true,
+        firmwareConvergenceMembersUpdatedAfter: firstTimestamp,
       });
     });
 
-    expect(rolloutClientMock.getRolloutLane.mock.calls[1][0].initialEnforcementMembersUpdatedAfter).toEqual(
+    expect(rolloutClientMock.getRolloutLane.mock.calls[1][0].firmwareConvergenceMembersUpdatedAfter).toEqual(
       firstTimestamp,
     );
-    expect(result.current.lane?.initialEnforcement).toMatchObject({
+    expect(result.current.lane?.firmwareConvergence).toMatchObject({
       pendingCount: 1,
       updatingCount: 1,
       members: [
@@ -448,6 +862,7 @@ describe("useRolloutApi", () => {
       label: "Stable production",
       currentChannelId: 42n,
       revision: 3n,
+      memberCount: 3,
       channels: [
         create(RolloutLaneChannelSchema, {
           channelId: 41n,

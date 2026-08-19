@@ -1,6 +1,10 @@
 import {
+  type FirmwareTransitionMiner as ProtoFirmwareTransitionMiner,
   FirmwareTransitionState as ProtoFirmwareTransitionState,
   InitialFirmwareMatchStatus as ProtoInitialFirmwareMatchStatus,
+  type PreviewRolloutLaneMembershipChangeResponse as ProtoMembershipChangePreview,
+  type ListRolloutLaneMembersResponse as ProtoMembershipPage,
+  type UpdateRolloutLaneMembershipResponse as ProtoMembershipUpdate,
   type Rollout as ProtoRollout,
   type RolloutBatch as ProtoRolloutBatch,
   RolloutBatchState as ProtoRolloutBatchState,
@@ -9,6 +13,7 @@ import {
   RolloutEvidencePhase as ProtoRolloutEvidencePhase,
   type RolloutLane as ProtoRolloutLane,
   type RolloutLaneChannel as ProtoRolloutLaneChannel,
+  type RolloutLaneMember as ProtoRolloutLaneMember,
   type RolloutLanePreview as ProtoRolloutLanePreview,
   type RolloutMember as ProtoRolloutMember,
   RolloutMemberState as ProtoRolloutMemberState,
@@ -16,6 +21,7 @@ import {
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { timestampToIsoString } from "@/protoFleet/api/timestamps";
 import type {
+  FirmwareTransitionMiner,
   FirmwareTransitionState,
   RolloutActionEligibility,
   RolloutBatch,
@@ -26,6 +32,10 @@ import type {
   RolloutEvidencePhase,
   RolloutLane,
   RolloutLaneChannel,
+  RolloutLaneMembershipChangePreview,
+  RolloutLaneMembershipMember,
+  RolloutLaneMembershipPage,
+  RolloutLaneMembershipUpdateResult,
   RolloutLanePreview,
   RolloutLaneReleaseTarget,
   RolloutLifecycleState,
@@ -243,30 +253,84 @@ export function mapRolloutLane(lane: ProtoRolloutLane, details: MapRolloutLaneDe
     currentChannelId: lane.currentChannelId,
     revision: lane.revision,
     channels,
-    memberCount: details.memberCount ?? 0,
+    memberCount: details.memberCount ?? lane.memberCount,
     memberIdentifiers: [...(details.memberIdentifiers ?? [])],
     currentReleaseTargets: [...(details.releaseTargets ?? [])],
-    initialEnforcement: {
-      totalCount: lane.initialEnforcement?.totalCount ?? 0,
-      pendingCount: lane.initialEnforcement?.pendingCount ?? 0,
-      updatingCount: lane.initialEnforcement?.updatingCount ?? 0,
-      verifyingCount: lane.initialEnforcement?.verifyingCount ?? 0,
-      confirmedCount: lane.initialEnforcement?.confirmedCount ?? 0,
-      attentionCount: lane.initialEnforcement?.attentionCount ?? 0,
-      members:
-        lane.initialEnforcement?.members.map((miner) => ({
-          deviceIdentifier: miner.deviceIdentifier,
-          manufacturer: miner.manufacturer,
-          model: miner.model,
-          latestObservedFirmwareVersion: miner.latestObservedFirmwareVersion,
-          targetFirmwareVersion: miner.targetFirmwareVersion,
-          state: mapFirmwareTransitionState(miner.state),
-          lastError: miner.lastError,
-          updatedAt: miner.updatedAt,
-        })) ?? [],
+    firmwareConvergence: {
+      totalCount: lane.firmwareConvergence?.totalCount ?? 0,
+      pendingCount: lane.firmwareConvergence?.pendingCount ?? 0,
+      updatingCount: lane.firmwareConvergence?.updatingCount ?? 0,
+      verifyingCount: lane.firmwareConvergence?.verifyingCount ?? 0,
+      confirmedCount: lane.firmwareConvergence?.confirmedCount ?? 0,
+      attentionCount: lane.firmwareConvergence?.attentionCount ?? 0,
+      members: lane.firmwareConvergence?.members.map(mapFirmwareTransitionMiner) ?? [],
     },
     createdAt: timestampToIsoString(lane.createdAt),
     updatedAt: timestampToIsoString(lane.updatedAt),
+  };
+}
+
+function mapFirmwareTransitionMiner(miner: ProtoFirmwareTransitionMiner): FirmwareTransitionMiner {
+  return {
+    deviceIdentifier: miner.deviceIdentifier,
+    manufacturer: miner.manufacturer,
+    model: miner.model,
+    latestObservedFirmwareVersion: miner.latestObservedFirmwareVersion,
+    targetFirmwareVersion: miner.targetFirmwareVersion,
+    state: mapFirmwareTransitionState(miner.state),
+    lastError: miner.lastError,
+    updatedAt: miner.updatedAt,
+  };
+}
+
+export function mapRolloutLaneMembershipMember(member: ProtoRolloutLaneMember): RolloutLaneMembershipMember {
+  return {
+    deviceIdentifier: member.deviceIdentifier,
+    manufacturer: member.manufacturer,
+    model: member.model,
+    observedFirmwareVersion: member.observedFirmwareVersion,
+    channelId: member.channelId,
+    channelPosition: member.channelPosition,
+    onCurrentChannel: member.onCurrentChannel,
+    pinnedReleaseVersion: member.pinnedReleaseVersion,
+    enforcement: member.enforcement ? mapFirmwareTransitionMiner(member.enforcement) : undefined,
+  };
+}
+
+export function mapRolloutLaneMembershipPage(page: ProtoMembershipPage): RolloutLaneMembershipPage {
+  return {
+    members: page.members.map(mapRolloutLaneMembershipMember),
+    nextPageToken: page.nextPageToken,
+    totalCount: page.totalCount,
+  };
+}
+
+export function mapRolloutLaneMembershipChangePreview(
+  preview: ProtoMembershipChangePreview,
+): RolloutLaneMembershipChangePreview {
+  if (!preview.targetFirmwarePreview) {
+    throw new Error("Rollout lane membership preview response is missing its target firmware preview.");
+  }
+  return {
+    targetFirmwarePreview: mapRolloutLanePreview(preview.targetFirmwarePreview),
+    reassignments: preview.reassignments.map((reassignment) => ({
+      deviceIdentifier: reassignment.deviceIdentifier,
+      sourceLaneId: reassignment.sourceLaneId,
+      sourceLaneLabel: reassignment.sourceLaneLabel,
+    })),
+    removals: preview.removals.map(mapRolloutLaneMembershipMember),
+    requiresFirmwareConfirmation: preview.requiresFirmwareConfirmation,
+    requiresReassignmentConfirmation: preview.requiresReassignmentConfirmation,
+  };
+}
+
+export function mapRolloutLaneMembershipUpdate(result: ProtoMembershipUpdate): RolloutLaneMembershipUpdateResult {
+  if (!result.lane) {
+    throw new Error("Rollout lane membership update response is missing its lane.");
+  }
+  return {
+    lane: mapRolloutLane(result.lane),
+    transitionMembers: result.transitionMembers.map(mapRolloutLaneMembershipMember),
   };
 }
 

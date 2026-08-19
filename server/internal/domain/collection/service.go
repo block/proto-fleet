@@ -2273,12 +2273,13 @@ func (s *Service) AssignDevicesToChannel(
 		if params.TargetChannelID != nil {
 			targetChannelID = *params.TargetChannelID
 		}
-		if _, err := s.collectionStore.LockChannelsForReparent(
+		_, err := s.collectionStore.LockChannelsForReparent(
 			ctx,
 			params.OrgID,
 			params.DeviceIdentifiers,
 			targetChannelID,
-		); err != nil {
+		)
+		if err != nil {
 			return nil, err
 		}
 		owned, err := s.collectionStore.LockDevicesForChannelAssignment(ctx, params.OrgID, params.DeviceIdentifiers)
@@ -2287,6 +2288,14 @@ func (s *Service) AssignDevicesToChannel(
 		}
 		if len(uniqueIdentifiers(owned)) != len(uniqueIdentifiers(params.DeviceIdentifiers)) {
 			return nil, fleeterror.NewNotFoundError("one or more devices were not found in the organization")
+		}
+		currentChannelIDs, err := s.collectionStore.ListCurrentChannelIDsForDevices(
+			ctx,
+			params.OrgID,
+			params.DeviceIdentifiers,
+		)
+		if err != nil {
+			return nil, err
 		}
 		if params.TargetChannelID != nil {
 			laneOwned, err := s.collectionStore.IsRolloutLaneChannel(
@@ -2301,6 +2310,29 @@ func (s *Service) AssignDevicesToChannel(
 				return nil, fleeterror.NewFailedPreconditionErrorf(
 					"target channel %d is managed by a rollout lane and cannot accept direct assignments",
 					targetChannelID,
+				)
+			}
+		}
+		sourceChannelIDs := make([]int64, 0, len(currentChannelIDs))
+		for _, channelID := range currentChannelIDs {
+			if channelID == targetChannelID {
+				continue
+			}
+			sourceChannelIDs = append(sourceChannelIDs, channelID)
+		}
+		if len(sourceChannelIDs) > 0 {
+			laneOwnedChannelIDs, checkErr := s.collectionStore.ListRolloutLaneOwnedChannelIDs(
+				ctx,
+				params.OrgID,
+				sourceChannelIDs,
+			)
+			if checkErr != nil {
+				return nil, checkErr
+			}
+			if len(laneOwnedChannelIDs) > 0 {
+				return nil, fleeterror.NewFailedPreconditionErrorf(
+					"source channel %d is managed by a rollout lane and cannot accept direct membership changes",
+					laneOwnedChannelIDs[0],
 				)
 			}
 		}

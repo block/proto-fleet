@@ -17,7 +17,7 @@ const rows: LaneTableRow[] = [
       channels: [],
       memberCount: 12,
       memberIdentifiers: [],
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 12,
         pendingCount: 0,
         updatingCount: 0,
@@ -74,11 +74,24 @@ const abortedSplit: RolloutRecord = {
 
 describe("RolloutLanesTable", () => {
   it("shows stable lane release and membership to read-only operators", () => {
-    render(<RolloutLanesTable rows={rows} canStart={false} onSetup={vi.fn()} onStart={vi.fn()} onView={vi.fn()} />);
+    const onManageMembers = vi.fn();
+    render(
+      <RolloutLanesTable
+        rows={rows}
+        canStart={false}
+        onSetup={vi.fn()}
+        onManageMembers={onManageMembers}
+        onStart={vi.fn()}
+        onView={vi.fn()}
+      />,
+    );
 
     expect(screen.getByText("Stable production")).toBeInTheDocument();
     expect(screen.getByText("Alpha 1.0.0")).toBeInTheDocument();
-    expect(screen.getByText("12")).toBeInTheDocument();
+    const members = screen.getByRole("button", { name: "Manage members for Stable production" });
+    expect(members).toHaveTextContent("12 miners");
+    members.click();
+    expect(onManageMembers).toHaveBeenCalledWith(rows[0].lane);
     expect(screen.getByText("12 confirmed")).toBeInTheDocument();
     expect(screen.queryByText("0 needs attention")).not.toBeInTheDocument();
     expect(screen.queryByText("0 pending")).not.toBeInTheDocument();
@@ -106,11 +119,11 @@ describe("RolloutLanesTable", () => {
       enforcement: { confirmedCount: 0, attentionCount: 0, verifyingCount: 0, updatingCount: 0, pendingCount: 12 },
       summary: "0/12 confirmed · Pending",
     },
-  ])("shows one dominant $name initial firmware summary", ({ enforcement, summary }) => {
+  ])("shows one dominant $name firmware convergence summary", ({ enforcement, summary }) => {
     const summarizedLane = {
       ...rows[0].lane,
-      initialEnforcement: {
-        ...rows[0].lane.initialEnforcement,
+      firmwareConvergence: {
+        ...rows[0].lane.firmwareConvergence,
         ...enforcement,
       },
     };
@@ -126,7 +139,7 @@ describe("RolloutLanesTable", () => {
     );
 
     const initialFirmwareButton = screen.getByRole("button", {
-      name: "View initial firmware setup for Stable production",
+      name: "View firmware status for Stable production",
     });
     expect(initialFirmwareButton).toHaveTextContent(summary);
     expect(initialFirmwareButton.querySelectorAll("span")).toHaveLength(1);
@@ -215,11 +228,11 @@ describe("RolloutLanesTable", () => {
     ).toBeInTheDocument();
   });
 
-  it("lets an operator reopen initial firmware setup from the lane row", async () => {
+  it("lets an operator reopen firmware convergence status from the lane row", async () => {
     const onSetup = vi.fn();
     render(<RolloutLanesTable rows={rows} canStart={false} onSetup={onSetup} onStart={vi.fn()} onView={vi.fn()} />);
 
-    screen.getByRole("button", { name: "View initial firmware setup for Stable production" }).click();
+    screen.getByRole("button", { name: "View firmware status for Stable production" }).click();
 
     expect(onSetup).toHaveBeenCalledWith(rows[0].lane);
   });
@@ -247,10 +260,10 @@ describe("RolloutLanesTable", () => {
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
   });
 
-  it("blocks rollout start while initial firmware is still converging", () => {
+  it("blocks rollout start while firmware is still converging", () => {
     const activeLane = {
       ...rows[0].lane,
-      initialEnforcement: {
+      firmwareConvergence: {
         totalCount: 12,
         pendingCount: 2,
         updatingCount: 3,
@@ -272,9 +285,9 @@ describe("RolloutLanesTable", () => {
     );
 
     expect(screen.getByRole("button", { name: "Start rollout for Stable production" })).toBeDisabled();
-    expect(screen.getByText("Initial firmware rollout in progress.")).toBeInTheDocument();
+    expect(screen.getByText("Firmware convergence in progress.")).toBeInTheDocument();
     expect(
-      screen.queryByText("Wait for initial firmware setup to finish before deleting this lane."),
+      screen.queryByText("Wait for firmware convergence to finish before deleting this lane."),
     ).not.toBeInTheDocument();
   });
 
@@ -312,8 +325,8 @@ describe("RolloutLanesTable", () => {
   it("blocks rollout start until every initial member is confirmed", () => {
     const attentionLane = {
       ...rows[0].lane,
-      initialEnforcement: {
-        ...rows[0].lane.initialEnforcement,
+      firmwareConvergence: {
+        ...rows[0].lane.firmwareConvergence,
         confirmedCount: 11,
         attentionCount: 1,
       },

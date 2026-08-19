@@ -11,6 +11,9 @@ service RolloutService {
     rpc CreateRolloutLane(CreateRolloutLaneRequest) returns (CreateRolloutLaneResponse);
     rpc GetRolloutLane(GetRolloutLaneRequest) returns (GetRolloutLaneResponse);
     rpc ListRolloutLanes(ListRolloutLanesRequest) returns (ListRolloutLanesResponse);
+    rpc ListRolloutLaneMembers(ListRolloutLaneMembersRequest) returns (ListRolloutLaneMembersResponse);
+    rpc PreviewRolloutLaneMembershipChange(PreviewRolloutLaneMembershipChangeRequest) returns (PreviewRolloutLaneMembershipChangeResponse);
+    rpc UpdateRolloutLaneMembership(UpdateRolloutLaneMembershipRequest) returns (UpdateRolloutLaneMembershipResponse);
     rpc DeleteRolloutLane(DeleteRolloutLaneRequest) returns (DeleteRolloutLaneResponse);
     rpc StartRolloutLane(StartRolloutLaneRequest) returns (StartRolloutLaneResponse);
     rpc CreateRollout(CreateRolloutRequest) returns (CreateRolloutResponse);
@@ -34,7 +37,8 @@ message RolloutLane {
     repeated RolloutLaneChannel channels = 6;
     google.protobuf.Timestamp created_at = 7;
     google.protobuf.Timestamp updated_at = 8;
-    RolloutLaneInitialEnforcementStatus initial_enforcement = 9;
+    RolloutLaneFirmwareConvergenceStatus firmware_convergence = 9;
+    uint32 member_count = 10;
 }
 
 message RolloutLaneChannel {
@@ -71,8 +75,8 @@ message CreateRolloutLaneResponse {
 
 message GetRolloutLaneRequest {
     string lane_id = 1 [(buf.validate.field).string.uuid = true];
-    bool include_initial_enforcement_members = 2;
-    google.protobuf.Timestamp initial_enforcement_members_updated_after = 3;
+    bool include_firmware_convergence_members = 2;
+    google.protobuf.Timestamp firmware_convergence_members_updated_after = 3;
 }
 
 message GetRolloutLaneResponse {
@@ -80,11 +84,88 @@ message GetRolloutLaneResponse {
 }
 
 message ListRolloutLanesRequest {
-    bool active_initial_only = 1;
+    bool active_firmware_convergence_only = 1;
 }
 
 message ListRolloutLanesResponse {
     repeated RolloutLane lanes = 1;
+}
+
+message RolloutLaneMember {
+    string device_identifier = 1;
+    string manufacturer = 2;
+    string model = 3;
+    optional string observed_firmware_version = 4;
+    int64 channel_id = 5;
+    uint32 channel_position = 6;
+    bool on_current_channel = 7;
+    string pinned_release_version = 8;
+    FirmwareTransitionMiner enforcement = 9;
+}
+
+message ListRolloutLaneMembersRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    uint32 page_size = 2 [(buf.validate.field).uint32.lte = 1000];
+    string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+    bool include_total_count = 4;
+}
+
+message ListRolloutLaneMembersResponse {
+    repeated RolloutLaneMember members = 1;
+    string next_page_token = 2;
+    uint32 total_count = 3;
+}
+
+message RolloutLaneMembershipReassignment {
+    string device_identifier = 1;
+    string source_lane_id = 2;
+    string source_lane_label = 3;
+}
+
+message PreviewRolloutLaneMembershipChangeRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    repeated string add_device_identifiers = 2 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    repeated string remove_device_identifiers = 3 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+}
+
+message PreviewRolloutLaneMembershipChangeResponse {
+    RolloutLanePreview target_firmware_preview = 1;
+    repeated RolloutLaneMembershipReassignment reassignments = 2;
+    repeated RolloutLaneMember removals = 3;
+    bool requires_firmware_confirmation = 4;
+    bool requires_reassignment_confirmation = 5;
+}
+
+message UpdateRolloutLaneMembershipRequest {
+    string lane_id = 1 [(buf.validate.field).string.uuid = true];
+    uint64 expected_revision = 2 [(buf.validate.field).uint64.gt = 0];
+    repeated string add_device_identifiers = 3 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    repeated string remove_device_identifiers = 4 [(buf.validate.field).repeated = {
+        max_items: 10000
+        unique: true
+        items: {string: {min_len: 1}}
+    }];
+    bool confirm_firmware = 5;
+    bool confirm_reassign = 6;
+    string idempotency_key = 7 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string reason = 8 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+}
+
+message UpdateRolloutLaneMembershipResponse {
+    RolloutLane lane = 1;
+    repeated RolloutLaneMember transition_members = 2;
 }
 
 message DeleteRolloutLaneRequest {
@@ -426,7 +507,7 @@ message PreviewRolloutLaneResponse {
     RolloutLanePreview preview = 1;
 }
 
-message RolloutLaneInitialEnforcementStatus {
+message RolloutLaneFirmwareConvergenceStatus {
     uint32 total_count = 1;
     uint32 pending_count = 2;
     uint32 updating_count = 3;

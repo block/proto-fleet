@@ -134,6 +134,16 @@ WHERE org_id = sqlc.arg('org_id')
 ORDER BY device_identifier
 FOR UPDATE;
 
+-- name: ListCurrentChannelIDsForDevices :many
+-- Re-reads source memberships after device locks are held. This closes the
+-- READ COMMITTED window between the channel pre-lock and device-lock phases.
+SELECT DISTINCT membership.device_set_id
+FROM device_set_membership membership
+WHERE membership.org_id = sqlc.arg('org_id')
+  AND membership.device_set_type = 'channel'
+  AND membership.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+ORDER BY membership.device_set_id;
+
 -- name: IsRolloutLaneChannel :one
 SELECT EXISTS (
     SELECT 1
@@ -141,6 +151,13 @@ SELECT EXISTS (
     WHERE org_id = sqlc.arg('org_id')
       AND channel_id = sqlc.arg('channel_id')
 );
+
+-- name: ListRolloutLaneOwnedChannelIDs :many
+SELECT DISTINCT channel_id
+FROM rollout_lane_channel
+WHERE org_id = sqlc.arg('org_id')
+  AND channel_id = ANY(sqlc.arg('channel_ids')::bigint[])
+ORDER BY channel_id;
 
 -- name: RemoveDevicesFromAnyChannel :execrows
 DELETE FROM device_set_membership

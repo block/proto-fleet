@@ -291,7 +291,7 @@ func TestRolloutLaneArchiveRemovesSoftDeletedMemberAndRetainsHistory(t *testing.
 		ActorUserID:       actorID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, int32(1), lane.InitialEnforcement.ConfirmedCount)
+	require.Equal(t, int32(1), lane.FirmwareConvergence.ConfirmedCount)
 	before := retainedLaneHistoryCounts(t, db, orgID, lane.ID.String())
 
 	removed, err := sqlc.New(db).SoftDeleteDevices(

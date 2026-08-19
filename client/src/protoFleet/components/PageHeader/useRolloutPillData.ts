@@ -12,7 +12,7 @@ import { ROLLOUT_CHANGED_EVENT } from "@/protoFleet/api/rolloutEvents";
 import { mapRollout, mapRolloutLane, mapRolloutToEvent } from "@/protoFleet/api/rolloutMappers";
 import {
   BETWEEN_CHANNEL_STRATEGY_KEY,
-  firstActiveInitialLane,
+  firstActiveFirmwareConvergenceLane,
   laneForRollout,
   shouldMonitorRollout,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
@@ -34,7 +34,7 @@ interface RolloutPillSelection {
   event: RolloutEvent;
   detailsPath: string;
   fingerprint: string;
-  source: "initial" | "rollout";
+  source: "convergence" | "rollout";
 }
 
 const idlePollIntervalMs = 30_000;
@@ -81,18 +81,18 @@ function selectPill(rollouts: RolloutRecord[], lanes: RolloutLane[]): RolloutPil
     );
   }
 
-  const lane = firstActiveInitialLane(lanes);
+  const lane = firstActiveFirmwareConvergenceLane(lanes);
   if (!lane) {
     return null;
   }
 
   return selection(
-    mapFirmwareTransitionToRolloutEvent(lane.initialEnforcement, {
+    mapFirmwareTransitionToRolloutEvent(lane.firmwareConvergence, {
       scopeLabel: lane.label,
       startedAt: lane.createdAt,
     }),
     `${rolloutLanesPath}&setupLane=${encodeURIComponent(lane.id)}`,
-    "initial",
+    "convergence",
   );
 }
 
@@ -107,7 +107,7 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
   const pendingFreshRefreshRef = useRef(false);
   const visibleSelection =
     enabled &&
-    ((selection?.source === "rollout" && canReadRollouts) || (selection?.source === "initial" && canReadChannels))
+    ((selection?.source === "rollout" && canReadRollouts) || (selection?.source === "convergence" && canReadChannels))
       ? selection
       : null;
   const pollIntervalMs = visibleSelection ? activePollIntervalMs : idlePollIntervalMs;
@@ -145,9 +145,10 @@ export function useRolloutPillData({ enabled = true }: UseRolloutPillDataOptions
             ? rolloutClient.listRollouts(create(ListRolloutsRequestSchema, { states: activeRolloutStates }), { signal })
             : Promise.resolve(null),
           canReadChannels
-            ? rolloutClient.listRolloutLanes(create(ListRolloutLanesRequestSchema, { activeInitialOnly: true }), {
-                signal,
-              })
+            ? rolloutClient.listRolloutLanes(
+                create(ListRolloutLanesRequestSchema, { activeFirmwareConvergenceOnly: true }),
+                { signal },
+              )
             : Promise.resolve(null),
         ]);
         if (signal.aborted) {
