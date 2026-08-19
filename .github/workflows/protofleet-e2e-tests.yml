@@ -121,8 +121,7 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: client/e2eTests/protoFleet
         run: |
-          # CI only runs headless Chromium, so the smaller headless shell is enough.
-          npx playwright install --with-deps --only-shell chromium
+          npx playwright install --with-deps chromium
 
       - name: Build ProtoFleet
         working-directory: client
