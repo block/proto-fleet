@@ -30,6 +30,10 @@ export function useChannelSelection(active: boolean): UseChannelSelectionResult 
     void refresh()
       .then(() => setChannelsLoaded(true))
       .catch((error) => {
+        // Re-arm the fetch: the effect only re-fires when `active` flips, so leaving this
+        // set would pin the picker on its loading state for the rest of the session after
+        // one transient failure. Toggling back into the selected mode retries instead.
+        sessionFetchedRef.current = false;
         pushToast({
           message: getErrorMessage(error, "Failed to load channels"),
           status: STATUSES.error,

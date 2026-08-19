@@ -328,6 +328,15 @@ const AddMaintenanceWindowModal = ({
           onToggle={toggleChannel}
         />
 
+        {ruleMode === "all" && channelMode === "all" ? (
+          <Callout
+            intent="warning"
+            prefixIcon={<Alert />}
+            title="This mutes all alerting"
+            subtitle="No alert reaches any channel while this window is active."
+          />
+        ) : null}
+
         <SinglePickerField
           id="maintenance-window-quick"
           label="Quick window"
