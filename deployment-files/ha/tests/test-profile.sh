@@ -90,6 +90,8 @@ test_patroni_contract() {
 
 test_fleet_ha_contract() {
     local rendered release_dir secret_mount_count
+    local ha_rules="${HA_DIR}/../../server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml"
+    local notification_policies="${HA_DIR}/../../server/monitoring/grafana/provisioning/alerting/notification-policies.yaml"
     rendered="$(mktemp)"
     release_dir="$(mktemp -d)"
     trap 'rm -f "$rendered"; rm -rf "$release_dir"' RETURN
@@ -163,6 +165,14 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "target: /etc/grafana/proto-fleet-ha/service-ca.crt"
     assert_contains "$rendered" "/api/v1/provisioning/alert-rules/protofleet-ha-readiness"
     assert_contains "${release_dir}/server/monitoring/grafana/ha/timescaledb.yaml" 'url: ${HA_DB_A_IP},${HA_DB_B_IP}:5432'
+    assert_contains "$ha_rules" "for: 0s"
+    assert_not_contains "$ha_rules" "for: 1m"
+    awk '
+        /\["template", "=", "ha-readiness"\]/ { in_ha_route = 1; next }
+        in_ha_route && /group_wait: 5s/ { found = 1; exit }
+        in_ha_route && /^[[:space:]]+- receiver:/ { exit }
+        END { exit !found }
+    ' "$notification_policies" || fail "HA readiness notifications must use a five-second group wait"
     secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
     [[ "$secret_mount_count" -eq 7 ]] || fail "Fleet services must mount only their required HA secret files"
     assert_not_contains "$rendered" "source: ${release_dir}/ssl"
