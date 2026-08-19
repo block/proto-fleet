@@ -262,9 +262,8 @@ func patroniRoles(ctx context.Context, tlsConfig *tls.Config, config NodeConfig)
 	results := gather([]string{config.DatabaseAIP, config.DatabaseBIP}, func(address string) roleResult {
 		baseURL := "https://" + address + ":8008"
 		return roleResult{
-			primary: endpointReadyWithClient(ctx, client, baseURL+"/primary"),
-			synchronous: endpointReadyWithClient(ctx, client, baseURL+"/synchronous") &&
-				patroniApplyReady(ctx, client, baseURL),
+			primary:     endpointReadyWithClient(ctx, client, baseURL+"/primary"),
+			synchronous: patroniSynchronousApplyReady(ctx, client, baseURL),
 		}
 	})
 	for _, result := range results {
@@ -278,9 +277,13 @@ func patroniRoles(ctx context.Context, tlsConfig *tls.Config, config NodeConfig)
 	return primary, synchronous
 }
 
-func patroniApplyReady(ctx context.Context, client *http.Client, baseURL string) bool {
-	endpoint := baseURL + "/readiness?lag=0&mode=apply"
-	if endpointReadyWithClient(ctx, client, endpoint) {
+func patroniSynchronousApplyReady(ctx context.Context, client *http.Client, baseURL string) bool {
+	synchronousEndpoint := baseURL + "/synchronous"
+	applyEndpoint := baseURL + "/readiness?lag=0&mode=apply"
+	if !endpointReadyWithClient(ctx, client, synchronousEndpoint) {
+		return false
+	}
+	if endpointReadyWithClient(ctx, client, applyEndpoint) {
 		return true
 	}
 	timer := time.NewTimer(patroniReadinessRetryDelay)
@@ -289,7 +292,8 @@ func patroniApplyReady(ctx context.Context, client *http.Client, baseURL string)
 	case <-ctx.Done():
 		return false
 	case <-timer.C:
-		return endpointReadyWithClient(ctx, client, endpoint)
+		return endpointReadyWithClient(ctx, client, applyEndpoint) &&
+			endpointReadyWithClient(ctx, client, synchronousEndpoint)
 	}
 }
 
