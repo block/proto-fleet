@@ -168,8 +168,8 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "Authorization: Basic"
     assert_contains "$rendered" ">/dev/null 2>&1"
     assert_contains "${release_dir}/server/monitoring/grafana/ha/timescaledb.yaml" 'url: ${HA_DB_A_IP},${HA_DB_B_IP}:5432'
-    assert_contains "$ha_rules" "for: 0s"
-    assert_not_contains "$ha_rules" "for: 1m"
+    assert_contains "$ha_rules" "for: 30s"
+    assert_not_contains "$ha_rules" "for: 0s"
     awk '
         /\["template", "=", "ha-readiness"\]/ { in_ha_route = 1; next }
         in_ha_route && /group_wait: 5s/ { found = 1; exit }
