@@ -137,7 +137,7 @@ describe("UpgradeOperationModal", () => {
 
     expect(screen.getByText(/We couldn't confirm whether the update started/i)).toBeInTheDocument();
     expect(screen.queryByText("Host updater did not confirm the update")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Use manual install" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unlock manual install" }));
     expect(onUseManualFallback).toHaveBeenCalledOnce();
   });
 
@@ -155,8 +155,9 @@ describe("UpgradeOperationModal", () => {
     const alert = screen.getByRole("alert");
     expect(screen.getByText("Update needs recovery")).toBeInTheDocument();
     expect(alert).toHaveTextContent("Run this command on the Fleet host to continue the update.");
-    expect(alert).not.toHaveTextContent("new stack failed to start");
-    expect(alert).not.toHaveTextContent("operation-1.log");
+    expect(alert).toHaveTextContent("new stack failed to start");
+    expect(alert).toHaveTextContent("operation-1.log");
+    expect(alert).toHaveTextContent("Mark this update resolved only after you no longer need these recovery details.");
     fireEvent.click(screen.getByRole("button", { name: "Copy recovery command" }));
 
     await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalledWith(recoveryCommand));
@@ -196,7 +197,7 @@ describe("UpgradeOperationModal", () => {
     expect(screen.queryByRole("button", { name: "Copy recovery command" })).not.toBeInTheDocument();
   });
 
-  it("acknowledges a failure separately from hiding its details", () => {
+  it("acknowledges a failure only through the explicit resolved action", () => {
     const onAcknowledge = vi.fn();
     const onDismiss = vi.fn();
     renderModal({
@@ -206,8 +207,11 @@ describe("UpgradeOperationModal", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+    expect(onAcknowledge).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark resolved" }));
     expect(onAcknowledge).toHaveBeenCalledOnce();
-    expect(onDismiss).not.toHaveBeenCalled();
   });
 
   it("reloads Fleet after a successful upgrade", () => {

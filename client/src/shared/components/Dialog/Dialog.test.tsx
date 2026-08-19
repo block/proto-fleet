@@ -26,8 +26,8 @@ describe("Dialog", () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
-  it("keeps dialogs accessible within narrow and short viewports", () => {
-    render(<Dialog title="Responsive dialog" testId="dialog" />);
+  it("keeps viewport-bounded dialogs accessible within narrow and short viewports", () => {
+    render(<Dialog title="Responsive dialog" testId="dialog" viewportBounded />);
 
     expect(screen.getByTestId("dialog")).toHaveClass(
       "max-h-[calc(100dvh-(--spacing(32)))]",
@@ -35,6 +35,16 @@ describe("Dialog", () => {
       "overflow-y-auto",
       "phone:w-screen",
       "phone:max-h-[calc(100dvh-theme(spacing.10))]",
+    );
+  });
+
+  it("preserves the existing sizing for dialogs that do not request viewport bounds", () => {
+    render(<Dialog title="Default dialog" testId="dialog" />);
+
+    expect(screen.getByTestId("dialog")).not.toHaveClass(
+      "max-h-[calc(100dvh-(--spacing(32)))]",
+      "overflow-y-auto",
+      "phone:w-screen",
     );
   });
 

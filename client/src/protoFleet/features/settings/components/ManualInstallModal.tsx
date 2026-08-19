@@ -33,6 +33,7 @@ const ManualInstallModal = ({ copyDisabled, installCommand, onDismiss, open, ver
     <Dialog
       open={open}
       onDismiss={onDismiss}
+      viewportBounded
       testId="manual-install-modal"
       icon={<LogoAlt width="w-5" />}
       title="Install Fleet manually"

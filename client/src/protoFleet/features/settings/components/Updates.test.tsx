@@ -114,7 +114,7 @@ vi.mock("@/shared/features/toaster", () => ({
 }));
 
 vi.mock("./AvailableUpdateAnimation", () => ({
-  default: () => <canvas aria-hidden="true" data-testid="available-update-animation" />,
+  default: () => <div aria-hidden="true" data-testid="available-update-animation" />,
 }));
 
 const INSTALL_COMMAND = "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.3.0";
@@ -224,7 +224,7 @@ describe("Updates", () => {
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(getByText("Fleet v1.3.0 available")).toBeInTheDocument();
     expect(screen.getByTestId("available-update-lockup")).toBeInTheDocument();
-    expect(screen.getByTestId("available-update-animation").tagName).toBe("CANVAS");
+    expect(screen.getByTestId("available-update-animation")).toBeInTheDocument();
     expect(getByText("Use manual install to update this Fleet.")).toBeInTheDocument();
     expect(screen.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
     expect(
@@ -354,7 +354,7 @@ describe("Updates", () => {
     expect(await page.findByText("Session-scoped failure")).toBeInTheDocument();
   });
 
-  it("keeps manual recovery usable after a failed operation and can acknowledge its durable record", async () => {
+  it("keeps manual recovery usable and acknowledges it only through Mark resolved", async () => {
     upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
       error: "new stack failed to start",
       hostLogPath: "/var/lib/proto-fleet-updater/logs/operation-1.log",
@@ -367,10 +367,14 @@ describe("Updates", () => {
     expect(await page.findByText("Run this command on the Fleet host to continue the update.")).toBeInTheDocument();
     expect(page.queryByRole("button", { name: "Install manually" })).not.toBeInTheDocument();
     fireEvent.click(page.getByRole("button", { name: "Close" }));
-    expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
+    expect(upgradeHookMock.current.acknowledgeOperation).not.toHaveBeenCalled();
+
+    fireEvent.click(page.getByRole("button", { name: "View recovery steps" }));
+    fireEvent.click(page.getByRole("button", { name: "Mark resolved" }));
+    await waitFor(() => expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1));
   });
 
-  it("warns when the dismissal could not be recorded on the host", async () => {
+  it("keeps recovery details open when marking the failure resolved fails", async () => {
     upgradeHookMock.current.operation = buildOperation(UpgradePhase.FAILED, {
       error: "new stack failed to start",
     });
@@ -382,13 +386,14 @@ describe("Updates", () => {
     const page = render(<Updates />);
 
     expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
-    fireEvent.click(page.getByRole("button", { name: "Close" }));
+    fireEvent.click(page.getByRole("button", { name: "Mark resolved" }));
 
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith(
         expect.objectContaining({ message: expect.stringContaining("host updater is unavailable") }),
       ),
     );
+    expect(page.getByTestId("upgrade-operation-modal")).toBeInTheDocument();
   });
 
   it.each([Code.Unauthenticated, Code.PermissionDenied])(
@@ -404,7 +409,7 @@ describe("Updates", () => {
       const page = render(<Updates />);
 
       expect(await page.findByText("new stack failed to start")).toBeInTheDocument();
-      fireEvent.click(page.getByRole("button", { name: "Close" }));
+      fireEvent.click(page.getByRole("button", { name: "Mark resolved" }));
       expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
 
       permissionsMock.sessionExpiry = new Date(2_000);
@@ -550,7 +555,7 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
     expect(await page.findByText("Update needs host confirmation")).toBeInTheDocument();
-    fireEvent.click(page.getByRole("button", { name: "Use manual install" }));
+    fireEvent.click(page.getByRole("button", { name: "Unlock manual install" }));
     expect(upgradeHookMock.current.useManualFallback).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
 
@@ -1046,6 +1051,32 @@ describe("Updates", () => {
     expect(mockPushToast).not.toHaveBeenCalled();
   });
 
+  it("removes manual instructions when a replacement session status refresh fails", async () => {
+    const replacementRequest = createDeferred<GetUpdateStatusResponse>();
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus()).mockReturnValueOnce(replacementRequest.promise);
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("button", { name: "Install manually" }));
+    expect(page.getByTestId("manual-install-modal")).toHaveTextContent(INSTALL_COMMAND);
+
+    permissionsMock.sessionExpiry = new Date(2_000);
+    permissionsMock.sessionGeneration = 2;
+    page.rerender(<Updates />);
+
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(page.queryByTestId("manual-install-modal")).not.toBeInTheDocument());
+    expect(page.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
+
+    await act(async () => {
+      replacementRequest.reject(new Error("replacement status unavailable"));
+      await replacementRequest.promise.catch(() => undefined);
+    });
+
+    expect(await page.findByText("replacement status unavailable")).toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "Copy install command" })).not.toBeInTheDocument();
+    expect(page.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
+  });
+
   it("restarts a pending status refresh when the authenticated session changes in place", async () => {
     const previousRequest = createDeferred<GetUpdateStatusResponse>();
     const replacementRequest = createDeferred<GetUpdateStatusResponse>();
@@ -1206,17 +1237,22 @@ describe("Updates", () => {
     expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked();
   });
 
-  it("reports a refresh failure separately after a successful save", async () => {
+  it("reports a refresh failure separately after a successful save and removes the stale command", async () => {
     mockGetUpdateStatus
       .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
       .mockRejectedValueOnce(new Error("refresh failed after save"));
     mockSetReleaseChannel.mockResolvedValue(SET_CHANNEL_RESPONSE);
 
-    const { findByRole, findByText } = render(<Updates />);
-    fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("button", { name: "Install manually" }));
+    expect(page.getByTestId("manual-install-modal")).toHaveTextContent(INSTALL_COMMAND);
+    fireEvent.click(page.getByRole("button", { name: "Close" }));
+    fireEvent.click(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME }));
 
-    expect(await findByText("We couldn't load update status")).toBeInTheDocument();
-    expect(await findByText("refresh failed after save")).toBeInTheDocument();
+    expect(await page.findByText("We couldn't load update status")).toBeInTheDocument();
+    expect(await page.findByText("refresh failed after save")).toBeInTheDocument();
+    expect(page.queryByRole("button", { name: "Copy install command" })).not.toBeInTheDocument();
+    expect(page.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
     expect(mockPushToast).toHaveBeenCalledWith({
       message: "Release channel saved",
       status: "success",

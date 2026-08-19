@@ -79,18 +79,20 @@ const FailedUpgradePanel = ({ operation }: { operation: UpgradeOperation }) => {
       {recoveryCommand ? (
         <>
           <p className="text-300 text-text-primary-70">Run this command on the Fleet host to continue the update.</p>
-          <code className="rounded-xl bg-surface-default px-4 py-3 font-mono text-200 break-all text-text-primary">
-            {recoveryCommand}
-          </code>
+          <pre className="overflow-x-auto rounded-xl bg-surface-default px-4 py-3 font-mono text-200 whitespace-pre-wrap text-text-primary">
+            <code>{recoveryCommand}</code>
+          </pre>
         </>
-      ) : error ? (
-        <p className="text-300 text-text-primary">{error}</p>
       ) : null}
-      {!recoveryCommand && hostLogPath ? (
+      {error ? <p className="text-300 text-text-primary">{error}</p> : null}
+      {hostLogPath ? (
         <p className="text-200 text-text-primary-70">
           Host log: <code className="font-mono break-all">{hostLogPath}</code>
         </p>
       ) : null}
+      <p className="text-200 text-text-primary-50">
+        Mark this update resolved only after you no longer need these recovery details.
+      </p>
     </div>
   );
 };
@@ -180,7 +182,7 @@ const getModalButtons = ({
   if (manualFallbackReady) {
     return [
       {
-        text: "Use manual install",
+        text: "Unlock manual install",
         variant: variants.secondaryDanger,
         onClick: onUseManualFallback,
       },
@@ -214,9 +216,14 @@ const getModalButtons = ({
           ]
         : []),
       {
-        text: "Close",
+        text: "Mark resolved",
         variant: variants.secondary,
         onClick: onAcknowledge,
+      },
+      {
+        text: "Close",
+        variant: variants.secondary,
+        onClick: onDismiss,
       },
     ];
   }
@@ -360,6 +367,7 @@ const UpgradeOperationModal = ({
       open={open}
       onDismiss={onDismiss}
       dismissButton
+      viewportBounded
       testId="upgrade-operation-modal"
       icon={dialogVisual.icon}
       title={dialogVisual.title}

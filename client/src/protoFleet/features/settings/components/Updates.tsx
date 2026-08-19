@@ -40,6 +40,8 @@ const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 const UPDATES_PAGE_DESCRIPTION = "View the server version, choose eligible releases, and update this instance.";
 
+type OpenDialog = "manual-install" | "upgrade" | null;
+
 interface UpdateStatusLockupProps {
   action?: ReactNode;
   description?: ReactNode;
@@ -82,6 +84,16 @@ interface AuthSessionSnapshot {
   identity: string;
   isAuthenticated: boolean;
   sessionExpiry: Date | null;
+}
+
+interface AuthBoundStatus {
+  authSessionIdentity: string;
+  response: GetUpdateStatusResponse;
+}
+
+interface AuthBoundError {
+  authSessionIdentity: string;
+  message: string;
 }
 
 const captureAuthSession = (identity: string): AuthSessionSnapshot => {
@@ -146,12 +158,11 @@ const Updates = () => {
   const username = useUsername();
   const authSessionIdentity = `${username}:${sessionGeneration}`;
   const { handleAuthErrors } = useAuthErrors();
-  const [status, setStatus] = useState<GetUpdateStatusResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [statusState, setStatusState] = useState<AuthBoundStatus | null>(null);
+  const [loadErrorState, setLoadErrorState] = useState<AuthBoundError | null>(null);
   const [isChannelChangePending, setIsChannelChangePending] = useState(false);
   const [isStatusRefreshPending, setIsStatusRefreshPending] = useState(false);
-  const [manualInstallModalOpen, setManualInstallModalOpen] = useState(false);
-  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
   const [upgradeReloadState, setUpgradeReloadState] = useState({
     authSessionIdentity,
     pending: false,
@@ -235,16 +246,20 @@ const Updates = () => {
       if (requestId !== latestStatusRequest.current || !isSameAuthSession(authSession)) {
         return;
       }
-      setStatus(response);
+      setStatusState({ authSessionIdentity, response });
       setChannel(response.channel);
-      setLoadError(null);
+      setLoadErrorState(null);
     } catch (err) {
       if (!isSameAuthSession(authSession)) {
         return;
       }
       const shouldUpdatePage = requestId === latestStatusRequest.current && isMounted.current;
       handleRequestError(err, shouldUpdatePage, () => {
-        setLoadError(getErrorMessage(err, "We couldn't load update status"));
+        setOpenDialog(null);
+        setLoadErrorState({
+          authSessionIdentity,
+          message: getErrorMessage(err, "We couldn't load update status"),
+        });
       });
     } finally {
       if (requestId === latestStatusRequest.current && isSameAuthSession(authSession) && isMounted.current) {
@@ -277,9 +292,13 @@ const Updates = () => {
     upgrade.operationStatusPending ||
     upgradeRequestPending ||
     unresolvedTrackedUpgrade;
+  const hasCurrentLoadError = loadErrorState?.authSessionIdentity === authSessionIdentity;
+  const hasCurrentStatus = statusState?.authSessionIdentity === authSessionIdentity;
   const manualCommandDisabled =
     isChannelChangePending ||
     isStatusRefreshPending ||
+    hasCurrentLoadError ||
+    !hasCurrentStatus ||
     upgrade.operationStatusPending ||
     activeUpgrade ||
     upgradeRequestPending ||
@@ -292,6 +311,10 @@ const Updates = () => {
       isMounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    setOpenDialog(null);
+  }, [authSessionIdentity]);
 
   useEffect(() => {
     const operation = upgrade.operation;
@@ -310,7 +333,7 @@ const Updates = () => {
     // Missing or invalid host identity fails open so it cannot suppress a
     // distinct operation or rewritten terminal outcome.
     lastAutoOpenedOperation.current = autoOpenKey ?? null;
-    setUpgradeModalOpen(true);
+    setOpenDialog("upgrade");
   }, [authSessionIdentity, upgrade.operation, upgrade.operationStatusPending]);
 
   useEffect(() => {
@@ -318,7 +341,7 @@ const Updates = () => {
     // Do not let a previously opened generic manual-install dialog cover it or
     // expose a stale command while an outcome is being handled.
     if (upgrade.operation) {
-      setManualInstallModalOpen(false);
+      setOpenDialog((current) => (current === "manual-install" ? null : current));
     }
   }, [upgrade.operation]);
 
@@ -331,7 +354,7 @@ const Updates = () => {
     // paths close the modal themselves before clearing, so this is a no-op
     // for them; a pending reconciliation or trigger error keeps its dialog.
     if (hadOperation && !upgrade.operation && !upgrade.reconciling && !upgrade.triggerError) {
-      setUpgradeModalOpen(false);
+      setOpenDialog(null);
     }
   }, [upgrade.operation, upgrade.reconciling, upgrade.triggerError]);
 
@@ -348,14 +371,14 @@ const Updates = () => {
 
   useEffect(() => {
     if (upgrade.manualFallbackReady && !previousManualFallbackReady.current) {
-      setUpgradeModalOpen(true);
+      setOpenDialog("upgrade");
     }
     previousManualFallbackReady.current = upgrade.manualFallbackReady;
   }, [upgrade.manualFallbackReady]);
 
   useEffect(() => {
     if (upgrade.triggerError && upgrade.triggerError !== previousTriggerError.current && !upgrade.reconciling) {
-      setUpgradeModalOpen(true);
+      setOpenDialog("upgrade");
       void fetchStatus();
     }
     previousTriggerError.current = upgrade.triggerError;
@@ -462,9 +485,14 @@ const Updates = () => {
     return <Navigate to={getSettingsLandingPath(permissions)} replace />;
   }
 
-  const release = status?.statusAvailable && status.updateAvailable ? status.latestEligible : undefined;
+  const currentStatus = hasCurrentStatus ? statusState.response : null;
+  const currentLoadError = hasCurrentLoadError ? loadErrorState.message : null;
+  const release =
+    currentStatus?.statusAvailable && currentStatus.updateAvailable ? currentStatus.latestEligible : undefined;
   const modalRelease =
-    isStatusRefreshPending || loadError || (upgrade.operation && upgrade.operation.targetVersion !== release?.version)
+    isStatusRefreshPending ||
+    currentLoadError ||
+    (upgrade.operation && upgrade.operation.targetVersion !== release?.version)
       ? undefined
       : release;
   const operationStatusLabel = upgrade.reconciling
@@ -494,8 +522,8 @@ const Updates = () => {
         ? "Relaunch Fleet to use the new version."
         : null;
   const hasUpgradeDetails = Boolean(upgrade.operation || upgrade.reconciling || upgrade.triggerError);
-  const showCurrentVersionCard = Boolean(status?.statusAvailable && !release && !hasUpgradeDetails);
-  const showUpdateStatusUnavailable = Boolean(status && !status.statusAvailable && !hasUpgradeDetails);
+  const showCurrentVersionCard = Boolean(currentStatus?.statusAvailable && !release && !hasUpgradeDetails);
+  const showUpdateStatusUnavailable = Boolean(currentStatus && !currentStatus.statusAvailable && !hasUpgradeDetails);
   const canViewUpgradeDetails = Boolean(
     upgrade.operation || upgrade.manualFallbackReady || (upgrade.triggerError && !upgrade.reconciling),
   );
@@ -511,28 +539,34 @@ const Updates = () => {
         manualFallbackReady={upgrade.manualFallbackReady}
         onAcknowledge={() => {
           const authSession = captureAuthSession(authSessionIdentity);
-          setUpgradeModalOpen(false);
-          void upgrade.acknowledgeOperation().catch((err: unknown) => {
-            if (!isSameAuthSession(authSession)) {
-              return;
-            }
-            handleRequestError(err, isMounted.current, () => {
-              pushToast({
-                message: getErrorMessage(err, "Fleet could not record the dismissal on the host; it may reappear"),
-                status: STATUSES.error,
+          void upgrade
+            .acknowledgeOperation()
+            .then(() => {
+              if (isMounted.current && isSameAuthSession(authSession)) {
+                setOpenDialog(null);
+              }
+            })
+            .catch((err: unknown) => {
+              if (!isSameAuthSession(authSession)) {
+                return;
+              }
+              handleRequestError(err, isMounted.current, () => {
+                pushToast({
+                  message: getErrorMessage(err, "Fleet could not mark this update as resolved"),
+                  status: STATUSES.error,
+                });
               });
             });
-          });
         }}
-        onDismiss={() => setUpgradeModalOpen(false)}
+        onDismiss={() => setOpenDialog(null)}
         onReload={() => void handleSuccessfulUpgradeReload()}
         onUpgrade={upgrade.triggerUpgrade}
         onUseManualFallback={() => {
           upgrade.useManualFallback();
-          setUpgradeModalOpen(false);
+          setOpenDialog(null);
           void fetchStatus();
         }}
-        open={upgradeModalOpen}
+        open={openDialog === "upgrade"}
         operation={upgrade.operation}
         reconciling={upgrade.reconciling}
         reloadPending={isUpgradeReloadPending}
@@ -543,17 +577,17 @@ const Updates = () => {
         triggerError={upgrade.triggerError}
         triggering={upgrade.triggering}
       />
-      {status?.installCommand ? (
+      {currentStatus?.installCommand && !currentLoadError ? (
         <ManualInstallModal
           copyDisabled={manualCommandDisabled}
-          open={manualInstallModalOpen}
-          onDismiss={() => setManualInstallModalOpen(false)}
-          installCommand={status.installCommand}
-          version={release?.version ?? status.currentVersion}
+          open={openDialog === "manual-install"}
+          onDismiss={() => setOpenDialog(null)}
+          installCommand={currentStatus.installCommand}
+          version={release?.version ?? currentStatus.currentVersion}
         />
       ) : null}
       <SettingsPageHeader title="Updates" description={UPDATES_PAGE_DESCRIPTION} />
-      {loadError && hasUpgradeDetails ? (
+      {currentLoadError && hasUpgradeDetails ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-border-5 p-6">
           <div className="min-w-0">
             <div className="text-heading-100 text-text-primary">Update status</div>
@@ -563,35 +597,35 @@ const Updates = () => {
             <Button
               variant={variants.secondary}
               text={upgradeDetailsButtonText}
-              onClick={() => setUpgradeModalOpen(true)}
+              onClick={() => setOpenDialog("upgrade")}
             />
           ) : null}
         </div>
       ) : null}
-      {loadError ? (
-        <SettingsEmptyState size="section" title="We couldn't load update status" description={loadError} />
+      {currentLoadError ? (
+        <SettingsEmptyState size="section" title="We couldn't load update status" description={currentLoadError} />
       ) : (
         <div className="flex flex-col gap-4">
           {release && !hasUpgradeDetails ? (
             <UpdateFeatureCard
               testId="available-update-lockup"
               action={
-                status?.oneClickAvailable || status?.installCommand ? (
+                currentStatus?.oneClickAvailable || currentStatus?.installCommand ? (
                   <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 tablet:justify-end">
-                    {status?.oneClickAvailable ? (
+                    {currentStatus?.oneClickAvailable ? (
                       <Button
                         variant={variants.primary}
                         text="Update now"
                         disabled={upgradeActionDisabled}
-                        onClick={() => setUpgradeModalOpen(true)}
+                        onClick={() => setOpenDialog("upgrade")}
                       />
                     ) : null}
-                    {status?.installCommand ? (
+                    {currentStatus?.installCommand ? (
                       <Button
-                        variant={status.oneClickAvailable ? variants.secondary : variants.primary}
+                        variant={currentStatus.oneClickAvailable ? variants.secondary : variants.primary}
                         text="Install manually"
                         disabled={manualCommandDisabled}
-                        onClick={() => setManualInstallModalOpen(true)}
+                        onClick={() => setOpenDialog("manual-install")}
                       />
                     ) : null}
                   </div>
@@ -600,7 +634,7 @@ const Updates = () => {
             >
               <div className="text-heading-300 text-text-primary">Fleet {release.version} available</div>
               <p className="text-300 text-text-primary-70">
-                {status?.oneClickAvailable
+                {currentStatus?.oneClickAvailable
                   ? "Fleet validates the release before restarting."
                   : "Use manual install to update this Fleet."}
               </p>
@@ -624,7 +658,7 @@ const Updates = () => {
                   variant={variants.secondary}
                   text="Updating"
                   prefixIcon={<ProgressCircular dataTestId="update-status-spinner" size={16} indeterminate />}
-                  onClick={() => setUpgradeModalOpen(true)}
+                  onClick={() => setOpenDialog("upgrade")}
                 />
               }
             >
@@ -643,7 +677,7 @@ const Updates = () => {
                 </span>
               }
               title="Fleet is up to date"
-              description={`Current version: ${status?.currentVersion}`}
+              description={`Current version: ${currentStatus?.currentVersion}`}
             />
           ) : null}
           {hasUpgradeDetails && !activeUpgrade ? (
@@ -657,7 +691,7 @@ const Updates = () => {
                     variant={variants.secondary}
                     size={sizes.compact}
                     text={upgradeDetailsButtonText}
-                    onClick={() => setUpgradeModalOpen(true)}
+                    onClick={() => setOpenDialog("upgrade")}
                   />
                 ) : undefined
               }
@@ -668,19 +702,19 @@ const Updates = () => {
               testId="update-status-unavailable-lockup"
               icon={<Info className="text-text-primary-70" />}
               title="Update status unavailable"
-              description={`Current version: ${status?.currentVersion}`}
+              description={`Current version: ${currentStatus?.currentVersion}`}
             />
           ) : null}
           {!showCurrentVersionCard && !showUpdateStatusUnavailable ? (
             <div className="rounded-xl border border-border-5 px-6">
               <Row testId="current-version-row" className="flex items-center justify-between gap-3" divider={false}>
                 <span className="text-300">Current version</span>
-                <span className="text-300">{status?.currentVersion ?? SkeletonLoader}</span>
+                <span className="text-300">{currentStatus?.currentVersion ?? SkeletonLoader}</span>
               </Row>
             </div>
           ) : null}
           <div className="rounded-xl border border-border-5 px-6">
-            {status ? (
+            {currentStatus ? (
               <Row className="flex items-center gap-3" divider={false}>
                 <Switch
                   ariaLabel="Include release candidates"
