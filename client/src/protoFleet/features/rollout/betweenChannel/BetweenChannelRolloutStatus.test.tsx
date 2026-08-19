@@ -167,6 +167,99 @@ describe("BetweenChannelRolloutStatus", () => {
     );
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(onContinue).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Continue anyway" })).not.toBeInTheDocument();
+  });
+
+  it("requires explicit confirmation with evidence context before overriding a held verdict", async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "review",
+          hashratePolicy: {
+            maxDropBasisPoints: 10,
+            healthyDurationSeconds: 30,
+          },
+          availableActions: { ...baseRollout.availableActions, continue: true },
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status: "held",
+                totalCount: 3n,
+                pairedCount: 3n,
+                latestPolicyBucketDeltaBasisPoints: -400,
+                postWindowFinalized: false,
+              },
+            },
+            baseRollout.batches[1],
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+        onContinue={onContinue}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(screen.getByText("Configured maximum drop: 0.10%")).toBeInTheDocument();
+    expect(screen.getByText("Latest policy bucket: −4.00%")).toBeInTheDocument();
+    expect(screen.getByText("Paired coverage: 3 of 3")).toBeInTheDocument();
+    expect(screen.getByText(/admits the next batch despite this held evidence/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Continue anyway" })).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Hashrate held");
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Continue anyway" }));
+    expect(onContinue).toHaveBeenCalledOnce();
+    expect(onContinue).toHaveBeenCalledWith("Override held hashrate evidence");
+  });
+
+  it("keeps completed batch evidence and performance visible while paused", async () => {
+    const user = userEvent.setup();
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "paused",
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              completedAt: "2026-08-18T01:00:00.000Z",
+              evidenceSummary: {
+                status: "observing",
+                totalCount: 2n,
+                pairedCount: 2n,
+                cumulativeBaselineHashrateHs: 250_000_000_000_000,
+                cumulativeCurrentHashrateHs: 237_500_000_000_000,
+                evaluatedAt: new Date().toISOString(),
+                postWindowFinalized: false,
+              },
+            },
+            baseRollout.batches[1],
+          ],
+          availableActions: {
+            ...baseRollout.availableActions,
+            pause: false,
+            resume: true,
+          },
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Observing hashrate");
+    await user.click(screen.getByRole("button", { name: "View details" }));
+    expect(screen.getByTestId("active-rollout-performance")).toHaveTextContent("237.5 TH/s");
   });
 
   it("uses distinct abort aftermath and revert confirmations", async () => {
@@ -278,5 +371,284 @@ describe("BetweenChannelRolloutStatus", () => {
       />,
     );
     expect(screen.queryByRole("button", { name: "Complete with failures" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["pending", "Evidence pending"],
+    ["collecting", "Collecting evidence"],
+    ["unavailable", "Evidence unavailable"],
+    ["observing", "Observing hashrate"],
+    ["healthy", "Hashrate healthy"],
+    ["held", "Hashrate held"],
+    ["stale", "Evidence stale"],
+    ["automationError", "Automation error"],
+    ["finalized", "Evidence finalized"],
+  ] as const)("renders %s evidence with text status and paired coverage", (status, expectedLabel) => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "review",
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              completedAt: "2026-08-18T01:00:00.000Z",
+              evidenceSummary: {
+                status,
+                totalCount: 3n,
+                pairedCount: status === "pending" ? 0n : 2n,
+                evaluatedAt: new Date().toISOString(),
+                postWindowFinalized: status === "finalized",
+              },
+            },
+            baseRollout.batches[1],
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(expectedLabel);
+    expect(screen.getByText(`Paired coverage ${status === "pending" ? "0" : "2"} of 3`)).toBeInTheDocument();
+    expect(screen.getByText(/Last evaluated/)).toBeInTheDocument();
+  });
+
+  it("does not fabricate metrics when evidence is unavailable", () => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "review",
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status: "unavailable",
+                totalCount: 3n,
+                pairedCount: 0n,
+                postWindowFinalized: true,
+              },
+            },
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+
+    expect(screen.queryByTestId("active-rollout-performance")).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 TH\/s/)).not.toBeInTheDocument();
+  });
+
+  it.each(["unavailable", "automationError"] as const)("preserves manual controls when evidence is %s", (status) => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "review",
+          availableActions: {
+            ...baseRollout.availableActions,
+            continue: true,
+            pause: true,
+            abort: true,
+          },
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status,
+                totalCount: 3n,
+                pairedCount: 0n,
+                postWindowFinalized: status === "unavailable",
+              },
+            },
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+        onContinue={vi.fn()}
+        onPause={vi.fn()}
+        onAbort={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /more actions/i })).toBeInTheDocument();
+  });
+
+  it("displays the persisted automation error while preserving manual controls", () => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "review",
+          availableActions: {
+            ...baseRollout.availableActions,
+            continue: true,
+            pause: true,
+          },
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status: "automationError",
+                totalCount: 3n,
+                pairedCount: 3n,
+                errorMessage: "Continue control failed after the rollout revision changed",
+                postWindowFinalized: false,
+              },
+            },
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+        onContinue={vi.fn()}
+        onPause={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Continue control failed after the rollout revision changed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+  });
+
+  it("distinguishes the latest policy health check from cumulative performance", () => {
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "review",
+          hashratePolicy: {
+            maxDropBasisPoints: 10,
+            healthyDurationSeconds: 30,
+          },
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status: "held",
+                totalCount: 3n,
+                pairedCount: 3n,
+                cumulativeBaselineHashrateHs: 250_000_000_000_000,
+                cumulativeCurrentHashrateHs: 237_500_000_000_000,
+                cumulativeDeltaBasisPoints: -500,
+                latestPolicyBucketHashrateHs: 240_000_000_000_000,
+                latestPolicyBucketDeltaBasisPoints: -400,
+                evaluatedAt: new Date().toISOString(),
+                postWindowFinalized: false,
+              },
+            },
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+
+    expect(screen.getByText("Latest policy health check")).toBeInTheDocument();
+    expect(screen.getByText("−4.00%")).toBeInTheDocument();
+    expect(screen.getByText("Cumulative performance appears in the comparison below.")).toBeInTheDocument();
+  });
+
+  it("derives stale display without hiding manual controls", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-18T01:01:00.000Z"));
+
+    render(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...baseRollout,
+          state: "review",
+          availableActions: {
+            ...baseRollout.availableActions,
+            continue: true,
+            pause: true,
+            abort: true,
+          },
+          batches: [
+            {
+              ...baseRollout.batches[0],
+              state: "completed",
+              evidenceSummary: {
+                status: "observing",
+                totalCount: 3n,
+                pairedCount: 3n,
+                evaluatedAt: "2026-08-18T01:00:00.000Z",
+                postWindowFinalized: false,
+              },
+            },
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+        onContinue={vi.fn()}
+        onPause={vi.fn()}
+        onAbort={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Evidence stale");
+    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /more actions/i })).toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it("announces verdict changes but keeps routine metric updates outside the live region", () => {
+    const rollout = {
+      ...baseRollout,
+      state: "review" as const,
+      batches: [
+        {
+          ...baseRollout.batches[0],
+          state: "completed" as const,
+          evidenceSummary: {
+            status: "observing" as const,
+            totalCount: 3n,
+            pairedCount: 3n,
+            cumulativeBaselineHashrateHs: 250_000_000_000_000,
+            cumulativeCurrentHashrateHs: 249_000_000_000_000,
+            evaluatedAt: new Date().toISOString(),
+            postWindowFinalized: false,
+          },
+        },
+      ],
+    };
+    const view = render(<BetweenChannelRolloutStatus rollout={rollout} laneLabel="Stable production" canControl />);
+
+    const liveRegion = screen.getByRole("status");
+    expect(liveRegion).toHaveAttribute("aria-live", "polite");
+    expect(liveRegion).toHaveTextContent("Observing hashrate");
+    expect(liveRegion).not.toHaveTextContent("249");
+    expect(liveRegion).not.toHaveTextContent("Paired coverage");
+
+    view.rerender(
+      <BetweenChannelRolloutStatus
+        rollout={{
+          ...rollout,
+          batches: [
+            {
+              ...rollout.batches[0],
+              evidenceSummary: {
+                ...rollout.batches[0].evidenceSummary,
+                status: "held",
+                cumulativeCurrentHashrateHs: 237_500_000_000_000,
+              },
+            },
+          ],
+        }}
+        laneLabel="Stable production"
+        canControl
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Hashrate held");
   });
 });

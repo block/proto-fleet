@@ -589,6 +589,7 @@ func (h *Handler) StartRolloutLane(
 			Name:              req.Msg.GetName(),
 			FirmwareFileIDs:   req.Msg.GetFirmwareFileIds(),
 			Batches:           batchesFromProto(req.Msg.GetBatches()),
+			HashratePolicy:    hashratePolicyFromProto(req.Msg.GetHashratePolicy()),
 			IdempotencyKey:    req.Msg.GetIdempotencyKey(),
 			Reason:            req.Msg.GetReason(),
 			ActorUserID:       info.UserID,

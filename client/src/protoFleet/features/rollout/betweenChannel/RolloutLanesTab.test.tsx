@@ -295,9 +295,25 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/StartRolloutLaneModal", ()
 }));
 
 vi.mock("@/protoFleet/features/rollout/betweenChannel/BetweenChannelRolloutStatus", () => ({
-  default: ({ rollout, onCompleteWithFailures }: { rollout: RolloutRecord; onCompleteWithFailures?: () => void }) => (
+  default: ({
+    rollout,
+    onContinue,
+    onCompleteWithFailures,
+  }: {
+    rollout: RolloutRecord;
+    onContinue?: (reason?: string) => void;
+    onCompleteWithFailures?: () => void;
+  }) => (
     <div>
       <span>Rollout status for {rollout.id}</span>
+      {rollout.batches[rollout.batches.length - 1]?.evidenceSummary?.cumulativeDeltaBasisPoints !== undefined ? (
+        <span>{`Cumulative delta ${rollout.batches[rollout.batches.length - 1]?.evidenceSummary?.cumulativeDeltaBasisPoints} basis points`}</span>
+      ) : null}
+      {onContinue ? (
+        <button type="button" onClick={() => onContinue("Override held hashrate evidence")}>
+          Continue held rollout
+        </button>
+      ) : null}
       {onCompleteWithFailures ? (
         <button type="button" onClick={onCompleteWithFailures}>
           Complete with failures
@@ -637,6 +653,66 @@ describe("RolloutLanesTab", () => {
     expect(rolloutApi.listRollouts).toHaveBeenCalledTimes(1);
     expect(rolloutApi.listRolloutLanes).toHaveBeenCalledTimes(2);
     expect(rolloutApi.completeRollout).not.toHaveBeenCalled();
+  });
+
+  it("polls a completed result until final evidence refreshes in place", async () => {
+    vi.useFakeTimers();
+    const openResult: RolloutRecord = {
+      ...rollout("completed", "completed"),
+      batches: [
+        {
+          ...rollout("completed", "completed").batches[0],
+          state: "completed",
+          completedAt: "2026-08-18T02:00:00.000Z",
+          evidenceSummary: {
+            status: "observing",
+            totalCount: 2n,
+            pairedCount: 2n,
+            cumulativeDeltaBasisPoints: -100,
+            postWindowFinalized: false,
+          },
+        },
+      ],
+    };
+    rolloutApi.rollouts = [openResult];
+    rolloutApi.lanes = [lane("lane-completed", "Completed", openResult.id, 42n)];
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
+
+    const view = renderRolloutLanesTab("/settings/firmware?tab=rolloutLanes&rollout=completed");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText("Cumulative delta -100 basis points")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(rolloutApi.getRollout).toHaveBeenCalledTimes(1);
+
+    rolloutApi.rollouts = [
+      {
+        ...openResult,
+        batches: [
+          {
+            ...openResult.batches[0],
+            evidenceSummary: {
+              ...openResult.batches[0].evidenceSummary!,
+              status: "finalized",
+              cumulativeDeltaBasisPoints: -250,
+              postWindowFinalized: true,
+            },
+          },
+        ],
+      },
+    ];
+    view.rerender(<TestApp initialEntry="/settings/firmware?tab=rolloutLanes&rollout=completed" />);
+    expect(screen.getByText("Cumulative delta -250 basis points")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(rolloutApi.getRollout).toHaveBeenCalledTimes(1);
   });
 
   it("polls lane status while firmware convergence is active", async () => {
@@ -1395,6 +1471,39 @@ describe("RolloutLanesTab", () => {
         rolloutId: failedReview.id,
         expectedRevision: failedReview.revision,
         withFailures: true,
+      }),
+    );
+  });
+
+  it("passes a held override reason through the normal continue control audit", async () => {
+    const user = userEvent.setup();
+    const heldReview = {
+      ...rollout("held-review", "review"),
+      availableActions: {
+        ...rollout("held-review", "review").availableActions,
+        continue: true,
+      },
+    };
+    rolloutApi.rollouts = [heldReview];
+    rolloutApi.lanes = [lane("lane-1", "Stable production", heldReview.id)];
+    rolloutApi.permissions.canControl = true;
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
+    rolloutApi.continueRollout.mockResolvedValue({
+      ...heldReview,
+      state: "running",
+      revision: heldReview.revision + 1n,
+    });
+
+    renderRolloutLanesTab();
+    await user.click(await screen.findByRole("button", { name: "Continue held rollout" }));
+
+    expect(rolloutApi.continueRollout).toHaveBeenCalledOnce();
+    expect(rolloutApi.continueRollout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rolloutId: heldReview.id,
+        expectedRevision: heldReview.revision,
+        reason: "Override held hashrate evidence",
       }),
     );
   });

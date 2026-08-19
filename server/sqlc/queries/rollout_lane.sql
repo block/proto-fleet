@@ -1609,6 +1609,7 @@ RETURNING *;
 WITH completed AS (
     UPDATE firmware_rollout_batch batch
     SET state = 'completed',
+        completed_at = CURRENT_TIMESTAMP,
         revision = batch.revision + 1
     WHERE batch.id = sqlc.arg('batch_id')
       AND batch.rollout_id = sqlc.arg('rollout_id')
@@ -1642,6 +1643,7 @@ FROM completed;
 -- name: CompleteSettledBetweenChannelBatches :execrows
 UPDATE firmware_rollout_batch batch
 SET state = 'completed',
+    completed_at = CURRENT_TIMESTAMP,
     revision = batch.revision + 1
 WHERE batch.rollout_id = sqlc.arg('rollout_id')
   AND batch.org_id = sqlc.arg('org_id')

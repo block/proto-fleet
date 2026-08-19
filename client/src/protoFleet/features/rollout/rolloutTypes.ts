@@ -85,6 +85,39 @@ export type RolloutBatchState = "pending" | "admitted" | "completed" | "cancelle
 
 export type RolloutEvidencePhase = "baseline" | "post" | "unknown";
 
+export type RolloutEvidenceStatus =
+  | "pending"
+  | "collecting"
+  | "unavailable"
+  | "observing"
+  | "healthy"
+  | "held"
+  | "stale"
+  | "automationError"
+  | "finalized"
+  | "unknown";
+
+export interface RolloutHashratePolicy {
+  maxDropBasisPoints: number;
+  healthyDurationSeconds: number;
+}
+
+export interface RolloutBatchEvidenceSummary {
+  status: RolloutEvidenceStatus;
+  totalCount: bigint;
+  pairedCount: bigint;
+  cumulativeBaselineHashrateHs?: number;
+  cumulativeCurrentHashrateHs?: number;
+  cumulativeDeltaBasisPoints?: number;
+  latestPolicyBucketHashrateHs?: number;
+  latestPolicyBucketDeltaBasisPoints?: number;
+  healthySince?: string;
+  lastPolicyBucketBoundary?: string;
+  evaluatedAt?: string;
+  postWindowFinalized: boolean;
+  postWindowFinalizedAt?: string;
+}
+
 export interface RolloutEvidence {
   id: bigint;
   phase: RolloutEvidencePhase;
@@ -123,6 +156,8 @@ export interface RolloutBatch {
   state: RolloutBatchState;
   revision: bigint;
   members: RolloutMember[];
+  completedAt?: string;
+  evidenceSummary?: RolloutBatchEvidenceSummary;
 }
 
 export interface RolloutCause {
@@ -300,6 +335,7 @@ export interface RolloutRecord {
   sourceSnapshot?: JsonObject;
   targetSnapshot?: JsonObject;
   revertSnapshot?: JsonObject;
+  hashratePolicy?: RolloutHashratePolicy;
   reason: string;
   startedAt?: string;
   pausedAt?: string;
@@ -380,6 +416,13 @@ export interface RolloutPerformance {
   metrics: RolloutPerfMetric[];
 }
 
+/** Server-derived evidence for the latest completed batch represented by a rollout card. */
+export interface RolloutEventEvidence extends RolloutBatchEvidenceSummary {
+  batchId: bigint;
+  batchLabel: string;
+  policy?: RolloutHashratePolicy;
+}
+
 /** Thresholds used when Fleet can continue a reviewed batch automatically. */
 export interface RolloutAutomationThresholds {
   maxHashrateDropPercent: number;
@@ -440,6 +483,8 @@ export interface RolloutEvent {
    * rollout has captured a baseline; drives the performance strip for running
    * batches and review gates. */
   performance?: RolloutPerformance;
+  /** Authoritative hashrate evidence for the most relevant completed batch. */
+  evidence?: RolloutEventEvidence;
   /** Authoritative error details used by summaries and miner-level views. */
   errors?: RolloutErrorImpact[];
   /** Optional progress for strategy-defined membership changes. */

@@ -23,7 +23,7 @@ WHERE id = $1
   AND rollout_id = $2
   AND org_id = $3
   AND state = 'pending'
-RETURNING id, rollout_id, org_id, position, label, state, revision, created_at, updated_at
+RETURNING id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at
 `
 
 type AdmitFirmwareRolloutBatchParams struct {
@@ -45,6 +45,21 @@ func (q *Queries) AdmitFirmwareRolloutBatch(ctx context.Context, arg AdmitFirmwa
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CompletedAt,
+		&i.EvidenceStatus,
+		&i.EvidenceTotalCount,
+		&i.EvidencePairedCount,
+		&i.CumulativeBaselineHashrateHs,
+		&i.CumulativeCurrentHashrateHs,
+		&i.CumulativeDeltaBasisPoints,
+		&i.LatestPolicyBucketHashrateHs,
+		&i.LatestPolicyBucketDeltaBasisPoints,
+		&i.HealthySince,
+		&i.LastPolicyBucketBoundary,
+		&i.EvaluatedAt,
+		&i.EvidenceErrorMessage,
+		&i.PostWindowFinalized,
+		&i.PostWindowFinalizedAt,
 	)
 	return i, err
 }
@@ -125,7 +140,7 @@ SET state = $1,
 WHERE id = $6
   AND org_id = $7
   AND revision = $8
-RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
 `
 
 type ApplyFirmwareRolloutTransitionParams struct {
@@ -182,6 +197,8 @@ func (q *Queries) ApplyFirmwareRolloutTransition(ctx context.Context, arg ApplyF
 		&i.RevertedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
 	)
 	return i, err
 }
@@ -282,6 +299,7 @@ func (q *Queries) CancelUnclaimedFirmwareRolloutMembers(ctx context.Context, arg
 const completeFirmwareRolloutBatches = `-- name: CompleteFirmwareRolloutBatches :execrows
 UPDATE firmware_rollout_batch
 SET state = 'completed',
+    completed_at = CURRENT_TIMESTAMP,
     revision = revision + 1
 WHERE rollout_id = $1
   AND org_id = $2
@@ -381,6 +399,8 @@ INSERT INTO firmware_rollout (
     source_snapshot,
     target_snapshot,
     revert_snapshot,
+    hashrate_policy_max_drop_basis_points,
+    hashrate_policy_healthy_duration_seconds,
     idempotency_key,
     create_fingerprint,
     reason,
@@ -403,29 +423,33 @@ VALUES (
     $14,
     $15,
     $16,
-    $17
+    $17,
+    $18,
+    $19
 )
-RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
 `
 
 type CreateFirmwareRolloutParams struct {
-	RolloutID                uuid.UUID
-	OrgID                    int64
-	Name                     string
-	StrategyKey              string
-	ForwardAuthorityID       uuid.UUID
-	ForwardAuthorityRevision int64
-	SourceChannelID          sql.NullInt64
-	TargetChannelID          sql.NullInt64
-	SourceReleaseSetID       sql.NullInt64
-	TargetReleaseSetID       sql.NullInt64
-	SourceSnapshot           json.RawMessage
-	TargetSnapshot           json.RawMessage
-	RevertSnapshot           json.RawMessage
-	IdempotencyKey           string
-	CreateFingerprint        string
-	Reason                   string
-	CreatedByUserID          int64
+	RolloutID                            uuid.UUID
+	OrgID                                int64
+	Name                                 string
+	StrategyKey                          string
+	ForwardAuthorityID                   uuid.UUID
+	ForwardAuthorityRevision             int64
+	SourceChannelID                      sql.NullInt64
+	TargetChannelID                      sql.NullInt64
+	SourceReleaseSetID                   sql.NullInt64
+	TargetReleaseSetID                   sql.NullInt64
+	SourceSnapshot                       json.RawMessage
+	TargetSnapshot                       json.RawMessage
+	RevertSnapshot                       json.RawMessage
+	HashratePolicyMaxDropBasisPoints     sql.NullInt32
+	HashratePolicyHealthyDurationSeconds sql.NullInt32
+	IdempotencyKey                       string
+	CreateFingerprint                    string
+	Reason                               string
+	CreatedByUserID                      int64
 }
 
 func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareRolloutParams) (FirmwareRollout, error) {
@@ -443,6 +467,8 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		arg.SourceSnapshot,
 		arg.TargetSnapshot,
 		arg.RevertSnapshot,
+		arg.HashratePolicyMaxDropBasisPoints,
+		arg.HashratePolicyHealthyDurationSeconds,
 		arg.IdempotencyKey,
 		arg.CreateFingerprint,
 		arg.Reason,
@@ -480,6 +506,8 @@ func (q *Queries) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareR
 		&i.RevertedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
 	)
 	return i, err
 }
@@ -498,7 +526,7 @@ SELECT
     input.value->>'label'
 FROM jsonb_array_elements($3::jsonb) AS input(value)
 ORDER BY (input.value->>'position')::int
-RETURNING id, rollout_id, org_id, position, label, state, revision, created_at, updated_at
+RETURNING id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at
 `
 
 type CreateFirmwareRolloutBatchesParams struct {
@@ -526,6 +554,21 @@ func (q *Queries) CreateFirmwareRolloutBatches(ctx context.Context, arg CreateFi
 			&i.Revision,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.EvidenceStatus,
+			&i.EvidenceTotalCount,
+			&i.EvidencePairedCount,
+			&i.CumulativeBaselineHashrateHs,
+			&i.CumulativeCurrentHashrateHs,
+			&i.CumulativeDeltaBasisPoints,
+			&i.LatestPolicyBucketHashrateHs,
+			&i.LatestPolicyBucketDeltaBasisPoints,
+			&i.HealthySince,
+			&i.LastPolicyBucketBoundary,
+			&i.EvaluatedAt,
+			&i.EvidenceErrorMessage,
+			&i.PostWindowFinalized,
+			&i.PostWindowFinalizedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -847,7 +890,7 @@ func (q *Queries) FinishFirmwareRolloutControl(ctx context.Context, arg FinishFi
 }
 
 const getFirmwareRollout = `-- name: GetFirmwareRollout :one
-SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
 FROM firmware_rollout
 WHERE id = $1
   AND org_id = $2
@@ -892,12 +935,14 @@ func (q *Queries) GetFirmwareRollout(ctx context.Context, arg GetFirmwareRollout
 		&i.RevertedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutBatchForControl = `-- name: GetFirmwareRolloutBatchForControl :one
-SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at
+SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at
 FROM firmware_rollout_batch
 WHERE rollout_id = $1
   AND org_id = $2
@@ -930,12 +975,27 @@ func (q *Queries) GetFirmwareRolloutBatchForControl(ctx context.Context, arg Get
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CompletedAt,
+		&i.EvidenceStatus,
+		&i.EvidenceTotalCount,
+		&i.EvidencePairedCount,
+		&i.CumulativeBaselineHashrateHs,
+		&i.CumulativeCurrentHashrateHs,
+		&i.CumulativeDeltaBasisPoints,
+		&i.LatestPolicyBucketHashrateHs,
+		&i.LatestPolicyBucketDeltaBasisPoints,
+		&i.HealthySince,
+		&i.LastPolicyBucketBoundary,
+		&i.EvaluatedAt,
+		&i.EvidenceErrorMessage,
+		&i.PostWindowFinalized,
+		&i.PostWindowFinalizedAt,
 	)
 	return i, err
 }
 
 const getFirmwareRolloutByIdempotencyKey = `-- name: GetFirmwareRolloutByIdempotencyKey :one
-SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
 FROM firmware_rollout
 WHERE org_id = $1
   AND idempotency_key = $2
@@ -980,6 +1040,8 @@ func (q *Queries) GetFirmwareRolloutByIdempotencyKey(ctx context.Context, arg Ge
 		&i.RevertedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
 	)
 	return i, err
 }
@@ -1084,7 +1146,7 @@ func (q *Queries) HasFirmwareRolloutSucceededMembers(ctx context.Context, arg Ha
 }
 
 const listFirmwareRolloutBatches = `-- name: ListFirmwareRolloutBatches :many
-SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at
+SELECT id, rollout_id, org_id, position, label, state, revision, created_at, updated_at, completed_at, evidence_status, evidence_total_count, evidence_paired_count, cumulative_baseline_hashrate_hs, cumulative_current_hashrate_hs, cumulative_delta_basis_points, latest_policy_bucket_hashrate_hs, latest_policy_bucket_delta_basis_points, healthy_since, last_policy_bucket_boundary, evaluated_at, evidence_error_message, post_window_finalized, post_window_finalized_at
 FROM firmware_rollout_batch
 WHERE rollout_id = $1
   AND org_id = $2
@@ -1115,6 +1177,21 @@ func (q *Queries) ListFirmwareRolloutBatches(ctx context.Context, arg ListFirmwa
 			&i.Revision,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CompletedAt,
+			&i.EvidenceStatus,
+			&i.EvidenceTotalCount,
+			&i.EvidencePairedCount,
+			&i.CumulativeBaselineHashrateHs,
+			&i.CumulativeCurrentHashrateHs,
+			&i.CumulativeDeltaBasisPoints,
+			&i.LatestPolicyBucketHashrateHs,
+			&i.LatestPolicyBucketDeltaBasisPoints,
+			&i.HealthySince,
+			&i.LastPolicyBucketBoundary,
+			&i.EvaluatedAt,
+			&i.EvidenceErrorMessage,
+			&i.PostWindowFinalized,
+			&i.PostWindowFinalizedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1275,7 +1352,7 @@ func (q *Queries) ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwa
 }
 
 const listFirmwareRollouts = `-- name: ListFirmwareRollouts :many
-SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
 FROM firmware_rollout
 WHERE org_id = $1
   AND (
@@ -1330,6 +1407,8 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 			&i.RevertedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.HashratePolicyMaxDropBasisPoints,
+			&i.HashratePolicyHealthyDurationSeconds,
 		); err != nil {
 			return nil, err
 		}
@@ -1345,7 +1424,7 @@ func (q *Queries) ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRoll
 }
 
 const lockFirmwareRollout = `-- name: LockFirmwareRollout :one
-SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+SELECT id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
 FROM firmware_rollout
 WHERE id = $1
   AND org_id = $2
@@ -1391,6 +1470,8 @@ func (q *Queries) LockFirmwareRollout(ctx context.Context, arg LockFirmwareRollo
 		&i.RevertedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
 	)
 	return i, err
 }
@@ -1567,7 +1648,7 @@ WHERE rollout.id = $1
   AND cause.control_id = $3
   AND cause.operation = 'revert'
   AND cause.from_state IN ('aborted', 'completed', 'completed_with_failures')
-RETURNING rollout.id, rollout.org_id, rollout.name, rollout.strategy_key, rollout.state, rollout.resume_state, rollout.revision, rollout.forward_authority_id, rollout.forward_authority_revision, rollout.revert_authority_id, rollout.revert_authority_revision, rollout.source_channel_id, rollout.target_channel_id, rollout.source_release_set_id, rollout.target_release_set_id, rollout.source_snapshot, rollout.target_snapshot, rollout.revert_snapshot, rollout.idempotency_key, rollout.create_fingerprint, rollout.reason, rollout.created_by_user_id, rollout.started_at, rollout.paused_at, rollout.aborted_at, rollout.completed_at, rollout.reverting_at, rollout.reverted_at, rollout.created_at, rollout.updated_at
+RETURNING rollout.id, rollout.org_id, rollout.name, rollout.strategy_key, rollout.state, rollout.resume_state, rollout.revision, rollout.forward_authority_id, rollout.forward_authority_revision, rollout.revert_authority_id, rollout.revert_authority_revision, rollout.source_channel_id, rollout.target_channel_id, rollout.source_release_set_id, rollout.target_release_set_id, rollout.source_snapshot, rollout.target_snapshot, rollout.revert_snapshot, rollout.idempotency_key, rollout.create_fingerprint, rollout.reason, rollout.created_by_user_id, rollout.started_at, rollout.paused_at, rollout.aborted_at, rollout.completed_at, rollout.reverting_at, rollout.reverted_at, rollout.created_at, rollout.updated_at, rollout.hashrate_policy_max_drop_basis_points, rollout.hashrate_policy_healthy_duration_seconds
 `
 
 type ResetFirmwareRolloutRevertAfterFailureParams struct {
@@ -1610,6 +1691,8 @@ func (q *Queries) ResetFirmwareRolloutRevertAfterFailure(ctx context.Context, ar
 		&i.RevertedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
 	)
 	return i, err
 }

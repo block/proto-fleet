@@ -19,7 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
 )
 
-const baselineWindow = 15 * time.Minute
+const baselineWindow = 30 * time.Minute
 
 type SQLRolloutLaneStore struct {
 	SQLConnectionManager
@@ -2217,10 +2217,16 @@ func createBetweenChannelRollout(
 			SourceSnapshot:           marshalSnapshot(map[string]any{"lane_id": req.LaneID.String()}),
 			TargetSnapshot:           marshalSnapshot(map[string]any{"lane_id": req.LaneID.String()}),
 			RevertSnapshot:           marshalSnapshot(map[string]any{"lane_id": req.LaneID.String()}),
-			IdempotencyKey:           req.IdempotencyKey,
-			CreateFingerprint:        req.RequestFingerprint,
-			Reason:                   req.Reason,
-			CreatedByUserID:          req.ActorUserID,
+			HashratePolicyMaxDropBasisPoints: ptrToNullInt32(
+				hashratePolicyMaxDrop(req.HashratePolicy),
+			),
+			HashratePolicyHealthyDurationSeconds: ptrToNullInt32(
+				hashratePolicyHealthyDuration(req.HashratePolicy),
+			),
+			IdempotencyKey:    req.IdempotencyKey,
+			CreateFingerprint: req.RequestFingerprint,
+			Reason:            req.Reason,
+			CreatedByUserID:   req.ActorUserID,
 		},
 	)
 	if err != nil {

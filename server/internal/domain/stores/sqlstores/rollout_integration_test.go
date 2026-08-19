@@ -43,6 +43,7 @@ func TestRolloutStoreFreezesBatchesAndReconstructsAfterRestart(t *testing.T) {
 	))
 	require.NoError(t, err)
 	require.False(t, created.Replayed)
+	require.Nil(t, created.Rollout.HashratePolicy)
 	require.Len(t, created.Rollout.Batches, 2)
 	require.Equal(t, deviceIdentifiers[0], created.Rollout.Batches[0].Members[0].DeviceIdentifier)
 	require.Equal(t, deviceIdentifiers[1], created.Rollout.Batches[1].Members[0].DeviceIdentifier)
@@ -117,6 +118,105 @@ func TestRolloutStoreListHydratesRolloutDetails(t *testing.T) {
 	require.Len(t, listed[0].Causes, 1)
 	assert.Equal(t, deviceIdentifiers[0], listed[0].Members[0].DeviceIdentifier)
 	assert.Equal(t, "create", string(listed[0].Causes[0].Operation))
+}
+
+func TestRolloutStorePersistsHashratePolicyAndBatchEvidenceSummary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIdentifiers := setupCollectionTestData(t, 2)
+	store := sqlstores.NewSQLRolloutStore(db)
+	req := rolloutCreateRequest(
+		t,
+		db,
+		orgID,
+		"hashrate-policy-summary",
+		[][]string{{deviceIdentifiers[0]}, {deviceIdentifiers[1]}},
+	)
+	req.HashratePolicy = &rolloutDomain.HashratePolicy{
+		MaxDropBasisPoints:     10,
+		HealthyDurationSeconds: 30,
+	}
+	created, err := store.Create(t.Context(), req)
+	require.NoError(t, err)
+	require.Equal(t, req.HashratePolicy, created.Rollout.HashratePolicy)
+
+	completedAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	lastBoundary := completedAt.Add(20 * time.Second)
+	evaluatedAt := lastBoundary.Add(time.Second)
+	finalizedAt := completedAt.Add(30 * time.Minute)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_batch
+		SET state = 'completed',
+		    completed_at = $3,
+		    evidence_status = 'observing',
+		    evidence_total_count = 3,
+		    evidence_paired_count = 2,
+		    cumulative_baseline_hashrate_hs = 300,
+		    cumulative_current_hashrate_hs = 285,
+		    cumulative_delta_basis_points = -500,
+		    latest_policy_bucket_hashrate_hs = 95,
+		    latest_policy_bucket_delta_basis_points = -500,
+		    healthy_since = NULL,
+		    last_policy_bucket_boundary = $4,
+		    evaluated_at = $5,
+		    post_window_finalized = TRUE,
+		    post_window_finalized_at = $6
+		WHERE rollout_id = $1
+		  AND id = $2
+	`, created.Rollout.ID, created.Rollout.Batches[0].ID, completedAt, lastBoundary, evaluatedAt, finalizedAt)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_batch
+		SET state = 'completed'
+		WHERE rollout_id = $1
+		  AND id = $2
+	`, created.Rollout.ID, created.Rollout.Batches[1].ID)
+	require.NoError(t, err)
+
+	restarted, err := sqlstores.NewSQLRolloutStore(db).Get(
+		t.Context(),
+		orgID,
+		created.Rollout.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, req.HashratePolicy, restarted.HashratePolicy)
+	require.Len(t, restarted.Batches, 2)
+
+	summary := restarted.Batches[0]
+	require.NotNil(t, summary.CompletedAt)
+	assert.True(t, completedAt.Equal(*summary.CompletedAt))
+	assert.Equal(t, rolloutDomain.EvidenceStatusObserving, summary.EvidenceStatus)
+	assert.Equal(t, int64(3), summary.EvidenceTotalCount)
+	assert.Equal(t, int64(2), summary.EvidencePairedCount)
+	require.NotNil(t, summary.CumulativeBaselineHashrateHS)
+	assert.InDelta(t, 300, *summary.CumulativeBaselineHashrateHS, 0.001)
+	require.NotNil(t, summary.CumulativeCurrentHashrateHS)
+	assert.InDelta(t, 285, *summary.CumulativeCurrentHashrateHS, 0.001)
+	require.NotNil(t, summary.CumulativeDeltaBasisPoints)
+	assert.Equal(t, int32(-500), *summary.CumulativeDeltaBasisPoints)
+	require.NotNil(t, summary.LatestPolicyBucketHashrateHS)
+	assert.InDelta(t, 95, *summary.LatestPolicyBucketHashrateHS, 0.001)
+	require.NotNil(t, summary.LatestPolicyBucketDeltaBasisPoints)
+	assert.Equal(t, int32(-500), *summary.LatestPolicyBucketDeltaBasisPoints)
+	assert.Nil(t, summary.HealthySince)
+	require.NotNil(t, summary.LastPolicyBucketBoundary)
+	assert.True(t, lastBoundary.Equal(*summary.LastPolicyBucketBoundary))
+	require.NotNil(t, summary.EvaluatedAt)
+	assert.True(t, evaluatedAt.Equal(*summary.EvaluatedAt))
+	assert.True(t, summary.PostWindowFinalized)
+	require.NotNil(t, summary.PostWindowFinalizedAt)
+	assert.True(t, finalizedAt.Equal(*summary.PostWindowFinalizedAt))
+
+	legacy := restarted.Batches[1]
+	assert.Equal(t, rolloutDomain.BatchStateCompleted, legacy.State)
+	assert.Nil(t, legacy.CompletedAt)
+	assert.Equal(t, rolloutDomain.EvidenceStatusPending, legacy.EvidenceStatus)
+	assert.Nil(t, legacy.CumulativeBaselineHashrateHS)
+	assert.Nil(t, legacy.CumulativeCurrentHashrateHS)
+	assert.Nil(t, legacy.EvaluatedAt)
+	assert.False(t, legacy.PostWindowFinalized)
 }
 
 func TestRolloutStorePersistsAPIKeyControlAndCauseIdentity(t *testing.T) {

@@ -482,6 +482,18 @@ func (q *retryingQuerier) CaptureBetweenChannelBatchBaseline(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) CaptureFirmwareRolloutBatchPostEvidence(ctx context.Context, arg CaptureFirmwareRolloutBatchPostEvidenceParams) ([]FirmwareRolloutEvidence, error) {
+	var result []FirmwareRolloutEvidence
+	err := q.retrier.RetryQuery(ctx, "CaptureFirmwareRolloutBatchPostEvidence", func() error {
+		callResult, callErr := q.next.CaptureFirmwareRolloutBatchPostEvidence(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CaptureFirmwareRolloutEvidence(ctx context.Context, arg CaptureFirmwareRolloutEvidenceParams) ([]FirmwareRolloutEvidence, error) {
 	var result []FirmwareRolloutEvidence
 	err := q.retrier.RetryQuery(ctx, "CaptureFirmwareRolloutEvidence", func() error {
@@ -4754,6 +4766,18 @@ func (q *retryingQuerier) ListChannelManagedDeviceIdentifiers(ctx context.Contex
 	return result, err
 }
 
+func (q *retryingQuerier) ListCompleteFirmwareRolloutPolicyBuckets(ctx context.Context, arg ListCompleteFirmwareRolloutPolicyBucketsParams) ([]ListCompleteFirmwareRolloutPolicyBucketsRow, error) {
+	var result []ListCompleteFirmwareRolloutPolicyBucketsRow
+	err := q.retrier.RetryQuery(ctx, "ListCompleteFirmwareRolloutPolicyBuckets", func() error {
+		callResult, callErr := q.next.ListCompleteFirmwareRolloutPolicyBuckets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListCurrentChannelIDsForDevices(ctx context.Context, arg ListCurrentChannelIDsForDevicesParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "ListCurrentChannelIDsForDevices", func() error {
@@ -5030,6 +5054,18 @@ func (q *retryingQuerier) ListFirmwareReleaseTargetsBySetIDs(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) ListFirmwareRolloutBatchHashrateEvidence(ctx context.Context, arg ListFirmwareRolloutBatchHashrateEvidenceParams) ([]ListFirmwareRolloutBatchHashrateEvidenceRow, error) {
+	var result []ListFirmwareRolloutBatchHashrateEvidenceRow
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutBatchHashrateEvidence", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutBatchHashrateEvidence(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListFirmwareRolloutBatches(ctx context.Context, arg ListFirmwareRolloutBatchesParams) ([]FirmwareRolloutBatch, error) {
 	var result []FirmwareRolloutBatch
 	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutBatches", func() error {
@@ -5058,6 +5094,18 @@ func (q *retryingQuerier) ListFirmwareRolloutEvidence(ctx context.Context, arg L
 	var result []FirmwareRolloutEvidence
 	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutEvidence", func() error {
 		callResult, callErr := q.next.ListFirmwareRolloutEvidence(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListFirmwareRolloutEvidenceCandidates(ctx context.Context, limitCount int32) ([]ListFirmwareRolloutEvidenceCandidatesRow, error) {
+	var result []ListFirmwareRolloutEvidenceCandidatesRow
+	err := q.retrier.RetryQuery(ctx, "ListFirmwareRolloutEvidenceCandidates", func() error {
+		callResult, callErr := q.next.ListFirmwareRolloutEvidenceCandidates(ctx, limitCount)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6090,6 +6138,18 @@ func (q *retryingQuerier) MarkCommandBatchProcessing(ctx context.Context, argUui
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "MarkCommandBatchProcessing", func() error {
 		callResult, callErr := q.next.MarkCommandBatchProcessing(ctx, argUuid)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) MarkFirmwareRolloutBatchAutomationError(ctx context.Context, arg MarkFirmwareRolloutBatchAutomationErrorParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "MarkFirmwareRolloutBatchAutomationError", func() error {
+		callResult, callErr := q.next.MarkFirmwareRolloutBatchAutomationError(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7464,6 +7524,18 @@ func (q *retryingQuerier) UpdateDiscoveredDeviceModelByDeviceIdentifier(ctx cont
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "UpdateDiscoveredDeviceModelByDeviceIdentifier", func() error {
 		callResult, callErr := q.next.UpdateDiscoveredDeviceModelByDeviceIdentifier(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpdateFirmwareRolloutBatchEvidenceSummary(ctx context.Context, arg UpdateFirmwareRolloutBatchEvidenceSummaryParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UpdateFirmwareRolloutBatchEvidenceSummary", func() error {
+		callResult, callErr := q.next.UpdateFirmwareRolloutBatchEvidenceSummary(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

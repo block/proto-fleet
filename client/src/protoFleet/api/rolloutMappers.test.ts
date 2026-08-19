@@ -6,8 +6,13 @@ import {
   FirmwareTransitionMinerSchema,
   FirmwareTransitionState,
   PreviewRolloutLaneMembershipChangeResponseSchema,
+  RolloutBatchEvidenceSummarySchema,
+  RolloutBatchSchema,
+  RolloutBatchState,
   RolloutEvidencePhase,
   RolloutEvidenceSchema,
+  RolloutEvidenceStatus,
+  RolloutHashratePolicySchema,
   RolloutLaneChannelSchema,
   RolloutLaneFirmwareConvergenceStatusSchema,
   RolloutLaneMemberSchema,
@@ -22,6 +27,7 @@ import {
 import {
   getRolloutActionEligibility,
   mapRollout,
+  mapRolloutEvidenceStatus,
   mapRolloutLane,
   mapRolloutLaneMembershipChangePreview,
   mapRolloutLanePreview,
@@ -218,6 +224,20 @@ describe("rollout mappers", () => {
     expect(mapRolloutMemberState(state)).toBe(expected);
   });
 
+  it.each([
+    [RolloutEvidenceStatus.PENDING, "pending"],
+    [RolloutEvidenceStatus.COLLECTING, "collecting"],
+    [RolloutEvidenceStatus.UNAVAILABLE, "unavailable"],
+    [RolloutEvidenceStatus.OBSERVING, "observing"],
+    [RolloutEvidenceStatus.HEALTHY, "healthy"],
+    [RolloutEvidenceStatus.HELD, "held"],
+    [RolloutEvidenceStatus.STALE, "stale"],
+    [RolloutEvidenceStatus.AUTOMATION_ERROR, "automationError"],
+    [RolloutEvidenceStatus.FINALIZED, "finalized"],
+  ] as const)("maps evidence status %s", (status, expected) => {
+    expect(mapRolloutEvidenceStatus(status)).toBe(expected);
+  });
+
   it("maps optional timestamps and preserves unavailable evidence", () => {
     const rollout = create(RolloutSchema, {
       rolloutId: "2f214a71-f94e-4e5f-8daf-d36c71b72f6c",
@@ -264,6 +284,161 @@ describe("rollout mappers", () => {
       errorCount: 0n,
       sampleCount: undefined,
     });
+  });
+
+  it("maps policy and selects only the latest completed batch summary for performance", () => {
+    const rollout = create(RolloutSchema, {
+      rolloutId: "2f214a71-f94e-4e5f-8daf-d36c71b72f6c",
+      name: "Production 2.0.0",
+      strategyKey: "between-channel",
+      state: RolloutState.REVIEW,
+      hashratePolicy: create(RolloutHashratePolicySchema, {
+        maxDropBasisPoints: 10,
+        healthyDurationSeconds: 30,
+      }),
+      batches: [
+        create(RolloutBatchSchema, {
+          batchId: 7n,
+          position: 0,
+          label: "Pilot",
+          state: RolloutBatchState.COMPLETED,
+          completedAt: timestamp("2026-08-18T01:00:00Z"),
+          evidenceSummary: create(RolloutBatchEvidenceSummarySchema, {
+            status: RolloutEvidenceStatus.FINALIZED,
+            totalCount: 1n,
+            pairedCount: 1n,
+            cumulativeBaselineHashrateHs: 80_000_000_000_000,
+            cumulativeCurrentHashrateHs: 88_000_000_000_000,
+            cumulativeDeltaBasisPoints: 1_000,
+            evaluatedAt: timestamp("2026-08-18T01:30:00Z"),
+            postWindowFinalized: true,
+            postWindowFinalizedAt: timestamp("2026-08-18T01:30:00Z"),
+          }),
+        }),
+        create(RolloutBatchSchema, {
+          batchId: 8n,
+          position: 1,
+          label: "Remaining",
+          state: RolloutBatchState.COMPLETED,
+          completedAt: timestamp("2026-08-18T02:00:00Z"),
+          evidenceSummary: create(RolloutBatchEvidenceSummarySchema, {
+            status: RolloutEvidenceStatus.HELD,
+            totalCount: 3n,
+            pairedCount: 2n,
+            cumulativeBaselineHashrateHs: 250_000_000_000_000,
+            cumulativeCurrentHashrateHs: 237_500_000_000_000,
+            cumulativeDeltaBasisPoints: -500,
+            latestPolicyBucketHashrateHs: 240_000_000_000_000,
+            latestPolicyBucketDeltaBasisPoints: -400,
+            healthySince: timestamp("2026-08-18T02:00:20Z"),
+            lastPolicyBucketBoundary: timestamp("2026-08-18T02:00:30Z"),
+            evaluatedAt: timestamp("2026-08-18T02:00:35Z"),
+            postWindowFinalized: false,
+            errorMessage: "Automatic continue failed after the control started",
+          }),
+        }),
+        create(RolloutBatchSchema, {
+          batchId: 9n,
+          position: 2,
+          label: "Queued",
+          state: RolloutBatchState.PENDING,
+        }),
+      ],
+      members: [
+        create(RolloutMemberSchema, {
+          memberId: 11n,
+          batchId: 7n,
+          deviceIdentifier: "old-batch-member",
+          evidence: [
+            create(RolloutEvidenceSchema, {
+              phase: RolloutEvidencePhase.BASELINE,
+              avgHashrateHs: 1,
+              avgPowerW: 1_000,
+              avgTemperatureC: 60,
+            }),
+            create(RolloutEvidenceSchema, {
+              phase: RolloutEvidencePhase.POST,
+              avgHashrateHs: 2,
+              avgPowerW: 2_000,
+              avgTemperatureC: 70,
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const mapped = mapRollout(rollout);
+    const event = mapRolloutToEvent(mapped);
+
+    expect(mapped.hashratePolicy).toEqual({
+      maxDropBasisPoints: 10,
+      healthyDurationSeconds: 30,
+    });
+    expect(mapped.batches[1]).toMatchObject({
+      completedAt: "2026-08-18T02:00:00.000Z",
+      evidenceSummary: {
+        status: "held",
+        totalCount: 3n,
+        pairedCount: 2n,
+        cumulativeDeltaBasisPoints: -500,
+        latestPolicyBucketDeltaBasisPoints: -400,
+        healthySince: "2026-08-18T02:00:20.000Z",
+        lastPolicyBucketBoundary: "2026-08-18T02:00:30.000Z",
+        evaluatedAt: "2026-08-18T02:00:35.000Z",
+        postWindowFinalized: false,
+        errorMessage: "Automatic continue failed after the control started",
+      },
+    });
+    expect(event.autoContinueOnHealthyTelemetry).toBe(true);
+    expect(event.performance).toEqual({
+      metrics: [{ label: "Hashrate", unit: "hashrate", baseline: 250, current: 237.5 }],
+    });
+    expect(event.evidence).toMatchObject({
+      batchId: 8n,
+      batchLabel: "Remaining",
+      status: "held",
+      pairedCount: 2n,
+      totalCount: 3n,
+      cumulativeDeltaBasisPoints: -500,
+      latestPolicyBucketDeltaBasisPoints: -400,
+      errorMessage: "Automatic continue failed after the control started",
+      policy: {
+        maxDropBasisPoints: 10,
+        healthyDurationSeconds: 30,
+      },
+    });
+  });
+
+  it("does not fall back to an older batch when the latest completed summary is absent", () => {
+    const mapped = mapRollout(
+      create(RolloutSchema, {
+        rolloutId: "2f214a71-f94e-4e5f-8daf-d36c71b72f6c",
+        state: RolloutState.RUNNING,
+        batches: [
+          create(RolloutBatchSchema, {
+            batchId: 7n,
+            position: 0,
+            state: RolloutBatchState.COMPLETED,
+            evidenceSummary: create(RolloutBatchEvidenceSummarySchema, {
+              status: RolloutEvidenceStatus.FINALIZED,
+              totalCount: 1n,
+              pairedCount: 1n,
+              cumulativeBaselineHashrateHs: 100_000_000_000_000,
+              cumulativeCurrentHashrateHs: 110_000_000_000_000,
+              postWindowFinalized: true,
+            }),
+          }),
+          create(RolloutBatchSchema, {
+            batchId: 8n,
+            position: 1,
+            state: RolloutBatchState.COMPLETED,
+          }),
+        ],
+      }),
+    );
+
+    expect(mapRolloutToEvent(mapped).performance).toBeUndefined();
+    expect(mapRolloutToEvent(mapped).evidence).toBeUndefined();
   });
 
   it("preserves fixture eligibility alongside server lifecycle states", () => {

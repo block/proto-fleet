@@ -1,5 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -106,7 +106,7 @@ describe("StartRolloutLaneModal", () => {
     expect(screen.getByRole("button", { name: "Start rollout" })).toBeDisabled();
   });
 
-  it("blocks missing and no-op targets and hides unsupported automation", () => {
+  it("blocks missing and no-op targets without exposing unsupported policy fields", () => {
     render(
       <StartRolloutLaneModal
         open
@@ -121,7 +121,10 @@ describe("StartRolloutLaneModal", () => {
     expect(screen.getAllByText(/matches the current release/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/target file is required/).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Start rollout" })).toBeDisabled();
-    expect(screen.queryByText("Auto-continue healthy batches")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Auto-continue healthy batches" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/efficiency/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/temperature/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/errors/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/schedule/i)).not.toBeInTheDocument();
     expect(screen.getByText(/manual review gate/)).toBeInTheDocument();
   });
@@ -154,6 +157,155 @@ describe("StartRolloutLaneModal", () => {
         { label: "Remaining", members: [{ deviceIdentifier: "miner-2" }] },
       ],
     });
+  });
+
+  it("offers rollout-level automation for pilot and batched multi-batch plans", async () => {
+    const user = userEvent.setup();
+    render(
+      <StartRolloutLaneModal
+        open
+        lane={lane}
+        files={files}
+        isSubmitting={false}
+        onDismiss={vi.fn()}
+        onStart={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("checkbox", { name: "Auto-continue healthy batches" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Method" }));
+    await user.click(screen.getByRole("option", { name: "Multiple batches" }));
+    expect(screen.getByRole("checkbox", { name: "Auto-continue healthy batches" })).toBeInTheDocument();
+  });
+
+  it("prefills policy defaults and submits exact integer basis points and duration", async () => {
+    const user = userEvent.setup();
+    const onStart = vi.fn();
+    render(
+      <StartRolloutLaneModal
+        open
+        lane={lane}
+        files={files}
+        isSubmitting={false}
+        onDismiss={vi.fn()}
+        onStart={onStart}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Name"), "Production 2.0.0");
+    await user.type(screen.getByLabelText("Reason"), "Validated release");
+    await user.click(screen.getByRole("checkbox", { name: "Auto-continue healthy batches" }));
+    expect(screen.getByLabelText("Maximum hashrate drop")).toHaveValue(0.1);
+    expect(screen.getByLabelText("Healthy duration")).toHaveValue(30);
+
+    await user.clear(screen.getByLabelText("Maximum hashrate drop"));
+    await user.type(screen.getByLabelText("Maximum hashrate drop"), "12.3");
+    await user.clear(screen.getByLabelText("Healthy duration"));
+    await user.type(screen.getByLabelText("Healthy duration"), "40");
+    await user.click(screen.getByRole("button", { name: "Start rollout" }));
+
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hashratePolicy: {
+          maxDropBasisPoints: 1_230,
+          healthyDurationSeconds: 40,
+        },
+      }),
+    );
+  });
+
+  it("disabling automation after enabling it omits the policy", async () => {
+    const user = userEvent.setup();
+    const onStart = vi.fn();
+    render(
+      <StartRolloutLaneModal
+        open
+        lane={lane}
+        files={files}
+        isSubmitting={false}
+        onDismiss={vi.fn()}
+        onStart={onStart}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Name"), "Production 2.0.0");
+    await user.type(screen.getByLabelText("Reason"), "Validated release");
+    const automation = screen.getByRole("checkbox", { name: "Auto-continue healthy batches" });
+    await user.click(automation);
+    await user.click(automation);
+    await user.click(screen.getByRole("button", { name: "Start rollout" }));
+
+    expect(onStart).toHaveBeenCalledOnce();
+    expect(onStart.mock.calls[0][0]).not.toHaveProperty("hashratePolicy");
+  });
+
+  it.each([
+    ["Maximum hashrate drop", "0", true],
+    ["Maximum hashrate drop", "100", true],
+    ["Maximum hashrate drop", "-0.1", false],
+    ["Maximum hashrate drop", "100.1", false],
+    ["Maximum hashrate drop", "0.15", false],
+    ["Healthy duration", "10", true],
+    ["Healthy duration", "1800", true],
+    ["Healthy duration", "0", false],
+    ["Healthy duration", "1810", false],
+    ["Healthy duration", "15", false],
+    ["Healthy duration", "10.5", false],
+  ] as const)("validates %s value %s at the exact policy boundaries", async (label, value, valid) => {
+    const user = userEvent.setup();
+    render(
+      <StartRolloutLaneModal
+        open
+        lane={lane}
+        files={files}
+        isSubmitting={false}
+        onDismiss={vi.fn()}
+        onStart={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("Name"), "Production 2.0.0");
+    await user.type(screen.getByLabelText("Reason"), "Validated release");
+    await user.click(screen.getByRole("checkbox", { name: "Auto-continue healthy batches" }));
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+
+    if (valid) {
+      expect(screen.getByLabelText(label)).not.toHaveAttribute("aria-invalid");
+      expect(screen.getByRole("button", { name: "Start rollout" })).toBeEnabled();
+    } else {
+      expect(screen.getByLabelText(label)).toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByRole("button", { name: "Start rollout" })).toBeDisabled();
+    }
+  });
+
+  it("associates inline policy errors and preserves logical keyboard order in a one-column layout", async () => {
+    const user = userEvent.setup();
+    render(
+      <StartRolloutLaneModal
+        open
+        lane={lane}
+        files={files}
+        isSubmitting={false}
+        onDismiss={vi.fn()}
+        onStart={vi.fn()}
+      />,
+    );
+
+    const automation = screen.getByRole("checkbox", { name: "Auto-continue healthy batches" });
+    await user.click(automation);
+    const maxDrop = screen.getByLabelText("Maximum hashrate drop");
+    const duration = screen.getByLabelText("Healthy duration");
+    fireEvent.change(maxDrop, { target: { value: "0.15" } });
+    fireEvent.change(duration, { target: { value: "15" } });
+
+    expect(maxDrop).toHaveAccessibleDescription("Enter 0 to 100% in 0.1% increments.");
+    expect(duration).toHaveAccessibleDescription("Enter 10 to 1,800 seconds in 10-second increments.");
+    expect(screen.getByTestId("hashrate-policy-fields")).not.toHaveClass("tablet:grid-cols-2");
+    automation.focus();
+    await user.tab();
+    expect(maxDrop).toHaveFocus();
+    await user.tab();
+    expect(duration).toHaveFocus();
   });
 
   it("renders request errors and a locked loading state", () => {

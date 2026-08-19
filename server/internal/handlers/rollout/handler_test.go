@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -686,6 +687,185 @@ func TestHandlerDerivesAPIKeyControlActorFromSession(t *testing.T) {
 	assert.Equal(t, int64(91), service.control.ActorUserID)
 }
 
+func TestHandlersForwardOptionalHashratePolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("generic create", func(t *testing.T) {
+		t.Parallel()
+
+		now := time.Now()
+		service := &recordingRolloutService{result: &rolloutDomain.Rollout{
+			ID:        uuid.New(),
+			CreatedAt: now,
+			UpdatedAt: now,
+		}}
+		handler := NewHandler(service, nil)
+		_, err := handler.CreateRollout(
+			rolloutHandlerContext(t, 42, 9, authz.PermRolloutManage),
+			connect.NewRequest(&pb.CreateRolloutRequest{
+				HashratePolicy: &pb.RolloutHashratePolicy{
+					MaxDropBasisPoints:     10,
+					HealthyDurationSeconds: 30,
+				},
+			}),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, service.createdRollout.HashratePolicy)
+		assert.Equal(t, int32(10), service.createdRollout.HashratePolicy.MaxDropBasisPoints)
+		assert.Equal(t, int32(30), service.createdRollout.HashratePolicy.HealthyDurationSeconds)
+	})
+
+	t.Run("lane start", func(t *testing.T) {
+		t.Parallel()
+
+		laneID := uuid.New()
+		service := &recordingLaneService{}
+		handler := NewHandler(nil, service)
+		_, err := handler.StartRolloutLane(
+			rolloutHandlerContext(
+				t,
+				42,
+				9,
+				authz.PermRolloutManage,
+				authz.PermChannelManage,
+			),
+			connect.NewRequest(&pb.StartRolloutLaneRequest{
+				LaneId: laneID.String(),
+				HashratePolicy: &pb.RolloutHashratePolicy{
+					MaxDropBasisPoints:     10,
+					HealthyDurationSeconds: 30,
+				},
+			}),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, service.startedRollout.HashratePolicy)
+		assert.Equal(t, int32(10), service.startedRollout.HashratePolicy.MaxDropBasisPoints)
+		assert.Equal(t, int32(30), service.startedRollout.HashratePolicy.HealthyDurationSeconds)
+	})
+}
+
+func TestRolloutHashratePolicyProtoValidation(t *testing.T) {
+	t.Parallel()
+
+	manualBatch := []*pb.CreateRolloutBatch{{
+		Members: []*pb.CreateRolloutMember{{DeviceIdentifier: "miner-a"}},
+	}}
+	require.NoError(t, protovalidate.Validate(&pb.CreateRolloutRequest{
+		Name:           "manual rollout",
+		StrategyKey:    "fake",
+		Batches:        manualBatch,
+		IdempotencyKey: "manual-create",
+		Reason:         "manual compatibility",
+	}))
+	require.NoError(t, protovalidate.Validate(&pb.StartRolloutLaneRequest{
+		LaneId:          uuid.NewString(),
+		Name:            "manual lane rollout",
+		FirmwareFileIds: []string{"firmware-a"},
+		Batches:         manualBatch,
+		IdempotencyKey:  "manual-lane-start",
+		Reason:          "manual compatibility",
+	}))
+
+	tests := []struct {
+		name    string
+		policy  *pb.RolloutHashratePolicy
+		wantErr bool
+	}{
+		{name: "minimum", policy: &pb.RolloutHashratePolicy{MaxDropBasisPoints: 0, HealthyDurationSeconds: 10}},
+		{name: "default UI values", policy: &pb.RolloutHashratePolicy{MaxDropBasisPoints: 10, HealthyDurationSeconds: 30}},
+		{name: "maximum", policy: &pb.RolloutHashratePolicy{MaxDropBasisPoints: 10000, HealthyDurationSeconds: 1800}},
+		{name: "drop above maximum", policy: &pb.RolloutHashratePolicy{MaxDropBasisPoints: 10001, HealthyDurationSeconds: 30}, wantErr: true},
+		{name: "drop precision", policy: &pb.RolloutHashratePolicy{MaxDropBasisPoints: 1, HealthyDurationSeconds: 30}, wantErr: true},
+		{name: "duration below minimum", policy: &pb.RolloutHashratePolicy{MaxDropBasisPoints: 10, HealthyDurationSeconds: 9}, wantErr: true},
+		{name: "duration above maximum", policy: &pb.RolloutHashratePolicy{MaxDropBasisPoints: 10, HealthyDurationSeconds: 1801}, wantErr: true},
+		{name: "duration precision", policy: &pb.RolloutHashratePolicy{MaxDropBasisPoints: 10, HealthyDurationSeconds: 11}, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := protovalidate.Validate(test.policy)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestRolloutPolicyAndBatchEvidenceProtoTranslation(t *testing.T) {
+	t.Parallel()
+
+	completedAt := time.Date(2026, time.August, 19, 12, 0, 0, 0, time.UTC)
+	lastBoundary := completedAt.Add(20 * time.Second)
+	evaluatedAt := lastBoundary.Add(time.Second)
+	finalizedAt := completedAt.Add(30 * time.Minute)
+	baseline := 300.0
+	current := 285.0
+	cumulativeDelta := int32(-500)
+	bucketHashrate := 95.0
+	bucketDelta := int32(-500)
+	evidenceError := "automatic continue failed"
+	translated := rolloutToProto(&rolloutDomain.Rollout{
+		HashratePolicy: &rolloutDomain.HashratePolicy{
+			MaxDropBasisPoints:     10,
+			HealthyDurationSeconds: 30,
+		},
+		Batches: []rolloutDomain.Batch{{
+			CompletedAt:                        &completedAt,
+			EvidenceStatus:                     rolloutDomain.EvidenceStatusObserving,
+			EvidenceTotalCount:                 3,
+			EvidencePairedCount:                2,
+			CumulativeBaselineHashrateHS:       &baseline,
+			CumulativeCurrentHashrateHS:        &current,
+			CumulativeDeltaBasisPoints:         &cumulativeDelta,
+			LatestPolicyBucketHashrateHS:       &bucketHashrate,
+			LatestPolicyBucketDeltaBasisPoints: &bucketDelta,
+			LastPolicyBucketBoundary:           &lastBoundary,
+			EvaluatedAt:                        &evaluatedAt,
+			EvidenceErrorMessage:               &evidenceError,
+			PostWindowFinalized:                true,
+			PostWindowFinalizedAt:              &finalizedAt,
+		}},
+	})
+
+	require.NotNil(t, translated.GetHashratePolicy())
+	assert.Equal(t, uint32(10), translated.GetHashratePolicy().GetMaxDropBasisPoints())
+	assert.Equal(t, uint32(30), translated.GetHashratePolicy().GetHealthyDurationSeconds())
+	require.Len(t, translated.GetBatches(), 1)
+	batch := translated.GetBatches()[0]
+	require.NotNil(t, batch.GetCompletedAt())
+	assert.Equal(t, completedAt, batch.GetCompletedAt().AsTime())
+	summary := batch.GetEvidenceSummary()
+	require.NotNil(t, summary)
+	assert.Equal(t, pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_OBSERVING, summary.GetStatus())
+	assert.Equal(t, uint64(3), summary.GetTotalCount())
+	assert.Equal(t, uint64(2), summary.GetPairedCount())
+	assert.InDelta(t, baseline, summary.GetCumulativeBaselineHashrateHs(), 0.001)
+	assert.InDelta(t, current, summary.GetCumulativeCurrentHashrateHs(), 0.001)
+	assert.Equal(t, cumulativeDelta, summary.GetCumulativeDeltaBasisPoints())
+	assert.InDelta(t, bucketHashrate, summary.GetLatestPolicyBucketHashrateHs(), 0.001)
+	assert.Equal(t, bucketDelta, summary.GetLatestPolicyBucketDeltaBasisPoints())
+	assert.Nil(t, summary.GetHealthySince())
+	assert.Equal(t, lastBoundary, summary.GetLastPolicyBucketBoundary().AsTime())
+	assert.Equal(t, evaluatedAt, summary.GetEvaluatedAt().AsTime())
+	assert.Equal(t, evidenceError, summary.GetErrorMessage())
+	assert.True(t, summary.GetPostWindowFinalized())
+	assert.Equal(t, finalizedAt, summary.GetPostWindowFinalizedAt().AsTime())
+
+	manual := rolloutToProto(&rolloutDomain.Rollout{Batches: []rolloutDomain.Batch{{}}})
+	assert.Nil(t, manual.GetHashratePolicy())
+	require.Len(t, manual.GetBatches(), 1)
+	require.NotNil(t, manual.GetBatches()[0].GetEvidenceSummary())
+	assert.Equal(
+		t,
+		pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_UNSPECIFIED,
+		manual.GetBatches()[0].GetEvidenceSummary().GetStatus(),
+	)
+	assert.Nil(t, manual.GetBatches()[0].GetCompletedAt())
+}
+
 func TestProtoTranslationClampsNegativePositionsAndRevisions(t *testing.T) {
 	t.Parallel()
 
@@ -768,9 +948,10 @@ func TestLaneTranslationIncludesFirmwareTransitionDetails(t *testing.T) {
 }
 
 type recordingRolloutService struct {
-	result   *rolloutDomain.Rollout
-	getOrgID int64
-	control  rolloutDomain.ControlRequest
+	result         *rolloutDomain.Rollout
+	getOrgID       int64
+	createdRollout rolloutDomain.CreateRequest
+	control        rolloutDomain.ControlRequest
 }
 
 type recordingLaneService struct {
@@ -791,6 +972,7 @@ type recordingLaneService struct {
 	assignmentOrgID               int64
 	assignmentIdentifiers         []string
 	created                       betweenchannel.CreateLaneRequest
+	startedRollout                betweenchannel.StartRolloutRequest
 	preview                       betweenchannel.InitialEnforcementPreview
 }
 
@@ -817,6 +999,17 @@ func (s *recordingLaneService) CreateLane(
 ) (*betweenchannel.Lane, error) {
 	s.created = req
 	return &betweenchannel.Lane{ID: uuid.New(), OrgID: req.OrgID, Label: req.Label}, nil
+}
+
+func (s *recordingLaneService) StartRollout(
+	_ context.Context,
+	req betweenchannel.StartRolloutRequest,
+) (betweenchannel.StartRolloutResult, error) {
+	s.startedRollout = req
+	return betweenchannel.StartRolloutResult{
+		Lane:    &betweenchannel.Lane{ID: req.LaneID, OrgID: req.OrgID},
+		Rollout: &rolloutDomain.Rollout{ID: uuid.New(), OrgID: req.OrgID},
+	}, nil
 }
 
 func (s *recordingLaneService) GetAssignments(
@@ -864,9 +1057,10 @@ func (s *recordingLaneService) UpdateMembership(
 }
 
 func (s *recordingRolloutService) Create(
-	context.Context,
-	rolloutDomain.CreateRequest,
+	_ context.Context,
+	req rolloutDomain.CreateRequest,
 ) (*rolloutDomain.Rollout, error) {
+	s.createdRollout = req
 	return s.result, nil
 }
 

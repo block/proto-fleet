@@ -7,10 +7,13 @@ import {
   type UpdateRolloutLaneMembershipResponse as ProtoMembershipUpdate,
   type Rollout as ProtoRollout,
   type RolloutBatch as ProtoRolloutBatch,
+  type RolloutBatchEvidenceSummary as ProtoRolloutBatchEvidenceSummary,
   RolloutBatchState as ProtoRolloutBatchState,
   type RolloutCause as ProtoRolloutCause,
   type RolloutEvidence as ProtoRolloutEvidence,
   RolloutEvidencePhase as ProtoRolloutEvidencePhase,
+  RolloutEvidenceStatus as ProtoRolloutEvidenceStatus,
+  type RolloutHashratePolicy as ProtoRolloutHashratePolicy,
   type RolloutLane as ProtoRolloutLane,
   type RolloutLaneChannel as ProtoRolloutLaneChannel,
   type RolloutLaneMember as ProtoRolloutLaneMember,
@@ -31,6 +34,8 @@ import type {
   RolloutEvent,
   RolloutEvidence,
   RolloutEvidencePhase,
+  RolloutEvidenceStatus,
+  RolloutHashratePolicy,
   RolloutLane,
   RolloutLaneChannel,
   RolloutLaneMembershipChangePreview,
@@ -209,6 +214,32 @@ export function mapRolloutEvidencePhase(phase: ProtoRolloutEvidencePhase): Rollo
     case ProtoRolloutEvidencePhase.POST:
       return "post";
     case ProtoRolloutEvidencePhase.UNSPECIFIED:
+    default:
+      return "unknown";
+  }
+}
+
+export function mapRolloutEvidenceStatus(status: ProtoRolloutEvidenceStatus): RolloutEvidenceStatus {
+  switch (status) {
+    case ProtoRolloutEvidenceStatus.PENDING:
+      return "pending";
+    case ProtoRolloutEvidenceStatus.COLLECTING:
+      return "collecting";
+    case ProtoRolloutEvidenceStatus.UNAVAILABLE:
+      return "unavailable";
+    case ProtoRolloutEvidenceStatus.OBSERVING:
+      return "observing";
+    case ProtoRolloutEvidenceStatus.HEALTHY:
+      return "healthy";
+    case ProtoRolloutEvidenceStatus.HELD:
+      return "held";
+    case ProtoRolloutEvidenceStatus.STALE:
+      return "stale";
+    case ProtoRolloutEvidenceStatus.AUTOMATION_ERROR:
+      return "automationError";
+    case ProtoRolloutEvidenceStatus.FINALIZED:
+      return "finalized";
+    case ProtoRolloutEvidenceStatus.UNSPECIFIED:
     default:
       return "unknown";
   }
@@ -400,6 +431,31 @@ function mapRolloutMember(member: ProtoRolloutMember): RolloutMember {
   };
 }
 
+function mapRolloutHashratePolicy(policy: ProtoRolloutHashratePolicy): RolloutHashratePolicy {
+  return {
+    maxDropBasisPoints: policy.maxDropBasisPoints,
+    healthyDurationSeconds: policy.healthyDurationSeconds,
+  };
+}
+
+function mapRolloutBatchEvidenceSummary(summary: ProtoRolloutBatchEvidenceSummary): RolloutBatch["evidenceSummary"] {
+  return {
+    status: mapRolloutEvidenceStatus(summary.status),
+    totalCount: summary.totalCount,
+    pairedCount: summary.pairedCount,
+    cumulativeBaselineHashrateHs: summary.cumulativeBaselineHashrateHs,
+    cumulativeCurrentHashrateHs: summary.cumulativeCurrentHashrateHs,
+    cumulativeDeltaBasisPoints: summary.cumulativeDeltaBasisPoints,
+    latestPolicyBucketHashrateHs: summary.latestPolicyBucketHashrateHs,
+    latestPolicyBucketDeltaBasisPoints: summary.latestPolicyBucketDeltaBasisPoints,
+    healthySince: timestampToIsoString(summary.healthySince),
+    lastPolicyBucketBoundary: timestampToIsoString(summary.lastPolicyBucketBoundary),
+    evaluatedAt: timestampToIsoString(summary.evaluatedAt),
+    postWindowFinalized: summary.postWindowFinalized,
+    postWindowFinalizedAt: timestampToIsoString(summary.postWindowFinalizedAt),
+  };
+}
+
 function mapRolloutBatch(batch: ProtoRolloutBatch): RolloutBatch {
   return {
     id: batch.batchId,
@@ -408,6 +464,8 @@ function mapRolloutBatch(batch: ProtoRolloutBatch): RolloutBatch {
     state: mapRolloutBatchState(batch.state),
     revision: batch.revision,
     members: batch.members.map(mapRolloutMember),
+    completedAt: timestampToIsoString(batch.completedAt),
+    evidenceSummary: batch.evidenceSummary ? mapRolloutBatchEvidenceSummary(batch.evidenceSummary) : undefined,
   };
 }
 
@@ -440,6 +498,7 @@ export function mapRollout(rollout: ProtoRollout): RolloutRecord {
     sourceSnapshot: rollout.sourceSnapshot,
     targetSnapshot: rollout.targetSnapshot,
     revertSnapshot: rollout.revertSnapshot,
+    hashratePolicy: rollout.hashratePolicy ? mapRolloutHashratePolicy(rollout.hashratePolicy) : undefined,
     reason: rollout.reason,
     startedAt: timestampToIsoString(rollout.startedAt),
     pausedAt: timestampToIsoString(rollout.pausedAt),
@@ -481,51 +540,42 @@ function rolloutErrors(rollout: RolloutRecord) {
   }));
 }
 
-function rolloutPerformance(rollout: RolloutRecord): RolloutEvent["performance"] {
-  const evidenceForPhase = (phase: RolloutEvidencePhase) =>
-    rollout.members.flatMap((member) => member.evidence).filter((evidence) => evidence.phase === phase);
-  const baseline = evidenceForPhase("baseline");
-  const post = evidenceForPhase("post");
-  const average = (values: Array<number | undefined>): number | undefined => {
-    const available = values.filter((value): value is number => value !== undefined && Number.isFinite(value));
-    if (available.length === 0) {
-      return undefined;
-    }
-    return available.reduce((sum, value) => sum + value, 0) / available.length;
+function latestCompletedBatch(rollout: RolloutRecord): RolloutBatch | undefined {
+  if (
+    rollout.state !== "running" &&
+    rollout.state !== "paused" &&
+    rollout.state !== "review" &&
+    rollout.state !== "completed" &&
+    rollout.state !== "completedWithFailures"
+  ) {
+    return undefined;
+  }
+  return [...rollout.batches].sort((a, b) => b.position - a.position).find((batch) => batch.state === "completed");
+}
+
+const HASHES_PER_TERAHASH = 1_000_000_000_000;
+
+function rolloutPerformance(batch: RolloutBatch | undefined): RolloutEvent["performance"] {
+  const baselineHs = batch?.evidenceSummary?.cumulativeBaselineHashrateHs;
+  const currentHs = batch?.evidenceSummary?.cumulativeCurrentHashrateHs;
+  if (
+    baselineHs === undefined ||
+    currentHs === undefined ||
+    !Number.isFinite(baselineHs) ||
+    !Number.isFinite(currentHs)
+  ) {
+    return undefined;
+  }
+  return {
+    metrics: [
+      {
+        label: "Hashrate",
+        unit: "hashrate",
+        baseline: baselineHs / HASHES_PER_TERAHASH,
+        current: currentHs / HASHES_PER_TERAHASH,
+      },
+    ],
   };
-  const metric = (
-    label: string,
-    unit: "hashrate" | "power" | "temperature",
-    baselineValues: Array<number | undefined>,
-    currentValues: Array<number | undefined>,
-  ) => {
-    const baselineValue = average(baselineValues);
-    const currentValue = average(currentValues);
-    return baselineValue === undefined || currentValue === undefined
-      ? null
-      : { label, unit, baseline: baselineValue, current: currentValue };
-  };
-  const metrics = [
-    metric(
-      "Hashrate",
-      "hashrate",
-      baseline.map((item) => item.avgHashrateHs),
-      post.map((item) => item.avgHashrateHs),
-    ),
-    metric(
-      "Power",
-      "power",
-      baseline.map((item) => item.avgPowerW),
-      post.map((item) => item.avgPowerW),
-    ),
-    metric(
-      "Temperature",
-      "temperature",
-      baseline.map((item) => item.avgTemperatureC),
-      post.map((item) => item.avgTemperatureC),
-    ),
-  ].filter((item): item is NonNullable<typeof item> => item !== null);
-  return metrics.length > 0 ? { metrics } : undefined;
 }
 
 /** Adapts durable API data to the existing model-neutral rollout surfaces. */
@@ -571,6 +621,15 @@ export function mapRolloutToEvent(
   const batchCounts = rollout.batches.map((batch) => batch.members.length || memberCountForBatch(rollout, batch.id));
   const pilotSize = strategy === "pilotThenContinue" ? batchCounts[0] : undefined;
   const batchSize = strategy === "batched" && batchCounts.length > 0 ? Math.max(...batchCounts) : undefined;
+  const evidenceBatch = latestCompletedBatch(rollout);
+  const evidence = evidenceBatch?.evidenceSummary
+    ? {
+        ...evidenceBatch.evidenceSummary,
+        batchId: evidenceBatch.id,
+        batchLabel: evidenceBatch.label,
+        policy: rollout.hashratePolicy,
+      }
+    : undefined;
 
   return {
     processType: "firmware",
@@ -588,7 +647,8 @@ export function mapRolloutToEvent(
     currentBatch: activeBatch ? activeBatch.position + 1 : undefined,
     totalBatches: rollout.batches.length || undefined,
     startedAt: rollout.startedAt ?? rollout.createdAt,
-    performance: rolloutPerformance(rollout),
+    performance: rolloutPerformance(evidenceBatch),
+    evidence,
     errors: rolloutErrors(rollout),
     membershipProgress: { completed: membershipCompleted, total },
     convergenceProgress: {

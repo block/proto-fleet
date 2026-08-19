@@ -965,7 +965,39 @@ describe("useRolloutApi", () => {
       idempotencyKey: "start-lane-one",
       reason: "Deploy validated release",
     });
+    expect(rolloutClientMock.startRolloutLane.mock.calls[0][0].hashratePolicy).toBeUndefined();
     expect(result.current.rollout).toMatchObject({ id: "created", state: "created" });
+  });
+
+  it("includes an optional hashrate policy when starting a rollout lane", async () => {
+    rolloutClientMock.startRolloutLane.mockResolvedValue({
+      lane: protoLane(),
+      rollout: protoRollout("created", RolloutState.CREATED),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.startRolloutLane({
+        laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+        name: "Production 2.0.0",
+        firmwareFileIds: ["file-alpha-2"],
+        batches: [
+          { label: "Pilot", members: [{ deviceIdentifier: "miner-1" }] },
+          { label: "Remaining", members: [{ deviceIdentifier: "miner-2" }] },
+        ],
+        hashratePolicy: {
+          maxDropBasisPoints: 1_230,
+          healthyDurationSeconds: 40,
+        },
+        idempotencyKey: "start-lane-policy",
+        reason: "Deploy with automatic review",
+      });
+    });
+
+    expect(rolloutClientMock.startRolloutLane.mock.calls[0][0].hashratePolicy).toMatchObject({
+      maxDropBasisPoints: 1_230,
+      healthyDurationSeconds: 40,
+    });
   });
 
   it("lists and gets mapped rollout records", async () => {
@@ -1134,6 +1166,42 @@ describe("useRolloutApi", () => {
           members: [{ deviceIdentifier: "miner-1", targetSnapshot: { version: "1.2.3" } }],
         },
       ],
+    });
+    expect(rolloutClientMock.createRollout.mock.calls[0][0].hashratePolicy).toBeUndefined();
+  });
+
+  it("includes an optional hashrate policy in generic rollout creation", async () => {
+    rolloutClientMock.createRollout.mockResolvedValue({
+      rollout: protoRollout("created", RolloutState.CREATED),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.createRollout({
+        name: "Firmware rollout",
+        strategyKey: "strategy-a",
+        batches: [
+          {
+            label: "Batch 1",
+            members: [{ deviceIdentifier: "miner-1", targetSnapshot: { version: "1.2.3" } }],
+          },
+          {
+            label: "Batch 2",
+            members: [{ deviceIdentifier: "miner-2", targetSnapshot: { version: "1.2.3" } }],
+          },
+        ],
+        hashratePolicy: {
+          maxDropBasisPoints: 10,
+          healthyDurationSeconds: 30,
+        },
+        idempotencyKey: "create-policy",
+        reason: "Controlled deployment",
+      });
+    });
+
+    expect(rolloutClientMock.createRollout.mock.calls[0][0].hashratePolicy).toMatchObject({
+      maxDropBasisPoints: 10,
+      healthyDurationSeconds: 30,
     });
   });
 

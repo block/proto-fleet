@@ -84,6 +84,99 @@ func TestFingerprintCreateRejectsUnmarshalableSnapshots(t *testing.T) {
 	assert.ErrorContains(t, err, "marshal rollout creation fingerprint")
 }
 
+func TestValidateCreateRequestHashratePolicy(t *testing.T) {
+	t.Parallel()
+
+	validRequest := func() CreateRequest {
+		return CreateRequest{
+			OrgID:          42,
+			Name:           "policy rollout",
+			StrategyKey:    "fake",
+			Batches:        []CreateBatch{{Members: []CreateMember{{DeviceIdentifier: "miner-a"}}}},
+			IdempotencyKey: "policy-rollout",
+			Reason:         "test policy validation",
+			ActorUserID:    9,
+		}
+	}
+	tests := []struct {
+		name    string
+		policy  *HashratePolicy
+		wantErr string
+	}{
+		{name: "manual mode"},
+		{
+			name:   "minimum values",
+			policy: &HashratePolicy{MaxDropBasisPoints: 0, HealthyDurationSeconds: 10},
+		},
+		{
+			name:   "default UI values",
+			policy: &HashratePolicy{MaxDropBasisPoints: 10, HealthyDurationSeconds: 30},
+		},
+		{
+			name:   "maximum values",
+			policy: &HashratePolicy{MaxDropBasisPoints: 10000, HealthyDurationSeconds: 1800},
+		},
+		{
+			name:    "drop above maximum",
+			policy:  &HashratePolicy{MaxDropBasisPoints: 10010, HealthyDurationSeconds: 30},
+			wantErr: "maximum hashrate drop",
+		},
+		{
+			name:    "drop precision",
+			policy:  &HashratePolicy{MaxDropBasisPoints: 1, HealthyDurationSeconds: 30},
+			wantErr: "maximum hashrate drop",
+		},
+		{
+			name:    "duration below minimum",
+			policy:  &HashratePolicy{MaxDropBasisPoints: 10, HealthyDurationSeconds: 0},
+			wantErr: "healthy duration",
+		},
+		{
+			name:    "duration above maximum",
+			policy:  &HashratePolicy{MaxDropBasisPoints: 10, HealthyDurationSeconds: 1810},
+			wantErr: "healthy duration",
+		},
+		{
+			name:    "duration precision",
+			policy:  &HashratePolicy{MaxDropBasisPoints: 10, HealthyDurationSeconds: 11},
+			wantErr: "healthy duration",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := validRequest()
+			req.HashratePolicy = test.policy
+			err := validateCreateRequest(req)
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}
+
+func TestFingerprintCreateIncludesHashratePolicy(t *testing.T) {
+	t.Parallel()
+
+	base := CreateRequest{Name: "rollout"}
+	manual, err := fingerprintCreate(base)
+	require.NoError(t, err)
+
+	withPolicy := base
+	withPolicy.HashratePolicy = &HashratePolicy{
+		MaxDropBasisPoints:     10,
+		HealthyDurationSeconds: 30,
+	}
+	automatic, err := fingerprintCreate(withPolicy)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, manual, automatic)
+}
+
 func TestServiceAdmitDuplicateIdempotencyDoesNotCallStrategyTwice(t *testing.T) {
 	t.Parallel()
 
@@ -309,6 +402,63 @@ func TestServiceControlPropagatesStaleRevisionWithoutRetry(t *testing.T) {
 	require.ErrorIs(t, err, ErrRevisionConflict)
 	require.Len(t, store.controlRequests, 1)
 	assert.Equal(t, ControlOperationPause, store.controlRequests[0].Operation)
+}
+
+func TestServiceManualContinueRemainsAvailableAfterAutomationError(t *testing.T) {
+	t.Parallel()
+
+	rolloutID := uuid.New()
+	pending := Batch{
+		ID:        8,
+		RolloutID: rolloutID,
+		State:     BatchStatePending,
+	}
+	admitted := pending
+	admitted.State = BatchStateAdmitted
+	store := &fakeStore{
+		getResult: &Rollout{
+			ID:              rolloutID,
+			OrgID:           42,
+			StrategyKey:     "fake",
+			State:           StateReview,
+			Revision:        7,
+			CreatedByUserID: 9,
+			Batches: []Batch{
+				{ID: 7, EvidenceStatus: EvidenceStatusAutomationError, State: BatchStateCompleted},
+				pending,
+			},
+		},
+		controlResults: []ControlResult{{
+			Rollout: &Rollout{
+				ID:          rolloutID,
+				OrgID:       42,
+				StrategyKey: "fake",
+				State:       StateRunning,
+				Revision:    8,
+				Batches:     []Batch{admitted},
+			},
+			Batch:   &admitted,
+			Control: Control{ID: uuid.New(), Status: ControlStatusStarted},
+		}},
+	}
+	strategy := &fakeAdmissionStrategy{key: "fake"}
+	svc := NewService(store, strategy)
+
+	_, err := svc.Continue(t.Context(), AdmitRequest{
+		OrgID:            42,
+		RolloutID:        rolloutID,
+		ExpectedRevision: 7,
+		IdempotencyKey:   "operator-continue-after-automation-error",
+		Reason:           "operator reviewed automation failure",
+		ActorUserID:      9,
+		ActorType:        ActorTypeUser,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, store.controlRequests, 1)
+	assert.Equal(t, "operator-continue-after-automation-error", store.controlRequests[0].IdempotencyKey)
+	assert.Equal(t, ActorTypeUser, store.controlRequests[0].ActorType)
+	assert.Equal(t, 1, strategy.admitCalls)
 }
 
 type fakeStore struct {
