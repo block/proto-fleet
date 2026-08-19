@@ -32,6 +32,18 @@ export const padLeft = (value: number, length: number) => {
   return value.toString().padStart(length, "0");
 };
 
+/**
+ * Formats a power value in kW with adaptive units.
+ * Values >= 1 kW are shown in kW (1 decimal place).
+ * Values < 1 kW are converted to W (rounded to nearest integer).
+ */
+export const formatPowerKW = (kw: number): { value: string; unit: string } => {
+  if (kw >= 1) {
+    return { value: separateByCommas(kw.toFixed(1)), unit: "kW" };
+  }
+  return { value: separateByCommas((kw * 1000).toFixed(1)), unit: "W" };
+};
+
 export const stripLeadingSlash = (str: string) => {
   return str.startsWith("/") ? str.substring(1) : str;
 };
