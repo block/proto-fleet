@@ -46,10 +46,9 @@ groups:
         # samples still return one row per live org through the LEFT JOIN.
         noDataState: OK
         execErrState: Error
-        # Keep a failed sample pending for one evaluation interval. An isolated
-        # 30s collector blip recovers before firing, while sustained degradation
-        # still notifies promptly without increasing status-probe load.
-        for: 30s
+        # Notify on the first failed readiness sample. Fleet's 30s collector
+        # remains the debounce boundary, avoiding extra status-probe load.
+        for: 0s
         labels:
           proto_fleet_rule_uid: protofleet-ha-readiness
           proto_fleet_scope: shared

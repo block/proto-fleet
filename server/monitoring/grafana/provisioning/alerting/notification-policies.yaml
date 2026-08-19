@@ -12,8 +12,8 @@ policies:
     group_interval: 5m
     repeat_interval: 1h
     routes:
-      # The HA rule requires one 30s pending interval. Once it fires, flush the
-      # notification quickly instead of adding the root policy's 30s wait.
+      # HA readiness is already debounced by Fleet's 30s status sampler. Flush
+      # its first failed sample quickly instead of adding the root 30s wait.
       - receiver: protofleet-internal
         object_matchers:
           - ["template", "=", "ha-readiness"]

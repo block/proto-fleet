@@ -261,7 +261,7 @@ func patroniRoles(ctx context.Context, tlsConfig *tls.Config, config NodeConfig)
 		return roleResult{
 			primary: endpointReadyWithClient(ctx, client, baseURL+"/primary"),
 			synchronous: endpointReadyWithClient(ctx, client, baseURL+"/synchronous") &&
-				endpointReadyWithClient(ctx, client, baseURL+"/readiness?lag=0&mode=apply"),
+				endpointReadyWithClient(ctx, client, baseURL+"/readiness?lag=1MB&mode=apply"),
 		}
 	})
 	for _, result := range results {

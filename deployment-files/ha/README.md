@@ -163,11 +163,10 @@ The Docker repository setup follows the official instructions for
 Each database host runs the same file-provisioned Grafana rule. The active
 Fleet runtime evaluates the full `fleet-ha status` failover-readiness check
 every 30 seconds and writes `fleet_ha_failover_ready` to the shared TimescaleDB
-metric table. A value of zero that remains current for one full 30-second rule
-interval, or no fresh sample for two minutes, creates the **HA Failover
-Readiness Degraded** alert for every active organization. This pending interval
-filters isolated failed samples; sustained degradation normally delivers within
-35–65 seconds of the first failed sample without increasing status-probe load.
+metric table. The first value of zero, or no fresh sample for two minutes,
+creates the **HA Failover Readiness Degraded** alert for every active
+organization. Its dedicated five-second notification group normally delivers
+within 5–35 seconds of a failed sample without increasing status-probe load.
 
 Grafana remains standalone on each host and listens only on
 `127.0.0.1:3030`. Both instances use the same ordered two-host PostgreSQL
