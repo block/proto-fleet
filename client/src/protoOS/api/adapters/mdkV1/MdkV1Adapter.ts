@@ -1,14 +1,14 @@
 import type { MinerAdapter } from "../types";
 import {
-  normalizeV1Errors,
-  normalizeV1Hardware,
-  normalizeV1MiningStatus,
-  normalizeV1MiningTarget,
-  normalizeV1NetworkInfo,
-  normalizeV1Pools,
-  normalizeV1SystemInfo,
-  normalizeV1Telemetry,
-  normalizeV1TimeSeries,
+  toCanonicalErrors,
+  toCanonicalHardware,
+  toCanonicalMiningStatus,
+  toCanonicalMiningTarget,
+  toCanonicalNetworkInfo,
+  toCanonicalPools,
+  toCanonicalSystemInfo,
+  toCanonicalTelemetry,
+  toCanonicalTimeSeries,
 } from "./normalize";
 import { type Api, type RequestParams, PerformanceMode as V1PerformanceMode } from "@/protoOS/api/generatedApi";
 import type { MiningTargetUpdate } from "@/protoOS/store/contract";
@@ -16,18 +16,16 @@ import type { MiningTargetUpdate } from "@/protoOS/store/contract";
 export type MdkV1Client = InstanceType<typeof Api>["api"];
 
 export class MdkV1Adapter implements MinerAdapter {
-  readonly dialect = "v1" as const;
-
   constructor(private readonly client: MdkV1Client) {}
 
   async getSystemInfo(params: RequestParams = {}) {
     const response = await this.client.getSystemInfo(params);
-    return normalizeV1SystemInfo(response.data["system-info"] ?? {});
+    return toCanonicalSystemInfo(response.data["system-info"] ?? {});
   }
 
   async getNetworkInfo(params: RequestParams = {}) {
     const response = await this.client.getNetwork(params);
-    return normalizeV1NetworkInfo(response.data["network-info"] ?? {});
+    return toCanonicalNetworkInfo(response.data["network-info"] ?? {});
   }
 
   async getSystemStatus(params: RequestParams = {}) {
@@ -37,22 +35,22 @@ export class MdkV1Adapter implements MinerAdapter {
 
   async getMiningStatus(params: RequestParams = {}) {
     const response = await this.client.getMiningStatus(params);
-    return normalizeV1MiningStatus(response.data["mining-status"] ?? {});
+    return toCanonicalMiningStatus(response.data["mining-status"] ?? {});
   }
 
   async getErrors(params: RequestParams = {}) {
     const response = await this.client.getErrors(params);
-    return normalizeV1Errors(response.data);
+    return toCanonicalErrors(response.data);
   }
 
   async getPools(params: RequestParams = {}) {
     const response = await this.client.listPools(params);
-    return normalizeV1Pools(response.data.pools ?? []);
+    return toCanonicalPools(response.data.pools ?? []);
   }
 
   async getMiningTarget(params: RequestParams = {}) {
     const response = await this.client.getMiningTarget(params);
-    return normalizeV1MiningTarget(response.data);
+    return toCanonicalMiningTarget(response.data);
   }
 
   async updateMiningTarget(update: MiningTargetUpdate, params: RequestParams = {}) {
@@ -70,21 +68,21 @@ export class MdkV1Adapter implements MinerAdapter {
       },
       params,
     );
-    return normalizeV1MiningTarget(response.data);
+    return toCanonicalMiningTarget(response.data);
   }
 
   async getHardware(context: { deviceId: string; profile: "r2" | "ct1" | "unknown" }, params: RequestParams = {}) {
     const response = await this.client.getHardware(params);
-    return normalizeV1Hardware(response.data["hardware-info"] ?? {}, context);
+    return toCanonicalHardware(response.data["hardware-info"] ?? {}, context);
   }
 
   async getCurrentTelemetry(query = {}, params: RequestParams = {}) {
     const response = await this.client.getCurrentTelemetry(query, params);
-    return normalizeV1Telemetry(response.data);
+    return toCanonicalTelemetry(response.data);
   }
 
   async getTimeSeries(request: Parameters<MdkV1Client["getTimeSeries"]>[0], params: RequestParams = {}) {
     const response = await this.client.getTimeSeries(request, params);
-    return normalizeV1TimeSeries(response.data);
+    return toCanonicalTimeSeries(response.data);
   }
 }

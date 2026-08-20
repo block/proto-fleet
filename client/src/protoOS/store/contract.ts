@@ -1,6 +1,8 @@
 import type { Duration } from "@/shared/components/DurationSelector";
 import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/preferences/types";
 
+// Nominal ("branded") type helper: tags a primitive with a phantom name so
+// structurally-identical ids (DeviceId vs HashboardId, etc.) can't be swapped.
 type Brand<T, Name extends string> = T & { readonly __brand: Name };
 
 export type DeviceId = Brand<string, "DeviceId">;
@@ -15,8 +17,8 @@ export type EntityKey = Brand<string, "EntityKey">;
 export type ResourceKey = Brand<string, "ResourceKey">;
 
 export type DeviceType = "rig" | "container";
-export type MdkDialect = "v1" | "v2";
-export type ModuleProfile = "r2" | "ct1" | "unknown";
+export type MdkVersion = "v1" | "v2";
+export type ModuleModel = "r2" | "ct1" | "unknown";
 export type CapabilitySupport = "supported" | "unsupported" | "unknown";
 
 export interface CommandCapabilities {
@@ -175,7 +177,7 @@ export interface TankNode {
 
 export interface ModuleNode {
   id: ModuleId;
-  profile: ModuleProfile;
+  profile: ModuleModel;
   capabilities: ModuleCapabilities;
   tankId?: TankId;
   hashboardIds: HashboardId[];
@@ -359,7 +361,7 @@ export interface TelemetryState {
 export interface DeviceIdentity {
   deviceId: DeviceId;
   deviceType: DeviceType;
-  mdkDialect: MdkDialect;
+  mdkVersion: MdkVersion;
   productName?: string;
   model?: string;
   manufacturer?: string;
@@ -391,7 +393,7 @@ export interface FirmwareUpdateInfo {
 
 export interface SystemInfoData {
   identity: DeviceIdentity;
-  moduleProfile: ModuleProfile;
+  moduleModel: ModuleModel;
   operatingSystem?: FirmwareInfo;
   operatingSystemStatus?: {
     cpuLoadPercent?: number;

@@ -15,7 +15,7 @@ export const useIsProtoRig = () =>
   useMinerStore((state) => state.systemInfo.data?.identity.productName === "Proto Rig");
 export const useDeviceType = (): DeviceType =>
   useMinerStore((state) => state.systemInfo.data?.identity.deviceType ?? "rig");
-export const useModuleProfile = () => useMinerStore((state) => state.systemInfo.data?.moduleProfile ?? "unknown");
+export const useModuleModel = () => useMinerStore((state) => state.systemInfo.data?.moduleModel ?? "unknown");
 export const useIsWebServerRunning = () =>
   useMinerStore((state) => state.systemInfo.data?.webServer?.health === "running");
 export const useIsMiningDriverRunning = () =>

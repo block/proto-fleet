@@ -12,7 +12,6 @@ import type {
 } from "@/protoOS/store/contract";
 
 export interface MinerAdapter {
-  readonly dialect: "v1" | "v2";
   getSystemInfo(params?: RequestParams): Promise<SystemInfoData>;
   getNetworkInfo(params?: RequestParams): Promise<Pick<NetworkInfoState, "interfaces">>;
   getSystemStatus(params?: RequestParams): Promise<{

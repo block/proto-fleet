@@ -154,7 +154,7 @@ export {
   useSystemInfoError,
   useIsProtoRig,
   useDeviceType,
-  useModuleProfile,
+  useModuleModel,
   useIsWebServerRunning,
   useIsMiningDriverRunning,
   useHasFirmwareUpdate,

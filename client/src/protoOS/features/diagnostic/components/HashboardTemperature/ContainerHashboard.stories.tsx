@@ -55,14 +55,14 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
       identity: {
         deviceId: asDeviceId("device:CU1-CB-0001"),
         deviceType: "container",
-        mdkDialect: "v1",
+        mdkVersion: "v1",
         manufacturer: "Proto",
         model: "CU1",
         productName: "Proto CU1",
         serialNumber: "CU1-CB-0001",
         macAddresses: [],
       },
-      moduleProfile: "ct1",
+      moduleModel: "ct1",
     });
 
     BOARDS.forEach(({ serial, slot, profile }) => {

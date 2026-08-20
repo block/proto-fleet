@@ -14,11 +14,11 @@ describe("AppLayout", () => {
       identity: {
         deviceId: asDeviceId("device:test"),
         deviceType: "rig",
-        mdkDialect: "v1",
+        mdkVersion: "v1",
         productName: "Proto Rig",
         macAddresses: [],
       },
-      moduleProfile: "r2",
+      moduleModel: "r2",
       operatingSystem: { version: "1.8.0" },
     });
     useMinerStore

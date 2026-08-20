@@ -7,12 +7,12 @@ const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => (
   identity: {
     deviceId: asDeviceId(`device:${model || "unknown"}`),
     deviceType,
-    mdkDialect: "v1" as const,
+    mdkVersion: "v1" as const,
     model,
     productName: deviceType === "container" ? "Proto CU1" : "Proto Rig",
     macAddresses: [],
   },
-  moduleProfile: deviceType === "container" ? ("ct1" as const) : ("r2" as const),
+  moduleModel: deviceType === "container" ? ("ct1" as const) : ("r2" as const),
 });
 
 describe("useMinerStore.resetDeviceData", () => {
@@ -48,7 +48,7 @@ describe("useMinerStore.resetDeviceData", () => {
 
   test("clears the derived device type so a rig doesn't inherit a module's layout", () => {
     useMinerStore.getState().systemInfo.setSystemInfo(systemInfo("CU1", "container"));
-    expect(useMinerStore.getState().systemInfo.data?.moduleProfile).toBe("ct1");
+    expect(useMinerStore.getState().systemInfo.data?.moduleModel).toBe("ct1");
 
     useMinerStore.getState().resetDeviceData();
 
