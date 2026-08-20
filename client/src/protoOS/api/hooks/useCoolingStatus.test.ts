@@ -4,6 +4,7 @@ import { useCoolingStatus } from "./useCoolingStatus";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry, useMinerStore } from "@/protoOS/store";
 import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
+import { getFanId } from "@/protoOS/store/utils/entityIds";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 const mockGetCoolingStatus = vi.fn();
@@ -95,5 +96,25 @@ describe("useCoolingStatus", () => {
     await waitFor(() => {
       expect(useMinerStore.getState().telemetry.coolingModeByOwner.get(ROOT_MODULE_KEY)).toBe("manual");
     });
+  });
+
+  test("clears stale live fan readings when a cooling snapshot omits a fan", async () => {
+    useMinerStore.getState().telemetry.updateFanTelemetry(1, {
+      slot: 1,
+      rpm: { latest: { value: 4_800, units: "RPM" } },
+      percentage: { latest: { value: 75, units: "%" } },
+      minRpm: { latest: { value: 1_200, units: "RPM" } },
+    });
+    mockGetCoolingStatus.mockResolvedValue({ mode: "automatic", fans: [] });
+
+    renderHook(() => useCoolingStatus({ poll: true }));
+    await act(async () => {
+      await pollFetch?.();
+    });
+
+    const fan = useMinerStore.getState().telemetry.fans.get(getFanId(1));
+    expect(fan?.rpm?.latest).toBeUndefined();
+    expect(fan?.speedPercent?.latest).toBeUndefined();
+    expect(fan?.minimumRpm?.latest?.value).toBe(1_200);
   });
 });

@@ -3,6 +3,7 @@ import type { StateCreator } from "zustand";
 
 import {
   type CoolingMode,
+  type FanTelemetry,
   type Measurement,
   type MetricTelemetry,
   ROOT_MODULE_KEY,
@@ -87,6 +88,7 @@ export interface TelemetrySlice extends TelemetryState {
   ) => void;
   updatePsuTelemetry: (slot: number, telemetry: Partial<PsuTelemetryData>) => void;
   updateFanTelemetry: (slot: number, telemetry: Partial<FanTelemetryData>) => void;
+  replaceFanLiveTelemetry: (fans: FanTelemetry[]) => void;
   updateCoolingMode: (mode: CoolingMode) => void;
   clearOldData: (olderThanTimestamp: number) => void;
   clearTimeSeriesData: () => void;
@@ -162,6 +164,16 @@ export const createTelemetrySlice: StateCreator<MinerStore, [["zustand/immer", n
       if (input.minRpm !== undefined) current.minimumRpm = mapMeasurement(input.minRpm, "RPM");
       if (input.maxRpm !== undefined) current.maximumRpm = mapMeasurement(input.maxRpm, "RPM");
       state.telemetry.fans.set(id, current);
+    }),
+  replaceFanLiveTelemetry: (fans) =>
+    set((state) => {
+      state.telemetry.fans.forEach((fan) => {
+        fan.rpm = fan.rpm?.timeSeries ? { timeSeries: fan.rpm.timeSeries } : undefined;
+        fan.speedPercent = fan.speedPercent?.timeSeries ? { timeSeries: fan.speedPercent.timeSeries } : undefined;
+      });
+      fans.forEach((fan) => {
+        state.telemetry.fans.set(fan.componentId, mergeMetrics(state.telemetry.fans.get(fan.componentId), fan));
+      });
     }),
   updateCoolingMode: (mode) =>
     set((state) => {

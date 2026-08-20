@@ -55,17 +55,7 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
           return;
         const telemetry = useMinerStore.getState().telemetry;
         telemetry.updateCoolingMode(status.mode);
-        status.fans.forEach((fan) => {
-          const slot = Number(String(fan.componentId).match(/:(\d+)$/)?.[1]);
-          if (slot)
-            telemetry.updateFanTelemetry(slot, {
-              slot,
-              rpm: fan.rpm?.latest ? { latest: { value: fan.rpm.latest.value, units: "RPM" } } : undefined,
-              percentage: fan.speedPercent?.latest
-                ? { latest: { value: fan.speedPercent.latest.value, units: "%" } }
-                : undefined,
-            });
-        });
+        telemetry.replaceFanLiveTelemetry(status.fans);
       })
       .catch((err) => setError(err?.error?.message ?? "An error occurred"))
       .finally(() => {

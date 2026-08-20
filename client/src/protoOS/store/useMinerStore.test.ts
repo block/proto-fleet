@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { asDeviceId, asHashboardId, asResourceKey, ROOT_MODULE_KEY } from "./contract";
 import useMinerStore from "./useMinerStore";
 import { getFanId } from "./utils/entityIds";
+import { getAsicId } from "./utils/getAsicId";
 
 const systemInfo = (model: string, deviceType: "rig" | "container" = "rig") => ({
   identity: {
@@ -118,6 +119,34 @@ describe("partial normalized store updates", () => {
 
     useMinerStore.getState().systemInfo.setSystemInfo(systemInfo("Rig refreshed"));
     expect(useMinerStore.getState().systemInfo.systemTag).toBe("rack-7");
+  });
+
+  test("preserves ASIC enrichment when refreshing the same hardware inventory", () => {
+    const hardware = useMinerStore.getState().hardware;
+    hardware.setHashboards([{ serial: "HB-1" }]);
+    const asicId = getAsicId("HB-1", 0);
+    hardware.batchAddAsics([{ id: asicId, hashboardSerial: "HB-1", index: 0, row: 2, column: 3 }]);
+    hardware.linkAsicToHashboard(asicId, "HB-1");
+
+    const current = useMinerStore.getState().hardware;
+    hardware.replaceHardware({
+      resource: { status: "ready", updatedAtMs: Date.now() },
+      topology: current.topology
+        ? {
+            ...current.topology,
+            hashboards: new Map([...current.topology.hashboards].map(([id, node]) => [id, { ...node, asicIds: [] }])),
+          }
+        : undefined,
+      controlBoards: new Map(current.controlBoards),
+      hashboards: new Map(current.hashboards),
+      asics: new Map(),
+      psus: new Map(current.psus),
+      fans: new Map(current.fans),
+    });
+
+    const refreshed = useMinerStore.getState().hardware;
+    expect(refreshed.asics.get(asicId)).toMatchObject({ index: 0, row: 2, column: 3 });
+    expect(refreshed.topology?.hashboards.get(asHashboardId("serial:HB-1"))?.asicIds).toContain(asicId);
   });
 
   test("ignores undefined metric parts instead of clearing last-known telemetry", () => {

@@ -29,7 +29,8 @@ const useTelemetry = ({
   const fetchData = useCallback(async () => {
     if (!adapter) return;
     setPending(true);
-    const accept = beginStoreWrite("telemetry:current");
+    const levelScope = [...new Set(level)].sort().join(",") || "none";
+    const accept = beginStoreWrite(`telemetry:current:${levelScope}`);
     setError(undefined);
     try {
       const normalized = await adapter.getCurrentTelemetry(level);

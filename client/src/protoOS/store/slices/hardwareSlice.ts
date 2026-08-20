@@ -5,9 +5,12 @@ import {
   asComponentId,
   asDeviceId,
   type AsicHardware,
+  type AsicId,
   type HardwareState,
+  type HashboardId,
   type HashboardNode,
   ROOT_MODULE_ID,
+  type Topology,
 } from "../contract";
 import type {
   AsicHardwareData,
@@ -235,10 +238,36 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
         fans: new Map(),
       });
     }),
-  replaceHardware: (hardware) =>
+  replaceHardware: (hardware) => {
+    const previous = get().hardware;
+    const asics = new Map(hardware.asics);
+    const preservedAsicIds = new Map<HashboardId, AsicId[]>();
+    previous.asics.forEach((asic, id) => {
+      if (!hardware.hashboards.has(asic.hashboardId) || asics.has(id)) return;
+      asics.set(id, asic);
+      const ids = preservedAsicIds.get(asic.hashboardId) ?? [];
+      ids.push(id);
+      preservedAsicIds.set(asic.hashboardId, ids);
+    });
+    const topology = hardware.topology
+      ? ({
+          ...hardware.topology,
+          hashboards: new Map(
+            [...hardware.topology.hashboards].map(([id, node]) => [
+              id,
+              {
+                ...node,
+                asicIds: [...new Set([...node.asicIds, ...(preservedAsicIds.get(id) ?? [])])],
+              },
+            ]),
+          ),
+        } satisfies Topology)
+      : undefined;
+
     set((state) => {
-      Object.assign(state.hardware, hardware);
-    }),
+      Object.assign(state.hardware, { ...hardware, topology, asics });
+    });
+  },
   setMiner: () => undefined,
   getMiner: () => {
     const state = get().hardware;
