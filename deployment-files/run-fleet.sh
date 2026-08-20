@@ -4,6 +4,14 @@
 # Proto Fleet Installation and Setup Script
 # ============================================================================
 
+# Deployment files this script generates are read inside containers by
+# non-root users (Grafana, Prometheus, ...), so they must stay world-readable
+# regardless of the invoker's umask — the privileged host updater invokes this
+# script with a restrictive 0077 umask that would otherwise strip that access.
+# Secrets (.env, markers, nginx temp files) set their own stricter umask or
+# chmod where they are created.
+umask 022
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_FLEET_ORIGINAL_ARGS=("$@")
 FLEET_COMPOSE_PROJECT_NAME=""
@@ -13,10 +21,16 @@ COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.y
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
 COMPOSE_UPDATER_FILE="$PROJECT_ROOT/docker-compose.updater.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
+source "$PROJECT_ROOT/scripts/compose-project.sh"
+source "$PROJECT_ROOT/scripts/docker-daemon.sh"
 VERSION_FILE="$PROJECT_ROOT/version.txt"
 RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
 PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
+# Written only when a full run brings Fleet up (API and client ready). The
+# host updater treats its timestamp as proof that a pending upgrade failure
+# was remediated, so it must never be written on a partial or failed run.
+STARTUP_MARKER="$PROJECT_ROOT/.fleet-startup-complete"
 NGINX_CONFIG_TEMP=""
 UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"
 HOST_UPDATER_ENV_PATH="/etc/proto-fleet/updater.env"
@@ -451,73 +465,6 @@ env_last_value() {
     compose_env_last_value "$key"
 }
 
-parse_compose_env_value() {
-    local value="$1"
-    local double_quoted='^"([^"\\]*)"[[:space:]]*(#.*)?$'
-    local single_quoted="^'([^']*)'[[:space:]]*(#.*)?$"
-
-    # Fork-free trims: these run per line per key lookup, which adds up on
-    # SD-card-class hardware.
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    case "$value" in
-        \"*)
-            [[ "$value" =~ $double_quoted ]] || return 2
-            value="${BASH_REMATCH[1]}"
-            # Compose expands $ references and decodes backslash escapes in
-            # double-quoted values. Reject those uncommon forms rather than
-            # validating a different secret from the one Compose will use.
-            [[ "$value" != *'$'* && "$value" != *\\* ]] || return 2
-            ;;
-        \'*)
-            [[ "$value" =~ $single_quoted ]] || return 2
-            value="${BASH_REMATCH[1]}"
-            # An escaped quote cannot match the restricted expression above;
-            # other backslashes remain literal under Compose single quotes.
-            ;;
-        *)
-            # Compose treats # as an inline comment only when whitespace
-            # separates it from an unquoted value.
-            value="${value%%[[:space:]]#*}"
-            value="${value%"${value##*[![:space:]]}"}"
-            # Unquoted values undergo Compose interpolation.
-            [[ "$value" != *'$'* ]] || return 2
-            ;;
-    esac
-    printf '%s' "$value"
-}
-
-# Read one key using the literal subset of Compose's documented dotenv
-# delimiters, quoting, and comment rules. Returns 1 when absent and 2 when a
-# runner-consumed value is present but cannot be interpreted without risking
-# divergence from Compose.
-compose_env_last_value() {
-    local key="$1" line normalized parsed found=false
-    local assignment_re="^${key}[[:space:]]*[:=](.*)$"
-    local malformed_re="^${key}([[:space:]]|$)"
-
-    [ -e "$ENV_FILE" ] || return 1
-    [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || return 2
-    while IFS= read -r line || [ -n "$line" ]; do
-        normalized="${line#"${line%%[![:space:]]*}"}"
-        case "$normalized" in
-            export[[:space:]]*)
-                normalized="${normalized#export}"
-                normalized="${normalized#"${normalized%%[![:space:]]*}"}"
-                ;;
-        esac
-        if [[ "$normalized" =~ $assignment_re ]]; then
-            parsed=$(parse_compose_env_value "${BASH_REMATCH[1]}") || return 2
-            found=true
-        elif [[ "$normalized" =~ $malformed_re ]]; then
-            return 2
-        fi
-    done < "$ENV_FILE"
-
-    [ "$found" = "true" ] || return 1
-    printf '%s' "$parsed"
-}
-
 validate_runner_env_value_syntax() {
     local key status
     for key in "$@"; do
@@ -555,6 +502,20 @@ validate_runner_env_values() {
         return 1
     fi
     validate_runner_env_value_syntax "${keys[@]}"
+}
+
+validate_database_overrides_are_persisted() {
+    local key persisted status
+
+    for key in DB_DSN DB_NAME DB_USERNAME DB_PASSWORD; do
+        [ "${!key+x}" = "x" ] || continue
+        persisted=$(compose_env_last_value "$key")
+        status=$?
+        if [ "$status" -ne 0 ] || [ "${!key}" != "$persisted" ]; then
+            echo "Error: caller $key differs from the persisted deployment configuration; update $ENV_FILE instead of using a transient database override." >&2
+            return 1
+        fi
+    done
 }
 
 env_has_nonempty_value() {
@@ -611,42 +572,6 @@ dotenv_boolean_is_true() {
             exit 1
             ;;
     esac
-}
-
-resolve_compose_project_name() {
-    local project_name persisted_status
-
-    if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-        project_name="$COMPOSE_PROJECT_NAME"
-    else
-        project_name=$(compose_env_last_value COMPOSE_PROJECT_NAME)
-        persisted_status=$?
-        case "$persisted_status" in
-            0)
-                if [ -z "$project_name" ]; then
-                    project_name=$(basename "$PROJECT_ROOT")
-                fi
-                ;;
-            1)
-                # Preserve Compose's historical per-directory project identity
-                # when neither the process nor deployment .env selects one.
-                project_name=$(basename "$PROJECT_ROOT")
-                ;;
-            *)
-                echo "Error: COMPOSE_PROJECT_NAME in $ENV_FILE uses unsupported or malformed Compose dotenv syntax." >&2
-                return 1
-                ;;
-        esac
-    fi
-
-    # The same value is also used to select volumes below, so reject names
-    # outside Compose's documented grammar before any destructive operation.
-    if [[ ! "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
-        echo "Error: COMPOSE_PROJECT_NAME must start with a lowercase letter or digit and contain only lowercase letters, digits, hyphens, and underscores." >&2
-        return 1
-    fi
-
-    printf '%s' "$project_name"
 }
 
 resolve_release_image_tag() {
@@ -798,6 +723,7 @@ if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
 fi
 
 validate_runner_env_values || exit 1
+validate_database_overrides_are_persisted || exit 1
 if [[ ! "$FLEET_API_READY_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: FLEET_API_READY_ATTEMPTS must be a positive integer." >&2
     exit 1
@@ -1167,6 +1093,10 @@ find_release_entries() {
         ! -path './.env' \
         ! -path './.update-preflight-complete' \
         ! -path './.update-preflight-complete.tmp.*' \
+        ! -path './.fleet-startup-complete' \
+        ! -path './.fleet-startup-complete.tmp.*' \
+        ! -path './.docker-daemon-id' \
+        ! -path './.docker-daemon-id.tmp.*' \
         ! -path './client/nginx.conf' \
         ! -path './ssl/*' \
         ! -path './server/influx_config/.env' \
@@ -1361,7 +1291,7 @@ preflight_fingerprint() {
 }
 
 record_preflight_marker() {
-    local prepared_fingerprint="$1" current_fingerprint image_fingerprint temporary_marker
+    local prepared_fingerprint="$1" current_fingerprint image_fingerprint
     if ! verify_release_manifest; then
         echo "Error: release or configuration changed during preflight; immutable release files no longer match." >&2
         return 1
@@ -1372,8 +1302,23 @@ record_preflight_marker() {
         return 1
     fi
     image_fingerprint=$(prepared_images_fingerprint) || return 1
-    temporary_marker=$(umask 077; mktemp "$PREFLIGHT_MARKER.tmp.XXXXXX") || return 1
-    if ! printf 'proto-fleet-preflight-v2:%s:%s\n' "$prepared_fingerprint" "$image_fingerprint" > "$temporary_marker"; then
+    replace_marker_file "$PREFLIGHT_MARKER" \
+        "proto-fleet-preflight-v2:$prepared_fingerprint:$image_fingerprint"
+}
+
+# Markers can be written privileged (the host updater invokes this script as
+# root) inside a tree owned by the deployment user, so the marker slot is
+# untrusted and must be replaced without ever being followed. mktemp creates a
+# fresh private file; a planted symlink is unlinked, while a directory is
+# removed only when empty so marker replacement can never destroy unrelated
+# contents. Linux's no-target-directory rename prevents a slot re-planted
+# mid-swap from absorbing the marker; Linux is the only platform where this
+# script runs privileged through the host updater. macOS mv lacks that option,
+# so manual macOS deployments retain the portable rename plus the final check.
+replace_marker_file() {
+    local marker_path="$1" marker_content="$2" temporary_marker
+    temporary_marker=$(umask 077; mktemp "$marker_path.tmp.XXXXXX") || return 1
+    if ! printf '%s\n' "$marker_content" > "$temporary_marker"; then
         rm -f "$temporary_marker"
         return 1
     fi
@@ -1381,10 +1326,35 @@ record_preflight_marker() {
         rm -f "$temporary_marker"
         return 1
     fi
-    if ! mv -f "$temporary_marker" "$PREFLIGHT_MARKER"; then
+    if [ -L "$marker_path" ]; then
+        if ! rm -f -- "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    elif [ -d "$marker_path" ]; then
+        if ! rmdir "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    fi
+    if [ "$(uname -s)" = "Linux" ]; then
+        if ! mv -fT -- "$temporary_marker" "$marker_path"; then
+            rm -f "$temporary_marker"
+            return 1
+        fi
+    elif ! mv -f "$temporary_marker" "$marker_path"; then
         rm -f "$temporary_marker"
         return 1
     fi
+    if [ -L "$marker_path" ] || [ ! -f "$marker_path" ]; then
+        return 1
+    fi
+}
+
+record_startup_marker() {
+    local startup_time
+    startup_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ') || return 1
+    replace_marker_file "$STARTUP_MARKER" "$startup_time"
 }
 
 verify_preflight_marker() {
@@ -1867,6 +1837,10 @@ else
     echo "Docker daemon is already running."
 fi
 
+if ! verify_persisted_docker_daemon; then
+    exit 1
+fi
+
 # ----------------------------------------------------------------------------
 # WSL Networking Fix
 # ----------------------------------------------------------------------------
@@ -2254,12 +2228,12 @@ if [ "$use_existing" == "no" ]; then
     echo "Environment variables saved to $ENV_FILE"
 fi
 
-# Persist every deployment overlay as explicit state. Historically, flags were
-# process-only, so the next upgrade could silently disable alerts, monitoring,
-# or tracing. Replace the three values as one transaction so a failure cannot
-# leave partially updated state. Last value wins, matching Compose's .env
-# behavior.
+# Persist the resolved Compose project and every deployment overlay as explicit
+# state. Later upgrades and recovery commands must target the same resources,
+# including when the project name originally came from the process environment.
+# Replace all values as one transaction so partial state cannot be written.
 if ! atomic_set_env_values \
+    COMPOSE_PROJECT_NAME "$FLEET_COMPOSE_PROJECT_NAME" \
     ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS" \
     ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING" \
     ENABLE_TRACING "$ENABLE_TRACING" \
@@ -2269,6 +2243,11 @@ if ! atomic_set_env_values \
 fi
 if [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
     DIRECT_UPDATER_ENV_ROLLBACK_PENDING=true
+fi
+
+if ! persist_current_docker_daemon; then
+    echo "Error: could not persist the Docker daemon identity; aborting before Compose validation or service changes." >&2
+    exit 1
 fi
 
 # ----------------------------------------------------------------------------
@@ -2958,6 +2937,11 @@ echo "--------------------------------------------------------------"
 if ! rm -f "$PREFLIGHT_MARKER"; then
     echo "Error: Fleet is running, but the consumed preflight marker could not be removed: $PREFLIGHT_MARKER" >&2
     exit 1
+fi
+
+if ! record_startup_marker; then
+    echo "Warning: could not record the successful startup at $STARTUP_MARKER;" >&2
+    echo "         a previously dismissed upgrade failure may stay visible until dismissed by hand." >&2
 fi
 
 exit 0

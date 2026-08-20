@@ -10,6 +10,7 @@ const labelMap: Record<string, string> = {
   step_up_auth_failed: "Couldn't verify authentication",
   update_password: "Updated password",
   reset_password: "Reset password",
+  cli_reset_password: "Break-glass password reset",
   deactivate_user: "Deactivated user",
   update_user_role: "Updated user role",
   create_api_key: "Created API key",
@@ -103,6 +104,7 @@ const filterLabelMap: Record<string, string> = {
   step_up_auth_failed: "Couldn't verify authentication",
   update_password: "Update password",
   reset_password: "Reset password",
+  cli_reset_password: "Break-glass password reset",
   deactivate_user: "Deactivate user",
   update_user_role: "Update user role",
   create_api_key: "Create API key",
@@ -169,6 +171,8 @@ const filterLabelMap: Record<string, string> = {
   curtailment_admin_terminated_replay: "Curtailment already stopped",
   curtailment_updated: "Update curtailment",
   curtailment_force_released: "Release curtailment ownership",
+
+  alert: "Alerts",
 };
 
 const acronymMap: Record<string, string> = {

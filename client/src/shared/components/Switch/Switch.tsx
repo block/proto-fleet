@@ -6,14 +6,16 @@ type SwitchProps = {
   checked?: boolean;
   setChecked?: (checked: boolean | ((prev: boolean) => boolean)) => void;
   disabled?: boolean;
+  id?: string;
 };
 
-const Switch = ({ label, ariaLabel, checked, setChecked, disabled = false }: SwitchProps) => {
+const Switch = ({ label, ariaLabel, checked, setChecked, disabled = false, id }: SwitchProps) => {
   return (
     <label className="inline-flex cursor-pointer items-center gap-4 select-none">
       {label ? <span className="text-300">{label}</span> : null}
       <div className="relative inline-block">
         <input
+          id={id}
           type="checkbox"
           aria-label={ariaLabel}
           className="peer absolute h-0 w-0 opacity-0"

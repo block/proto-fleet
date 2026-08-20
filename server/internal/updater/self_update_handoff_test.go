@@ -71,6 +71,24 @@ func TestSelfUpdateHandoffRestoresInterruptedReplacementWithoutArgv(t *testing.T
 	assert.NoFileExists(t, destination+selfUpdateHandoffSuffix)
 }
 
+func TestSelfUpdateRetryRestoresPreviousUpdaterAfterAnotherInterruption(t *testing.T) {
+	// Arrange
+	destination := installSelfUpdateForHandoffTest(t)
+	require.NoError(t, authorizeSelfUpdateRestart(destination))
+	startup, err := PrepareSelfUpdateStartup(destination, "")
+	require.NoError(t, err)
+	require.NotNil(t, startup)
+
+	// Act
+	restarted, err := PrepareSelfUpdateStartup(destination, "")
+
+	// Assert
+	require.ErrorIs(t, err, errRetriedSelfUpdateRestored)
+	assert.Nil(t, restarted)
+	assert.Equal(t, "old updater", mustReadFile(t, destination))
+	assert.NoFileExists(t, destination+selfUpdateHandoffSuffix)
+}
+
 func TestSelfUpdateHandoffRollbackRestoresReturnedStartupFailure(t *testing.T) {
 	t.Parallel()
 

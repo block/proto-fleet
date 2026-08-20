@@ -211,7 +211,7 @@ const FirmwareUpdateStatusModal = ({
     <Dialog
       open={open}
       testId="firmware-status-modal"
-      icon={statusConfig.icon ?? <ProgressCircular indeterminate className="text-core-accent-fill" />}
+      icon={statusConfig.icon ?? <ProgressCircular indeterminate />}
       title={statusConfig.title}
       buttons={statusConfig.getButtons({
         onUpdate,

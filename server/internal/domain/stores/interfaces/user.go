@@ -32,12 +32,27 @@ type UserManagementStore interface { //nolint:interfacebloat // user mgmt store 
 	LockAndCountOrgScopeSuperAdmins(ctx context.Context, organizationID int64) (int64, error)
 	UpdateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, oldAssignmentID int64, newRoleID int64) error
 	UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error
-	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error
+	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error)
 	SoftDeleteUser(ctx context.Context, userID int64) error
 	UpdateLastLogin(ctx context.Context, userID int64) error
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
 	GetUserRoleName(ctx context.Context, userID int64, organizationID int64) (string, error)
 	ListPermissionKeysByRoleID(ctx context.Context, roleID int64) ([]string, error)
+}
+
+// BreakGlassUserStore is the deliberately narrow persistence surface used by
+// the offline SUPER_ADMIN password reset command.
+type BreakGlassUserStore interface {
+	HasUser(ctx context.Context) (bool, error)
+	LockActiveSuperAdminUsers(ctx context.Context) ([]BreakGlassSuperAdmin, error)
+	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error)
+}
+
+type BreakGlassSuperAdmin struct {
+	ID             int64
+	ExternalUserID string
+	Username       string
+	OrganizationID int64
 }
 
 // OrgScopeAssignment is the live org-scope role assignment returned by

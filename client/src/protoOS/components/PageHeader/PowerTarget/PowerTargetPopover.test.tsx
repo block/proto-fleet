@@ -181,11 +181,12 @@ describe("Power Target Popover", () => {
     // Override mock to set pending to true for this test
     mockReturnValue.pending = true;
 
-    const { getByText } = render(
+    const { getByText, getByTestId } = render(
       <PopoverProvider>
         <PowerTargetPopover onDismiss={vi.fn()} onUpdateStart={vi.fn()} />,
       </PopoverProvider>,
     );
     expect(getByText("Applying")).toBeInTheDocument();
+    expect(getByTestId("power-target-apply-button").querySelector("svg")).toHaveClass("!text-text-contrast");
   });
 });

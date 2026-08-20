@@ -9,6 +9,7 @@ import (
 	"net/http"
 	_ "net/http/pprof" // #nosec G108 -- pprof endpoint intentionally exposed for debugging
 	"os"
+	"strings"
 	"time"
 	_ "time/tzdata"
 
@@ -31,7 +32,6 @@ import (
 	"connectrpc.com/grpcreflect"
 	"connectrpc.com/validate"
 	"github.com/alecthomas/kong"
-	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
@@ -98,6 +98,8 @@ import (
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/ha/deployment"
+	"github.com/block/proto-fleet/server/internal/ha/readiness"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
 	"github.com/block/proto-fleet/server/internal/handlers/alertmanagerwebhook"
 	alertsHandler "github.com/block/proto-fleet/server/internal/handlers/alerts"
@@ -141,22 +143,38 @@ const shutdownTimeout = 10 * time.Second
 var version = "dev"
 
 func main() {
-	config := &Config{}
-
-	_ = kong.Parse(
-		config,
+	cli := &fleetdCLI{}
+	parser := kong.Must(
+		cli,
 		kong.Name("fleetd"),
-		kong.Configuration(kongyaml.Loader, "/etc/fleetd/config.yaml"),
+		kong.Configuration(fleetdYAMLLoader, "/etc/fleetd/config.yaml"),
+		kong.BindTo(context.Background(), (*context.Context)(nil)),
 	)
+	kctx, err := parser.Parse(normalizeFleetdArgs(os.Args[1:]))
+	parser.FatalIfErrorf(err)
 
-	logging.InitLogger(config.Log)
+	// Kong applies flag defaults tree-wide, so for non-server commands
+	// cli.Server.Log carries the compiled defaults (info level, 1000 buffer).
+	logging.InitLogger(cli.Server.Log)
 
-	slog.Info("fleetd starting", "version", version)
-
-	if err := start(config); err != nil {
+	if err := kctx.Run(); err != nil {
 		slog.Error(fmt.Sprintf("%+v", err))
 		os.Exit(1)
 	}
+}
+
+// normalizeFleetdArgs preserves the pre-command CLI contract. Kong's default
+// subcommand handles an empty invocation, but flags must be routed explicitly.
+func normalizeFleetdArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	for _, path := range fleetdCommandPaths {
+		if args[0] == strings.Fields(path)[0] {
+			return args
+		}
+	}
+	return append([]string{"server"}, args...)
 }
 
 // reflectEnabledServices lists the gRPC services exposed via the
@@ -617,9 +635,10 @@ func start(config *Config) (result error) {
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
 	alertRouteStore := sqlstores.NewSQLAlertRouteStore(conn)
 	alertRuleConfigStore := sqlstores.NewSQLAlertRuleConfigStore(conn)
-	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
+	alertMaintenanceWindowStore := sqlstores.NewSQLAlertMaintenanceWindowStore(conn)
+	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, alertMaintenanceWindowStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
 	alertScopeLookup := alertScopeStores{sites: siteStore, buildings: buildingStore, sets: collectionStore}
-	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, alertMaintenanceWindowStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
 
 	// Both updates URLs end up inside a copy-paste upgrade command, so an
 	// http:// base must fail startup (explicit Validate, like Plugins above —
@@ -640,6 +659,23 @@ func start(config *Config) (result error) {
 	if config.SystemMonitoring.Enabled {
 		collector := sysmon.New(config.SystemMonitoring, metricsProvider)
 		systemMonitoring = newBackgroundLoop(func(ctx context.Context) {
+			select {
+			case <-listenerBound:
+				collector.Run(ctx)
+			case <-ctx.Done():
+			}
+		})
+	}
+	var haReadiness runtimejobs.Lifecycle
+	if config.HA.Enabled && metricsProvider.Enabled() {
+		collector := readiness.New(func(ctx context.Context) (bool, error) {
+			report, err := deployment.StatusWithDatabase(ctx, "/etc/proto-fleet/ha/node.env", conn)
+			if err != nil {
+				return false, err
+			}
+			return report.Control != nil && report.Control.FailoverReady, nil
+		}, metricsProvider)
+		haReadiness = newBackgroundLoop(func(ctx context.Context) {
 			select {
 			case <-listenerBound:
 				collector.Run(ctx)
@@ -672,6 +708,7 @@ func start(config *Config) (result error) {
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
 		systemMonitoring:          systemMonitoring,
+		haReadiness:               haReadiness,
 		releaseChecker:            releaseCheckerJob,
 	})
 	if err != nil {
@@ -721,7 +758,7 @@ func start(config *Config) (result error) {
 
 	mux.HandleFunc("/health", health.NewHandler(version))
 	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn, fleetRuntime))
-	mux.HandleFunc("/health/active", health.NewActiveHandler(fleetRuntime))
+	mux.HandleFunc("/health/active", health.NewActiveHandler(version, fleetRuntime))
 	if config.HA.Enabled {
 		mux.HandleFunc("/health/ha", health.NewHAHandler(version, fleetRuntime))
 		mux.HandleFunc("/health/passive", health.NewPassiveHandler(fleetRuntime))
@@ -762,7 +799,11 @@ func start(config *Config) (result error) {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
+		curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
+		li,
+		curtailmentHandler.RequestReadLimitOption(),
+	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

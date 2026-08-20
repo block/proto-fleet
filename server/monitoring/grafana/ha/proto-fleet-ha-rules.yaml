@@ -1,0 +1,63 @@
+# The active Fleet runtime records fleet_ha_failover_ready every 30 seconds.
+# Both HA hosts run this same file-provisioned rule against the replicated
+# metric table; only the Grafana beside the active Fleet API can deliver it.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: proto-fleet-ha
+    folder: Proto Fleet
+    interval: 30s
+    rules:
+      - uid: protofleet-ha-readiness
+        title: HA Failover Readiness Degraded
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    o.organization_id,
+                    1 AS value
+                FROM fleet_active_organization o
+                LEFT JOIN (
+                    SELECT value, time
+                    FROM notification_metric_sample
+                    WHERE metric = 'fleet_ha_failover_ready'
+                      AND time > NOW() - INTERVAL '24 hours'
+                    ORDER BY time DESC
+                    LIMIT 1
+                ) latest ON true
+                WHERE COALESCE(latest.value, 0) < 1
+                   OR latest.time < NOW() - INTERVAL '2 minutes'
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        # No organizations means there is nobody to notify. Missing HA
+        # samples still return one row per live org through the LEFT JOIN.
+        noDataState: OK
+        execErrState: Error
+        # Notify on the first failed readiness sample. Fleet's 30s collector
+        # remains the debounce boundary, avoiding extra status-probe load.
+        for: 0s
+        labels:
+          proto_fleet_rule_uid: protofleet-ha-readiness
+          proto_fleet_scope: shared
+          severity: warning
+          rule_group: proto-fleet-ha
+          template: ha-readiness
+        annotations:
+          summary: "Proto Fleet HA is not ready to fail over safely."
+          description: |
+            One or more database, DCS, Fleet runtime, version, writer, or VIP
+            readiness checks are degraded. Run `sudo fleet-ha status` on a
+            database host for the current reason codes.

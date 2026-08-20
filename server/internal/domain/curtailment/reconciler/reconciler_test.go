@@ -2277,7 +2277,7 @@ func TestReconciler_ActiveClosedLoopFullFleetUsesPersistedMultiSiteScope(t *test
 			Mode:                 models.ModeFullFleet,
 			LoopType:             models.LoopTypeClosed,
 			ScopeType:            models.ScopeTypeMixed,
-			ScopeJSON:            []byte(`{"site_ids":[77,88],"device_identifiers":null}`),
+			ScopeJSON:            []byte(`{"site_ids":[77,88]}`),
 			DecisionSnapshotJSON: []byte(`{"post_event_cooldown_sec":600}`),
 			CreatedByUserID:      99,
 		},

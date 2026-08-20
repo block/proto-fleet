@@ -1,6 +1,12 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
 import {
+  curtailmentScopeSchemaVersion,
+  getCurtailmentScopeFormFields,
+  getCurtailmentScopeSummary,
+  parseCurtailmentTerminalScopes,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
@@ -99,67 +105,56 @@ function mapCurtailmentModeToFormValue(event: ProtoCurtailmentEvent): Curtailmen
 function mapCurtailmentEventScopeToFormValues(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
-): Pick<
-  CurtailmentSubmitValues,
-  | "scopeType"
-  | "scopeId"
-  | "siteSelection"
-  | "siteId"
-  | "siteIds"
-  | "siteNamesById"
-  | "deviceSetIds"
-  | "deviceIdentifiers"
-> {
+):
+  | Pick<
+      CurtailmentSubmitValues,
+      | "scopeType"
+      | "scopeId"
+      | "siteSelection"
+      | "siteId"
+      | "siteIds"
+      | "siteNamesById"
+      | "buildingTargetIds"
+      | "rackTargetIds"
+      | "groupTargetIds"
+      | "deviceSetIds"
+      | "deviceIdentifiers"
+    >
+  | undefined {
   if (event.scopes.length > 0) {
-    const siteIds: string[] = [];
-    const siteNamesById: Record<string, string> = {};
-    const deviceIdentifiers: string[] = [];
-    for (const scope of event.scopes) {
-      switch (scope.scope.case) {
-        case "wholeOrg":
-          return {
-            scopeType: "wholeOrg",
-            scopeId: "whole-org",
-            siteSelection: "allSites",
-            siteId: "",
-            siteIds: [],
-            siteNamesById: {},
-            deviceSetIds: [],
-            deviceIdentifiers: [],
-          };
-        case "site":
-          {
-            const siteId = scope.scope.value.siteId.toString();
-            siteIds.push(siteId);
-            siteNamesById[siteId] = getSiteDisplayName(siteId, options.siteNameById);
-          }
-          break;
-        case "deviceIdentifiers":
-          deviceIdentifiers.push(...scope.scope.value.deviceIdentifiers);
-          break;
-        case "deviceSetIds":
-        case undefined:
-          break;
-      }
+    if (event.scopeSchemaVersion !== curtailmentScopeSchemaVersion) {
+      return undefined;
     }
-    const uniqueSiteIds = [...new Set(siteIds)];
-    const siteId = uniqueSiteIds[0] ?? "";
+
+    let scope;
+    try {
+      scope = parseCurtailmentTerminalScopes(event.scopes);
+    } catch {
+      return undefined;
+    }
+    if (scope.type === "building" || scope.type === "rack" || scope.type === "group") {
+      return undefined;
+    }
+    const scopeFields = getCurtailmentScopeFormFields(scope);
+    const siteId = scopeFields.siteIds[0] ?? "";
+    const siteNamesById = Object.fromEntries(
+      scopeFields.siteIds.map((currentSiteId) => [
+        currentSiteId,
+        getSiteDisplayName(currentSiteId, options.siteNameById),
+      ]),
+    );
     return {
-      scopeType: deviceIdentifiers.length > 0 ? "explicitMiners" : uniqueSiteIds.length > 0 ? "site" : "wholeOrg",
+      ...scopeFields,
       scopeId:
-        uniqueSiteIds.length === 1
-          ? siteNamesById[siteId]
-          : uniqueSiteIds.length > 1
-            ? `${uniqueSiteIds.length} sites`
-            : deviceIdentifiers.length > 0
-              ? undefined
-              : "whole-org",
-      siteSelection: siteId ? "site" : "none",
+        scope.type === "wholeOrg"
+          ? "whole-org"
+          : scope.type === "site" && scope.siteIds.length === 1
+            ? siteNamesById[siteId]
+            : getCurtailmentScopeSummary(scope, { fallbackLabel: "Unknown scope" }),
+      siteSelection: scope.type === "wholeOrg" ? "allSites" : scope.type === "site" ? "site" : "none",
       siteId,
-      siteIds: uniqueSiteIds,
       siteNamesById,
       deviceSetIds: [],
-      deviceIdentifiers: [...new Set(deviceIdentifiers)],
     };
   }
 
@@ -173,6 +168,9 @@ function mapCurtailmentEventScopeToFormValues(
         siteId,
         siteIds: [siteId],
         siteNamesById: { [siteId]: getSiteDisplayName(siteId, options.siteNameById) },
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [],
       };
@@ -185,19 +183,11 @@ function mapCurtailmentEventScopeToFormValues(
         siteId: "",
         siteIds: [],
         siteNamesById: {},
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [...event.scope.value.deviceIdentifiers],
-      };
-    case "deviceSetIds":
-      return {
-        scopeType: "deviceSet",
-        scopeId: "device-sets",
-        siteSelection: "none",
-        siteId: "",
-        siteIds: [],
-        siteNamesById: {},
-        deviceSetIds: [...event.scope.value.deviceSetIds],
-        deviceIdentifiers: [],
       };
     case "wholeOrg":
     default:
@@ -208,6 +198,9 @@ function mapCurtailmentEventScopeToFormValues(
         siteId: "",
         siteIds: [],
         siteNamesById: {},
+        buildingTargetIds: [],
+        rackTargetIds: [],
+        groupTargetIds: [],
         deviceSetIds: [],
         deviceIdentifiers: [],
       };
@@ -217,13 +210,17 @@ function mapCurtailmentEventScopeToFormValues(
 export function mapCurtailmentEventToFormValues(
   event: ProtoCurtailmentEvent,
   options: CurtailmentMapperOptions = {},
-): CurtailmentSubmitValues {
+): CurtailmentSubmitValues | undefined {
   const fixedKwTarget = getFixedKwTarget(event);
   const fixedKwTolerance = getFixedKwTolerance(event);
   const hasCurtailBatchSize = (event.curtailBatchSize ?? 0) > 0;
+  const scopeValues = mapCurtailmentEventScopeToFormValues(event, options);
+  if (!scopeValues) {
+    return undefined;
+  }
 
   return {
-    ...mapCurtailmentEventScopeToFormValues(event, options),
+    ...scopeValues,
     responseProfileId: "customPlan",
     curtailmentMode: mapCurtailmentModeToFormValue(event),
     minerSelectionStrategy: "leastEfficientFirst",

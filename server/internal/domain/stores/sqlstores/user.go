@@ -13,6 +13,7 @@ import (
 
 var _ interfaces.UserStore = &SQLUserStore{}
 var _ interfaces.UserManagementStore = &SQLUserStore{}
+var _ interfaces.BreakGlassUserStore = &SQLUserStore{}
 
 type SQLUserStore struct {
 	SQLConnectionManager
@@ -339,11 +340,28 @@ func (s *SQLUserStore) UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.
 	})
 }
 
-func (s *SQLUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error {
+func (s *SQLUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
 	return s.getQueries(ctx).AdminResetUserPassword(ctx, sqlc.AdminResetUserPasswordParams{
 		PasswordHash: passwordHash,
 		ID:           userID,
 	})
+}
+
+func (s *SQLUserStore) LockActiveSuperAdminUsers(ctx context.Context) ([]interfaces.BreakGlassSuperAdmin, error) {
+	rows, err := s.getQueries(ctx).LockActiveSuperAdminUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]interfaces.BreakGlassSuperAdmin, len(rows))
+	for i, row := range rows {
+		users[i] = interfaces.BreakGlassSuperAdmin{
+			ID:             row.ID,
+			ExternalUserID: row.ExternalUserID,
+			Username:       row.Username,
+			OrganizationID: row.OrganizationID,
+		}
+	}
+	return users, nil
 }
 
 func (s *SQLUserStore) SoftDeleteUser(ctx context.Context, userID int64) error {

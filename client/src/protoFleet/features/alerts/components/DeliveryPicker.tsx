@@ -3,8 +3,8 @@ import Checkbox from "@/shared/components/Checkbox";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 
 const MODE_SEGMENTS: { key: RoutingMode; title: string }[] = [
-  { key: "default", title: "All channels" },
-  { key: "custom", title: "Selected channels" },
+  { key: "default", title: "All destinations" },
+  { key: "custom", title: "Selected destinations" },
   { key: "none", title: "In-app only" },
 ];
 
@@ -52,15 +52,15 @@ const DeliveryPicker = ({
         ))}
         {channelsLoaded && channels.length === 0 ? (
           <p className="py-4 text-center text-text-primary-50">
-            No channels yet — add one in the Channels section first.
+            No destinations yet — add one in the Destinations section first.
           </p>
         ) : null}
       </div>
     ) : (
       <p className="text-200 text-text-primary-50">
         {mode === "default"
-          ? "Alerts from this rule are delivered to every channel, including ones added later."
-          : "Alerts from this rule show up in the in-app history only; no channel is notified."}
+          ? "Alerts from this rule are delivered to every destination, including ones added later."
+          : "Alerts from this rule show up in the in-app history only; no destination is notified."}
       </p>
     )}
   </div>

@@ -110,20 +110,13 @@ export interface Rule {
   config_unknown?: boolean;
 }
 
-export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";
-
-export interface MaintenanceWindowScope {
-  kind: MaintenanceWindowScopeKind;
-  rule_id: string | null;
-  group_id: string | null;
-  site_id: string | null;
-  device_ids: string[];
-}
-
 export interface MaintenanceWindow {
   id: string;
   organization_id: string;
-  scope: MaintenanceWindowScope;
+  // Rules whose alerts the window mutes; empty means every rule.
+  rule_ids: string[];
+  // Channels the window mutes delivery to; empty means every channel.
+  channel_ids: string[];
   starts_at: string;
   ends_at: string | null;
   comment: string;
@@ -137,8 +130,8 @@ export interface MaintenanceWindowWithActive extends MaintenanceWindow {
 
 export type AlertHistoryStatus = "firing" | "resolved";
 
-// One currently-firing alert and its blast radius. Rule identity and counts only: severity, summary and the
-// rest of the per-instance detail come back from the drill-in, which reports them per affected miner.
+// One currently-firing alert and its blast radius. Per-instance detail comes back from the drill-in, which
+// reports it per affected miner — except on a group with no miners, which has no drill-in and carries a summary.
 export interface ActiveAlertGroup {
   // Display title, which retired-rule mapping may rewrite; stored_alert_name is what the server filters on.
   alert_name: string;
@@ -152,6 +145,8 @@ export interface ActiveAlertGroup {
   // Firing instances, which exceeds device_count only for a rule firing on a non-device dimension (per MQTT source, say).
   alert_count: number;
   first_started_at: string;
+  // The newest instance's summary; empty unless device_count is 0, since only those rows have no drill-in.
+  summary: string;
 }
 
 export interface AlertHistoryEntry {

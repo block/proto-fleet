@@ -4,11 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
@@ -55,7 +57,7 @@ func TestResponseProfileService_CreatePersistsSiteScopedFixedKW(t *testing.T) {
 	assert.Equal(t, int32(600), store.created.PostEventCooldownSec)
 }
 
-func TestResponseProfileService_CreatePersistsCompositeSiteAndMinerScope(t *testing.T) {
+func TestResponseProfileService_CreatePersistsMultiSiteTerminalScope(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 2500.0
@@ -65,21 +67,21 @@ func TestResponseProfileService_CreatePersistsCompositeSiteAndMinerScope(t *test
 	profile, err := svc.Create(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:       42,
-			ProfileName: "Combined shed",
+			ProfileName: "Multi-site shed",
 			Mode:        models.ModeFixedKw,
 			TargetKW:    &targetKW,
-			ScopeJSON:   []byte(`{"site_ids":[7,7],"device_identifiers":["miner-a","miner-a","miner-b"]}`),
+			ScopeJSON:   []byte(`{"site_ids":[7,8,7]}`),
 		},
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, profile)
-	assert.Nil(t, profile.SiteID, "mixed scopes must not masquerade as legacy single-site profiles")
-	assert.Equal(t, 1, store.siteCheckCount, "sites are validated by id without expanding site miners")
-	assert.Equal(t, int64(7), store.siteCheckSiteID)
-	assert.JSONEq(t, `{"site_ids":[7],"device_identifiers":["miner-a","miner-b"]}`, string(profile.ScopeJSON))
+	assert.Nil(t, profile.SiteID, "a multi-site terminal scope must not masquerade as a single-site profile")
+	assert.Equal(t, 2, store.siteCheckCount, "sites are validated by id without expanding site miners")
+	assert.Equal(t, int64(8), store.siteCheckSiteID)
+	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(profile.ScopeJSON))
 	require.NotNil(t, store.created)
-	assert.JSONEq(t, `{"site_ids":[7],"device_identifiers":["miner-a","miner-b"]}`, string(store.created.ScopeJSON))
+	assert.JSONEq(t, `{"site_ids":[7,8]}`, string(store.created.ScopeJSON))
 }
 
 func TestResponseProfileService_CreateAllowsWholeOrgScope(t *testing.T) {
@@ -303,23 +305,243 @@ func TestResponseProfileService_CreateAllowsFacilityFanOutsideExplicitMinerSite(
 	assert.Equal(t, []int64{31}, profile.FacilityFanDeviceIDs)
 }
 
-func TestResponseProfileService_CreateRejectsDeviceSetScope(t *testing.T) {
+func TestResponseProfileService_CreateValidatesTopologyScope(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 2500.0
-	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+	store := newResponseProfileFakeStore()
+	profile, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:       42,
-			ProfileName: "Device set shed",
+			ProfileName: "Building shed",
 			Mode:        models.ModeFixedKw,
 			TargetKW:    &targetKW,
-			ScopeJSON:   []byte(`{"device_set_ids":["set-a"]}`),
+			ScopeJSON:   []byte(`{"scope_schema_version":1,"building_ids":[7]}`),
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), store.lastTopologyFilter.OrgID)
+	assert.Equal(t, []int64{7}, store.lastTopologyFilter.BuildingIDs)
+	assert.JSONEq(t, `{"scope_schema_version":1,"building_ids":[7]}`, string(profile.ScopeJSON))
+}
+
+func TestResponseProfileService_CreateRejectsMissingTopologyResource(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	store.topologyCoverageErr = fleeterror.NewNotFoundError("buildings not found in caller's org: [7]")
+
+	_, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Missing building",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+			ScopeJSON:   []byte(`{"scope_schema_version":1,"building_ids":[7]}`),
 		},
 	})
 
 	require.Error(t, err)
-	assert.True(t, fleeterror.IsUnimplementedError(err))
-	assert.Contains(t, err.Error(), "device-set scope is not implemented")
+	assert.True(t, fleeterror.IsNotFoundError(err))
+	assert.Nil(t, store.created)
+}
+
+func TestResponseProfileService_CreateReturnsInternalWhenTopologyResolverIsMissing(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	storeWithoutTopology := struct {
+		interfaces.ResponseProfileStore
+	}{ResponseProfileStore: store}
+
+	_, err := NewResponseProfileService(storeWithoutTopology).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Building shed",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+			ScopeJSON:   []byte(`{"scope_schema_version":1,"building_ids":[7]}`),
+		},
+	})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, fleeterror.NewInternalError("").GRPCCode, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "topology scope resolver is not configured")
+}
+
+func TestResponseProfileService_CreateEnforcesResolvedMinerLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		scopeJSON string
+		count     int
+		wantErr   bool
+	}{
+		{
+			name:      "whole org overflow",
+			scopeJSON: `{"scope_schema_version":1,"whole_org":true}`,
+			count:     ScopeResolvedMinerMax + 1,
+			wantErr:   true,
+		},
+		{
+			name:      "site overflow",
+			scopeJSON: `{"scope_schema_version":1,"site_ids":[7]}`,
+			count:     ScopeResolvedMinerMax + 1,
+			wantErr:   true,
+		},
+		{
+			name:      "site exact bound",
+			scopeJSON: `{"scope_schema_version":1,"site_ids":[7]}`,
+			count:     ScopeResolvedMinerMax,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			targetKW := 2500.0
+			store := newResponseProfileFakeStore()
+			store.candidates = make([]*models.Candidate, tc.count)
+
+			_, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
+				Profile: models.ResponseProfile{
+					OrgID:       42,
+					ProfileName: "Bounded profile",
+					Mode:        models.ModeFixedKw,
+					TargetKW:    &targetKW,
+					ScopeJSON:   []byte(tc.scopeJSON),
+				},
+			})
+
+			assert.Equal(t, int32(ScopeResolvedMinerMax+1), store.lastCandidateFilter.ResultLimit)
+			if !tc.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodeResourceExhausted, fleetErr.GRPCCode)
+			assert.Nil(t, store.created)
+		})
+	}
+}
+
+func TestScopeFromJSONRejectsRemovedDeviceSetKey(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ScopeFromJSON([]byte(`{"device_set_ids":["set-a"]}`))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "unknown field")
+}
+
+func TestScopeFromJSONRejectsVersionWithoutSelector(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ScopeFromJSON([]byte(`{"scope_schema_version":1}`))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "must include a recognized selector")
+}
+
+func TestScopeFromJSONRejectsUnsupportedVersionWithoutSelector(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ScopeFromJSON([]byte(`{"scope_schema_version":2}`))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "unsupported scope_schema_version: 2")
+}
+
+func TestScopeFromJSONRejectsPresentEmptySelector(t *testing.T) {
+	t.Parallel()
+
+	for _, scopeJSON := range []string{
+		`{"whole_org":false}`,
+		`{"whole_org":true,"building_ids":[]}`,
+		`{"site_id":0}`,
+		`{"site_ids":[]}`,
+		`{"building_ids":[]}`,
+		`{"rack_ids":[]}`,
+		`{"group_ids":[]}`,
+		`{"device_identifiers":[]}`,
+	} {
+		t.Run(scopeJSON, func(t *testing.T) {
+			t.Parallel()
+
+			_, _, err := ScopeFromJSON([]byte(scopeJSON))
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "exactly one selector type")
+		})
+	}
+}
+
+func TestScopeFromJSONRejectsNull(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ScopeFromJSON([]byte(`null`))
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "expected an object")
+}
+
+func TestScopeJSONRoundTripsTypedTerminalScope(t *testing.T) {
+	t.Parallel()
+
+	want := Scope{
+		SchemaVersion: ScopeSchemaVersionCurrent,
+		Type:          models.ScopeTypeMixed,
+		BuildingIDs:   []int64{11, 10, 11},
+	}
+
+	encoded, err := MarshalScopeJSON(want)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"scope_schema_version": 1,
+		"building_ids": [11, 10]
+	}`, string(encoded))
+
+	got, hasScope, err := ScopeFromJSON(encoded)
+	require.NoError(t, err)
+	require.True(t, hasScope)
+	assert.Equal(t, normalizeScope(want), got)
+}
+
+func TestScopeJSONRejectsMixedTerminalTypes(t *testing.T) {
+	t.Parallel()
+
+	_, err := MarshalScopeJSON(Scope{
+		SchemaVersion:     ScopeSchemaVersionCurrent,
+		BuildingIDs:       []int64{11},
+		DeviceIdentifiers: []string{"miner-a"},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "exactly one selector type")
+}
+
+func TestMarshalScopeJSONRequiresVersionForTypedTopology(t *testing.T) {
+	t.Parallel()
+
+	_, err := MarshalScopeJSON(Scope{BuildingIDs: []int64{7}})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "scope_schema_version 1 is required")
 }
 
 func TestResponseProfileService_CreateAppliesBackendBatchDefaultsWithoutOverwritingImmediateRestore(t *testing.T) {
@@ -400,6 +622,30 @@ func TestResponseProfileService_UpdateAllowsFacilityFansWhenProfileHasAutomation
 	require.NoError(t, err)
 	require.NotNil(t, store.updated)
 	assert.Equal(t, []int64{31}, store.updated.FacilityFanDeviceIDs)
+}
+
+func TestResponseProfileService_UpdateRejectsTopologyScopeWhenProfileHasAutomationRules(t *testing.T) {
+	t.Parallel()
+
+	targetKW := 2500.0
+	store := newResponseProfileFakeStore()
+	store.automationRuleCount = 1
+
+	_, err := NewResponseProfileService(store).Update(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			ID:          101,
+			OrgID:       42,
+			ProfileName: "Automated building shed",
+			Mode:        models.ModeFixedKw,
+			TargetKW:    &targetKW,
+			ScopeJSON:   []byte(`{"scope_schema_version":1,"building_ids":[7]}`),
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "topology-scoped response profiles cannot be used by automation")
+	assert.Nil(t, store.updated)
 }
 
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {
@@ -640,6 +886,11 @@ type responseProfileFakeStore struct {
 	profiles              []*models.ResponseProfile
 	infrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice
 	deviceSites           map[string]*int64
+	topologyCoverage      interfaces.CurtailmentTopologyScopeCoverage
+	topologyCoverageErr   error
+	lastTopologyFilter    interfaces.ListCandidatesParams
+	candidates            []*models.Candidate
+	lastCandidateFilter   interfaces.ListCandidatesParams
 }
 
 func newResponseProfileFakeStore() *responseProfileFakeStore {
@@ -661,6 +912,17 @@ func (s *responseProfileFakeStore) GetResponseProfile(_ context.Context, _ int64
 		}
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+}
+
+func (s *responseProfileFakeStore) ListCandidates(
+	_ context.Context,
+	params interfaces.ListCandidatesParams,
+) ([]*models.Candidate, error) {
+	s.lastCandidateFilter = params
+	if params.ResultLimit > 0 && len(s.candidates) > int(params.ResultLimit) {
+		return s.candidates[:params.ResultLimit], nil
+	}
+	return s.candidates, nil
 }
 
 func (s *responseProfileFakeStore) ListResponseProfileDeviceSites(_ context.Context, _ int64, deviceIdentifiers []string) (map[string]*int64, error) {
@@ -708,6 +970,14 @@ func (s *responseProfileFakeStore) SiteBelongsToOrg(_ context.Context, orgID, si
 	s.siteCheckOrgID = orgID
 	s.siteCheckSiteID = siteID
 	return s.siteBelongs, nil
+}
+
+func (s *responseProfileFakeStore) ResolveCurtailmentTopologyScope(
+	_ context.Context,
+	params interfaces.ListCandidatesParams,
+) (interfaces.CurtailmentTopologyScopeCoverage, error) {
+	s.lastTopologyFilter = params
+	return s.topologyCoverage, s.topologyCoverageErr
 }
 
 func ptrInt64(v int64) *int64 {

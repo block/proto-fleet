@@ -173,6 +173,7 @@ type ListTargetsByEventPageParams struct {
 type ResponseProfileStore interface {
 	ListResponseProfiles(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error)
 	GetResponseProfile(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error)
+	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]*models.Candidate, error)
 	ListResponseProfileDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error)
 	ListResponseProfileInfrastructureDevices(ctx context.Context, orgID int64, infrastructureDeviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error)
 	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error)
@@ -205,13 +206,21 @@ type AutomationStore interface {
 	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error
 }
 
-// ListCandidatesParams scopes selector candidate reads. Empty SiteIDs and
-// DeviceIdentifiers means whole-org. When both are present, results are the
-// union of matching sites and explicit device identifiers.
+const CurtailmentResolvedMinerMax = 10000
+
+// ListCandidatesParams scopes selector candidate reads. Empty selector slices
+// mean whole-org. Curtailment validates that no more than one selector type is
+// set before crossing the store boundary.
 type ListCandidatesParams struct {
-	OrgID             int64
+	OrgID int64
+	// ResultLimit is zero for no limit; selector entry points use max+1 so
+	// they can distinguish an exact-bound result from overflow.
+	ResultLimit       int32
 	DeviceIdentifiers []string
 	SiteIDs           []int64
+	BuildingIDs       []int64
+	RackIDs           []int64
+	GroupIDs          []int64
 }
 
 type ListRecentlyResolvedCurtailedDevicesParams struct {
@@ -219,6 +228,26 @@ type ListRecentlyResolvedCurtailedDevicesParams struct {
 	CooldownSec       int32
 	DeviceIdentifiers []string
 	SiteIDs           []int64
+}
+
+// CurtailmentTopologyScopeCoverage is the authorization envelope derived from
+// a validated topology selector. SiteIDs includes selected-resource and live
+// member sites. RequireOrgWide is set when any selected resource or member is
+// unassigned, or when a group has no members and therefore unbounded future
+// coverage.
+type CurtailmentTopologyScopeCoverage struct {
+	SiteIDs        []int64
+	RequireOrgWide bool
+}
+
+// CurtailmentTopologyScopeStore validates topology selectors and derives their
+// current authorization coverage. It is separate from CurtailmentStore so
+// non-topology test stores do not need to implement an unused capability.
+type CurtailmentTopologyScopeStore interface {
+	ResolveCurtailmentTopologyScope(
+		ctx context.Context,
+		params ListCandidatesParams,
+	) (CurtailmentTopologyScopeCoverage, error)
 }
 
 // UpdateOperatorFieldsParams carries the optional patch fields for a

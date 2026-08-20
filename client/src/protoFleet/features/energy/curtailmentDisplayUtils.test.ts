@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import { create } from "@bufbuild/protobuf";
+
+import {
+  CurtailmentEventSchema,
+  CurtailmentScopeSchema,
+  ScopeBuildingSchema,
+} from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   type CurtailmentTargetRollup,
   formatCurtailmentElapsedDuration,
   getActiveCurtailmentCurtailProgress,
   getActiveCurtailmentRestoreProgress,
+  getCurtailmentEventScopeLabel,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 
 function rollups(counts: Partial<Record<CurtailmentTargetRollup["state"], number>>): CurtailmentTargetRollup[] {
@@ -210,5 +218,22 @@ describe("formatCurtailmentElapsedDuration", () => {
     [Number.NaN, "0s"],
   ])("formats %s seconds as %s", (seconds, expected) => {
     expect(formatCurtailmentElapsedDuration(seconds)).toBe(expected);
+  });
+});
+
+describe("getCurtailmentEventScopeLabel", () => {
+  it("summarizes a typed topology terminal scope without treating it as a generic device set", () => {
+    const event = create(CurtailmentEventSchema, {
+      scopes: [
+        create(CurtailmentScopeSchema, {
+          scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 10n }) },
+        }),
+        create(CurtailmentScopeSchema, {
+          scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 11n }) },
+        }),
+      ],
+    });
+
+    expect(getCurtailmentEventScopeLabel(event)).toBe("2 buildings");
   });
 });

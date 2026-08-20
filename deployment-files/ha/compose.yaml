@@ -39,6 +39,9 @@ services:
       - ${HA_SECRETS_DIR}/etcd-jwt.pub:/run/proto-fleet-ha/etcd-jwt.pub:ro
       - ${HA_SECRETS_DIR}/etcd-jwt.key:/run/proto-fleet-ha/etcd-jwt.key:ro
     stop_grace_period: 10s
+    # Systemd starts etcd only after the firewall and authentication gate.
+    # Recover process failures, but do not bypass that gate after Docker restarts.
+    restart: on-failure
     logging: *logging
 
   patroni:
@@ -68,6 +71,7 @@ services:
       - ${HA_SECRETS_DIR}/postgres-superuser-password:/run/proto-fleet-ha-source/postgres-superuser-password:ro
       - ${HA_SECRETS_DIR}/postgres-replication-password:/run/proto-fleet-ha-source/postgres-replication-password:ro
       - ${HA_SECRETS_DIR}/fleet-db-password:/run/proto-fleet-ha-source/fleet-db-password:ro
+      - ${HA_SECRETS_DIR}/grafana-db-password:/run/proto-fleet-ha-source/grafana-db-password:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -80,4 +84,7 @@ services:
       retries: 24
       start_period: 60s
     stop_grace_period: 30s
+    # Systemd reruns the quorum/auth gate after Docker restarts. This policy
+    # still recovers a failed Patroni process without bypassing that gate.
+    restart: on-failure
     logging: *logging

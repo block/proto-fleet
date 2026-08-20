@@ -192,7 +192,7 @@ func TestListRulesRedactsScopeDeviceIDsWithoutMinerRead(t *testing.T) {
 		Offline:         &alerts.OfflineRuleConfig{},
 		Scope:           &alerts.RuleScope{SiteIDs: []int64{3}, DeviceIDs: []string{"dev-a"}},
 	}}
-	h := NewHandler(alerts.NewService(scopedRuleGrafana(t), nil, nil, configs, nil, nil, nil, alerts.DestinationPolicy{}), nil)
+	h := NewHandler(alerts.NewService(scopedRuleGrafana(t), nil, nil, configs, nil, nil, nil, nil, alerts.DestinationPolicy{}), nil)
 
 	full, err := h.ListRules(ctxWithPerms(authz.PermAlertRead, authz.PermMinerRead), connect.NewRequest(&alertsv1.ListRulesRequest{}))
 	require.NoError(t, err)
@@ -220,7 +220,7 @@ func TestListRulesRedactsScopeDeviceIDsWithSiteNarrowedMinerRead(t *testing.T) {
 		Offline:         &alerts.OfflineRuleConfig{},
 		Scope:           &alerts.RuleScope{SiteIDs: []int64{3}, DeviceIDs: []string{"dev-a"}},
 	}}
-	h := NewHandler(alerts.NewService(scopedRuleGrafana(t), nil, nil, configs, nil, nil, nil, alerts.DestinationPolicy{}), nil)
+	h := NewHandler(alerts.NewService(scopedRuleGrafana(t), nil, nil, configs, nil, nil, nil, nil, alerts.DestinationPolicy{}), nil)
 
 	site := int64(5)
 	ctx := authn.SetInfo(context.Background(), &session.Info{

@@ -1,0 +1,25 @@
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    uid: protofleet-timescaledb
+    type: postgres
+    access: proxy
+    # Grafana 13's pgx datasource parses this as one shared port with ordered
+    # host fallbacks, matching Fleet's no-proxy HA database path.
+    url: ${HA_DB_A_IP},${HA_DB_B_IP}:5432
+    user: ${GRAFANA_DB_USERNAME}
+    secureJsonData:
+      password: ${GRAFANA_DB_PASSWORD}
+    jsonData:
+      database: ${GRAFANA_DB_NAME}
+      sslmode: verify-full
+      tlsConfigurationMethod: file-path
+      sslRootCertFile: /etc/grafana/proto-fleet-ha/service-ca.crt
+      postgresVersion: 1800
+      timescaledb: true
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+    isDefault: true
+    editable: false

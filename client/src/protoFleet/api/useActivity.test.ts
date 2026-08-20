@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { activityClient } from "./clients";
 import { useActivity } from "./useActivity";
 import {
@@ -16,7 +17,8 @@ vi.mock("./clients", () => ({
   },
 }));
 
-const mockHandleAuthErrors = vi.fn(({ onError }) => onError?.(new Error("auth error")));
+// Forwards the real error like the actual handler, so denial-specific branches see the ConnectError.
+const mockHandleAuthErrors = vi.fn(({ error, onError }) => onError?.(error));
 
 vi.mock("@/protoFleet/store", () => ({
   useAuthErrors: vi.fn(() => ({
@@ -218,6 +220,106 @@ describe("useActivity", () => {
 
     expect(mockHandleAuthErrors).toHaveBeenCalledWith(expect.objectContaining({ error: testError }));
     expect(result.current.error).toBeTruthy();
+    expect(result.current.denied).toBe(false);
     expect(result.current.activities).toHaveLength(0);
+  });
+
+  it("clears rows and the cursor when a denial lands mid-pagination", async () => {
+    vi.mocked(activityClient.listActivities).mockResolvedValueOnce(mockListResponse([makeEntry("1")], "next", 2));
+
+    const { result } = renderHook(() => useActivity({}));
+
+    await waitFor(() => expect(result.current.activities).toHaveLength(1));
+    expect(result.current.hasMore).toBe(true);
+
+    vi.mocked(activityClient.listActivities).mockRejectedValueOnce(
+      new ConnectError("forbidden", Code.PermissionDenied),
+    );
+    act(() => {
+      result.current.loadMore();
+    });
+
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    // The stale next-page token must not keep the feed resumable or hold the merged feed's barrier.
+    expect(result.current.denied).toBe(true);
+    expect(result.current.activities).toHaveLength(0);
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.totalCount).toBe(0);
+  });
+
+  it("does not fetch while disabled and fetches once enabled", async () => {
+    vi.mocked(activityClient.listActivities).mockResolvedValue(mockListResponse([makeEntry("1")], "", 1));
+
+    const { result, rerender } = renderHook(({ enabled }) => useActivity({ enabled }), {
+      initialProps: { enabled: false },
+    });
+
+    expect(activityClient.listActivities).not.toHaveBeenCalled();
+    expect(result.current.activities).toHaveLength(0);
+
+    rerender({ enabled: true });
+
+    await waitFor(() => {
+      expect(result.current.activities).toHaveLength(1);
+    });
+    expect(activityClient.listActivities).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles loading and drops the response when disabled mid-flight", async () => {
+    let resolveResponse!: (value: ReturnType<typeof mockListResponse>) => void;
+    vi.mocked(activityClient.listActivities).mockReturnValue(
+      new Promise((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+
+    const { result, rerender } = renderHook(({ enabled }) => useActivity({ enabled }), {
+      initialProps: { enabled: true },
+    });
+    expect(result.current.isLoading).toBe(true);
+
+    rerender({ enabled: false });
+    expect(result.current.isLoading).toBe(false);
+
+    await act(async () => {
+      resolveResponse(mockListResponse([makeEntry("1")], "next", 1));
+    });
+
+    expect(result.current.activities).toHaveLength(0);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("refresh is a no-op while disabled", async () => {
+    vi.mocked(activityClient.listActivities).mockResolvedValue(mockListResponse([], "", 0));
+
+    const { result } = renderHook(() => useActivity({ enabled: false }));
+
+    act(() => {
+      result.current.refresh();
+    });
+
+    expect(activityClient.listActivities).not.toHaveBeenCalled();
+  });
+
+  it("clears the feed when disabled after loading", async () => {
+    vi.mocked(activityClient.listActivities).mockResolvedValue(mockListResponse([makeEntry("1")], "next", 1));
+
+    const { result, rerender } = renderHook(({ enabled }) => useActivity({ enabled }), {
+      initialProps: { enabled: true },
+    });
+
+    await waitFor(() => {
+      expect(result.current.activities).toHaveLength(1);
+    });
+
+    rerender({ enabled: false });
+
+    // Masked synchronously in the return: withdrawn rows must not paint again while the clearing
+    // effect catches up.
+    expect(result.current.activities).toHaveLength(0);
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.totalCount).toBe(0);
+    expect(activityClient.listActivities).toHaveBeenCalledTimes(1);
   });
 });
