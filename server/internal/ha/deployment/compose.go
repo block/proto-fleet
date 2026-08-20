@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,7 +39,7 @@ func fleetComposeArgsForInstalledProfileAt(root, ownershipMarker, operation stri
 // ResetSuperAdminPassword runs the offline fleetd recovery command against the
 // installed HA application profile. This preserves the generated environment,
 // Compose project, and HA overlay selected by fleet-ha.
-func ResetSuperAdminPassword(ctx context.Context, passwordStdin bool) error {
+func ResetSuperAdminPassword(ctx context.Context, passwordInput io.Reader) error {
 	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
 	if err != nil {
 		return err
@@ -47,23 +48,24 @@ func ResetSuperAdminPassword(ctx context.Context, passwordStdin bool) error {
 		return errors.New("HA password reset must run on ha-a or ha-b")
 	}
 
-	args, err := resetSuperAdminPasswordComposeArgsAt(installRoot, haGrafanaVolumeOwnershipMarker, passwordStdin)
+	args, err := resetSuperAdminPasswordComposeArgsAt(installRoot, haGrafanaVolumeOwnershipMarker)
 	if err != nil {
 		return err
 	}
-	return RunCompose(ctx, args)
+	return runCompose(ctx, args, passwordInput)
 }
 
-func resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker string, passwordStdin bool) ([]string, error) {
-	command := []string{"--rm", "--no-deps", "-T", "fleet-api", "/app/fleetd", "admin", "reset-password"}
-	if passwordStdin {
-		command = append(command, "--password-stdin")
-	}
+func resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker string) ([]string, error) {
+	command := []string{"--rm", "--no-deps", "-T", "fleet-api", "/app/fleetd", "admin", "reset-password", "--password-stdin"}
 	return fleetComposeArgsForInstalledProfileAt(root, ownershipMarker, "run", command...)
 }
 
 // RunCompose prevents parent variables from overriding generated HA identity and secrets.
 func RunCompose(ctx context.Context, args []string) error {
+	return runCompose(ctx, args, os.Stdin)
+}
+
+func runCompose(ctx context.Context, args []string, stdin io.Reader) error {
 	protected := []string{
 		"AUTH_CLIENT_SECRET_KEY",
 		"COMPOSE_PROJECT_NAME",
@@ -89,7 +91,7 @@ func RunCompose(ctx context.Context, args []string) error {
 
 	commandArgs := append([]string{"--host", localDockerHost, "compose"}, args...)
 	command := exec.CommandContext(ctx, "docker", commandArgs...)
-	command.Stdin = os.Stdin
+	command.Stdin = stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	if err := command.Run(); err != nil {

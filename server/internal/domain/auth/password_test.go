@@ -14,6 +14,7 @@ func TestValidatePassword(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "too short", password: "1234567", wantErr: "at least 8 characters"},
+		{name: "invalid UTF-8", password: "\xff\xff\xff\xff\xff\xff\xff\xff", wantErr: "valid UTF-8"},
 		{name: "minimum length", password: "12345678"},
 		{name: "unicode characters", password: "密码密码密码密码"},
 		{name: "maximum bytes", password: strings.Repeat("a", 72)},

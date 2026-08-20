@@ -35,7 +35,7 @@ type adminCommand struct {
 
 type resetPasswordCommand struct {
 	DB            db.Config `embed:"" prefix:"db-" envprefix:"DB_"`
-	PasswordStdin bool      `help:"Read the replacement password from standard input."`
+	PasswordStdin bool      `help:"Read the replacement password from standard input (required)."`
 }
 
 type commandRuntime struct {
@@ -78,15 +78,11 @@ func (cmd *resetPasswordCommand) Run(ctx context.Context, runtime *commandRuntim
 		return err
 	}
 
-	return cmd.writeResult(runtime.Stdout, result.Username, password)
+	return cmd.writeResult(runtime.Stdout, result.Username)
 }
 
-func (cmd *resetPasswordCommand) writeResult(output io.Writer, username, password string) error {
+func (cmd *resetPasswordCommand) writeResult(output io.Writer, username string) error {
 	message := fmt.Sprintf("Reset the password for SUPER_ADMIN %q.\n", username)
-	if !cmd.PasswordStdin {
-		// Generated credentials are returned once, only after the transaction commits.
-		message += fmt.Sprintf("Temporary password: %s\n", password)
-	}
 	if _, err := io.WriteString(output, message); err != nil {
 		return fmt.Errorf("write reset result: %w", err)
 	}
@@ -125,11 +121,7 @@ func fleetdYAMLLoader(reader io.Reader) (kong.Resolver, error) {
 
 func (cmd *resetPasswordCommand) password(stdin io.Reader) (string, error) {
 	if !cmd.PasswordStdin {
-		password, err := authDomain.GenerateTemporaryPassword()
-		if err != nil {
-			return "", fmt.Errorf("generate temporary password: %w", err)
-		}
-		return password, nil
+		return "", fmt.Errorf("--password-stdin is required; use the host recovery wrapper to generate a temporary password")
 	}
 
 	password, err := bufio.NewReader(stdin).ReadString('\n')

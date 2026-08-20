@@ -21,6 +21,9 @@ const (
 // authenticated password changes, and break-glass recovery. The byte limit is
 // bcrypt's maximum input length.
 func ValidatePassword(password string) error {
+	if !utf8.ValidString(password) {
+		return fmt.Errorf("password must be valid UTF-8")
+	}
 	if utf8.RuneCountInString(password) < minimumPasswordLength {
 		return fmt.Errorf("password must be at least %d characters", minimumPasswordLength)
 	}

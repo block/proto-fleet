@@ -8,12 +8,14 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/google/uuid"
 
+	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/ha/deployment"
 	"github.com/block/proto-fleet/server/internal/updaterapi"
@@ -95,7 +97,39 @@ type resetPasswordCmd struct {
 }
 
 func (c *resetPasswordCmd) Run(ctx context.Context) error {
-	return deployment.ResetSuperAdminPassword(ctx, c.PasswordStdin)
+	return runResetPassword(
+		ctx,
+		c.PasswordStdin,
+		os.Stdin,
+		os.Stdout,
+		authDomain.GenerateTemporaryPassword,
+		deployment.ResetSuperAdminPassword,
+	)
+}
+
+func runResetPassword(
+	ctx context.Context,
+	passwordStdin bool,
+	stdin io.Reader,
+	stdout io.Writer,
+	generatePassword func() (string, error),
+	reset func(context.Context, io.Reader) error,
+) error {
+	if passwordStdin {
+		return reset(ctx, stdin)
+	}
+
+	password, err := generatePassword()
+	if err != nil {
+		return fmt.Errorf("generate temporary password: %w", err)
+	}
+	if err := reset(ctx, strings.NewReader(password+"\n")); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "Temporary password: %s\n", password); err != nil {
+		return fmt.Errorf("write temporary password: %w", err)
+	}
+	return nil
 }
 
 func (c *composeCmd) Run(ctx context.Context) error {

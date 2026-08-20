@@ -46,7 +46,7 @@ func TestResetSuperAdminPasswordComposeArgsUseInstalledHAProfile(t *testing.T) {
 	root := t.TempDir()
 	ownershipMarker := filepath.Join(root, "grafana-volume-owned")
 
-	args, err := resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker, true)
+	args, err := resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestResetSuperAdminPasswordComposeArgsUseInstalledHAProfile(t *testing.T) {
 	if err := os.WriteFile(ownershipMarker, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args, err = resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker, false)
+	args, err = resetSuperAdminPasswordComposeArgsAt(root, ownershipMarker)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +79,8 @@ func TestResetSuperAdminPasswordComposeArgsUseInstalledHAProfile(t *testing.T) {
 	if !strings.Contains(joined, "--file "+filepath.Join(root, "docker-compose.alerts.yaml")) {
 		t.Fatalf("Grafana-owning HA reset omitted alerts profile: %q", args)
 	}
-	if strings.Contains(joined, "--password-stdin") {
-		t.Fatalf("generated-password HA reset unexpectedly enabled stdin mode: %q", args)
+	if !strings.Contains(joined, "--password-stdin") {
+		t.Fatalf("HA reset did not force credential-free container output: %q", args)
 	}
 }
 

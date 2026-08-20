@@ -88,6 +88,7 @@ func TestResetPasswordCommandRejectsInvalidStdinPassword(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "too short", password: "short\n", wantErr: "at least 8 characters"},
+		{name: "invalid UTF-8", password: "\xff\xff\xff\xff\xff\xff\xff\xff\n", wantErr: "valid UTF-8"},
 		{name: "too many bytes", password: strings.Repeat("a", 73) + "\n", wantErr: "at most 72 bytes"},
 	}
 
@@ -102,30 +103,18 @@ func TestResetPasswordCommandRejectsInvalidStdinPassword(t *testing.T) {
 	}
 }
 
-func TestResetPasswordCommandGeneratesPasswordByDefault(t *testing.T) {
-	password, err := (&resetPasswordCommand{}).password(strings.NewReader(""))
+func TestResetPasswordCommandRequiresPasswordStdin(t *testing.T) {
+	_, err := (&resetPasswordCommand{}).password(strings.NewReader(""))
 
-	require.NoError(t, err)
-	require.Len(t, password, 32)
+	require.ErrorContains(t, err, "--password-stdin is required")
 }
 
-func TestResetPasswordCommandDoesNotEchoStdinPassword(t *testing.T) {
+func TestResetPasswordCommandWritesCredentialFreeSuccess(t *testing.T) {
 	cmd := resetPasswordCommand{PasswordStdin: true}
 	var output bytes.Buffer
 
-	err := cmd.writeResult(&output, "owner", "supplied-secret")
+	err := cmd.writeResult(&output, "owner")
 
 	require.NoError(t, err)
 	require.Equal(t, "Reset the password for SUPER_ADMIN \"owner\".\n", output.String())
-	require.NotContains(t, output.String(), "supplied-secret")
-}
-
-func TestResetPasswordCommandPrintsGeneratedPassword(t *testing.T) {
-	cmd := resetPasswordCommand{}
-	var output bytes.Buffer
-
-	err := cmd.writeResult(&output, "owner", "generated-secret")
-
-	require.NoError(t, err)
-	require.Contains(t, output.String(), "Temporary password: generated-secret")
 }

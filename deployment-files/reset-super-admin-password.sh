@@ -9,6 +9,7 @@ HA_COMMAND="$DEPLOYMENT_DIR/ha/fleet-ha"
 ENV_FILE="$DEPLOYMENT_DIR/.env"
 COMPOSE_FILE="$DEPLOYMENT_DIR/docker-compose.yaml"
 COMPOSE_PROJECT_HELPER="$DEPLOYMENT_DIR/scripts/compose-project.sh"
+DOCKER_DAEMON_HELPER="$DEPLOYMENT_DIR/scripts/docker-daemon.sh"
 
 case "$#" in
     0) ;;
@@ -71,9 +72,14 @@ if [ ! -f "$COMPOSE_PROJECT_HELPER" ] || [ ! -r "$COMPOSE_PROJECT_HELPER" ]; the
     echo "Error: $COMPOSE_PROJECT_HELPER must be a readable regular file." >&2
     exit 1
 fi
+if [ ! -f "$DOCKER_DAEMON_HELPER" ] || [ ! -r "$DOCKER_DAEMON_HELPER" ]; then
+    echo "Error: $DOCKER_DAEMON_HELPER must be a readable regular file." >&2
+    exit 1
+fi
 
 PROJECT_ROOT="$DEPLOYMENT_DIR"
 source "$COMPOSE_PROJECT_HELPER"
+source "$DOCKER_DAEMON_HELPER"
 FLEET_COMPOSE_PROJECT_NAME=$(resolve_persisted_compose_project_name) || exit 1
 
 if [ "${COMPOSE_PROJECT_NAME+x}" = "x" ] \
@@ -81,7 +87,7 @@ if [ "${COMPOSE_PROJECT_NAME+x}" = "x" ] \
     echo "Error: caller COMPOSE_PROJECT_NAME conflicts with the installed deployment; unset it before recovery." >&2
     exit 1
 fi
-for override in DB_DSN DB_NAME DB_USERNAME DB_PASSWORD DOCKER_HOST DOCKER_CONTEXT DOCKER_TLS DOCKER_TLS_VERIFY DOCKER_CERT_PATH; do
+for override in DB_DSN DB_NAME DB_USERNAME DB_PASSWORD; do
     if [ "${!override+x}" = "x" ]; then
         echo "Error: caller $override is not allowed during password recovery; unset it and use the persisted deployment configuration." >&2
         exit 1
@@ -89,11 +95,42 @@ for override in DB_DSN DB_NAME DB_USERNAME DB_PASSWORD DOCKER_HOST DOCKER_CONTEX
 done
 unset COMPOSE_PROJECT_NAME override
 
+if [ ! -e "$DOCKER_DAEMON_STATE_FILE" ] && [ ! -L "$DOCKER_DAEMON_STATE_FILE" ]; then
+    echo "Error: Docker daemon state is missing; rerun the installer before password recovery." >&2
+    exit 1
+fi
+if ! verify_persisted_docker_daemon; then
+    exit 1
+fi
+
 cd "$DEPLOYMENT_DIR"
-exec docker --host unix:///var/run/docker.sock compose \
-    --project-name "$FLEET_COMPOSE_PROJECT_NAME" \
-    --project-directory "$DEPLOYMENT_DIR" \
-    --env-file "$ENV_FILE" \
-    -f "$COMPOSE_FILE" \
-    run --rm --no-deps -T fleet-api \
-    /app/fleetd admin reset-password "$@"
+docker_command=(
+    docker compose
+    --project-name "$FLEET_COMPOSE_PROJECT_NAME"
+    --project-directory "$DEPLOYMENT_DIR"
+    --env-file "$ENV_FILE"
+    -f "$COMPOSE_FILE"
+    run --rm --no-deps -T fleet-api
+    /app/fleetd admin reset-password --password-stdin
+)
+
+if [ "${1:-}" = "--password-stdin" ]; then
+    exec "${docker_command[@]}"
+fi
+
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "Error: generated password recovery requires openssl." >&2
+    exit 1
+fi
+temporary_password=$(openssl rand -base64 24 | tr '+/' '-_' | tr -d '\r\n') || {
+    echo "Error: could not generate a temporary password." >&2
+    exit 1
+}
+if [ "${#temporary_password}" -ne 32 ]; then
+    echo "Error: generated temporary password had an unexpected length." >&2
+    exit 1
+fi
+if ! printf '%s\n' "$temporary_password" | "${docker_command[@]}"; then
+    exit 1
+fi
+printf 'Temporary password: %s\n' "$temporary_password"

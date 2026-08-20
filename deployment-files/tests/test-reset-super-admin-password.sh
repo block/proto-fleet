@@ -35,18 +35,30 @@ assert_contains() {
 mkdir -p "$STAGE/scripts" "$BIN_DIR"
 cp "$DEPLOYMENT_FILES_DIR/reset-super-admin-password.sh" "$STAGE/"
 cp "$DEPLOYMENT_FILES_DIR/scripts/compose-project.sh" "$STAGE/scripts/"
+cp "$DEPLOYMENT_FILES_DIR/scripts/docker-daemon.sh" "$STAGE/scripts/"
 printf 'services: {}\n' > "$STAGE/docker-compose.yaml"
 printf 'COMPOSE_PROJECT_NAME=fleet-recovery\n' > "$STAGE/.env"
+printf 'proto-fleet-docker-daemon-v1:test-daemon\n' > "$STAGE/.docker-daemon-id"
 
 cat > "$BIN_DIR/docker" <<'EOF'
 #!/usr/bin/env bash
+if [ "${1:-}" = "info" ]; then
+    printf '%s\n' "${FAKE_DOCKER_ID:-test-daemon}"
+    exit 0
+fi
 printf 'cwd=%s\n' "$PWD" > "$CALL_LOG"
+printf 'docker_host=%s\n' "${DOCKER_HOST:-}" >> "$CALL_LOG"
+printf 'docker_context=%s\n' "${DOCKER_CONTEXT:-}" >> "$CALL_LOG"
 printf 'args=' >> "$CALL_LOG"
 printf ' <%s>' "$@" >> "$CALL_LOG"
 printf '\n' >> "$CALL_LOG"
 cat > "$STDIN_LOG"
 EOF
-chmod +x "$BIN_DIR/docker" "$STAGE/reset-super-admin-password.sh"
+cat > "$BIN_DIR/openssl" <<'EOF'
+#!/usr/bin/env bash
+printf '0123456789abcdefghijklmnopqrstuv\n'
+EOF
+chmod +x "$BIN_DIR/docker" "$BIN_DIR/openssl" "$STAGE/reset-super-admin-password.sh"
 
 if ! printf 'replacement-password\n' | \
     PATH="$BIN_DIR:$PATH" CALL_LOG="$CALL_LOG" STDIN_LOG="$STDIN_LOG" \
@@ -55,14 +67,14 @@ if ! printf 'replacement-password\n' | \
 fi
 
 assert_contains "runs from deployment directory" "cwd=$STAGE"
-assert_contains "pins the local Docker daemon" "args= <--host> <unix:///var/run/docker.sock> <compose>"
+assert_contains "uses the verified selected Docker daemon" "args= <compose>"
 assert_contains "uses the persisted Compose project" " <--project-name> <fleet-recovery>"
 assert_contains "pins the project directory" " <--project-directory> <$STAGE>"
 assert_contains "loads the deployment env" " <--env-file> <$STAGE/.env>"
 assert_contains "uses the bundled compose file" " <-f> <$STAGE/docker-compose.yaml>"
 assert_contains "runs a dependency-free disposable non-TTY container" " <run> <--rm> <--no-deps> <-T> <fleet-api>"
 assert_contains "uses the absolute fleetd path" " </app/fleetd> <admin> <reset-password>"
-assert_contains "forwards command arguments" " <--password-stdin>"
+assert_contains "forces credential-free container output" " <--password-stdin>"
 
 if [ "$(cat "$STDIN_LOG")" = "replacement-password" ]; then
     echo "ok: forwards stdin"
@@ -70,7 +82,7 @@ else
     fail "stdin was not forwarded"
 fi
 
-for override in COMPOSE_PROJECT_NAME DB_DSN DB_PASSWORD DOCKER_HOST DOCKER_CONTEXT; do
+for override in COMPOSE_PROJECT_NAME DB_DSN DB_PASSWORD; do
     OVERRIDE_CALL_LOG="$TMP_DIR/${override}.docker-call.log"
     if env "$override=conflicting-value" PATH="$BIN_DIR:$PATH" \
         CALL_LOG="$OVERRIDE_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
@@ -82,6 +94,52 @@ for override in COMPOSE_PROJECT_NAME DB_DSN DB_PASSWORD DOCKER_HOST DOCKER_CONTE
         echo "ok: rejects caller $override override before Docker"
     fi
 done
+
+SELECTED_DAEMON_CALL_LOG="$TMP_DIR/selected-daemon.docker-call.log"
+if ! printf 'replacement-password\n' | DOCKER_HOST=unix:///run/user/1000/docker.sock \
+    DOCKER_CONTEXT=rootless PATH="$BIN_DIR:$PATH" CALL_LOG="$SELECTED_DAEMON_CALL_LOG" \
+    STDIN_LOG="$STDIN_LOG" "$STAGE/reset-super-admin-password.sh" --password-stdin; then
+    fail "matching custom Docker daemon was rejected"
+fi
+assert_contains "allows the installation's custom Docker host" \
+    "docker_host=unix:///run/user/1000/docker.sock" "$SELECTED_DAEMON_CALL_LOG"
+assert_contains "allows the installation's Docker context" \
+    "docker_context=rootless" "$SELECTED_DAEMON_CALL_LOG"
+
+MISMATCHED_DAEMON_CALL_LOG="$TMP_DIR/mismatched-daemon.docker-call.log"
+if FAKE_DOCKER_ID=other-daemon PATH="$BIN_DIR:$PATH" \
+    CALL_LOG="$MISMATCHED_DAEMON_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+    "$STAGE/reset-super-admin-password.sh" --password-stdin >/dev/null 2>&1; then
+    fail "mismatched Docker daemon was accepted"
+elif [ -e "$MISMATCHED_DAEMON_CALL_LOG" ]; then
+    fail "mismatched Docker daemon reached Compose"
+else
+    echo "ok: mismatched Docker daemon fails closed before Compose"
+fi
+
+GENERATED_CALL_LOG="$TMP_DIR/generated.docker-call.log"
+GENERATED_STDIN_LOG="$TMP_DIR/generated.docker-stdin.log"
+if ! GENERATED_OUTPUT=$(PATH="$BIN_DIR:$PATH" CALL_LOG="$GENERATED_CALL_LOG" \
+    STDIN_LOG="$GENERATED_STDIN_LOG" "$STAGE/reset-super-admin-password.sh"); then
+    fail "generated password recovery failed"
+fi
+assert_contains "generated recovery still forces stdin mode" " <--password-stdin>" "$GENERATED_CALL_LOG"
+if [ "$(cat "$GENERATED_STDIN_LOG")" = "0123456789abcdefghijklmnopqrstuv" ]; then
+    echo "ok: generated password reaches only container stdin"
+else
+    fail "generated password was not sent through container stdin"
+fi
+case "$GENERATED_OUTPUT" in
+    *"Temporary password: 0123456789abcdefghijklmnopqrstuv"*)
+        echo "ok: host prints generated password after reset"
+        ;;
+    *) fail "host did not print the generated password" ;;
+esac
+if grep -qF '0123456789abcdefghijklmnopqrstuv' "$GENERATED_CALL_LOG"; then
+    fail "generated password appeared in Docker arguments"
+else
+    echo "ok: generated password is absent from Docker arguments"
+fi
 
 for rejected_arg in --db-explicit-dsn --db-address --username unexpected; do
     REJECTED_ARG_CALL_LOG="$TMP_DIR/rejected-${rejected_arg#--}.docker-call.log"

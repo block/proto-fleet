@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/alecthomas/kong"
@@ -34,6 +36,70 @@ func TestResetPasswordCommandParsesStdinFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "reset-password", ctx.Command())
 	require.True(t, parsed.ResetPassword.PasswordStdin)
+}
+
+func TestRunResetPasswordGeneratesOnHostAndUsesContainerStdin(t *testing.T) {
+	var output bytes.Buffer
+	var containerInput string
+
+	err := runResetPassword(
+		t.Context(),
+		false,
+		strings.NewReader("ignored"),
+		&output,
+		func() (string, error) { return "generated-secret", nil },
+		func(_ context.Context, input io.Reader) error {
+			contents, err := io.ReadAll(input)
+			require.NoError(t, err)
+			containerInput = string(contents)
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "generated-secret\n", containerInput)
+	require.Equal(t, "Temporary password: generated-secret\n", output.String())
+}
+
+func TestRunResetPasswordDoesNotPrintGeneratedPasswordWhenResetFails(t *testing.T) {
+	var output bytes.Buffer
+
+	err := runResetPassword(
+		t.Context(),
+		false,
+		strings.NewReader(""),
+		&output,
+		func() (string, error) { return "generated-secret", nil },
+		func(context.Context, io.Reader) error { return errors.New("reset failed") },
+	)
+
+	require.ErrorContains(t, err, "reset failed")
+	require.Empty(t, output.String())
+}
+
+func TestRunResetPasswordForwardsSuppliedStdinWithoutHostOutput(t *testing.T) {
+	var output bytes.Buffer
+	supplied := strings.NewReader("supplied-secret\n")
+	generated := false
+
+	err := runResetPassword(
+		t.Context(),
+		true,
+		supplied,
+		&output,
+		func() (string, error) {
+			generated = true
+			return "", nil
+		},
+		func(_ context.Context, input io.Reader) error {
+			require.Same(t, supplied, input)
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.False(t, generated)
+	require.Empty(t, output.String())
 }
 
 func (f *fakeUpdaterClient) TriggerComplete(_ context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {

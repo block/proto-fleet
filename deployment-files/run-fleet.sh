@@ -22,6 +22,7 @@ COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
 COMPOSE_UPDATER_FILE="$PROJECT_ROOT/docker-compose.updater.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 source "$PROJECT_ROOT/scripts/compose-project.sh"
+source "$PROJECT_ROOT/scripts/docker-daemon.sh"
 VERSION_FILE="$PROJECT_ROOT/version.txt"
 RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
@@ -1094,6 +1095,8 @@ find_release_entries() {
         ! -path './.update-preflight-complete.tmp.*' \
         ! -path './.fleet-startup-complete' \
         ! -path './.fleet-startup-complete.tmp.*' \
+        ! -path './.docker-daemon-id' \
+        ! -path './.docker-daemon-id.tmp.*' \
         ! -path './client/nginx.conf' \
         ! -path './ssl/*' \
         ! -path './server/influx_config/.env' \
@@ -1834,6 +1837,10 @@ else
     echo "Docker daemon is already running."
 fi
 
+if ! verify_persisted_docker_daemon; then
+    exit 1
+fi
+
 # ----------------------------------------------------------------------------
 # WSL Networking Fix
 # ----------------------------------------------------------------------------
@@ -2236,6 +2243,11 @@ if ! atomic_set_env_values \
 fi
 if [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
     DIRECT_UPDATER_ENV_ROLLBACK_PENDING=true
+fi
+
+if ! persist_current_docker_daemon; then
+    echo "Error: could not persist the Docker daemon identity; aborting before Compose validation or service changes." >&2
+    exit 1
 fi
 
 # ----------------------------------------------------------------------------

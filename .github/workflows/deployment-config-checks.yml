@@ -22,6 +22,7 @@ jobs:
             deployment-files/run-fleet.sh \
             deployment-files/scripts/compose-project.sh \
             deployment-files/scripts/create-release-manifest.sh \
+            deployment-files/scripts/docker-daemon.sh \
             deployment-files/uninstall.sh \
             deployment-files/tests/test-install-overlay-migration.sh \
             deployment-files/tests/test-profiles.sh \

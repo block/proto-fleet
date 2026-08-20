@@ -59,9 +59,11 @@ The operator-facing command is a release-bundled wrapper:
   persisted Compose project and `.env`; HA delegates to `fleet-ha
   reset-password`, which selects the generated HA environment, project, and
   overlay. An install marker distinguishes active HA state from retained HA
-  data, and ambiguous topology fails closed. Both paths pin the local Docker
-  daemon and reject extra arguments or caller database targeting overrides.
-  Piped stdin uses non-TTY mode. Raw Compose details stay internal.
+  data, and ambiguous topology fails closed. Standalone records the Docker
+  Engine ID during installation and verifies the caller-selected context or
+  endpoint during recovery; HA remains pinned to its rootful local daemon.
+  Both reject extra arguments and caller database targeting overrides. Piped
+  stdin uses non-TTY mode. Raw Compose details stay internal.
 - `run-fleet.sh` requires database connection overrides to match `.env`, so
   recovery always has an authoritative persisted target.
 - Restructure `fleetd` into kong commands with the server as the default and an
@@ -90,10 +92,13 @@ a password.
 
 ### Password handling
 
-- Default: generate a strong temp password with the existing generator in
-  `server/internal/domain/auth/password.go`.
+- Default: generate a strong temp password in the host wrapper (`fleet-ha`
+  reuses the existing Go generator), pipe it to the one-shot container, and
+  print it from the host only after a successful reset.
 - `--password-stdin`: read a supplied password from piped stdin and apply the
-  shared server policy (minimum 8 characters, maximum 72 bytes).
+  shared server policy (valid UTF-8, minimum 8 characters, maximum 72 bytes).
+- The internal `fleetd` command always requires stdin and emits no credential,
+  so Docker logging never receives a generated password.
 - In both cases `requires_password_change = TRUE` is set — the supplied or
   generated password is a stopgap credential either way.
 
@@ -122,9 +127,10 @@ password reset” rather than using a fallback label.
 
 ### Output
 
-Print a generated temporary password once after commit. In stdin mode, print
-only a credential-free success message. Failures are actionable and non-zero;
-there is no confirmation prompt.
+The host wrapper prints a generated temporary password once after the
+container reports a committed reset. In stdin mode, output remains
+credential-free. Failures are actionable and non-zero; there is no confirmation
+prompt.
 
 ### Docs
 
@@ -152,7 +158,10 @@ there is no confirmation prompt.
 - **Audit/schema failure:** fail closed without changing credentials. Schema
   repair is outside this command.
 - **Credential leakage:** only generated credentials are output, once after
-  commit; supplied credentials are never echoed; force change on login.
+  commit by the host wrapper; container output and logs remain credential-free;
+  supplied credentials are never echoed; force change on login.
+- **Wrong Docker daemon:** persist the standalone Engine ID and require the
+  selected rootless, desktop, or custom context to match it before recovery.
 - **Host takeover:** accepted because the host operator already controls the
   application database.
 
@@ -166,7 +175,8 @@ there is no confirmation prompt.
   audit failure all exit without partial changes or password output.
 - **Compatibility:** bare `fleetd`, existing YAML/env/root flags, and admin
   help. Wrapper tests cover standalone and HA profile selection, argument/stdin
-  forwarding, non-TTY execution, packaging, and the absolute internal binary.
+  forwarding, rootless/custom daemon identity, credential-free container
+  output, non-TTY execution, packaging, and the absolute internal binary.
 - **Activity:** migration up/down restores the prior function; client tests
   cover row/detail/filter labels, target username, and icon.
 - **Smoke:** run `./reset-super-admin-password.sh`, log in with the printed
