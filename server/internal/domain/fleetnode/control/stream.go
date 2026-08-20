@@ -38,6 +38,18 @@ func (r *Registry) Register(fleetNodeID int64) *Stream {
 	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
 }
 
+// Disconnect tears down the active ControlStream for fleetNodeID, if any.
+func (r *Registry) Disconnect(fleetNodeID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn, ok := r.conns[fleetNodeID]
+	if !ok {
+		return
+	}
+	teardown(conn)
+	delete(r.conns, fleetNodeID)
+}
+
 // Unregister tears the connection down so blocked senders/the handler wake. No-op if
 // already evicted (newest-wins replacement).
 func (s *Stream) Unregister() {

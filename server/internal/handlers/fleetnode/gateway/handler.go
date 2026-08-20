@@ -50,10 +50,15 @@ type Handler struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
 	enrollment *enrollment.Service
-	auth       *auth.Service
+	auth       authService
 	pairing    *pairing.Service
 	registry   *control.Registry
 	files      *files.Service
+}
+
+type authService interface {
+	BeginHandshake(ctx context.Context, apiKeyPlaintext string, identityPubkey []byte) ([]byte, time.Time, error)
+	CompleteHandshake(ctx context.Context, challenge, signature []byte) (string, time.Time, int64, error)
 }
 
 var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
@@ -95,10 +100,11 @@ func (h *Handler) BeginAuthHandshake(ctx context.Context, req *connect.Request[p
 }
 
 func (h *Handler) CompleteAuthHandshake(ctx context.Context, req *connect.Request[pb.CompleteAuthHandshakeRequest]) (*connect.Response[pb.CompleteAuthHandshakeResponse], error) {
-	token, expiresAt, err := h.auth.CompleteHandshake(ctx, req.Msg.GetChallenge(), req.Msg.GetSignature())
+	token, expiresAt, fleetNodeID, err := h.auth.CompleteHandshake(ctx, req.Msg.GetChallenge(), req.Msg.GetSignature())
 	if err != nil {
 		return nil, err
 	}
+	h.registry.Disconnect(fleetNodeID)
 	return connect.NewResponse(&pb.CompleteAuthHandshakeResponse{
 		SessionToken: token,
 		ExpiresAt:    timestamppb.New(expiresAt),
