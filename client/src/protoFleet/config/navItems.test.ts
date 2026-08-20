@@ -104,7 +104,7 @@ describe("secondaryNavItems", () => {
     expect(secondaryNavItems).toContainEqual(
       expect.objectContaining({
         path: "/settings/updates",
-        label: "Updates",
+        label: "Software Update",
         parent: "/settings",
         section: "Admin",
         requiredPermission: "instance:update",
