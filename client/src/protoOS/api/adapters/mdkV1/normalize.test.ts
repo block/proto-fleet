@@ -100,6 +100,53 @@ describe("MDK v1 normalization", () => {
     expect(history.hashboards.get(asHashboardId("serial:HB-1"))?.hashrate?.timeSeries?.bucketSizeMs).toBe(60_000);
   });
 
+  it("scales latest measurements from milli/kilo units into canonical units", () => {
+    const telemetry = toCanonicalTelemetry({
+      timestamp: "2026-08-17T00:00:00Z",
+      psus: [
+        {
+          index: 0,
+          serial_number: "PSU-1",
+          voltage: { input: 240_000, output: 12_000, unit: "mV" },
+          current: { input: 10_000, output: 200_000, unit: "mA" },
+          power: { input: 2.4, output: 2.3, unit: "kW" },
+        },
+      ],
+    } as never);
+
+    const psu = telemetry.psus.get(getPsuId(1));
+    expect(psu?.inputVoltage?.latest).toEqual({ value: 240, units: "V" });
+    expect(psu?.outputVoltage?.latest).toEqual({ value: 12, units: "V" });
+    expect(psu?.inputCurrent?.latest).toEqual({ value: 10, units: "A" });
+    expect(psu?.outputCurrent?.latest).toEqual({ value: 200, units: "A" });
+    expect(psu?.inputPower?.latest).toEqual({ value: 2_400, units: "W" });
+    expect(psu?.outputPower?.latest).toEqual({ value: 2_300, units: "W" });
+  });
+
+  it("applies each historical unit-scaling factor to series values and units", () => {
+    // Exercises every non-unity branch of the unit table. The field carrying the
+    // value is irrelevant to scaling, so all cases ride on `miner.hashrate`.
+    const cases: Array<{ unit: string; raw: number; expected: number; units: string }> = [
+      { unit: "MH/s", raw: 5_000, expected: 5, units: "GH/s" },
+      { unit: "GH/s", raw: 5, expected: 5, units: "GH/s" },
+      { unit: "kW", raw: 3, expected: 3_000, units: "W" },
+      { unit: "MW", raw: 0.003, expected: 3_000, units: "W" },
+      { unit: "mV", raw: 240_000, expected: 240, units: "V" },
+      { unit: "mA", raw: 10_000, expected: 10, units: "A" },
+      { unit: "GHz", raw: 1.2, expected: 1_200, units: "MHz" },
+    ];
+
+    for (const { unit, raw, expected, units } of cases) {
+      const history = toCanonicalTimeSeries(
+        { meta: { interval: "PT1M" }, data: { miner: { hashrate: { unit, values: [raw] } } } } as never,
+        { startTimeMs: 0 },
+      );
+      const series = history.rollupsByEntity.get(ROOT_MODULE_KEY)?.hashrate?.timeSeries;
+      expect(series?.units, `units for ${unit}`).toBe(units);
+      expect(series?.points[0]?.value, `value for ${unit}`).toBeCloseTo(expected);
+    }
+  });
+
   it("omits latest metrics whose wire values cannot be normalized", () => {
     const telemetry = toCanonicalTelemetry({
       timestamp: "2026-08-17T00:00:00Z",

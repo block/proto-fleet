@@ -21,13 +21,13 @@ describe("Hardware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default mock implementations
+    // Default mock implementations — mirrors the normalized useHardware() shape.
     mockUseCoolingMode.mockReturnValue("automatic");
     mockUseHardware.mockReturnValue({
-      hashboardsInfo: [{ board: "1234", hb_sn: "PM-123456789" }],
-      controlBoardInfo: { board_id: "3", serial_number: "CB-123456789" },
+      hashboardsInfo: [{ boardModel: "1234", identity: { value: "PM-123456789" } }],
+      controlBoardInfo: { boardId: "3", serialNumber: "CB-123456789" },
       fansInfo: [{ slot: 1 }],
-      psusInfo: [{ model: "1234", psu_sn: "PSU-123456789" }],
+      psusInfo: [{ model: "1234", serialNumber: "PSU-123456789" }],
       pending: false,
       error: null,
     });
@@ -180,6 +180,25 @@ describe("Hardware", () => {
       expect(screen.queryByText("This miner is set to immersion cooling")).not.toBeInTheDocument();
       expect(screen.getByText("Fan 1")).toBeInTheDocument();
       expect(screen.getByText("Fan 2")).toBeInTheDocument();
+    });
+  });
+
+  describe("Populated hardware rows", () => {
+    it("renders normalized control board, hashboard, and PSU fields", () => {
+      // Uses the default beforeEach mock (normalized shape). Guards against a
+      // regression that reverts these reads to the pre-normalization field names.
+      render(<Hardware />);
+
+      // Control board: boardId "3" -> Gen 2, plus its serial number.
+      expect(screen.getByText("Control Board 2")).toBeInTheDocument();
+      expect(screen.getByText("CB-123456789")).toBeInTheDocument();
+
+      // Hashboard identity.value and PSU serialNumber are distinct reads.
+      expect(screen.getByText("PM-123456789")).toBeInTheDocument();
+      expect(screen.getByText("PSU-123456789")).toBeInTheDocument();
+
+      // Hashboard boardModel + PSU model both render as "Model 1234".
+      expect(screen.getAllByText("Model 1234")).toHaveLength(2);
     });
   });
 
