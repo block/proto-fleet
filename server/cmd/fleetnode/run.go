@@ -47,8 +47,10 @@ type RunCmd struct {
 	localSubnets             func() ([]string, error)                                                 `kong:"-"` // test seam for local-subnet detection
 	firmwareTempRoot         string                                                                   `kong:"-"`
 
-	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
+	stateMu sync.Mutex `kong:"-"` // guards session state and the active control-session cancel func.
 	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
+
+	controlSessionCancel context.CancelCauseFunc `kong:"-"`
 
 	controlConcurrencyOnce sync.Once      `kong:"-"`
 	controlCommandSlots    chan struct{}  `kong:"-"`
@@ -328,7 +330,11 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	// Snapshot under the lock so SaveState's yaml.Marshal doesn't race the
 	// tokenSource goroutine that the control loop will add later.
 	snapshot := *st
+	cancelControlSession := r.controlSessionCancel
 	r.stateMu.Unlock()
+	if cancelControlSession != nil {
+		cancelControlSession(errControlSessionRotated)
+	}
 	if err := bootstrap.SaveState(path, &snapshot); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}

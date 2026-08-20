@@ -74,6 +74,11 @@ type acker interface {
 
 var errControlSenderClosed = errors.New("control session sender closed")
 
+var (
+	errControlSessionRotated = errors.New("control session credentials rotated")
+	errControlSessionExpired = errors.New("control session credentials expired")
+)
+
 // connect-go bidi streams are not safe for concurrent Send. The receive
 // loop's busy-ack and the worker's completion ack now share a stream;
 // serialize through this wrapper.
@@ -125,7 +130,7 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 		default:
 		}
 		started := time.Now()
-		err := r.runControlSession(ctx, loopLogger, client)
+		err := r.runControlSession(ctx, loopLogger, client, st)
 		if err == nil {
 			return nil
 		}
@@ -185,9 +190,11 @@ func isNotActiveControlError(err error) bool {
 	return false
 }
 
-func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, client gatewayClient) error {
+func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, client gatewayClient, st *bootstrap.State) error {
 	r.initControlConcurrency()
-	stream := client.ControlStream(ctx)
+	credentialCtx, endSession := r.beginControlSession(ctx, st)
+	defer endSession()
+	stream := client.ControlStream(credentialCtx)
 	// stream.Receive parks in http2.pipe on a sync.Cond ctx can't unblock;
 	// the watcher below closes the stream so Ctrl+C returns. Defers run
 	// LIFO: close(done) fires first so the watcher exits quietly on normal
@@ -197,7 +204,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	defer close(done)
 	go func() {
 		select {
-		case <-ctx.Done():
+		case <-credentialCtx.Done():
 			_ = stream.CloseRequest()
 			_ = stream.CloseResponse()
 		case <-done:
@@ -205,10 +212,22 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}()
 
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if cause := context.Cause(credentialCtx); cause != nil {
+			return fmt.Errorf("control session ended while sending hello: %w", cause)
+		}
 		return fmt.Errorf("send hello: %w", err)
 	}
 	first, err := stream.Receive()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if cause := context.Cause(credentialCtx); cause != nil {
+			return fmt.Errorf("control session ended while awaiting acceptance: %w", cause)
+		}
 		return fmt.Errorf("await accepted: %w", err)
 	}
 	if first.GetAccepted() == nil {
@@ -219,7 +238,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// sessionCtx so a dropped stream cancels the in-flight scan immediately;
 	// without it the agent would burn up to commandTimeout finishing an old
 	// scan before opening a new session.
-	sessionCtx, cancelSession := context.WithCancel(ctx)
+	sessionCtx, cancelSession := context.WithCancel(credentialCtx)
 
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
@@ -230,9 +249,9 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}()
 
 	// Two process-wide lanes owned by RunCmd:
-	//   - discovery (and the pairing effort's future pair) is a heavy, report-bearing
-	//     scan; it is single-flight per node via an exclusive slot, so a second
-	//     concurrent discovery is rejected BUSY rather than doubling the scan load.
+	//   - discovery and pairing are heavy, report-bearing scans that share an
+	//     exclusive slot, so a second concurrent scan is rejected BUSY rather than
+	//     doubling the load.
 	//   - quick per-miner commands use a broader pool, so they run concurrently and a
 	//     long discovery never head-of-line-blocks them.
 	// Both are non-blocking acquires: parking the receive loop would hide stream
@@ -240,9 +259,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	for {
 		msg, err := stream.Receive()
 		if err != nil {
-			// Watcher closed the stream because ctx is done; clean shutdown.
+			// Parent cancellation is daemon shutdown. Credential rotation or expiry
+			// retires only this stream so the reconnect loop can open a replacement.
 			if ctx.Err() != nil {
 				return nil
+			}
+			if cause := context.Cause(credentialCtx); cause != nil {
+				return fmt.Errorf("control session ended: %w", cause)
 			}
 			if errors.Is(err, io.EOF) {
 				return fmt.Errorf("control stream closed by server: %w", err)
@@ -278,10 +301,32 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	}
 }
 
+func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State) (context.Context, func()) {
+	r.stateMu.Lock()
+	expiresAt := st.SessionExpiresAt
+
+	deadlineCtx := parent
+	cancelDeadline := func() {}
+	if !expiresAt.IsZero() {
+		deadlineCtx, cancelDeadline = context.WithDeadlineCause(parent, expiresAt, errControlSessionExpired)
+	}
+	sessionCtx, cancelSession := context.WithCancelCause(deadlineCtx)
+	r.controlSessionCancel = cancelSession
+	r.stateMu.Unlock()
+
+	return sessionCtx, func() {
+		cancelSession(context.Canceled)
+		cancelDeadline()
+		r.stateMu.Lock()
+		r.controlSessionCancel = nil
+		r.stateMu.Unlock()
+	}
+}
+
 // decodeAgentCommand unmarshals the ControlCommand.payload envelope. The receive loop
 // decodes once and hands the result to handleCommand so the payload is parsed a single
-// time. Discovery (and the pairing effort's future pair) is the heavy, report-bearing
-// kind that takes the exclusive single-flight slot; everything else, including a
+// time. Discovery and pairing are the heavy, report-bearing commands that take the
+// exclusive single-flight slot; everything else, including a
 // malformed payload, takes the per-miner command pool and is acked by handleCommand.
 func decodeAgentCommand(payload []byte) (*pb.AgentCommand, error) {
 	env := &pb.AgentCommand{}
