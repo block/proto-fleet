@@ -105,7 +105,8 @@ func (cmd *resetPasswordCommand) Run(ctx context.Context) error {
 // the wrapper would withhold a temporary password that is already active.
 func reportResetResult(stdout, stderr io.Writer, username string) {
 	if _, err := fmt.Fprintf(stdout, "Reset the password for SUPER_ADMIN %q.\n", username); err != nil {
-		fmt.Fprintf(stderr, "warning: password reset committed but writing the result failed: %v\n", err)
+		// Also best-effort: there is nowhere left to report a broken stderr.
+		_, _ = fmt.Fprintf(stderr, "warning: password reset committed but writing the result failed: %v\n", err)
 	}
 }
 
