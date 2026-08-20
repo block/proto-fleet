@@ -3203,6 +3203,107 @@ func (q *Queries) LockCurtailmentScopeForWrite(ctx context.Context, orgID string
 	return err
 }
 
+const lockCurtailmentTopologyMemberDeviceSitesByOrg = `-- name: LockCurtailmentTopologyMemberDeviceSitesByOrg :many
+SELECT d.device_identifier, d.site_id
+FROM device d
+WHERE d.org_id = $1
+  AND d.deleted_at IS NULL
+  AND (
+    (
+      d.building_id = ANY($2::BIGINT[])
+      OR EXISTS (
+        SELECT 1
+        FROM device_set_membership dsm
+        JOIN device_set ds
+          ON ds.id = dsm.device_set_id
+         AND ds.org_id = dsm.org_id
+         AND ds.type = 'rack'
+         AND ds.deleted_at IS NULL
+        JOIN device_set_rack dsr
+          ON dsr.device_set_id = ds.id
+         AND dsr.org_id = ds.org_id
+        WHERE dsm.org_id = $1
+          AND dsm.device_id = d.id
+          AND dsm.device_set_type = 'rack'
+          AND dsr.building_id = ANY($2::BIGINT[])
+      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'rack'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = $1
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'rack'
+        AND dsm.device_set_id = ANY($3::BIGINT[])
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'group'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = $1
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'group'
+        AND dsm.device_set_id = ANY($4::BIGINT[])
+    )
+  )
+ORDER BY d.id
+LIMIT 10001
+FOR UPDATE
+`
+
+type LockCurtailmentTopologyMemberDeviceSitesByOrgParams struct {
+	OrgID       int64
+	BuildingIds []int64
+	RackIds     []int64
+	GroupIds    []int64
+}
+
+type LockCurtailmentTopologyMemberDeviceSitesByOrgRow struct {
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+}
+
+// Stabilizes the current member rows while an authorization envelope and its
+// event targets/profile row are persisted. The query mirrors the executable
+// topology selector predicates and locks in device.id order, matching the
+// canonical device-reassignment lock order used by site/building/rack writes.
+func (q *Queries) LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error) {
+	rows, err := q.query(ctx, q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt, lockCurtailmentTopologyMemberDeviceSitesByOrg,
+		arg.OrgID,
+		pq.Array(arg.BuildingIds),
+		pq.Array(arg.RackIds),
+		pq.Array(arg.GroupIds),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockCurtailmentTopologyMemberDeviceSitesByOrgRow
+	for rows.Next() {
+		var i LockCurtailmentTopologyMemberDeviceSitesByOrgRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.SiteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recordCurtailPendingDispatch = `-- name: RecordCurtailPendingDispatch :execrows
 UPDATE curtailment_event
 SET last_curtail_pending_dispatch_at = $1

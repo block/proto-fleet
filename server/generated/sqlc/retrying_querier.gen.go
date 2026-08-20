@@ -4416,6 +4416,18 @@ func (q *retryingQuerier) LockCurtailmentScopeForWrite(ctx context.Context, orgI
 	})
 }
 
+func (q *retryingQuerier) LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error) {
+	var result []LockCurtailmentTopologyMemberDeviceSitesByOrgRow
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentTopologyMemberDeviceSitesByOrg", func() error {
+		callResult, callErr := q.next.LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockDevicesForReassign", func() error {

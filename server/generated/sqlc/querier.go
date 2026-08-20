@@ -1183,6 +1183,11 @@ type Querier interface {
 	// Serialize hierarchy start checks by org so conflict detection and event
 	// insertion happen under one database-backed critical section.
 	LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error
+	// Stabilizes the current member rows while an authorization envelope and its
+	// event targets/profile row are persisted. The query mirrors the executable
+	// topology selector predicates and locks in device.id order, matching the
+	// canonical device-reassignment lock order used by site/building/rack writes.
+	LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error)
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are
 	// atomic against a concurrent reassign. Empty result means none of the

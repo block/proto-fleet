@@ -1632,6 +1632,66 @@ SELECT 0 AS selector_id,
 FROM members m
 ORDER BY selector_id, member_device_id;
 
+-- name: LockCurtailmentTopologyMemberDeviceSitesByOrg :many
+-- Stabilizes the current member rows while an authorization envelope and its
+-- event targets/profile row are persisted. The query mirrors the executable
+-- topology selector predicates and locks in device.id order, matching the
+-- canonical device-reassignment lock order used by site/building/rack writes.
+SELECT d.device_identifier, d.site_id
+FROM device d
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND (
+    (
+      d.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      OR EXISTS (
+        SELECT 1
+        FROM device_set_membership dsm
+        JOIN device_set ds
+          ON ds.id = dsm.device_set_id
+         AND ds.org_id = dsm.org_id
+         AND ds.type = 'rack'
+         AND ds.deleted_at IS NULL
+        JOIN device_set_rack dsr
+          ON dsr.device_set_id = ds.id
+         AND dsr.org_id = ds.org_id
+        WHERE dsm.org_id = sqlc.arg('org_id')
+          AND dsm.device_id = d.id
+          AND dsm.device_set_type = 'rack'
+          AND dsr.building_id = ANY(sqlc.arg('building_ids')::BIGINT[])
+      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'rack'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'rack'
+        AND dsm.device_set_id = ANY(sqlc.arg('rack_ids')::BIGINT[])
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM device_set_membership dsm
+      JOIN device_set ds
+        ON ds.id = dsm.device_set_id
+       AND ds.org_id = dsm.org_id
+       AND ds.type = 'group'
+       AND ds.deleted_at IS NULL
+      WHERE dsm.org_id = sqlc.arg('org_id')
+        AND dsm.device_id = d.id
+        AND dsm.device_set_type = 'group'
+        AND dsm.device_set_id = ANY(sqlc.arg('group_ids')::BIGINT[])
+    )
+  )
+ORDER BY d.id
+LIMIT 10001
+FOR UPDATE;
+
 -- name: ListCurtailmentRackScopeCoverage :many
 WITH selected_racks AS (
     SELECT ds.id,

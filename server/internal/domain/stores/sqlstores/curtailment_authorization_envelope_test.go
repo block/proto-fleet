@@ -11,12 +11,35 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 type authorizationEnvelopeQuerier struct {
 	sqlc.Querier
-	deviceRows   []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow
-	buildingRows []sqlc.ListCurtailmentBuildingScopeCoverageRow
+	deviceRows         []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow
+	topologyMemberRows []sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgRow
+	buildingRows       []sqlc.ListCurtailmentBuildingScopeCoverageRow
+}
+
+func (q authorizationEnvelopeQuerier) LockBuildingForWrite(
+	_ context.Context,
+	params sqlc.LockBuildingForWriteParams,
+) (int64, error) {
+	return params.ID, nil
+}
+
+func (q authorizationEnvelopeQuerier) LockRackPlacementForWrite(
+	context.Context,
+	sqlc.LockRackPlacementForWriteParams,
+) (sqlc.LockRackPlacementForWriteRow, error) {
+	return sqlc.LockRackPlacementForWriteRow{}, nil
+}
+
+func (q authorizationEnvelopeQuerier) LockCurtailmentTopologyMemberDeviceSitesByOrg(
+	context.Context,
+	sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgParams,
+) ([]sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error) {
+	return q.topologyMemberRows, nil
 }
 
 func (q authorizationEnvelopeQuerier) LockCurtailmentResponseProfileDeviceSitesByOrg(
@@ -42,7 +65,7 @@ func TestBuildAuthorizationEnvelopeJSONSeparatesTopologyAndFanCoverage(t *testin
 
 	raw, err := buildAuthorizationEnvelopeJSON(
 		t.Context(), q, 42, models.ScopeTypeMixed,
-		[]byte(`{"scope_schema_version":1,"building_ids":[7]}`), []int64{14, 13, 14}, nil,
+		[]byte(`{"scope_schema_version":1,"building_ids":[7]}`), []int64{14, 13, 14}, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -56,6 +79,47 @@ func TestBuildAuthorizationEnvelopeJSONSeparatesTopologyAndFanCoverage(t *testin
 	assert.False(t, envelope.FacilityFanScopeUnbounded)
 }
 
+func TestBuildAuthorizationEnvelopeJSONLocksTopologyTargetsAndIncludesTheirSites(t *testing.T) {
+	q := authorizationEnvelopeQuerier{
+		topologyMemberRows: []sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgRow{
+			{DeviceIdentifier: "miner-a", SiteID: sql.NullInt64{Int64: 12, Valid: true}},
+		},
+		buildingRows: []sqlc.ListCurtailmentBuildingScopeCoverageRow{
+			{SelectorID: 7, ResourceSiteID: sql.NullInt64{Int64: 11, Valid: true}},
+		},
+	}
+
+	raw, err := buildAuthorizationEnvelopeJSON(
+		t.Context(), q, 42, models.ScopeTypeMixed,
+		[]byte(`{"scope_schema_version":1,"building_ids":[7]}`), nil, nil, []string{"miner-a"},
+	)
+	require.NoError(t, err)
+
+	var envelope models.AuthorizationEnvelope
+	require.NoError(t, json.Unmarshal(raw, &envelope))
+	assert.Equal(t, []int64{11}, envelope.SelectedResourceSiteIDs)
+	assert.Equal(t, []int64{12}, envelope.CurrentMemberSiteIDs)
+}
+
+func TestBuildAuthorizationEnvelopeJSONRejectsTargetThatLeftTopology(t *testing.T) {
+	q := authorizationEnvelopeQuerier{
+		topologyMemberRows: []sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgRow{
+			{DeviceIdentifier: "miner-a", SiteID: sql.NullInt64{Int64: 12, Valid: true}},
+		},
+		buildingRows: []sqlc.ListCurtailmentBuildingScopeCoverageRow{
+			{SelectorID: 7, ResourceSiteID: sql.NullInt64{Int64: 11, Valid: true}},
+		},
+	}
+
+	_, err := buildAuthorizationEnvelopeJSON(
+		t.Context(), q, 42, models.ScopeTypeMixed,
+		[]byte(`{"scope_schema_version":1,"building_ids":[7]}`), nil, nil, []string{"miner-b"},
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "topology changed before save")
+}
+
 func TestBuildAuthorizationEnvelopeJSONMarksUnassignedMinerScopeUnbounded(t *testing.T) {
 	q := authorizationEnvelopeQuerier{deviceRows: []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow{
 		{DeviceIdentifier: "miner-a", SiteID: sql.NullInt64{Int64: 21, Valid: true}},
@@ -64,7 +128,7 @@ func TestBuildAuthorizationEnvelopeJSONMarksUnassignedMinerScopeUnbounded(t *tes
 
 	raw, err := buildAuthorizationEnvelopeJSON(
 		t.Context(), q, 42, models.ScopeTypeDeviceList,
-		[]byte(`{"device_identifiers":["miner-b","miner-a"]}`), nil, nil,
+		[]byte(`{"device_identifiers":["miner-b","miner-a"]}`), nil, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -88,6 +152,7 @@ func TestBuildAuthorizationEnvelopeJSONRejectsChangedDeviceAuthorization(t *test
 		t.Context(), q, 42, models.ScopeTypeDeviceList,
 		[]byte(`{"device_identifiers":["miner-a"]}`), nil,
 		map[string]*int64{"miner-a": &expectedSiteID},
+		nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "authorization changed")
@@ -98,6 +163,7 @@ func TestBuildAuthorizationEnvelopeJSONKeepsMissingSnapshotTargetsUnbounded(t *t
 		t.Context(), authorizationEnvelopeQuerier{}, 42, models.ScopeTypeDeviceList,
 		[]byte(`{"device_identifiers":["missing-miner"]}`), nil,
 		map[string]*int64{},
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -110,7 +176,7 @@ func TestBuildAuthorizationEnvelopeJSONKeepsMissingSnapshotTargetsUnbounded(t *t
 
 func TestBuildAuthorizationEnvelopeJSONFailsClosedForMissingSelector(t *testing.T) {
 	_, err := buildAuthorizationEnvelopeJSON(
-		t.Context(), authorizationEnvelopeQuerier{}, 42, "", []byte(`{"scope_schema_version":1}`), nil, nil,
+		t.Context(), authorizationEnvelopeQuerier{}, 42, "", []byte(`{"scope_schema_version":1}`), nil, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must include a recognized selector")
@@ -137,7 +203,7 @@ func TestBuildAuthorizationEnvelopeJSONRejectsInvalidScopeContract(t *testing.T)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := buildAuthorizationEnvelopeJSON(
-				t.Context(), authorizationEnvelopeQuerier{}, 42, "", []byte(test.scopeJSON), nil, nil,
+				t.Context(), authorizationEnvelopeQuerier{}, 42, "", []byte(test.scopeJSON), nil, nil, nil,
 			)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), test.errorText)
@@ -147,7 +213,7 @@ func TestBuildAuthorizationEnvelopeJSONRejectsInvalidScopeContract(t *testing.T)
 
 func TestBuildAuthorizationEnvelopeJSONTreatsOnlyEmptyObjectAsImplicitWholeOrg(t *testing.T) {
 	raw, err := buildAuthorizationEnvelopeJSON(
-		t.Context(), authorizationEnvelopeQuerier{}, 42, "", []byte(`{ }`), nil, nil,
+		t.Context(), authorizationEnvelopeQuerier{}, 42, "", []byte(`{ }`), nil, nil, nil,
 	)
 	require.NoError(t, err)
 

@@ -248,6 +248,7 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(
 			profile.ScopeJSON,
 			fanSiteIDs,
 			expectedDeviceSites,
+			nil,
 		)
 		if err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
@@ -303,6 +304,7 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 			profile.ScopeJSON,
 			fanSiteIDs,
 			expectedDeviceSites,
+			nil,
 		)
 		if err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
@@ -1178,6 +1180,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			event.ScopeJSON,
 			fanSiteIDs,
 			event.ExpectedDeviceSites,
+			insertTargetDeviceIdentifiers(targets),
 		)
 		if err != nil {
 			return nil, err

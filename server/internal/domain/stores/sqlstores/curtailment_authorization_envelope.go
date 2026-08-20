@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"sort"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -21,6 +22,7 @@ func buildAuthorizationEnvelopeJSON(
 	scopeJSON []byte,
 	facilityFanSiteIDs []int64,
 	expectedDeviceSites map[string]*int64,
+	requiredTopologyDeviceIdentifiers []string,
 ) ([]byte, error) {
 	if orgID <= 0 {
 		return nil, fleeterror.NewInternalError("authorization envelope requires an organization")
@@ -68,18 +70,31 @@ func buildAuthorizationEnvelopeJSON(
 		case len(scope.SiteIDs) > 0:
 			envelope.SelectedResourceSiteIDs = uniqueSortedInt64s(scope.SiteIDs)
 		case len(scope.BuildingIDs) > 0, len(scope.RackIDs) > 0, len(scope.GroupIDs) > 0:
-			coverage, err := resolveCurtailmentTopologyScope(ctx, q, interfaces.ListCandidatesParams{
+			params := interfaces.ListCandidatesParams{
 				OrgID:       orgID,
 				BuildingIDs: scope.BuildingIDs,
 				RackIDs:     scope.RackIDs,
 				GroupIDs:    scope.GroupIDs,
-			})
+			}
+			lockedSites, lockedUnbounded, err := lockTopologyScopeCoverage(
+				ctx,
+				q,
+				params,
+				requiredTopologyDeviceIdentifiers,
+			)
+			if err != nil {
+				return nil, err
+			}
+			coverage, err := resolveCurtailmentTopologyScope(ctx, q, params)
 			if err != nil {
 				return nil, err
 			}
 			envelope.SelectedResourceSiteIDs = coverage.SelectedResourceSiteIDs
-			envelope.CurrentMemberSiteIDs = coverage.CurrentMemberSiteIDs
-			envelope.MinerScopeUnbounded = coverage.RequireOrgWide
+			envelope.CurrentMemberSiteIDs = uniqueSortedInt64s(append(
+				append([]int64(nil), coverage.CurrentMemberSiteIDs...),
+				lockedSites...,
+			))
+			envelope.MinerScopeUnbounded = coverage.RequireOrgWide || lockedUnbounded
 		default:
 			return nil, fleeterror.NewInvalidArgumentError("mixed scope has no terminal selector IDs")
 		}
@@ -95,6 +110,66 @@ func buildAuthorizationEnvelopeJSON(
 		return nil, fleeterror.NewInternalErrorf("failed to encode curtailment authorization envelope: %v", err)
 	}
 	return encoded, nil
+}
+
+func lockTopologyScopeCoverage(
+	ctx context.Context,
+	q sqlc.Querier,
+	params interfaces.ListCandidatesParams,
+	requiredDeviceIdentifiers []string,
+) ([]int64, bool, error) {
+	for _, buildingID := range uniqueSortedInt64s(params.BuildingIDs) {
+		if _, err := q.LockBuildingForWrite(ctx, sqlc.LockBuildingForWriteParams{
+			ID: buildingID, OrgID: params.OrgID,
+		}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, false, fleeterror.NewNotFoundErrorf("building not found: %d", buildingID)
+			}
+			return nil, false, fleeterror.NewInternalErrorf("failed to lock curtailment building scope: %v", err)
+		}
+	}
+	for _, rackID := range uniqueSortedInt64s(params.RackIDs) {
+		if _, err := q.LockRackPlacementForWrite(ctx, sqlc.LockRackPlacementForWriteParams{
+			DeviceSetID: rackID, OrgID: params.OrgID,
+		}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, false, fleeterror.NewNotFoundErrorf("rack not found: %d", rackID)
+			}
+			return nil, false, fleeterror.NewInternalErrorf("failed to lock curtailment rack scope: %v", err)
+		}
+	}
+
+	rows, err := q.LockCurtailmentTopologyMemberDeviceSitesByOrg(
+		ctx,
+		sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgParams{
+			OrgID:       params.OrgID,
+			BuildingIds: params.BuildingIDs,
+			RackIds:     params.RackIDs,
+			GroupIds:    params.GroupIDs,
+		},
+	)
+	if err != nil {
+		return nil, false, fleeterror.NewInternalErrorf("failed to lock curtailment topology members: %v", err)
+	}
+	memberSites := make([]int64, 0, len(rows))
+	members := make(map[string]struct{}, len(rows))
+	unbounded := false
+	for _, row := range rows {
+		members[row.DeviceIdentifier] = struct{}{}
+		if row.SiteID.Valid {
+			memberSites = append(memberSites, row.SiteID.Int64)
+		} else {
+			unbounded = true
+		}
+	}
+	for _, identifier := range uniqueSortedStrings(requiredDeviceIdentifiers) {
+		if _, ok := members[identifier]; !ok {
+			return nil, false, fleeterror.NewFailedPreconditionError(
+				"curtailment topology changed before save; retry",
+			)
+		}
+	}
+	return uniqueSortedInt64s(memberSites), unbounded, nil
 }
 
 func nonNilInt64Slice(values []int64) []int64 {
