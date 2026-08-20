@@ -22,7 +22,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
-const localHAStatusURL = "http://" + ha.LocalStatusAddress + "/health/ha"
+const (
+	localHAStatusURL           = "http://" + ha.LocalStatusAddress + "/health/ha"
+	patroniReadinessRetryDelay = 2 * time.Second
+)
 
 type StatusReport struct {
 	Runtime ha.Status      `json:"runtime"`
@@ -259,9 +262,8 @@ func patroniRoles(ctx context.Context, tlsConfig *tls.Config, config NodeConfig)
 	results := gather([]string{config.DatabaseAIP, config.DatabaseBIP}, func(address string) roleResult {
 		baseURL := "https://" + address + ":8008"
 		return roleResult{
-			primary: endpointReadyWithClient(ctx, client, baseURL+"/primary"),
-			synchronous: endpointReadyWithClient(ctx, client, baseURL+"/synchronous") &&
-				endpointReadyWithClient(ctx, client, baseURL+"/readiness?lag=0&mode=apply"),
+			primary:     endpointReadyWithClient(ctx, client, baseURL+"/primary"),
+			synchronous: patroniSynchronousApplyReady(ctx, client, baseURL),
 		}
 	})
 	for _, result := range results {
@@ -273,6 +275,26 @@ func patroniRoles(ctx context.Context, tlsConfig *tls.Config, config NodeConfig)
 		}
 	}
 	return primary, synchronous
+}
+
+func patroniSynchronousApplyReady(ctx context.Context, client *http.Client, baseURL string) bool {
+	synchronousEndpoint := baseURL + "/synchronous"
+	applyEndpoint := baseURL + "/readiness?lag=0&mode=apply"
+	if !endpointReadyWithClient(ctx, client, synchronousEndpoint) {
+		return false
+	}
+	if endpointReadyWithClient(ctx, client, applyEndpoint) {
+		return true
+	}
+	timer := time.NewTimer(patroniReadinessRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return endpointReadyWithClient(ctx, client, applyEndpoint) &&
+			endpointReadyWithClient(ctx, client, synchronousEndpoint)
+	}
 }
 
 type fleetHostStatus struct {
