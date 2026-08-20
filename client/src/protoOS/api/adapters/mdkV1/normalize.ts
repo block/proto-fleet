@@ -39,8 +39,8 @@ import {
   type MetricUnit,
   type MinerError,
   type MiningTarget,
-  type ModuleNode,
   type ModuleModel,
+  type ModuleNode,
   type NetworkInfoState,
   type OperationalStatus,
   type PoolInfo,
@@ -71,7 +71,7 @@ const V1_COMMANDS: CommandCapabilities = {
 const ready = () => ({ status: "ready" as const, updatedAtMs: Date.now() });
 const moduleOwner = { kind: "module" as const, id: ROOT_MODULE_ID };
 
-export const normalizeV1CoolingStatus = (
+export const toCanonicalCoolingStatus = (
   wire: CoolingStatusCoolingstatus | undefined,
 ): { mode: CoolingMode; fans: FanTelemetry[] } => ({
   mode:
@@ -96,10 +96,12 @@ export const normalizeV1CoolingStatus = (
   }),
 });
 
-export const denormalizeV1CoolingMode = (mode: CoolingMode): CoolingConfig["mode"] =>
+export const toV1CoolingMode = (mode: CoolingMode): CoolingConfig["mode"] =>
   mode === "automatic" ? "Auto" : mode === "manual" ? "Manual" : mode === "off" ? "Off" : "Unknown";
 
-const canonicalUnit = (unit: V1MetricUnit | string | undefined): { units: MetricUnit; factor: number } | undefined => {
+const toCanonicalUnit = (
+  unit: V1MetricUnit | string | undefined,
+): { units: MetricUnit; factor: number } | undefined => {
   switch (unit) {
     case "C":
     case "°C":
@@ -136,8 +138,11 @@ const canonicalUnit = (unit: V1MetricUnit | string | undefined): { units: Metric
   }
 };
 
-const normalizeMeasurement = (value: number | null | undefined, unit: string | undefined): Measurement | undefined => {
-  const canonical = canonicalUnit(unit);
+const toCanonicalMeasurement = (
+  value: number | null | undefined,
+  unit: string | undefined,
+): Measurement | undefined => {
+  const canonical = toCanonicalUnit(unit);
   if (!canonical || value === undefined) return undefined;
   return { value: value === null ? null : value * canonical.factor, units: canonical.units };
 };
@@ -146,7 +151,7 @@ const normalizeLatestMetric = (
   value: number | null | undefined,
   unit: string | undefined,
 ): MetricTelemetry | undefined => {
-  const latest = normalizeMeasurement(value, unit);
+  const latest = toCanonicalMeasurement(value, unit);
   return latest ? { latest } : undefined;
 };
 
@@ -159,7 +164,7 @@ type V1Firmware = {
   image_hash?: string;
 };
 
-const firmware = (value: V1Firmware | undefined) =>
+const toFirmwareInfo = (value: V1Firmware | undefined) =>
   value
     ? {
         name: value.name,
@@ -171,20 +176,20 @@ const firmware = (value: V1Firmware | undefined) =>
       }
     : undefined;
 
-const serviceHealth = (name: string | undefined) => {
+const toServiceHealth = (name: string | undefined) => {
   if (!name) return "unknown" as const;
   return /tcp connect error: Connection refused|Failed to connect to MinerDataApiClient/.test(name)
     ? ("error" as const)
     : ("running" as const);
 };
 
-export const normalizeV1SystemTag = (value: unknown): string => {
+export const toCanonicalSystemTag = (value: unknown): string => {
   if (typeof value === "string") return value;
   if (typeof value === "object" && value !== null && "tag" in value && typeof value.tag === "string") return value.tag;
   return JSON.stringify(value) ?? "";
 };
 
-export const normalizeV1SystemInfo = (wire: SystemInfoSysteminfo): SystemInfoData => {
+export const toCanonicalSystemInfo = (wire: SystemInfoSysteminfo): SystemInfoData => {
   const model = wire.model?.toUpperCase();
   const deviceType: DeviceType = model?.startsWith("CU") ? "container" : "rig";
   const moduleModel: ModuleModel = deviceType === "container" ? "ct1" : "r2";
@@ -203,7 +208,7 @@ export const normalizeV1SystemInfo = (wire: SystemInfoSysteminfo): SystemInfoDat
       macAddresses: [],
     },
     moduleModel,
-    operatingSystem: firmware(wire.os),
+    operatingSystem: toFirmwareInfo(wire.os),
     operatingSystemStatus: wire.os?.status
       ? {
           cpuLoadPercent: wire.os.status.cpu_load_percent,
@@ -213,9 +218,15 @@ export const normalizeV1SystemInfo = (wire: SystemInfoSysteminfo): SystemInfoDat
           rootFilesystemTotalMb: wire.os.status.rootfs_total_mb,
         }
       : undefined,
-    webServer: { health: serviceHealth(wire.web_server?.name), software: firmware(wire.web_server) },
-    miningDriver: { health: serviceHealth(wire.mining_driver_sw?.name), software: firmware(wire.mining_driver_sw) },
-    poolInterface: { health: serviceHealth(wire.pool_interface_sw?.name), software: firmware(wire.pool_interface_sw) },
+    webServer: { health: toServiceHealth(wire.web_server?.name), software: toFirmwareInfo(wire.web_server) },
+    miningDriver: {
+      health: toServiceHealth(wire.mining_driver_sw?.name),
+      software: toFirmwareInfo(wire.mining_driver_sw),
+    },
+    poolInterface: {
+      health: toServiceHealth(wire.pool_interface_sw?.name),
+      software: toFirmwareInfo(wire.pool_interface_sw),
+    },
     firmwareUpdate: update
       ? {
           status:
@@ -237,7 +248,7 @@ export const normalizeV1SystemInfo = (wire: SystemInfoSysteminfo): SystemInfoDat
   };
 };
 
-export const normalizeV1NetworkInfo = (wire: NetworkInfoNetworkinfo): Pick<NetworkInfoState, "interfaces"> => ({
+export const toCanonicalNetworkInfo = (wire: NetworkInfoNetworkinfo): Pick<NetworkInfoState, "interfaces"> => ({
   interfaces: new Map([
     [
       "primary",
@@ -280,7 +291,7 @@ const miningStatus = (status: MiningStatusMiningstatus["status"]): OperationalSt
   }
 };
 
-export const normalizeV1MiningStatus = (wire: MiningStatusMiningstatus): OperationalStatus => ({
+export const toCanonicalMiningStatus = (wire: MiningStatusMiningstatus): OperationalStatus => ({
   owner: moduleOwner,
   resource: ready(),
   miningStatus: miningStatus(wire.status),
@@ -289,7 +300,7 @@ export const normalizeV1MiningStatus = (wire: MiningStatusMiningstatus): Operati
   hardwareErrorCount: wire.hw_errors,
 });
 
-export const normalizeV1Pools = (wire: Pool[]): PoolInfo[] =>
+export const toCanonicalPools = (wire: Pool[]): PoolInfo[] =>
   wire
     .map((pool, index) => ({
       id: asPoolId(`pool:${pool.id ?? index}`),
@@ -308,7 +319,7 @@ export const normalizeV1Pools = (wire: Pool[]): PoolInfo[] =>
     }))
     .sort((left, right) => left.priority - right.priority);
 
-export const normalizeV1MiningTarget = (wire: MiningTargetResponse): MiningTarget => ({
+export const toCanonicalMiningTarget = (wire: MiningTargetResponse): MiningTarget => ({
   moduleId: ROOT_MODULE_ID,
   resource: ready(),
   valueWatts: wire.power_target_watts,
@@ -327,7 +338,7 @@ export const normalizeV1MiningTarget = (wire: MiningTargetResponse): MiningTarge
   hashOnDisconnect: wire.hash_on_disconnect,
 });
 
-export const normalizeV1Errors = (wire: ErrorListResponse): MinerError[] =>
+export const toCanonicalErrors = (wire: ErrorListResponse): MinerError[] =>
   wire.map((error, index) => {
     const source = error.source ?? "rig";
     const slot = error.slot;
@@ -353,7 +364,7 @@ export const normalizeV1Errors = (wire: ErrorListResponse): MinerError[] =>
 
 type NormalizeHardwareOptions = { deviceId: string; profile: ModuleModel };
 
-export const normalizeV1Hardware = (
+export const toCanonicalHardware = (
   wire: HardwareInfoHardwareinfo,
   { deviceId, profile }: NormalizeHardwareOptions,
 ): HardwareState & { topology: Topology } => {
@@ -378,8 +389,8 @@ export const normalizeV1Hardware = (
       miningAsicCount: board.mining_asic_count,
       temperatureSensorCount: board.temp_sensor_count,
       ecLogsPath: board.ec_logs_path,
-      firmware: firmware(board.firmware),
-      bootloader: firmware(board.bootloader),
+      firmware: toFirmwareInfo(board.firmware),
+      bootloader: toFirmwareInfo(board.bootloader),
     });
     hashboardNodes.set(id, {
       id,
@@ -426,7 +437,7 @@ export const normalizeV1Hardware = (
       serialNumber: cb.serial_number,
       boardId: cb.board_id,
       machineName: cb.machine_name,
-      firmware: firmware(cb.firmware),
+      firmware: toFirmwareInfo(cb.firmware),
       cpu: cb.mpu
         ? {
             modelName: cb.mpu.model_name,
@@ -473,7 +484,7 @@ export const normalizeV1Hardware = (
   return { resource: ready(), topology, controlBoards, hashboards, asics, psus, fans };
 };
 
-export const normalizeV1HardwareTelemetry = (wire: HardwareInfoHardwareinfo): TelemetryState => {
+export const toCanonicalHardwareTelemetry = (wire: HardwareInfoHardwareinfo): TelemetryState => {
   const state = createEmptyTelemetryState();
   state.resourceByScope.set(asResourceKey("telemetry:fan-calibration:module:root"), ready());
   for (const fan of wire["fans-info"] ?? []) {
@@ -499,12 +510,12 @@ const applyLatestMetrics = (target: LevelRollup | HashboardTelemetry, source: Re
   for (const field of ["hashrate", "temperature", "power", "efficiency"] as const) {
     const metric = source[field];
     if (!isLatestMetric(metric)) continue;
-    const latest = normalizeMeasurement(metric.value, metric.unit);
+    const latest = toCanonicalMeasurement(metric.value, metric.unit);
     if (latest) target[field] = { ...(target[field] ?? {}), latest };
   }
 };
 
-export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
+export const toCanonicalTelemetry = (wire: TelemetryData): TelemetryState => {
   const state = createEmptyTelemetryState();
   const timestampMs = Date.parse(wire.timestamp);
   state.resourceByScope.set(asResourceKey("telemetry:current:module:root"), {
@@ -539,8 +550,8 @@ export const normalizeV1Telemetry = (wire: TelemetryData): TelemetryState => {
     for (let index = 0; index < asicCount; index += 1) {
       const asicId = getAsicId(board.serial_number, index);
       const asic: AsicTelemetry = { asicId };
-      const hashrate = normalizeMeasurement(board.asics?.hashrate?.values?.[index], board.asics?.hashrate?.unit);
-      const temperature = normalizeMeasurement(
+      const hashrate = toCanonicalMeasurement(board.asics?.hashrate?.values?.[index], board.asics?.hashrate?.unit);
+      const temperature = toCanonicalMeasurement(
         board.asics?.temperature?.values?.[index],
         board.asics?.temperature?.unit,
       );
@@ -588,12 +599,12 @@ const parseDurationMs = (duration: string | undefined): number | undefined => {
   return durationMs > 0 ? durationMs : undefined;
 };
 
-const normalizeSeries = (
+const toCanonicalSeries = (
   metric: WireSeriesMetric,
   startTimeMs: number,
   bucketSizeMs: number,
 ): MetricTelemetry | undefined => {
-  const canonical = canonicalUnit(metric.unit);
+  const canonical = toCanonicalUnit(metric.unit);
   if (!canonical || !metric.values) return undefined;
   const measurement = (value: number | undefined): Measurement | undefined =>
     value === undefined ? undefined : { value: value * canonical.factor, units: canonical.units };
@@ -625,12 +636,12 @@ const applySeriesMetrics = (
   for (const field of ["hashrate", "temperature", "power", "efficiency"] as const) {
     const metric = source[field];
     if (!isSeriesMetric(metric)) continue;
-    const normalized = normalizeSeries(metric, startTimeMs, bucketSizeMs);
+    const normalized = toCanonicalSeries(metric, startTimeMs, bucketSizeMs);
     if (normalized) target[field] = normalized;
   }
 };
 
-export const normalizeV1TimeSeries = (
+export const toCanonicalTimeSeries = (
   wire: TimeSeriesResponse,
   options: { startTimeMs?: number; interval?: string } = {},
 ): TelemetryState => {
@@ -676,7 +687,7 @@ export const normalizeV1TimeSeries = (
     const normalized: AsicTelemetry = { asicId: id };
     for (const field of ["hashrate", "temperature"] as const) {
       const metric = asicWire[field];
-      if (isSeriesMetric(metric)) normalized[field] = normalizeSeries(metric, safeStartTimeMs, bucketSizeMs);
+      if (isSeriesMetric(metric)) normalized[field] = toCanonicalSeries(metric, safeStartTimeMs, bucketSizeMs);
     }
     state.asics.set(id, normalized);
   }

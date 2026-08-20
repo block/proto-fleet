@@ -30,7 +30,7 @@ const useHardware = () => {
         adapter.getHardware(
           {
             deviceId: String(systemInfo?.identity.deviceId ?? "device:unknown"),
-            profile: systemInfo?.moduleProfile ?? "unknown",
+            profile: systemInfo?.moduleModel ?? "unknown",
           },
           params,
         ),
@@ -41,7 +41,7 @@ const useHardware = () => {
       },
       onError: (err) => setError(err?.error?.message ?? "An error occurred"),
     }).finally(() => setPending(false));
-  }, [adapter, authRetry, systemInfo?.identity.deviceId, systemInfo?.moduleProfile]);
+  }, [adapter, authRetry, systemInfo?.identity.deviceId, systemInfo?.moduleModel]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate from the external miner API when the active adapter changes

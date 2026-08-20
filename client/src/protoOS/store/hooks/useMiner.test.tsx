@@ -1,7 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { normalizeV1Telemetry } from "../../api/adapters/mdkV1/normalize";
+import { toCanonicalTelemetry } from "../../api/adapters/mdkV1/normalize";
 import { asComponentId, ROOT_MODULE_ID, ROOT_MODULE_KEY } from "../contract";
 import useMinerStore from "../useMinerStore";
 import { getAsicId } from "../utils/getAsicId";
@@ -116,7 +116,7 @@ describe("useMiner", () => {
       .getState()
       .hardware.batchAddAsics([{ id: asicId, hashboardSerial: "HB-1", index: 0, row: 0, column: 0 }]);
     useMinerStore.getState().telemetry.mergeTelemetry(
-      normalizeV1Telemetry({
+      toCanonicalTelemetry({
         timestamp: "2026-08-18T00:00:00Z",
         hashboards: [
           {

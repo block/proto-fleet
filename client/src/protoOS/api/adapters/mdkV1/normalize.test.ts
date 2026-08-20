@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-  denormalizeV1CoolingMode,
-  normalizeV1CoolingStatus,
-  normalizeV1Errors,
-  normalizeV1Hardware,
-  normalizeV1MiningStatus,
-  normalizeV1MiningTarget,
-  normalizeV1NetworkInfo,
-  normalizeV1Pools,
-  normalizeV1SystemInfo,
-  normalizeV1SystemTag,
-  normalizeV1Telemetry,
-  normalizeV1TimeSeries,
+  toCanonicalCoolingStatus,
+  toCanonicalErrors,
+  toCanonicalHardware,
+  toCanonicalMiningStatus,
+  toCanonicalMiningTarget,
+  toCanonicalNetworkInfo,
+  toCanonicalPools,
+  toCanonicalSystemInfo,
+  toCanonicalSystemTag,
+  toCanonicalTelemetry,
+  toCanonicalTimeSeries,
+  toV1CoolingMode,
 } from "./normalize";
 import { MetricUnit, PerformanceMode } from "@/protoOS/api/generatedApi";
 import { getAsicId, getPsuId } from "@/protoOS/store";
@@ -19,7 +19,7 @@ import { asHashboardId, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 
 describe("MDK v1 normalization", () => {
   it("maps a CU model to the container product family and CT1 module profile", () => {
-    const systemInfo = normalizeV1SystemInfo({
+    const systemInfo = toCanonicalSystemInfo({
       product_name: "Proto CU1",
       model: "CU1",
       cb_sn: "controller-1",
@@ -32,7 +32,7 @@ describe("MDK v1 normalization", () => {
   });
 
   it("builds a deterministic synthetic R2 module and collision-safe component ids", () => {
-    const hardware = normalizeV1Hardware(
+    const hardware = toCanonicalHardware(
       {
         "cb-info": { serial_number: "controller-1" },
         "hashboards-info": [
@@ -53,7 +53,7 @@ describe("MDK v1 normalization", () => {
   });
 
   it("converts v1 latest and historical telemetry into timestamped canonical measurements", () => {
-    const latest = normalizeV1Telemetry({
+    const latest = toCanonicalTelemetry({
       miner: {
         hashrate: { value: 100, unit: MetricUnit.THS },
         efficiency: { value: 30, unit: MetricUnit.JTH },
@@ -76,7 +76,7 @@ describe("MDK v1 normalization", () => {
       ],
       timestamp: "2026-08-17T00:00:00Z",
     });
-    const history = normalizeV1TimeSeries(
+    const history = toCanonicalTimeSeries(
       {
         meta: { interval: "PT1M" },
         data: {
@@ -101,7 +101,7 @@ describe("MDK v1 normalization", () => {
   });
 
   it("omits latest metrics whose wire values cannot be normalized", () => {
-    const telemetry = normalizeV1Telemetry({
+    const telemetry = toCanonicalTelemetry({
       timestamp: "2026-08-17T00:00:00Z",
       hashboards: [
         {
@@ -122,11 +122,11 @@ describe("MDK v1 normalization", () => {
   });
 
   it("maps a zero-based PSU index to its one-based physical slot", () => {
-    const hardware = normalizeV1Hardware(
+    const hardware = toCanonicalHardware(
       { "psus-info": [{ psu_sn: "PSU-2", slot: 2 }] },
       { deviceId: "device:rig", profile: "r2" },
     );
-    const telemetry = normalizeV1Telemetry({
+    const telemetry = toCanonicalTelemetry({
       timestamp: "2026-08-17T00:00:00Z",
       psus: [
         {
@@ -145,7 +145,7 @@ describe("MDK v1 normalization", () => {
   });
 
   it("does not attribute ASIC history through ambiguous hashboard indexes", () => {
-    const history = normalizeV1TimeSeries(
+    const history = toCanonicalTimeSeries(
       {
         meta: { interval: "PT1M" },
         data: {
@@ -164,7 +164,7 @@ describe("MDK v1 normalization", () => {
 
   it("normalizes network, status, pool, target, and error reads without wire types", () => {
     expect(
-      normalizeV1NetworkInfo({
+      toCanonicalNetworkInfo({
         hostname: "proto-rig",
         ip: "192.0.2.10",
         mac: "00:11:22:33:44:55",
@@ -175,7 +175,7 @@ describe("MDK v1 normalization", () => {
     ).toMatchObject({ ipAddress: "192.0.2.10", macAddress: "00:11:22:33:44:55", isPrimary: true });
 
     expect(
-      normalizeV1MiningStatus({ status: "Mining", mining_uptime_s: 60, reboot_uptime_s: 120, hw_errors: 2 }),
+      toCanonicalMiningStatus({ status: "Mining", mining_uptime_s: 60, reboot_uptime_s: 120, hw_errors: 2 }),
     ).toMatchObject({
       owner: { kind: "module", id: "module:root" },
       resource: { status: "ready" },
@@ -186,14 +186,14 @@ describe("MDK v1 normalization", () => {
     });
 
     expect(
-      normalizeV1Pools([
+      toCanonicalPools([
         { id: 2, priority: 2, url: "stratum+tcp://backup:3333", user: "worker.2" },
         { id: 1, priority: 0, url: "stratum+tcp://primary:3333", user: "worker.1", accepted: 10 },
       ]).map((pool) => pool.id),
     ).toEqual(["pool:1", "pool:2"]);
 
     expect(
-      normalizeV1MiningTarget({
+      toCanonicalMiningTarget({
         power_target_watts: 3_000,
         default_power_target_watts: 2_500,
         power_target_min_watts: 400,
@@ -210,7 +210,7 @@ describe("MDK v1 normalization", () => {
     });
 
     expect(
-      normalizeV1Errors([{ error_code: "FanSlow", message: "Fan stalled", source: "fan", slot: 1 }])[0],
+      toCanonicalErrors([{ error_code: "FanSlow", message: "Fan stalled", source: "fan", slot: 1 }])[0],
     ).toMatchObject({
       code: "FanSlow",
       message: "Fan stalled",
@@ -221,7 +221,7 @@ describe("MDK v1 normalization", () => {
   });
 
   it("preserves error source and location without inventing unresolved component ids", () => {
-    const [fanError, hashboardError] = normalizeV1Errors([
+    const [fanError, hashboardError] = toCanonicalErrors([
       { error_code: "FanUnknown", source: "fan" },
       { error_code: "BoardFault", source: "hashboard", slot: 2 },
     ]);
@@ -235,7 +235,7 @@ describe("MDK v1 normalization", () => {
 
   it("maps cooling modes and fan telemetry at the v1 boundary", () => {
     expect(
-      normalizeV1CoolingStatus({
+      toCanonicalCoolingStatus({
         fan_mode: "Auto",
         fans: [{ slot: 2, rpm: 4_800, percentage: 75 }],
       }),
@@ -249,12 +249,12 @@ describe("MDK v1 normalization", () => {
         },
       ],
     });
-    expect(denormalizeV1CoolingMode("off")).toBe("Off");
-    expect(denormalizeV1CoolingMode("manual")).toBe("Manual");
+    expect(toV1CoolingMode("off")).toBe("Off");
+    expect(toV1CoolingMode("manual")).toBe("Manual");
   });
 
   it("unwraps the v1 system-tag response", () => {
-    expect(normalizeV1SystemTag({ tag: "rig-01" })).toBe("rig-01");
-    expect(normalizeV1SystemTag("rig-02")).toBe("rig-02");
+    expect(toCanonicalSystemTag({ tag: "rig-01" })).toBe("rig-01");
+    expect(toCanonicalSystemTag("rig-02")).toBe("rig-02");
   });
 });
