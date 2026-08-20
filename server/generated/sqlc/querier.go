@@ -1064,6 +1064,8 @@ type Querier interface {
 	// System-scope (no org filter); reconciler is a singleton driving all orgs.
 	// Order by id keeps per-tick processing deterministic.
 	ListNonTerminalCurtailmentEvents(ctx context.Context) ([]CurtailmentEvent, error)
+	// Resolution rows remain stored so the notification_active trigger can close firing alerts,
+	// but the activity feed records only the alert firing event.
 	ListNotificationHistory(ctx context.Context, arg ListNotificationHistoryParams) ([]ListNotificationHistoryRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)

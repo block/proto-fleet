@@ -86,6 +86,31 @@ func TestNotificationHistoryStore_InsertBatch_Chunks(t *testing.T) {
 	assert.Equal(t, "device-0", gotLabel, "labels jsonb round-trips")
 }
 
+func TestNotificationHistoryStore_ListExcludesResolvedRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	db := testContext.DatabaseService.DB
+	orgID := testContext.DatabaseService.CreateSuperAdminUser().OrganizationID
+	store := sqlstores.NewSQLNotificationHistoryStore(db)
+	now := time.Now()
+
+	insertNotification(t, db, orgID, "firing-alert", "firing", now.Add(-time.Minute))
+	insertNotification(t, db, orgID, "resolved-alert", "resolved", now)
+
+	history, err := store.List(t.Context(), orgID, nil, 50)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, "firing-alert", history[0].Fingerprint)
+
+	var storedRows int
+	require.NoError(t, db.QueryRowContext(t.Context(),
+		`SELECT COUNT(*) FROM notification_history WHERE organization_id = $1`, orgID).Scan(&storedRows))
+	assert.Equal(t, 2, storedRows, "resolution rows remain stored for active-alert lifecycle state")
+}
+
 func TestNotificationHistoryStore_ListActive_FreshnessGate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

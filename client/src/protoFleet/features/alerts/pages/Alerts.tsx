@@ -8,7 +8,7 @@ import RulesSection from "@/protoFleet/features/alerts/components/RulesSection";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-const ALERTS_PAGE_DESCRIPTION = "Configure alert rules, notification channels, and maintenance windows.";
+const ALERTS_PAGE_DESCRIPTION = "Configure alert rules, notification destinations, and quiet periods.";
 
 const Alerts = () => {
   const alerts = useAlerts();

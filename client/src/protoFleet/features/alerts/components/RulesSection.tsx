@@ -60,11 +60,13 @@ const formatRuleScope = (rule: Rule): string => {
 const formatRuleDelivery = (rule: Rule): string => {
   switch (rule.routing?.mode) {
     case "custom":
-      return rule.routing.channel_ids.length === 1 ? "1 channel" : `${rule.routing.channel_ids.length} channels`;
+      return rule.routing.channel_ids.length === 1
+        ? "1 destination"
+        : `${rule.routing.channel_ids.length} destinations`;
     case "none":
       return "In-app only";
     case "default":
-      return "All channels";
+      return "All destinations";
     default:
       return "—";
   }
@@ -142,12 +144,12 @@ const RulesSection = () => {
           // Lift every active window for the rule so it isn't left muted by an overlapping one.
           await Promise.all(activeIds.map((id) => removeMaintenanceWindow(id)));
           pushToast({
-            message: activeIds.length > 1 ? "Maintenance windows lifted" : "Maintenance window lifted",
+            message: activeIds.length > 1 ? "Quiet periods lifted" : "Quiet period lifted",
             status: STATUSES.success,
           });
         } catch (error) {
           pushToast({
-            message: getErrorMessage(error, "Failed to lift maintenance window"),
+            message: getErrorMessage(error, "Failed to lift quiet period"),
             status: STATUSES.error,
           });
         }
@@ -204,7 +206,7 @@ const RulesSection = () => {
         },
       },
       {
-        title: (rule) => (liftableWindowIdsByRule.has(rule.id) ? "Lift maintenance window" : "Maintenance window"),
+        title: (rule) => (liftableWindowIdsByRule.has(rule.id) ? "Lift quiet period" : "Quiet period"),
         icon: <Stop />,
         actionHandler: (rule) => {
           void handleMaintenanceWindowOrLift(rule);
@@ -289,8 +291,7 @@ const RulesSection = () => {
         </div>
         <p className="text-300 text-text-primary-50">
           Conditions that decide when an alert fires. Add your own rule on a fleet metric, or work with the provisioned
-          defaults — pause one to silence it indefinitely, or attach a maintenance window to mute it for a finite
-          period.
+          defaults — pause one to silence it indefinitely, or attach a quiet period to mute it for a finite period.
         </p>
       </div>
 

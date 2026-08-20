@@ -459,7 +459,7 @@ async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo, cleanu
         await page.goto("/settings/alerts");
         if (
           await page
-            .getByRole("button", { name: "Add channel", exact: true })
+            .getByRole("button", { name: "Add destination", exact: true })
             .isVisible()
             .catch(() => false)
         ) {
