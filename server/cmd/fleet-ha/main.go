@@ -126,8 +126,14 @@ func runResetPassword(
 	if err := reset(ctx, strings.NewReader(password+"\n")); err != nil {
 		return err
 	}
+	// Unlike fleetd's informational status line, this write IS the credential
+	// delivery, so a failure must keep the nonzero exit -- but it must also say
+	// the reset already committed and how to recover.
 	if _, err := fmt.Fprintf(stdout, "Temporary password: %s\n", password); err != nil {
-		return fmt.Errorf("write temporary password: %w", err)
+		return fmt.Errorf(
+			"the reset already committed but the temporary password could not be delivered: %w; rerun recovery to issue a fresh temporary password",
+			err,
+		)
 	}
 	return nil
 }

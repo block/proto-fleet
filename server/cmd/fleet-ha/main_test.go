@@ -77,6 +77,25 @@ func TestRunResetPasswordDoesNotPrintGeneratedPasswordWhenResetFails(t *testing.
 	require.Empty(t, output.String())
 }
 
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("ssh session closed") }
+
+func TestRunResetPasswordReportsCommittedResetWhenDeliveryFails(t *testing.T) {
+	err := runResetPassword(
+		t.Context(),
+		false,
+		strings.NewReader("ignored"),
+		failingWriter{},
+		func() (string, error) { return "generated-secret", nil },
+		func(context.Context, io.Reader) error { return nil },
+	)
+
+	require.ErrorContains(t, err, "already committed")
+	require.ErrorContains(t, err, "rerun recovery")
+	require.ErrorContains(t, err, "ssh session closed")
+}
+
 func TestRunResetPasswordForwardsSuppliedStdinWithoutHostOutput(t *testing.T) {
 	var output bytes.Buffer
 	supplied := strings.NewReader("supplied-secret\n")
