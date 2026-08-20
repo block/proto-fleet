@@ -513,7 +513,7 @@ function createAutomationColConfig(
           <Switch
             checked={rule.enabled}
             setChecked={() => onToggle(rule.id)}
-            disabled={updatingRuleIds.has(rule.id) || !rule.isResponseProfileExecutionReady}
+            disabled={updatingRuleIds.has(rule.id) || (!rule.enabled && !rule.isResponseProfileExecutionReady)}
           />
         </div>
       ),
@@ -613,7 +613,11 @@ export function CurtailmentAutomationsContent({
   const toggleAutomation = useCallback(
     (ruleId: string) => {
       const rule = automationRules.find((currentRule) => currentRule.id === ruleId);
-      if (!rule || updatingRuleIds.has(ruleId) || !executionReadyResponseProfileIds.has(rule.responseProfileId)) {
+      if (
+        !rule ||
+        updatingRuleIds.has(ruleId) ||
+        (!rule.enabled && !executionReadyResponseProfileIds.has(rule.responseProfileId))
+      ) {
         return;
       }
 

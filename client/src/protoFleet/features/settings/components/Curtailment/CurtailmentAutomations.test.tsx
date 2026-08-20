@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CurtailmentAutomationsContent } from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
 import type {
@@ -194,7 +194,7 @@ describe("CurtailmentAutomationsContent", () => {
     expect(responseProfileSelect).not.toHaveTextContent("Building shed");
   });
 
-  it("disables an existing automation whose response profile is not ready for execution", () => {
+  it("prevents enabling an automation whose response profile is not ready for execution", () => {
     const topologyProfile: ResponseProfile = {
       ...testResponseProfiles[0],
       id: "building-shed",
@@ -204,6 +204,7 @@ describe("CurtailmentAutomationsContent", () => {
     const topologyRule: AutomationRule = {
       ...testAutomationRules[0],
       responseProfileId: topologyProfile.id,
+      enabled: false,
     };
     render(
       <CurtailmentAutomationsContent
@@ -215,6 +216,24 @@ describe("CurtailmentAutomationsContent", () => {
 
     const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
     expect(toggle).toBeDisabled();
+  });
+
+  it("allows disabling an enabled automation when its response profile is unavailable", () => {
+    const onToggleAutomation = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[]}
+        onToggleAutomation={onToggleAutomation}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    expect(toggle).not.toBeDisabled();
+    fireEvent.click(toggle as HTMLInputElement);
+
+    expect(onToggleAutomation).toHaveBeenCalledWith(testAutomationRules[0], false);
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {
