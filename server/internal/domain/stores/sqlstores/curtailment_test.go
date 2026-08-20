@@ -209,6 +209,8 @@ func TestBuildCurtailmentTopologyScopeCoverage(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Equal(t, []int64{11}, coverage.SiteIDs)
+		assert.Equal(t, []int64{11}, coverage.SelectedResourceSiteIDs)
+		assert.Empty(t, coverage.CurrentMemberSiteIDs)
 		assert.False(t, coverage.RequireOrgWide)
 	})
 
@@ -305,6 +307,8 @@ func TestBuildCurtailmentTopologyScopeCoverage(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Equal(t, []int64{11, 12}, coverage.SiteIDs)
+		assert.Empty(t, coverage.SelectedResourceSiteIDs)
+		assert.Equal(t, []int64{11, 12}, coverage.CurrentMemberSiteIDs)
 		assert.False(t, coverage.RequireOrgWide)
 	})
 

@@ -4398,6 +4398,18 @@ func (q *retryingQuerier) LockCurtailmentResponseProfileAutomationMutation(ctx c
 	})
 }
 
+func (q *retryingQuerier) LockCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentResponseProfileDeviceSitesByOrgParams) ([]LockCurtailmentResponseProfileDeviceSitesByOrgRow, error) {
+	var result []LockCurtailmentResponseProfileDeviceSitesByOrgRow
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentResponseProfileDeviceSitesByOrg", func() error {
+		callResult, callErr := q.next.LockCurtailmentResponseProfileDeviceSitesByOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error {
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentScopeForWrite", func() error {
 		return q.next.LockCurtailmentScopeForWrite(ctx, orgID)

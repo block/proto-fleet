@@ -71,12 +71,21 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 			loop_type, scope_type, scope_jsonb, restore_batch_size,
 			restore_batch_interval_sec, source_actor_type, reason,
 			created_by_user_id, fan_restore_delay_sec, fan_on_sent_at,
-			fan_last_error, facility_fan_device_ids, facility_fan_site_ids
+			fan_last_error, facility_fan_device_ids, facility_fan_site_ids,
+			authorization_envelope_jsonb
 		) VALUES (
 			$1, $2, 'completed_with_failures', 'FIXED_KW',
 			'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL', 'open', 'whole_org',
 			'{}'::jsonb, 1, 0, 'user', 'fan alert integration test',
-			$3, 60, $4, 'fan command failed', ARRAY[$5]::bigint[], ARRAY[$6]::bigint[]
+			$3, 60, $4, 'fan command failed', ARRAY[$5]::bigint[], ARRAY[$6]::bigint[],
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', '[]'::jsonb,
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', true,
+				'facility_fan_site_ids', jsonb_build_array($6::bigint),
+				'facility_fan_scope_unbounded', false
+			)
 		)
 		RETURNING id`, eventUUID, orgID, user.DatabaseID, staleFanOnAt, device.ID, site.ID).Scan(&eventID)
 	require.NoError(t, err)
@@ -89,13 +98,21 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 			restore_batch_interval_sec, source_actor_type, reason,
 			created_by_user_id, fan_restore_delay_sec, fan_on_sent_at,
 			fan_airflow_reopened_at, fan_last_error, facility_fan_device_ids,
-			facility_fan_site_ids
+			facility_fan_site_ids, authorization_envelope_jsonb
 		) VALUES (
 			$1, $2, 'completed_with_failures', 'FIXED_KW',
 			'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL', 'open', 'whole_org',
 			'{}'::jsonb, 1, 0, 'user', 'fan alert recent airflow test',
 			$3, 60, $4, $5, 'fan command failed', ARRAY[$6]::bigint[],
-			ARRAY[$7]::bigint[]
+			ARRAY[$7]::bigint[],
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', '[]'::jsonb,
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', true,
+				'facility_fan_site_ids', jsonb_build_array($7::bigint),
+				'facility_fan_scope_unbounded', false
+			)
 		)`, recentAirflowEventUUID, orgID, user.DatabaseID, staleFanOnAt, recentAirflowAt, recentDevice.ID, recentSite.ID)
 	require.NoError(t, err)
 

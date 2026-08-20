@@ -1167,6 +1167,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockCurtailmentResponseProfileAutomationMutationStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileAutomationMutation); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileAutomationMutation: %w", err)
 	}
+	if q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileDeviceSitesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileDeviceSitesByOrg: %w", err)
+	}
 	if q.lockCurtailmentScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentScopeForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentScopeForWrite: %w", err)
 	}
@@ -3578,6 +3581,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockCurtailmentResponseProfileAutomationMutationStmt: %w", cerr)
 		}
 	}
+	if q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt != nil {
+		if cerr := q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentResponseProfileDeviceSitesByOrgStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentScopeForWriteStmt != nil {
 		if cerr := q.lockCurtailmentScopeForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentScopeForWriteStmt: %w", cerr)
@@ -4833,6 +4841,7 @@ type Queries struct {
 	lockCurtailmentFanDeviceForWriteStmt                         *sql.Stmt
 	lockCurtailmentFanDevicesForWriteStmt                        *sql.Stmt
 	lockCurtailmentResponseProfileAutomationMutationStmt         *sql.Stmt
+	lockCurtailmentResponseProfileDeviceSitesByOrgStmt           *sql.Stmt
 	lockCurtailmentScopeForWriteStmt                             *sql.Stmt
 	lockDevicesForReassignStmt                                   *sql.Stmt
 	lockFleetNodeByIDStmt                                        *sql.Stmt
@@ -5387,6 +5396,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentFanDeviceForWriteStmt:                         q.lockCurtailmentFanDeviceForWriteStmt,
 		lockCurtailmentFanDevicesForWriteStmt:                        q.lockCurtailmentFanDevicesForWriteStmt,
 		lockCurtailmentResponseProfileAutomationMutationStmt:         q.lockCurtailmentResponseProfileAutomationMutationStmt,
+		lockCurtailmentResponseProfileDeviceSitesByOrgStmt:           q.lockCurtailmentResponseProfileDeviceSitesByOrgStmt,
 		lockCurtailmentScopeForWriteStmt:                             q.lockCurtailmentScopeForWriteStmt,
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,

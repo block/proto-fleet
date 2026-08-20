@@ -619,6 +619,43 @@ func TestHandler_StartCurtailment_RequiresCurtailmentManage(t *testing.T) {
 	}
 }
 
+func TestHandler_StartCurtailmentCarriesAuthorizedDeviceSnapshot(t *testing.T) {
+	t.Parallel()
+
+	const siteID = int64(7)
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{miner("eligible", "ACTIVE", "PAIRED", 6000, 100, 40)}
+	profileStore := newHandlerResponseProfileStore()
+	profileStore.deviceSites = map[string]*int64{"eligible": ptrHandlerInt64(siteID)}
+	h := NewHandlerWithResponseProfiles(
+		curtailment.NewService(store),
+		curtailment.NewResponseProfileService(profileStore),
+	)
+	req := validStartRequestBuilder()
+	req.Scope = &pb.StartCurtailmentRequest_DeviceIdentifiers{
+		DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: []string{"eligible"}},
+	}
+
+	_, err := h.StartCurtailment(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 1,
+			Role:           "OPERATOR",
+			SessionID:      "sess-start-device-snapshot",
+			UserID:         9,
+		},
+			testOrgAssignment(authz.PermCurtailmentManage),
+			testSiteAssignment(siteID, authz.PermCurtailmentManage),
+		),
+		connect.NewRequest(req),
+	)
+
+	require.NoError(t, err)
+	require.Contains(t, store.lastEvent.ExpectedDeviceSites, "eligible")
+	require.NotNil(t, store.lastEvent.ExpectedDeviceSites["eligible"])
+	assert.Equal(t, siteID, *store.lastEvent.ExpectedDeviceSites["eligible"])
+}
+
 func TestHandler_StartCurtailment_IdempotentReplayRendersPersistedEvent(t *testing.T) {
 	t.Parallel()
 

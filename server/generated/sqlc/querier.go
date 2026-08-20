@@ -1179,6 +1179,7 @@ type Querier interface {
 	// re-read their compatibility conditions after acquiring this lock so a
 	// concurrent pair cannot commit an invalid automation binding.
 	LockCurtailmentResponseProfileAutomationMutation(ctx context.Context, arg LockCurtailmentResponseProfileAutomationMutationParams) error
+	LockCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentResponseProfileDeviceSitesByOrgParams) ([]LockCurtailmentResponseProfileDeviceSitesByOrgRow, error)
 	// Serialize hierarchy start checks by org so conflict detection and event
 	// insertion happen under one database-backed critical section.
 	LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error
