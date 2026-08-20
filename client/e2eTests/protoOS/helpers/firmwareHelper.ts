@@ -44,6 +44,11 @@ export class FirmwareHelper {
     const parsedStorage = JSON.parse(authStorage) as {
       state?: {
         auth?: {
+          session?: {
+            accessToken?: {
+              value?: string;
+            };
+          };
           authTokens?: {
             accessToken?: {
               value?: string;
@@ -53,7 +58,9 @@ export class FirmwareHelper {
       };
     };
 
-    const accessToken = parsedStorage.state?.auth?.authTokens?.accessToken?.value;
+    const accessToken =
+      parsedStorage.state?.auth?.session?.accessToken?.value ??
+      parsedStorage.state?.auth?.authTokens?.accessToken?.value;
     if (!accessToken) {
       throw new Error("Access token is missing from proto-os-auth");
     }

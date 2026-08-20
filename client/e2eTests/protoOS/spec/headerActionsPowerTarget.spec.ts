@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { test } from "../fixtures/pageFixtures";
+import { getAuthAccessToken } from "../helpers/apiAuthHelper";
 import type { MiningTarget, MiningTargetResponse } from "@/protoOS/api/generatedApi";
 
 function chooseCustomPowerTargetWatts({
@@ -51,32 +52,6 @@ function chooseCustomPowerTargetWatts({
 
 function formatPowerTargetWidgetText(targetWatts: number) {
   return `${targetWatts / 1000} kW custom target`;
-}
-
-async function getAuthAccessToken(page: Page) {
-  return page.evaluate(() => {
-    const authData = window.localStorage.getItem("proto-os-auth");
-    if (!authData) {
-      throw new Error("Missing proto-os-auth in localStorage");
-    }
-
-    const parsed = JSON.parse(authData) as {
-      state?: {
-        auth?: {
-          authTokens?: {
-            accessToken?: { value?: string };
-          };
-        };
-      };
-    };
-
-    const accessToken = parsed.state?.auth?.authTokens?.accessToken?.value;
-    if (!accessToken) {
-      throw new Error("Missing access token in proto-os-auth");
-    }
-
-    return accessToken;
-  });
 }
 
 async function waitForAuthenticatedMiningTarget(request: APIRequestContext, page: Page) {
