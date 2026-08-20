@@ -532,6 +532,7 @@ function CurtailmentManagementPanel({
 }: CurtailmentManagementPanelProps): ReactElement {
   const navigate = useNavigate();
   const canReadSiteCatalog = useHasPermission("site:read");
+  const canReadRackCatalog = useHasPermission("rack:read");
   const { activeSite } = useActiveSite({});
   const { listSites } = useSites();
   const [loadedSiteNameById, setLoadedSiteNameById] = useState(() => new Map<string, string>());
@@ -1103,6 +1104,8 @@ function CurtailmentManagementPanel({
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
           responseProfiles={isEditingCurtailment ? [] : responseProfileOptions}
           siteOptions={siteOptions}
+          buildingScopeEnabled={canReadSiteCatalog}
+          rackAndGroupScopeEnabled={canReadRackCatalog}
           infrastructureDevices={infrastructureDevices}
           isLoadingInfrastructureDevices={isLoadingInfrastructureDevices}
           infrastructureDevicesError={infrastructureDevicesError}

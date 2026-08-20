@@ -72,34 +72,64 @@ vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
   ),
 }));
 
-vi.mock("@/protoFleet/features/settings/components/Schedules/RackSelectionModal", () => ({
+vi.mock("@/protoFleet/components/TargetSelectionModal/BuildingSelectionModal", () => ({
+  default: ({ open, onSave }: { open: boolean; onSave: (buildingIds: string[]) => void }) =>
+    open ? (
+      <div role="dialog" aria-label="Building selection">
+        <button type="button" onClick={() => onSave(["11", "12"])}>
+          Save buildings
+        </button>
+        <button type="button" onClick={() => onSave([])}>
+          Save no buildings
+        </button>
+      </div>
+    ) : null,
+}));
+
+vi.mock("@/protoFleet/components/TargetSelectionModal/RackSelectionModal", () => ({
   default: ({ open, onSave }: { open: boolean; onSave: (rackIds: string[]) => void }) =>
     open ? (
       <div role="dialog" aria-label="Rack selection">
-        <button type="button" onClick={() => onSave(["rack-1", "rack-2"])}>
+        <button type="button" onClick={() => onSave(["21", "22"])}>
           Save racks
+        </button>
+        <button type="button" onClick={() => onSave([])}>
+          Save no racks
         </button>
       </div>
     ) : null,
 }));
 
-vi.mock("@/protoFleet/features/settings/components/Schedules/GroupSelectionModal", () => ({
+vi.mock("@/protoFleet/components/TargetSelectionModal/GroupSelectionModal", () => ({
   default: ({ open, onSave }: { open: boolean; onSave: (groupIds: string[]) => void }) =>
     open ? (
       <div role="dialog" aria-label="Group selection">
-        <button type="button" onClick={() => onSave(["group-1"])}>
+        <button type="button" onClick={() => onSave(["31"])}>
           Save groups
+        </button>
+        <button type="button" onClick={() => onSave([])}>
+          Save no groups
         </button>
       </div>
     ) : null,
 }));
 
-vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal", () => ({
+vi.mock("@/protoFleet/components/TargetSelectionModal/MinerSelectionModal", () => ({
   default: ({
     open,
     onSave,
+    scope,
+    initialFilter,
+    filterConfig,
+    allMinersSelected,
+    selectedMinerIds,
   }: {
     open: boolean;
+    scope?: { siteIds?: bigint[] };
+    initialFilter?: { buildingIds?: bigint[]; rackIds?: bigint[]; groupIds?: bigint[] };
+    filterConfig?: { showRackFilter?: boolean; showGroupFilter?: boolean };
+    allMinersSelected?: boolean;
+    selectedMinerIds: string[];
     onSave: (selection: {
       selectedMinerIds: string[];
       allSelected: boolean;
@@ -109,6 +139,16 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
   }) =>
     open ? (
       <div role="dialog" aria-label="Miner selection">
+        <div data-testid="miner-selection-site-filter">{scope?.siteIds?.map(String).join(",") ?? ""}</div>
+        <div data-testid="miner-selection-building-filter">
+          {initialFilter?.buildingIds?.map(String).join(",") ?? ""}
+        </div>
+        <div data-testid="miner-selection-rack-filter-enabled">
+          {filterConfig?.showRackFilter === false ? "disabled" : "enabled"}
+        </div>
+        <div data-testid="miner-selection-group-filter-enabled">
+          {filterConfig?.showGroupFilter === false ? "disabled" : "enabled"}
+        </div>
         <button
           type="button"
           onClick={() =>
@@ -122,6 +162,12 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
           onClick={() => onSave({ selectedMinerIds: ["miner-1", "miner-2"], allSelected: true, totalMiners: 5000 })}
         >
           Save all miners
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave({ selectedMinerIds, allSelected: Boolean(allMinersSelected), totalMiners: undefined })}
+        >
+          Save current miner selection
         </button>
         <button
           type="button"
@@ -337,10 +383,11 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByLabelText("Batch size (miners)")).toHaveLength(2);
     expect(screen.getAllByLabelText("Batch interval (sec)")).toHaveLength(2);
     expect(screen.queryByTestId("curtailment-post-event-cooldown")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Buildings\s+Select/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeEnabled();
     expect(
-      screen.getByText("Choose the sites, miners, and infrastructure included in this curtailment."),
+      screen.getByText("Choose a site-to-miner path and any infrastructure included in this curtailment."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeEnabled();
@@ -534,6 +581,68 @@ describe("CurtailmentStartModal", () => {
         deviceSetIds: [],
         deviceIdentifiers: [],
       }),
+    );
+  });
+
+  it("rehydrates a topology-scoped response profile without widening or running its terminal scope", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: [
+        {
+          id: "building-shed",
+          label: "Building shed",
+          values: {
+            ...configuredValues,
+            scopeType: "building",
+            buildingTargetIds: ["7", "8"],
+            includeMaintenance: false,
+          },
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Building shed"));
+
+    expect(screen.getByRole("button", { name: /Buildings\s+2 buildings/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(
+      screen.getByText(
+        "This topology target can be previewed, but it cannot be run until topology execution is enabled.",
+      ),
+    ).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("saves a topology-scoped response profile while keeping its test action disabled", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      initialValues: {
+        ...configuredValues,
+        scopeType: "building",
+        buildingTargetIds: ["7", "8"],
+        includeMaintenance: false,
+      },
+      onTestCurtailment: vi.fn(),
+    });
+
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeEnabled();
+    expect(
+      screen.getByText(
+        "This topology target can be previewed and saved. Running it will be available when topology execution is enabled.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
     );
   });
 
@@ -787,6 +896,34 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("preserves drill-down filters when a response profile option has no scope values", async () => {
+    const user = userEvent.setup();
+    renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: scopeLessResponseProfiles,
+      siteOptions,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Sites\s+Select/ }));
+    await user.click(screen.getByTestId("response-profile-scope-site-101"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: /Buildings\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save buildings" }));
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Emergency shed"));
+
+    expect(screen.getByRole("button", { name: /Sites\s+Austin, TX/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Buildings\s+2 buildings/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+3 miners/ }));
+    expect(screen.getByTestId("miner-selection-site-filter")).toHaveTextContent("101");
+    expect(screen.getByTestId("miner-selection-building-filter")).toHaveTextContent("11,12");
+  });
+
   it("renders the response profile create variant", async () => {
     const user = userEvent.setup();
     const onTestCurtailment = vi.fn();
@@ -875,7 +1012,7 @@ describe("CurtailmentStartModal", () => {
 
     expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
     expect(
-      screen.getByText("Choose the sites, miners, and infrastructure included in this curtailment."),
+      screen.getByText("Choose a site-to-miner path and any infrastructure included in this curtailment."),
     ).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
@@ -2039,8 +2176,6 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    // Explicit miner selections map to an open-loop device-list scope, which
-    // the all-paired policy does not support (the server rejects it).
     expect(screen.queryByText("Target all paired miners")).not.toBeInTheDocument();
   });
 
@@ -2049,8 +2184,8 @@ describe("CurtailmentStartModal", () => {
     const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
     const startButton = screen.getByRole("button", { name: "Run curtailment" });
 
-    expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save miners" }));
@@ -2071,6 +2206,172 @@ describe("CurtailmentStartModal", () => {
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
+  });
+
+  it.each([
+    {
+      label: "Buildings",
+      saveLabel: "Save buildings",
+      selectedLabel: /Buildings\s+2 buildings/,
+      scopeType: "building",
+      field: "buildingTargetIds",
+      ids: ["11", "12"],
+    },
+    {
+      label: "Racks",
+      saveLabel: "Save racks",
+      selectedLabel: /Racks\s+2 racks/,
+      scopeType: "rack",
+      field: "rackTargetIds",
+      ids: ["21", "22"],
+    },
+    {
+      label: "Groups",
+      saveLabel: "Save groups",
+      selectedLabel: /Groups\s+1 group/,
+      scopeType: "group",
+      field: "groupTargetIds",
+      ids: ["31"],
+    },
+  ])(
+    "saves $label as the only response-profile terminal scope",
+    async ({ label, saveLabel, selectedLabel, scopeType, field, ids }) => {
+      const user = userEvent.setup();
+      const { onSubmit } = renderModal({
+        variant: "responseProfile",
+        initialValues: { ...configuredValues, includeMaintenance: false },
+      });
+
+      await user.click(screen.getByRole("button", { name: new RegExp(`${label}\\s+Select`) }));
+      await user.click(screen.getByRole("button", { name: saveLabel }));
+
+      expect(screen.getByRole("button", { name: selectedLabel })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scopeType,
+          scopeId: undefined,
+          siteSelection: "none",
+          siteIds: [],
+          buildingTargetIds: field === "buildingTargetIds" ? ids : [],
+          rackTargetIds: field === "rackTargetIds" ? ids : [],
+          groupTargetIds: field === "groupTargetIds" ? ids : [],
+          deviceIdentifiers: [],
+        }),
+      );
+    },
+  );
+
+  it.each([
+    {
+      scopeType: "explicitMiners" as const,
+      field: "deviceIdentifiers" as const,
+      ids: ["miner-1"],
+      pickerLabel: "Buildings",
+      emptySaveLabel: "Save no buildings",
+    },
+    {
+      scopeType: "rack" as const,
+      field: "rackTargetIds" as const,
+      ids: ["21"],
+      pickerLabel: "Groups",
+      emptySaveLabel: "Save no groups",
+    },
+    {
+      scopeType: "group" as const,
+      field: "groupTargetIds" as const,
+      ids: ["31"],
+      pickerLabel: "Racks",
+      emptySaveLabel: "Save no racks",
+    },
+  ])(
+    "preserves a $scopeType target when a different picker saves an empty selection",
+    async ({ scopeType, field, ids, pickerLabel, emptySaveLabel }) => {
+      const user = userEvent.setup();
+      const { onSubmit } = renderModal({
+        variant: "responseProfile",
+        initialValues: {
+          ...configuredValues,
+          scopeType,
+          [field]: ids,
+          includeMaintenance: false,
+        },
+      });
+
+      await user.click(screen.getByRole("button", { name: new RegExp(`${pickerLabel}\\s+Select`) }));
+      await user.click(screen.getByRole("button", { name: emptySaveLabel }));
+      await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ scopeType, [field]: ids }));
+    },
+  );
+
+  it("preserves a building target when site-catalog permission hides its picker", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      buildingScopeEnabled: false,
+      initialValues: {
+        ...configuredValues,
+        scopeType: "building",
+        buildingTargetIds: ["11"],
+        includeMaintenance: false,
+      },
+    });
+
+    const buildingButton = screen.getByRole("button", { name: /Buildings\s+1 building/ });
+    expect(buildingButton).toBeDisabled();
+    await user.click(buildingButton);
+    expect(screen.queryByRole("dialog", { name: "Building selection" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ scopeType: "building", buildingTargetIds: ["11"] }),
+    );
+  });
+
+  it.each([
+    { scopeType: "rack" as const, field: "rackTargetIds" as const, label: "Racks" },
+    { scopeType: "group" as const, field: "groupTargetIds" as const, label: "Groups" },
+  ])("preserves a $scopeType target when rack-catalog permission hides its picker", async ({ scopeType, field }) => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      rackAndGroupScopeEnabled: false,
+      initialValues: {
+        ...configuredValues,
+        scopeType,
+        [field]: ["21"],
+        includeMaintenance: false,
+      },
+    });
+
+    const selectedTargetButton = screen.getByRole("button", {
+      name: scopeType === "rack" ? /Racks\s+1 rack/ : /Groups\s+1 group/,
+    });
+    expect(selectedTargetButton).toBeDisabled();
+    await user.click(selectedTargetButton);
+    expect(
+      screen.queryByRole("dialog", { name: scopeType === "rack" ? "Rack selection" : "Group selection" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: scopeType === "rack" ? /Groups/ : /Racks/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ scopeType, [field]: ["21"] }));
+  });
+
+  it("hides rack and group miner facets without rack-catalog permission", async () => {
+    const user = userEvent.setup();
+    renderModal({
+      rackAndGroupScopeEnabled: false,
+      initialValues: { ...configuredValues, includeMaintenance: false },
+    });
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+
+    expect(screen.getByTestId("miner-selection-rack-filter-enabled")).toHaveTextContent("disabled");
+    expect(screen.getByTestId("miner-selection-group-filter-enabled")).toHaveTextContent("disabled");
   });
 
   it("treats all-miner selection as whole fleet without submitting page-loaded miner ids", async () => {
@@ -2101,6 +2402,33 @@ describe("CurtailmentStartModal", () => {
         siteSelection: "allSites",
         siteId: "",
         deviceSetIds: [],
+        deviceIdentifiers: [],
+        minerSelectionMode: "all",
+      }),
+    );
+  });
+
+  it("keeps all miners unscoped when the miner picker is reopened and saved unchanged", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      siteOptions,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save all miners" }));
+    await user.click(screen.getByRole("button", { name: /Miners\s+All miners/ }));
+
+    expect(screen.getByTestId("miner-selection-site-filter")).toBeEmptyDOMElement();
+    await user.click(screen.getByRole("button", { name: "Save current miner selection" }));
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopeType: "wholeOrg",
+        siteSelection: "allSites",
+        siteIds: [],
         deviceIdentifiers: [],
         minerSelectionMode: "all",
       }),
@@ -2163,11 +2491,11 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         scopeType: "explicitMiners",
-        scopeId: "All sites",
-        siteSelection: "allSites",
-        siteId: "101",
-        siteIds: ["101", "102"],
-        siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
+        scopeId: undefined,
+        siteSelection: "none",
+        siteId: "",
+        siteIds: [],
+        siteNamesById: {},
         deviceSetIds: [],
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
         minerSelectionMode: "subset",
@@ -2175,7 +2503,7 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("preserves a miner subset when saving all sites", async () => {
+  it("replaces a miner subset when sites become the terminal scope", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
       initialValues: {
@@ -2195,21 +2523,21 @@ describe("CurtailmentStartModal", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
 
     expect(screen.getByRole("button", { name: /Sites\s+All sites/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Miners\s+2 miners/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        scopeType: "explicitMiners",
+        scopeType: "site",
         scopeId: "All sites",
         siteSelection: "allSites",
         siteId: "101",
         siteIds: ["101", "102"],
         siteNamesById: { "101": "Austin, TX", "102": "Denver, CO" },
         deviceSetIds: [],
-        deviceIdentifiers: ["miner-1", "miner-2"],
+        deviceIdentifiers: [],
         minerSelectionMode: "subset",
       }),
     );

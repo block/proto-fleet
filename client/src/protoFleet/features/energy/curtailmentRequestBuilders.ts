@@ -162,10 +162,8 @@ function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   });
 }
 
-// All-paired targeting requires a closed-loop scope (whole org or sites).
-// The policy's durable-ownership loop (release on unpair, reopen on re-pair)
-// does not run for explicit miner selections, and the server rejects the
-// combination.
+// Logical placement scopes can back the durable all-paired policy. Explicit
+// miner lists remain snapshots until their closed-loop lifecycle is supported.
 export function supportsAllPairedTargeting(
   values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
 ): boolean {
@@ -173,7 +171,20 @@ export function supportsAllPairedTargeting(
     return false;
   }
   const scopes = buildCurtailmentScopes(values);
-  return scopes !== undefined && scopes.every((s) => s.scope.case === "wholeOrg" || s.scope.case === "site");
+  return scopes !== undefined && scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
+}
+
+function supportsAllPairedExecution(
+  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
+): boolean {
+  if (!supportsAllPairedTargeting(values)) {
+    return false;
+  }
+
+  const scopes = buildCurtailmentScopes(values);
+  return (
+    scopes !== undefined && scopes.every((scope) => scope.scope.case === "wholeOrg" || scope.scope.case === "site")
+  );
 }
 
 // Targeting all paired miners also opts in miners flagged for maintenance:
@@ -190,7 +201,9 @@ export function supportsAllPairedTargeting(
 export function buildForceInclusionFields(
   values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
 ): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
-  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
+  // Topology profiles may persist this policy now, but Preview and Start must
+  // omit it until the server's topology lifecycle can honor it.
+  const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedExecution(values);
   // The proto validator requires include_maintenance == force_include_maintenance.
   return {
     includeMaintenance: forceIncludeAllPairedMiners,

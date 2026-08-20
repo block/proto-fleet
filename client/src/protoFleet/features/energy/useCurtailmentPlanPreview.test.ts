@@ -254,6 +254,19 @@ describe("useCurtailmentPlanPreview", () => {
     expect(minerScopedRequest?.forceIncludeAllPairedMiners).toBe(false);
     expect(minerScopedRequest?.includeMaintenance).toBe(false);
     expect(minerScopedRequest?.forceIncludeMaintenance).toBe(false);
+
+    const topologyScopedRequest = buildPreviewCurtailmentPlanRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType: "building",
+      buildingTargetIds: ["7"],
+      includeMaintenance: false,
+      forceIncludeAllPairedMiners: true,
+    });
+    expect(topologyScopedRequest?.forceIncludeAllPairedMiners).toBe(false);
+    expect(topologyScopedRequest?.includeMaintenance).toBe(false);
+    expect(topologyScopedRequest?.forceIncludeMaintenance).toBe(false);
   });
 
   it("does not build a request until target and scope are valid", () => {

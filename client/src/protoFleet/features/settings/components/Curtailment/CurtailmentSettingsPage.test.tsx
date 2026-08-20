@@ -88,7 +88,7 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
-vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal", () => ({
+vi.mock("@/protoFleet/components/TargetSelectionModal/MinerSelectionModal", () => ({
   default: ({ open, onSave }: { open: boolean; onSave: (minerIds: string[]) => void }) =>
     open ? (
       <div role="dialog" aria-label="Select miners">
@@ -191,6 +191,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 5 min",
+    isExecutionReady: true,
     formValues: {
       name: "Emergency full shed",
       actionType: "fullFleet",
@@ -222,6 +223,7 @@ const testResponseProfiles: ResponseProfile[] = [
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 15 min",
+    isExecutionReady: true,
     formValues: {
       name: "Site Alpha 500 kW",
       actionType: "fixedKwReduction",
@@ -255,6 +257,7 @@ const targetedMinersResponseProfile: ResponseProfile = {
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore in batches",
   deadlineSummary: "Within 15 min",
+  isExecutionReady: true,
   formValues: {
     name: "Targeted miners",
     actionType: "fixedKwReduction",
@@ -287,6 +290,7 @@ const siteScopedResponseProfile: ResponseProfile = {
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore immediately",
   deadlineSummary: "Within 15 min",
+  isExecutionReady: true,
   formValues: {
     name: "Site scoped profile",
     actionType: "fixedKwReduction",
@@ -595,6 +599,35 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Add a MaestroOS MQTT source to receive curtailment signals.")).toBeVisible();
     expect(screen.getByText("No automations configured")).toBeVisible();
     expect(screen.getByText("Add an automation to trigger a response profile.")).toBeVisible();
+  });
+
+  it.each([
+    {
+      permission: "site:read",
+      visibleTarget: /Buildings\s+Select/,
+      hiddenTargets: [/Racks\s+Select/, /Groups\s+Select/],
+    },
+    {
+      permission: "rack:read",
+      visibleTarget: /Racks\s+Select/,
+      hiddenTargets: [/Buildings\s+Select/],
+    },
+  ])("gates topology pickers by $permission", async ({ permission, visibleTarget, hiddenTargets }) => {
+    const user = userEvent.setup();
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === permission);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+
+    expect(screen.getByRole("button", { name: visibleTarget })).toBeInTheDocument();
+    for (const hiddenTarget of hiddenTargets) {
+      expect(screen.queryByRole("button", { name: hiddenTarget })).not.toBeInTheDocument();
+    }
   });
 
   it("renders sources returned by the API hook", () => {
@@ -1284,23 +1317,29 @@ describe("CurtailmentSettingsPage", () => {
     expect(document.querySelector(".curtailment-source-health")).not.toBeInTheDocument();
   });
 
-  it("renders topology-scoped response profiles without enabling the incomplete editor", () => {
+  it("enables editing for topology-scoped response profiles", () => {
     const topologyProfile: ResponseProfile = {
       ...testResponseProfiles[0],
       id: "topology-profile",
       name: "Building response",
       scope: "2 buildings",
-      formValues: undefined,
-      isReadOnly: true,
+      formValues: {
+        ...testResponseProfiles[0].formValues!,
+        scopeType: "building",
+        buildingTargetIds: ["7", "8"],
+        siteSelection: "none",
+        siteId: "",
+        siteIds: [],
+      },
+      isReadOnly: false,
+      isExecutionReady: false,
     };
 
     render(<CurtailmentSettingsContent initialResponseProfiles={[topologyProfile]} />);
 
     const card = getResponseProfileCard("Building response");
     expect(within(card).getByText("2 buildings")).toBeVisible();
-    expect(
-      within(card).getByRole("button", { name: "Editing topology-scoped profiles is not available yet" }),
-    ).toBeDisabled();
+    expect(within(card).getByRole("button", { name: "Edit" })).toBeEnabled();
   });
 
   it("renders provided automations with enabled and disabled rows", () => {
