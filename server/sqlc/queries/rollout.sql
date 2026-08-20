@@ -13,6 +13,8 @@ INSERT INTO firmware_rollout (
     source_snapshot,
     target_snapshot,
     revert_snapshot,
+    hashrate_policy_max_drop_basis_points,
+    hashrate_policy_healthy_duration_seconds,
     idempotency_key,
     create_fingerprint,
     reason,
@@ -32,6 +34,8 @@ VALUES (
     sqlc.arg('source_snapshot'),
     sqlc.arg('target_snapshot'),
     sqlc.arg('revert_snapshot'),
+    sqlc.narg('hashrate_policy_max_drop_basis_points'),
+    sqlc.narg('hashrate_policy_healthy_duration_seconds'),
     sqlc.arg('idempotency_key'),
     sqlc.arg('create_fingerprint'),
     sqlc.arg('reason'),
@@ -404,6 +408,7 @@ SELECT EXISTS (
 -- name: CompleteFirmwareRolloutBatches :execrows
 UPDATE firmware_rollout_batch
 SET state = 'completed',
+    completed_at = CURRENT_TIMESTAMP,
     revision = revision + 1
 WHERE rollout_id = sqlc.arg('rollout_id')
   AND org_id = sqlc.arg('org_id')

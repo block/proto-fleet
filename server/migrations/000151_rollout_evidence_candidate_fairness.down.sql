@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_firmware_rollout_batch_evidence_candidates;

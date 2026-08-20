@@ -39,6 +39,8 @@ import {
   mapRolloutStateToProto,
 } from "@/protoFleet/api/rolloutMappers";
 import type {
+  RolloutBatchEvidenceSummary,
+  RolloutHashratePolicy,
   RolloutLane,
   RolloutLaneMembershipChangePreview,
   RolloutLaneMembershipPage,
@@ -92,6 +94,7 @@ export interface CreateRolloutInput extends RolloutRequestOptions {
   sourceSnapshot?: JsonObject;
   targetSnapshot?: JsonObject;
   revertSnapshot?: JsonObject;
+  hashratePolicy?: RolloutHashratePolicy;
   idempotencyKey: string;
   reason: string;
 }
@@ -138,6 +141,7 @@ export interface StartRolloutLaneInput extends RolloutRequestOptions {
   name: string;
   firmwareFileIds: string[];
   batches: CreateRolloutBatchInput[];
+  hashratePolicy?: RolloutHashratePolicy;
   idempotencyKey: string;
   reason: string;
 }
@@ -217,8 +221,50 @@ function rpcOptions(signal?: AbortSignal): { signal: AbortSignal } | undefined {
   return signal ? { signal } : undefined;
 }
 
+function newestEvidenceSummary(
+  existing: RolloutBatchEvidenceSummary | undefined,
+  incoming: RolloutBatchEvidenceSummary | undefined,
+): RolloutBatchEvidenceSummary | undefined {
+  if (!existing || !incoming) {
+    return existing ?? incoming;
+  }
+
+  const existingFinalized = existing.postWindowFinalized || existing.status === "finalized";
+  const incomingFinalized = incoming.postWindowFinalized || incoming.status === "finalized";
+  if (existingFinalized !== incomingFinalized) {
+    return existingFinalized ? existing : incoming;
+  }
+
+  const existingEvaluatedAt = existing.evaluatedAt ? Date.parse(existing.evaluatedAt) : Number.NaN;
+  const incomingEvaluatedAt = incoming.evaluatedAt ? Date.parse(incoming.evaluatedAt) : Number.NaN;
+  if (Number.isFinite(existingEvaluatedAt) && !Number.isFinite(incomingEvaluatedAt)) {
+    return existing;
+  }
+  if (Number.isFinite(incomingEvaluatedAt) && !Number.isFinite(existingEvaluatedAt)) {
+    return incoming;
+  }
+  if (Number.isFinite(existingEvaluatedAt) && Number.isFinite(incomingEvaluatedAt)) {
+    return existingEvaluatedAt > incomingEvaluatedAt ? existing : incoming;
+  }
+  return incoming;
+}
+
 function newestRollout(existing: RolloutRecord | undefined, incoming: RolloutRecord): RolloutRecord {
-  return existing && existing.revision > incoming.revision ? existing : incoming;
+  if (!existing || existing.revision > incoming.revision) {
+    return existing ?? incoming;
+  }
+
+  const existingBatchById = new Map(existing.batches.map((batch) => [batch.id, batch]));
+  return {
+    ...incoming,
+    batches: incoming.batches.map((batch) => {
+      const evidenceSummary = newestEvidenceSummary(
+        existingBatchById.get(batch.id)?.evidenceSummary,
+        batch.evidenceSummary,
+      );
+      return evidenceSummary === batch.evidenceSummary ? batch : { ...batch, evidenceSummary };
+    }),
+  };
 }
 
 function createRolloutRequest(input: CreateRolloutInput) {
@@ -233,6 +279,7 @@ function createRolloutRequest(input: CreateRolloutInput) {
     sourceSnapshot: input.sourceSnapshot,
     targetSnapshot: input.targetSnapshot,
     revertSnapshot: input.revertSnapshot,
+    hashratePolicy: input.hashratePolicy,
     idempotencyKey: input.idempotencyKey,
     reason: input.reason,
   });
@@ -876,6 +923,7 @@ export function useRolloutApi(): UseRolloutApiResult {
               name: input.name,
               firmwareFileIds: input.firmwareFileIds,
               batches: input.batches,
+              hashratePolicy: input.hashratePolicy,
               idempotencyKey: input.idempotencyKey,
               reason: input.reason,
             }),

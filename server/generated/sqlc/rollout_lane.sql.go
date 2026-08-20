@@ -428,7 +428,7 @@ WHERE id = $4
   AND org_id = $5
   AND revision = $6
   AND state = $7
-RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
 `
 
 type CompleteBetweenChannelRolloutParams struct {
@@ -483,6 +483,8 @@ func (q *Queries) CompleteBetweenChannelRollout(ctx context.Context, arg Complet
 		&i.RevertedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
 	)
 	return i, err
 }
@@ -491,6 +493,7 @@ const completeSettledBetweenChannelBatch = `-- name: CompleteSettledBetweenChann
 WITH completed AS (
     UPDATE firmware_rollout_batch batch
     SET state = 'completed',
+        completed_at = CURRENT_TIMESTAMP,
         revision = batch.revision + 1
     WHERE batch.id = $1
       AND batch.rollout_id = $2
@@ -509,9 +512,9 @@ WITH completed AS (
                 'cancelled'
             )
       )
-    RETURNING batch.id, batch.rollout_id, batch.org_id, batch.position, batch.label, batch.state, batch.revision, batch.created_at, batch.updated_at
+    RETURNING batch.id, batch.rollout_id, batch.org_id, batch.position, batch.label, batch.state, batch.revision, batch.created_at, batch.updated_at, batch.completed_at, batch.evidence_status, batch.evidence_total_count, batch.evidence_paired_count, batch.cumulative_baseline_hashrate_hs, batch.cumulative_current_hashrate_hs, batch.cumulative_delta_basis_points, batch.latest_policy_bucket_hashrate_hs, batch.latest_policy_bucket_delta_basis_points, batch.healthy_since, batch.last_policy_bucket_boundary, batch.evaluated_at, batch.evidence_error_message, batch.post_window_finalized, batch.post_window_finalized_at
 )
-SELECT completed.id, completed.rollout_id, completed.org_id, completed.position, completed.label, completed.state, completed.revision, completed.created_at, completed.updated_at,
+SELECT completed.id, completed.rollout_id, completed.org_id, completed.position, completed.label, completed.state, completed.revision, completed.created_at, completed.updated_at, completed.completed_at, completed.evidence_status, completed.evidence_total_count, completed.evidence_paired_count, completed.cumulative_baseline_hashrate_hs, completed.cumulative_current_hashrate_hs, completed.cumulative_delta_basis_points, completed.latest_policy_bucket_hashrate_hs, completed.latest_policy_bucket_delta_basis_points, completed.healthy_since, completed.last_policy_bucket_boundary, completed.evaluated_at, completed.evidence_error_message, completed.post_window_finalized, completed.post_window_finalized_at,
        NOT EXISTS (
            SELECT 1
            FROM firmware_rollout_batch later
@@ -529,16 +532,31 @@ type CompleteSettledBetweenChannelBatchParams struct {
 }
 
 type CompleteSettledBetweenChannelBatchRow struct {
-	ID           int64
-	RolloutID    uuid.UUID
-	OrgID        int64
-	Position     int32
-	Label        string
-	State        string
-	Revision     int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	IsFinalBatch bool
+	ID                                 int64
+	RolloutID                          uuid.UUID
+	OrgID                              int64
+	Position                           int32
+	Label                              string
+	State                              string
+	Revision                           int64
+	CreatedAt                          time.Time
+	UpdatedAt                          time.Time
+	CompletedAt                        sql.NullTime
+	EvidenceStatus                     string
+	EvidenceTotalCount                 int64
+	EvidencePairedCount                int64
+	CumulativeBaselineHashrateHs       sql.NullFloat64
+	CumulativeCurrentHashrateHs        sql.NullFloat64
+	CumulativeDeltaBasisPoints         sql.NullInt32
+	LatestPolicyBucketHashrateHs       sql.NullFloat64
+	LatestPolicyBucketDeltaBasisPoints sql.NullInt32
+	HealthySince                       sql.NullTime
+	LastPolicyBucketBoundary           sql.NullTime
+	EvaluatedAt                        sql.NullTime
+	EvidenceErrorMessage               sql.NullString
+	PostWindowFinalized                bool
+	PostWindowFinalizedAt              sql.NullTime
+	IsFinalBatch                       bool
 }
 
 func (q *Queries) CompleteSettledBetweenChannelBatch(ctx context.Context, arg CompleteSettledBetweenChannelBatchParams) (CompleteSettledBetweenChannelBatchRow, error) {
@@ -554,6 +572,21 @@ func (q *Queries) CompleteSettledBetweenChannelBatch(ctx context.Context, arg Co
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CompletedAt,
+		&i.EvidenceStatus,
+		&i.EvidenceTotalCount,
+		&i.EvidencePairedCount,
+		&i.CumulativeBaselineHashrateHs,
+		&i.CumulativeCurrentHashrateHs,
+		&i.CumulativeDeltaBasisPoints,
+		&i.LatestPolicyBucketHashrateHs,
+		&i.LatestPolicyBucketDeltaBasisPoints,
+		&i.HealthySince,
+		&i.LastPolicyBucketBoundary,
+		&i.EvaluatedAt,
+		&i.EvidenceErrorMessage,
+		&i.PostWindowFinalized,
+		&i.PostWindowFinalizedAt,
 		&i.IsFinalBatch,
 	)
 	return i, err
@@ -562,6 +595,7 @@ func (q *Queries) CompleteSettledBetweenChannelBatch(ctx context.Context, arg Co
 const completeSettledBetweenChannelBatches = `-- name: CompleteSettledBetweenChannelBatches :execrows
 UPDATE firmware_rollout_batch batch
 SET state = 'completed',
+    completed_at = CURRENT_TIMESTAMP,
     revision = batch.revision + 1
 WHERE batch.rollout_id = $1
   AND batch.org_id = $2
@@ -4476,7 +4510,7 @@ WHERE id = $1
   AND org_id = $2
   AND revision = $3
   AND state IN ('running', 'paused')
-RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at
+RETURNING id, org_id, name, strategy_key, state, resume_state, revision, forward_authority_id, forward_authority_revision, revert_authority_id, revert_authority_revision, source_channel_id, target_channel_id, source_release_set_id, target_release_set_id, source_snapshot, target_snapshot, revert_snapshot, idempotency_key, create_fingerprint, reason, created_by_user_id, started_at, paused_at, aborted_at, completed_at, reverting_at, reverted_at, created_at, updated_at, hashrate_policy_max_drop_basis_points, hashrate_policy_healthy_duration_seconds
 `
 
 type MoveBetweenChannelRolloutToReviewParams struct {
@@ -4519,6 +4553,8 @@ func (q *Queries) MoveBetweenChannelRolloutToReview(ctx context.Context, arg Mov
 		&i.RevertedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HashratePolicyMaxDropBasisPoints,
+		&i.HashratePolicyHealthyDurationSeconds,
 	)
 	return i, err
 }

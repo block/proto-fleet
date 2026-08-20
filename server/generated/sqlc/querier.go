@@ -144,6 +144,7 @@ type Querier interface {
 	CancelPendingFirmwareRolloutMembers(ctx context.Context, arg CancelPendingFirmwareRolloutMembersParams) (int64, error)
 	CancelUnclaimedFirmwareRolloutMembers(ctx context.Context, arg CancelUnclaimedFirmwareRolloutMembersParams) (int64, error)
 	CaptureBetweenChannelBatchBaseline(ctx context.Context, arg CaptureBetweenChannelBatchBaselineParams) (int64, error)
+	CaptureFirmwareRolloutBatchPostEvidence(ctx context.Context, arg CaptureFirmwareRolloutBatchPostEvidenceParams) (int64, error)
 	CaptureFirmwareRolloutEvidence(ctx context.Context, arg CaptureFirmwareRolloutEvidenceParams) ([]FirmwareRolloutEvidence, error)
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
 	// to rack.building_id for added rack members whose current building
@@ -1012,6 +1013,7 @@ type Querier interface {
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
 	ListChannelFirmwareEnforcementsForReconcile(ctx context.Context, reconcileLimit int32) ([]ListChannelFirmwareEnforcementsForReconcileRow, error)
 	ListChannelManagedDeviceIdentifiers(ctx context.Context, arg ListChannelManagedDeviceIdentifiersParams) ([]string, error)
+	ListCompleteFirmwareRolloutPolicyBuckets(ctx context.Context, arg ListCompleteFirmwareRolloutPolicyBucketsParams) ([]ListCompleteFirmwareRolloutPolicyBucketsRow, error)
 	// Re-reads source memberships after device locks are held. This closes the
 	// READ COMMITTED window between the channel pre-lock and device-lock phases.
 	ListCurrentChannelIDsForDevices(ctx context.Context, arg ListCurrentChannelIDsForDevicesParams) ([]int64, error)
@@ -1117,9 +1119,11 @@ type Querier interface {
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
 	ListFirmwareReleaseTargets(ctx context.Context, arg ListFirmwareReleaseTargetsParams) ([]ListFirmwareReleaseTargetsRow, error)
 	ListFirmwareReleaseTargetsBySetIDs(ctx context.Context, arg ListFirmwareReleaseTargetsBySetIDsParams) ([]ListFirmwareReleaseTargetsBySetIDsRow, error)
+	ListFirmwareRolloutBatchHashrateEvidence(ctx context.Context, arg ListFirmwareRolloutBatchHashrateEvidenceParams) ([]ListFirmwareRolloutBatchHashrateEvidenceRow, error)
 	ListFirmwareRolloutBatches(ctx context.Context, arg ListFirmwareRolloutBatchesParams) ([]FirmwareRolloutBatch, error)
 	ListFirmwareRolloutCauses(ctx context.Context, arg ListFirmwareRolloutCausesParams) ([]FirmwareRolloutCause, error)
 	ListFirmwareRolloutEvidence(ctx context.Context, arg ListFirmwareRolloutEvidenceParams) ([]FirmwareRolloutEvidence, error)
+	ListFirmwareRolloutEvidenceCandidates(ctx context.Context, limitCount int32) ([]ListFirmwareRolloutEvidenceCandidatesRow, error)
 	ListFirmwareRolloutMembers(ctx context.Context, arg ListFirmwareRolloutMembersParams) ([]ListFirmwareRolloutMembersRow, error)
 	ListFirmwareRollouts(ctx context.Context, arg ListFirmwareRolloutsParams) ([]FirmwareRollout, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
@@ -1375,6 +1379,7 @@ type Querier interface {
 	MarkCommandBatchFinished(ctx context.Context, argUuid string) (int64, error)
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, argUuid string) (int64, error)
 	MarkCommandBatchProcessing(ctx context.Context, argUuid string) (int64, error)
+	MarkFirmwareRolloutBatchAutomationError(ctx context.Context, arg MarkFirmwareRolloutBatchAutomationErrorParams) (int64, error)
 	MoveBetweenChannelRolloutToReview(ctx context.Context, arg MoveBetweenChannelRolloutToReviewParams) (FirmwareRollout, error)
 	MoveFirmwareRolloutToReviewAfterControlFailure(ctx context.Context, arg MoveFirmwareRolloutToReviewAfterControlFailureParams) (int64, error)
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
@@ -1755,6 +1760,7 @@ type Querier interface {
 	UpdateDeviceWorkerNamePoolSyncStatusByID(ctx context.Context, arg UpdateDeviceWorkerNamePoolSyncStatusByIDParams) error
 	UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error
 	UpdateDiscoveredDeviceModelByDeviceIdentifier(ctx context.Context, arg UpdateDiscoveredDeviceModelByDeviceIdentifierParams) (int64, error)
+	UpdateFirmwareRolloutBatchEvidenceSummary(ctx context.Context, arg UpdateFirmwareRolloutBatchEvidenceSummaryParams) (int64, error)
 	UpdateFirmwareRolloutMember(ctx context.Context, arg UpdateFirmwareRolloutMemberParams) (FirmwareRolloutMember, error)
 	UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error)
 	// expected_site_id and expected_rack_name predicate the write on the

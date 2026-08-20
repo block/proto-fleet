@@ -947,48 +947,65 @@ type FirmwareReleaseTarget struct {
 }
 
 type FirmwareRollout struct {
-	ID                       uuid.UUID
-	OrgID                    int64
-	Name                     string
-	StrategyKey              string
-	State                    string
-	ResumeState              sql.NullString
-	Revision                 int64
-	ForwardAuthorityID       uuid.UUID
-	ForwardAuthorityRevision int64
-	RevertAuthorityID        uuid.NullUUID
-	RevertAuthorityRevision  sql.NullInt64
-	SourceChannelID          sql.NullInt64
-	TargetChannelID          sql.NullInt64
-	SourceReleaseSetID       sql.NullInt64
-	TargetReleaseSetID       sql.NullInt64
-	SourceSnapshot           json.RawMessage
-	TargetSnapshot           json.RawMessage
-	RevertSnapshot           json.RawMessage
-	IdempotencyKey           string
-	CreateFingerprint        string
-	Reason                   string
-	CreatedByUserID          int64
-	StartedAt                sql.NullTime
-	PausedAt                 sql.NullTime
-	AbortedAt                sql.NullTime
-	CompletedAt              sql.NullTime
-	RevertingAt              sql.NullTime
-	RevertedAt               sql.NullTime
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
+	ID                                   uuid.UUID
+	OrgID                                int64
+	Name                                 string
+	StrategyKey                          string
+	State                                string
+	ResumeState                          sql.NullString
+	Revision                             int64
+	ForwardAuthorityID                   uuid.UUID
+	ForwardAuthorityRevision             int64
+	RevertAuthorityID                    uuid.NullUUID
+	RevertAuthorityRevision              sql.NullInt64
+	SourceChannelID                      sql.NullInt64
+	TargetChannelID                      sql.NullInt64
+	SourceReleaseSetID                   sql.NullInt64
+	TargetReleaseSetID                   sql.NullInt64
+	SourceSnapshot                       json.RawMessage
+	TargetSnapshot                       json.RawMessage
+	RevertSnapshot                       json.RawMessage
+	IdempotencyKey                       string
+	CreateFingerprint                    string
+	Reason                               string
+	CreatedByUserID                      int64
+	StartedAt                            sql.NullTime
+	PausedAt                             sql.NullTime
+	AbortedAt                            sql.NullTime
+	CompletedAt                          sql.NullTime
+	RevertingAt                          sql.NullTime
+	RevertedAt                           sql.NullTime
+	CreatedAt                            time.Time
+	UpdatedAt                            time.Time
+	HashratePolicyMaxDropBasisPoints     sql.NullInt32
+	HashratePolicyHealthyDurationSeconds sql.NullInt32
 }
 
 type FirmwareRolloutBatch struct {
-	ID        int64
-	RolloutID uuid.UUID
-	OrgID     int64
-	Position  int32
-	Label     string
-	State     string
-	Revision  int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                                 int64
+	RolloutID                          uuid.UUID
+	OrgID                              int64
+	Position                           int32
+	Label                              string
+	State                              string
+	Revision                           int64
+	CreatedAt                          time.Time
+	UpdatedAt                          time.Time
+	CompletedAt                        sql.NullTime
+	EvidenceStatus                     string
+	EvidenceTotalCount                 int64
+	EvidencePairedCount                int64
+	CumulativeBaselineHashrateHs       sql.NullFloat64
+	CumulativeCurrentHashrateHs        sql.NullFloat64
+	CumulativeDeltaBasisPoints         sql.NullInt32
+	LatestPolicyBucketHashrateHs       sql.NullFloat64
+	LatestPolicyBucketDeltaBasisPoints sql.NullInt32
+	HealthySince                       sql.NullTime
+	LastPolicyBucketBoundary           sql.NullTime
+	EvaluatedAt                        sql.NullTime
+	EvidenceErrorMessage               sql.NullString
+	PostWindowFinalized                bool
+	PostWindowFinalizedAt              sql.NullTime
 }
 
 type FirmwareRolloutCause struct {

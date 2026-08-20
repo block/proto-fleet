@@ -222,6 +222,7 @@ message StartRolloutLaneRequest {
     }];
     string idempotency_key = 5 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
     string reason = 6 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    RolloutHashratePolicy hashrate_policy = 7;
 }
 
 message StartRolloutLaneResponse {
@@ -268,6 +269,35 @@ enum RolloutEvidencePhase {
     ROLLOUT_EVIDENCE_PHASE_POST = 2;
 }
 
+enum RolloutEvidenceStatus {
+    ROLLOUT_EVIDENCE_STATUS_UNSPECIFIED = 0;
+    ROLLOUT_EVIDENCE_STATUS_PENDING = 1;
+    ROLLOUT_EVIDENCE_STATUS_COLLECTING = 2;
+    ROLLOUT_EVIDENCE_STATUS_UNAVAILABLE = 3;
+    ROLLOUT_EVIDENCE_STATUS_OBSERVING = 4;
+    ROLLOUT_EVIDENCE_STATUS_HEALTHY = 5;
+    ROLLOUT_EVIDENCE_STATUS_HELD = 6;
+    ROLLOUT_EVIDENCE_STATUS_STALE = 7;
+    ROLLOUT_EVIDENCE_STATUS_AUTOMATION_ERROR = 8;
+    ROLLOUT_EVIDENCE_STATUS_FINALIZED = 9;
+}
+
+message RolloutHashratePolicy {
+    option (buf.validate.message).cel = {
+        id: "hashrate_policy_max_drop_increment"
+        message: "maximum hashrate drop must use 10-basis-point increments"
+        expression: "this.max_drop_basis_points % 10u == 0u"
+    };
+    option (buf.validate.message).cel = {
+        id: "hashrate_policy_healthy_duration_increment"
+        message: "healthy duration must use 10-second increments"
+        expression: "this.healthy_duration_seconds % 10u == 0u"
+    };
+
+    uint32 max_drop_basis_points = 1 [(buf.validate.field).uint32.lte = 10000];
+    uint32 healthy_duration_seconds = 2 [(buf.validate.field).uint32 = {gte: 10, lte: 1800}];
+}
+
 message Rollout {
     string rollout_id = 1;
     string name = 2;
@@ -282,6 +312,7 @@ message Rollout {
     google.protobuf.Struct source_snapshot = 14;
     google.protobuf.Struct target_snapshot = 15;
     google.protobuf.Struct revert_snapshot = 16;
+    RolloutHashratePolicy hashrate_policy = 17;
 
     string reason = 20;
     google.protobuf.Timestamp started_at = 21;
@@ -305,6 +336,25 @@ message RolloutBatch {
     RolloutBatchState state = 4;
     uint64 revision = 5;
     repeated RolloutMember members = 6;
+    google.protobuf.Timestamp completed_at = 7;
+    RolloutBatchEvidenceSummary evidence_summary = 8;
+}
+
+message RolloutBatchEvidenceSummary {
+    RolloutEvidenceStatus status = 1;
+    uint64 total_count = 2;
+    uint64 paired_count = 3;
+    optional double cumulative_baseline_hashrate_hs = 4;
+    optional double cumulative_current_hashrate_hs = 5;
+    optional int32 cumulative_delta_basis_points = 6;
+    optional double latest_policy_bucket_hashrate_hs = 7;
+    optional int32 latest_policy_bucket_delta_basis_points = 8;
+    google.protobuf.Timestamp healthy_since = 9;
+    google.protobuf.Timestamp last_policy_bucket_boundary = 10;
+    google.protobuf.Timestamp evaluated_at = 11;
+    bool post_window_finalized = 12;
+    google.protobuf.Timestamp post_window_finalized_at = 13;
+    optional string error_message = 14;
 }
 
 message RolloutMember {
@@ -381,6 +431,7 @@ message CreateRolloutRequest {
     google.protobuf.Struct revert_snapshot = 10;
     string idempotency_key = 11 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
     string reason = 12 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    RolloutHashratePolicy hashrate_policy = 13;
 }
 
 message CreateRolloutResponse {

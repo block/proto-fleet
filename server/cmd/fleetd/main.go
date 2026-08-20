@@ -93,6 +93,7 @@ import (
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
 	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
 	"github.com/block/proto-fleet/server/internal/domain/rollout/betweenchannel"
+	rolloutEvidence "github.com/block/proto-fleet/server/internal/domain/rollout/evidence"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	sitemapDomain "github.com/block/proto-fleet/server/internal/domain/sitemap"
 	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
@@ -508,6 +509,11 @@ func start(config *Config) (result error) {
 		rolloutLaneStore,
 		activitySvc,
 	)
+	rolloutEvidenceEvaluator := rolloutEvidence.NewEvaluator(
+		config.RolloutEvidence,
+		sqlstores.NewSQLRolloutEvidenceStore(conn),
+		rolloutSvc,
+	)
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
 	facilityFanController := curtailmentDomain.NewFacilityFanController(
 		infrastructureStore,
@@ -719,6 +725,7 @@ func start(config *Config) (result error) {
 		curtailmentReconciler:     curtailmentRec,
 		channelEnforcement:        channelEnforcementRec,
 		rolloutLaneFinalizer:      rolloutLaneFinalizer,
+		rolloutEvidenceEvaluator:  rolloutEvidenceEvaluator,
 		curtailmentMQTTSubscriber: mqttSubscriber,
 		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,

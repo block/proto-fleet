@@ -277,6 +277,85 @@ describe("between-channel rollout helpers", () => {
     expect(canRevertRollout(settled)).toBe(true);
   });
 
+  it("keeps completed rollouts live until the latest completed batch evidence is finalized", () => {
+    const unfinalized = rolloutWithMembers("completed", ["succeeded"], {
+      batches: [
+        {
+          id: 1n,
+          position: 0,
+          label: "Pilot",
+          state: "completed",
+          revision: 1n,
+          members: [],
+          evidenceSummary: {
+            status: "finalized",
+            totalCount: 1n,
+            pairedCount: 1n,
+            postWindowFinalized: true,
+          },
+        },
+        {
+          id: 2n,
+          position: 1,
+          label: "Final",
+          state: "completed",
+          revision: 1n,
+          members: [],
+          completedAt: "2026-08-18T02:00:00.000Z",
+          evidenceSummary: {
+            status: "observing",
+            totalCount: 1n,
+            pairedCount: 1n,
+            postWindowFinalized: false,
+          },
+        },
+      ],
+    });
+
+    expect(shouldMonitorRollout(unfinalized)).toBe(true);
+    expect(
+      shouldMonitorRollout({
+        ...unfinalized,
+        batches: unfinalized.batches.map((batch) =>
+          batch.id === 2n
+            ? {
+                ...batch,
+                evidenceSummary: {
+                  ...batch.evidenceSummary!,
+                  status: "finalized",
+                  postWindowFinalized: true,
+                },
+              }
+            : batch,
+        ),
+      }),
+    ).toBe(false);
+    expect(shouldMonitorRollout(rolloutWithMembers("completed", ["succeeded"]))).toBe(false);
+  });
+
+  it("does not monitor legacy completed batches without a completion timestamp", () => {
+    const legacy = rolloutWithMembers("completed", ["succeeded"], {
+      batches: [
+        {
+          id: 1n,
+          position: 0,
+          label: "Legacy final",
+          state: "completed",
+          revision: 1n,
+          members: [],
+          evidenceSummary: {
+            status: "pending",
+            totalCount: 0n,
+            pairedCount: 0n,
+            postWindowFinalized: false,
+          },
+        },
+      ],
+    });
+
+    expect(shouldMonitorRollout(legacy)).toBe(false);
+  });
+
   it("blocks lane deletion only while setup or rollout work is unsettled", () => {
     const activeInitialLane = {
       ...lane,

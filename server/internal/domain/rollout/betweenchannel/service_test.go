@@ -193,6 +193,64 @@ func TestMapStoreErrorDistinguishesMissingLaneFromIdempotencyConflict(t *testing
 	assert.True(t, fleeterror.IsAlreadyExistsError(conflict), "got %v", conflict)
 }
 
+func TestValidateStartRolloutRequestHashratePolicy(t *testing.T) {
+	t.Parallel()
+
+	validRequest := func() StartRolloutRequest {
+		return StartRolloutRequest{
+			OrgID:           42,
+			LaneID:          uuid.New(),
+			Name:            "policy rollout",
+			FirmwareFileIDs: []string{"firmware-a"},
+			Batches:         []rollout.CreateBatch{{Members: []rollout.CreateMember{{DeviceIdentifier: "miner-a"}}}},
+			IdempotencyKey:  "policy-rollout",
+			Reason:          "test policy validation",
+			ActorUserID:     9,
+			HashratePolicy: &rollout.HashratePolicy{
+				MaxDropBasisPoints:     10,
+				HealthyDurationSeconds: 30,
+			},
+		}
+	}
+
+	req := validRequest()
+	require.NoError(t, validateStartRolloutRequest(req))
+
+	req = validRequest()
+	req.HashratePolicy.MaxDropBasisPoints = 1
+	err := validateStartRolloutRequest(req)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "maximum hashrate drop")
+
+	req = validRequest()
+	req.HashratePolicy.HealthyDurationSeconds = 11
+	err = validateStartRolloutRequest(req)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "healthy duration")
+
+	req = validRequest()
+	req.HashratePolicy = nil
+	require.NoError(t, validateStartRolloutRequest(req))
+}
+
+func TestFingerprintLaneStartIncludesHashratePolicy(t *testing.T) {
+	t.Parallel()
+
+	base := StartRolloutRequest{LaneID: uuid.New(), Name: "rollout"}
+	manual, err := fingerprintLaneStart(base)
+	require.NoError(t, err)
+
+	withPolicy := base
+	withPolicy.HashratePolicy = &rollout.HashratePolicy{
+		MaxDropBasisPoints:     10,
+		HealthyDurationSeconds: 30,
+	}
+	automatic, err := fingerprintLaneStart(withPolicy)
+	require.NoError(t, err)
+
+	assert.NotEqual(t, manual, automatic)
+}
+
 func TestReassignmentConfirmationTokenBindsCanonicalSourceState(t *testing.T) {
 	t.Parallel()
 

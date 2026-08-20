@@ -240,6 +240,7 @@ type StartRolloutRequest struct {
 	FirmwareFileIDs    []string
 	ReleaseTargets     []ReleaseTarget
 	Batches            []rollout.CreateBatch
+	HashratePolicy     *rollout.HashratePolicy
 	IdempotencyKey     string
 	RequestFingerprint string
 	Reason             string

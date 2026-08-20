@@ -205,9 +205,10 @@ Against an in-flight rollout the same split holds: non-firmware bulk actions are
 
 - **5a. Fleet polls an external verdict service**, the earlier phased-deployment TDD's hold / forward / rollback shape. Set aside by RFC Decision 1: the progression model stays fixed in product code, every new advancement scheme is a product change, and gated progress depends on the polled service's availability.
 - **5b. One imperative control API; the UI is its first consumer (recommended).** A single control surface: create a rollout with explicit batches, admit or continue, read evidence, pause, resume, abort, revert, complete.
-  - The prototype UI drives manual batches through this surface. Later built-in policies can add single-batch, pilot, or threshold-driven progression without changing the underlying controls.
+  - The prototype UI uses manual review by default and offers an opt-in hashrate policy for multi-batch rollouts. Fleet can continue a healthy batch after the configured maximum drop and healthy duration without changing the underlying controls.
+  - Later built-in policies can extend this mechanism beyond hashrate or add different progression shapes without adding a parallel lifecycle.
   - An external controller is the same caller over the Connect API with an API key: delegated control (G5) is a permission grant into the existing RBAC catalog (channel- and rollout-scoped permissions beside today's device and command grants), not a special mode, and needs no dedicated UI method.
-  - Operators keep precedence: pause and abort outrank the controller; detaching a controller revokes its writes (F3). Controller silence policy is deferred with external controller hardening. Nothing external is ever required to abort or revert.
+  - Operators keep precedence: pause and abort outrank built-in automation and the external controller; detaching a controller revokes its writes (F3). Controller silence policy is deferred with external controller hardening. Nothing external is ever required to abort or revert.
   - The cost: the API is public product surface designed once, early, where naming, auth, and error semantics carry compatibility weight from the first release (F6).
   - RoM: medium.
 
@@ -217,12 +218,15 @@ Raw telemetry (`device_metrics`, roughly 10-second samples, 10-day retention) an
 
 - **6a. Compute evidence on demand from telemetry.** No new storage, but the durable outcome (G3) evaporates with raw retention after 10 days, and every status render re-runs window queries at fleet size (F5).
 - **6b. Snapshot baselines and persist verdicts on the rollout record (recommended).**
-  - At admission, snapshot each member's baseline for the metrics the UI's performance strip renders (hashrate, power, efficiency, temperature); after the stabilization delay (F2), compute the post-window once and store per-member deltas and the batch verdict.
-  - Error evidence is the change in open incident counts for admitted members, matching the UI's error callout and max-errors threshold; a true error-rate series is later work (Non-Goals).
-  - Outcomes survive retention (G3); review screens read stored rows rather than scanning hypertables (F5); baseline-at-admission is what the design jam asked for and the UI assumes.
+  - At admission, snapshot the preceding 30 minutes of available hashrate for every frozen batch member. A member without samples remains explicitly unavailable.
+  - After batch completion, refresh the same cohort's post-update hashrate for up to 30 minutes. Persist per-member evidence plus the paired batch baseline, current average, delta, coverage, freshness, and verdict.
+  - Outcomes survive retention (G3), and review screens read stored summaries rather than scanning hypertables (F5).
+  - An optional hashrate-only policy accepts a maximum drop and healthy duration. Automatic continue requires complete paired coverage, fresh post samples for every member, and consecutive healthy 10-second buckets for the full duration.
+  - Missing or stale evidence never advances. An out-of-threshold bucket records a held verdict and resets the dwell. Operators can continue a held rollout only through a confirmation that shows the measured evidence and records the override.
+  - Power, efficiency, temperature, incident thresholds, and richer statistical analysis remain later work.
   - RoM: small to medium.
 
-The prototype advancement default (G4) is manual review between batches. A later policy phase can add opt-in server-side auto-continue against operator thresholds (max hashrate drop, max efficiency increase, max temperature increase, max error count) and can require a manual pilot gate.
+The prototype advancement default (G4) remains manual review between batches. Operators can opt into server-side auto-continue for hashrate only by setting a maximum drop and healthy duration. Pause and abort take precedence, and incomplete, stale, or unhealthy evidence leaves the rollout under operator control.
 
 ## Proposed Solution
 
@@ -265,7 +269,10 @@ The later sibling keeps a stable physical channel and changes its declaration. I
 - Direct firmware updates to channel-managed miners fail closed in command preflight. Reboot, diagnostics, pool changes, and curtailment remain available.
 - Curtailment takes precedence. The reconciler does not consume a firmware attempt while a miner is actively curtailed.
 - `RolloutService` provides create, read/list, admit/continue, pause/resume, abort, revert, and complete controls with expected revisions and idempotency keys.
-- Manual batch review is the prototype path. Threshold automation, scheduling, controller silence policy, and external controller hardening remain later work.
+- Manual batch review is the default prototype path. For multi-batch rollouts, an operator can opt into hashrate-only auto-continue with a maximum drop and healthy duration.
+- Automatic continue uses the same revision-checked and idempotent Continue control as manual review. It requires complete, fresh paired coverage for the full dwell, while pause and abort always take precedence.
+- A held verdict keeps the rollout in review. Continuing from held requires an evidence-aware confirmation and records an operator override cause.
+- Scheduling, policy metrics beyond hashrate, controller silence policy, and external controller hardening remain later work.
 
 ## Technical Design
 
@@ -388,18 +395,23 @@ sequenceDiagram
 ## Testing & validation
 
 - **Domain unit tests**
-  - State transitions, revision conflicts, idempotency replay, abort races, at-most-once dispatch, stale telemetry, attention-required handling, and revert selection.
+  - State transitions, revision conflicts, idempotency replay, abort races, at-most-once dispatch, stale telemetry, attention-required handling, revert selection, and hashrate evidence evaluation.
+  - Automatic continue requires complete and fresh paired coverage for the configured dwell. Missing, stale, and unhealthy evidence cannot advance, and pause or abort wins over a healthy evaluator pass.
   - Model B admission leaves membership in source; finalization requires fresh target version and hashing; revert confirms source firmware before membership.
 - **Database integration tests**
-  - Exclusive channel membership, immutable artifacts and lane attachments, frozen batches, one active rollout owner, canonical locking, rollback on partial failure, org isolation, and restart reconstruction.
+  - Exclusive channel membership, immutable artifacts and lane attachments, frozen batches, one active rollout owner, canonical locking, rollback on partial failure, org isolation, restart reconstruction, and durable 30-minute hashrate evidence.
+  - Evaluator and store coverage proves the deterministic unhealthy hold, dwell reset and recovery, exactly-once automatic continue, restart safety, and operator precedence.
   - Concurrent manual assignment, abort, finalization, opposite-direction rollout, and revert conflicts fail without partial membership changes.
 - **Handler and authorization tests**
   - Every `DeviceSetService` and `RolloutService` procedure checks the documented permission and maps validation, conflict, and not-found errors consistently.
 - **Client tests**
   - Generated mapping for all states, separate membership and convergence progress, exact create/start payloads, durable reload, permission-hidden controls, abort and revert copy, and no retry for attention required.
+  - Hashrate policy tests cover opt-in defaults and validation, exact basis points and duration, complete/fresh evidence status, held override confirmation, and manual controls after an automation error.
 - **Playwright operator evaluation**
   - The full two-miner operator journey is runnable against the resettable fake Proto rig environment with firmware filenames that deterministically change reported versions.
   - Cover lane creation, explicit target selection, first-batch source membership until fresh confirmation, manual review and continuation, final-batch completion, lane-pointer persistence after reload and reopen, abort split, explicit selective revert, and source membership after source firmware confirmation.
+  - Cover a deterministic healthy automatic journey with a 100 percent maximum drop and 10-second duration. Assert the exact policy request, automatic second-batch admission without a Continue click, visible real evidence and performance, and completed state after reload.
+  - Do not fabricate an unhealthy browser path. Fake Proto rig telemetry is random and has no public deterministic hashrate override, so evaluator and SQL store integration tests plus held component confirmation tests provide the deterministic unhealthy proof.
   - Deterministic `afterEach` cleanup aborts active work, waits for pre-abort claims to settle, reverts transitioned miners, and clears channel membership.
   - Lane and release history remains immutable audit data. Unique IDs and the isolated E2E database lifecycle are the cleanup boundary, and referenced firmware artifacts are not deleted.
   - The fake rig cannot produce a real post-upload ambiguity through its public controls. Keep only that attention-required scenario blocked; service and component tests cover the no-retry behavior.
@@ -413,11 +425,12 @@ sequenceDiagram
    - Add immutable releases, exclusive channels, artifact guards, per-miner authority and enforcement, one at-most-once reconciler, durable rollout records, evidence, controls, permissions, and model-neutral client adapters.
 2. **Model B prototype**
    - Add stable lane storage and APIs, immutable physical channel history, confirmed-membership finalization, abort settlement, selective revert, activity projection, and the firmware-settings lane workflow.
-   - Add the repeatable Playwright operator evaluation with mutable-state cleanup and isolated retention of immutable audit history.
+   - Add durable hashrate baseline and post-update evidence, manual evidence review, and opt-in maximum-drop plus dwell auto-continue with complete and fresh coverage.
+   - Add the repeatable Playwright operator evaluation with mutable-state cleanup, a healthy automatic path, and isolated retention of immutable audit history.
 3. **Model A sibling**
    - Reuse the shared substrate with staged declaration activation, hold-back semantics, abort declaration behavior, and its channel-centered UI.
 4. **Comparison closure**
    - Compare publish/start flow, batch review, split-state legibility, hold-backs, abort aftermath, revert, repeated releases, and operational cleanup.
    - Select the model only after both prototypes use the same safety and persistence substrate. Update this TDD in place with the decision.
 5. **Production hardening after selection**
-   - Resource-instance RBAC, controller credentials and silence policy, threshold automation, scheduling, alerting, multi-instance coordination, channel retirement and garbage collection, and statistical evidence.
+   - Resource-instance RBAC, controller credentials and silence policy, production tuning and alerting for the hashrate evaluator, policy metrics beyond hashrate, scheduling, multi-instance coordination, channel retirement and garbage collection, and statistical evidence.

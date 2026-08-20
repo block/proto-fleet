@@ -25,7 +25,7 @@ interface RolloutControlsProps {
   allowedStrategies?: RolloutStrategy[];
   /** Hide interval fields when the server persists assignments, not a timer. */
   showTiming?: boolean;
-  /** Keep threshold automation out of manual-review production flows. */
+  /** Hide the generic four-metric fixture control where production uses RolloutHashratePolicy. */
   allowAutomaticReview?: boolean;
   /** Hide this field when the API has no concurrency input. */
   showMaxConcurrentOffline?: boolean;

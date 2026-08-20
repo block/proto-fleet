@@ -36,7 +36,8 @@ export type RolloutLifecycleState =
 
 /**
  * Fixture-only states retained by the existing Storybook framework. Production
- * adapters use RolloutLifecycleState and do not add scheduling or automation.
+ * adapters use RolloutLifecycleState; production policy verdicts are modeled
+ * separately by RolloutBatchEvidenceSummary.
  */
 export type RolloutFixtureState =
   "scheduled" | "inProgress" | "stabilizingTelemetry" | "pausedAtPilotGate" | "pausedAtBatchReview";
@@ -85,6 +86,40 @@ export type RolloutBatchState = "pending" | "admitted" | "completed" | "cancelle
 
 export type RolloutEvidencePhase = "baseline" | "post" | "unknown";
 
+export type RolloutEvidenceStatus =
+  | "pending"
+  | "collecting"
+  | "unavailable"
+  | "observing"
+  | "healthy"
+  | "held"
+  | "stale"
+  | "automationError"
+  | "finalized"
+  | "unknown";
+
+export interface RolloutHashratePolicy {
+  maxDropBasisPoints: number;
+  healthyDurationSeconds: number;
+}
+
+export interface RolloutBatchEvidenceSummary {
+  status: RolloutEvidenceStatus;
+  totalCount: bigint;
+  pairedCount: bigint;
+  cumulativeBaselineHashrateHs?: number;
+  cumulativeCurrentHashrateHs?: number;
+  cumulativeDeltaBasisPoints?: number;
+  latestPolicyBucketHashrateHs?: number;
+  latestPolicyBucketDeltaBasisPoints?: number;
+  healthySince?: string;
+  lastPolicyBucketBoundary?: string;
+  evaluatedAt?: string;
+  postWindowFinalized: boolean;
+  postWindowFinalizedAt?: string;
+  errorMessage?: string;
+}
+
 export interface RolloutEvidence {
   id: bigint;
   phase: RolloutEvidencePhase;
@@ -123,6 +158,8 @@ export interface RolloutBatch {
   state: RolloutBatchState;
   revision: bigint;
   members: RolloutMember[];
+  completedAt?: string;
+  evidenceSummary?: RolloutBatchEvidenceSummary;
 }
 
 export interface RolloutCause {
@@ -300,6 +337,7 @@ export interface RolloutRecord {
   sourceSnapshot?: JsonObject;
   targetSnapshot?: JsonObject;
   revertSnapshot?: JsonObject;
+  hashratePolicy?: RolloutHashratePolicy;
   reason: string;
   startedAt?: string;
   pausedAt?: string;
@@ -316,8 +354,9 @@ export interface RolloutRecord {
 }
 
 /**
- * Config captured by the existing Storybook framework. Scheduling and
- * threshold automation remain fixture-only until production hardening.
+ * Config captured by the existing Storybook framework. Its scheduling and
+ * four-metric thresholds remain fixture vocabulary. Production hashrate
+ * automation uses RolloutHashratePolicy and server-derived batch evidence.
  */
 export interface RolloutPlanConfig {
   processType: RolloutProcessType;
@@ -380,6 +419,13 @@ export interface RolloutPerformance {
   metrics: RolloutPerfMetric[];
 }
 
+/** Server-derived evidence for the latest completed batch represented by a rollout card. */
+export interface RolloutEventEvidence extends RolloutBatchEvidenceSummary {
+  batchId: bigint;
+  batchLabel: string;
+  policy?: RolloutHashratePolicy;
+}
+
 /** Thresholds used when Fleet can continue a reviewed batch automatically. */
 export interface RolloutAutomationThresholds {
   maxHashrateDropPercent: number;
@@ -440,6 +486,8 @@ export interface RolloutEvent {
    * rollout has captured a baseline; drives the performance strip for running
    * batches and review gates. */
   performance?: RolloutPerformance;
+  /** Authoritative hashrate evidence for the most relevant completed batch. */
+  evidence?: RolloutEventEvidence;
   /** Authoritative error details used by summaries and miner-level views. */
   errors?: RolloutErrorImpact[];
   /** Optional progress for strategy-defined membership changes. */

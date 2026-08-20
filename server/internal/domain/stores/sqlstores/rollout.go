@@ -87,10 +87,16 @@ func (s *SQLRolloutStore) Create(
 			SourceSnapshot:           marshalSnapshot(req.SourceSnapshot),
 			TargetSnapshot:           marshalSnapshot(req.TargetSnapshot),
 			RevertSnapshot:           marshalSnapshot(req.RevertSnapshot),
-			IdempotencyKey:           req.IdempotencyKey,
-			CreateFingerprint:        req.RequestFingerprint,
-			Reason:                   req.Reason,
-			CreatedByUserID:          req.ActorUserID,
+			HashratePolicyMaxDropBasisPoints: ptrToNullInt32(
+				hashratePolicyMaxDrop(req.HashratePolicy),
+			),
+			HashratePolicyHealthyDurationSeconds: ptrToNullInt32(
+				hashratePolicyHealthyDuration(req.HashratePolicy),
+			),
+			IdempotencyKey:    req.IdempotencyKey,
+			CreateFingerprint: req.RequestFingerprint,
+			Reason:            req.Reason,
+			CreatedByUserID:   req.ActorUserID,
 		})
 		if createErr != nil {
 			return createResult{}, createErr
@@ -765,12 +771,16 @@ func (s *SQLRolloutStore) FinishControl(
 		if getErr != nil {
 			return nil, getErr
 		}
+		shouldRestoreReview := control.Status == string(rollout.ControlStatusStarted) &&
+			!req.Success &&
+			(control.Operation == string(rollout.ControlOperationAdmit) ||
+				control.Operation == string(rollout.ControlOperationContinue))
 		if control.Status == string(rollout.ControlStatusStarted) {
 			status := rollout.ControlStatusSucceeded
 			if !req.Success {
 				status = rollout.ControlStatusFailed
 			}
-			control, getErr = q.FinishFirmwareRolloutControl(
+			_, getErr = q.FinishFirmwareRolloutControl(
 				ctx,
 				sqlc.FinishFirmwareRolloutControlParams{
 					Status:       string(status),
@@ -784,9 +794,7 @@ func (s *SQLRolloutStore) FinishControl(
 				return nil, getErr
 			}
 		}
-		if !req.Success &&
-			(control.Operation == string(rollout.ControlOperationAdmit) ||
-				control.Operation == string(rollout.ControlOperationContinue)) {
+		if shouldRestoreReview {
 			if _, moveErr := q.MoveFirmwareRolloutToReviewAfterControlFailure(
 				ctx,
 				sqlc.MoveFirmwareRolloutToReviewAfterControlFailureParams{
@@ -1018,6 +1026,7 @@ func rolloutFromSQL(row sqlc.FirmwareRollout) rollout.Rollout {
 		SourceSnapshot:           unmarshalSnapshot(row.SourceSnapshot),
 		TargetSnapshot:           unmarshalSnapshot(row.TargetSnapshot),
 		RevertSnapshot:           unmarshalSnapshot(row.RevertSnapshot),
+		HashratePolicy:           hashratePolicyFromSQL(row),
 		Reason:                   row.Reason,
 		CreatedByUserID:          row.CreatedByUserID,
 		StartedAt:                timePtr(row.StartedAt),
@@ -1033,15 +1042,55 @@ func rolloutFromSQL(row sqlc.FirmwareRollout) rollout.Rollout {
 
 func batchFromSQL(row sqlc.FirmwareRolloutBatch) rollout.Batch {
 	return rollout.Batch{
-		ID:        row.ID,
-		RolloutID: row.RolloutID,
-		OrgID:     row.OrgID,
-		Position:  row.Position,
-		Label:     row.Label,
-		State:     rollout.BatchState(row.State),
-		Revision:  row.Revision,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
+		ID:                                 row.ID,
+		RolloutID:                          row.RolloutID,
+		OrgID:                              row.OrgID,
+		Position:                           row.Position,
+		Label:                              row.Label,
+		State:                              rollout.BatchState(row.State),
+		Revision:                           row.Revision,
+		CompletedAt:                        timePtr(row.CompletedAt),
+		EvidenceStatus:                     rollout.EvidenceStatus(row.EvidenceStatus),
+		EvidenceTotalCount:                 row.EvidenceTotalCount,
+		EvidencePairedCount:                row.EvidencePairedCount,
+		CumulativeBaselineHashrateHS:       float64Ptr(row.CumulativeBaselineHashrateHs),
+		CumulativeCurrentHashrateHS:        float64Ptr(row.CumulativeCurrentHashrateHs),
+		CumulativeDeltaBasisPoints:         nullInt32ToPtr(row.CumulativeDeltaBasisPoints),
+		LatestPolicyBucketHashrateHS:       float64Ptr(row.LatestPolicyBucketHashrateHs),
+		LatestPolicyBucketDeltaBasisPoints: nullInt32ToPtr(row.LatestPolicyBucketDeltaBasisPoints),
+		HealthySince:                       timePtr(row.HealthySince),
+		LastPolicyBucketBoundary:           timePtr(row.LastPolicyBucketBoundary),
+		EvaluatedAt:                        timePtr(row.EvaluatedAt),
+		EvidenceErrorMessage:               stringPtr(row.EvidenceErrorMessage),
+		PostWindowFinalized:                row.PostWindowFinalized,
+		PostWindowFinalizedAt:              timePtr(row.PostWindowFinalizedAt),
+		CreatedAt:                          row.CreatedAt,
+		UpdatedAt:                          row.UpdatedAt,
+	}
+}
+
+func hashratePolicyMaxDrop(policy *rollout.HashratePolicy) *int32 {
+	if policy == nil {
+		return nil
+	}
+	return &policy.MaxDropBasisPoints
+}
+
+func hashratePolicyHealthyDuration(policy *rollout.HashratePolicy) *int32 {
+	if policy == nil {
+		return nil
+	}
+	return &policy.HealthyDurationSeconds
+}
+
+func hashratePolicyFromSQL(row sqlc.FirmwareRollout) *rollout.HashratePolicy {
+	if !row.HashratePolicyMaxDropBasisPoints.Valid ||
+		!row.HashratePolicyHealthyDurationSeconds.Valid {
+		return nil
+	}
+	return &rollout.HashratePolicy{
+		MaxDropBasisPoints:     row.HashratePolicyMaxDropBasisPoints.Int32,
+		HealthyDurationSeconds: row.HashratePolicyHealthyDurationSeconds.Int32,
 	}
 }
 

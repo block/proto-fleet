@@ -3,6 +3,7 @@ package sqlstores_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -73,6 +74,222 @@ func TestGetRolloutLaneForRolloutUsesExactOrganizationScopedRelationship(t *test
 	_, err = service.GetLaneForRollout(t.Context(), orgID, uuid.New())
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsNotFoundError(err), "got %v", err)
+}
+
+func TestRolloutLaneAdmissionCapturesThirtyMinuteBatchBaseline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 3)
+	actorID := testOrganizationUserID(t, db, orgID)
+	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
+	laneService := betweenchannel.NewService(laneStore, nil)
+	rolloutService := rollout.NewService(
+		sqlstores.NewSQLRolloutStore(db),
+		betweenchannel.NewStrategy(laneStore),
+	)
+	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Baseline lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "baseline-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	started, err := laneService.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Baseline target",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "b")},
+		Batches: []rollout.CreateBatch{{
+			Label: "all",
+			Members: []rollout.CreateMember{
+				{DeviceIdentifier: deviceIDs[0]},
+				{DeviceIdentifier: deviceIDs[1]},
+				{DeviceIdentifier: deviceIDs[2]},
+			},
+		}},
+		HashratePolicy: &rollout.HashratePolicy{
+			MaxDropBasisPoints:     10,
+			HealthyDurationSeconds: 30,
+		},
+		IdempotencyKey: "baseline-rollout",
+		Reason:         "capture admission baseline",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(10), started.Rollout.HashratePolicy.MaxDropBasisPoints)
+
+	now := time.Now().UTC()
+	q := sqlc.New(db)
+	for _, sample := range []struct {
+		deviceIdentifier string
+		age              time.Duration
+		hashrate         float64
+	}{
+		{deviceIDs[0], 31 * time.Minute, 1000},
+		{deviceIDs[0], 29 * time.Minute, 100},
+		{deviceIDs[0], 20 * time.Minute, 200},
+		{deviceIDs[0], 10 * time.Minute, 300},
+		{deviceIDs[0], time.Minute, 400},
+		{deviceIDs[1], 12 * time.Minute, 60},
+		{deviceIDs[1], 2 * time.Minute, 120},
+	} {
+		require.NoError(t, q.InsertDeviceMetrics(t.Context(), sqlc.InsertDeviceMetricsParams{
+			Time:             now.Add(-sample.age),
+			DeviceIdentifier: sample.deviceIdentifier,
+			HashRateHs:       sql.NullFloat64{Float64: sample.hashrate, Valid: true},
+		}))
+	}
+
+	admit := rollout.AdmitRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		BatchID:          started.Rollout.Batches[0].ID,
+		ExpectedRevision: started.Rollout.Revision,
+		IdempotencyKey:   "baseline-admit",
+		Reason:           "capture admission baseline",
+		ActorUserID:      actorID,
+	}
+	_, err = rolloutService.Admit(t.Context(), admit)
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_control
+		SET status = 'started'
+		WHERE rollout_id = $1
+		  AND idempotency_key = $2
+	`, started.Rollout.ID, admit.IdempotencyKey)
+	require.NoError(t, err)
+	_, err = rolloutService.Admit(t.Context(), admit)
+	require.NoError(t, err)
+
+	persisted, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	for _, expected := range []struct {
+		deviceIdentifier string
+		average          *float64
+		samples          *int64
+	}{
+		{deviceIDs[0], float64Pointer(250), int64Pointer(4)},
+		{deviceIDs[1], float64Pointer(90), int64Pointer(2)},
+		{deviceIDs[2], nil, nil},
+	} {
+		member := memberByIdentifier(t, persisted, expected.deviceIdentifier)
+		require.Len(t, member.Evidence, 1)
+		baseline := member.Evidence[0]
+		assert.Equal(t, rollout.EvidencePhaseBaseline, baseline.Phase)
+		assert.Equal(t, 30*time.Minute, baseline.WindowEnd.Sub(baseline.WindowStart))
+		if expected.average == nil {
+			assert.Nil(t, baseline.ObservedAt)
+			assert.Nil(t, baseline.AvgHashrateHS)
+			assert.Nil(t, baseline.SampleCount)
+			continue
+		}
+		require.NotNil(t, baseline.ObservedAt)
+		require.NotNil(t, baseline.AvgHashrateHS)
+		assert.InDelta(t, *expected.average, *baseline.AvgHashrateHS, 0.001)
+		require.NotNil(t, baseline.SampleCount)
+		assert.Equal(t, *expected.samples, *baseline.SampleCount)
+	}
+	var evidenceCount int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM firmware_rollout_evidence
+		WHERE rollout_id = $1
+		  AND phase = 'baseline'
+	`, started.Rollout.ID).Scan(&evidenceCount))
+	assert.Equal(t, int64(3), evidenceCount)
+}
+
+func TestRolloutLaneAdmissionRollsBackEnforcementWhenBaselineCaptureFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupRolloutLaneTestData(t, 1)
+	actorID := testOrganizationUserID(t, db, orgID)
+	laneStore := sqlstores.NewSQLRolloutLaneStore(db)
+	laneService := betweenchannel.NewService(laneStore, nil)
+	rolloutService := rollout.NewService(
+		sqlstores.NewSQLRolloutStore(db),
+		betweenchannel.NewStrategy(laneStore),
+	)
+	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
+		OrgID:             orgID,
+		Label:             "Baseline rollback lane",
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "c")},
+		DeviceIdentifiers: deviceIDs,
+		IdempotencyKey:    "baseline-rollback-lane",
+		ActorUserID:       actorID,
+	})
+	require.NoError(t, err)
+	started, err := laneService.StartRollout(t.Context(), betweenchannel.StartRolloutRequest{
+		OrgID:          orgID,
+		LaneID:         lane.ID,
+		Name:           "Baseline rollback target",
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "d")},
+		Batches: []rollout.CreateBatch{{
+			Label:   "all",
+			Members: []rollout.CreateMember{{DeviceIdentifier: deviceIDs[0]}},
+		}},
+		IdempotencyKey: "baseline-rollback-rollout",
+		Reason:         "verify atomic baseline capture",
+		ActorUserID:    actorID,
+	})
+	require.NoError(t, err)
+
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	functionName := "test_fail_rollout_baseline_" + suffix
+	triggerName := "test_fail_rollout_baseline_trigger_" + suffix
+	_, err = db.ExecContext(t.Context(), fmt.Sprintf(`
+		CREATE FUNCTION %s() RETURNS trigger AS $$
+		BEGIN
+			IF NEW.rollout_id = '%s'::uuid THEN
+				RAISE EXCEPTION 'forced baseline capture failure';
+			END IF;
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER %s
+		BEFORE INSERT ON firmware_rollout_evidence
+		FOR EACH ROW EXECUTE FUNCTION %s();
+	`, functionName, started.Rollout.ID, triggerName, functionName))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := db.ExecContext(context.Background(), fmt.Sprintf(
+			"DROP TRIGGER IF EXISTS %s ON firmware_rollout_evidence; DROP FUNCTION IF EXISTS %s()",
+			triggerName,
+			functionName,
+		))
+		require.NoError(t, cleanupErr)
+	})
+
+	_, err = rolloutService.Admit(t.Context(), rollout.AdmitRequest{
+		OrgID:            orgID,
+		RolloutID:        started.Rollout.ID,
+		BatchID:          started.Rollout.Batches[0].ID,
+		ExpectedRevision: started.Rollout.Revision,
+		IdempotencyKey:   "baseline-rollback-admit",
+		Reason:           "verify atomic baseline capture",
+		ActorUserID:      actorID,
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "forced baseline capture failure")
+
+	persisted, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
+	require.NoError(t, err)
+	member := memberByIdentifier(t, persisted, deviceIDs[0])
+	assert.Nil(t, member.EnforcementID)
+	assert.Empty(t, member.Evidence)
+	var enforcementCount int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `
+		SELECT COUNT(*)
+		FROM channel_firmware_enforcement
+		WHERE authority_id = $1
+	`, started.Rollout.ForwardAuthorityID).Scan(&enforcementCount))
+	assert.Zero(t, enforcementCount)
 }
 
 func TestRolloutLaneForwardAbortAndReverseLifecycle(t *testing.T) {
@@ -335,6 +552,7 @@ func TestRolloutLaneFinalizerAdvancesBatchesAndCompletesRollout(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, rollout.StateReview, review.State)
 	require.Equal(t, rollout.BatchStateCompleted, review.Batches[0].State)
+	require.NotNil(t, review.Batches[0].CompletedAt)
 	require.Equal(t, rollout.BatchStatePending, review.Batches[1].State)
 
 	running, err := rolloutService.Continue(t.Context(), rollout.AdmitRequest{
@@ -363,6 +581,7 @@ func TestRolloutLaneFinalizerAdvancesBatchesAndCompletesRollout(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, rollout.StateCompleted, completed.State)
 	require.Equal(t, rollout.BatchStateCompleted, completed.Batches[1].State)
+	require.NotNil(t, completed.Batches[1].CompletedAt)
 	require.True(t, authorityHalted(t, db, completed.ForwardAuthorityID))
 	for _, member := range completed.Members {
 		require.NotNil(t, member.OwnerReleasedAt)
@@ -1987,6 +2206,14 @@ func memberByIdentifier(
 	}
 	t.Fatalf("rollout member %s not found", deviceIdentifier)
 	return rollout.Member{}
+}
+
+func float64Pointer(value float64) *float64 {
+	return &value
+}
+
+func int64Pointer(value int64) *int64 {
+	return &value
 }
 
 func channelMembers(

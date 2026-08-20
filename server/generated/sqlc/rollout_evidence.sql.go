@@ -7,10 +7,109 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+const captureFirmwareRolloutBatchPostEvidence = `-- name: CaptureFirmwareRolloutBatchPostEvidence :execrows
+INSERT INTO firmware_rollout_evidence (
+    rollout_id,
+    member_id,
+    org_id,
+    phase,
+    window_start,
+    window_end,
+    observed_at,
+    avg_hashrate_hs,
+    avg_power_w,
+    avg_temperature_c,
+    error_count,
+    sample_count
+)
+SELECT member.rollout_id,
+       member.id,
+       member.org_id,
+       'post',
+       $1,
+       $2,
+       MAX(metrics.time) FILTER (WHERE metrics.hash_rate_hs IS NOT NULL),
+       AVG(metrics.hash_rate_hs)::float8,
+       CASE
+           WHEN COUNT(metrics.hash_rate_hs) > 0
+               THEN AVG(metrics.power_w)::float8
+           ELSE NULL
+       END,
+       CASE
+           WHEN COUNT(metrics.hash_rate_hs) > 0
+               THEN AVG(metrics.temp_c)::float8
+           ELSE NULL
+       END,
+       CASE
+           WHEN COUNT(metrics.hash_rate_hs) > 0 THEN (
+               SELECT COUNT(*)::bigint
+               FROM errors error_row
+               WHERE error_row.device_id = member.device_id
+                 AND error_row.org_id = member.org_id
+                 AND error_row.last_seen_at >= $1
+                 AND error_row.first_seen_at <= $2
+           )
+           ELSE NULL
+       END,
+       CASE
+           WHEN COUNT(metrics.hash_rate_hs) > 0
+               THEN COUNT(metrics.hash_rate_hs)::bigint
+           ELSE NULL
+       END
+FROM firmware_rollout_member member
+JOIN device
+  ON device.id = member.device_id
+ AND device.org_id = member.org_id
+LEFT JOIN device_metrics metrics
+  ON metrics.device_identifier = device.device_identifier
+ AND metrics.time >= $1
+ AND metrics.time <= $2
+WHERE member.rollout_id = $3
+  AND member.batch_id = $4
+  AND member.org_id = $5
+GROUP BY member.rollout_id,
+         member.id,
+         member.org_id,
+         member.device_id,
+         member.position
+ON CONFLICT (member_id, phase) DO UPDATE
+SET window_start = EXCLUDED.window_start,
+    window_end = EXCLUDED.window_end,
+    observed_at = EXCLUDED.observed_at,
+    avg_hashrate_hs = EXCLUDED.avg_hashrate_hs,
+    avg_power_w = EXCLUDED.avg_power_w,
+    avg_temperature_c = EXCLUDED.avg_temperature_c,
+    error_count = EXCLUDED.error_count,
+    sample_count = EXCLUDED.sample_count
+`
+
+type CaptureFirmwareRolloutBatchPostEvidenceParams struct {
+	WindowStart time.Time
+	WindowEnd   time.Time
+	RolloutID   uuid.UUID
+	BatchID     int64
+	OrgID       int64
+}
+
+func (q *Queries) CaptureFirmwareRolloutBatchPostEvidence(ctx context.Context, arg CaptureFirmwareRolloutBatchPostEvidenceParams) (int64, error) {
+	result, err := q.exec(ctx, q.captureFirmwareRolloutBatchPostEvidenceStmt, captureFirmwareRolloutBatchPostEvidence,
+		arg.WindowStart,
+		arg.WindowEnd,
+		arg.RolloutID,
+		arg.BatchID,
+		arg.OrgID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 const captureFirmwareRolloutEvidence = `-- name: CaptureFirmwareRolloutEvidence :many
 INSERT INTO firmware_rollout_evidence (
@@ -146,6 +245,169 @@ func (q *Queries) CaptureFirmwareRolloutEvidence(ctx context.Context, arg Captur
 	return items, nil
 }
 
+const listCompleteFirmwareRolloutPolicyBuckets = `-- name: ListCompleteFirmwareRolloutPolicyBuckets :many
+WITH frozen_members AS (
+    SELECT member.id AS member_id,
+           device.device_identifier
+    FROM firmware_rollout_member member
+    JOIN device
+      ON device.id = member.device_id
+     AND device.org_id = member.org_id
+    WHERE member.rollout_id = $1
+      AND member.batch_id = $2
+      AND member.org_id = $3
+),
+member_buckets AS (
+    SELECT frozen.member_id,
+           FLOOR(
+               EXTRACT(EPOCH FROM (metrics.time - $4)) / 10
+           )::bigint AS bucket_index,
+           AVG(metrics.hash_rate_hs)::float8 AS avg_hashrate_hs,
+           MAX(metrics.time)::timestamptz AS observed_at
+    FROM frozen_members frozen
+    JOIN device_metrics metrics
+      ON metrics.device_identifier = frozen.device_identifier
+     AND metrics.time >= GREATEST(
+         $4::timestamptz,
+         $5::timestamptz
+     )
+     AND metrics.time < $6
+     AND metrics.hash_rate_hs IS NOT NULL
+    GROUP BY frozen.member_id, bucket_index
+),
+complete_buckets AS (
+    SELECT member_buckets.bucket_index
+    FROM member_buckets
+    GROUP BY member_buckets.bucket_index
+    HAVING COUNT(*) = (SELECT COUNT(*) FROM frozen_members)
+       AND $4::timestamptz
+           + (member_buckets.bucket_index + 1) * INTERVAL '10 seconds'
+           > $5::timestamptz
+)
+SELECT member_buckets.member_id,
+       member_buckets.avg_hashrate_hs,
+       member_buckets.observed_at,
+       member_buckets.bucket_index
+FROM member_buckets
+JOIN complete_buckets
+  ON complete_buckets.bucket_index = member_buckets.bucket_index
+ORDER BY member_buckets.bucket_index, member_buckets.member_id
+`
+
+type ListCompleteFirmwareRolloutPolicyBucketsParams struct {
+	RolloutID    uuid.UUID
+	BatchID      int64
+	OrgID        int64
+	WindowStart  time.Time
+	BucketAfter  time.Time
+	BucketCutoff time.Time
+}
+
+type ListCompleteFirmwareRolloutPolicyBucketsRow struct {
+	MemberID      int64
+	AvgHashrateHs float64
+	ObservedAt    time.Time
+	BucketIndex   int64
+}
+
+func (q *Queries) ListCompleteFirmwareRolloutPolicyBuckets(ctx context.Context, arg ListCompleteFirmwareRolloutPolicyBucketsParams) ([]ListCompleteFirmwareRolloutPolicyBucketsRow, error) {
+	rows, err := q.query(ctx, q.listCompleteFirmwareRolloutPolicyBucketsStmt, listCompleteFirmwareRolloutPolicyBuckets,
+		arg.RolloutID,
+		arg.BatchID,
+		arg.OrgID,
+		arg.WindowStart,
+		arg.BucketAfter,
+		arg.BucketCutoff,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCompleteFirmwareRolloutPolicyBucketsRow
+	for rows.Next() {
+		var i ListCompleteFirmwareRolloutPolicyBucketsRow
+		if err := rows.Scan(
+			&i.MemberID,
+			&i.AvgHashrateHs,
+			&i.ObservedAt,
+			&i.BucketIndex,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFirmwareRolloutBatchHashrateEvidence = `-- name: ListFirmwareRolloutBatchHashrateEvidence :many
+SELECT member.id AS member_id,
+       baseline.avg_hashrate_hs AS baseline_hashrate_hs,
+       post.avg_hashrate_hs AS post_hashrate_hs,
+       post.observed_at AS post_observed_at
+FROM firmware_rollout_member member
+LEFT JOIN firmware_rollout_evidence baseline
+  ON baseline.member_id = member.id
+ AND baseline.rollout_id = member.rollout_id
+ AND baseline.org_id = member.org_id
+ AND baseline.phase = 'baseline'
+LEFT JOIN firmware_rollout_evidence post
+  ON post.member_id = member.id
+ AND post.rollout_id = member.rollout_id
+ AND post.org_id = member.org_id
+ AND post.phase = 'post'
+WHERE member.rollout_id = $1
+  AND member.batch_id = $2
+  AND member.org_id = $3
+ORDER BY member.position, member.id
+`
+
+type ListFirmwareRolloutBatchHashrateEvidenceParams struct {
+	RolloutID uuid.UUID
+	BatchID   int64
+	OrgID     int64
+}
+
+type ListFirmwareRolloutBatchHashrateEvidenceRow struct {
+	MemberID           int64
+	BaselineHashrateHs sql.NullFloat64
+	PostHashrateHs     sql.NullFloat64
+	PostObservedAt     sql.NullTime
+}
+
+func (q *Queries) ListFirmwareRolloutBatchHashrateEvidence(ctx context.Context, arg ListFirmwareRolloutBatchHashrateEvidenceParams) ([]ListFirmwareRolloutBatchHashrateEvidenceRow, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutBatchHashrateEvidenceStmt, listFirmwareRolloutBatchHashrateEvidence, arg.RolloutID, arg.BatchID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFirmwareRolloutBatchHashrateEvidenceRow
+	for rows.Next() {
+		var i ListFirmwareRolloutBatchHashrateEvidenceRow
+		if err := rows.Scan(
+			&i.MemberID,
+			&i.BaselineHashrateHs,
+			&i.PostHashrateHs,
+			&i.PostObservedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFirmwareRolloutEvidence = `-- name: ListFirmwareRolloutEvidence :many
 SELECT id, rollout_id, member_id, org_id, phase, window_start, window_end, observed_at, avg_hashrate_hs, avg_power_w, avg_temperature_c, error_count, sample_count, created_at, updated_at
 FROM firmware_rollout_evidence
@@ -196,4 +458,263 @@ func (q *Queries) ListFirmwareRolloutEvidence(ctx context.Context, arg ListFirmw
 		return nil, err
 	}
 	return items, nil
+}
+
+const listFirmwareRolloutEvidenceCandidates = `-- name: ListFirmwareRolloutEvidenceCandidates :many
+SELECT batch.id AS batch_id,
+       batch.rollout_id,
+       batch.org_id,
+       batch.completed_at,
+       (rollout.hashrate_policy_max_drop_basis_points IS NOT NULL)::boolean AS policy_enabled,
+       COALESCE(rollout.hashrate_policy_max_drop_basis_points, 0)::int AS max_drop_basis_points,
+       COALESCE(rollout.hashrate_policy_healthy_duration_seconds, 0)::int AS healthy_duration_seconds,
+       rollout.state AS rollout_state,
+       rollout.revision AS rollout_revision,
+       rollout.created_by_user_id AS rollout_created_by_user_id,
+       NOT EXISTS (
+           SELECT 1
+           FROM firmware_rollout_batch later_completed
+           WHERE later_completed.rollout_id = batch.rollout_id
+             AND later_completed.org_id = batch.org_id
+             AND later_completed.state = 'completed'
+             AND later_completed.position > batch.position
+       ) AS is_current_review_batch,
+       EXISTS (
+           SELECT 1
+           FROM firmware_rollout_batch pending
+           WHERE pending.rollout_id = batch.rollout_id
+             AND pending.org_id = batch.org_id
+             AND pending.state = 'pending'
+             AND pending.position > batch.position
+       ) AS has_pending_batch,
+       batch.evidence_status,
+       batch.healthy_since,
+       batch.last_policy_bucket_boundary,
+       batch.latest_policy_bucket_hashrate_hs,
+       batch.latest_policy_bucket_delta_basis_points,
+       batch.evaluated_at,
+       batch.evidence_error_message,
+       auto_control.status AS auto_control_status,
+       auto_control.expected_revision AS auto_control_expected_revision,
+       auto_control.resulting_revision AS auto_control_resulting_revision
+FROM firmware_rollout_batch batch
+JOIN firmware_rollout rollout
+  ON rollout.id = batch.rollout_id
+ AND rollout.org_id = batch.org_id
+LEFT JOIN firmware_rollout_control auto_control
+  ON auto_control.rollout_id = batch.rollout_id
+ AND auto_control.org_id = batch.org_id
+ AND auto_control.operation = 'continue'
+ AND auto_control.idempotency_key =
+     CONCAT('rollout-evidence-auto-continue-batch-', batch.id)
+WHERE batch.state = 'completed'
+  AND batch.completed_at IS NOT NULL
+  AND NOT batch.post_window_finalized
+  AND batch.evidence_status <> 'finalized'
+  AND rollout.state IN (
+      'running',
+      'paused',
+      'review',
+      'completed',
+      'completed_with_failures'
+  )
+ORDER BY batch.evaluated_at ASC NULLS FIRST, batch.completed_at, batch.id
+LIMIT $1
+`
+
+type ListFirmwareRolloutEvidenceCandidatesRow struct {
+	BatchID                            int64
+	RolloutID                          uuid.UUID
+	OrgID                              int64
+	CompletedAt                        sql.NullTime
+	PolicyEnabled                      bool
+	MaxDropBasisPoints                 int32
+	HealthyDurationSeconds             int32
+	RolloutState                       string
+	RolloutRevision                    int64
+	RolloutCreatedByUserID             int64
+	IsCurrentReviewBatch               bool
+	HasPendingBatch                    bool
+	EvidenceStatus                     string
+	HealthySince                       sql.NullTime
+	LastPolicyBucketBoundary           sql.NullTime
+	LatestPolicyBucketHashrateHs       sql.NullFloat64
+	LatestPolicyBucketDeltaBasisPoints sql.NullInt32
+	EvaluatedAt                        sql.NullTime
+	EvidenceErrorMessage               sql.NullString
+	AutoControlStatus                  sql.NullString
+	AutoControlExpectedRevision        sql.NullInt64
+	AutoControlResultingRevision       sql.NullInt64
+}
+
+func (q *Queries) ListFirmwareRolloutEvidenceCandidates(ctx context.Context, limitCount int32) ([]ListFirmwareRolloutEvidenceCandidatesRow, error) {
+	rows, err := q.query(ctx, q.listFirmwareRolloutEvidenceCandidatesStmt, listFirmwareRolloutEvidenceCandidates, limitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFirmwareRolloutEvidenceCandidatesRow
+	for rows.Next() {
+		var i ListFirmwareRolloutEvidenceCandidatesRow
+		if err := rows.Scan(
+			&i.BatchID,
+			&i.RolloutID,
+			&i.OrgID,
+			&i.CompletedAt,
+			&i.PolicyEnabled,
+			&i.MaxDropBasisPoints,
+			&i.HealthyDurationSeconds,
+			&i.RolloutState,
+			&i.RolloutRevision,
+			&i.RolloutCreatedByUserID,
+			&i.IsCurrentReviewBatch,
+			&i.HasPendingBatch,
+			&i.EvidenceStatus,
+			&i.HealthySince,
+			&i.LastPolicyBucketBoundary,
+			&i.LatestPolicyBucketHashrateHs,
+			&i.LatestPolicyBucketDeltaBasisPoints,
+			&i.EvaluatedAt,
+			&i.EvidenceErrorMessage,
+			&i.AutoControlStatus,
+			&i.AutoControlExpectedRevision,
+			&i.AutoControlResultingRevision,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markFirmwareRolloutBatchAutomationError = `-- name: MarkFirmwareRolloutBatchAutomationError :execrows
+UPDATE firmware_rollout_batch
+SET evidence_status = 'automation_error',
+    evidence_error_message = $1,
+    healthy_since = NULL,
+    evaluated_at = $2
+WHERE id = $3
+  AND rollout_id = $4
+  AND org_id = $5
+  AND evidence_status <> 'automation_error'
+`
+
+type MarkFirmwareRolloutBatchAutomationErrorParams struct {
+	EvidenceErrorMessage sql.NullString
+	EvaluatedAt          sql.NullTime
+	BatchID              int64
+	RolloutID            uuid.UUID
+	OrgID                int64
+}
+
+func (q *Queries) MarkFirmwareRolloutBatchAutomationError(ctx context.Context, arg MarkFirmwareRolloutBatchAutomationErrorParams) (int64, error) {
+	result, err := q.exec(ctx, q.markFirmwareRolloutBatchAutomationErrorStmt, markFirmwareRolloutBatchAutomationError,
+		arg.EvidenceErrorMessage,
+		arg.EvaluatedAt,
+		arg.BatchID,
+		arg.RolloutID,
+		arg.OrgID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateFirmwareRolloutBatchEvidenceSummary = `-- name: UpdateFirmwareRolloutBatchEvidenceSummary :execrows
+UPDATE firmware_rollout_batch
+SET evidence_status = CASE
+        WHEN evidence_status = 'automation_error'
+            THEN evidence_status
+        ELSE $1::text
+    END,
+    evidence_total_count = $2,
+    evidence_paired_count = $3,
+    cumulative_baseline_hashrate_hs = $4,
+    cumulative_current_hashrate_hs = $5,
+    cumulative_delta_basis_points = $6,
+    latest_policy_bucket_hashrate_hs = COALESCE(
+        $7,
+        latest_policy_bucket_hashrate_hs
+    ),
+    latest_policy_bucket_delta_basis_points = COALESCE(
+        $8,
+        latest_policy_bucket_delta_basis_points
+    ),
+    healthy_since = CASE
+        WHEN $1::text = 'stale' THEN NULL
+        ELSE $9::timestamptz
+    END,
+    last_policy_bucket_boundary = COALESCE(
+        $10,
+        last_policy_bucket_boundary
+    ),
+    evaluated_at = $11,
+    evidence_error_message = $12,
+    post_window_finalized = $13,
+    post_window_finalized_at = $14
+WHERE id = $15
+  AND rollout_id = $16
+  AND org_id = $17
+  AND NOT post_window_finalized
+  AND evaluated_at IS NOT DISTINCT FROM
+      $18::timestamptz
+  AND last_policy_bucket_boundary IS NOT DISTINCT FROM
+      $19::timestamptz
+`
+
+type UpdateFirmwareRolloutBatchEvidenceSummaryParams struct {
+	EvidenceStatus                     string
+	EvidenceTotalCount                 int64
+	EvidencePairedCount                int64
+	CumulativeBaselineHashrateHs       sql.NullFloat64
+	CumulativeCurrentHashrateHs        sql.NullFloat64
+	CumulativeDeltaBasisPoints         sql.NullInt32
+	LatestPolicyBucketHashrateHs       sql.NullFloat64
+	LatestPolicyBucketDeltaBasisPoints sql.NullInt32
+	HealthySince                       sql.NullTime
+	LastPolicyBucketBoundary           sql.NullTime
+	EvaluatedAt                        sql.NullTime
+	EvidenceErrorMessage               sql.NullString
+	PostWindowFinalized                bool
+	PostWindowFinalizedAt              sql.NullTime
+	BatchID                            int64
+	RolloutID                          uuid.UUID
+	OrgID                              int64
+	ExpectedEvaluatedAt                sql.NullTime
+	ExpectedLastPolicyBucketBoundary   sql.NullTime
+}
+
+func (q *Queries) UpdateFirmwareRolloutBatchEvidenceSummary(ctx context.Context, arg UpdateFirmwareRolloutBatchEvidenceSummaryParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateFirmwareRolloutBatchEvidenceSummaryStmt, updateFirmwareRolloutBatchEvidenceSummary,
+		arg.EvidenceStatus,
+		arg.EvidenceTotalCount,
+		arg.EvidencePairedCount,
+		arg.CumulativeBaselineHashrateHs,
+		arg.CumulativeCurrentHashrateHs,
+		arg.CumulativeDeltaBasisPoints,
+		arg.LatestPolicyBucketHashrateHs,
+		arg.LatestPolicyBucketDeltaBasisPoints,
+		arg.HealthySince,
+		arg.LastPolicyBucketBoundary,
+		arg.EvaluatedAt,
+		arg.EvidenceErrorMessage,
+		arg.PostWindowFinalized,
+		arg.PostWindowFinalizedAt,
+		arg.BatchID,
+		arg.RolloutID,
+		arg.OrgID,
+		arg.ExpectedEvaluatedAt,
+		arg.ExpectedLastPolicyBucketBoundary,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

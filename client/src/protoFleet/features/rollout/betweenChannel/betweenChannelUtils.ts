@@ -1,6 +1,7 @@
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { CreateRolloutBatchInput, CreateRolloutMemberInput } from "@/protoFleet/api/useRolloutApi";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
+import { latestCompletedRolloutBatch } from "@/protoFleet/features/rollout/rolloutBatchSelectors";
 import type {
   FirmwareTransitionState,
   RolloutLane,
@@ -56,6 +57,14 @@ function hasUnsettledMembers(rollout: RolloutRecord): boolean {
   return rollout.members.some((member) => !terminalMemberStates.has(member.state));
 }
 
+function hasUnfinalizedLatestBatchEvidence(rollout: RolloutRecord): boolean {
+  const latestCompletedBatch = latestCompletedRolloutBatch(rollout);
+  return (
+    latestCompletedBatch?.completedAt !== undefined &&
+    latestCompletedBatch.evidenceSummary?.postWindowFinalized === false
+  );
+}
+
 export function shouldMonitorRollout(rollout: RolloutRecord | undefined): boolean {
   if (!rollout) {
     return false;
@@ -68,7 +77,13 @@ export function shouldMonitorRollout(rollout: RolloutRecord | undefined): boolea
   ) {
     return true;
   }
-  return rollout.state === "aborted" && hasUnsettledMembers(rollout);
+  if (rollout.state === "aborted") {
+    return hasUnsettledMembers(rollout);
+  }
+  return (
+    (rollout.state === "completed" || rollout.state === "completedWithFailures") &&
+    hasUnfinalizedLatestBatchEvidence(rollout)
+  );
 }
 
 export function canRevertRollout(rollout: RolloutRecord): boolean {

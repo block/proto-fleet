@@ -19,14 +19,48 @@ type DeleteLaneRequestBody = {
   reason?: string;
 };
 
+type HashratePolicyRequestBody = {
+  maxDropBasisPoints?: number;
+  healthyDurationSeconds?: number;
+};
+
+type StartRolloutLaneRequestBody = {
+  hashratePolicy?: HashratePolicyRequestBody;
+};
+
+type RolloutLaneAssignment = {
+  deviceIdentifier: string;
+  laneId: string;
+};
+
+type RolloutLaneAssignmentsResponse = {
+  assignments?: RolloutLaneAssignment[];
+};
+
+type RolloutLaneResponse = {
+  lane?: {
+    revision?: string;
+  };
+};
+
 type RolloutApiMember = {
   state: string;
+};
+
+type RolloutApiBatch = {
+  position: number;
+  state: string;
+  evidenceSummary?: {
+    status?: string;
+    lastPolicyBucketBoundary?: string;
+  };
 };
 
 type RolloutApiRecord = {
   rolloutId: string;
   state: string;
   revision: string;
+  batches: RolloutApiBatch[];
   members: RolloutApiMember[];
 };
 
@@ -35,7 +69,6 @@ type RolloutResponseBody = {
 };
 
 const ROLLOUT_SERVICE = "/api-proxy/rollout.v1.RolloutService";
-const DEVICE_SET_SERVICE = "/api-proxy/device_set.v1.DeviceSetService";
 const ROLLOUT_SETTLEMENT_TIMEOUT = DEFAULT_TIMEOUT * 8;
 
 export class SettingsFirmwarePage extends BasePage {
@@ -177,6 +210,10 @@ export class SettingsFirmwarePage extends BasePage {
     targetRelease: FirmwareUploadMetadata & {
       fileName: string;
     };
+    hashratePolicy?: {
+      maxDropPercent: number;
+      healthyDurationSeconds: number;
+    };
     onRolloutCreated?: (rolloutId: string) => void;
   }): Promise<RolloutApiRecord> {
     await this.rolloutLaneRow(input.laneLabel)
@@ -195,11 +232,20 @@ export class SettingsFirmwarePage extends BasePage {
         exact: true,
       })
       .click();
-    await modal.getByLabel("Method").click();
+    await modal.getByRole("button", { name: "Method", exact: true }).click();
     await this.page.getByRole("option", { name: "Multiple batches", exact: true }).click();
     await modal.getByLabel("Batch size (miners)").fill("1");
     await expect(modal.getByText("About 2 batches, review after each batch", { exact: true })).toBeVisible();
 
+    if (input.hashratePolicy) {
+      await modal.getByRole("checkbox", { name: "Auto-continue healthy batches" }).check();
+      await modal.getByLabel("Maximum hashrate drop").fill(input.hashratePolicy.maxDropPercent.toString());
+      await modal.getByLabel("Healthy duration").fill(input.hashratePolicy.healthyDurationSeconds.toString());
+    }
+
+    const startRequestPromise = this.page.waitForRequest(
+      (request) => request.method() === "POST" && request.url().includes("/rollout.v1.RolloutService/StartRolloutLane"),
+    );
     const startResponsePromise = this.page.waitForResponse(
       (response) =>
         response.ok() &&
@@ -213,7 +259,16 @@ export class SettingsFirmwarePage extends BasePage {
         response.url().includes("/rollout.v1.RolloutService/AdmitRollout"),
     );
     await modal.getByRole("button", { name: "Start rollout", exact: true }).click();
-    const startResponse = await startResponsePromise;
+    const [startRequest, startResponse] = await Promise.all([startRequestPromise, startResponsePromise]);
+    const startRequestBody = startRequest.postDataJSON() as StartRolloutLaneRequestBody;
+    if (input.hashratePolicy) {
+      expect(startRequestBody.hashratePolicy).toEqual({
+        maxDropBasisPoints: Math.round(input.hashratePolicy.maxDropPercent * 100),
+        healthyDurationSeconds: input.hashratePolicy.healthyDurationSeconds,
+      });
+    } else {
+      expect(startRequestBody.hashratePolicy).toBeUndefined();
+    }
     const responseBody = (await startResponse.json()) as RolloutResponseBody;
     if (!responseBody.rollout) {
       throw new Error("StartRolloutLane response did not include a rollout.");
@@ -251,6 +306,38 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.page.getByTestId("active-rollout-primary-lockup")).toContainText(stage, {
       timeout: ROLLOUT_SETTLEMENT_TIMEOUT,
     });
+  }
+
+  async validateHashrateEvidenceVisible(pairedCount: number, totalCount: number) {
+    const evidence = this.page.getByTestId("rollout-evidence-status");
+    await expect(evidence).toBeVisible({ timeout: ROLLOUT_SETTLEMENT_TIMEOUT });
+    await expect(evidence.getByRole("status")).toHaveText(
+      /^(Observing hashrate|Hashrate healthy|Evidence finalized)$/,
+      {
+        timeout: ROLLOUT_SETTLEMENT_TIMEOUT,
+      },
+    );
+    await expect(evidence).toContainText(
+      `Paired coverage ${pairedCount.toLocaleString()} of ${totalCount.toLocaleString()}`,
+    );
+
+    const performance = this.page.getByTestId("active-rollout-performance");
+    await expect(performance).toBeVisible({ timeout: ROLLOUT_SETTLEMENT_TIMEOUT });
+    await expect(performance).toContainText("Hashrate");
+    await expect(performance).toContainText(/TH\/s/);
+  }
+
+  async validateFirstBatchAutomaticallyContinued(rolloutId: string) {
+    const rollout = await this.getRollout(rolloutId);
+    const firstBatch = rollout.batches.reduce<RolloutApiBatch | undefined>(
+      (first, batch) => (!first || batch.position < first.position ? batch : first),
+      undefined,
+    );
+
+    expect(firstBatch, "GetRollout should include the first rollout batch").toBeDefined();
+    expect(firstBatch?.state).toBe("ROLLOUT_BATCH_STATE_COMPLETED");
+    expect(firstBatch?.evidenceSummary?.status).toBe("ROLLOUT_EVIDENCE_STATUS_HEALTHY");
+    expect(firstBatch?.evidenceSummary?.lastPolicyBucketBoundary).toEqual(expect.any(String));
   }
 
   async pauseAndResumeReview() {
@@ -332,12 +419,36 @@ export class SettingsFirmwarePage extends BasePage {
     }
 
     if (deviceIdentifiers.length > 0) {
-      await this.connectPost(`${DEVICE_SET_SERVICE}/AssignDevicesToChannel`, {
-        deviceSelector: {
-          deviceList: {
-            deviceIdentifiers,
-          },
-        },
+      await this.removeDevicesFromRolloutLanes(deviceIdentifiers);
+    }
+  }
+
+  private async removeDevicesFromRolloutLanes(deviceIdentifiers: string[]) {
+    const response = await this.connectPost<RolloutLaneAssignmentsResponse>(
+      `${ROLLOUT_SERVICE}/GetRolloutLaneAssignments`,
+      { deviceIdentifiers },
+    );
+    const identifiersByLane = new Map<string, string[]>();
+    for (const assignment of response.assignments ?? []) {
+      const identifiers = identifiersByLane.get(assignment.laneId) ?? [];
+      identifiers.push(assignment.deviceIdentifier);
+      identifiersByLane.set(assignment.laneId, identifiers);
+    }
+
+    for (const [laneId, removeDeviceIdentifiers] of identifiersByLane) {
+      const laneResponse = await this.connectPost<RolloutLaneResponse>(`${ROLLOUT_SERVICE}/GetRolloutLane`, {
+        laneId,
+      });
+      const expectedRevision = laneResponse.lane?.revision;
+      if (!expectedRevision) {
+        continue;
+      }
+      await this.connectPost(`${ROLLOUT_SERVICE}/UpdateRolloutLaneMembership`, {
+        laneId,
+        expectedRevision,
+        removeDeviceIdentifiers,
+        idempotencyKey: `e2e-cleanup-${Date.now()}-${laneId}`,
+        reason: "E2E cleanup remove lane membership",
       });
     }
   }

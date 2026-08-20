@@ -412,6 +412,9 @@ func validateCreateRequest(req CreateRequest) error {
 		strings.TrimSpace(req.StrategyKey) == "" || req.ActorUserID <= 0 {
 		return fleeterror.NewInvalidArgumentError("organization, name, strategy, and actor are required")
 	}
+	if err := ValidateHashratePolicy(req.HashratePolicy); err != nil {
+		return err
+	}
 	if err := ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
 		return err
 	}
@@ -436,6 +439,27 @@ func validateCreateRequest(req CreateRequest) error {
 			}
 			seen[identifier] = struct{}{}
 		}
+	}
+	return nil
+}
+
+func ValidateHashratePolicy(policy *HashratePolicy) error {
+	if policy == nil {
+		return nil
+	}
+	if policy.MaxDropBasisPoints < 0 ||
+		policy.MaxDropBasisPoints > 10000 ||
+		policy.MaxDropBasisPoints%10 != 0 {
+		return fleeterror.NewInvalidArgumentError(
+			"maximum hashrate drop must be between 0 and 10000 basis points in increments of 10",
+		)
+	}
+	if policy.HealthyDurationSeconds < 10 ||
+		policy.HealthyDurationSeconds > 1800 ||
+		policy.HealthyDurationSeconds%10 != 0 {
+		return fleeterror.NewInvalidArgumentError(
+			"healthy duration must be between 10 and 1800 seconds in increments of 10",
+		)
 	}
 	return nil
 }
@@ -503,6 +527,7 @@ func fingerprintCreate(req CreateRequest) (string, error) {
 		SourceSnapshot     map[string]any
 		TargetSnapshot     map[string]any
 		RevertSnapshot     map[string]any
+		HashratePolicy     *HashratePolicy
 		Batches            []CreateBatch
 		Reason             string
 		ActorUserID        int64
@@ -516,6 +541,7 @@ func fingerprintCreate(req CreateRequest) (string, error) {
 		SourceSnapshot:     req.SourceSnapshot,
 		TargetSnapshot:     req.TargetSnapshot,
 		RevertSnapshot:     req.RevertSnapshot,
+		HashratePolicy:     req.HashratePolicy,
 		Batches:            req.Batches,
 		Reason:             req.Reason,
 		ActorUserID:        req.ActorUserID,

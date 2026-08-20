@@ -440,6 +440,9 @@ func validateStartRolloutRequest(req StartRolloutRequest) error {
 			"organization, actor, lane, and rollout name are required",
 		)
 	}
+	if err := rollout.ValidateHashratePolicy(req.HashratePolicy); err != nil {
+		return err
+	}
 	if err := rollout.ValidateActorIdentity(req.ActorType, req.ActorCredentialID); err != nil {
 		return err
 	}
@@ -703,6 +706,7 @@ func fingerprintLaneStart(req StartRolloutRequest) (string, error) {
 		FirmwareFileIDs []string
 		ReleaseTargets  []ReleaseTarget
 		Batches         []rollout.CreateBatch
+		HashratePolicy  *rollout.HashratePolicy
 		Reason          string
 		ActorUserID     int64
 	}{
@@ -711,6 +715,7 @@ func fingerprintLaneStart(req StartRolloutRequest) (string, error) {
 		FirmwareFileIDs: sortedStrings(req.FirmwareFileIDs),
 		ReleaseTargets:  sortedTargets(req.ReleaseTargets),
 		Batches:         req.Batches,
+		HashratePolicy:  req.HashratePolicy,
 		Reason:          req.Reason,
 		ActorUserID:     req.ActorUserID,
 	}

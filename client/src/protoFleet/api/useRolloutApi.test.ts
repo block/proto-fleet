@@ -9,6 +9,10 @@ import {
   FirmwareTransitionState,
   InitialFirmwareMatchStatus,
   PreviewRolloutLaneMembershipChangeResponseSchema,
+  RolloutBatchEvidenceSummarySchema,
+  RolloutBatchSchema,
+  RolloutBatchState,
+  RolloutEvidenceStatus,
   RolloutLaneChannelSchema,
   RolloutLaneFirmwareConvergenceStatusSchema,
   RolloutLaneMemberSchema,
@@ -67,6 +71,47 @@ function protoRollout(id: string, state = RolloutState.RUNNING, revision = 1n) {
     strategyKey: "fixture-strategy",
     state,
     revision,
+  });
+}
+
+function protoRolloutWithEvidence({
+  id = "live",
+  state = RolloutState.REVIEW,
+  revision = 2n,
+  evaluatedAt,
+  cumulativeDeltaBasisPoints,
+  postWindowFinalized = false,
+}: {
+  id?: string;
+  state?: RolloutState;
+  revision?: bigint;
+  evaluatedAt: string;
+  cumulativeDeltaBasisPoints: number;
+  postWindowFinalized?: boolean;
+}) {
+  return create(RolloutSchema, {
+    rolloutId: id,
+    name: `Rollout ${id}`,
+    strategyKey: "fixture-strategy",
+    state,
+    revision,
+    batches: [
+      create(RolloutBatchSchema, {
+        batchId: 1n,
+        position: 0,
+        label: "Pilot",
+        state: RolloutBatchState.COMPLETED,
+        revision: 1n,
+        evidenceSummary: create(RolloutBatchEvidenceSummarySchema, {
+          status: postWindowFinalized ? RolloutEvidenceStatus.FINALIZED : RolloutEvidenceStatus.OBSERVING,
+          totalCount: 2n,
+          pairedCount: 2n,
+          cumulativeDeltaBasisPoints,
+          evaluatedAt: timestampFromDate(new Date(evaluatedAt)),
+          postWindowFinalized,
+        }),
+      }),
+    ],
   });
 }
 
@@ -965,7 +1010,39 @@ describe("useRolloutApi", () => {
       idempotencyKey: "start-lane-one",
       reason: "Deploy validated release",
     });
+    expect(rolloutClientMock.startRolloutLane.mock.calls[0][0].hashratePolicy).toBeUndefined();
     expect(result.current.rollout).toMatchObject({ id: "created", state: "created" });
+  });
+
+  it("includes an optional hashrate policy when starting a rollout lane", async () => {
+    rolloutClientMock.startRolloutLane.mockResolvedValue({
+      lane: protoLane(),
+      rollout: protoRollout("created", RolloutState.CREATED),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.startRolloutLane({
+        laneId: "15bc6181-07d8-45ac-8424-50b5e938b871",
+        name: "Production 2.0.0",
+        firmwareFileIds: ["file-alpha-2"],
+        batches: [
+          { label: "Pilot", members: [{ deviceIdentifier: "miner-1" }] },
+          { label: "Remaining", members: [{ deviceIdentifier: "miner-2" }] },
+        ],
+        hashratePolicy: {
+          maxDropBasisPoints: 1_230,
+          healthyDurationSeconds: 40,
+        },
+        idempotencyKey: "start-lane-policy",
+        reason: "Deploy with automatic review",
+      });
+    });
+
+    expect(rolloutClientMock.startRolloutLane.mock.calls[0][0].hashratePolicy).toMatchObject({
+      maxDropBasisPoints: 1_230,
+      healthyDurationSeconds: 40,
+    });
   });
 
   it("lists and gets mapped rollout records", async () => {
@@ -1135,6 +1212,42 @@ describe("useRolloutApi", () => {
         },
       ],
     });
+    expect(rolloutClientMock.createRollout.mock.calls[0][0].hashratePolicy).toBeUndefined();
+  });
+
+  it("includes an optional hashrate policy in generic rollout creation", async () => {
+    rolloutClientMock.createRollout.mockResolvedValue({
+      rollout: protoRollout("created", RolloutState.CREATED),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+
+    await act(async () => {
+      await result.current.createRollout({
+        name: "Firmware rollout",
+        strategyKey: "strategy-a",
+        batches: [
+          {
+            label: "Batch 1",
+            members: [{ deviceIdentifier: "miner-1", targetSnapshot: { version: "1.2.3" } }],
+          },
+          {
+            label: "Batch 2",
+            members: [{ deviceIdentifier: "miner-2", targetSnapshot: { version: "1.2.3" } }],
+          },
+        ],
+        hashratePolicy: {
+          maxDropBasisPoints: 10,
+          healthyDurationSeconds: 30,
+        },
+        idempotencyKey: "create-policy",
+        reason: "Controlled deployment",
+      });
+    });
+
+    expect(rolloutClientMock.createRollout.mock.calls[0][0].hashratePolicy).toMatchObject({
+      maxDropBasisPoints: 10,
+      healthyDurationSeconds: 30,
+    });
   });
 
   it("keeps mutation state active until concurrent rollout and lane mutations settle", async () => {
@@ -1255,6 +1368,99 @@ describe("useRolloutApi", () => {
     });
 
     expect(result.current.rollouts).toEqual([expect.objectContaining({ id: "live", state: "review", revision: 2n })]);
+  });
+
+  it("keeps newer equal-revision batch evidence when an older list response arrives last", async () => {
+    const staleList = deferred<{ rollouts: ReturnType<typeof protoRolloutWithEvidence>[] }>();
+    rolloutClientMock.listRollouts.mockReturnValue(staleList.promise);
+    rolloutClientMock.getRollout.mockResolvedValue({
+      rollout: protoRolloutWithEvidence({
+        evaluatedAt: "2026-08-20T12:00:20Z",
+        cumulativeDeltaBasisPoints: -100,
+      }),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+    let listRequest!: Promise<unknown>;
+
+    act(() => {
+      listRequest = result.current.listRollouts();
+    });
+    await act(async () => {
+      await result.current.getRollout({ rolloutId: "live" });
+    });
+    await act(async () => {
+      staleList.resolve({
+        rollouts: [
+          protoRolloutWithEvidence({
+            state: RolloutState.COMPLETED,
+            evaluatedAt: "2026-08-20T12:00:10Z",
+            cumulativeDeltaBasisPoints: -400,
+          }),
+        ],
+      });
+      await listRequest;
+    });
+
+    expect(result.current.rollouts[0]).toMatchObject({
+      state: "completed",
+      revision: 2n,
+      batches: [
+        {
+          evidenceSummary: {
+            cumulativeDeltaBasisPoints: -100,
+            evaluatedAt: "2026-08-20T12:00:20.000Z",
+          },
+        },
+      ],
+    });
+  });
+
+  it("keeps finalized equal-revision evidence when an open detail response arrives last", async () => {
+    const staleDetail = deferred<{ rollout: ReturnType<typeof protoRolloutWithEvidence> }>();
+    rolloutClientMock.getRollout.mockReturnValue(staleDetail.promise);
+    rolloutClientMock.listRollouts.mockResolvedValue({
+      rollouts: [
+        protoRolloutWithEvidence({
+          state: RolloutState.COMPLETED,
+          evaluatedAt: "2026-08-20T12:00:10Z",
+          cumulativeDeltaBasisPoints: -250,
+          postWindowFinalized: true,
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useRolloutApi());
+    let detailRequest!: Promise<unknown>;
+
+    act(() => {
+      detailRequest = result.current.getRollout({ rolloutId: "live" });
+    });
+    await act(async () => {
+      await result.current.listRollouts();
+    });
+    await act(async () => {
+      staleDetail.resolve({
+        rollout: protoRolloutWithEvidence({
+          state: RolloutState.PAUSED,
+          evaluatedAt: "2026-08-20T12:00:20Z",
+          cumulativeDeltaBasisPoints: -50,
+        }),
+      });
+      await detailRequest;
+    });
+
+    expect(result.current.rollouts[0]).toMatchObject({
+      state: "paused",
+      revision: 2n,
+      batches: [
+        {
+          evidenceSummary: {
+            status: "finalized",
+            cumulativeDeltaBasisPoints: -250,
+            postWindowFinalized: true,
+          },
+        },
+      ],
+    });
   });
 
   it("does not update state or report auth errors after cancellation", async () => {

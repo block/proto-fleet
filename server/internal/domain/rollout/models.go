@@ -108,6 +108,25 @@ const (
 	EvidencePhasePost     EvidencePhase = "post"
 )
 
+type EvidenceStatus string
+
+const (
+	EvidenceStatusPending         EvidenceStatus = "pending"
+	EvidenceStatusCollecting      EvidenceStatus = "collecting"
+	EvidenceStatusUnavailable     EvidenceStatus = "unavailable"
+	EvidenceStatusObserving       EvidenceStatus = "observing"
+	EvidenceStatusHealthy         EvidenceStatus = "healthy"
+	EvidenceStatusHeld            EvidenceStatus = "held"
+	EvidenceStatusStale           EvidenceStatus = "stale"
+	EvidenceStatusAutomationError EvidenceStatus = "automation_error"
+	EvidenceStatusFinalized       EvidenceStatus = "finalized"
+)
+
+type HashratePolicy struct {
+	MaxDropBasisPoints     int32
+	HealthyDurationSeconds int32
+}
+
 type Rollout struct {
 	ID                       uuid.UUID
 	OrgID                    int64
@@ -127,6 +146,7 @@ type Rollout struct {
 	SourceSnapshot           map[string]any
 	TargetSnapshot           map[string]any
 	RevertSnapshot           map[string]any
+	HashratePolicy           *HashratePolicy
 	Reason                   string
 	CreatedByUserID          int64
 	StartedAt                *time.Time
@@ -143,16 +163,31 @@ type Rollout struct {
 }
 
 type Batch struct {
-	ID        int64
-	RolloutID uuid.UUID
-	OrgID     int64
-	Position  int32
-	Label     string
-	State     BatchState
-	Revision  int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Members   []Member
+	ID                                 int64
+	RolloutID                          uuid.UUID
+	OrgID                              int64
+	Position                           int32
+	Label                              string
+	State                              BatchState
+	Revision                           int64
+	CompletedAt                        *time.Time
+	EvidenceStatus                     EvidenceStatus
+	EvidenceTotalCount                 int64
+	EvidencePairedCount                int64
+	CumulativeBaselineHashrateHS       *float64
+	CumulativeCurrentHashrateHS        *float64
+	CumulativeDeltaBasisPoints         *int32
+	LatestPolicyBucketHashrateHS       *float64
+	LatestPolicyBucketDeltaBasisPoints *int32
+	HealthySince                       *time.Time
+	LastPolicyBucketBoundary           *time.Time
+	EvaluatedAt                        *time.Time
+	EvidenceErrorMessage               *string
+	PostWindowFinalized                bool
+	PostWindowFinalizedAt              *time.Time
+	CreatedAt                          time.Time
+	UpdatedAt                          time.Time
+	Members                            []Member
 }
 
 type Member struct {
@@ -257,6 +292,7 @@ type CreateRequest struct {
 	SourceSnapshot     map[string]any
 	TargetSnapshot     map[string]any
 	RevertSnapshot     map[string]any
+	HashratePolicy     *HashratePolicy
 	Batches            []CreateBatch
 	IdempotencyKey     string
 	RequestFingerprint string

@@ -1,6 +1,7 @@
 package rollout
 
 import (
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -261,6 +262,7 @@ func createRequestFromProto(
 		SourceSnapshot:     snapshotFromProto(input.GetSourceSnapshot()),
 		TargetSnapshot:     snapshotFromProto(input.GetTargetSnapshot()),
 		RevertSnapshot:     snapshotFromProto(input.GetRevertSnapshot()),
+		HashratePolicy:     hashratePolicyFromProto(input.GetHashratePolicy()),
 		Batches:            batchesFromProto(input.GetBatches()),
 		IdempotencyKey:     input.GetIdempotencyKey(),
 		Reason:             input.GetReason(),
@@ -287,6 +289,7 @@ func rolloutToProto(input *rolloutDomain.Rollout) *pb.Rollout {
 		SourceSnapshot:     snapshotToProto(input.SourceSnapshot),
 		TargetSnapshot:     snapshotToProto(input.TargetSnapshot),
 		RevertSnapshot:     snapshotToProto(input.RevertSnapshot),
+		HashratePolicy:     hashratePolicyToProto(input.HashratePolicy),
 		Reason:             input.Reason,
 		StartedAt:          timestampFromPtr(input.StartedAt),
 		PausedAt:           timestampFromPtr(input.PausedAt),
@@ -314,17 +317,88 @@ func rolloutToProto(input *rolloutDomain.Rollout) *pb.Rollout {
 
 func batchToProto(input *rolloutDomain.Batch) *pb.RolloutBatch {
 	result := &pb.RolloutBatch{
-		BatchId:  input.ID,
-		Position: nonNegativeUint32(input.Position),
-		Label:    input.Label,
-		State:    batchStateToProto(input.State),
-		Revision: nonNegativeUint64(input.Revision),
-		Members:  make([]*pb.RolloutMember, 0, len(input.Members)),
+		BatchId:     input.ID,
+		Position:    nonNegativeUint32(input.Position),
+		Label:       input.Label,
+		State:       batchStateToProto(input.State),
+		Revision:    nonNegativeUint64(input.Revision),
+		Members:     make([]*pb.RolloutMember, 0, len(input.Members)),
+		CompletedAt: timestampFromPtr(input.CompletedAt),
+	}
+	if input.State != rolloutDomain.BatchStateCompleted || input.CompletedAt != nil {
+		result.EvidenceSummary = &pb.RolloutBatchEvidenceSummary{
+			Status:                             evidenceStatusToProto(input.EvidenceStatus),
+			TotalCount:                         nonNegativeUint64(input.EvidenceTotalCount),
+			PairedCount:                        nonNegativeUint64(input.EvidencePairedCount),
+			CumulativeBaselineHashrateHs:       input.CumulativeBaselineHashrateHS,
+			CumulativeCurrentHashrateHs:        input.CumulativeCurrentHashrateHS,
+			CumulativeDeltaBasisPoints:         input.CumulativeDeltaBasisPoints,
+			LatestPolicyBucketHashrateHs:       input.LatestPolicyBucketHashrateHS,
+			LatestPolicyBucketDeltaBasisPoints: input.LatestPolicyBucketDeltaBasisPoints,
+			HealthySince:                       timestampFromPtr(input.HealthySince),
+			LastPolicyBucketBoundary:           timestampFromPtr(input.LastPolicyBucketBoundary),
+			EvaluatedAt:                        timestampFromPtr(input.EvaluatedAt),
+			PostWindowFinalized:                input.PostWindowFinalized,
+			PostWindowFinalizedAt:              timestampFromPtr(input.PostWindowFinalizedAt),
+			ErrorMessage:                       input.EvidenceErrorMessage,
+		}
 	}
 	for index := range input.Members {
 		result.Members = append(result.Members, memberToProto(&input.Members[index]))
 	}
 	return result
+}
+
+func hashratePolicyFromProto(input *pb.RolloutHashratePolicy) *rolloutDomain.HashratePolicy {
+	if input == nil {
+		return nil
+	}
+	return &rolloutDomain.HashratePolicy{
+		MaxDropBasisPoints:     uint32ToInt32Saturating(input.GetMaxDropBasisPoints()),
+		HealthyDurationSeconds: uint32ToInt32Saturating(input.GetHealthyDurationSeconds()),
+	}
+}
+
+func uint32ToInt32Saturating(value uint32) int32 {
+	if value > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(value) //nolint:gosec // Guarded by the MaxInt32 bound above.
+}
+
+func hashratePolicyToProto(input *rolloutDomain.HashratePolicy) *pb.RolloutHashratePolicy {
+	if input == nil {
+		return nil
+	}
+	return &pb.RolloutHashratePolicy{
+		MaxDropBasisPoints:     nonNegativeUint32(input.MaxDropBasisPoints),
+		HealthyDurationSeconds: nonNegativeUint32(input.HealthyDurationSeconds),
+	}
+}
+
+func evidenceStatusToProto(status rolloutDomain.EvidenceStatus) pb.RolloutEvidenceStatus {
+	switch status {
+	case rolloutDomain.EvidenceStatusPending:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_PENDING
+	case rolloutDomain.EvidenceStatusCollecting:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_COLLECTING
+	case rolloutDomain.EvidenceStatusUnavailable:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_UNAVAILABLE
+	case rolloutDomain.EvidenceStatusObserving:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_OBSERVING
+	case rolloutDomain.EvidenceStatusHealthy:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_HEALTHY
+	case rolloutDomain.EvidenceStatusHeld:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_HELD
+	case rolloutDomain.EvidenceStatusStale:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_STALE
+	case rolloutDomain.EvidenceStatusAutomationError:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_AUTOMATION_ERROR
+	case rolloutDomain.EvidenceStatusFinalized:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_FINALIZED
+	default:
+		return pb.RolloutEvidenceStatus_ROLLOUT_EVIDENCE_STATUS_UNSPECIFIED
+	}
 }
 
 func memberToProto(input *rolloutDomain.Member) *pb.RolloutMember {
