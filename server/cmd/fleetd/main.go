@@ -9,6 +9,7 @@ import (
 	"net/http"
 	_ "net/http/pprof" // #nosec G108 -- pprof endpoint intentionally exposed for debugging
 	"os"
+	"strings"
 	"time"
 	_ "time/tzdata"
 
@@ -31,7 +32,6 @@ import (
 	"connectrpc.com/grpcreflect"
 	"connectrpc.com/validate"
 	"github.com/alecthomas/kong"
-	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
@@ -143,22 +143,38 @@ const shutdownTimeout = 10 * time.Second
 var version = "dev"
 
 func main() {
-	config := &Config{}
-
-	_ = kong.Parse(
-		config,
+	cli := &fleetdCLI{}
+	parser := kong.Must(
+		cli,
 		kong.Name("fleetd"),
-		kong.Configuration(kongyaml.Loader, "/etc/fleetd/config.yaml"),
+		kong.Configuration(fleetdYAMLLoader, "/etc/fleetd/config.yaml"),
+		kong.BindTo(context.Background(), (*context.Context)(nil)),
 	)
+	kctx, err := parser.Parse(normalizeFleetdArgs(os.Args[1:]))
+	parser.FatalIfErrorf(err)
 
-	logging.InitLogger(config.Log)
+	// Kong applies flag defaults tree-wide, so for non-server commands
+	// cli.Server.Log carries the compiled defaults (info level, 1000 buffer).
+	logging.InitLogger(cli.Server.Log)
 
-	slog.Info("fleetd starting", "version", version)
-
-	if err := start(config); err != nil {
+	if err := kctx.Run(); err != nil {
 		slog.Error(fmt.Sprintf("%+v", err))
 		os.Exit(1)
 	}
+}
+
+// normalizeFleetdArgs preserves the pre-command CLI contract. Kong's default
+// subcommand handles an empty invocation, but flags must be routed explicitly.
+func normalizeFleetdArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	for _, path := range fleetdCommandPaths {
+		if args[0] == strings.Fields(path)[0] {
+			return args
+		}
+	}
+	return append([]string{"server"}, args...)
 }
 
 // reflectEnabledServices lists the gRPC services exposed via the

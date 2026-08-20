@@ -198,6 +198,7 @@ func TestManagerUpgradeStagesBeforeActivationAndPreservesConfiguration(t *testin
 	assert.Equal(t, "v1.1.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
 	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment.previous", "version.txt")))
 	assert.Equal(t, operatorEnv, mustReadFile(t, filepath.Join(installRoot, "deployment", ".env")))
+	assert.Equal(t, "proto-fleet-docker-daemon-v1:test-daemon\n", mustReadFile(t, filepath.Join(installRoot, "deployment", ".docker-daemon-id")))
 	assert.Equal(t, "certificate\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "ssl", "cert.pem")))
 	assert.Equal(t, "influx-secret\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "server", "influx_config", ".env")))
 	assert.Equal(t, "HA_NODE_NAME=ha-a\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "ha", "node.env")))
@@ -3781,6 +3782,7 @@ func writeCurrentDeployment(t *testing.T, installRoot, version string) {
 	files := map[string]string{
 		"version.txt":               "version: " + version + "\ncommit: " + sourceReleaseCommit + "\n",
 		".env":                      operatorEnv,
+		".docker-daemon-id":         "proto-fleet-docker-daemon-v1:test-daemon\n",
 		"ssl/cert.pem":              "certificate\n",
 		"server/influx_config/.env": "influx-secret\n",
 		"ha/fleet-ha":               "fleet-ha",

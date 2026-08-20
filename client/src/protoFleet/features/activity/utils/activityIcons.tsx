@@ -80,6 +80,7 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   update_username: Lock,
   deactivate_user: MinusFilled,
   reset_password: Lock,
+  cli_reset_password: Lock,
   update_user_role: Lock,
 
   stop_mining: Power,

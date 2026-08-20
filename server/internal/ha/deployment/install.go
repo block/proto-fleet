@@ -46,6 +46,7 @@ const (
 	keepalivedConfig      = "/etc/keepalived/keepalived.conf"
 	keepalivedOverride    = "/etc/systemd/system/keepalived.service.d/override.conf"
 	keepalivedHealthCheck = "/usr/local/libexec/proto-fleet/check-fleet-active"
+	haActiveInstallMarker = configRoot + "/active-install"
 )
 
 var errInstallConverging = errors.New("HA service remains enabled and is still converging")
@@ -188,10 +189,10 @@ func install(ctx context.Context, options InstallOptions, deps installDependenci
 	if startErr != nil && !errors.Is(startErr, errInstallConverging) {
 		return startErr
 	}
-	if startErr != nil {
-		return startErr
+	if err := recordActiveInstall(ctx, deps); err != nil {
+		return stopIncompleteHA(ctx, deps, err, config.isDatabaseNode())
 	}
-	return nil
+	return startErr
 }
 
 func inspectInstallBase(ctx context.Context, source string, deps installDependencies) (installPlatform, installedDependencies, error) {
@@ -456,6 +457,15 @@ func sudoStep(ctx context.Context, deps installDependencies, action string, args
 
 func placeFile(ctx context.Context, deps installDependencies, action, source, target, mode string) error {
 	return sudoStep(ctx, deps, action, "install", "-D", "-o", "root", "-g", "root", "-m", mode, source, target)
+}
+
+func recordActiveInstall(ctx context.Context, deps installDependencies) error {
+	temp, err := writeInstallTemp("active-install", installRoot+"\n", 0o600)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temp)
+	return placeFile(ctx, deps, "record active HA installation", temp, haActiveInstallMarker, "0600")
 }
 
 func installValidationPrerequisites(ctx context.Context, needsARPing bool, deps installDependencies) error {
@@ -957,8 +967,8 @@ func stopIncompleteHA(ctx context.Context, deps installDependencies, cause error
 	if output, err := deps.run(cleanupCtx, "sudo", "systemctl", "disable", "--now", "proto-fleet-ha.service"); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("disable HA services: %s", commandError(output, err)))
 	}
-	if output, err := deps.run(cleanupCtx, "sudo", "rm", "-f", dockerRecoveryDropIn); err != nil {
-		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove Docker HA recovery hook: %s", commandError(output, err)))
+	if output, err := deps.run(cleanupCtx, "sudo", "rm", "-f", dockerRecoveryDropIn, haActiveInstallMarker); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove incomplete HA recovery state: %s", commandError(output, err)))
 	}
 	if output, err := deps.run(cleanupCtx, "sudo", "systemctl", "daemon-reload"); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("reload systemd after HA cleanup: %s", commandError(output, err)))

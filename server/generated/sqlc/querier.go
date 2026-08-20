@@ -26,7 +26,7 @@ type Querier interface {
 	// the change (len of result) and resolve the changed set for activity site
 	// scope (#538). Equivalent affected-row count to the prior :execrows shape.
 	AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDeviceSetParams) ([]string, error)
-	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) error
+	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error)
 	// Flips pending/restoring → target_state (CANCELLED or FAILED).
 	// Locks the event row before evaluating the in-flight target predicate so
 	// reconciler target claims (which lock the same parent row) serialize with
@@ -1131,6 +1131,12 @@ type Querier interface {
 	// (org_id, type, label), so a site/building-scoped rack list can't answer it.
 	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
+	// Break-glass resets intentionally target the sole live org-scope
+	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
+	// resets serialize on the same rows. The live membership join matches what
+	// role resolution requires at sign-in; without it a reset could succeed for
+	// an account that still cannot log in.
+	LockActiveSuperAdminUsers(ctx context.Context) ([]LockActiveSuperAdminUsersRow, error)
 	// Serializes the quota check with mutations across every server instance. The transaction that
 	// takes this lock re-counts after its write and rolls back if the org would exceed its limit.
 	LockAlertMaintenanceWindowOrgForWrite(ctx context.Context, orgID int64) error

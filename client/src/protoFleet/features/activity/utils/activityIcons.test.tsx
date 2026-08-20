@@ -57,6 +57,7 @@ describe("activityIcons", () => {
 
   it("keeps domain-specific update icons", () => {
     expect(getActivityIcon("update_password")).toBe(Lock);
+    expect(getActivityIcon("cli_reset_password")).toBe(Lock);
     expect(getActivityIcon("update_pool")).toBe(MiningPools);
     expect(getActivityIcon("firmware_update")).toBe(Settings);
     expect(getActivityIcon("set_power_target")).toBe(Speedometer);

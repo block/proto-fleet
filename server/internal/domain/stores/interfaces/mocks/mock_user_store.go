@@ -214,11 +214,12 @@ func (m *MockUserManagementStore) EXPECT() *MockUserManagementStoreMockRecorder 
 }
 
 // AdminResetUserPassword mocks base method.
-func (m *MockUserManagementStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error {
+func (m *MockUserManagementStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AdminResetUserPassword", ctx, userID, passwordHash)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // AdminResetUserPassword indicates an expected call of AdminResetUserPassword.
@@ -430,4 +431,73 @@ func (m *MockUserManagementStore) UpdateUserPasswordAndClearPasswordChangeFlag(c
 func (mr *MockUserManagementStoreMockRecorder) UpdateUserPasswordAndClearPasswordChangeFlag(ctx, userID, passwordHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUserPasswordAndClearPasswordChangeFlag", reflect.TypeOf((*MockUserManagementStore)(nil).UpdateUserPasswordAndClearPasswordChangeFlag), ctx, userID, passwordHash)
+}
+
+// MockBreakGlassUserStore is a mock of BreakGlassUserStore interface.
+type MockBreakGlassUserStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockBreakGlassUserStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockBreakGlassUserStoreMockRecorder is the mock recorder for MockBreakGlassUserStore.
+type MockBreakGlassUserStoreMockRecorder struct {
+	mock *MockBreakGlassUserStore
+}
+
+// NewMockBreakGlassUserStore creates a new mock instance.
+func NewMockBreakGlassUserStore(ctrl *gomock.Controller) *MockBreakGlassUserStore {
+	mock := &MockBreakGlassUserStore{ctrl: ctrl}
+	mock.recorder = &MockBreakGlassUserStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockBreakGlassUserStore) EXPECT() *MockBreakGlassUserStoreMockRecorder {
+	return m.recorder
+}
+
+// AdminResetUserPassword mocks base method.
+func (m *MockBreakGlassUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdminResetUserPassword", ctx, userID, passwordHash)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AdminResetUserPassword indicates an expected call of AdminResetUserPassword.
+func (mr *MockBreakGlassUserStoreMockRecorder) AdminResetUserPassword(ctx, userID, passwordHash any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdminResetUserPassword", reflect.TypeOf((*MockBreakGlassUserStore)(nil).AdminResetUserPassword), ctx, userID, passwordHash)
+}
+
+// HasUser mocks base method.
+func (m *MockBreakGlassUserStore) HasUser(ctx context.Context) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasUser", ctx)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasUser indicates an expected call of HasUser.
+func (mr *MockBreakGlassUserStoreMockRecorder) HasUser(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasUser", reflect.TypeOf((*MockBreakGlassUserStore)(nil).HasUser), ctx)
+}
+
+// LockActiveSuperAdminUsers mocks base method.
+func (m *MockBreakGlassUserStore) LockActiveSuperAdminUsers(ctx context.Context) ([]interfaces.BreakGlassSuperAdmin, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockActiveSuperAdminUsers", ctx)
+	ret0, _ := ret[0].([]interfaces.BreakGlassSuperAdmin)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockActiveSuperAdminUsers indicates an expected call of LockActiveSuperAdminUsers.
+func (mr *MockBreakGlassUserStoreMockRecorder) LockActiveSuperAdminUsers(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockActiveSuperAdminUsers", reflect.TypeOf((*MockBreakGlassUserStore)(nil).LockActiveSuperAdminUsers), ctx)
 }

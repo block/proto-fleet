@@ -54,10 +54,16 @@ func (q *retryingQuerier) AddDevicesToDeviceSet(ctx context.Context, arg AddDevi
 	return result, err
 }
 
-func (q *retryingQuerier) AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) error {
-	return q.retrier.RetryQuery(ctx, "AdminResetUserPassword", func() error {
-		return q.next.AdminResetUserPassword(ctx, arg)
+func (q *retryingQuerier) AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "AdminResetUserPassword", func() error {
+		callResult, callErr := q.next.AdminResetUserPassword(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
 	})
+	return result, err
 }
 
 func (q *retryingQuerier) AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error) {
@@ -4288,6 +4294,18 @@ func (q *retryingQuerier) ListUsersForOrganization(ctx context.Context, organiza
 	var result []ListUsersForOrganizationRow
 	err := q.retrier.RetryQuery(ctx, "ListUsersForOrganization", func() error {
 		callResult, callErr := q.next.ListUsersForOrganization(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockActiveSuperAdminUsers(ctx context.Context) ([]LockActiveSuperAdminUsersRow, error) {
+	var result []LockActiveSuperAdminUsersRow
+	err := q.retrier.RetryQuery(ctx, "LockActiveSuperAdminUsers", func() error {
+		callResult, callErr := q.next.LockActiveSuperAdminUsers(ctx)
 		if callErr == nil {
 			result = callResult
 		}

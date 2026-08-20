@@ -57,9 +57,10 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	rootPasswordInstall := callIndex(calls, configRoot+"/etcd-root-password")
 	imageLoad := callIndex(calls, "images/fleet.tar.gz")
 	dockerRecovery := callIndex(calls, dockerRecoveryDropIn)
+	activeInstall := callIndex(calls, haActiveInstallMarker)
 	pinnedComposeInstall := callIndex(calls, "ha/compose.yaml "+infrastructureCompose)
-	if aptUpdate < 0 || nftablesPackage < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || pinnedComposeInstall < 0 || imageLoad < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || updaterPermissions < 0 || updater < 0 || keepalived < 0 ||
-		!(aptUpdate < nftablesPackage && nftablesPackage < vipCheck && vipCheck < nftablesCompatibility && nftablesCompatibility < serviceMask && serviceMask < dockerPackages && dockerPackages < serviceUnmask && nftablesCompatibility < keepalived && keepalived < firewall && firewall < docker && docker < imageLoad && imageLoad < dockerRecovery && dockerRecovery < enable && enable < updater && updaterPermissions < updater && updater < start && rootPasswordInstall < start && pinnedComposeInstall < start) {
+	if aptUpdate < 0 || nftablesPackage < 0 || nftablesCompatibility < 0 || serviceMask < 0 || dockerPackages < 0 || serviceUnmask < 0 || vipCheck < 0 || firewall < 0 || docker < 0 || rootPasswordInstall < 0 || pinnedComposeInstall < 0 || imageLoad < 0 || start < 0 || enable < 0 || dockerRecovery < 0 || activeInstall < 0 || updaterPermissions < 0 || updater < 0 || keepalived < 0 ||
+		!(aptUpdate < nftablesPackage && nftablesPackage < vipCheck && vipCheck < nftablesCompatibility && nftablesCompatibility < serviceMask && serviceMask < dockerPackages && dockerPackages < serviceUnmask && nftablesCompatibility < keepalived && keepalived < firewall && firewall < docker && docker < imageLoad && imageLoad < dockerRecovery && dockerRecovery < enable && enable < updater && updaterPermissions < updater && updater < start && start < activeInstall && rootPasswordInstall < start && pinnedComposeInstall < start) {
 		t.Fatalf("firewall/start/keepalived order is wrong:\n%s", strings.Join(calls, "\n"))
 	}
 	if callIndex(calls, "sudo install -D -o root -g root -m 0600") < 0 {
@@ -77,6 +78,31 @@ func TestInstallGoldenPathOrdersFirewallBeforeServices(t *testing.T) {
 	require.Contains(t, joined, "sudo install -D -o root -g root -m 0644 "+filepath.Join(secrets, "service-ca.crt")+" "+filepath.Join(configRoot, "service-ca.crt"))
 	require.Contains(t, joined, "sudo install -D -o root -g root -m 0600 "+filepath.Join(secrets, "fleet-client.key")+" "+filepath.Join(configRoot, "fleet-client.key"))
 	require.Contains(t, joined, "sudo install -o root -g root -m 0600 /dev/null "+haGrafanaVolumeOwnershipMarker)
+}
+
+func TestInstallDoesNotRecordActiveMarkerWhenStartupFails(t *testing.T) {
+	// Arrange
+	source := testInstallRelease(t)
+	config := NodeConfig{
+		NodeName: "ha-a", NodeIP: testHostIPs[0], DatabaseAIP: testHostIPs[0],
+		DatabaseBIP: testHostIPs[1], WitnessIP: testHostIPs[2], VirtualIP: testVirtualIP,
+		NetworkInterface: "eth0", DataDir: dataRoot, SecretsDir: t.TempDir(),
+	}
+	writeTestSecretBundle(t, config)
+	var calls []string
+	deps := testInstallerDependencies(source, config, &calls)
+	deps.localReady = func(context.Context, NodeConfig) error { return errors.New("startup failed") }
+
+	// Act
+	err := install(t.Context(), InstallOptions{NodeEnvPath: "node.env"}, deps)
+
+	// Assert
+	require.ErrorContains(t, err, "startup failed")
+	for _, call := range calls {
+		if strings.Contains(call, " install ") {
+			require.NotContains(t, call, haActiveInstallMarker)
+		}
+	}
 }
 
 func TestInstallRejectsExistingNftablesInputFilteringBeforeConfiguration(t *testing.T) {

@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"strings"
 	"testing"
 
+	"github.com/alecthomas/kong"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/ha"
@@ -18,6 +21,104 @@ type fakeUpdaterClient struct {
 	complete   bool
 	triggerErr error
 	operation  updaterapi.Operation
+}
+
+func TestResetPasswordCommandParsesStdinFlag(t *testing.T) {
+	var parsed cli
+	parser, err := kong.New(&parsed, kong.Vars{
+		"default_node_env":          defaultNodeEnv,
+		"default_firewall_template": defaultFirewallTemplate,
+	})
+	require.NoError(t, err)
+
+	ctx, err := parser.Parse([]string{"reset-password", "--password-stdin"})
+
+	require.NoError(t, err)
+	require.Equal(t, "reset-password", ctx.Command())
+	require.True(t, parsed.ResetPassword.PasswordStdin)
+}
+
+func TestRunResetPasswordGeneratesOnHostAndUsesContainerStdin(t *testing.T) {
+	var output bytes.Buffer
+	var containerInput string
+
+	err := runResetPassword(
+		t.Context(),
+		false,
+		strings.NewReader("ignored"),
+		&output,
+		func() (string, error) { return "generated-secret", nil },
+		func(_ context.Context, input io.Reader) error {
+			contents, err := io.ReadAll(input)
+			require.NoError(t, err)
+			containerInput = string(contents)
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "generated-secret\n", containerInput)
+	require.Equal(t, "Temporary password: generated-secret\n", output.String())
+}
+
+func TestRunResetPasswordDoesNotPrintGeneratedPasswordWhenResetFails(t *testing.T) {
+	var output bytes.Buffer
+
+	err := runResetPassword(
+		t.Context(),
+		false,
+		strings.NewReader(""),
+		&output,
+		func() (string, error) { return "generated-secret", nil },
+		func(context.Context, io.Reader) error { return errors.New("reset failed") },
+	)
+
+	require.ErrorContains(t, err, "reset failed")
+	require.Empty(t, output.String())
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("ssh session closed") }
+
+func TestRunResetPasswordReportsCommittedResetWhenDeliveryFails(t *testing.T) {
+	err := runResetPassword(
+		t.Context(),
+		false,
+		strings.NewReader("ignored"),
+		failingWriter{},
+		func() (string, error) { return "generated-secret", nil },
+		func(context.Context, io.Reader) error { return nil },
+	)
+
+	require.ErrorContains(t, err, "already committed")
+	require.ErrorContains(t, err, "rerun recovery")
+	require.ErrorContains(t, err, "ssh session closed")
+}
+
+func TestRunResetPasswordForwardsSuppliedStdinWithoutHostOutput(t *testing.T) {
+	var output bytes.Buffer
+	supplied := strings.NewReader("supplied-secret\n")
+	generated := false
+
+	err := runResetPassword(
+		t.Context(),
+		true,
+		supplied,
+		&output,
+		func() (string, error) {
+			generated = true
+			return "", nil
+		},
+		func(_ context.Context, input io.Reader) error {
+			require.Same(t, supplied, input)
+			return nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.False(t, generated)
+	require.Empty(t, output.String())
 }
 
 func (f *fakeUpdaterClient) TriggerComplete(_ context.Context, operationID, targetVersion string) (updaterapi.Operation, error) {

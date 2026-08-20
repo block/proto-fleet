@@ -133,6 +133,10 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
     const username = displayName(entry, "target_username");
     return username ? `Reset password for ${username}` : "Reset password";
   },
+  cli_reset_password: (entry) => {
+    const username = displayName(entry, "target_username");
+    return username ? `Break-glass password reset for ${username}` : "Break-glass password reset";
+  },
   deactivate_user: (entry) => withTarget("Deactivated user", displayName(entry, "target_username")),
   update_user_role: (entry) => {
     const username = displayName(entry, "target_username");
