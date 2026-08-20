@@ -3,7 +3,7 @@ title: "Break-glass CLI reset of the super admin password"
 date: 2026-08-19
 status: implementing
 type: tdd
-tracker:
+tracker: https://github.com/block/proto-fleet/pull/944
 ---
 
 # Break-glass CLI reset of the super admin password

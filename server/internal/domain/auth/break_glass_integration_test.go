@@ -144,6 +144,38 @@ func (failingActivityLogger) LogStrict(context.Context, activitymodels.Event) er
 	return errors.New("forced audit failure")
 }
 
+type failingSessionRevoker struct{}
+
+func (failingSessionRevoker) RevokeAllSessions(context.Context, int64) error {
+	return errors.New("forced session revocation failure")
+}
+
+func TestBreakGlassResetRollsBackDatabaseChangesWhenSessionRevocationFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	db := testutil.GetTestDB(t)
+	admin := seedSuperAdmin(t, db, "session-rollback")
+	service := domainauth.NewBreakGlassService(
+		sqlstores.NewSQLUserStore(db),
+		sqlstores.NewSQLTransactor(db),
+		failingSessionRevoker{},
+		activity.NewService(sqlstores.NewSQLActivityStore(db)),
+	)
+
+	_, err := service.ResetSuperAdminPassword(t.Context(), "password-that-must-roll-back")
+
+	require.ErrorContains(t, err, "revoke SUPER_ADMIN sessions")
+	var passwordHash string
+	require.NoError(t, db.QueryRowContext(t.Context(),
+		`SELECT password_hash FROM "user" WHERE id = $1`, admin.ID).Scan(&passwordHash))
+	require.Equal(t, admin.PasswordHash, passwordHash)
+	var eventCount int
+	require.NoError(t, db.QueryRowContext(t.Context(),
+		`SELECT COUNT(*) FROM activity_log WHERE event_type = 'cli_reset_password'`).Scan(&eventCount))
+	require.Zero(t, eventCount)
+}
+
 func TestBreakGlassResetRollsBackDatabaseChangesWhenAuditFails(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

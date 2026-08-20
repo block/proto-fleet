@@ -56,6 +56,14 @@ db:
 	require.Equal(t, "db.internal:5432", cli.Admin.ResetPassword.DB.Address)
 }
 
+func TestNormalizeFleetdArgsPreservesCommandsAndRoutesBareFlags(t *testing.T) {
+	require.Nil(t, normalizeFleetdArgs(nil))
+	require.Equal(t, []string{"server"}, normalizeFleetdArgs([]string{"server"}))
+	require.Equal(t, []string{"admin", "reset-password"}, normalizeFleetdArgs([]string{"admin", "reset-password"}))
+	require.Equal(t, []string{"server", "--http-address=127.0.0.1:8081"},
+		normalizeFleetdArgs([]string{"--http-address=127.0.0.1:8081"}))
+}
+
 func TestResetPasswordCommandReadsOnePasswordLine(t *testing.T) {
 	cmd := resetPasswordCommand{PasswordStdin: true}
 

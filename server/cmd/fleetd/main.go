@@ -143,12 +143,14 @@ var version = "dev"
 
 func main() {
 	cli := &fleetdCLI{}
-	kctx := kong.Parse(
+	parser := kong.Must(
 		cli,
 		kong.Name("fleetd"),
 		kong.Configuration(fleetdYAMLLoader, "/etc/fleetd/config.yaml"),
 		kong.BindTo(context.Background(), (*context.Context)(nil)),
 	)
+	kctx, err := parser.Parse(normalizeFleetdArgs(os.Args[1:]))
+	parser.FatalIfErrorf(err)
 
 	logConfig := cli.Server.Log
 	if kctx.Command() != "server" {
@@ -163,6 +165,15 @@ func main() {
 		slog.Error(fmt.Sprintf("%+v", err))
 		os.Exit(1)
 	}
+}
+
+// normalizeFleetdArgs preserves the pre-command CLI contract. Kong's default
+// subcommand handles an empty invocation, but flags must be routed explicitly.
+func normalizeFleetdArgs(args []string) []string {
+	if len(args) == 0 || args[0] == "server" || args[0] == "admin" {
+		return args
+	}
+	return append([]string{"server"}, args...)
 }
 
 // reflectEnabledServices lists the gRPC services exposed via the
