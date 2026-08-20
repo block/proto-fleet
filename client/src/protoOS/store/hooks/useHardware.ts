@@ -1,10 +1,16 @@
 import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { asAsicId } from "../contract";
+import type { FanHardwareData, PsuHardwareData } from "../types";
 import useMinerStore from "../useMinerStore";
 
 // TODO: This should come from the API when available
 const SLOTS_PER_BAY = 3;
+
+// Stable empty results so hooks return the same reference while their component
+// group is unpopulated (avoids churning downstream memos during loading).
+const NO_PSUS: PsuHardwareData[] = [];
+const NO_FANS: FanHardwareData[] = [];
 
 // =============================================================================
 // Hardware Convenience Hooks
@@ -145,34 +151,44 @@ export const useAsicsByHashboard = (hashboardSerial: string) => {
   return useMemo(() => hardware.getAsicsByHashboard(hashboardSerial), [hashboardSerial, hardware]);
 };
 
+// Controlboard, PSU, and fan hardware is static and — unlike hashboards/ASICs —
+// is not rewritten on every telemetry poll. Subscribe to the specific sub-map so
+// unrelated hardware writes (per-poll hashboard/ASIC batches) don't re-render
+// these cards. The `size === 0` guard both references the subscribed map (so the
+// getState() read stays honest to react-hooks/exhaustive-deps) and returns a
+// stable empty while the group is unpopulated.
+
 // Controlboard hooks
 export const useControlBoard = () => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getControlBoard(), [hardware]);
+  const controlBoards = useMinerStore((state) => state.hardware.controlBoards);
+  return useMemo(
+    () => (controlBoards.size === 0 ? null : useMinerStore.getState().hardware.getControlBoard()),
+    [controlBoards],
+  );
 };
 
 // PSU hooks
 export const usePsus = () => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getAllPsus(), [hardware]);
+  const psus = useMinerStore((state) => state.hardware.psus);
+  return useMemo(() => (psus.size === 0 ? NO_PSUS : useMinerStore.getState().hardware.getAllPsus()), [psus]);
 };
 
 export const usePsuIds = () => useMinerStore(useShallow((state) => state.hardware.getAllPsus().map((psu) => psu.id)));
 
 export const usePsu = (id: number) => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getPsu(id), [hardware, id]);
+  const psus = useMinerStore((state) => state.hardware.psus);
+  return useMemo(() => (psus.size === 0 ? undefined : useMinerStore.getState().hardware.getPsu(id)), [psus, id]);
 };
 
 // Fan hooks
 export const useFans = () => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getAllFans(), [hardware]);
+  const fans = useMinerStore((state) => state.hardware.fans);
+  return useMemo(() => (fans.size === 0 ? NO_FANS : useMinerStore.getState().hardware.getAllFans()), [fans]);
 };
 
 export const useFanIds = () => useMinerStore(useShallow((state) => state.hardware.getAllFans().map((fan) => fan.slot)));
 
 export const useFan = (id: number) => {
-  const hardware = useMinerStore((state) => state.hardware);
-  return useMemo(() => hardware.getFan(id), [hardware, id]);
+  const fans = useMinerStore((state) => state.hardware.fans);
+  return useMemo(() => (fans.size === 0 ? undefined : useMinerStore.getState().hardware.getFan(id)), [fans, id]);
 };
