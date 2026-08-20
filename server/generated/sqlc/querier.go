@@ -1181,6 +1181,11 @@ type Querier interface {
 	// The row lock turns the authorization snapshot into an insert-time invariant:
 	// a concurrent move/delete must wait until this transaction commits.
 	LockCurtailmentFanDevicesForWrite(ctx context.Context, arg LockCurtailmentFanDevicesForWriteParams) ([]LockCurtailmentFanDevicesForWriteRow, error)
+	// Serializes group membership changes with topology target/envelope writes.
+	// AddDevicesToDeviceSet, RemoveDevicesFromDeviceSet, and
+	// RemoveAllDevicesFromDeviceSet take the same device_set row lock before
+	// mutating memberships.
+	LockCurtailmentGroupsForWrite(ctx context.Context, arg LockCurtailmentGroupsForWriteParams) ([]int64, error)
 	// Serializes profile changes with automation create/update/enable. Both sides
 	// re-read their compatibility conditions after acquiring this lock so a
 	// concurrent pair cannot commit an invalid automation binding.

@@ -1692,6 +1692,20 @@ ORDER BY d.id
 LIMIT 10001
 FOR UPDATE;
 
+-- name: LockCurtailmentGroupsForWrite :many
+-- Serializes group membership changes with topology target/envelope writes.
+-- AddDevicesToDeviceSet, RemoveDevicesFromDeviceSet, and
+-- RemoveAllDevicesFromDeviceSet take the same device_set row lock before
+-- mutating memberships.
+SELECT id
+FROM device_set
+WHERE org_id = sqlc.arg('org_id')
+  AND type = 'group'
+  AND deleted_at IS NULL
+  AND id = ANY(sqlc.arg('group_ids')::BIGINT[])
+ORDER BY id
+FOR UPDATE;
+
 -- name: ListCurtailmentRackScopeCoverage :many
 WITH selected_racks AS (
     SELECT ds.id,

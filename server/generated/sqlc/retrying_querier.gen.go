@@ -4410,6 +4410,18 @@ func (q *retryingQuerier) LockCurtailmentFanDevicesForWrite(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentGroupsForWrite(ctx context.Context, arg LockCurtailmentGroupsForWriteParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentGroupsForWrite", func() error {
+		callResult, callErr := q.next.LockCurtailmentGroupsForWrite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentResponseProfileAutomationMutation(ctx context.Context, arg LockCurtailmentResponseProfileAutomationMutationParams) error {
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentResponseProfileAutomationMutation", func() error {
 		return q.next.LockCurtailmentResponseProfileAutomationMutation(ctx, arg)

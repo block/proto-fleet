@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 type authorizationEnvelopeQuerier struct {
@@ -19,6 +20,7 @@ type authorizationEnvelopeQuerier struct {
 	deviceRows         []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow
 	topologyMemberRows []sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgRow
 	buildingRows       []sqlc.ListCurtailmentBuildingScopeCoverageRow
+	lockedGroupIDs     []int64
 }
 
 func (q authorizationEnvelopeQuerier) LockBuildingForWrite(
@@ -40,6 +42,16 @@ func (q authorizationEnvelopeQuerier) LockCurtailmentTopologyMemberDeviceSitesBy
 	sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgParams,
 ) ([]sqlc.LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error) {
 	return q.topologyMemberRows, nil
+}
+
+func (q authorizationEnvelopeQuerier) LockCurtailmentGroupsForWrite(
+	_ context.Context,
+	params sqlc.LockCurtailmentGroupsForWriteParams,
+) ([]int64, error) {
+	if q.lockedGroupIDs != nil {
+		return q.lockedGroupIDs, nil
+	}
+	return params.GroupIds, nil
 }
 
 func (q authorizationEnvelopeQuerier) LockCurtailmentResponseProfileDeviceSitesByOrg(
@@ -118,6 +130,17 @@ func TestBuildAuthorizationEnvelopeJSONRejectsTargetThatLeftTopology(t *testing.
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "topology changed before save")
+}
+
+func TestLockTopologyScopeCoverageRejectsMissingGroupLock(t *testing.T) {
+	_, _, err := lockTopologyScopeCoverage(
+		t.Context(),
+		authorizationEnvelopeQuerier{lockedGroupIDs: []int64{7}},
+		interfaces.ListCandidatesParams{OrgID: 42, GroupIDs: []int64{7, 8}},
+		nil,
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
 func TestBuildAuthorizationEnvelopeJSONLocksSiteTargets(t *testing.T) {

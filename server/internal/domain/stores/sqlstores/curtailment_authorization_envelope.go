@@ -158,6 +158,18 @@ func lockTopologyScopeCoverage(
 	params interfaces.ListCandidatesParams,
 	requiredDeviceIdentifiers []string,
 ) ([]int64, bool, error) {
+	groupIDs := uniqueSortedInt64s(params.GroupIDs)
+	if len(groupIDs) > 0 {
+		lockedGroupIDs, err := q.LockCurtailmentGroupsForWrite(ctx, sqlc.LockCurtailmentGroupsForWriteParams{
+			OrgID: params.OrgID, GroupIds: groupIDs,
+		})
+		if err != nil {
+			return nil, false, fleeterror.NewInternalErrorf("failed to lock curtailment group scope: %v", err)
+		}
+		if len(lockedGroupIDs) != len(groupIDs) {
+			return nil, false, fleeterror.NewNotFoundError("one or more curtailment groups were not found")
+		}
+	}
 	for _, buildingID := range uniqueSortedInt64s(params.BuildingIDs) {
 		if _, err := q.LockBuildingForWrite(ctx, sqlc.LockBuildingForWriteParams{
 			ID: buildingID, OrgID: params.OrgID,

@@ -3192,6 +3192,49 @@ func (q *Queries) LockCurtailmentFanDevicesForWrite(ctx context.Context, arg Loc
 	return items, nil
 }
 
+const lockCurtailmentGroupsForWrite = `-- name: LockCurtailmentGroupsForWrite :many
+SELECT id
+FROM device_set
+WHERE org_id = $1
+  AND type = 'group'
+  AND deleted_at IS NULL
+  AND id = ANY($2::BIGINT[])
+ORDER BY id
+FOR UPDATE
+`
+
+type LockCurtailmentGroupsForWriteParams struct {
+	OrgID    int64
+	GroupIds []int64
+}
+
+// Serializes group membership changes with topology target/envelope writes.
+// AddDevicesToDeviceSet, RemoveDevicesFromDeviceSet, and
+// RemoveAllDevicesFromDeviceSet take the same device_set row lock before
+// mutating memberships.
+func (q *Queries) LockCurtailmentGroupsForWrite(ctx context.Context, arg LockCurtailmentGroupsForWriteParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockCurtailmentGroupsForWriteStmt, lockCurtailmentGroupsForWrite, arg.OrgID, pq.Array(arg.GroupIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockCurtailmentScopeForWrite = `-- name: LockCurtailmentScopeForWrite :exec
 SELECT pg_advisory_xact_lock(hashtextextended('curtailment_scope:' || $1::text, 0))
 `
