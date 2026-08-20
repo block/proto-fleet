@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
 import MinerSelectionModal from "./MinerSelectionModal";
+import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 const mockMinerSelectionList = vi.fn();
 
@@ -41,5 +43,20 @@ describe("MinerSelectionModal", () => {
     );
 
     expect(mockMinerSelectionList).toHaveBeenCalledWith(expect.objectContaining({ scope }));
+  });
+
+  it("forwards drill-down ancestors as the initial miner filter", () => {
+    const initialFilter = create(MinerListFilterSchema, { buildingIds: [11n], rackIds: [21n] });
+    render(
+      <MinerSelectionModal
+        open
+        selectedMinerIds={[]}
+        initialFilter={initialFilter}
+        onDismiss={vi.fn()}
+        onSave={vi.fn()}
+      />,
+    );
+
+    expect(mockMinerSelectionList).toHaveBeenCalledWith(expect.objectContaining({ initialFilter }));
   });
 });

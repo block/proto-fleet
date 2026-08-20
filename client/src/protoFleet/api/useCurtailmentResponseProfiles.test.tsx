@@ -296,9 +296,74 @@ describe("useCurtailmentResponseProfiles", () => {
     expect(request?.scopes.map((scope: CurtailmentScope) => scope.scope.case)).toEqual(["building", "building"]);
     expect(result.current.responseProfiles[0]).toMatchObject({
       scope: "2 buildings",
-      isReadOnly: true,
-      formValues: undefined,
+      isReadOnly: false,
+      isExecutionReady: false,
+      formValues: expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
     });
+  });
+
+  it("persists all-paired targeting when creating and updating full-fleet topology profiles", async () => {
+    const buildingScope = create(CurtailmentScopeSchema, {
+      scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId: 7n }) },
+    });
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({
+        site: undefined,
+        scopes: [buildingScope],
+        mode: CurtailmentMode.FULL_FLEET,
+        modeParams: { case: undefined },
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    });
+    mockUpdateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({
+        site: undefined,
+        scopes: [buildingScope],
+        mode: CurtailmentMode.FULL_FLEET,
+        modeParams: { case: undefined },
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+    const values: ResponseProfileFormValues = {
+      ...fixedKwFormValues,
+      actionType: "fullFleet",
+      targetKw: "",
+      scopeType: "building",
+      buildingTargetIds: ["7"],
+      forceIncludeAllPairedMiners: true,
+    };
+
+    await act(async () => {
+      await result.current.createResponseProfile(values);
+    });
+
+    expect(mockCreateCurtailmentResponseProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.updateResponseProfile("7", values);
+    });
+
+    expect(mockUpdateCurtailmentResponseProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profileId: 7n,
+        mode: CurtailmentMode.FULL_FLEET,
+        forceIncludeAllPairedMiners: true,
+        includeMaintenance: true,
+        forceIncludeMaintenance: true,
+      }),
+    );
   });
 
   it("rejects an empty target state instead of defaulting a profile to whole org", async () => {
@@ -668,7 +733,7 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
-  it("maps topology-scoped API profiles to read-only card summaries", async () => {
+  it("maps topology-scoped API profiles to editable form values and card summaries", async () => {
     const buildingScopes = [7n, 8n].map((buildingId) =>
       create(CurtailmentScopeSchema, {
         scope: { case: "building", value: create(ScopeBuildingSchema, { buildingId }) },
@@ -698,9 +763,27 @@ describe("useCurtailmentResponseProfiles", () => {
 
     expect(result.current.responseProfiles).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "Buildings", scope: "2 buildings", isReadOnly: true, formValues: undefined }),
-        expect.objectContaining({ name: "Rack", scope: "1 rack", isReadOnly: true, formValues: undefined }),
-        expect.objectContaining({ name: "Groups", scope: "2 groups", isReadOnly: true, formValues: undefined }),
+        expect.objectContaining({
+          name: "Buildings",
+          scope: "2 buildings",
+          isReadOnly: false,
+          isExecutionReady: false,
+          formValues: expect.objectContaining({ scopeType: "building", buildingTargetIds: ["7", "8"] }),
+        }),
+        expect.objectContaining({
+          name: "Rack",
+          scope: "1 rack",
+          isReadOnly: false,
+          isExecutionReady: false,
+          formValues: expect.objectContaining({ scopeType: "rack", rackTargetIds: ["9"] }),
+        }),
+        expect.objectContaining({
+          name: "Groups",
+          scope: "2 groups",
+          isReadOnly: false,
+          isExecutionReady: false,
+          formValues: expect.objectContaining({ scopeType: "group", groupTargetIds: ["10", "11"] }),
+        }),
       ]),
     );
   });

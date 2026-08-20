@@ -124,6 +124,9 @@ func TestSetRuleRoutingValidation(t *testing.T) {
 	// Custom requires at least one channel.
 	_, err := svc.SetRuleRouting(ctx, 7, "pfu-mine", RouteModeCustom, nil)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, "custom routing requires at least one destination", fleetErr.DebugMessage)
 
 	// Default/none reject channel ids.
 	_, err = svc.SetRuleRouting(ctx, 7, "pfu-mine", RouteModeNone, []string{"1"})

@@ -193,7 +193,7 @@ func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	}
 	// Reject a duplicate name up front (the live-rows unique index would reject it anyway).
 	if _, err := s.channels.GetByName(ctx, orgID, c.Name); err == nil {
-		return nil, fleeterror.NewAlreadyExistsErrorf("a channel named %q already exists", c.Name)
+		return nil, fleeterror.NewAlreadyExistsErrorf("a destination named %q already exists", c.Name)
 	} else if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*C
 	// Reject a rename onto another live channel's name (the unique index would reject it too).
 	if c.Name != rec.Name {
 		if other, err := s.channels.GetByName(ctx, orgID, c.Name); err == nil && other.ID != id {
-			return nil, fleeterror.NewAlreadyExistsErrorf("a channel named %q already exists", c.Name)
+			return nil, fleeterror.NewAlreadyExistsErrorf("a destination named %q already exists", c.Name)
 		} else if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
@@ -386,7 +386,7 @@ func testStatusCode(ok bool) int {
 // Rejects names matching the transient test-receiver pattern so a saved channel can never be misclassified as transient and dropped from routing.
 func validateChannelName(name string) error {
 	if transientReceiverName.MatchString(name) {
-		return fleeterror.NewInvalidArgumentError("channel name may not match the reserved transient test-receiver pattern")
+		return fleeterror.NewInvalidArgumentError("destination name may not match the reserved transient test-receiver pattern")
 	}
 	return nil
 }
@@ -890,7 +890,7 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, w Ma
 
 func maintenanceWindowLimitError() error {
 	return fleeterror.NewFailedPreconditionErrorf(
-		"maintenance window limit reached (%d active or scheduled); delete one first", maxMaintenanceWindowsPerOrg)
+		"quiet period limit reached (%d active or scheduled); delete one first", maxMaintenanceWindowsPerOrg)
 }
 
 func (s *Service) DeleteMaintenanceWindow(ctx context.Context, orgID int64, id string) error {
@@ -974,7 +974,7 @@ func (s *Service) resolveWindowChannelIDs(ctx context.Context, orgID int64, chan
 		return nil, nil
 	}
 	if len(channelIDs) > maxMaintenanceWindowTargets {
-		return nil, fleeterror.NewInvalidArgumentErrorf("too many channel_ids: %d (max %d)", len(channelIDs), maxMaintenanceWindowTargets)
+		return nil, fleeterror.NewInvalidArgumentErrorf("too many destinations: %d (max %d)", len(channelIDs), maxMaintenanceWindowTargets)
 	}
 	return s.resolveOrgChannelIDs(ctx, orgID, channelIDs)
 }
@@ -1006,19 +1006,19 @@ func maintenanceWindowFromRecord(rec MaintenanceWindowRecord, now time.Time) Mai
 // by deleting it.
 func validateMaintenanceWindowTimes(startsAt, endsAt, now time.Time) error {
 	if startsAt.IsZero() {
-		return fleeterror.NewInvalidArgumentError("starts_at is required for a maintenance window")
+		return fleeterror.NewInvalidArgumentError("starts_at is required for a quiet period")
 	}
 	if endsAt.IsZero() {
-		return fleeterror.NewInvalidArgumentError("ends_at is required for a maintenance window")
+		return fleeterror.NewInvalidArgumentError("ends_at is required for a quiet period")
 	}
 	if !endsAt.After(startsAt) {
 		return fleeterror.NewInvalidArgumentError("ends_at must be after starts_at")
 	}
 	if endsAt.Sub(startsAt) > maxMaintenanceWindowDuration {
-		return fleeterror.NewInvalidArgumentError("maintenance window duration cannot exceed 30 days")
+		return fleeterror.NewInvalidArgumentError("quiet period duration cannot exceed 30 days")
 	}
 	if !endsAt.After(now) {
-		return fleeterror.NewInvalidArgumentError("ends_at must be in the future; to end a window early, delete it")
+		return fleeterror.NewInvalidArgumentError("ends_at must be in the future; to end a quiet period early, delete it")
 	}
 	return nil
 }

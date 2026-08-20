@@ -7,7 +7,7 @@ import { ModalMinerSelectionList } from "./components/modalMinerSelectionList";
  *
  * The "Test" actions ask the server to have Grafana deliver a synthetic alert to
  * the destination, so the selectors here drive both the pre-save test (in the
- * Add channel modal) and the per-row test on a saved channel.
+ * Add destination modal) and the per-row test on a saved destination.
  */
 export class AlertsPage extends BasePage {
   constructor(page: Page, isMobile: boolean = false) {
@@ -20,11 +20,11 @@ export class AlertsPage extends BasePage {
   }
 
   async validateAddChannelHidden() {
-    await expect(this.page.getByRole("button", { name: "Add channel", exact: true })).toHaveCount(0);
+    await expect(this.page.getByRole("button", { name: "Add destination", exact: true })).toHaveCount(0);
   }
 
   async openAddChannelModal() {
-    await this.page.getByRole("button", { name: "Add channel" }).click();
+    await this.page.getByRole("button", { name: "Add destination" }).click();
     await this.validateModalIsOpen();
   }
 
@@ -38,7 +38,7 @@ export class AlertsPage extends BasePage {
   }
 
   async saveChannel() {
-    await this.clickIn("Save channel", "modal");
+    await this.clickIn("Save destination", "modal");
     await this.validateModalIsClosed();
   }
 
@@ -86,7 +86,7 @@ export class AlertsPage extends BasePage {
     await expect(this.channelRow(name)).toBeHidden();
   }
 
-  // Cleanup helper: remove every channel whose name carries the given test prefix.
+  // Cleanup helper: remove every destination whose name carries the given test prefix.
   async deleteChannelsByPrefix(prefix: string) {
     await this.deleteRowsByPrefix(prefix);
   }

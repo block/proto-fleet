@@ -25,6 +25,8 @@ const (
 	alertStatusResolved    = "resolved"
 )
 
+const alertStatusResolved = "resolved"
+
 // Alert is one alert instance from a Grafana webhook batch, reduced to what delivery needs.
 type Alert struct {
 	Status      string

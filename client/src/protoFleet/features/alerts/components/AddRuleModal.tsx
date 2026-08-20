@@ -5,6 +5,13 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
+import {
+  BuildingSelectionModal,
+  GroupSelectionModal,
+  MinerSelectionModal,
+  RackSelectionModal,
+  SiteSelectionModal,
+} from "@/protoFleet/components/TargetSelectionModal";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import { useAlertScope, type UseAlertScopeResult } from "@/protoFleet/features/alerts/api/useAlertScope";
 import { useDeliveryRouting } from "@/protoFleet/features/alerts/api/useDeliveryRouting";
@@ -12,11 +19,6 @@ import { useScopeSampleMiners } from "@/protoFleet/features/alerts/api/useScopeS
 import { scopePartLabels } from "@/protoFleet/features/alerts/lib/scopeLabels";
 import type { Rule, RuleConfig } from "@/protoFleet/features/alerts/types";
 import { getMinerMeasurement } from "@/protoFleet/features/fleetManagement/utils/getMinerMeasurement";
-import BuildingSelectionModal from "@/protoFleet/features/settings/components/Schedules/BuildingSelectionModal";
-import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
-import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
-import RackSelectionModal from "@/protoFleet/features/settings/components/Schedules/RackSelectionModal";
-import SiteSelectionModal from "@/protoFleet/features/settings/components/Schedules/SiteSelectionModal";
 import { useHasPermission, useTemperatureUnit } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";

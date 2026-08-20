@@ -776,7 +776,7 @@ func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope,
 	if err := validateMaintenanceWindowTargetSelection("rules", scope.GetAllRules(), scope.GetRuleIds()); err != nil {
 		return alerts.MaintenanceWindow{}, err
 	}
-	if err := validateMaintenanceWindowTargetSelection("channels", scope.GetAllChannels(), scope.GetChannelIds()); err != nil {
+	if err := validateMaintenanceWindowTargetSelection("destinations", scope.GetAllChannels(), scope.GetChannelIds()); err != nil {
 		return alerts.MaintenanceWindow{}, err
 	}
 	if startsAt == nil {
@@ -882,7 +882,7 @@ func protoToChannelKind(k alertsv1.ChannelKind) (alerts.ChannelKind, error) {
 	// SMTP is not offered in this slice; it ships in the SMTP channel slice.
 	case alertsv1.ChannelKind_CHANNEL_KIND_UNSPECIFIED, alertsv1.ChannelKind_CHANNEL_KIND_SMTP:
 	}
-	return "", fleeterror.NewInvalidArgumentErrorf("unknown channel kind: %s", k)
+	return "", fleeterror.NewInvalidArgumentErrorf("unknown destination kind: %s", k)
 }
 
 func httpStatusToInt32(code int) int32 {

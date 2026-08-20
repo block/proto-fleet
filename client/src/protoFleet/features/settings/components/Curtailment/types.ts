@@ -44,6 +44,10 @@ export type ResponseProfileRestoreBehavior = "automaticBatchRestore" | "automati
 export type ResponseProfileSiteSelection = "none" | "allSites" | "site";
 export type ResponseProfileScopeType = CurtailmentTerminalScopeType;
 
+export function isResponseProfileScopeExecutionReady(scopeType: ResponseProfileScopeType | undefined): boolean {
+  return scopeType !== undefined && scopeType !== "building" && scopeType !== "rack" && scopeType !== "group";
+}
+
 export type ResponseProfileFormValues = {
   name: string;
   actionType: ResponseProfileActionType;
@@ -85,6 +89,7 @@ export type ResponseProfile = {
   deadlineSummary: string;
   formValues?: ResponseProfileFormValues;
   isReadOnly?: boolean;
+  isExecutionReady: boolean;
 };
 
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";

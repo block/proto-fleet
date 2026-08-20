@@ -41,7 +41,7 @@ export function useDeliveryRouting(): UseDeliveryRoutingResult {
 
   const validate = useCallback((): string | null => {
     if (mode === "custom" && selectedIds.size === 0) {
-      return "Pick at least one channel, or use All channels / In-app only";
+      return "Pick at least one destination, or use All destinations / In-app only";
     }
     return null;
   }, [mode, selectedIds]);

@@ -108,13 +108,32 @@ describe("curtailmentRequestBuilders", () => {
     expect(allPairedRequest.forceIncludeMaintenance).toBe(true);
   });
 
-  it("strips all-paired targeting for explicit miner scopes", () => {
+  it("drops all-paired targeting for explicit miner scopes until their closed-loop lifecycle is supported", () => {
     const request = buildStartCurtailmentRequest({
       ...baseValues,
       curtailmentMode: "fullFleet",
       targetKw: "",
       scopeType: "explicitMiners",
       deviceIdentifiers: ["miner-1"],
+      forceIncludeAllPairedMiners: true,
+    });
+
+    expect(request.forceIncludeAllPairedMiners).toBe(false);
+    expect(request.includeMaintenance).toBe(false);
+    expect(request.forceIncludeMaintenance).toBe(false);
+  });
+
+  it.each([
+    { scopeType: "building" as const, field: "buildingTargetIds" as const },
+    { scopeType: "rack" as const, field: "rackTargetIds" as const },
+    { scopeType: "group" as const, field: "groupTargetIds" as const },
+  ])("defers all-paired execution fields for $scopeType scopes", ({ scopeType, field }) => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      curtailmentMode: "fullFleet",
+      targetKw: "",
+      scopeType,
+      [field]: ["7"],
       forceIncludeAllPairedMiners: true,
     });
 
