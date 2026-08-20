@@ -79,6 +79,9 @@ vi.mock("@/protoFleet/components/TargetSelectionModal/BuildingSelectionModal", (
         <button type="button" onClick={() => onSave(["11", "12"])}>
           Save buildings
         </button>
+        <button type="button" onClick={() => onSave([])}>
+          Save no buildings
+        </button>
       </div>
     ) : null,
 }));
@@ -90,6 +93,9 @@ vi.mock("@/protoFleet/components/TargetSelectionModal/RackSelectionModal", () =>
         <button type="button" onClick={() => onSave(["21", "22"])}>
           Save racks
         </button>
+        <button type="button" onClick={() => onSave([])}>
+          Save no racks
+        </button>
       </div>
     ) : null,
 }));
@@ -100,6 +106,9 @@ vi.mock("@/protoFleet/components/TargetSelectionModal/GroupSelectionModal", () =
       <div role="dialog" aria-label="Group selection">
         <button type="button" onClick={() => onSave(["31"])}>
           Save groups
+        </button>
+        <button type="button" onClick={() => onSave([])}>
+          Save no groups
         </button>
       </div>
     ) : null,
@@ -2251,6 +2260,50 @@ describe("CurtailmentStartModal", () => {
           deviceIdentifiers: [],
         }),
       );
+    },
+  );
+
+  it.each([
+    {
+      scopeType: "explicitMiners" as const,
+      field: "deviceIdentifiers" as const,
+      ids: ["miner-1"],
+      pickerLabel: "Buildings",
+      emptySaveLabel: "Save no buildings",
+    },
+    {
+      scopeType: "rack" as const,
+      field: "rackTargetIds" as const,
+      ids: ["21"],
+      pickerLabel: "Groups",
+      emptySaveLabel: "Save no groups",
+    },
+    {
+      scopeType: "group" as const,
+      field: "groupTargetIds" as const,
+      ids: ["31"],
+      pickerLabel: "Racks",
+      emptySaveLabel: "Save no racks",
+    },
+  ])(
+    "preserves a $scopeType target when a different picker saves an empty selection",
+    async ({ scopeType, field, ids, pickerLabel, emptySaveLabel }) => {
+      const user = userEvent.setup();
+      const { onSubmit } = renderModal({
+        variant: "responseProfile",
+        initialValues: {
+          ...configuredValues,
+          scopeType,
+          [field]: ids,
+          includeMaintenance: false,
+        },
+      });
+
+      await user.click(screen.getByRole("button", { name: new RegExp(`${pickerLabel}\\s+Select`) }));
+      await user.click(screen.getByRole("button", { name: emptySaveLabel }));
+      await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ scopeType, [field]: ids }));
     },
   );
 

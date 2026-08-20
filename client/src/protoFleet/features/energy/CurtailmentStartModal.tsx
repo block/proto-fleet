@@ -1710,14 +1710,23 @@ function CurtailmentStartModalContent({
   };
 
   const handleBuildingSelection = (buildingIds: string[]) => {
+    if (buildingIds.length === 0 && values.scopeType !== "building") {
+      return;
+    }
     applyTargetPath({ ...targetPath, buildingIds, rackIds: [], groupIds: [] });
   };
 
   const handleRackSelection = (rackIds: string[]) => {
+    if (rackIds.length === 0 && values.scopeType !== "rack") {
+      return;
+    }
     applyTargetPath({ ...targetPath, rackIds, groupIds: [] });
   };
 
   const handleGroupSelection = (groupIds: string[]) => {
+    if (groupIds.length === 0 && values.scopeType !== "group") {
+      return;
+    }
     applyTargetPath({ ...targetPath, buildingIds: [], rackIds: [], groupIds });
   };
 
