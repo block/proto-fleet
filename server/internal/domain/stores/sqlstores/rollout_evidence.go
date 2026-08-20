@@ -12,8 +12,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
-const policyBucketDuration = 10 * time.Second
-
 type SQLRolloutEvidenceStore struct {
 	conn *sql.DB
 }
@@ -67,7 +65,6 @@ func (s *SQLRolloutEvidenceStore) ListCandidates(
 			AutoControlStatus:                  controlStatusPtr(row.AutoControlStatus),
 			AutoControlExpectedRevision:        nullInt64ToPtr(row.AutoControlExpectedRevision),
 			AutoControlResultingRevision:       nullInt64ToPtr(row.AutoControlResultingRevision),
-			AutoControlErrorMessage:            stringPtr(row.AutoControlErrorMessage),
 		})
 	}
 	return result, nil
@@ -112,7 +109,6 @@ func (s *SQLRolloutEvidenceStore) Refresh(
 				BaselineHashrateHS: float64Ptr(row.BaselineHashrateHs),
 				PostHashrateHS:     float64Ptr(row.PostHashrateHs),
 				PostObservedAt:     timePtr(row.PostObservedAt),
-				PostSampleCount:    nullInt64Value(row.PostSampleCount),
 			})
 		}
 
@@ -152,7 +148,7 @@ func (s *SQLRolloutEvidenceStore) Refresh(
 				bucketIndex = row.BucketIndex
 				snapshot.PolicyBuckets = append(snapshot.PolicyBuckets, evidence.PolicyBucket{
 					Boundary: candidate.CompletedAt.Add(
-						time.Duration(bucketIndex+1) * policyBucketDuration,
+						time.Duration(bucketIndex+1) * evidence.PolicyBucketDuration,
 					),
 				})
 				bucket = &snapshot.PolicyBuckets[len(snapshot.PolicyBuckets)-1]
@@ -174,8 +170,8 @@ func (s *SQLRolloutEvidenceStore) Refresh(
 func (s *SQLRolloutEvidenceStore) UpdateSummary(
 	ctx context.Context,
 	summary evidence.Summary,
-) error {
-	_, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (int64, error) {
+) (bool, error) {
+	rowsAffected, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (int64, error) {
 		return q.UpdateFirmwareRolloutBatchEvidenceSummary(
 			ctx,
 			sqlc.UpdateFirmwareRolloutBatchEvidenceSummaryParams{
@@ -196,16 +192,22 @@ func (s *SQLRolloutEvidenceStore) UpdateSummary(
 				EvidenceErrorMessage:  ptrToNullString(summary.ErrorMessage),
 				PostWindowFinalized:   summary.PostWindowFinalized,
 				PostWindowFinalizedAt: ptrToNullTime(summary.PostWindowFinalizedAt),
-				BatchID:               summary.BatchID,
-				RolloutID:             summary.RolloutID,
-				OrgID:                 summary.OrgID,
+				ExpectedEvaluatedAt: ptrToNullTime(
+					summary.ExpectedEvaluatedAt,
+				),
+				ExpectedLastPolicyBucketBoundary: ptrToNullTime(
+					summary.ExpectedLastPolicyBucketBoundary,
+				),
+				BatchID:   summary.BatchID,
+				RolloutID: summary.RolloutID,
+				OrgID:     summary.OrgID,
 			},
 		)
 	})
 	if err != nil {
-		return fmt.Errorf("update firmware rollout batch evidence summary: %w", err)
+		return false, fmt.Errorf("update firmware rollout batch evidence summary: %w", err)
 	}
-	return nil
+	return rowsAffected == 1, nil
 }
 
 func (s *SQLRolloutEvidenceStore) MarkAutomationError(
@@ -237,8 +239,7 @@ func completedPolicyBucketCutoff(windowStart, windowEnd time.Time) time.Time {
 	if !windowEnd.After(windowStart) {
 		return windowStart
 	}
-	elapsed := windowEnd.Sub(windowStart)
-	return windowStart.Add(elapsed - elapsed%policyBucketDuration)
+	return windowStart.Add(windowEnd.Sub(windowStart).Truncate(evidence.PolicyBucketDuration))
 }
 
 func nullableFloat64(value *float64) sql.NullFloat64 {
@@ -246,13 +247,6 @@ func nullableFloat64(value *float64) sql.NullFloat64 {
 		return sql.NullFloat64{}
 	}
 	return sql.NullFloat64{Float64: *value, Valid: true}
-}
-
-func nullInt64Value(value sql.NullInt64) int64 {
-	if !value.Valid {
-		return 0
-	}
-	return value.Int64
 }
 
 func controlStatusPtr(value sql.NullString) *rollout.ControlStatus {

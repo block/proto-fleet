@@ -595,6 +595,11 @@ describe("BetweenChannelRolloutStatus", () => {
     );
 
     expect(screen.getByRole("status")).toHaveTextContent("Evidence stale");
+    expect(
+      screen.getByText(
+        "Telemetry samples or evaluator updates are older than 20 seconds. Manual controls remain available.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /more actions/i })).toBeInTheDocument();

@@ -3,6 +3,7 @@ import type { ComponentProps, ReactElement } from "react";
 import ActiveRolloutStatus from "./ActiveRolloutStatus";
 import { rolloutLifecycleActions } from "./rolloutDisplayUtils";
 import type { RolloutEvent } from "./rolloutTypes";
+import { useHeldRolloutOverride } from "./useHeldRolloutOverride";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
@@ -19,7 +20,7 @@ interface ViewRolloutModalProps {
   onAbort?: () => void;
   onRevert?: () => void;
   onCancelRemaining?: () => void;
-  onContinueFromReview?: () => void;
+  onContinueFromReview?: (reason?: string) => void;
   onCompleteWithFailures?: () => void;
   onRetryFailed?: () => void;
   onViewMiners?: () => void;
@@ -135,6 +136,8 @@ function ViewRolloutModal({
   onViewMiners,
   onViewErrors,
 }: ViewRolloutModalProps): ReactElement | null {
+  const heldOverride = useHeldRolloutOverride(event?.evidence, onContinueFromReview);
+
   if (!event) {
     return null;
   }
@@ -150,58 +153,61 @@ function ViewRolloutModal({
     onAbort,
     onRevert,
     onCancelRemaining,
-    onContinueFromReview,
+    onContinueFromReview: heldOverride.onContinue,
     onCompleteWithFailures,
     onRetryFailed,
     onViewMiners,
   });
 
   return (
-    <Modal
-      title={event.title}
-      onDismiss={onDismiss}
-      testId="view-rollout-modal"
-      size={modalSizes.large}
-      surfaceClassName="max-w-[960px]"
-      bodyClassName="text-text-primary"
-      buttonSize={buttonSizes.compact}
-      buttons={actions.visibleButtons}
-      compactHeaderButtons={actions.compactButtons}
-      headerLeadingAction={
-        actions.overflowActions.length > 0 ? (
-          <RowActionsMenu
-            actions={actions.overflowActions}
-            ariaLabel={`More actions for ${event.title}`}
-            popoverTestId="view-rollout-more-actions-menu"
-            testIdPrefix="view-rollout-more-actions"
-            triggerClassName="!h-8 !w-8 !px-0 !py-0"
-            triggerVariant={variants.secondary}
-          />
-        ) : undefined
-      }
-      // Pin the title in the sticky top bar (rather than only collapsing there
-      // on scroll), so the rollout context stays visible while the body scrolls.
-      forceTitleCollapsed
-    >
-      <ActiveRolloutStatus
-        event={event}
-        embedded
-        hideActions
-        canManage={canManage}
-        canControl={canControl}
-        onManage={onManage}
-        onPause={onPause}
-        onResume={onResume}
-        onAbort={onAbort}
-        onRevert={onRevert}
-        onCancelRemaining={onCancelRemaining}
-        onContinueFromReview={onContinueFromReview}
-        onCompleteWithFailures={onCompleteWithFailures}
-        onRetryFailed={onRetryFailed}
-        onViewMiners={onViewMiners}
-        onViewErrors={onViewErrors}
-      />
-    </Modal>
+    <>
+      <Modal
+        title={event.title}
+        onDismiss={onDismiss}
+        testId="view-rollout-modal"
+        size={modalSizes.large}
+        surfaceClassName="max-w-[960px]"
+        bodyClassName="text-text-primary"
+        buttonSize={buttonSizes.compact}
+        buttons={actions.visibleButtons}
+        compactHeaderButtons={actions.compactButtons}
+        headerLeadingAction={
+          actions.overflowActions.length > 0 ? (
+            <RowActionsMenu
+              actions={actions.overflowActions}
+              ariaLabel={`More actions for ${event.title}`}
+              popoverTestId="view-rollout-more-actions-menu"
+              testIdPrefix="view-rollout-more-actions"
+              triggerClassName="!h-8 !w-8 !px-0 !py-0"
+              triggerVariant={variants.secondary}
+            />
+          ) : undefined
+        }
+        // Pin the title in the sticky top bar (rather than only collapsing there
+        // on scroll), so the rollout context stays visible while the body scrolls.
+        forceTitleCollapsed
+      >
+        <ActiveRolloutStatus
+          event={event}
+          embedded
+          hideActions
+          canManage={canManage}
+          canControl={canControl}
+          onManage={onManage}
+          onPause={onPause}
+          onResume={onResume}
+          onAbort={onAbort}
+          onRevert={onRevert}
+          onCancelRemaining={onCancelRemaining}
+          onContinueFromReview={heldOverride.onContinue}
+          onCompleteWithFailures={onCompleteWithFailures}
+          onRetryFailed={onRetryFailed}
+          onViewMiners={onViewMiners}
+          onViewErrors={onViewErrors}
+        />
+      </Modal>
+      {heldOverride.confirmationDialog}
+    </>
   );
 }
 

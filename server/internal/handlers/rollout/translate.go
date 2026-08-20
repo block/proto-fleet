@@ -324,7 +324,9 @@ func batchToProto(input *rolloutDomain.Batch) *pb.RolloutBatch {
 		Revision:    nonNegativeUint64(input.Revision),
 		Members:     make([]*pb.RolloutMember, 0, len(input.Members)),
 		CompletedAt: timestampFromPtr(input.CompletedAt),
-		EvidenceSummary: &pb.RolloutBatchEvidenceSummary{
+	}
+	if input.State != rolloutDomain.BatchStateCompleted || input.CompletedAt != nil {
+		result.EvidenceSummary = &pb.RolloutBatchEvidenceSummary{
 			Status:                             evidenceStatusToProto(input.EvidenceStatus),
 			TotalCount:                         nonNegativeUint64(input.EvidenceTotalCount),
 			PairedCount:                        nonNegativeUint64(input.EvidencePairedCount),
@@ -339,7 +341,7 @@ func batchToProto(input *rolloutDomain.Batch) *pb.RolloutBatch {
 			PostWindowFinalized:                input.PostWindowFinalized,
 			PostWindowFinalizedAt:              timestampFromPtr(input.PostWindowFinalizedAt),
 			ErrorMessage:                       input.EvidenceErrorMessage,
-		},
+		}
 	}
 	for index := range input.Members {
 		result.Members = append(result.Members, memberToProto(&input.Members[index]))

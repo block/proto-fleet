@@ -437,6 +437,11 @@ describe("rollout mappers", () => {
       }),
     );
 
+    expect(mapped.batches[1]).toMatchObject({
+      state: "completed",
+      completedAt: undefined,
+      evidenceSummary: undefined,
+    });
     expect(mapRolloutToEvent(mapped).performance).toBeUndefined();
     expect(mapRolloutToEvent(mapped).evidence).toBeUndefined();
   });

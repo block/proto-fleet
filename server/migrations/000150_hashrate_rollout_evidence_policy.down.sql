@@ -1,5 +1,3 @@
-DROP INDEX IF EXISTS idx_firmware_rollout_batch_evidence_candidates;
-
 ALTER TABLE firmware_rollout_batch
     DROP CONSTRAINT IF EXISTS ck_firmware_rollout_batch_post_window_finalization,
     DROP CONSTRAINT IF EXISTS ck_firmware_rollout_batch_evidence_counts,

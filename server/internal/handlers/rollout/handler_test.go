@@ -864,6 +864,15 @@ func TestRolloutPolicyAndBatchEvidenceProtoTranslation(t *testing.T) {
 		manual.GetBatches()[0].GetEvidenceSummary().GetStatus(),
 	)
 	assert.Nil(t, manual.GetBatches()[0].GetCompletedAt())
+
+	legacyCompleted := rolloutToProto(&rolloutDomain.Rollout{
+		Batches: []rolloutDomain.Batch{{
+			State: rolloutDomain.BatchStateCompleted,
+		}},
+	})
+	require.Len(t, legacyCompleted.GetBatches(), 1)
+	assert.Nil(t, legacyCompleted.GetBatches()[0].GetCompletedAt())
+	assert.Nil(t, legacyCompleted.GetBatches()[0].GetEvidenceSummary())
 }
 
 func TestProtoTranslationClampsNegativePositionsAndRevisions(t *testing.T) {

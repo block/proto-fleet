@@ -9,6 +9,10 @@ import {
   FirmwareTransitionState,
   InitialFirmwareMatchStatus,
   PreviewRolloutLaneMembershipChangeResponseSchema,
+  RolloutBatchEvidenceSummarySchema,
+  RolloutBatchSchema,
+  RolloutBatchState,
+  RolloutEvidenceStatus,
   RolloutLaneChannelSchema,
   RolloutLaneFirmwareConvergenceStatusSchema,
   RolloutLaneMemberSchema,
@@ -67,6 +71,47 @@ function protoRollout(id: string, state = RolloutState.RUNNING, revision = 1n) {
     strategyKey: "fixture-strategy",
     state,
     revision,
+  });
+}
+
+function protoRolloutWithEvidence({
+  id = "live",
+  state = RolloutState.REVIEW,
+  revision = 2n,
+  evaluatedAt,
+  cumulativeDeltaBasisPoints,
+  postWindowFinalized = false,
+}: {
+  id?: string;
+  state?: RolloutState;
+  revision?: bigint;
+  evaluatedAt: string;
+  cumulativeDeltaBasisPoints: number;
+  postWindowFinalized?: boolean;
+}) {
+  return create(RolloutSchema, {
+    rolloutId: id,
+    name: `Rollout ${id}`,
+    strategyKey: "fixture-strategy",
+    state,
+    revision,
+    batches: [
+      create(RolloutBatchSchema, {
+        batchId: 1n,
+        position: 0,
+        label: "Pilot",
+        state: RolloutBatchState.COMPLETED,
+        revision: 1n,
+        evidenceSummary: create(RolloutBatchEvidenceSummarySchema, {
+          status: postWindowFinalized ? RolloutEvidenceStatus.FINALIZED : RolloutEvidenceStatus.OBSERVING,
+          totalCount: 2n,
+          pairedCount: 2n,
+          cumulativeDeltaBasisPoints,
+          evaluatedAt: timestampFromDate(new Date(evaluatedAt)),
+          postWindowFinalized,
+        }),
+      }),
+    ],
   });
 }
 
@@ -1323,6 +1368,99 @@ describe("useRolloutApi", () => {
     });
 
     expect(result.current.rollouts).toEqual([expect.objectContaining({ id: "live", state: "review", revision: 2n })]);
+  });
+
+  it("keeps newer equal-revision batch evidence when an older list response arrives last", async () => {
+    const staleList = deferred<{ rollouts: ReturnType<typeof protoRolloutWithEvidence>[] }>();
+    rolloutClientMock.listRollouts.mockReturnValue(staleList.promise);
+    rolloutClientMock.getRollout.mockResolvedValue({
+      rollout: protoRolloutWithEvidence({
+        evaluatedAt: "2026-08-20T12:00:20Z",
+        cumulativeDeltaBasisPoints: -100,
+      }),
+    });
+    const { result } = renderHook(() => useRolloutApi());
+    let listRequest!: Promise<unknown>;
+
+    act(() => {
+      listRequest = result.current.listRollouts();
+    });
+    await act(async () => {
+      await result.current.getRollout({ rolloutId: "live" });
+    });
+    await act(async () => {
+      staleList.resolve({
+        rollouts: [
+          protoRolloutWithEvidence({
+            state: RolloutState.COMPLETED,
+            evaluatedAt: "2026-08-20T12:00:10Z",
+            cumulativeDeltaBasisPoints: -400,
+          }),
+        ],
+      });
+      await listRequest;
+    });
+
+    expect(result.current.rollouts[0]).toMatchObject({
+      state: "completed",
+      revision: 2n,
+      batches: [
+        {
+          evidenceSummary: {
+            cumulativeDeltaBasisPoints: -100,
+            evaluatedAt: "2026-08-20T12:00:20.000Z",
+          },
+        },
+      ],
+    });
+  });
+
+  it("keeps finalized equal-revision evidence when an open detail response arrives last", async () => {
+    const staleDetail = deferred<{ rollout: ReturnType<typeof protoRolloutWithEvidence> }>();
+    rolloutClientMock.getRollout.mockReturnValue(staleDetail.promise);
+    rolloutClientMock.listRollouts.mockResolvedValue({
+      rollouts: [
+        protoRolloutWithEvidence({
+          state: RolloutState.COMPLETED,
+          evaluatedAt: "2026-08-20T12:00:10Z",
+          cumulativeDeltaBasisPoints: -250,
+          postWindowFinalized: true,
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useRolloutApi());
+    let detailRequest!: Promise<unknown>;
+
+    act(() => {
+      detailRequest = result.current.getRollout({ rolloutId: "live" });
+    });
+    await act(async () => {
+      await result.current.listRollouts();
+    });
+    await act(async () => {
+      staleDetail.resolve({
+        rollout: protoRolloutWithEvidence({
+          state: RolloutState.PAUSED,
+          evaluatedAt: "2026-08-20T12:00:20Z",
+          cumulativeDeltaBasisPoints: -50,
+        }),
+      });
+      await detailRequest;
+    });
+
+    expect(result.current.rollouts[0]).toMatchObject({
+      state: "paused",
+      revision: 2n,
+      batches: [
+        {
+          evidenceSummary: {
+            status: "finalized",
+            cumulativeDeltaBasisPoints: -250,
+            postWindowFinalized: true,
+          },
+        },
+      ],
+    });
   });
 
   it("does not update state or report auth errors after cancellation", async () => {

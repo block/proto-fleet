@@ -1,6 +1,7 @@
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
 import type { CreateRolloutBatchInput, CreateRolloutMemberInput } from "@/protoFleet/api/useRolloutApi";
 import { minerTargetKey } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
+import { latestCompletedRolloutBatch } from "@/protoFleet/features/rollout/rolloutBatchSelectors";
 import type {
   FirmwareTransitionState,
   RolloutLane,
@@ -57,9 +58,7 @@ function hasUnsettledMembers(rollout: RolloutRecord): boolean {
 }
 
 function hasUnfinalizedLatestBatchEvidence(rollout: RolloutRecord): boolean {
-  const latestCompletedBatch = [...rollout.batches]
-    .sort((a, b) => b.position - a.position)
-    .find((batch) => batch.state === "completed");
+  const latestCompletedBatch = latestCompletedRolloutBatch(rollout);
   return (
     latestCompletedBatch?.completedAt !== undefined &&
     latestCompletedBatch.evidenceSummary?.postWindowFinalized === false

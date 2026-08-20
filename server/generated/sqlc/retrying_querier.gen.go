@@ -482,8 +482,8 @@ func (q *retryingQuerier) CaptureBetweenChannelBatchBaseline(ctx context.Context
 	return result, err
 }
 
-func (q *retryingQuerier) CaptureFirmwareRolloutBatchPostEvidence(ctx context.Context, arg CaptureFirmwareRolloutBatchPostEvidenceParams) ([]FirmwareRolloutEvidence, error) {
-	var result []FirmwareRolloutEvidence
+func (q *retryingQuerier) CaptureFirmwareRolloutBatchPostEvidence(ctx context.Context, arg CaptureFirmwareRolloutBatchPostEvidenceParams) (int64, error) {
+	var result int64
 	err := q.retrier.RetryQuery(ctx, "CaptureFirmwareRolloutBatchPostEvidence", func() error {
 		callResult, callErr := q.next.CaptureFirmwareRolloutBatchPostEvidence(ctx, arg)
 		if callErr == nil {

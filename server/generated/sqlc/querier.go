@@ -144,7 +144,7 @@ type Querier interface {
 	CancelPendingFirmwareRolloutMembers(ctx context.Context, arg CancelPendingFirmwareRolloutMembersParams) (int64, error)
 	CancelUnclaimedFirmwareRolloutMembers(ctx context.Context, arg CancelUnclaimedFirmwareRolloutMembersParams) (int64, error)
 	CaptureBetweenChannelBatchBaseline(ctx context.Context, arg CaptureBetweenChannelBatchBaselineParams) (int64, error)
-	CaptureFirmwareRolloutBatchPostEvidence(ctx context.Context, arg CaptureFirmwareRolloutBatchPostEvidenceParams) ([]FirmwareRolloutEvidence, error)
+	CaptureFirmwareRolloutBatchPostEvidence(ctx context.Context, arg CaptureFirmwareRolloutBatchPostEvidenceParams) (int64, error)
 	CaptureFirmwareRolloutEvidence(ctx context.Context, arg CaptureFirmwareRolloutEvidenceParams) ([]FirmwareRolloutEvidence, error)
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
 	// to rack.building_id for added rack members whose current building

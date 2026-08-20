@@ -698,7 +698,9 @@ export default function RolloutLanesTab() {
           isMutating={isMutating}
           onPause={() => void runControl(monitoredRollout, "pause", "Paused by operator")}
           onResume={() => void runControl(monitoredRollout, "resume", "Resumed by operator")}
-          onContinue={() => void runControl(monitoredRollout, "continue", "Continue after manual review")}
+          onContinue={(reason) =>
+            void runControl(monitoredRollout, "continue", reason ?? "Continue after manual review")
+          }
           onAbort={() => void runControl(monitoredRollout, "abort", "Abort new rollout work")}
           onRevert={() => void runControl(monitoredRollout, "revert", "Restore the captured source release")}
           onCompleteWithFailures={() => void runCompleteWithFailures(monitoredRollout)}
@@ -770,7 +772,9 @@ export default function RolloutLanesTab() {
         onPause={modalRollout ? () => void runControl(modalRollout, "pause", "Paused by operator") : undefined}
         onResume={modalRollout ? () => void runControl(modalRollout, "resume", "Resumed by operator") : undefined}
         onContinueFromReview={
-          modalRollout ? () => void runControl(modalRollout, "continue", "Continue after manual review") : undefined
+          modalRollout
+            ? (reason) => void runControl(modalRollout, "continue", reason ?? "Continue after manual review")
+            : undefined
         }
         onAbort={modalRollout ? () => void runControl(modalRollout, "abort", "Abort new rollout work") : undefined}
         onRevert={

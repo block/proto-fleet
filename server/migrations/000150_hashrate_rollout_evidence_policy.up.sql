@@ -66,7 +66,3 @@ ALTER TABLE firmware_rollout_batch
             OR
             (post_window_finalized AND post_window_finalized_at IS NOT NULL)
         );
-
-CREATE INDEX idx_firmware_rollout_batch_evidence_candidates
-    ON firmware_rollout_batch(completed_at, id)
-    WHERE state = 'completed' AND NOT post_window_finalized;

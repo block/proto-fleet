@@ -24,6 +24,7 @@ import {
   RolloutState as ProtoRolloutState,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { timestampToIsoString } from "@/protoFleet/api/timestamps";
+import { latestCompletedRolloutBatch } from "@/protoFleet/features/rollout/rolloutBatchSelectors";
 import type {
   FirmwareTransitionMiner,
   FirmwareTransitionState,
@@ -453,6 +454,7 @@ function mapRolloutBatchEvidenceSummary(summary: ProtoRolloutBatchEvidenceSummar
     evaluatedAt: timestampToIsoString(summary.evaluatedAt),
     postWindowFinalized: summary.postWindowFinalized,
     postWindowFinalizedAt: timestampToIsoString(summary.postWindowFinalizedAt),
+    errorMessage: summary.errorMessage,
   };
 }
 
@@ -550,7 +552,7 @@ function latestCompletedBatch(rollout: RolloutRecord): RolloutBatch | undefined 
   ) {
     return undefined;
   }
-  return [...rollout.batches].sort((a, b) => b.position - a.position).find((batch) => batch.state === "completed");
+  return latestCompletedRolloutBatch(rollout);
 }
 
 const HASHES_PER_TERAHASH = 1_000_000_000_000;
@@ -643,7 +645,7 @@ export function mapRolloutToEvent(
     batchSize,
     pilotSize,
     reviewAfterEachBatch: rollout.batches.length > 1,
-    autoContinueOnHealthyTelemetry: false,
+    autoContinueOnHealthyTelemetry: rollout.hashratePolicy !== undefined,
     currentBatch: activeBatch ? activeBatch.position + 1 : undefined,
     totalBatches: rollout.batches.length || undefined,
     startedAt: rollout.startedAt ?? rollout.createdAt,

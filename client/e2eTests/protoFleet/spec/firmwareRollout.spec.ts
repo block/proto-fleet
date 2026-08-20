@@ -36,7 +36,7 @@ test.describe("Between-channel firmware rollout", () => {
     await settingsFirmwarePage.validateRolloutLanesSurface();
   });
 
-  test("creates, completes, reopens, aborts, and reverts a two-batch rollout", async ({
+  test("creates, completes, reopens, aborts, auto-continues, and reverts two-batch rollouts", async ({
     minersPage,
     settingsFirmwarePage,
   }) => {
@@ -52,6 +52,8 @@ test.describe("Between-channel firmware rollout", () => {
     const laneLabel = `firmware-rollout-e2e-${runId}`;
     const firstRolloutName = `firmware-rollout-complete-${runId}`;
     const abortRolloutName = `firmware-rollout-abort-${runId}`;
+    const automaticRolloutName = `firmware-rollout-automatic-${runId}`;
+    let automaticRolloutId = "";
 
     await test.step("Upload source and target firmware releases", async () => {
       await settingsFirmwarePage.navigateToFirmwareSettings();
@@ -174,6 +176,51 @@ test.describe("Between-channel firmware rollout", () => {
       for (const ipAddress of minerIpAddresses) {
         await minersPage.validateMinerValue(ipAddress, "firmware", sourceVersion);
       }
+    });
+
+    await test.step("Start a hashrate-gated rollout with a short permissive policy", async () => {
+      await settingsFirmwarePage.navigateToFirmwareSettings();
+      await settingsFirmwarePage.openRolloutLanesTab();
+      const rollout = await settingsFirmwarePage.startTwoBatchRollout({
+        laneLabel,
+        rolloutName: automaticRolloutName,
+        reason: "Verify durable healthy automatic advancement",
+        targetRelease: {
+          manufacturer: "Proto",
+          model: "Rig",
+          firmwareVersion: targetVersion,
+          fileName: targetFileName,
+        },
+        hashratePolicy: {
+          maxDropPercent: 100,
+          healthyDurationSeconds: 10,
+        },
+        onRolloutCreated: (createdRolloutId) => {
+          rolloutId = createdRolloutId;
+        },
+      });
+      rolloutId = rollout.rolloutId;
+      automaticRolloutId = rollout.rolloutId;
+      await settingsFirmwarePage.validateMembershipSplit(2, 0);
+    });
+
+    await test.step("Automatically advance the second batch and persist real evidence", async () => {
+      await settingsFirmwarePage.waitForMembershipSplit(0, 2);
+      await settingsFirmwarePage.waitForRolloutStage("Completed");
+      await settingsFirmwarePage.validateFirstBatchAutomaticallyContinued(automaticRolloutId);
+      await settingsFirmwarePage.validateHashrateEvidenceVisible(1, 1);
+
+      await settingsFirmwarePage.reloadAndReopenRollout(laneLabel, automaticRolloutName);
+      await settingsFirmwarePage.waitForRolloutStage("Completed");
+      await settingsFirmwarePage.validateRolloutLane(laneLabel, `Rig ${targetVersion}`, 2);
+      await settingsFirmwarePage.validateHashrateEvidenceVisible(1, 1);
+    });
+
+    await test.step("Revert the automatically completed rollout", async () => {
+      await settingsFirmwarePage.revertRollout();
+      await settingsFirmwarePage.waitForMembershipSplit(2, 0);
+      await settingsFirmwarePage.reloadAndReopenRollout(laneLabel, automaticRolloutName);
+      await settingsFirmwarePage.validateRolloutLane(laneLabel, `Rig ${sourceVersion}`, 2);
     });
 
     await test.step("Delete the settled lane and retain its history", async () => {

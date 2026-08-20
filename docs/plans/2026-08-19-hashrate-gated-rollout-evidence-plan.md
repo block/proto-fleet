@@ -453,12 +453,12 @@ sequenceDiagram
   - `docs/plans/2026-08-12-software-channels-tdd.md`
 - **Approach:**
   1. Seed deterministic pre-update and post-update hashrate through the existing fake-rig telemetry path.
-  2. Cover one healthy auto-continue journey and one unhealthy hold journey.
+  2. Cover the deterministic healthy auto-continue journey in Playwright. Keep unhealthy hold deterministic in evaluator, SQL store, and held-confirmation component tests because the fake rig has no public hashrate override.
   3. Update the TDD's evidence option, Proposed Solution interaction-and-control statement, and production-hardening work breakdown so hashrate-only threshold automation is no longer described as wholly deferred.
 - **Patterns to follow:** Existing firmware rollout E2E cleanup, simulator-safe isolation, and TDD prose conventions.
 - **Test scenarios:**
   - A healthy pilot shows a live delta and automatically starts the remaining batch after the short test duration.
-  - An unhealthy pilot remains in review and can be continued manually.
+  - An unhealthy policy bucket remains in review and can be continued manually, proven through integration and component coverage.
   - Refreshing the page preserves policy status and evidence.
   - Completed results retain the final hashrate comparison.
 - **Verification:** The focused Playwright scenario passes without refreshing visual snapshots, and the TDD matches implemented behavior.
@@ -486,7 +486,7 @@ sequenceDiagram
 - U3: Completed batches receive bounded, live post evidence and a server-derived paired comparison.
 - U4: Healthy opt-in batches continue once; missing, unavailable, stale, unhealthy, paused, or aborted rollouts do not.
 - U5: Operators can use real live delta, paired coverage, unavailable, stale, and automation-error states, including finalized completed results.
-- U6: Persistence and both advancement outcomes are covered by integration and operator-path tests, and the TDD is aligned.
+- U6: Persistence and both advancement outcomes are covered by deterministic integration/component tests, the healthy browser path is implemented, and the TDD is aligned.
 - U7: Operators can configure the policy for pilot or batched methods and explicitly confirm a held override.
 - Existing manual controls, at-most-once firmware dispatch, lane finalization, abort, and revert tests remain green.
 - Generated code is source-consistent, no abandoned experimental path remains, and no unrelated untracked RFC drafts are modified.

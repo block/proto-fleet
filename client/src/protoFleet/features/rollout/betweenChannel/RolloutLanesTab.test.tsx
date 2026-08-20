@@ -1,5 +1,5 @@
 import { MemoryRouter, useLocation, useSearchParams } from "react-router-dom";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import userEvent from "@testing-library/user-event";
@@ -48,6 +48,7 @@ const capturedTable = vi.hoisted(() => ({
   onStart: null as ((lane: RolloutLane) => void) | null,
   onSetup: null as ((lane: RolloutLane) => void) | null,
   onManageMembers: null as ((lane: RolloutLane) => void) | null,
+  onView: null as ((rollout: RolloutRecord) => void) | null,
   onDelete: null as ((lane: RolloutLane) => void) | null,
 }));
 
@@ -77,9 +78,10 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
     onSetup,
     onManageMembers,
     onStart,
+    onView,
     onDelete,
   }: {
-    rows: Array<{ lane: RolloutLane }>;
+    rows: Array<{ lane: RolloutLane; latestRollout?: RolloutRecord }>;
     canStart: boolean;
     canDelete: boolean;
     deletePermissionBlockedReason?: string;
@@ -87,15 +89,17 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
     onSetup: (lane: RolloutLane) => void;
     onManageMembers: (lane: RolloutLane) => void;
     onStart: (lane: RolloutLane) => void;
+    onView: (rollout: RolloutRecord) => void;
     onDelete: (lane: RolloutLane) => void;
   }) => {
     capturedTable.onStart = onStart;
     capturedTable.onSetup = onSetup;
     capturedTable.onManageMembers = onManageMembers;
+    capturedTable.onView = onView;
     capturedTable.onDelete = onDelete;
     return (
       <div data-testid="rollout-lanes-table">
-        {rows.map(({ lane }) => (
+        {rows.map(({ lane, latestRollout }) => (
           <div key={lane.id}>
             {lane.label}
             <button type="button" onClick={() => onSetup(lane)}>
@@ -107,6 +111,11 @@ vi.mock("@/protoFleet/features/rollout/betweenChannel/RolloutLanesTable", () => 
             {canStart ? (
               <button type="button" disabled={isPreparingStart} onClick={() => onStart(lane)}>
                 Start {lane.label}
+              </button>
+            ) : null}
+            {latestRollout ? (
+              <button type="button" onClick={() => onView(latestRollout)}>
+                View {latestRollout.name}
               </button>
             ) : null}
             {canDelete ? (
@@ -456,6 +465,7 @@ describe("RolloutLanesTab", () => {
     capturedTable.onStart = null;
     capturedTable.onSetup = null;
     capturedTable.onManageMembers = null;
+    capturedTable.onView = null;
     capturedTable.onDelete = null;
     rolloutApi.lane = null;
     rolloutApi.lanes = [lane("lane-1", "Stable production")];
@@ -713,6 +723,22 @@ describe("RolloutLanesTab", () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(rolloutApi.getRollout).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not poll a legacy completed batch without a completion time or evidence summary", async () => {
+    vi.useFakeTimers();
+    const legacyResult = rollout("legacy-completed", "completed");
+    rolloutApi.rollouts = [legacyResult];
+    rolloutApi.lanes = [lane("lane-legacy", "Legacy completed", legacyResult.id, 42n)];
+    rolloutApi.listRolloutLanes.mockResolvedValue(rolloutApi.lanes);
+    rolloutApi.listRollouts.mockResolvedValue(rolloutApi.rollouts);
+
+    renderRolloutLanesTab();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+
+    expect(rolloutApi.getRollout).not.toHaveBeenCalled();
   });
 
   it("polls lane status while firmware convergence is active", async () => {
@@ -1475,12 +1501,37 @@ describe("RolloutLanesTab", () => {
     );
   });
 
-  it("passes a held override reason through the normal continue control audit", async () => {
+  it("confirms a held override from the rollout detail modal with evidence context", async () => {
     const user = userEvent.setup();
+    const baseHeldReview = rollout("held-review", "review");
     const heldReview = {
-      ...rollout("held-review", "review"),
+      ...baseHeldReview,
+      hashratePolicy: {
+        maxDropBasisPoints: 10,
+        healthyDurationSeconds: 30,
+      },
+      batches: [
+        {
+          ...baseHeldReview.batches[0],
+          label: "Pilot",
+          evidenceSummary: {
+            status: "held" as const,
+            totalCount: 3n,
+            pairedCount: 3n,
+            latestPolicyBucketDeltaBasisPoints: -400,
+            postWindowFinalized: false,
+          },
+        },
+        {
+          ...baseHeldReview.batches[0],
+          id: 2n,
+          position: 1,
+          label: "Remaining",
+          state: "pending" as const,
+        },
+      ],
       availableActions: {
-        ...rollout("held-review", "review").availableActions,
+        ...baseHeldReview.availableActions,
         continue: true,
       },
     };
@@ -1496,7 +1547,22 @@ describe("RolloutLanesTab", () => {
     });
 
     renderRolloutLanesTab();
-    await user.click(await screen.findByRole("button", { name: "Continue held rollout" }));
+    await user.click(await screen.findByRole("button", { name: `View ${heldReview.name}` }));
+    const detailModal = await screen.findByTestId("view-rollout-modal");
+
+    await user.click(within(detailModal).getByRole("button", { name: "Continue" }));
+    expect(rolloutApi.continueRollout).not.toHaveBeenCalled();
+    expect(screen.getByText("Configured maximum drop: 0.10%")).toBeInTheDocument();
+    expect(screen.getByText("Latest policy bucket: −4.00%")).toBeInTheDocument();
+    expect(screen.getByText("Paired coverage: 3 of 3")).toBeInTheDocument();
+    expect(screen.getByText(/admits the next batch despite this held evidence/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(rolloutApi.continueRollout).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Continue anyway" })).not.toBeInTheDocument();
+
+    await user.click(within(detailModal).getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Continue anyway" }));
 
     expect(rolloutApi.continueRollout).toHaveBeenCalledOnce();
     expect(rolloutApi.continueRollout).toHaveBeenCalledWith(

@@ -1,12 +1,16 @@
 package sqlstores_test
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,6 +20,59 @@ import (
 	rolloutEvidence "github.com/block/proto-fleet/server/internal/domain/rollout/evidence"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
+
+type blockingSummaryStore struct {
+	rolloutEvidence.Store
+	reached chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingSummaryStore) UpdateSummary(
+	ctx context.Context,
+	summary rolloutEvidence.Summary,
+) (bool, error) {
+	s.once.Do(func() { close(s.reached) })
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return false, fmt.Errorf("wait to update summary: %w", ctx.Err())
+	}
+	return s.Store.UpdateSummary(ctx, summary)
+}
+
+type recordingEvidenceController struct {
+	mu       sync.Mutex
+	requests []rolloutDomain.AdmitRequest
+	err      error
+	delegate *rolloutDomain.Service
+}
+
+func (c *recordingEvidenceController) Continue(
+	ctx context.Context,
+	req rolloutDomain.AdmitRequest,
+) (*rolloutDomain.Rollout, error) {
+	c.mu.Lock()
+	c.requests = append(c.requests, req)
+	c.mu.Unlock()
+	if c.delegate != nil {
+		result, err := c.delegate.Continue(ctx, req)
+		if err != nil {
+			return result, err
+		}
+		if c.err != nil {
+			return result, c.err
+		}
+		return result, nil
+	}
+	return nil, c.err
+}
+
+func (c *recordingEvidenceController) requestCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.requests)
+}
 
 func TestRolloutEvidenceRefreshesOnlyFrozenBatchWithEqualMemberWeighting(t *testing.T) {
 	if testing.Short() {
@@ -58,13 +115,14 @@ func TestRolloutEvidenceRefreshesOnlyFrozenBatchWithEqualMemberWeighting(t *test
 	evaluator := rolloutEvidence.NewEvaluator(
 		rolloutEvidence.Config{BatchSize: 10},
 		sqlstores.NewSQLRolloutEvidenceStore(db),
+		nil,
 	)
 	evaluator.RunOnce(t.Context())
 
 	persisted, err := rolloutStore.Get(t.Context(), orgID, created.Rollout.ID)
 	require.NoError(t, err)
 	first := persisted.Batches[0]
-	assert.Equal(t, rolloutDomain.EvidenceStatusObserving, first.EvidenceStatus)
+	assert.Equal(t, rolloutDomain.EvidenceStatusHeld, first.EvidenceStatus)
 	assert.Equal(t, int64(2), first.EvidenceTotalCount)
 	assert.Equal(t, int64(2), first.EvidencePairedCount)
 	require.NotNil(t, first.CumulativeBaselineHashrateHS)
@@ -146,6 +204,7 @@ func TestRolloutEvidenceSkipsPolicyBucketsForManualCandidates(t *testing.T) {
 	rolloutEvidence.NewEvaluator(
 		rolloutEvidence.Config{BatchSize: 10},
 		sqlstores.NewSQLRolloutEvidenceStore(db),
+		nil,
 	).RunOnce(t.Context())
 
 	persisted, err := rolloutStore.Get(t.Context(), orgID, created.Rollout.ID)
@@ -176,7 +235,7 @@ func TestRolloutEvidenceAutoContinueIsExactlyOnceThroughRealStrategy(t *testing.
 	lane, err := laneService.CreateLane(t.Context(), betweenchannel.CreateLaneRequest{
 		OrgID:             orgID,
 		Label:             "Evidence automatic lane",
-		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "evidence-source")},
+		ReleaseTargets:    []betweenchannel.ReleaseTarget{testLaneTarget("1.0.0", "a")},
 		DeviceIdentifiers: identifiers,
 		IdempotencyKey:    "evidence-automatic-lane",
 		ActorUserID:       actorID,
@@ -186,7 +245,7 @@ func TestRolloutEvidenceAutoContinueIsExactlyOnceThroughRealStrategy(t *testing.
 		OrgID:          orgID,
 		LaneID:         lane.ID,
 		Name:           "Evidence automatic rollout",
-		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "evidence-target")},
+		ReleaseTargets: []betweenchannel.ReleaseTarget{testLaneTarget("2.0.0", "b")},
 		Batches: []rolloutDomain.CreateBatch{
 			{Label: "canary", Members: []rolloutDomain.CreateMember{{DeviceIdentifier: identifiers[0]}}},
 			{Label: "fleet", Members: []rolloutDomain.CreateMember{{DeviceIdentifier: identifiers[1]}}},
@@ -230,9 +289,9 @@ func TestRolloutEvidenceAutoContinueIsExactlyOnceThroughRealStrategy(t *testing.
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), `
 		UPDATE firmware_rollout_evidence
-		SET window_start = $2 - INTERVAL '30 minutes',
-		    window_end = $2,
-		    observed_at = $2,
+		SET window_start = $2::timestamptz - INTERVAL '30 minutes',
+		    window_end = $2::timestamptz,
+		    observed_at = $2::timestamptz,
 		    avg_hashrate_hs = 100,
 		    sample_count = 1
 		WHERE member_id = $1
@@ -241,10 +300,28 @@ func TestRolloutEvidenceAutoContinueIsExactlyOnceThroughRealStrategy(t *testing.
 	require.NoError(t, err)
 	insertHashrate(t, db, identifiers[0], completedAt.Add(5*time.Second), 100)
 
+	evidenceStore := sqlstores.NewSQLRolloutEvidenceStore(db)
+	candidates, err := evidenceStore.ListCandidates(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	candidate := candidates[0]
+	assert.Equal(t, started.Rollout.Batches[0].ID, candidate.BatchID)
+	assert.True(t, candidate.CompletedAt.Equal(completedAt))
+	assert.True(t, candidate.PolicyEnabled)
+	assert.Equal(t, int32(100), candidate.MaxDropBasisPoints)
+	assert.Equal(t, int32(10), candidate.HealthyDurationSeconds)
+	assert.Equal(t, rolloutDomain.StateReview, candidate.RolloutState)
+	assert.True(t, candidate.IsCurrentReviewBatch)
+	assert.True(t, candidate.HasPendingBatch)
+
+	ambiguousController := &recordingEvidenceController{
+		delegate: rolloutService,
+		err:      errors.New("simulated response timeout"),
+	}
 	evaluator := rolloutEvidence.NewEvaluator(
 		rolloutEvidence.Config{BatchSize: 10},
-		sqlstores.NewSQLRolloutEvidenceStore(db),
-		rolloutService,
+		evidenceStore,
+		ambiguousController,
 	)
 	var passes sync.WaitGroup
 	passes.Add(2)
@@ -255,25 +332,45 @@ func TestRolloutEvidenceAutoContinueIsExactlyOnceThroughRealStrategy(t *testing.
 		}()
 	}
 	passes.Wait()
+	requestsAfterAmbiguousResponse := ambiguousController.requestCount()
+	evaluator.RunOnce(t.Context())
 
 	persisted, err := rolloutService.Get(t.Context(), orgID, started.Rollout.ID)
 	require.NoError(t, err)
 	assert.Equal(t, rolloutDomain.StateRunning, persisted.State)
 	assert.Equal(t, rolloutDomain.BatchStateAdmitted, persisted.Batches[1].State)
+	assert.Equal(t, rolloutDomain.EvidenceStatusHealthy, persisted.Batches[0].EvidenceStatus)
+	require.NotNil(t, persisted.Batches[0].HealthySince)
+	assert.True(t, persisted.Batches[0].HealthySince.Equal(completedAt))
+	require.NotNil(t, persisted.Batches[0].LastPolicyBucketBoundary)
+	assert.True(
+		t,
+		persisted.Batches[0].LastPolicyBucketBoundary.Equal(completedAt.Add(10*time.Second)),
+	)
 
 	var controlCount, causeCount int64
-	var actorType string
+	var actorType, controlStatus string
 	var actorCredential sql.NullString
 	var accountableUser int64
 	require.NoError(t, db.QueryRowContext(t.Context(), `
-		SELECT COUNT(*), MIN(actor_type), MIN(actor_credential_id), MIN(created_by_user_id)
+		SELECT COUNT(*),
+		       MIN(status),
+		       MIN(actor_type),
+		       MIN(actor_credential_id),
+		       MIN(created_by_user_id)
 		FROM firmware_rollout_control
 		WHERE rollout_id = $1
 		  AND idempotency_key = $2
 	`, started.Rollout.ID, fmt.Sprintf(
 		"rollout-evidence-auto-continue-batch-%d",
 		started.Rollout.Batches[0].ID,
-	)).Scan(&controlCount, &actorType, &actorCredential, &accountableUser))
+	)).Scan(
+		&controlCount,
+		&controlStatus,
+		&actorType,
+		&actorCredential,
+		&accountableUser,
+	))
 	require.NoError(t, db.QueryRowContext(t.Context(), `
 		SELECT COUNT(*)
 		FROM firmware_rollout_cause
@@ -282,9 +379,92 @@ func TestRolloutEvidenceAutoContinueIsExactlyOnceThroughRealStrategy(t *testing.
 	`, started.Rollout.ID).Scan(&causeCount))
 	assert.Equal(t, int64(1), controlCount)
 	assert.Equal(t, int64(1), causeCount)
+	assert.Equal(t, string(rolloutDomain.ControlStatusSucceeded), controlStatus)
 	assert.Equal(t, string(rolloutDomain.ActorTypeSystem), actorType)
 	assert.False(t, actorCredential.Valid)
 	assert.Equal(t, actorID, accountableUser)
+	assert.Equal(t, requestsAfterAmbiguousResponse, ambiguousController.requestCount())
+	assert.LessOrEqual(t, requestsAfterAmbiguousResponse, 2)
+}
+
+func TestRolloutEvidenceConcurrentSummaryCASRejectsStaleWriter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, identifiers := setupCollectionTestData(t, 2)
+	rolloutStore := sqlstores.NewSQLRolloutStore(db)
+	req := rolloutCreateRequest(
+		t,
+		db,
+		orgID,
+		"summary-cas-race",
+		[][]string{{identifiers[0]}, {identifiers[1]}},
+	)
+	req.HashratePolicy = &rolloutDomain.HashratePolicy{
+		MaxDropBasisPoints:     100,
+		HealthyDurationSeconds: 10,
+	}
+	created, err := rolloutStore.Create(t.Context(), req)
+	require.NoError(t, err)
+	completedAt := time.Now().UTC().Add(-12 * time.Second).Truncate(time.Microsecond)
+	setRolloutAndBatchState(
+		t,
+		db,
+		created.Rollout.ID.String(),
+		created.Rollout.Batches[0].ID,
+		"review",
+		completedAt,
+	)
+	seedBaseline(t, db, created.Rollout.Batches[0].Members[0], completedAt, 100)
+	insertHashrate(t, db, identifiers[0], completedAt.Add(5*time.Second), 100)
+
+	firstSQLStore := sqlstores.NewSQLRolloutEvidenceStore(db)
+	blockedStore := &blockingSummaryStore{
+		Store:   firstSQLStore,
+		reached: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	controller := &recordingEvidenceController{}
+	olderEvaluator := rolloutEvidence.NewEvaluator(
+		rolloutEvidence.Config{BatchSize: 1},
+		blockedStore,
+		controller,
+	)
+	olderDone := make(chan struct{})
+	go func() {
+		defer close(olderDone)
+		olderEvaluator.RunOnce(t.Context())
+	}()
+
+	select {
+	case <-blockedStore.reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("older evaluator did not reach summary update")
+	}
+
+	insertHashrate(t, db, identifiers[0], completedAt.Add(6*time.Second), 0)
+	newerEvaluator := rolloutEvidence.NewEvaluator(
+		rolloutEvidence.Config{BatchSize: 1},
+		sqlstores.NewSQLRolloutEvidenceStore(db),
+		controller,
+	)
+	newerEvaluator.RunOnce(t.Context())
+	close(blockedStore.release)
+	select {
+	case <-olderDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("older evaluator did not finish")
+	}
+
+	persisted, err := rolloutStore.Get(t.Context(), orgID, created.Rollout.ID)
+	require.NoError(t, err)
+	batch := persisted.Batches[0]
+	assert.Equal(t, rolloutDomain.EvidenceStatusHeld, batch.EvidenceStatus)
+	require.NotNil(t, batch.LatestPolicyBucketDeltaBasisPoints)
+	assert.Less(t, *batch.LatestPolicyBucketDeltaBasisPoints, int32(-100))
+	assert.Nil(t, batch.HealthySince)
+	assert.Zero(t, controller.requestCount(), "lost CAS must suppress automatic continue")
 }
 
 func TestRolloutEvidencePersistsPartialAndMissingBaselineCoverage(t *testing.T) {
@@ -321,6 +501,7 @@ func TestRolloutEvidencePersistsPartialAndMissingBaselineCoverage(t *testing.T) 
 	evaluator := rolloutEvidence.NewEvaluator(
 		rolloutEvidence.Config{BatchSize: 10},
 		sqlstores.NewSQLRolloutEvidenceStore(db),
+		nil,
 	)
 	evaluator.RunOnce(t.Context())
 
@@ -375,6 +556,7 @@ func TestRolloutEvidenceFinalizesCompletedRolloutWindowsAndStopsSelectingThem(t 
 	rolloutEvidence.NewEvaluator(
 		rolloutEvidence.Config{BatchSize: 10},
 		store,
+		nil,
 	).RunOnce(t.Context())
 
 	persisted, err := rolloutStore.Get(t.Context(), orgID, created.Rollout.ID)
@@ -390,6 +572,323 @@ func TestRolloutEvidenceFinalizesCompletedRolloutWindowsAndStopsSelectingThem(t 
 
 	restartedStore := sqlstores.NewSQLRolloutEvidenceStore(db)
 	candidates, err = restartedStore.ListCandidates(t.Context(), 10)
+	require.NoError(t, err)
+	assert.Empty(t, candidates)
+}
+
+func TestRolloutEvidenceProcessesClosingPolicyBucketBeforeFinalization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, identifiers := setupCollectionTestData(t, 2)
+	rolloutStore := sqlstores.NewSQLRolloutStore(db)
+	tests := []struct {
+		name       string
+		hashrate   float64
+		wantStatus rolloutDomain.EvidenceStatus
+	}{
+		{name: "full 1800 second dwell", hashrate: 100, wantStatus: rolloutDomain.EvidenceStatusHealthy},
+		{name: "closing violation", hashrate: 90, wantStatus: rolloutDomain.EvidenceStatusHeld},
+	}
+	for index, test := range tests {
+		created, err := rolloutStore.Create(t.Context(), func() rolloutDomain.CreateRequest {
+			req := rolloutCreateRequest(
+				t,
+				db,
+				orgID,
+				"closing-policy-bucket-"+test.name,
+				[][]string{{identifiers[index]}},
+			)
+			req.HashratePolicy = &rolloutDomain.HashratePolicy{
+				MaxDropBasisPoints:     100,
+				HealthyDurationSeconds: 1800,
+			}
+			return req
+		}())
+		require.NoError(t, err)
+		completedAt := time.Now().UTC().
+			Add(-30*time.Minute - 100*time.Millisecond).
+			Truncate(time.Microsecond)
+		windowEnd := completedAt.Add(30 * time.Minute)
+		setRolloutAndBatchState(
+			t,
+			db,
+			created.Rollout.ID.String(),
+			created.Rollout.Batches[0].ID,
+			"completed",
+			completedAt,
+		)
+		_, err = db.ExecContext(t.Context(), `
+			UPDATE firmware_rollout_batch
+			SET evidence_status = 'observing',
+			    healthy_since = $2,
+			    last_policy_bucket_boundary = $3,
+			    evaluated_at = $4
+			WHERE id = $1
+		`,
+			created.Rollout.Batches[0].ID,
+			completedAt,
+			windowEnd.Add(-10*time.Second),
+			windowEnd.Add(-5*time.Second),
+		)
+		require.NoError(t, err)
+		seedBaseline(t, db, created.Rollout.Batches[0].Members[0], completedAt, 100)
+		insertHashrate(t, db, identifiers[index], windowEnd.Add(-5*time.Second), test.hashrate)
+	}
+
+	rolloutEvidence.NewEvaluator(
+		rolloutEvidence.Config{BatchSize: 10},
+		sqlstores.NewSQLRolloutEvidenceStore(db),
+		nil,
+	).RunOnce(t.Context())
+
+	rollouts, err := rolloutStore.List(t.Context(), orgID, []rolloutDomain.State{
+		rolloutDomain.StateCompleted,
+	})
+	require.NoError(t, err)
+	require.Len(t, rollouts, len(tests))
+	statuses := make(map[string]rolloutDomain.Batch)
+	for _, item := range rollouts {
+		statuses[item.Name] = item.Batches[0]
+	}
+	for _, test := range tests {
+		batch := statuses["closing-policy-bucket-"+test.name]
+		assert.Equal(t, test.wantStatus, batch.EvidenceStatus)
+		assert.True(t, batch.PostWindowFinalized)
+		require.NotNil(t, batch.LastPolicyBucketBoundary)
+		require.NotNil(t, batch.PostWindowFinalizedAt)
+		assert.True(t, batch.LastPolicyBucketBoundary.Equal(*batch.PostWindowFinalizedAt))
+	}
+}
+
+func TestRolloutEvidenceOutageCheckpointsBucketsAndRequiresFutureDwell(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, identifiers := setupCollectionTestData(t, 1)
+	rolloutStore := sqlstores.NewSQLRolloutStore(db)
+	req := rolloutCreateRequest(
+		t,
+		db,
+		orgID,
+		"evaluator-outage-checkpoint",
+		[][]string{{identifiers[0]}},
+	)
+	req.HashratePolicy = &rolloutDomain.HashratePolicy{
+		MaxDropBasisPoints:     100,
+		HealthyDurationSeconds: 20,
+	}
+	created, err := rolloutStore.Create(t.Context(), req)
+	require.NoError(t, err)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	completedAt := now.Add(-55 * time.Second)
+	setRolloutAndBatchState(
+		t,
+		db,
+		created.Rollout.ID.String(),
+		created.Rollout.Batches[0].ID,
+		"review",
+		completedAt,
+	)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_batch
+		SET evidence_status = 'observing',
+		    healthy_since = $2,
+		    last_policy_bucket_boundary = $3,
+		    evaluated_at = $4
+		WHERE id = $1
+	`,
+		created.Rollout.Batches[0].ID,
+		completedAt,
+		completedAt.Add(10*time.Second),
+		now.Add(-30*time.Second),
+	)
+	require.NoError(t, err)
+	seedBaseline(t, db, created.Rollout.Batches[0].Members[0], completedAt, 100)
+	for _, offset := range []int{15, 25, 35} {
+		insertHashrate(
+			t,
+			db,
+			identifiers[0],
+			completedAt.Add(time.Duration(offset)*time.Second),
+			100,
+		)
+	}
+	evaluator := rolloutEvidence.NewEvaluator(
+		rolloutEvidence.Config{BatchSize: 10},
+		sqlstores.NewSQLRolloutEvidenceStore(db),
+		nil,
+	)
+
+	evaluator.RunOnce(t.Context())
+	afterOutage, err := rolloutStore.Get(t.Context(), orgID, created.Rollout.ID)
+	require.NoError(t, err)
+	batch := afterOutage.Batches[0]
+	assert.Equal(t, rolloutDomain.EvidenceStatusStale, batch.EvidenceStatus)
+	assert.Nil(t, batch.HealthySince)
+	require.NotNil(t, batch.LastPolicyBucketBoundary)
+	assert.True(t, batch.LastPolicyBucketBoundary.Equal(completedAt.Add(40*time.Second)))
+
+	evaluator.RunOnce(t.Context())
+	withoutFutureBucket, err := rolloutStore.Get(t.Context(), orgID, created.Rollout.ID)
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		rolloutDomain.EvidenceStatusStale,
+		withoutFutureBucket.Batches[0].EvidenceStatus,
+	)
+	assert.Nil(t, withoutFutureBucket.Batches[0].HealthySince)
+
+	insertHashrate(t, db, identifiers[0], completedAt.Add(45*time.Second), 100)
+	evaluator.RunOnce(t.Context())
+	recovered, err := rolloutStore.Get(t.Context(), orgID, created.Rollout.ID)
+	require.NoError(t, err)
+	batch = recovered.Batches[0]
+	assert.Equal(t, rolloutDomain.EvidenceStatusObserving, batch.EvidenceStatus)
+	require.NotNil(t, batch.HealthySince)
+	assert.True(t, batch.HealthySince.Equal(completedAt.Add(40*time.Second)))
+	require.NotNil(t, batch.LastPolicyBucketBoundary)
+	assert.True(t, batch.LastPolicyBucketBoundary.Equal(completedAt.Add(50*time.Second)))
+}
+
+func TestRolloutEvidenceRejectsNonFinitePersistedTelemetry(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, identifiers := setupCollectionTestData(t, 2)
+	rolloutStore := sqlstores.NewSQLRolloutStore(db)
+	tests := []struct {
+		name             string
+		baselineHashrate float64
+		postHashrate     float64
+		wantStatus       rolloutDomain.EvidenceStatus
+	}{
+		{
+			name:             "non-finite baseline",
+			baselineHashrate: math.NaN(),
+			postHashrate:     100,
+			wantStatus:       rolloutDomain.EvidenceStatusUnavailable,
+		},
+		{
+			name:             "non-finite post and bucket",
+			baselineHashrate: 100,
+			postHashrate:     math.Inf(1),
+			wantStatus:       rolloutDomain.EvidenceStatusStale,
+		},
+	}
+	rolloutIDs := make(map[string]uuid.UUID)
+	for index, test := range tests {
+		req := rolloutCreateRequest(
+			t,
+			db,
+			orgID,
+			"invalid-telemetry-"+test.name,
+			[][]string{{identifiers[index]}},
+		)
+		req.HashratePolicy = &rolloutDomain.HashratePolicy{
+			MaxDropBasisPoints:     100,
+			HealthyDurationSeconds: 10,
+		}
+		created, err := rolloutStore.Create(t.Context(), req)
+		require.NoError(t, err)
+		completedAt := time.Now().UTC().Add(-21 * time.Second).Truncate(time.Microsecond)
+		setRolloutAndBatchState(
+			t,
+			db,
+			created.Rollout.ID.String(),
+			created.Rollout.Batches[0].ID,
+			"review",
+			completedAt,
+		)
+		seedBaseline(
+			t,
+			db,
+			created.Rollout.Batches[0].Members[0],
+			completedAt,
+			test.baselineHashrate,
+		)
+		insertHashrate(t, db, identifiers[index], time.Now().UTC().Add(-time.Second), test.postHashrate)
+		rolloutIDs[test.name] = created.Rollout.ID
+	}
+
+	rolloutEvidence.NewEvaluator(
+		rolloutEvidence.Config{BatchSize: 10},
+		sqlstores.NewSQLRolloutEvidenceStore(db),
+		nil,
+	).RunOnce(t.Context())
+
+	for _, test := range tests {
+		persisted, err := rolloutStore.Get(t.Context(), orgID, rolloutIDs[test.name])
+		require.NoError(t, err)
+		batch := persisted.Batches[0]
+		assert.Equal(t, test.wantStatus, batch.EvidenceStatus)
+		assert.NotEqual(t, rolloutDomain.EvidenceStatusHealthy, batch.EvidenceStatus)
+		assert.Nil(t, batch.HealthySince)
+	}
+}
+
+func TestRolloutEvidenceAutomationErrorStillRefreshesAndFinalizes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, identifiers := setupCollectionTestData(t, 1)
+	rolloutStore := sqlstores.NewSQLRolloutStore(db)
+	req := rolloutCreateRequest(
+		t,
+		db,
+		orgID,
+		"automation-error-evidence-refresh",
+		[][]string{{identifiers[0]}},
+	)
+	req.HashratePolicy = &rolloutDomain.HashratePolicy{
+		MaxDropBasisPoints:     100,
+		HealthyDurationSeconds: 10,
+	}
+	created, err := rolloutStore.Create(t.Context(), req)
+	require.NoError(t, err)
+	completedAt := time.Now().UTC().Add(-31 * time.Minute).Truncate(time.Microsecond)
+	setRolloutAndBatchState(
+		t,
+		db,
+		created.Rollout.ID.String(),
+		created.Rollout.Batches[0].ID,
+		"review",
+		completedAt,
+	)
+	_, err = db.ExecContext(t.Context(), `
+		UPDATE firmware_rollout_batch
+		SET evidence_status = 'automation_error',
+		    evidence_error_message = 'operator-safe failure'
+		WHERE id = $1
+	`, created.Rollout.Batches[0].ID)
+	require.NoError(t, err)
+	seedBaseline(t, db, created.Rollout.Batches[0].Members[0], completedAt, 100)
+	insertHashrate(t, db, identifiers[0], completedAt.Add(29*time.Minute), 95)
+
+	store := sqlstores.NewSQLRolloutEvidenceStore(db)
+	candidates, err := store.ListCandidates(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	controller := &recordingEvidenceController{}
+	rolloutEvidence.NewEvaluator(
+		rolloutEvidence.Config{BatchSize: 10},
+		store,
+		controller,
+	).RunOnce(t.Context())
+
+	persisted, err := rolloutStore.Get(t.Context(), orgID, created.Rollout.ID)
+	require.NoError(t, err)
+	batch := persisted.Batches[0]
+	assert.Equal(t, rolloutDomain.EvidenceStatusAutomationError, batch.EvidenceStatus)
+	assert.True(t, batch.PostWindowFinalized)
+	require.NotNil(t, batch.CumulativeCurrentHashrateHS)
+	assert.InDelta(t, 95, *batch.CumulativeCurrentHashrateHS, 0.001)
+	assert.Zero(t, controller.requestCount())
+	candidates, err = store.ListCandidates(t.Context(), 10)
 	require.NoError(t, err)
 	assert.Empty(t, candidates)
 }
@@ -483,6 +982,7 @@ func TestRolloutEvidenceCandidatesAreBoundedStateAwareAndRestartSafe(t *testing.
 		WHERE id = $1
 	`, automationError.Rollout.Batches[0].ID)
 	require.NoError(t, err)
+	validBatchIDs[automationError.Rollout.Batches[0].ID] = struct{}{}
 
 	store := sqlstores.NewSQLRolloutEvidenceStore(db)
 	bounded, err := store.ListCandidates(t.Context(), 3)
@@ -492,10 +992,28 @@ func TestRolloutEvidenceCandidatesAreBoundedStateAwareAndRestartSafe(t *testing.
 	restartedStore := sqlstores.NewSQLRolloutEvidenceStore(db)
 	reconstructed, err := restartedStore.ListCandidates(t.Context(), 20)
 	require.NoError(t, err)
-	require.Len(t, reconstructed, len(validStates))
+	require.Len(t, reconstructed, len(validBatchIDs))
 	for _, candidate := range reconstructed {
 		_, expected := validBatchIDs[candidate.BatchID]
 		assert.True(t, expected, "unexpected candidate batch %d", candidate.BatchID)
+	}
+
+	evaluator := rolloutEvidence.NewEvaluator(
+		rolloutEvidence.Config{BatchSize: 2},
+		restartedStore,
+		nil,
+	)
+	for range 3 {
+		evaluator.RunOnce(t.Context())
+	}
+	for batchID := range validBatchIDs {
+		var evaluatedAt sql.NullTime
+		require.NoError(t, db.QueryRowContext(t.Context(), `
+			SELECT evaluated_at
+			FROM firmware_rollout_batch
+			WHERE id = $1
+		`, batchID).Scan(&evaluatedAt))
+		assert.True(t, evaluatedAt.Valid, "candidate batch %d was starved", batchID)
 	}
 }
 

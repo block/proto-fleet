@@ -12,10 +12,11 @@ import {
   isFirmwareConvergenceReady,
 } from "@/protoFleet/features/rollout/betweenChannel/betweenChannelUtils";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
-import type { RolloutLane, RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
+import type { RolloutHashratePolicy, RolloutLane, RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
 import { Alert, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
+import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
@@ -26,6 +27,7 @@ export interface StartRolloutLaneValues {
   firmwareFileIds: string[];
   batches: CreateRolloutBatchInput[];
   reason: string;
+  hashratePolicy?: RolloutHashratePolicy;
 }
 
 interface StartRolloutLaneModalProps {
@@ -76,6 +78,31 @@ function defaultConfig(memberCount: number): RolloutPlanConfig {
   };
 }
 
+function maxDropBasisPoints(value: string): number | null {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const wholePercent = Number(match[1]);
+  const fractionalPercent = match[2] ?? "0";
+  if (!/^\d0*$/.test(fractionalPercent)) {
+    return null;
+  }
+  const tenthPercent = Number(fractionalPercent[0]);
+  if (wholePercent > 100 || (wholePercent === 100 && tenthPercent > 0)) {
+    return null;
+  }
+  return wholePercent * 100 + tenthPercent * 10;
+}
+
+function healthyDurationSeconds(value: string): number | null {
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+  const seconds = Number(value);
+  return seconds >= 10 && seconds <= 1_800 && seconds % 10 === 0 ? seconds : null;
+}
+
 export default function StartRolloutLaneModal({
   open,
   lane,
@@ -91,6 +118,9 @@ export default function StartRolloutLaneModal({
     defaultTargetFiles(lane, files),
   );
   const [config, setConfig] = useState(() => defaultConfig(lane.memberCount));
+  const [hashratePolicyEnabled, setHashratePolicyEnabled] = useState(false);
+  const [maxDropPercent, setMaxDropPercent] = useState("0.1");
+  const [healthyDuration, setHealthyDuration] = useState("30");
   const compatibility = useMemo(
     () => evaluateTargetCompatibility(lane.currentReleaseTargets, files, selectedFileByModel),
     [files, lane.currentReleaseTargets, selectedFileByModel],
@@ -112,26 +142,46 @@ export default function StartRolloutLaneModal({
     batches.length > 0 &&
     batches.every((batch) => batch.members.length > 0) &&
     batches.reduce((count, batch) => count + batch.members.length, 0) === lane.memberCount;
+  const showHashratePolicy = batches.length > 1;
+  const parsedMaxDropBasisPoints = maxDropBasisPoints(maxDropPercent);
+  const parsedHealthyDurationSeconds = healthyDurationSeconds(healthyDuration);
+  const hasValidHashratePolicy =
+    !showHashratePolicy ||
+    !hashratePolicyEnabled ||
+    (parsedMaxDropBasisPoints !== null && parsedHealthyDurationSeconds !== null);
   const canStart =
     name.trim().length > 0 &&
     reason.trim().length > 0 &&
     isFirmwareConvergenceReady(lane) &&
     hasFreshMembership &&
     compatibilityReady &&
-    hasValidBatchPlan;
+    hasValidBatchPlan &&
+    hasValidHashratePolicy;
   const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [
     {
       text: isSubmitting ? "Starting..." : "Start rollout",
       variant: variants.primary,
       disabled: !canStart || isSubmitting,
-      onClick: () =>
+      onClick: () => {
+        const hashratePolicy =
+          showHashratePolicy &&
+          hashratePolicyEnabled &&
+          parsedMaxDropBasisPoints !== null &&
+          parsedHealthyDurationSeconds !== null
+            ? {
+                maxDropBasisPoints: parsedMaxDropBasisPoints,
+                healthyDurationSeconds: parsedHealthyDurationSeconds,
+              }
+            : undefined;
         onStart({
           laneId: lane.id,
           name: name.trim(),
           firmwareFileIds: targetFileIds,
           batches,
           reason: reason.trim(),
-        }),
+          ...(hashratePolicy ? { hashratePolicy } : {}),
+        });
+      },
     },
   ];
   const preview = (
@@ -266,8 +316,56 @@ export default function StartRolloutLaneModal({
             allowAutomaticReview={false}
             showMaxConcurrentOffline={false}
           />
+          {showHashratePolicy ? (
+            <section className="grid gap-3">
+              <label
+                className={`flex items-center gap-3 text-left ${
+                  isSubmitting ? "cursor-not-allowed" : "cursor-pointer"
+                }`}
+              >
+                <Checkbox
+                  checked={hashratePolicyEnabled}
+                  disabled={isSubmitting}
+                  onChange={(event) => setHashratePolicyEnabled(event.currentTarget.checked)}
+                />
+                <span className="text-300 text-text-primary">Auto-continue healthy batches</span>
+              </label>
+              {hashratePolicyEnabled ? (
+                <div className="grid gap-3" data-testid="hashrate-policy-fields">
+                  <Input
+                    id="rollout-hashrate-max-drop"
+                    label="Maximum hashrate drop"
+                    type="number"
+                    inputMode="decimal"
+                    units="%"
+                    initValue={maxDropPercent}
+                    error={parsedMaxDropBasisPoints === null ? "Enter 0 to 100% in 0.1% increments." : false}
+                    disabled={isSubmitting}
+                    onChange={setMaxDropPercent}
+                  />
+                  <Input
+                    id="rollout-hashrate-healthy-duration"
+                    label="Healthy duration"
+                    type="number"
+                    inputMode="numeric"
+                    units="sec"
+                    initValue={healthyDuration}
+                    error={
+                      parsedHealthyDurationSeconds === null
+                        ? "Enter 10 to 1,800 seconds in 10-second increments."
+                        : false
+                    }
+                    disabled={isSubmitting}
+                    onChange={setHealthyDuration}
+                  />
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           <div className="text-200 text-text-primary-70">
-            Every batch stops at the manual review gate before the next batch is admitted.
+            {hashratePolicyEnabled && showHashratePolicy
+              ? "Healthy batches continue automatically after the configured evidence window."
+              : "Every batch stops at the manual review gate before the next batch is admitted."}
           </div>
         </div>
       }

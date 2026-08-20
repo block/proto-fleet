@@ -119,8 +119,7 @@ SELECT batch.id AS batch_id,
        batch.evidence_error_message,
        auto_control.status AS auto_control_status,
        auto_control.expected_revision AS auto_control_expected_revision,
-       auto_control.resulting_revision AS auto_control_resulting_revision,
-       auto_control.error_message AS auto_control_error_message
+       auto_control.resulting_revision AS auto_control_resulting_revision
 FROM firmware_rollout_batch batch
 JOIN firmware_rollout rollout
   ON rollout.id = batch.rollout_id
@@ -134,7 +133,7 @@ LEFT JOIN firmware_rollout_control auto_control
 WHERE batch.state = 'completed'
   AND batch.completed_at IS NOT NULL
   AND NOT batch.post_window_finalized
-  AND batch.evidence_status NOT IN ('finalized', 'automation_error')
+  AND batch.evidence_status <> 'finalized'
   AND rollout.state IN (
       'running',
       'paused',
@@ -142,10 +141,10 @@ WHERE batch.state = 'completed'
       'completed',
       'completed_with_failures'
   )
-ORDER BY batch.completed_at, batch.id
+ORDER BY batch.evaluated_at ASC NULLS FIRST, batch.completed_at, batch.id
 LIMIT sqlc.arg('limit_count');
 
--- name: CaptureFirmwareRolloutBatchPostEvidence :many
+-- name: CaptureFirmwareRolloutBatchPostEvidence :execrows
 INSERT INTO firmware_rollout_evidence (
     rollout_id,
     member_id,
@@ -218,15 +217,13 @@ SET window_start = EXCLUDED.window_start,
     avg_power_w = EXCLUDED.avg_power_w,
     avg_temperature_c = EXCLUDED.avg_temperature_c,
     error_count = EXCLUDED.error_count,
-    sample_count = EXCLUDED.sample_count
-RETURNING *;
+    sample_count = EXCLUDED.sample_count;
 
 -- name: ListFirmwareRolloutBatchHashrateEvidence :many
 SELECT member.id AS member_id,
        baseline.avg_hashrate_hs AS baseline_hashrate_hs,
        post.avg_hashrate_hs AS post_hashrate_hs,
-       post.observed_at AS post_observed_at,
-       post.sample_count AS post_sample_count
+       post.observed_at AS post_observed_at
 FROM firmware_rollout_member member
 LEFT JOIN firmware_rollout_evidence baseline
   ON baseline.member_id = member.id
@@ -265,7 +262,10 @@ member_buckets AS (
     FROM frozen_members frozen
     JOIN device_metrics metrics
       ON metrics.device_identifier = frozen.device_identifier
-     AND metrics.time >= sqlc.arg('window_start')
+     AND metrics.time >= GREATEST(
+         sqlc.arg('window_start')::timestamptz,
+         sqlc.arg('bucket_after')::timestamptz
+     )
      AND metrics.time < sqlc.arg('bucket_cutoff')
      AND metrics.hash_rate_hs IS NOT NULL
     GROUP BY frozen.member_id, bucket_index
@@ -310,7 +310,7 @@ SET evidence_status = CASE
     ),
     healthy_since = CASE
         WHEN sqlc.arg('evidence_status')::text = 'stale' THEN NULL
-        ELSE sqlc.narg('healthy_since')
+        ELSE sqlc.narg('healthy_since')::timestamptz
     END,
     last_policy_bucket_boundary = COALESCE(
         sqlc.narg('last_policy_bucket_boundary'),
@@ -324,7 +324,10 @@ WHERE id = sqlc.arg('batch_id')
   AND rollout_id = sqlc.arg('rollout_id')
   AND org_id = sqlc.arg('org_id')
   AND NOT post_window_finalized
-  AND evidence_status <> 'automation_error';
+  AND evaluated_at IS NOT DISTINCT FROM
+      sqlc.narg('expected_evaluated_at')::timestamptz
+  AND last_policy_bucket_boundary IS NOT DISTINCT FROM
+      sqlc.narg('expected_last_policy_bucket_boundary')::timestamptz;
 
 -- name: MarkFirmwareRolloutBatchAutomationError :execrows
 UPDATE firmware_rollout_batch

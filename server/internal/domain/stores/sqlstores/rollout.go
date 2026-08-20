@@ -771,12 +771,16 @@ func (s *SQLRolloutStore) FinishControl(
 		if getErr != nil {
 			return nil, getErr
 		}
+		shouldRestoreReview := control.Status == string(rollout.ControlStatusStarted) &&
+			!req.Success &&
+			(control.Operation == string(rollout.ControlOperationAdmit) ||
+				control.Operation == string(rollout.ControlOperationContinue))
 		if control.Status == string(rollout.ControlStatusStarted) {
 			status := rollout.ControlStatusSucceeded
 			if !req.Success {
 				status = rollout.ControlStatusFailed
 			}
-			control, getErr = q.FinishFirmwareRolloutControl(
+			_, getErr = q.FinishFirmwareRolloutControl(
 				ctx,
 				sqlc.FinishFirmwareRolloutControlParams{
 					Status:       string(status),
@@ -790,9 +794,7 @@ func (s *SQLRolloutStore) FinishControl(
 				return nil, getErr
 			}
 		}
-		if !req.Success &&
-			(control.Operation == string(rollout.ControlOperationAdmit) ||
-				control.Operation == string(rollout.ControlOperationContinue)) {
+		if shouldRestoreReview {
 			if _, moveErr := q.MoveFirmwareRolloutToReviewAfterControlFailure(
 				ctx,
 				sqlc.MoveFirmwareRolloutToReviewAfterControlFailureParams{

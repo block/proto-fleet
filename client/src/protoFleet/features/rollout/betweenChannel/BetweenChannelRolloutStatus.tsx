@@ -11,6 +11,7 @@ import type {
   RolloutEvidenceStatus,
   RolloutRecord,
 } from "@/protoFleet/features/rollout/rolloutTypes";
+import { useHeldRolloutOverride } from "@/protoFleet/features/rollout/useHeldRolloutOverride";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
@@ -22,7 +23,7 @@ interface BetweenChannelRolloutStatusProps {
   isMutating?: boolean;
   onPause?: () => void;
   onResume?: () => void;
-  onContinue?: () => void;
+  onContinue?: (reason?: string) => void;
   onAbort?: () => void;
   onRevert?: () => void;
   onCompleteWithFailures?: () => void;
@@ -57,7 +58,7 @@ const evidenceStatusContent: Record<RolloutEvidenceStatus, { label: string; deta
   },
   stale: {
     label: "Evidence stale",
-    detail: "Evidence has not been evaluated in the last 20 seconds. Manual controls remain available.",
+    detail: "Telemetry samples or evaluator updates are older than 20 seconds. Manual controls remain available.",
   },
   automationError: {
     label: "Automation error",
@@ -104,6 +105,7 @@ function formatEvidenceTime(value: string): string {
 function RolloutEvidenceStatusCard({ evidence }: { evidence: RolloutEventEvidence }) {
   const status = displayedEvidenceStatus(evidence);
   const content = evidenceStatusContent[status];
+  const detail = status === "automationError" && evidence.errorMessage ? evidence.errorMessage : content.detail;
   const hasPolicyBucket = evidence.policy && evidence.latestPolicyBucketDeltaBasisPoints !== undefined;
 
   return (
@@ -116,7 +118,7 @@ function RolloutEvidenceStatusCard({ evidence }: { evidence: RolloutEventEvidenc
         <div className="mt-1 text-emphasis-300 text-text-primary" role="status" aria-live="polite" aria-atomic="true">
           {content.label}
         </div>
-        <div className="mt-1 text-200 text-text-primary-70">{content.detail}</div>
+        <div className="mt-1 text-200 text-text-primary-70">{detail}</div>
       </div>
       <div className="min-w-0">
         <div className="text-200 text-text-primary-50">Coverage</div>
@@ -166,6 +168,7 @@ export default function BetweenChannelRolloutStatus({
 }: BetweenChannelRolloutStatusProps) {
   const [confirmation, setConfirmation] = useState<"abort" | "revert" | null>(null);
   const event = useMemo(() => mapRolloutToEvent(rollout, { laneLabel }), [laneLabel, rollout]);
+  const heldOverride = useHeldRolloutOverride(event.evidence, onContinue);
   const confirmedCount = rollout.members.filter((member) => member.state === "succeeded").length;
   const sourceRemaining = Math.max(rollout.members.length - confirmedCount, 0);
 
@@ -178,7 +181,7 @@ export default function BetweenChannelRolloutStatus({
           canControl={Boolean(canControl && !isMutating)}
           onPause={onPause}
           onResume={onResume}
-          onContinueFromReview={onContinue}
+          onContinueFromReview={heldOverride.onContinue}
           onAbort={onAbort ? () => setConfirmation("abort") : undefined}
           onRevert={onRevert && canRevertRollout(rollout) ? () => setConfirmation("revert") : undefined}
           onCompleteWithFailures={canCompleteWithFailures(rollout) ? onCompleteWithFailures : undefined}
@@ -251,6 +254,7 @@ export default function BetweenChannelRolloutStatus({
           ]}
         />
       ) : null}
+      {heldOverride.confirmationDialog}
     </>
   );
 }

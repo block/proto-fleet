@@ -36,7 +36,8 @@ export type RolloutLifecycleState =
 
 /**
  * Fixture-only states retained by the existing Storybook framework. Production
- * adapters use RolloutLifecycleState and do not add scheduling or automation.
+ * adapters use RolloutLifecycleState; production policy verdicts are modeled
+ * separately by RolloutBatchEvidenceSummary.
  */
 export type RolloutFixtureState =
   "scheduled" | "inProgress" | "stabilizingTelemetry" | "pausedAtPilotGate" | "pausedAtBatchReview";
@@ -116,6 +117,7 @@ export interface RolloutBatchEvidenceSummary {
   evaluatedAt?: string;
   postWindowFinalized: boolean;
   postWindowFinalizedAt?: string;
+  errorMessage?: string;
 }
 
 export interface RolloutEvidence {
@@ -352,8 +354,9 @@ export interface RolloutRecord {
 }
 
 /**
- * Config captured by the existing Storybook framework. Scheduling and
- * threshold automation remain fixture-only until production hardening.
+ * Config captured by the existing Storybook framework. Its scheduling and
+ * four-metric thresholds remain fixture vocabulary. Production hashrate
+ * automation uses RolloutHashratePolicy and server-derived batch evidence.
  */
 export interface RolloutPlanConfig {
   processType: RolloutProcessType;

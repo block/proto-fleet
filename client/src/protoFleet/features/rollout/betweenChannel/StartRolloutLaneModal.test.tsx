@@ -173,8 +173,21 @@ describe("StartRolloutLaneModal", () => {
     );
 
     expect(screen.getByRole("checkbox", { name: "Auto-continue healthy batches" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Method" }));
+    const method = screen.getByRole("button", { name: "Method" });
+    const triggerRect = vi.spyOn(method.parentElement!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 100,
+      width: 320,
+      height: 56,
+      top: 100,
+      left: 0,
+      bottom: 156,
+      right: 320,
+      toJSON: () => ({}),
+    } as DOMRect);
+    await user.click(method);
     await user.click(screen.getByRole("option", { name: "Multiple batches" }));
+    triggerRect.mockRestore();
     expect(screen.getByRole("checkbox", { name: "Auto-continue healthy batches" })).toBeInTheDocument();
   });
 

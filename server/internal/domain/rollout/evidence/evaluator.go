@@ -34,17 +34,14 @@ type RolloutController interface {
 func NewEvaluator(
 	cfg Config,
 	store Store,
-	controllers ...RolloutController,
+	controller RolloutController,
 ) *Evaluator {
-	evaluator := &Evaluator{
-		cfg:   cfg.withDefaults(),
-		store: store,
-		now:   time.Now,
+	return &Evaluator{
+		cfg:        cfg.withDefaults(),
+		store:      store,
+		controller: controller,
+		now:        time.Now,
 	}
-	if len(controllers) > 0 {
-		evaluator.controller = controllers[0]
-	}
-	return evaluator
 }
 
 func (e *Evaluator) Start(ctx context.Context) error {
@@ -165,11 +162,14 @@ func (e *Evaluator) evaluateCandidate(ctx context.Context, candidate Candidate) 
 		case rollout.ControlStatusSucceeded:
 			// Evidence continues refreshing, but this batch can never advance again.
 		case rollout.ControlStatusFailed:
-			message := "automatic rollout continue previously failed"
-			if candidate.AutoControlErrorMessage != nil {
-				message = *candidate.AutoControlErrorMessage
+			if candidate.Status != rollout.EvidenceStatusAutomationError {
+				return e.persistAutomationError(
+					ctx,
+					candidate,
+					now,
+					automaticContinueFailedMessage,
+				)
 			}
-			return e.persistAutomationError(ctx, candidate, now, message)
 		case rollout.ControlStatusStarted:
 			if candidate.RolloutState == rollout.StateRunning &&
 				candidate.AutoControlExpectedRevision != nil &&
@@ -195,10 +195,15 @@ func (e *Evaluator) evaluateCandidate(ctx context.Context, candidate Candidate) 
 		return fmt.Errorf("refresh post evidence: %w", err)
 	}
 	summary := buildSummary(candidate, snapshot, now)
-	if err := e.store.UpdateSummary(ctx, summary); err != nil {
+	updated, err := e.store.UpdateSummary(ctx, summary)
+	if err != nil {
 		return fmt.Errorf("update batch evidence summary: %w", err)
 	}
+	if !updated {
+		return nil
+	}
 	if summary.Status == rollout.EvidenceStatusHealthy &&
+		candidate.Status != rollout.EvidenceStatusAutomationError &&
 		candidate.AutoControlStatus == nil &&
 		candidate.RolloutState == rollout.StateReview &&
 		candidate.IsCurrentReviewBatch &&
@@ -229,9 +234,12 @@ func (e *Evaluator) continueCandidate(
 	if err == nil || errors.Is(err, rollout.ErrRevisionConflict) {
 		return nil
 	}
-	if persistErr := e.persistAutomationError(ctx, candidate, now, err.Error()); persistErr != nil {
-		return errors.Join(fmt.Errorf("automatic rollout continue: %w", err), persistErr)
-	}
+	slog.Error(
+		"automatic rollout continue returned an ambiguous error; awaiting control reconciliation",
+		"rollout_id", candidate.RolloutID,
+		"batch_id", candidate.BatchID,
+		"error", err,
+	)
 	return nil
 }
 
@@ -254,7 +262,10 @@ func (e *Evaluator) persistAutomationError(
 	return nil
 }
 
-const autoContinueReason = "Hashrate evidence policy healthy duration satisfied"
+const (
+	autoContinueReason             = "Hashrate evidence policy healthy duration satisfied"
+	automaticContinueFailedMessage = "Automatic rollout continue failed; use manual controls to proceed."
+)
 
 func autoContinueIdempotencyKey(batchID int64) string {
 	return fmt.Sprintf("rollout-evidence-auto-continue-batch-%d", batchID)
@@ -271,6 +282,8 @@ func buildSummary(candidate Candidate, snapshot Snapshot, now time.Time) Summary
 		LatestPolicyBucketDeltaBasisPoints: candidate.LatestPolicyBucketDeltaBasisPoints,
 		HealthySince:                       candidate.HealthySince,
 		LastPolicyBucketBoundary:           candidate.LastPolicyBucketBoundary,
+		ExpectedEvaluatedAt:                candidate.EvaluatedAt,
+		ExpectedLastPolicyBucketBoundary:   candidate.LastPolicyBucketBoundary,
 		EvaluatedAt:                        now,
 		ErrorMessage:                       candidate.ErrorMessage,
 	}
@@ -281,24 +294,26 @@ func buildSummary(candidate Candidate, snapshot Snapshot, now time.Time) Summary
 	postMissing := len(snapshot.Members) == 0
 	stale := false
 	for _, member := range snapshot.Members {
-		if member.BaselineHashrateHS == nil || *member.BaselineHashrateHS <= 0 {
+		if member.BaselineHashrateHS == nil ||
+			!isFiniteNonNegative(*member.BaselineHashrateHS) ||
+			*member.BaselineHashrateHS == 0 {
 			baselineUnavailable = true
 			continue
 		}
 		baselineByMember[member.MemberID] = *member.BaselineHashrateHS
-		if member.PostHashrateHS == nil {
+		if member.PostHashrateHS == nil || !isFiniteNonNegative(*member.PostHashrateHS) {
 			postMissing = true
 			if now.Sub(candidate.CompletedAt) > staleAfter {
 				stale = true
 			}
 			continue
 		}
+		if !isFreshObservation(member.PostObservedAt, now) {
+			stale = true
+		}
 		summary.PairedCount++
 		baselineSum += *member.BaselineHashrateHS
 		currentSum += *member.PostHashrateHS
-		if member.PostObservedAt == nil || now.Sub(*member.PostObservedAt) > staleAfter {
-			stale = true
-		}
 	}
 
 	if summary.PairedCount > 0 {
@@ -323,24 +338,47 @@ func buildSummary(candidate Candidate, snapshot Snapshot, now time.Time) Summary
 		summary.Status = rollout.EvidenceStatusUnavailable
 	case postMissing && windowClosed:
 		summary.Status = rollout.EvidenceStatusUnavailable
-	case windowClosed &&
-		(candidate.Status == rollout.EvidenceStatusHealthy ||
-			candidate.Status == rollout.EvidenceStatusHeld):
-		summary.Status = candidate.Status
-	case windowClosed:
-		summary.Status = rollout.EvidenceStatusFinalized
-	case stale:
+	case postMissing && stale:
 		summary.Status = rollout.EvidenceStatusStale
 		summary.HealthySince = nil
 	case postMissing:
 		summary.Status = rollout.EvidenceStatusCollecting
 	case candidate.PolicyEnabled:
 		applyPolicyBuckets(&summary, candidate, snapshot, now, baselineByMember)
+		if stale {
+			summary.Status = rollout.EvidenceStatusStale
+			summary.HealthySince = nil
+		}
+	case stale:
+		summary.Status = rollout.EvidenceStatusStale
+		summary.HealthySince = nil
 	case candidate.Status == rollout.EvidenceStatusHealthy ||
 		candidate.Status == rollout.EvidenceStatusHeld:
 		summary.Status = candidate.Status
 	default:
 		summary.Status = rollout.EvidenceStatusObserving
+	}
+
+	if windowClosed {
+		if candidate.PolicyEnabled &&
+			len(snapshot.PolicyBuckets) == 0 &&
+			(candidate.Status == rollout.EvidenceStatusHealthy ||
+				candidate.Status == rollout.EvidenceStatusHeld) {
+			summary.Status = candidate.Status
+		}
+		switch summary.Status {
+		case rollout.EvidenceStatusAutomationError,
+			rollout.EvidenceStatusUnavailable,
+			rollout.EvidenceStatusHealthy,
+			rollout.EvidenceStatusHeld:
+		case rollout.EvidenceStatusPending,
+			rollout.EvidenceStatusCollecting,
+			rollout.EvidenceStatusObserving,
+			rollout.EvidenceStatusStale,
+			rollout.EvidenceStatusFinalized:
+			summary.Status = rollout.EvidenceStatusFinalized
+			summary.HealthySince = nil
+		}
 	}
 
 	return summary
@@ -364,6 +402,28 @@ func applyPolicyBuckets(
 	if candidate.Status == rollout.EvidenceStatusHealthy ||
 		candidate.Status == rollout.EvidenceStatusHeld {
 		status = candidate.Status
+	}
+	if candidate.Status == rollout.EvidenceStatusStale {
+		status = rollout.EvidenceStatusStale
+	}
+
+	evaluatorWasStale := candidate.EvaluatedAt != nil &&
+		now.Sub(*candidate.EvaluatedAt) > staleAfter
+	if evaluatorWasStale {
+		status = rollout.EvidenceStatusStale
+		for index := len(buckets) - 1; index >= 0; index-- {
+			boundary := buckets[index].Boundary
+			if boundary.After(now) ||
+				(candidate.LastPolicyBucketBoundary != nil &&
+					!boundary.After(*candidate.LastPolicyBucketBoundary)) {
+				continue
+			}
+			summary.LastPolicyBucketBoundary = &boundary
+			break
+		}
+		summary.HealthySince = nil
+		summary.Status = status
+		return
 	}
 
 	candidateBucketStale := candidate.LastPolicyBucketBoundary != nil &&
@@ -393,26 +453,27 @@ func applyPolicyBuckets(
 			status = rollout.EvidenceStatusStale
 			continue
 		}
+		summary.LastPolicyBucketBoundary = &bucket.Boundary
+		previousBoundaryBeforeBucket := previousBoundary
+		previousBoundary = &bucket.Boundary
 		delta, currentAverage, ok := policyBucketDelta(
 			*bucket,
 			summary.TotalCount,
 			baselineByMember,
+			now,
 		)
 		if !ok {
 			healthySince = nil
 			status = rollout.EvidenceStatusStale
 			continue
 		}
-		if previousBoundary != nil &&
-			bucket.Boundary.Sub(*previousBoundary) != policyBucketDuration {
+		if previousBoundaryBeforeBucket != nil &&
+			bucket.Boundary.Sub(*previousBoundaryBeforeBucket) != PolicyBucketDuration {
 			healthySince = nil
 		}
 
 		summary.LatestPolicyBucketHashrateHS = &currentAverage
 		summary.LatestPolicyBucketDeltaBasisPoints = &delta
-		summary.LastPolicyBucketBoundary = &bucket.Boundary
-		summary.NewPolicyBucket = true
-		previousBoundary = &bucket.Boundary
 
 		if delta < -candidate.MaxDropBasisPoints {
 			healthySince = nil
@@ -420,7 +481,7 @@ func applyPolicyBuckets(
 			continue
 		}
 		if healthySince == nil {
-			start := bucket.Boundary.Add(-policyBucketDuration)
+			start := bucket.Boundary.Add(-PolicyBucketDuration)
 			healthySince = &start
 		}
 		status = rollout.EvidenceStatusObserving
@@ -449,12 +510,11 @@ func applyPolicyBuckets(
 	summary.Status = status
 }
 
-const policyBucketDuration = 10 * time.Second
-
 func policyBucketDelta(
 	bucket PolicyBucket,
 	totalCount int64,
 	baselineByMember map[int64]float64,
+	now time.Time,
 ) (int32, float64, bool) {
 	if len(bucket.Members) != int(totalCount) || totalCount == 0 {
 		return 0, 0, false
@@ -463,10 +523,14 @@ func policyBucketDelta(
 	var baselineSum, currentSum float64
 	for _, member := range bucket.Members {
 		baseline, ok := baselineByMember[member.MemberID]
-		if !ok {
+		if !ok || !isFiniteNonNegative(baseline) || baseline == 0 {
 			return 0, 0, false
 		}
 		if _, duplicate := seen[member.MemberID]; duplicate {
+			return 0, 0, false
+		}
+		if !isFiniteNonNegative(member.AvgHashrateHS) ||
+			!isFreshTime(member.ObservedAt, now) {
 			return 0, 0, false
 		}
 		seen[member.MemberID] = struct{}{}
@@ -483,11 +547,26 @@ func policyBucketDelta(
 }
 
 func deltaBasisPoints(baseline, current float64) *int32 {
-	if baseline <= 0 {
+	if !isFiniteNonNegative(baseline) || baseline == 0 ||
+		!isFiniteNonNegative(current) {
 		return nil
 	}
 	value := math.Round(((current - baseline) / baseline) * 10_000)
 	value = min(max(value, math.MinInt32), math.MaxInt32)
 	result := int32(value)
 	return &result
+}
+
+func isFiniteNonNegative(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
+}
+
+func isFreshObservation(observedAt *time.Time, now time.Time) bool {
+	return observedAt != nil && isFreshTime(*observedAt, now)
+}
+
+func isFreshTime(observedAt, now time.Time) bool {
+	return !observedAt.IsZero() &&
+		!observedAt.After(now) &&
+		now.Sub(observedAt) <= staleAfter
 }
