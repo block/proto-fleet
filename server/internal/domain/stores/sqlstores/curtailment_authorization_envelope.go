@@ -22,7 +22,7 @@ func buildAuthorizationEnvelopeJSON(
 	scopeJSON []byte,
 	facilityFanSiteIDs []int64,
 	expectedDeviceSites map[string]*int64,
-	requiredTopologyDeviceIdentifiers []string,
+	requiredTargetDeviceIdentifiers []string,
 ) ([]byte, error) {
 	if orgID <= 0 {
 		return nil, fleeterror.NewInternalError("authorization envelope requires an organization")
@@ -58,6 +58,11 @@ func buildAuthorizationEnvelopeJSON(
 			return nil, fleeterror.NewInvalidArgumentError("site scope must contain a positive site_id")
 		}
 		envelope.SelectedResourceSiteIDs = []int64{scope.SiteID}
+		if err := lockSiteScopeTargets(
+			ctx, q, orgID, envelope.SelectedResourceSiteIDs, requiredTargetDeviceIdentifiers,
+		); err != nil {
+			return nil, err
+		}
 	case models.ScopeTypeDeviceList:
 		sites, unbounded, err := lockDeviceScopeCoverage(ctx, q, orgID, scope.DeviceIdentifiers, expectedDeviceSites)
 		if err != nil {
@@ -69,6 +74,11 @@ func buildAuthorizationEnvelopeJSON(
 		switch {
 		case len(scope.SiteIDs) > 0:
 			envelope.SelectedResourceSiteIDs = uniqueSortedInt64s(scope.SiteIDs)
+			if err := lockSiteScopeTargets(
+				ctx, q, orgID, envelope.SelectedResourceSiteIDs, requiredTargetDeviceIdentifiers,
+			); err != nil {
+				return nil, err
+			}
 		case len(scope.BuildingIDs) > 0, len(scope.RackIDs) > 0, len(scope.GroupIDs) > 0:
 			params := interfaces.ListCandidatesParams{
 				OrgID:       orgID,
@@ -80,7 +90,7 @@ func buildAuthorizationEnvelopeJSON(
 				ctx,
 				q,
 				params,
-				requiredTopologyDeviceIdentifiers,
+				requiredTargetDeviceIdentifiers,
 			)
 			if err != nil {
 				return nil, err
@@ -110,6 +120,36 @@ func buildAuthorizationEnvelopeJSON(
 		return nil, fleeterror.NewInternalErrorf("failed to encode curtailment authorization envelope: %v", err)
 	}
 	return encoded, nil
+}
+
+func lockSiteScopeTargets(
+	ctx context.Context,
+	q sqlc.Querier,
+	orgID int64,
+	selectedSiteIDs []int64,
+	requiredDeviceIdentifiers []string,
+) error {
+	identifiers := uniqueSortedStrings(requiredDeviceIdentifiers)
+	if len(identifiers) == 0 {
+		return nil
+	}
+	lockedSites, unbounded, err := lockDeviceScopeCoverage(ctx, q, orgID, identifiers, nil)
+	if err != nil {
+		return err
+	}
+	allowedSites := make(map[int64]struct{}, len(selectedSiteIDs))
+	for _, siteID := range selectedSiteIDs {
+		allowedSites[siteID] = struct{}{}
+	}
+	if unbounded {
+		return fleeterror.NewFailedPreconditionError("curtailment site membership changed before save; retry")
+	}
+	for _, siteID := range lockedSites {
+		if _, allowed := allowedSites[siteID]; !allowed {
+			return fleeterror.NewFailedPreconditionError("curtailment site membership changed before save; retry")
+		}
+	}
+	return nil
 }
 
 func lockTopologyScopeCoverage(

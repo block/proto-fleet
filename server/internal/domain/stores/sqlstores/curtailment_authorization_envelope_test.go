@@ -120,6 +120,64 @@ func TestBuildAuthorizationEnvelopeJSONRejectsTargetThatLeftTopology(t *testing.
 	assert.Contains(t, err.Error(), "topology changed before save")
 }
 
+func TestBuildAuthorizationEnvelopeJSONLocksSiteTargets(t *testing.T) {
+	q := authorizationEnvelopeQuerier{deviceRows: []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow{
+		{DeviceIdentifier: "miner-a", SiteID: sql.NullInt64{Int64: 7, Valid: true}},
+	}}
+
+	raw, err := buildAuthorizationEnvelopeJSON(
+		t.Context(), q, 42, models.ScopeTypeSite,
+		[]byte(`{"site_id":7}`), nil, nil, []string{"miner-a"},
+	)
+	require.NoError(t, err)
+
+	var envelope models.AuthorizationEnvelope
+	require.NoError(t, json.Unmarshal(raw, &envelope))
+	assert.Equal(t, []int64{7}, envelope.SelectedResourceSiteIDs)
+}
+
+func TestBuildAuthorizationEnvelopeJSONRejectsTargetThatLeftSiteScope(t *testing.T) {
+	tests := []struct {
+		name       string
+		deviceRows []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow
+	}{
+		{
+			name: "moved to another site",
+			deviceRows: []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow{
+				{DeviceIdentifier: "miner-a", SiteID: sql.NullInt64{Int64: 8, Valid: true}},
+			},
+		},
+		{name: "became unassigned", deviceRows: []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow{{DeviceIdentifier: "miner-a"}}},
+		{name: "was deleted"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := buildAuthorizationEnvelopeJSON(
+				t.Context(), authorizationEnvelopeQuerier{deviceRows: test.deviceRows}, 42, models.ScopeTypeSite,
+				[]byte(`{"site_id":7}`), nil, nil, []string{"miner-a"},
+			)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "site membership changed")
+		})
+	}
+}
+
+func TestBuildAuthorizationEnvelopeJSONRejectsTargetThatLeftSiteListScope(t *testing.T) {
+	q := authorizationEnvelopeQuerier{deviceRows: []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow{
+		{DeviceIdentifier: "miner-a", SiteID: sql.NullInt64{Int64: 8, Valid: true}},
+	}}
+
+	_, err := buildAuthorizationEnvelopeJSON(
+		t.Context(), q, 42, models.ScopeTypeMixed,
+		[]byte(`{"scope_schema_version":1,"site_ids":[7,9]}`), nil, nil, []string{"miner-a"},
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "site membership changed")
+}
+
 func TestBuildAuthorizationEnvelopeJSONMarksUnassignedMinerScopeUnbounded(t *testing.T) {
 	q := authorizationEnvelopeQuerier{deviceRows: []sqlc.LockCurtailmentResponseProfileDeviceSitesByOrgRow{
 		{DeviceIdentifier: "miner-a", SiteID: sql.NullInt64{Int64: 21, Valid: true}},
