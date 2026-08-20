@@ -14,6 +14,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/google/uuid"
+	"golang.org/x/term"
 
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/ha"
@@ -97,6 +98,12 @@ type resetPasswordCmd struct {
 }
 
 func (c *resetPasswordCmd) Run(ctx context.Context) error {
+	// The wrapper enforces this too, but this binary is directly invocable:
+	// an interactive terminal would block without a prompt and echo the typed
+	// password in cleartext.
+	if c.PasswordStdin && term.IsTerminal(int(os.Stdin.Fd())) {
+		return errors.New("--password-stdin requires piped input; an interactive terminal would echo the password")
+	}
 	return runResetPassword(
 		ctx,
 		c.PasswordStdin,

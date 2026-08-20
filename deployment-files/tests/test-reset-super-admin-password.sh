@@ -179,6 +179,17 @@ else
     echo "ok: generated password is absent from Docker arguments"
 fi
 
+CLOSED_STDOUT_ERR="$TMP_DIR/closed-stdout.err"
+CLOSED_STDOUT_CALL_LOG="$TMP_DIR/closed-stdout.docker-call.log"
+if PATH="$BIN_DIR:$PATH" CALL_LOG="$CLOSED_STDOUT_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+    "$STAGE/reset-super-admin-password.sh" >&- 2>"$CLOSED_STDOUT_ERR" </dev/null; then
+    fail "closed-stdout delivery unexpectedly reported success"
+elif grep -q "already committed" "$CLOSED_STDOUT_ERR"; then
+    echo "ok: names the committed reset when password delivery fails"
+else
+    fail "closed-stdout delivery did not name the committed reset"
+fi
+
 for rejected_arg in --db-explicit-dsn --db-address --username unexpected; do
     REJECTED_ARG_CALL_LOG="$TMP_DIR/rejected-${rejected_arg#--}.docker-call.log"
     assert_fails_before_docker "rejects unsupported argument $rejected_arg before Docker" "$REJECTED_ARG_CALL_LOG" \

@@ -19,6 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -56,6 +57,12 @@ func (cmd *serverCommand) Run() error {
 const resetPasswordTimeout = 60 * time.Second
 
 func (cmd *resetPasswordCommand) Run(ctx context.Context) error {
+	// The host wrappers enforce this too, but the command is directly
+	// invocable (e.g. docker exec -it): an interactive terminal would block
+	// without a prompt and echo the typed password in cleartext.
+	if cmd.PasswordStdin && term.IsTerminal(int(os.Stdin.Fd())) {
+		return errors.New("--password-stdin requires piped input; an interactive terminal would echo the password")
+	}
 	password, err := cmd.password(os.Stdin)
 	if err != nil {
 		return err

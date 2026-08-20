@@ -144,4 +144,9 @@ fi
 if ! printf '%s\n' "$temporary_password" | "${docker_command[@]}"; then
     exit 1
 fi
-printf 'Temporary password: %s\n' "$temporary_password"
+# This write is the credential delivery; the reset above has already
+# committed, so a failure must say so instead of looking like a failed reset.
+if ! printf 'Temporary password: %s\n' "$temporary_password"; then
+    echo "Error: the reset already committed but the temporary password could not be delivered; rerun this command to issue a fresh temporary password." >&2
+    exit 1
+fi
