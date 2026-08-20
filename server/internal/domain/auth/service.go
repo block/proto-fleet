@@ -293,6 +293,9 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	if len(req.Password) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("password is required but not provided")
 	}
+	if err := ValidatePassword(req.Password); err != nil {
+		return nil, fleeterror.NewInvalidArgumentError(err.Error())
+	}
 
 	// generate salted password hash
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -468,6 +471,9 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 			connect.CodeInvalidArgument,
 			int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD),
 		)
+	}
+	if err := ValidatePassword(r.NewPassword); err != nil {
+		return nil, fleeterror.NewInvalidArgumentError(err.Error())
 	}
 
 	user, err := s.userStore.GetUserByID(ctx, info.UserID)
@@ -698,7 +704,7 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	orgID := orgs[0].ID
 
 	// Generate temporary password
-	tempPassword, err := generateTemporaryPassword()
+	tempPassword, err := GenerateTemporaryPassword()
 	if err != nil {
 		return nil, err
 	}
@@ -844,7 +850,7 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	}
 
 	// Generate new temporary password
-	tempPassword, err := generateTemporaryPassword()
+	tempPassword, err := GenerateTemporaryPassword()
 	if err != nil {
 		return nil, err
 	}
@@ -857,7 +863,7 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	// Update password and revoke all sessions atomically.
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
+		if _, err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("error resetting password: %v", err)
 		}
 		if err := s.sessionSvc.RevokeAllSessions(ctx, user.ID); err != nil {

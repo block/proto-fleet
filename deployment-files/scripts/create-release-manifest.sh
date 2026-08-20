@@ -44,6 +44,8 @@ fi
             ! -path './.update-preflight-complete.tmp.*' \
             ! -path './.fleet-startup-complete' \
             ! -path './.fleet-startup-complete.tmp.*' \
+            ! -path './.docker-daemon-id' \
+            ! -path './.docker-daemon-id.tmp.*' \
             ! -path './client/nginx.conf' \
             ! -path './ssl/*' \
             ! -path './server/influx_config/.env' \

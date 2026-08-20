@@ -138,7 +138,7 @@ func prepareApplicationUpdate(ctx context.Context, root string, deps installDepe
 			return fmt.Errorf("release archive did not load required image %s: %s", image, commandError(output, err))
 		}
 	}
-	return nil
+	return recordActiveInstall(ctx, deps)
 }
 
 // StopApplication rechecks the expected role, then stops the HA application containers.

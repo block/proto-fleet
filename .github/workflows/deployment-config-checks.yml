@@ -18,11 +18,15 @@ jobs:
         run: |
           for script in \
             deployment-files/install.sh \
+            deployment-files/reset-super-admin-password.sh \
             deployment-files/run-fleet.sh \
+            deployment-files/scripts/compose-project.sh \
             deployment-files/scripts/create-release-manifest.sh \
+            deployment-files/scripts/docker-daemon.sh \
             deployment-files/uninstall.sh \
             deployment-files/tests/test-install-overlay-migration.sh \
             deployment-files/tests/test-profiles.sh \
+            deployment-files/tests/test-reset-super-admin-password.sh \
             deployment-files/tests/test-run-fleet-upgrade.sh \
             deployment-files/tests/test-uninstall-updater-cleanup.sh; do
             bash -n "$script"
@@ -36,6 +40,9 @@ jobs:
 
       - name: Validate non-interactive upgrade safety
         run: ./deployment-files/tests/test-run-fleet-upgrade.sh
+
+      - name: Validate SUPER_ADMIN password reset wrapper
+        run: ./deployment-files/tests/test-reset-super-admin-password.sh
 
       - name: Validate installer overlay migration
         run: ./deployment-files/tests/test-install-overlay-migration.sh

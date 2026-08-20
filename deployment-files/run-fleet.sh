@@ -21,6 +21,8 @@ COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.y
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
 COMPOSE_UPDATER_FILE="$PROJECT_ROOT/docker-compose.updater.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
+source "$PROJECT_ROOT/scripts/compose-project.sh"
+source "$PROJECT_ROOT/scripts/docker-daemon.sh"
 VERSION_FILE="$PROJECT_ROOT/version.txt"
 RELEASE_MANIFEST_FILE="$PROJECT_ROOT/deployment-manifest.sha256"
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
@@ -463,73 +465,6 @@ env_last_value() {
     compose_env_last_value "$key"
 }
 
-parse_compose_env_value() {
-    local value="$1"
-    local double_quoted='^"([^"\\]*)"[[:space:]]*(#.*)?$'
-    local single_quoted="^'([^']*)'[[:space:]]*(#.*)?$"
-
-    # Fork-free trims: these run per line per key lookup, which adds up on
-    # SD-card-class hardware.
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    case "$value" in
-        \"*)
-            [[ "$value" =~ $double_quoted ]] || return 2
-            value="${BASH_REMATCH[1]}"
-            # Compose expands $ references and decodes backslash escapes in
-            # double-quoted values. Reject those uncommon forms rather than
-            # validating a different secret from the one Compose will use.
-            [[ "$value" != *'$'* && "$value" != *\\* ]] || return 2
-            ;;
-        \'*)
-            [[ "$value" =~ $single_quoted ]] || return 2
-            value="${BASH_REMATCH[1]}"
-            # An escaped quote cannot match the restricted expression above;
-            # other backslashes remain literal under Compose single quotes.
-            ;;
-        *)
-            # Compose treats # as an inline comment only when whitespace
-            # separates it from an unquoted value.
-            value="${value%%[[:space:]]#*}"
-            value="${value%"${value##*[![:space:]]}"}"
-            # Unquoted values undergo Compose interpolation.
-            [[ "$value" != *'$'* ]] || return 2
-            ;;
-    esac
-    printf '%s' "$value"
-}
-
-# Read one key using the literal subset of Compose's documented dotenv
-# delimiters, quoting, and comment rules. Returns 1 when absent and 2 when a
-# runner-consumed value is present but cannot be interpreted without risking
-# divergence from Compose.
-compose_env_last_value() {
-    local key="$1" line normalized parsed found=false
-    local assignment_re="^${key}[[:space:]]*[:=](.*)$"
-    local malformed_re="^${key}([[:space:]]|$)"
-
-    [ -e "$ENV_FILE" ] || return 1
-    [ -f "$ENV_FILE" ] && [ -r "$ENV_FILE" ] || return 2
-    while IFS= read -r line || [ -n "$line" ]; do
-        normalized="${line#"${line%%[![:space:]]*}"}"
-        case "$normalized" in
-            export[[:space:]]*)
-                normalized="${normalized#export}"
-                normalized="${normalized#"${normalized%%[![:space:]]*}"}"
-                ;;
-        esac
-        if [[ "$normalized" =~ $assignment_re ]]; then
-            parsed=$(parse_compose_env_value "${BASH_REMATCH[1]}") || return 2
-            found=true
-        elif [[ "$normalized" =~ $malformed_re ]]; then
-            return 2
-        fi
-    done < "$ENV_FILE"
-
-    [ "$found" = "true" ] || return 1
-    printf '%s' "$parsed"
-}
-
 validate_runner_env_value_syntax() {
     local key status
     for key in "$@"; do
@@ -567,6 +502,20 @@ validate_runner_env_values() {
         return 1
     fi
     validate_runner_env_value_syntax "${keys[@]}"
+}
+
+validate_database_overrides_are_persisted() {
+    local key persisted status
+
+    for key in DB_DSN DB_NAME DB_USERNAME DB_PASSWORD; do
+        [ "${!key+x}" = "x" ] || continue
+        persisted=$(compose_env_last_value "$key")
+        status=$?
+        if [ "$status" -ne 0 ] || [ "${!key}" != "$persisted" ]; then
+            echo "Error: caller $key differs from the persisted deployment configuration; update $ENV_FILE instead of using a transient database override." >&2
+            return 1
+        fi
+    done
 }
 
 env_has_nonempty_value() {
@@ -623,42 +572,6 @@ dotenv_boolean_is_true() {
             exit 1
             ;;
     esac
-}
-
-resolve_compose_project_name() {
-    local project_name persisted_status
-
-    if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
-        project_name="$COMPOSE_PROJECT_NAME"
-    else
-        project_name=$(compose_env_last_value COMPOSE_PROJECT_NAME)
-        persisted_status=$?
-        case "$persisted_status" in
-            0)
-                if [ -z "$project_name" ]; then
-                    project_name=$(basename "$PROJECT_ROOT")
-                fi
-                ;;
-            1)
-                # Preserve Compose's historical per-directory project identity
-                # when neither the process nor deployment .env selects one.
-                project_name=$(basename "$PROJECT_ROOT")
-                ;;
-            *)
-                echo "Error: COMPOSE_PROJECT_NAME in $ENV_FILE uses unsupported or malformed Compose dotenv syntax." >&2
-                return 1
-                ;;
-        esac
-    fi
-
-    # The same value is also used to select volumes below, so reject names
-    # outside Compose's documented grammar before any destructive operation.
-    if [[ ! "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
-        echo "Error: COMPOSE_PROJECT_NAME must start with a lowercase letter or digit and contain only lowercase letters, digits, hyphens, and underscores." >&2
-        return 1
-    fi
-
-    printf '%s' "$project_name"
 }
 
 resolve_release_image_tag() {
@@ -810,6 +723,7 @@ if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
 fi
 
 validate_runner_env_values || exit 1
+validate_database_overrides_are_persisted || exit 1
 if [[ ! "$FLEET_API_READY_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
     echo "Error: FLEET_API_READY_ATTEMPTS must be a positive integer." >&2
     exit 1
@@ -1181,6 +1095,8 @@ find_release_entries() {
         ! -path './.update-preflight-complete.tmp.*' \
         ! -path './.fleet-startup-complete' \
         ! -path './.fleet-startup-complete.tmp.*' \
+        ! -path './.docker-daemon-id' \
+        ! -path './.docker-daemon-id.tmp.*' \
         ! -path './client/nginx.conf' \
         ! -path './ssl/*' \
         ! -path './server/influx_config/.env' \
@@ -1921,6 +1837,10 @@ else
     echo "Docker daemon is already running."
 fi
 
+if ! verify_persisted_docker_daemon; then
+    exit 1
+fi
+
 # ----------------------------------------------------------------------------
 # WSL Networking Fix
 # ----------------------------------------------------------------------------
@@ -2308,12 +2228,12 @@ if [ "$use_existing" == "no" ]; then
     echo "Environment variables saved to $ENV_FILE"
 fi
 
-# Persist every deployment overlay as explicit state. Historically, flags were
-# process-only, so the next upgrade could silently disable alerts, monitoring,
-# or tracing. Replace the three values as one transaction so a failure cannot
-# leave partially updated state. Last value wins, matching Compose's .env
-# behavior.
+# Persist the resolved Compose project and every deployment overlay as explicit
+# state. Later upgrades and recovery commands must target the same resources,
+# including when the project name originally came from the process environment.
+# Replace all values as one transaction so partial state cannot be written.
 if ! atomic_set_env_values \
+    COMPOSE_PROJECT_NAME "$FLEET_COMPOSE_PROJECT_NAME" \
     ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS" \
     ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING" \
     ENABLE_TRACING "$ENABLE_TRACING" \
@@ -2323,6 +2243,11 @@ if ! atomic_set_env_values \
 fi
 if [ "$ONE_CLICK_UPDATES_WAS_CONFIGURED" != "$ENABLE_ONE_CLICK_UPDATES" ]; then
     DIRECT_UPDATER_ENV_ROLLBACK_PENDING=true
+fi
+
+if ! persist_current_docker_daemon; then
+    echo "Error: could not persist the Docker daemon identity; aborting before Compose validation or service changes." >&2
+    exit 1
 fi
 
 # ----------------------------------------------------------------------------
