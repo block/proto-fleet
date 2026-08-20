@@ -346,7 +346,7 @@ jobs:
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
-          codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}","-c","service_tier=fast"]'
+          codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}"]'
           safety-strategy: drop-sudo
           sandbox: read-only
           prompt: |
