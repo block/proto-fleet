@@ -93,10 +93,10 @@ func TestBreakGlassResetIntegration(t *testing.T) {
 	}))
 	service := newBreakGlassService(db, activity.NewService(sqlstores.NewSQLActivityStore(db)))
 
-	result, err := service.ResetSuperAdminPassword(ctx, "new-break-glass-password")
+	username, err := service.ResetSuperAdminPassword(ctx, "new-break-glass-password")
 
 	require.NoError(t, err)
-	require.Equal(t, admin.Username, result.Username)
+	require.Equal(t, admin.Username, username)
 	var passwordHash string
 	var requiresChange bool
 	var passwordUpdatedAt sql.NullTime
@@ -235,6 +235,57 @@ func TestBreakGlassResetRejectsInvalidDatabaseCardinality(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM activity_log WHERE event_type = 'cli_reset_password'`).Scan(&eventCount))
 	require.Zero(t, eventCount)
+}
+
+func TestBreakGlassResetRejectsSoftDeletedOrganizationMembership(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	db := testutil.GetTestDB(t)
+	admin := seedSuperAdmin(t, db, "membership")
+	ctx := t.Context()
+	_, err := db.ExecContext(ctx,
+		`UPDATE user_organization SET deleted_at = NOW() WHERE user_id = $1 AND organization_id = $2`,
+		admin.ID, admin.OrganizationID)
+	require.NoError(t, err)
+	service := newBreakGlassService(db, activity.NewService(sqlstores.NewSQLActivityStore(db)))
+
+	_, err = service.ResetSuperAdminPassword(ctx, "unused-password")
+
+	// Role resolution at sign-in requires a live membership, so resetting this
+	// account would hand the operator a credential that still cannot log in.
+	require.ErrorContains(t, err, "no live org-scope SUPER_ADMIN")
+	var passwordHash string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT password_hash FROM "user" WHERE id = $1`, admin.ID).Scan(&passwordHash))
+	require.Equal(t, admin.PasswordHash, passwordHash)
+}
+
+func TestBreakGlassResetHonorsContextDeadlineWhileLockHeld(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	db := testutil.GetTestDB(t)
+	admin := seedSuperAdmin(t, db, "blocked")
+	ctx := t.Context()
+	blockingTx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = blockingTx.Rollback() }()
+	_, err = blockingTx.ExecContext(ctx, `SELECT id FROM "user" WHERE id = $1 FOR UPDATE`, admin.ID)
+	require.NoError(t, err)
+	service := newBreakGlassService(db, activity.NewService(sqlstores.NewSQLActivityStore(db)))
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+	_, err = service.ResetSuperAdminPassword(timeoutCtx, "blocked-reset-password")
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NoError(t, blockingTx.Rollback())
+	var passwordHash string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT password_hash FROM "user" WHERE id = $1`, admin.ID).Scan(&passwordHash))
+	require.Equal(t, admin.PasswordHash, passwordHash)
 }
 
 func TestBreakGlassConcurrentResetsSerialize(t *testing.T) {

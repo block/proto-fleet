@@ -9,6 +9,7 @@ import (
 	"net/http"
 	_ "net/http/pprof" // #nosec G108 -- pprof endpoint intentionally exposed for debugging
 	"os"
+	"strings"
 	"time"
 	_ "time/tzdata"
 
@@ -152,16 +153,11 @@ func main() {
 	kctx, err := parser.Parse(normalizeFleetdArgs(os.Args[1:]))
 	parser.FatalIfErrorf(err)
 
-	logConfig := cli.Server.Log
-	if kctx.Command() != "server" {
-		logConfig = logging.Config{Level: slog.LevelInfo, BufferSize: 1000}
-	}
-	logging.InitLogger(logConfig)
+	// Kong applies flag defaults tree-wide, so for non-server commands
+	// cli.Server.Log carries the compiled defaults (info level, 1000 buffer).
+	logging.InitLogger(cli.Server.Log)
 
-	if err := kctx.Run(&commandRuntime{
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-	}); err != nil {
+	if err := kctx.Run(); err != nil {
 		slog.Error(fmt.Sprintf("%+v", err))
 		os.Exit(1)
 	}
@@ -170,8 +166,13 @@ func main() {
 // normalizeFleetdArgs preserves the pre-command CLI contract. Kong's default
 // subcommand handles an empty invocation, but flags must be routed explicitly.
 func normalizeFleetdArgs(args []string) []string {
-	if len(args) == 0 || args[0] == "server" || args[0] == "admin" {
+	if len(args) == 0 {
 		return args
+	}
+	for _, path := range fleetdCommandPaths {
+		if args[0] == strings.Fields(path)[0] {
+			return args
+		}
 	}
 	return append([]string{"server"}, args...)
 }

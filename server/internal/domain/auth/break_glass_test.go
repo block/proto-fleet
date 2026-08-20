@@ -31,7 +31,7 @@ func (s *breakGlassStoreStub) LockActiveSuperAdminUsers(context.Context) ([]stor
 	return s.admins, s.lockErr
 }
 
-func (s *breakGlassStoreStub) BreakGlassResetUserPassword(_ context.Context, userID int64, passwordHash string) (int64, error) {
+func (s *breakGlassStoreStub) AdminResetUserPassword(_ context.Context, userID int64, passwordHash string) (int64, error) {
 	s.updatedID = userID
 	s.passwordHash = passwordHash
 	return s.rowsAffected, s.updateErr
@@ -83,10 +83,10 @@ func TestBreakGlassResetSuperAdminPassword(t *testing.T) {
 	activityLog := &activityLoggerStub{}
 	service := NewBreakGlassService(store, tx, sessions, activityLog)
 
-	result, err := service.ResetSuperAdminPassword(context.Background(), "new-password")
+	username, err := service.ResetSuperAdminPassword(context.Background(), "new-password")
 
 	require.NoError(t, err)
-	require.Equal(t, "owner", result.Username)
+	require.Equal(t, "owner", username)
 	require.True(t, tx.committed)
 	require.Equal(t, admin.ID, store.updatedID)
 	require.NoError(t, bcrypt.CompareHashAndPassword([]byte(store.passwordHash), []byte("new-password")))

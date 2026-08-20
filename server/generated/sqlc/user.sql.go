@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const adminResetUserPassword = `-- name: AdminResetUserPassword :exec
+const adminResetUserPassword = `-- name: AdminResetUserPassword :execrows
 UPDATE "user"
 SET
     password_hash = $1,
@@ -28,30 +28,8 @@ type AdminResetUserPasswordParams struct {
 	ID           int64
 }
 
-func (q *Queries) AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) error {
-	_, err := q.exec(ctx, q.adminResetUserPasswordStmt, adminResetUserPassword, arg.PasswordHash, arg.ID)
-	return err
-}
-
-const breakGlassResetUserPassword = `-- name: BreakGlassResetUserPassword :execrows
-UPDATE "user"
-SET
-    password_hash = $1,
-    requires_password_change = TRUE,
-    updated_at = NOW(),
-    password_updated_at = NOW()
-WHERE
-    id = $2
-    AND deleted_at IS NULL
-`
-
-type BreakGlassResetUserPasswordParams struct {
-	PasswordHash string
-	ID           int64
-}
-
-func (q *Queries) BreakGlassResetUserPassword(ctx context.Context, arg BreakGlassResetUserPasswordParams) (int64, error) {
-	result, err := q.exec(ctx, q.breakGlassResetUserPasswordStmt, breakGlassResetUserPassword, arg.PasswordHash, arg.ID)
+func (q *Queries) AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error) {
+	result, err := q.exec(ctx, q.adminResetUserPasswordStmt, adminResetUserPassword, arg.PasswordHash, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -262,6 +240,10 @@ JOIN role AS r
     ON r.id = uor.role_id
     AND r.organization_id = uor.organization_id
 JOIN "user" AS u ON u.id = uor.user_id
+JOIN user_organization AS uo
+    ON uo.user_id = uor.user_id
+    AND uo.organization_id = uor.organization_id
+    AND uo.deleted_at IS NULL
 WHERE uor.scope_type = 'org'
     AND uor.scope_id IS NULL
     AND uor.deleted_at IS NULL
@@ -269,7 +251,7 @@ WHERE uor.scope_type = 'org'
     AND r.builtin_key = 'SUPER_ADMIN'
     AND u.deleted_at IS NULL
 ORDER BY u.id
-FOR UPDATE OF uor, r, u
+FOR UPDATE OF uor, r, u, uo
 `
 
 type LockActiveSuperAdminUsersRow struct {
@@ -281,7 +263,9 @@ type LockActiveSuperAdminUsersRow struct {
 
 // Break-glass resets intentionally target the sole live org-scope
 // SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
-// resets serialize on the same rows.
+// resets serialize on the same rows. The live membership join matches what
+// role resolution requires at sign-in; without it a reset could succeed for
+// an account that still cannot log in.
 func (q *Queries) LockActiveSuperAdminUsers(ctx context.Context) ([]LockActiveSuperAdminUsersRow, error) {
 	rows, err := q.query(ctx, q.lockActiveSuperAdminUsersStmt, lockActiveSuperAdminUsers)
 	if err != nil {

@@ -11,6 +11,13 @@ COMPOSE_FILE="$DEPLOYMENT_DIR/docker-compose.yaml"
 COMPOSE_PROJECT_HELPER="$DEPLOYMENT_DIR/scripts/compose-project.sh"
 DOCKER_DAEMON_HELPER="$DEPLOYMENT_DIR/scripts/docker-daemon.sh"
 
+require_readable_file() {
+    if [ ! -f "$1" ] || [ ! -r "$1" ]; then
+        echo "Error: ${2:-$1 must be a readable regular file.}" >&2
+        exit 1
+    fi
+}
+
 case "$#" in
     0) ;;
     1)
@@ -24,6 +31,14 @@ case "$#" in
         exit 1
         ;;
 esac
+
+# Checked before topology detection so the HA delegation is covered too. An
+# interactive terminal would block without a prompt and echo the typed
+# password in cleartext.
+if [ "${1:-}" = "--password-stdin" ] && [ -t 0 ]; then
+    echo "Error: --password-stdin requires piped input, for example: printf '%s\\n' \"\$NEW_PASSWORD\" | $0 --password-stdin" >&2
+    exit 1
+fi
 
 HA_ACTIVE=false
 if [ -e "$HA_ACTIVE_INSTALL" ] || [ -L "$HA_ACTIVE_INSTALL" ]; then
@@ -49,10 +64,8 @@ if [ "$HA_ACTIVE" = true ] && [ "$STANDALONE_ACTIVE" = true ]; then
 fi
 
 if [ "$HA_ACTIVE" = true ]; then
-    if [ ! -f "$HA_NODE_ENV" ] || [ ! -r "$HA_NODE_ENV" ]; then
-        echo "Error: HA recovery requires read access to $HA_NODE_ENV; rerun as the HA deployment user (normally with sudo)." >&2
-        exit 1
-    fi
+    require_readable_file "$HA_NODE_ENV" \
+        "HA recovery requires read access to $HA_NODE_ENV; rerun as the HA deployment user (normally with sudo)."
     if [ ! -x "$HA_COMMAND" ]; then
         echo "Error: HA recovery requires executable $HA_COMMAND." >&2
         exit 1
@@ -60,22 +73,11 @@ if [ "$HA_ACTIVE" = true ]; then
     exec "$HA_COMMAND" reset-password "$@"
 fi
 
-if [ ! -f "$ENV_FILE" ] || [ ! -r "$ENV_FILE" ]; then
-    echo "Error: no active HA installation marker found and $ENV_FILE is not a readable regular file." >&2
-    exit 1
-fi
-if [ ! -f "$COMPOSE_FILE" ] || [ ! -r "$COMPOSE_FILE" ]; then
-    echo "Error: $COMPOSE_FILE must be a readable regular file." >&2
-    exit 1
-fi
-if [ ! -f "$COMPOSE_PROJECT_HELPER" ] || [ ! -r "$COMPOSE_PROJECT_HELPER" ]; then
-    echo "Error: $COMPOSE_PROJECT_HELPER must be a readable regular file." >&2
-    exit 1
-fi
-if [ ! -f "$DOCKER_DAEMON_HELPER" ] || [ ! -r "$DOCKER_DAEMON_HELPER" ]; then
-    echo "Error: $DOCKER_DAEMON_HELPER must be a readable regular file." >&2
-    exit 1
-fi
+require_readable_file "$ENV_FILE" \
+    "no active HA installation marker found and $ENV_FILE is not a readable regular file."
+require_readable_file "$COMPOSE_FILE"
+require_readable_file "$COMPOSE_PROJECT_HELPER"
+require_readable_file "$DOCKER_DAEMON_HELPER"
 
 PROJECT_ROOT="$DEPLOYMENT_DIR"
 source "$COMPOSE_PROJECT_HELPER"
@@ -95,11 +97,20 @@ for override in DB_DSN DB_NAME DB_USERNAME DB_PASSWORD; do
 done
 unset COMPOSE_PROJECT_NAME override
 
-if [ ! -e "$DOCKER_DAEMON_STATE_FILE" ] && [ ! -L "$DOCKER_DAEMON_STATE_FILE" ]; then
-    echo "Error: Docker daemon state is missing; rerun the installer before password recovery." >&2
-    exit 1
+# Pin the Docker endpoint selection for the whole run. The current context is
+# mutable global state (docker context use), so without pinning the daemon
+# identity check and the Compose invocation could observe different daemons.
+# Pinning the context name (not the endpoint) preserves any TLS material the
+# context carries.
+if [ -z "${DOCKER_HOST:-}" ] && [ -z "${DOCKER_CONTEXT:-}" ]; then
+    DOCKER_CONTEXT=$(docker context show) || {
+        echo "Error: could not determine the current Docker context." >&2
+        exit 1
+    }
+    export DOCKER_CONTEXT
 fi
-if ! verify_persisted_docker_daemon; then
+
+if ! require_persisted_docker_daemon; then
     exit 1
 fi
 

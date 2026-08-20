@@ -32,6 +32,22 @@ assert_contains() {
     fi
 }
 
+# The command (env assignments included) must fail without ever invoking the
+# fake docker/fleet-ha, i.e. without creating its call log.
+assert_fails_before_docker() {
+    local description="$1" log_file="$2"
+    shift 2
+    # stdin is pinned to /dev/null so a terminal-run suite cannot trip the
+    # wrapper's interactive-TTY rejection instead of the check under test.
+    if "$@" >/dev/null 2>&1 </dev/null; then
+        fail "$description: command unexpectedly succeeded"
+    elif [ -e "$log_file" ]; then
+        fail "$description: Docker was invoked"
+    else
+        echo "ok: $description"
+    fi
+}
+
 mkdir -p "$STAGE/scripts" "$BIN_DIR"
 cp "$DEPLOYMENT_FILES_DIR/reset-super-admin-password.sh" "$STAGE/"
 cp "$DEPLOYMENT_FILES_DIR/scripts/compose-project.sh" "$STAGE/scripts/"
@@ -44,6 +60,10 @@ cat > "$BIN_DIR/docker" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "info" ]; then
     printf '%s\n' "${FAKE_DOCKER_ID:-test-daemon}"
+    exit 0
+fi
+if [ "${1:-}" = "context" ] && [ "${2:-}" = "show" ]; then
+    printf '%s\n' "${FAKE_DOCKER_CURRENT_CONTEXT:-pinned-context}"
     exit 0
 fi
 printf 'cwd=%s\n' "$PWD" > "$CALL_LOG"
@@ -68,6 +88,7 @@ fi
 
 assert_contains "runs from deployment directory" "cwd=$STAGE"
 assert_contains "uses the verified selected Docker daemon" "args= <compose>"
+assert_contains "pins the Docker context for the check and Compose call" "docker_context=pinned-context"
 assert_contains "uses the persisted Compose project" " <--project-name> <fleet-recovery>"
 assert_contains "pins the project directory" " <--project-directory> <$STAGE>"
 assert_contains "loads the deployment env" " <--env-file> <$STAGE/.env>"
@@ -84,15 +105,10 @@ fi
 
 for override in COMPOSE_PROJECT_NAME DB_DSN DB_PASSWORD; do
     OVERRIDE_CALL_LOG="$TMP_DIR/${override}.docker-call.log"
-    if env "$override=conflicting-value" PATH="$BIN_DIR:$PATH" \
+    assert_fails_before_docker "rejects caller $override override before Docker" "$OVERRIDE_CALL_LOG" \
+        env "$override=conflicting-value" PATH="$BIN_DIR:$PATH" \
         CALL_LOG="$OVERRIDE_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
-        "$STAGE/reset-super-admin-password.sh" >/dev/null 2>&1; then
-        fail "caller $override override was accepted"
-    elif [ -e "$OVERRIDE_CALL_LOG" ]; then
-        fail "caller $override override reached Docker"
-    else
-        echo "ok: rejects caller $override override before Docker"
-    fi
+        "$STAGE/reset-super-admin-password.sh"
 done
 
 SELECTED_DAEMON_CALL_LOG="$TMP_DIR/selected-daemon.docker-call.log"
@@ -107,14 +123,36 @@ assert_contains "allows the installation's Docker context" \
     "docker_context=rootless" "$SELECTED_DAEMON_CALL_LOG"
 
 MISMATCHED_DAEMON_CALL_LOG="$TMP_DIR/mismatched-daemon.docker-call.log"
-if FAKE_DOCKER_ID=other-daemon PATH="$BIN_DIR:$PATH" \
+assert_fails_before_docker "mismatched Docker daemon fails closed before Compose" "$MISMATCHED_DAEMON_CALL_LOG" \
+    env FAKE_DOCKER_ID=other-daemon PATH="$BIN_DIR:$PATH" \
     CALL_LOG="$MISMATCHED_DAEMON_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
-    "$STAGE/reset-super-admin-password.sh" --password-stdin >/dev/null 2>&1; then
-    fail "mismatched Docker daemon was accepted"
-elif [ -e "$MISMATCHED_DAEMON_CALL_LOG" ]; then
-    fail "mismatched Docker daemon reached Compose"
+    "$STAGE/reset-super-admin-password.sh" --password-stdin
+
+mv "$STAGE/.docker-daemon-id" "$TMP_DIR/.docker-daemon-id.bak"
+MISSING_DAEMON_CALL_LOG="$TMP_DIR/missing-daemon.docker-call.log"
+assert_fails_before_docker "missing Docker daemon state fails closed before Docker" "$MISSING_DAEMON_CALL_LOG" \
+    env PATH="$BIN_DIR:$PATH" CALL_LOG="$MISSING_DAEMON_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+    "$STAGE/reset-super-admin-password.sh"
+mv "$TMP_DIR/.docker-daemon-id.bak" "$STAGE/.docker-daemon-id"
+
+# A real pty via script(1) is the only way to make [ -t 0 ] true here; stdin
+# of script itself stays /dev/null so an interactive suite run cannot block.
+TTY_CALL_LOG="$TMP_DIR/tty.docker-call.log"
+if command -v script >/dev/null 2>&1; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+        script -q /dev/null env PATH="$BIN_DIR:$PATH" CALL_LOG="$TTY_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+            "$STAGE/reset-super-admin-password.sh" --password-stdin </dev/null >/dev/null 2>&1
+    else
+        script -qec "env PATH='$BIN_DIR:$PATH' CALL_LOG='$TTY_CALL_LOG' STDIN_LOG='$STDIN_LOG' \
+            '$STAGE/reset-super-admin-password.sh' --password-stdin" /dev/null </dev/null >/dev/null 2>&1
+    fi
+    if [ -e "$TTY_CALL_LOG" ]; then
+        fail "interactive --password-stdin reached Docker instead of failing closed"
+    else
+        echo "ok: rejects interactive --password-stdin before Docker"
+    fi
 else
-    echo "ok: mismatched Docker daemon fails closed before Compose"
+    echo "skip: script(1) unavailable; interactive TTY rejection not exercised"
 fi
 
 GENERATED_CALL_LOG="$TMP_DIR/generated.docker-call.log"
@@ -143,25 +181,15 @@ fi
 
 for rejected_arg in --db-explicit-dsn --db-address --username unexpected; do
     REJECTED_ARG_CALL_LOG="$TMP_DIR/rejected-${rejected_arg#--}.docker-call.log"
-    if PATH="$BIN_DIR:$PATH" CALL_LOG="$REJECTED_ARG_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
-        "$STAGE/reset-super-admin-password.sh" "$rejected_arg" >/dev/null 2>&1; then
-        fail "unsupported argument $rejected_arg was accepted"
-    elif [ -e "$REJECTED_ARG_CALL_LOG" ]; then
-        fail "unsupported argument $rejected_arg reached Docker"
-    else
-        echo "ok: rejects unsupported argument $rejected_arg before Docker"
-    fi
+    assert_fails_before_docker "rejects unsupported argument $rejected_arg before Docker" "$REJECTED_ARG_CALL_LOG" \
+        env PATH="$BIN_DIR:$PATH" CALL_LOG="$REJECTED_ARG_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+        "$STAGE/reset-super-admin-password.sh" "$rejected_arg"
 done
 
 MULTI_ARG_CALL_LOG="$TMP_DIR/multiple-args.docker-call.log"
-if PATH="$BIN_DIR:$PATH" CALL_LOG="$MULTI_ARG_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
-    "$STAGE/reset-super-admin-password.sh" --password-stdin --db-address database >/dev/null 2>&1; then
-    fail "multiple recovery arguments were accepted"
-elif [ -e "$MULTI_ARG_CALL_LOG" ]; then
-    fail "multiple recovery arguments reached Docker"
-else
-    echo "ok: rejects multiple arguments before Docker"
-fi
+assert_fails_before_docker "rejects multiple arguments before Docker" "$MULTI_ARG_CALL_LOG" \
+    env PATH="$BIN_DIR:$PATH" CALL_LOG="$MULTI_ARG_CALL_LOG" STDIN_LOG="$STDIN_LOG" \
+    "$STAGE/reset-super-admin-password.sh" --password-stdin --db-address database
 
 SAME_PROJECT_CALL_LOG="$TMP_DIR/same-project-docker-call.log"
 if ! COMPOSE_PROJECT_NAME=fleet-recovery PATH="$BIN_DIR:$PATH" \
@@ -206,27 +234,17 @@ fi
 
 printf 'COMPOSE_PROJECT_NAME=fleet-recovery\n' > "$STAGE/.env"
 AMBIGUOUS_CALL_LOG="$TMP_DIR/ambiguous-docker-call.log"
-if PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
-    CALL_LOG="$AMBIGUOUS_CALL_LOG" "$STAGE/reset-super-admin-password.sh" >/dev/null 2>&1; then
-    fail "ambiguous standalone and HA state was accepted"
-elif [ -e "$AMBIGUOUS_CALL_LOG" ]; then
-    fail "ambiguous standalone and HA state reached Docker"
-else
-    echo "ok: ambiguous standalone and HA state fails closed before Docker"
-fi
+assert_fails_before_docker "ambiguous standalone and HA state fails closed before Docker" "$AMBIGUOUS_CALL_LOG" \
+    env PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
+    CALL_LOG="$AMBIGUOUS_CALL_LOG" "$STAGE/reset-super-admin-password.sh"
 
 rm "$STAGE/.env"
 
 printf '%s\n' "$TMP_DIR/not-this-deployment" > "$HA_ACTIVE_INSTALL"
 MISMATCH_CALL_LOG="$TMP_DIR/mismatched-marker-docker-call.log"
-if PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
-    CALL_LOG="$MISMATCH_CALL_LOG" "$STAGE/reset-super-admin-password.sh" >/dev/null 2>&1; then
-    fail "mismatched HA installation marker was accepted"
-elif [ -e "$MISMATCH_CALL_LOG" ]; then
-    fail "mismatched HA installation marker reached Docker"
-else
-    echo "ok: mismatched HA installation marker fails closed before Docker"
-fi
+assert_fails_before_docker "mismatched HA installation marker fails closed before Docker" "$MISMATCH_CALL_LOG" \
+    env PATH="$BIN_DIR:$PATH" PROTO_FLEET_HA_CONFIG_DIR="$HA_CONFIG_DIR" \
+    CALL_LOG="$MISMATCH_CALL_LOG" "$STAGE/reset-super-admin-password.sh"
 printf '%s\n' "$STAGE" > "$HA_ACTIVE_INSTALL"
 
 rm "$HA_ACTIVE_INSTALL"

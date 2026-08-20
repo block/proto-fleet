@@ -340,7 +340,7 @@ func (s *SQLUserStore) UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.
 	})
 }
 
-func (s *SQLUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error {
+func (s *SQLUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
 	return s.getQueries(ctx).AdminResetUserPassword(ctx, sqlc.AdminResetUserPasswordParams{
 		PasswordHash: passwordHash,
 		ID:           userID,
@@ -362,13 +362,6 @@ func (s *SQLUserStore) LockActiveSuperAdminUsers(ctx context.Context) ([]interfa
 		}
 	}
 	return users, nil
-}
-
-func (s *SQLUserStore) BreakGlassResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
-	return s.getQueries(ctx).BreakGlassResetUserPassword(ctx, sqlc.BreakGlassResetUserPasswordParams{
-		PasswordHash: passwordHash,
-		ID:           userID,
-	})
 }
 
 func (s *SQLUserStore) SoftDeleteUser(ctx context.Context, userID int64) error {

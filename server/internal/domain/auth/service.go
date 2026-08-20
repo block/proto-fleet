@@ -863,7 +863,7 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	// Update password and revoke all sessions atomically.
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
+		if _, err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("error resetting password: %v", err)
 		}
 		if err := s.sessionSvc.RevokeAllSessions(ctx, user.ID); err != nil {

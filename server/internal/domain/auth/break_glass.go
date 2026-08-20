@@ -29,10 +29,6 @@ type BreakGlassService struct {
 	activity   strictActivityLogger
 }
 
-type BreakGlassResetResult struct {
-	Username string
-}
-
 func NewBreakGlassService(
 	userStore stores.BreakGlassUserStore,
 	transactor stores.Transactor,
@@ -48,19 +44,20 @@ func NewBreakGlassService(
 }
 
 // ResetSuperAdminPassword resets the sole live org-scope SUPER_ADMIN, revokes
-// its sessions, and writes the audit event in one transaction.
-func (s *BreakGlassService) ResetSuperAdminPassword(ctx context.Context, password string) (*BreakGlassResetResult, error) {
+// its sessions, and writes the audit event in one transaction. It returns the
+// reset user's username.
+func (s *BreakGlassService) ResetSuperAdminPassword(ctx context.Context, password string) (string, error) {
 	if err := ValidatePassword(password); err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Do the expensive, fallible bcrypt work before opening a transaction.
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fmt.Errorf("hash password: %w", err)
+		return "", fmt.Errorf("hash password: %w", err)
 	}
 
-	var result BreakGlassResetResult
+	var username string
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
 		admins, err := s.userStore.LockActiveSuperAdminUsers(txCtx)
 		if err != nil {
@@ -81,7 +78,7 @@ func (s *BreakGlassService) ResetSuperAdminPassword(ctx context.Context, passwor
 		}
 
 		admin := admins[0]
-		rowsAffected, err := s.userStore.BreakGlassResetUserPassword(txCtx, admin.ID, string(hashedPassword))
+		rowsAffected, err := s.userStore.AdminResetUserPassword(txCtx, admin.ID, string(hashedPassword))
 		if err != nil {
 			return fmt.Errorf("reset SUPER_ADMIN password: %w", err)
 		}
@@ -105,11 +102,11 @@ func (s *BreakGlassService) ResetSuperAdminPassword(ctx context.Context, passwor
 			return fmt.Errorf("write password reset activity: %w", err)
 		}
 
-		result.Username = admin.Username
+		username = admin.Username
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return &result, nil
+	return username, nil
 }

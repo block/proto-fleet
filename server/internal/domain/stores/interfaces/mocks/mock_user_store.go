@@ -214,11 +214,12 @@ func (m *MockUserManagementStore) EXPECT() *MockUserManagementStoreMockRecorder 
 }
 
 // AdminResetUserPassword mocks base method.
-func (m *MockUserManagementStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error {
+func (m *MockUserManagementStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AdminResetUserPassword", ctx, userID, passwordHash)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // AdminResetUserPassword indicates an expected call of AdminResetUserPassword.
@@ -456,19 +457,19 @@ func (m *MockBreakGlassUserStore) EXPECT() *MockBreakGlassUserStoreMockRecorder 
 	return m.recorder
 }
 
-// BreakGlassResetUserPassword mocks base method.
-func (m *MockBreakGlassUserStore) BreakGlassResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
+// AdminResetUserPassword mocks base method.
+func (m *MockBreakGlassUserStore) AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BreakGlassResetUserPassword", ctx, userID, passwordHash)
+	ret := m.ctrl.Call(m, "AdminResetUserPassword", ctx, userID, passwordHash)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// BreakGlassResetUserPassword indicates an expected call of BreakGlassResetUserPassword.
-func (mr *MockBreakGlassUserStoreMockRecorder) BreakGlassResetUserPassword(ctx, userID, passwordHash any) *gomock.Call {
+// AdminResetUserPassword indicates an expected call of AdminResetUserPassword.
+func (mr *MockBreakGlassUserStoreMockRecorder) AdminResetUserPassword(ctx, userID, passwordHash any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BreakGlassResetUserPassword", reflect.TypeOf((*MockBreakGlassUserStore)(nil).BreakGlassResetUserPassword), ctx, userID, passwordHash)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdminResetUserPassword", reflect.TypeOf((*MockBreakGlassUserStore)(nil).AdminResetUserPassword), ctx, userID, passwordHash)
 }
 
 // HasUser mocks base method.

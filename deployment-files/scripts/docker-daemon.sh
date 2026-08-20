@@ -56,18 +56,28 @@ verify_persisted_docker_daemon() {
     if [ "$current_id" != "$expected_id" ]; then
         echo "Error: the selected Docker daemon does not own this Proto Fleet installation." >&2
         echo "Select the Docker context or DOCKER_HOST used to install Fleet and retry." >&2
+        echo "If the daemon was deliberately replaced, remove $DOCKER_DAEMON_STATE_FILE and rerun the installer to pin the new daemon." >&2
         return 1
     fi
 }
 
+# Strict variant for recovery flows: a missing state file is an error, not a
+# fresh install.
+require_persisted_docker_daemon() {
+    if [ ! -e "$DOCKER_DAEMON_STATE_FILE" ] && [ ! -L "$DOCKER_DAEMON_STATE_FILE" ]; then
+        echo "Error: Docker daemon state is missing; rerun the installer before password recovery." >&2
+        return 1
+    fi
+    verify_persisted_docker_daemon
+}
+
 persist_current_docker_daemon() {
     local current_id temporary_state owner_group
-    current_id=$(current_docker_daemon_id) || return 1
-
     if [ -e "$DOCKER_DAEMON_STATE_FILE" ] || [ -L "$DOCKER_DAEMON_STATE_FILE" ]; then
         verify_persisted_docker_daemon
         return
     fi
+    current_id=$(current_docker_daemon_id) || return 1
 
     temporary_state=$(umask 077; mktemp "$DOCKER_DAEMON_STATE_FILE.tmp.XXXXXX") || return 1
     if ! printf '%s%s\n' "$DOCKER_DAEMON_STATE_PREFIX" "$current_id" > "$temporary_state" \
@@ -92,12 +102,12 @@ persist_current_docker_daemon() {
         fi
     fi
 
+    # -T (rename over a directory target as a file) is GNU-only.
+    local mv_args=(-f)
     if [ "$(uname -s)" = "Linux" ]; then
-        if ! mv -fT -- "$temporary_state" "$DOCKER_DAEMON_STATE_FILE"; then
-            rm -f "$temporary_state"
-            return 1
-        fi
-    elif ! mv -f "$temporary_state" "$DOCKER_DAEMON_STATE_FILE"; then
+        mv_args=(-fT)
+    fi
+    if ! mv "${mv_args[@]}" -- "$temporary_state" "$DOCKER_DAEMON_STATE_FILE"; then
         rm -f "$temporary_state"
         return 1
     fi

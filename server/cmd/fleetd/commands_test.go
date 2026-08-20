@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -103,18 +104,30 @@ func TestResetPasswordCommandRejectsInvalidStdinPassword(t *testing.T) {
 	}
 }
 
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("attach stream disconnected") }
+
+func TestReportResetResultWritesSuccessMessage(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	reportResetResult(&stdout, &stderr, "owner")
+
+	require.Contains(t, stdout.String(), `Reset the password for SUPER_ADMIN "owner".`)
+	require.Empty(t, stderr.String())
+}
+
+func TestReportResetResultIsBestEffortWhenStdoutFails(t *testing.T) {
+	var stderr bytes.Buffer
+
+	reportResetResult(failingWriter{}, &stderr, "owner")
+
+	require.Contains(t, stderr.String(), "password reset committed")
+	require.Contains(t, stderr.String(), "attach stream disconnected")
+}
+
 func TestResetPasswordCommandRequiresPasswordStdin(t *testing.T) {
 	_, err := (&resetPasswordCommand{}).password(strings.NewReader(""))
 
 	require.ErrorContains(t, err, "--password-stdin is required")
-}
-
-func TestResetPasswordCommandWritesCredentialFreeSuccess(t *testing.T) {
-	cmd := resetPasswordCommand{PasswordStdin: true}
-	var output bytes.Buffer
-
-	err := cmd.writeResult(&output, "owner")
-
-	require.NoError(t, err)
-	require.Equal(t, "Reset the password for SUPER_ADMIN \"owner\".\n", output.String())
 }

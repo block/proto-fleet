@@ -15,9 +15,9 @@ func TestCLIResetPasswordActivityLabelMigrationDownAndUp(t *testing.T) {
 	}
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-	downSQL, err := migrations.Migrations.ReadFile("000141_cli_reset_password_activity_label.down.sql")
+	downSQL, err := migrations.Migrations.ReadFile("000142_cli_reset_password_activity_label.down.sql")
 	require.NoError(t, err)
-	upSQL, err := migrations.Migrations.ReadFile("000141_cli_reset_password_activity_label.up.sql")
+	upSQL, err := migrations.Migrations.ReadFile("000142_cli_reset_password_activity_label.up.sql")
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, string(downSQL))

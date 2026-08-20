@@ -69,9 +69,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.bindEnrollmentToFleetNodeStmt, err = db.PrepareContext(ctx, bindEnrollmentToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query BindEnrollmentToFleetNode: %w", err)
 	}
-	if q.breakGlassResetUserPasswordStmt, err = db.PrepareContext(ctx, breakGlassResetUserPassword); err != nil {
-		return nil, fmt.Errorf("error preparing query BreakGlassResetUserPassword: %w", err)
-	}
 	if q.buildingBelongsToOrgStmt, err = db.PrepareContext(ctx, buildingBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query BuildingBelongsToOrg: %w", err)
 	}
@@ -1752,11 +1749,6 @@ func (q *Queries) Close() error {
 	if q.bindEnrollmentToFleetNodeStmt != nil {
 		if cerr := q.bindEnrollmentToFleetNodeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing bindEnrollmentToFleetNodeStmt: %w", cerr)
-		}
-	}
-	if q.breakGlassResetUserPasswordStmt != nil {
-		if cerr := q.breakGlassResetUserPasswordStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing breakGlassResetUserPasswordStmt: %w", cerr)
 		}
 	}
 	if q.buildingBelongsToOrgStmt != nil {
@@ -4483,7 +4475,6 @@ type Queries struct {
 	assignRoleStmt                                               *sql.Stmt
 	beginCurtailmentRestorationStmt                              *sql.Stmt
 	bindEnrollmentToFleetNodeStmt                                *sql.Stmt
-	breakGlassResetUserPasswordStmt                              *sql.Stmt
 	buildingBelongsToOrgStmt                                     *sql.Stmt
 	buildingsByIDsStmt                                           *sql.Stmt
 	bulkConfirmCurtailmentTargetsStmt                            *sql.Stmt
@@ -5039,7 +5030,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		assignRoleStmt:                                               q.assignRoleStmt,
 		beginCurtailmentRestorationStmt:                              q.beginCurtailmentRestorationStmt,
 		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
-		breakGlassResetUserPasswordStmt:                              q.breakGlassResetUserPasswordStmt,
 		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
 		buildingsByIDsStmt:                                           q.buildingsByIDsStmt,
 		bulkConfirmCurtailmentTargetsStmt:                            q.bulkConfirmCurtailmentTargetsStmt,

@@ -79,7 +79,7 @@ SET
 WHERE
     id = $2;
 
--- name: AdminResetUserPassword :exec
+-- name: AdminResetUserPassword :execrows
 UPDATE "user"
 SET
     password_hash = $1,
@@ -93,7 +93,9 @@ WHERE
 -- name: LockActiveSuperAdminUsers :many
 -- Break-glass resets intentionally target the sole live org-scope
 -- SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
--- resets serialize on the same rows.
+-- resets serialize on the same rows. The live membership join matches what
+-- role resolution requires at sign-in; without it a reset could succeed for
+-- an account that still cannot log in.
 SELECT
     u.id,
     u.user_id AS external_user_id,
@@ -104,6 +106,10 @@ JOIN role AS r
     ON r.id = uor.role_id
     AND r.organization_id = uor.organization_id
 JOIN "user" AS u ON u.id = uor.user_id
+JOIN user_organization AS uo
+    ON uo.user_id = uor.user_id
+    AND uo.organization_id = uor.organization_id
+    AND uo.deleted_at IS NULL
 WHERE uor.scope_type = 'org'
     AND uor.scope_id IS NULL
     AND uor.deleted_at IS NULL
@@ -111,15 +117,4 @@ WHERE uor.scope_type = 'org'
     AND r.builtin_key = 'SUPER_ADMIN'
     AND u.deleted_at IS NULL
 ORDER BY u.id
-FOR UPDATE OF uor, r, u;
-
--- name: BreakGlassResetUserPassword :execrows
-UPDATE "user"
-SET
-    password_hash = $1,
-    requires_password_change = TRUE,
-    updated_at = NOW(),
-    password_updated_at = NOW()
-WHERE
-    id = $2
-    AND deleted_at IS NULL;
+FOR UPDATE OF uor, r, u, uo;

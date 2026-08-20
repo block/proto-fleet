@@ -26,7 +26,7 @@ type Querier interface {
 	// the change (len of result) and resolve the changed set for activity site
 	// scope (#538). Equivalent affected-row count to the prior :execrows shape.
 	AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDeviceSetParams) ([]string, error)
-	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) error
+	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error)
 	// Flips pending/restoring → target_state (CANCELLED or FAILED).
 	// Locks the event row before evaluating the in-flight target predicate so
 	// reconciler target claims (which lock the same parent row) serialize with
@@ -79,7 +79,6 @@ type Querier interface {
 	// to distinguish "already restoring" from "already terminal."
 	BeginCurtailmentRestoration(ctx context.Context, id int64) (CurtailmentEvent, error)
 	BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error)
-	BreakGlassResetUserPassword(ctx context.Context, arg BreakGlassResetUserPasswordParams) (int64, error)
 	BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that correspond to live
 	// buildings in the org. Caller diffs against the requested set
@@ -1132,7 +1131,9 @@ type Querier interface {
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	// Break-glass resets intentionally target the sole live org-scope
 	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
-	// resets serialize on the same rows.
+	// resets serialize on the same rows. The live membership join matches what
+	// role resolution requires at sign-in; without it a reset could succeed for
+	// an account that still cannot log in.
 	LockActiveSuperAdminUsers(ctx context.Context) ([]LockActiveSuperAdminUsersRow, error)
 	// Serializes the quota check with mutations across every server instance. The transaction that
 	// takes this lock re-counts after its write and rolls back if the org would exceed its limit.

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
@@ -38,21 +40,29 @@ type resetPasswordCommand struct {
 	PasswordStdin bool      `help:"Read the replacement password from standard input (required)."`
 }
 
-type commandRuntime struct {
-	Stdin  io.Reader
-	Stdout io.Writer
-}
+// fleetdCommandPaths lists every kong command path exactly once. Both the arg
+// normalization in main.go and the YAML config mapping below derive from it,
+// so a new command cannot be routed by one and missed by the other.
+var fleetdCommandPaths = []string{"server", "admin reset-password"}
 
 func (cmd *serverCommand) Run() error {
 	slog.Info("fleetd starting", "version", version)
 	return start(&cmd.Config)
 }
 
-func (cmd *resetPasswordCommand) Run(ctx context.Context, runtime *commandRuntime) error {
-	password, err := cmd.password(runtime.Stdin)
+// resetPasswordTimeout bounds the whole database phase of a reset. Recovery
+// runs while the operator is locked out, so a held lock or unreachable
+// database must fail the command instead of hanging it.
+const resetPasswordTimeout = 60 * time.Second
+
+func (cmd *resetPasswordCommand) Run(ctx context.Context) error {
+	password, err := cmd.password(os.Stdin)
 	if err != nil {
 		return err
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, resetPasswordTimeout)
+	defer cancel()
 
 	conn, err := db.ConnectToDatabase(&cmd.DB)
 	if err != nil {
@@ -64,6 +74,14 @@ func (cmd *resetPasswordCommand) Run(ctx context.Context, runtime *commandRuntim
 		}
 	}()
 
+	// sql.Open never dials; ping so an unreachable database fails fast with a
+	// connection error instead of surfacing mid-reset.
+	pingCtx, pingCancel := context.WithTimeout(ctx, cmd.DB.InitialConnectionTimeout)
+	defer pingCancel()
+	if err := conn.PingContext(pingCtx); err != nil {
+		return fmt.Errorf("connect to database: %w", err)
+	}
+
 	userStore := sqlstores.NewSQLUserStore(conn)
 	sessionService := session.NewService(session.Config{}, sqlstores.NewSQLSessionStore(conn))
 	activityService := activity.NewService(sqlstores.NewSQLActivityStore(conn))
@@ -73,20 +91,22 @@ func (cmd *resetPasswordCommand) Run(ctx context.Context, runtime *commandRuntim
 		sessionService,
 		activityService,
 	)
-	result, err := resetService.ResetSuperAdminPassword(ctx, password)
+	username, err := resetService.ResetSuperAdminPassword(ctx, password)
 	if err != nil {
 		return err
 	}
 
-	return cmd.writeResult(runtime.Stdout, result.Username)
+	reportResetResult(os.Stdout, os.Stderr, username)
+	return nil
 }
 
-func (cmd *resetPasswordCommand) writeResult(output io.Writer, username string) error {
-	message := fmt.Sprintf("Reset the password for SUPER_ADMIN %q.\n", username)
-	if _, err := io.WriteString(output, message); err != nil {
-		return fmt.Errorf("write reset result: %w", err)
+// reportResetResult announces a committed reset. Best-effort by design: the
+// reset is already committed, so a broken stdout must not report failure or
+// the wrapper would withhold a temporary password that is already active.
+func reportResetResult(stdout, stderr io.Writer, username string) {
+	if _, err := fmt.Fprintf(stdout, "Reset the password for SUPER_ADMIN %q.\n", username); err != nil {
+		fmt.Fprintf(stderr, "warning: password reset committed but writing the result failed: %v\n", err)
 	}
-	return nil
 }
 
 // fleetdYAMLLoader maps the existing root-level fleetd YAML into each command
@@ -103,12 +123,21 @@ func fleetdYAMLLoader(reader io.Reader) (kong.Resolver, error) {
 			return nil, fmt.Errorf("decode fleetd YAML config: %w", err)
 		}
 	}
-	wrapped, err := yaml.Marshal(map[string]any{
-		"server": root,
-		"admin": map[string]any{
-			"reset-password": root,
-		},
-	})
+	mounts := map[string]any{}
+	for _, path := range fleetdCommandPaths {
+		node := mounts
+		names := strings.Fields(path)
+		for _, name := range names[:len(names)-1] {
+			child, ok := node[name].(map[string]any)
+			if !ok {
+				child = map[string]any{}
+				node[name] = child
+			}
+			node = child
+		}
+		node[names[len(names)-1]] = root
+	}
+	wrapped, err := yaml.Marshal(mounts)
 	if err != nil {
 		return nil, fmt.Errorf("map fleetd YAML config to commands: %w", err)
 	}

@@ -32,7 +32,7 @@ type UserManagementStore interface { //nolint:interfacebloat // user mgmt store 
 	LockAndCountOrgScopeSuperAdmins(ctx context.Context, organizationID int64) (int64, error)
 	UpdateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, oldAssignmentID int64, newRoleID int64) error
 	UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error
-	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error
+	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error)
 	SoftDeleteUser(ctx context.Context, userID int64) error
 	UpdateLastLogin(ctx context.Context, userID int64) error
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
@@ -45,7 +45,7 @@ type UserManagementStore interface { //nolint:interfacebloat // user mgmt store 
 type BreakGlassUserStore interface {
 	HasUser(ctx context.Context) (bool, error)
 	LockActiveSuperAdminUsers(ctx context.Context) ([]BreakGlassSuperAdmin, error)
-	BreakGlassResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error)
+	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error)
 }
 
 type BreakGlassSuperAdmin struct {

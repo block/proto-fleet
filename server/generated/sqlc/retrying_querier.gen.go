@@ -54,10 +54,16 @@ func (q *retryingQuerier) AddDevicesToDeviceSet(ctx context.Context, arg AddDevi
 	return result, err
 }
 
-func (q *retryingQuerier) AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) error {
-	return q.retrier.RetryQuery(ctx, "AdminResetUserPassword", func() error {
-		return q.next.AdminResetUserPassword(ctx, arg)
+func (q *retryingQuerier) AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "AdminResetUserPassword", func() error {
+		callResult, callErr := q.next.AdminResetUserPassword(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
 	})
+	return result, err
 }
 
 func (q *retryingQuerier) AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error) {
@@ -172,18 +178,6 @@ func (q *retryingQuerier) BindEnrollmentToFleetNode(ctx context.Context, arg Bin
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "BindEnrollmentToFleetNode", func() error {
 		callResult, callErr := q.next.BindEnrollmentToFleetNode(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) BreakGlassResetUserPassword(ctx context.Context, arg BreakGlassResetUserPasswordParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "BreakGlassResetUserPassword", func() error {
-		callResult, callErr := q.next.BreakGlassResetUserPassword(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
