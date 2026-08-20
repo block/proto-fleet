@@ -4,7 +4,7 @@ import { BasePage } from "./base";
 export class SettingsUpdatesPage extends BasePage {
   async validateUpdatesPageOpened() {
     await expect(this.page).toHaveURL(/.*\/settings\/updates/);
-    await this.validateTitle("Updates");
+    await this.validateTitle("Software Update");
   }
 
   async validateCurrentVersion(version: string) {
@@ -62,7 +62,7 @@ export class SettingsUpdatesPage extends BasePage {
     const modal = this.page.getByTestId("upgrade-operation-modal");
     await expect(modal).toBeVisible();
     await expect(modal).toContainText(`Update Fleet to ${version}`);
-    await expect(modal).toContainText("Fleet validates this release before restarting.");
+    await expect(modal).toContainText("Fleet will be unavailable for a few minutes while it updates.");
   }
 
   async confirmUpdate() {

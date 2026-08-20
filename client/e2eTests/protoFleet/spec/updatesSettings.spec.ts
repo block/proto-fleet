@@ -7,7 +7,7 @@ import {
 } from "../helpers/updatesSettingsMocks";
 import { ReleaseChannel, UpgradePhase } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 
-test.describe("Proto Fleet - Updates Settings", () => {
+test.describe("Proto Fleet - Software Update Settings", () => {
   test(
     "View update details and refresh the offer after enabling release candidates",
     { tag: "@smoke" },
@@ -26,7 +26,7 @@ test.describe("Proto Fleet - Updates Settings", () => {
           }),
       });
 
-      await test.step("Open Updates settings and validate the initial stable release offer", async () => {
+      await test.step("Open Software Update settings and validate the initial stable release offer", async () => {
         await settingsUpdatesPage.navigateToUpdatesSettings();
         await settingsUpdatesPage.validateUpdatesPageOpened();
         await settingsUpdatesPage.validateCurrentVersion("v1.2.0");
@@ -43,7 +43,7 @@ test.describe("Proto Fleet - Updates Settings", () => {
 
       await test.step("Enable release candidates and validate the refreshed offer", async () => {
         await settingsUpdatesPage.clickIncludeReleaseCandidates();
-        await settingsUpdatesPage.validateTextInToast("Release channel saved");
+        await settingsUpdatesPage.validateTextInToast("Release candidates turned on");
         test.expect(updatesMock.releaseChannelRequests).toEqual([ReleaseChannel.STABLE_AND_RC]);
         await settingsUpdatesPage.validateIncludeReleaseCandidatesChecked();
         await settingsUpdatesPage.validateLatestAvailableVersion("v1.4.0-rc.1");
@@ -82,7 +82,7 @@ test.describe("Proto Fleet - Updates Settings", () => {
 
     await test.step("Confirm the upgrade and validate the exact requested version", async () => {
       await settingsUpdatesPage.confirmUpdate();
-      await settingsUpdatesPage.validateUpgradeModalText("Preparing v1.3.0");
+      await settingsUpdatesPage.validateUpgradeModalText("Preparing update…");
       await settingsUpdatesPage.validateManualInstallActionHidden();
       test.expect(updatesMock.triggerUpgradeRequests).toEqual(["v1.3.0"]);
     });
