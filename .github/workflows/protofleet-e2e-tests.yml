@@ -22,6 +22,9 @@ on:
         default: smoke
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   detect-specs:
     runs-on: ubuntu-latest
