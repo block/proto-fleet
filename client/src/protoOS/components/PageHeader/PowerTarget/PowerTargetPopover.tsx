@@ -1,8 +1,8 @@
 import { RefObject, useCallback, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { PerformanceMode } from "@/protoOS/api/generatedApi";
 import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
 import { PowerTargetMode, powerTargetModes } from "@/protoOS/components/PageHeader/PowerTarget/constants";
+import type { MiningTargetUpdate, PerformanceMode } from "@/protoOS/store/contract";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Popover from "@/shared/components/Popover";
@@ -13,7 +13,7 @@ import { convertWtoKW } from "@/shared/utils/telemetryFormat";
 
 export type PowerTargetPopoverProps = {
   onDismiss: () => void;
-  onUpdateStart?: (miningTarget: { performance_mode?: PerformanceMode; power_target_watts?: number }) => void;
+  onUpdateStart?: (miningTarget: MiningTargetUpdate) => void;
 };
 
 const getInitialPowerTargetMode = (
@@ -97,8 +97,8 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
 
     const powerTarget = calculatePowerTargetWattage();
     const miningTargetUpdate = {
-      performance_mode: selectedPerformanceMode,
-      power_target_watts: powerTarget,
+      performanceMode: selectedPerformanceMode,
+      valueWatts: powerTarget,
     };
 
     onUpdateStart?.(miningTargetUpdate);

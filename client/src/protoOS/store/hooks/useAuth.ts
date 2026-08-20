@@ -139,7 +139,7 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const logout = useLogout();
   const pausedAuthAction = useMinerStore((state) => state.ui.pausedAuthAction);
-  const passwordSet = useMinerStore((state) => state.minerStatus.passwordSet);
+  const passwordSet = useMinerStore((state) => state.minerStatus.lifecycle.passwordSet);
 
   // returns undefined if access is not needed
   // returns true if access token is valid

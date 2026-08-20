@@ -11,7 +11,7 @@ const mockedUpdateMiningTarget = vi.fn();
 let mockReturnValue = {
   miningTarget: 1500,
   defaultTarget: 1200,
-  performanceMode: "MaximumHashrate",
+  performanceMode: "maximumHashrate",
   bounds: { min: 400, max: 2000 },
   pending: false,
   updateMiningTarget: mockedUpdateMiningTarget,
@@ -39,7 +39,7 @@ beforeEach(() => {
   // Reset mock values for each test
   mockReturnValue.miningTarget = 1500;
   mockReturnValue.defaultTarget = 1200;
-  mockReturnValue.performanceMode = "MaximumHashrate";
+  mockReturnValue.performanceMode = "maximumHashrate";
   mockReturnValue.bounds = { min: 400, max: 2000 };
   mockReturnValue.pending = false;
   mockReturnValue.updateMiningTarget = mockedUpdateMiningTarget;
@@ -144,8 +144,8 @@ describe("Power Target Popover", () => {
     await user.click(getByTestId("power-target-apply-button"));
     await waitFor(() => {
       expect(mockedOnUpdateStart).toHaveBeenCalledWith({
-        performance_mode: "MaximumHashrate",
-        power_target_watts: 1000,
+        performanceMode: "maximumHashrate",
+        valueWatts: 1000,
       });
     });
   });

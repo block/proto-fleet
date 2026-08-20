@@ -12,9 +12,9 @@ import {
   useBayCount,
   useControlBoard,
   useCoolingMode,
-  useDeviceType,
   useFanIds,
   useHashboardSerialsByBay,
+  useModuleModel,
   usePsuIds,
   useSlotsPerBay,
 } from "@/protoOS/store";
@@ -187,7 +187,7 @@ OtherHardwareSection.displayName = "OtherHardwareSection";
 function DiagnosticView({ className }: DiagnosticViewProps) {
   useTelemetry({ level: ["hashboard", "asic", "psu"] });
   const [selectedComponent, setSelectedComponent] = useState<ComponentFilterType>("all");
-  const deviceType = useDeviceType();
+  const moduleModel = useModuleModel();
 
   const shouldShowComponent = (component: ComponentFilterType) => {
     return selectedComponent === "all" || selectedComponent === component;
@@ -217,7 +217,7 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
           </ErrorBoundary>
         ) : null}
 
-        {deviceType === "containerModule" ? (
+        {moduleModel === "ct1" ? (
           shouldShowOtherHardware ? (
             <ErrorBoundary>
               <OtherHardwareSection />

@@ -36,6 +36,7 @@ vi.mock("../useMinerStore", () => ({
           pausedAuthAction: null,
         },
         minerStatus: {
+          lifecycle: { passwordSet: true },
           setDefaultPasswordActive: mockSetDefaultPasswordActive,
         },
       }),

@@ -1,60 +1,43 @@
 import type { StateCreator } from "zustand";
+import type { NetworkInfoState, NetworkInterface, ResourceState } from "../contract";
 import type { MinerStore } from "../useMinerStore";
-import type { NetworkInfoNetworkinfo } from "@/protoOS/api/generatedApi";
 
-// =============================================================================
-// Slice Interface
-// =============================================================================
-
-export interface NetworkInfoSlice extends NetworkInfoNetworkinfo {
-  // Request state
-  pending?: boolean;
-  error?: string;
-
-  // Actions
-  setNetworkInfo: (networkInfo: NetworkInfoNetworkinfo | undefined) => void;
+export interface NetworkInfoSlice extends NetworkInfoState {
+  setNetworkInfo: (interfaces: Map<string, NetworkInterface> | undefined) => void;
   setError: (error: string | undefined) => void;
   setPending: (pending: boolean) => void;
   reset: () => void;
 }
 
-// =============================================================================
-// Slice Creator
-// =============================================================================
+const idleResource = (): ResourceState => ({ status: "idle" });
 
 export const createNetworkInfoSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], NetworkInfoSlice> = (
   set,
 ) => ({
-  // Actions
-  setNetworkInfo: (networkInfo) =>
+  resource: idleResource(),
+  interfaces: new Map(),
+
+  setNetworkInfo: (interfaces) =>
     set((state) => {
-      if (networkInfo) {
-        Object.assign(state.networkInfo, networkInfo);
-      }
+      state.networkInfo.interfaces = interfaces ?? new Map();
+      state.networkInfo.resource = interfaces ? { status: "ready", updatedAtMs: Date.now() } : idleResource();
     }),
 
   setError: (error) =>
     set((state) => {
-      state.networkInfo.error = error;
-      state.networkInfo.pending = false;
+      state.networkInfo.resource = error
+        ? { status: "error", error: { code: "NETWORK_INFO", message: error, retryable: true } }
+        : idleResource();
     }),
 
   setPending: (pending) =>
     set((state) => {
-      state.networkInfo.pending = pending;
+      if (pending) state.networkInfo.resource = { status: "loading" };
     }),
 
-  // setNetworkInfo(undefined) is a no-op by design (it only merges truthy
-  // values), so a real clear must remove the flattened API fields. Delete every
-  // data field (everything that isn't an action) so a miner switch fully clears
-  // the previous device's network info (IP/MAC/etc.).
   reset: () =>
     set((state) => {
-      const slice = state.networkInfo as unknown as Record<string, unknown>;
-      for (const key of Object.keys(slice)) {
-        if (typeof slice[key] !== "function") {
-          delete slice[key];
-        }
-      }
+      state.networkInfo.interfaces = new Map();
+      state.networkInfo.resource = idleResource();
     }),
 });

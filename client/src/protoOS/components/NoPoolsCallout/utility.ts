@@ -1,9 +1,11 @@
 import { matchPath } from "react-router-dom";
 
-import type { Pool } from "@/protoOS/api/generatedApi";
 import { settingsRouteMetadata } from "@/protoOS/routeAuth";
 
-type PoolCalloutInfo = Pick<Pool, "status" | "url">;
+type PoolCalloutInfo = {
+  status?: string;
+  url?: string;
+};
 
 const livePoolStatusPattern = /alive|active/i;
 const miningPoolsRoutePatterns = [

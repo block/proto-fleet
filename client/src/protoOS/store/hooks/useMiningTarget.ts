@@ -2,20 +2,29 @@
 // Mining Target Hooks
 // =============================================================================
 
+import { ROOT_MODULE_ID } from "../contract";
 import useMinerStore from "../useMinerStore";
 
+const selectTarget = (state: ReturnType<typeof useMinerStore.getState>) =>
+  state.miningTarget.byModule.get(ROOT_MODULE_ID);
+
 // State Selectors
-export const useMiningTargetValue = () => useMinerStore((state) => state.miningTarget.value);
+export const useMiningTargetValue = () => useMinerStore((state) => selectTarget(state)?.valueWatts);
 
-export const useMiningTargetDefault = () => useMinerStore((state) => state.miningTarget.default);
+export const useMiningTargetDefault = () => useMinerStore((state) => selectTarget(state)?.defaultWatts);
 
-export const useMiningTargetPerformanceMode = () => useMinerStore((state) => state.miningTarget.performanceMode);
+export const useMiningTargetPerformanceMode = () => useMinerStore((state) => selectTarget(state)?.performanceMode);
 
-export const useMiningTargetBounds = () => useMinerStore((state) => state.miningTarget.bounds);
+export const useMiningTargetBounds = () => useMinerStore((state) => selectTarget(state)?.boundsWatts);
 
-export const useMiningTargetPending = () => useMinerStore((state) => state.miningTarget.pending);
+export const useMiningTargetPending = () =>
+  useMinerStore((state) => selectTarget(state)?.resource.status === "loading");
 
-export const useMiningTargetError = () => useMinerStore((state) => state.miningTarget.error);
+export const useMiningTargetError = () =>
+  useMinerStore((state) => {
+    const resource = selectTarget(state)?.resource;
+    return resource?.status === "error" ? resource.error.message : null;
+  });
 
 // Action Selectors
 export const useSetMiningTargetValue = () => useMinerStore((state) => state.miningTarget.setValue);

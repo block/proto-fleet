@@ -1,124 +1,33 @@
-import { useShallow } from "zustand/react/shallow";
-import type { DeviceType } from "../slices/systemInfoSlice";
+import type { DeviceType } from "../contract";
 import useMinerStore from "../useMinerStore";
 
-const PROTO_RIG_PRODUCT_NAME = "Proto Rig";
+const resourceError = (resource: ReturnType<typeof useMinerStore.getState>["systemInfo"]["resource"]) =>
+  resource.status === "error" ? resource.error.message : undefined;
 
-// =============================================================================
-// Granular Hooks
-// =============================================================================
-
-/**
- * Hook to get all system info data
- * Returns the entire systemInfo slice
- * Note: This will re-render on any field change. For better performance, use specific field hooks.
- */
-export const useSystemInfo = () => useMinerStore(useShallow((state) => state.systemInfo));
-
-/**
- * Hook to get specific system info fields
- */
-export const useProductName = () => useMinerStore((state) => state.systemInfo.product_name);
-
-export const useSerialNumber = () => useMinerStore((state) => state.systemInfo.cb_sn);
-
-export const useOSVersion = () => useMinerStore((state) => state.systemInfo.os?.version);
-
-export const useFwUpdateStatus = () => useMinerStore((state) => state.systemInfo.sw_update_status);
-
-/**
- * Hook to get the system info pending state
- */
-export const useSystemInfoPending = () => useMinerStore((state) => state.systemInfo.pending ?? false);
-
-/**
- * Hook to get the system info error
- */
-export const useSystemInfoError = () => useMinerStore((state) => state.systemInfo.error);
-
-/**
- * Hook to check if the device is a Proto Rig.
- *
- * Narrower than `useDeviceType`: this matches the specific "Proto Rig" product,
- * whereas `useDeviceType` returns "rig" for anything that isn't a container
- * module. Use `useDeviceType` for device-specific rendering.
- */
-export const useIsProtoRig = () => {
-  return useMinerStore((state) => {
-    return state.systemInfo.product_name === PROTO_RIG_PRODUCT_NAME;
-  });
-};
-
-/**
- * Hook to get the connected device type.
- *
- * Derived at the ingestion boundary (see `systemInfoSlice`) so this stays a
- * plain field read: the value is reference-stable, making it cheap enough to
- * call from every cell of a 312-ASIC grid. Defaults to "rig" before system
- * info arrives, matching how the UI already behaved.
- */
-export const useDeviceType = (): DeviceType => useMinerStore((state) => state.systemInfo.deviceType ?? "rig");
-
-/**
- * Hook to check if the web server is running
- * Returns true if we have system info data (meaning web server responded)
- */
-export const useIsWebServerRunning = () => {
-  return useMinerStore((state) => {
-    // If we have product_name or any other field, web server is running
-    const isRunning = !!state.systemInfo.product_name;
-    return isRunning;
-  });
-};
-
-/**
- * Hook to check if the mining driver is running
- */
-export const useIsMiningDriverRunning = () => {
-  return useMinerStore((state) => {
-    const miningDriverSwName = state.systemInfo.mining_driver_sw?.name;
-    const isRunning =
-      miningDriverSwName !== undefined &&
-      !/tcp connect error: Connection refused|Failed to connect to MinerDataApiClient/.test(miningDriverSwName);
-    return isRunning;
-  });
-};
-
-/**
- * Hook to check if a firmware update is available
- */
-export const useHasFirmwareUpdate = () => {
-  return useMinerStore((state) => {
-    return state.systemInfo.sw_update_status?.status === "available";
-  });
-};
-
-/**
- * Hook to check if firmware is currently installing
- * (includes downloading, downloaded, installing, confirming states)
- */
-export const useFirmwareUpdateInstalling = () => {
-  return useMinerStore((state) => {
-    const status = state.systemInfo.sw_update_status?.status;
+export const useSystemInfo = () => useMinerStore((state) => state.systemInfo.data);
+export const useProductName = () => useMinerStore((state) => state.systemInfo.data?.identity.productName);
+export const useSerialNumber = () => useMinerStore((state) => state.systemInfo.data?.identity.serialNumber);
+export const useOSVersion = () => useMinerStore((state) => state.systemInfo.data?.operatingSystem?.version);
+export const useFwUpdateStatus = () => useMinerStore((state) => state.systemInfo.data?.firmwareUpdate);
+export const useSystemInfoPending = () => useMinerStore((state) => state.systemInfo.resource.status === "loading");
+export const useSystemInfoError = () => useMinerStore((state) => resourceError(state.systemInfo.resource));
+export const useIsProtoRig = () =>
+  useMinerStore((state) => state.systemInfo.data?.identity.productName === "Proto Rig");
+export const useDeviceType = (): DeviceType =>
+  useMinerStore((state) => state.systemInfo.data?.identity.deviceType ?? "rig");
+export const useModuleModel = () => useMinerStore((state) => state.systemInfo.data?.moduleModel ?? "unknown");
+export const useIsWebServerRunning = () =>
+  useMinerStore((state) => state.systemInfo.data?.webServer?.health === "running");
+export const useIsMiningDriverRunning = () =>
+  useMinerStore((state) => state.systemInfo.data?.miningDriver?.health === "running");
+export const useHasFirmwareUpdate = () =>
+  useMinerStore((state) => state.systemInfo.data?.firmwareUpdate?.status === "available");
+export const useFirmwareUpdateInstalling = () =>
+  useMinerStore((state) => {
+    const status = state.systemInfo.data?.firmwareUpdate?.status;
     return status === "downloading" || status === "downloaded" || status === "installing" || status === "confirming";
   });
-};
 
-// =============================================================================
-// Action Hooks
-// =============================================================================
-
-/**
- * Hook to get the setSystemInfo action
- */
 export const useSetSystemInfo = () => useMinerStore((state) => state.systemInfo.setSystemInfo);
-
-/**
- * Hook to get the setError action
- */
 export const useSetSystemInfoError = () => useMinerStore((state) => state.systemInfo.setError);
-
-/**
- * Hook to get the setPending action
- */
 export const useSetSystemInfoPending = () => useMinerStore((state) => state.systemInfo.setPending);

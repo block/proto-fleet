@@ -1,3 +1,4 @@
+import { ROOT_MODULE_KEY } from "../contract";
 import useMinerStore from "../useMinerStore";
 
 // =============================================================================
@@ -8,7 +9,7 @@ import useMinerStore from "../useMinerStore";
  * Returns the pools info from the store
  */
 export const usePoolsInfo = () => {
-  return useMinerStore((state) => state.pools.poolsInfo);
+  return useMinerStore((state) => state.pools.byOwner.get(ROOT_MODULE_KEY));
 };
 
 // =============================================================================

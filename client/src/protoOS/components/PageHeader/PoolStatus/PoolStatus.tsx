@@ -3,14 +3,16 @@ import { useCallback, useMemo, useState } from "react";
 import PoolInfoPopover from "./PoolInfoPopover";
 import PoolWidget from "./PoolWidget";
 import { PoolInfo } from "./types";
-import { Pool } from "@/protoOS/api/generatedApi";
+import type { PoolInfo as NormalizedPoolInfo } from "@/protoOS/store/contract";
 import { useResponsivePopover } from "@/shared/components/Popover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+
+type PoolStatusEntry = Pick<NormalizedPoolInfo, "status" | "url"> & Partial<Pick<NormalizedPoolInfo, "priority">>;
 
 interface PoolStatusProps {
   loading?: boolean;
   onClickViewPools: () => void;
-  poolsInfo?: Pool[];
+  poolsInfo?: PoolStatusEntry[];
   shouldShowPopover?: boolean;
 }
 
@@ -21,7 +23,7 @@ const PoolStatus = ({ loading = false, onClickViewPools, poolsInfo, shouldShowPo
 
   const isAlive = useCallback(
     // TODO: remove alive when cgminer is removed
-    (pool?: Pool) => /alive|active/i.test(pool?.status ?? ""),
+    (pool?: Pick<NormalizedPoolInfo, "status">) => /alive|active/i.test(pool?.status ?? ""),
     [],
   );
 

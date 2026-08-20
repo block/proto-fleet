@@ -39,7 +39,7 @@ const SettingsMiningPools = () => {
         return {
           name: pool?.name || "",
           url: pool?.url || "",
-          username: pool?.user || "",
+          username: pool?.username || "",
           password: "",
           priority: pool?.priority || index,
         };

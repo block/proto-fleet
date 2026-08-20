@@ -26,7 +26,7 @@ const CheckForUpdate = () => {
 
   return (
     <>
-      {installing || updateStatus?.status === "available" || updateStatus?.status === "installed" ? (
+      {installing || updateStatus?.status === "available" || updateStatus?.status === "rebootRequired" ? (
         <Header
           title={statusLabelFromUpdateStatus(updateStatus, true)}
           testId="firmware-update-inline-status"
@@ -40,7 +40,7 @@ const CheckForUpdate = () => {
               text:
                 updateStatus?.status === "available" ? "Install" : convertToSentenceCase(updateStatus?.status || ""),
               variant: "secondary",
-              className: updateStatus?.status === "installed" ? "hidden" : "",
+              className: updateStatus?.status === "rebootRequired" ? "hidden" : "",
               disabled: installing || pendingUpdate,
               loading: installing || pendingUpdate,
               onClick: () => {
@@ -50,7 +50,7 @@ const CheckForUpdate = () => {
             {
               text: "Reboot",
               variant: "primary",
-              className: updateStatus?.status === "installed" ? "" : "hidden",
+              className: updateStatus?.status === "rebootRequired" ? "" : "hidden",
               loading: rebootPending,
               onClick: () => {
                 rebootSystem();

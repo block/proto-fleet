@@ -52,7 +52,7 @@ describe("useSystemStatus", () => {
     currentDefaultPasswordActive = undefined;
 
     (useMinerHosting as Mock).mockReturnValue({
-      api: {
+      adapter: {
         getSystemStatus: mockGetSystemStatus,
       },
     });
@@ -69,15 +69,10 @@ describe("useSystemStatus", () => {
     });
 
     mockGetStoreState.mockImplementation(() => ({
-      minerStatus: { defaultPasswordActive: currentDefaultPasswordActive },
+      minerStatus: { lifecycle: { defaultPasswordActive: currentDefaultPasswordActive } },
     }));
 
-    mockGetSystemStatus.mockResolvedValue({
-      data: {
-        onboarded: true,
-        password_set: true,
-      },
-    });
+    mockGetSystemStatus.mockResolvedValue({ onboarded: true, passwordSet: true });
   });
 
   test("stores onboarded and password_set from the status response", async () => {

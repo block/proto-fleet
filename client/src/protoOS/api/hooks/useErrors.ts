@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
-import { ErrorListResponse } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetErrors } from "@/protoOS/store";
+import { ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
-import type { MinerError } from "@/protoOS/store/types";
-import { transformErrors } from "@/protoOS/store/utils/errorTransformer";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 type UseErrorsProps = {
@@ -14,49 +13,33 @@ type UseErrorsProps = {
 };
 
 const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const { handleAuthErrors } = useAuthErrors();
-
-  const [data, setData] = useState<ErrorListResponse>();
+  const data = useMinerStore((state) => state.minerStatus.errorsByOwner.get(ROOT_MODULE_KEY));
   const [error, setError] = useState<string>();
-  const [pending, setPending] = useState<boolean>(false);
+  const [pending, setPending] = useState(false);
   const setErrors = useSetErrors();
 
   const fetchData = useCallback(() => {
-    if (!api) return;
+    if (!adapter) return;
 
     setPending(true);
-    api
+    setError(undefined);
+    return adapter
       .getErrors()
-      .then((res) => {
-        setData(res?.data);
-      })
+      .then(setErrors)
       .catch((err) => {
         handleAuthErrors({
           error: err,
-          onError: (e) => setError(e?.error?.message ?? "An error occurred"),
+          onError: (response) => setError(response?.error?.message ?? "An error occurred"),
         });
       })
-      .finally(() => {
-        setPending(false);
-      });
-  }, [api, handleAuthErrors]);
+      .finally(() => setPending(false));
+  }, [adapter, handleAuthErrors, setErrors]);
 
-  usePoll({
-    fetchData,
-    poll,
-    pollIntervalMs,
-  });
+  usePoll({ fetchData, poll, pollIntervalMs });
 
-  // Transform and update store whenever errors change
-  useEffect(() => {
-    const transformedErrors: MinerError[] = transformErrors(data);
-    setErrors(transformedErrors);
-  }, [data, setErrors]);
-
-  const response = useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
-
-  return response;
+  return useMemo(() => ({ fetchData, pending, error, data }), [fetchData, pending, error, data]);
 };
 
 export { useErrors };

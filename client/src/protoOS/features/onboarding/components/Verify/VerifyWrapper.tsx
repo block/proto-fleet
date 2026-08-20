@@ -20,8 +20,8 @@ const VerifyWrapper = () => {
     <OnboardingLayout>
       <Verify
         miner={{
-          macAddress: networkInfo?.mac || "Pending",
-          serialNumber: systemInfo?.cb_sn || "Pending",
+          macAddress: networkInfo?.macAddress || "Pending",
+          serialNumber: systemInfo?.identity.serialNumber || "Pending",
         }}
         handleContinueSetup={handleContinue}
       />

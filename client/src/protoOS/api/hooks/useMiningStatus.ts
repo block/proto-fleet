@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
-import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useSetMiningStatus } from "@/protoOS/store";
+import { useSetMiningStatus, useMiningStatus as useStoredMiningStatus } from "@/protoOS/store";
+import type { OperationalStatus } from "@/protoOS/store/contract";
 import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { usePoll } from "@/shared/hooks/usePoll";
 
-interface getMiningStatusProps {
-  onSuccess?: (res?: MiningStatusMiningstatus) => void;
+interface GetMiningStatusProps {
+  onSuccess?: (status?: OperationalStatus) => void;
 }
 
 type UseMiningStatusProps = {
@@ -17,50 +17,37 @@ type UseMiningStatusProps = {
 };
 
 const useMiningStatus = ({ enabled = true, poll = false, pollIntervalMs }: UseMiningStatusProps = {}) => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const { handleAuthErrors } = useAuthErrors();
-  const [data, setData] = useState<MiningStatusMiningstatus>();
+  const data = useStoredMiningStatus();
   const [error, setError] = useState<string>();
-  const [pending, setPending] = useState<boolean>(false);
+  const [pending, setPending] = useState(false);
   const setMiningStatus = useSetMiningStatus();
 
   const fetchData = useCallback(
-    ({ onSuccess }: getMiningStatusProps = {}) => {
-      if (!enabled || !api) return;
+    ({ onSuccess }: GetMiningStatusProps = {}) => {
+      if (!enabled || !adapter) return;
 
       setPending(true);
-      api
+      setError(undefined);
+      return adapter
         .getMiningStatus()
-        .then((res) => {
-          setData(res?.data["mining-status"]);
-          onSuccess?.(res?.data["mining-status"]);
+        .then((status) => {
+          setMiningStatus(status);
+          onSuccess?.(status);
         })
         .catch((err) => {
           handleAuthErrors({
             error: err,
-            onError: (e) => setError(e?.error?.message ?? "An error occurred"),
+            onError: (response) => setError(response?.error?.message ?? "An error occurred"),
           });
         })
-        .finally(() => {
-          setPending(false);
-        });
+        .finally(() => setPending(false));
     },
-    [api, enabled, handleAuthErrors],
+    [adapter, enabled, handleAuthErrors, setMiningStatus],
   );
 
-  usePoll({
-    fetchData,
-    enabled,
-    poll,
-    pollIntervalMs,
-  });
-
-  // Update store whenever mining status changes
-  useEffect(() => {
-    if (data !== undefined) {
-      setMiningStatus(data);
-    }
-  }, [data, setMiningStatus]);
+  usePoll({ fetchData, enabled, poll, pollIntervalMs });
 
   return useMemo(() => ({ fetchData, data, pending, error }), [fetchData, data, pending, error]);
 };

@@ -288,7 +288,7 @@ const App = ({
 
   const isUpdateInProgress = useFirmwareUpdateInstalling();
   const fwUpdateStatus = useFwUpdateStatus();
-  const currentVersion = fwUpdateStatus?.current_version;
+  const currentVersion = fwUpdateStatus?.currentVersion;
 
   // Detect when firmware update enters an in-progress state
   // (downloading, downloaded, installing, or confirming)

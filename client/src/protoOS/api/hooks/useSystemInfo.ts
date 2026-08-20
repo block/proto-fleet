@@ -29,7 +29,7 @@ interface UseSystemInfoProps {
  */
 
 const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
-  const { api } = useMinerHosting();
+  const { adapter } = useMinerHosting();
   const setSystemInfo = useSetSystemInfo();
   const setSystemInfoError = useSetSystemInfoError();
   const setSystemInfoPending = useSetSystemInfoPending();
@@ -39,18 +39,17 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
   const isFetchingRef = useRef<boolean>(false);
 
   const fetchData = useCallback(() => {
-    if (!api || isFetchingRef.current) {
+    if (!adapter || isFetchingRef.current) {
       return;
     }
 
     isFetchingRef.current = true;
     setSystemInfoPending(true);
 
-    api
+    adapter
       .getSystemInfo()
-      .then((res) => {
-        const responseData = res?.data["system-info"];
-        setSystemInfo(responseData);
+      .then((systemInfo) => {
+        setSystemInfo(systemInfo);
         setSystemInfoPending(false);
       })
       .catch((err) => {
@@ -59,7 +58,7 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
       .finally(() => {
         isFetchingRef.current = false;
       });
-  }, [api, setSystemInfo, setSystemInfoError, setSystemInfoPending]);
+  }, [adapter, setSystemInfo, setSystemInfoError, setSystemInfoPending]);
 
   const reload = useCallback(() => {
     if (isFetchingRef.current) return;

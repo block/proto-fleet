@@ -1,18 +1,20 @@
 import PoolInfoRow from "./PoolInfoRow";
 import { PoolInfo } from "./types";
 import { getTexts } from "./utility";
-import { Pool } from "@/protoOS/api/generatedApi";
+import type { PoolInfo as NormalizedPoolInfo } from "@/protoOS/store/contract";
 import { Alert, Success } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Card, { cardType } from "@/shared/components/Card";
 import Popover from "@/shared/components/Popover";
 import { positions } from "@/shared/constants";
 
+type PoolStatusEntry = Pick<NormalizedPoolInfo, "status" | "url"> & Partial<Pick<NormalizedPoolInfo, "priority">>;
+
 interface PoolInfoPopoverProps {
   isConnected: boolean;
   onClickViewPools: () => void;
   poolInfo?: PoolInfo;
-  poolsInfo?: Pool[];
+  poolsInfo?: PoolStatusEntry[];
 }
 
 const PoolInfoPopover = ({ isConnected, onClickViewPools, poolInfo, poolsInfo }: PoolInfoPopoverProps) => {
