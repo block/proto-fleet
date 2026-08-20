@@ -224,11 +224,11 @@ const AddMaintenanceWindowModal = ({
       return;
     }
     if (new Date(ends).getTime() - new Date(starts).getTime() > MAX_MAINTENANCE_WINDOW_DURATION_MS) {
-      setErrorMsg("Maintenance windows cannot exceed 30 days");
+      setErrorMsg("Quiet periods cannot exceed 30 days");
       return;
     }
     if (ruleMode === "all" && channelMode === "all" && !confirmedAllAlertingMute) {
-      setErrorMsg("Confirm that no alerts will be delivered during this window");
+      setErrorMsg("Confirm that no alerts will be delivered during this quiet period");
       return;
     }
     if (ruleMode === "selected" && liveRuleIds.size === 0) {
@@ -236,7 +236,7 @@ const AddMaintenanceWindowModal = ({
       return;
     }
     if (channelMode === "selected" && liveChannelIds.size === 0) {
-      setErrorMsg("Pick at least one channel, or use All channels");
+      setErrorMsg("Pick at least one destination, or use All destinations");
       return;
     }
 
@@ -252,15 +252,15 @@ const AddMaintenanceWindowModal = ({
     try {
       if (isEditing && editingMaintenanceWindow) {
         await updateMaintenanceWindow({ id: editingMaintenanceWindow.id, ...payload });
-        pushToast({ message: "Maintenance window updated", status: STATUSES.success });
+        pushToast({ message: "Quiet period updated", status: STATUSES.success });
       } else {
         await createMaintenanceWindow(payload);
-        pushToast({ message: "Maintenance window saved", status: STATUSES.success });
+        pushToast({ message: "Quiet period saved", status: STATUSES.success });
       }
       onDismiss();
     } catch (error) {
       pushToast({
-        message: getErrorMessage(error, "Failed to save maintenance window"),
+        message: getErrorMessage(error, "Failed to save quiet period"),
         status: STATUSES.error,
       });
       setSaving(false);
@@ -285,11 +285,11 @@ const AddMaintenanceWindowModal = ({
     <Modal
       open={open}
       onDismiss={onDismiss}
-      title={isEditing ? "Edit maintenance window" : "Add maintenance window"}
+      title={isEditing ? "Edit quiet period" : "Add quiet period"}
       description="Mute alert delivery during planned work. Alerts still show up in history."
       buttons={[
         {
-          text: saving ? "Saving…" : "Save maintenance window",
+          text: saving ? "Saving…" : "Save quiet period",
           onClick: () => {
             void handleSave();
           },
@@ -325,8 +325,8 @@ const AddMaintenanceWindowModal = ({
         <TargetPicker
           key={`channels-${syncKey ?? ""}`}
           segments={[
-            { key: "all", title: "All channels" },
-            { key: "selected", title: "Selected channels" },
+            { key: "all", title: "All destinations" },
+            { key: "selected", title: "Selected destinations" },
           ]}
           mode={channelMode}
           onModeChange={(mode) => {
@@ -334,10 +334,12 @@ const AddMaintenanceWindowModal = ({
             setConfirmedAllAlertingMute(false);
             clearError();
           }}
-          allHint="Delivery is muted on every channel, including channels added later."
+          allHint="Delivery is muted on every destination, including destinations added later."
           options={channelOptions}
           emptyMessage={
-            channelsLoaded ? "No channels yet — add one in the Channels section first." : "Loading channels…"
+            channelsLoaded
+              ? "No destinations yet — add one in the Destinations section first."
+              : "Loading destinations…"
           }
           selectedIds={liveChannelIds}
           onToggle={toggleChannel}
@@ -349,7 +351,7 @@ const AddMaintenanceWindowModal = ({
               intent="warning"
               prefixIcon={<Alert />}
               title="This mutes all alerting"
-              subtitle="No alert reaches any channel while this window is active."
+              subtitle="No alert reaches any destination while this quiet period is active."
             />
             <label className="flex cursor-pointer items-center gap-3 text-300 text-text-primary">
               <Checkbox
@@ -359,14 +361,14 @@ const AddMaintenanceWindowModal = ({
                   clearError();
                 }}
               />
-              I understand that no alerts will be delivered during this window.
+              I understand that no alerts will be delivered during this quiet period.
             </label>
           </div>
         ) : null}
 
         <SinglePickerField
           id="maintenance-window-quick"
-          label="Quick window"
+          label="Quick period"
           options={MAINTENANCE_WINDOW_QUICK_OPTIONS}
           value={quick}
           placeholder="Custom"

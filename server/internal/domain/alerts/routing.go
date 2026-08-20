@@ -100,14 +100,14 @@ func (s *Service) resolveRoutePolicy(ctx context.Context, orgID int64, mode Rout
 	switch mode {
 	case RouteModeDefault, RouteModeNone:
 		if len(channelIDs) > 0 {
-			return nil, fleeterror.NewInvalidArgumentErrorf("channel_ids must be empty for %s routing", mode)
+			return nil, fleeterror.NewInvalidArgumentErrorf("destinations must be empty for %s routing", mode)
 		}
 	case RouteModeCustom:
 		if len(channelIDs) == 0 {
-			return nil, fleeterror.NewInvalidArgumentError("custom routing requires at least one channel")
+			return nil, fleeterror.NewInvalidArgumentError("custom routing requires at least one destination")
 		}
 		if len(channelIDs) > maxRouteChannels {
-			return nil, fleeterror.NewInvalidArgumentErrorf("too many channels: %d (max %d)", len(channelIDs), maxRouteChannels)
+			return nil, fleeterror.NewInvalidArgumentErrorf("too many destinations: %d (max %d)", len(channelIDs), maxRouteChannels)
 		}
 	default:
 		return nil, fleeterror.NewInvalidArgumentErrorf("unknown routing mode: %q", mode)
@@ -141,7 +141,7 @@ func (s *Service) resolveOrgChannelIDs(ctx context.Context, orgID int64, channel
 	for _, raw := range channelIDs {
 		id, err := parseRowID(raw)
 		if err != nil || !owned[id] {
-			return nil, fleeterror.NewInvalidArgumentErrorf("unknown channel id: %q", raw)
+			return nil, fleeterror.NewInvalidArgumentErrorf("unknown destination id: %q", raw)
 		}
 		if seen[id] {
 			continue

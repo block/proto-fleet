@@ -12,7 +12,7 @@ import (
 // Slack limits: section text ≤3000, ≤50 blocks per message.
 const (
 	slackSectionMaxRunes = 2900
-	// Cap alert sections so title + heading + overflow line stay under Slack's 50-block limit.
+	// Cap alert sections so the title and overflow line stay under Slack's 50-block limit.
 	slackMaxAlertSections = 40
 	// Keep the instance name from crowding the alert counts out of the truncated title.
 	slackInstanceMaxRunes = 50
@@ -40,22 +40,17 @@ func renderSlack(publicURL string, alerts []Alert, identities map[string]DeviceI
 
 	blocks := []map[string]any{mrkdwnSection("*" + slackTitle(linked, firingGroups, firingDevices) + "*")}
 	remaining := slackMaxAlertSections
-	appendGroups := func(groups []alertGroup) {
+	appendGroups := func(groups []alertGroup, resolved bool) {
 		for _, g := range groups {
 			if remaining <= 0 {
 				return
 			}
-			blocks = append(blocks, mrkdwnSection(groupLine(g, identities)))
+			blocks = append(blocks, mrkdwnSection(groupLine(g, identities, resolved)))
 			remaining--
 		}
 	}
-	// Firing groups need no heading — the title already says how many are firing — but resolved ones do,
-	// since nothing else separates them from the alerts still up.
-	appendGroups(firingGroups)
-	if len(resolvedGroups) > 0 && remaining > 0 {
-		blocks = append(blocks, mrkdwnSection("*Resolved*"))
-		appendGroups(resolvedGroups)
-	}
+	appendGroups(firingGroups, false)
+	appendGroups(resolvedGroups, true)
 	if overflow := len(firingGroups) + len(resolvedGroups) - slackMaxAlertSections; overflow > 0 {
 		blocks = append(blocks, mrkdwnSection(fmt.Sprintf("_…and %d more — open Proto Fleet for the full list._", overflow)))
 	}
@@ -113,10 +108,14 @@ func slackTitle(instance string, firing []alertGroup, firingDevices int) string 
 
 // groupLine renders one rule's rollup for Slack: the alert, its blast radius, and enough miner names to act on.
 // Labels are escaped here, not in the rollup, so a non-Slack renderer formats the same group its own way.
-func groupLine(g alertGroup, identities map[string]DeviceIdentity) string {
+func groupLine(g alertGroup, identities map[string]DeviceIdentity, resolved bool) string {
 	var b strings.Builder
-	b.WriteString("*" + escapeMrkdwn(g.Name) + "*")
-	if g.Severity != "" {
+	if resolved {
+		b.WriteString("*Resolved: " + escapeMrkdwn(g.Name) + "*")
+	} else {
+		b.WriteString("*" + escapeMrkdwn(g.Name) + "*")
+	}
+	if !resolved && g.Severity != "" {
 		b.WriteString(" _(" + escapeMrkdwn(g.Severity) + ")_")
 	}
 	switch {
@@ -140,11 +139,15 @@ func groupLine(g alertGroup, identities map[string]DeviceIdentity) string {
 			b.WriteString(fmt.Sprintf(" and %d more", more))
 		}
 	}
-	for _, summary := range g.Summaries {
-		b.WriteString("\n" + escapeMrkdwn(summary))
-	}
-	if more := g.SummaryCount - len(g.Summaries); more > 0 {
-		b.WriteString(fmt.Sprintf("\n_…and %d more_", more))
+	// Miner-backed resolutions are identifiable from their miner labels and stay terse. Device-less alerts
+	// often identify their source or host only in the summary, so retain those summaries on resolution.
+	if !resolved || g.DeviceCount == 0 {
+		for _, summary := range g.Summaries {
+			b.WriteString("\n" + escapeMrkdwn(summary))
+		}
+		if more := g.SummaryCount - len(g.Summaries); more > 0 {
+			b.WriteString(fmt.Sprintf("\n_…and %d more_", more))
+		}
 	}
 	return b.String()
 }
@@ -171,7 +174,7 @@ func mrkdwnSection(text string) map[string]any {
 // Miners named inline per alert before the "+N more" tail; the app holds the full list.
 const groupSampleDevices = 3
 
-// Distinct summaries named inline before the "+N more" tail, for rules that interpolate the firing instance.
+// Distinct summaries named inline before the "+N more" tail, for rules that interpolate the alert instance.
 const groupSampleSummaries = 3
 
 // alertGroup is one rule's rollup within a delivery batch. Every outward-facing renderer groups through it, so
@@ -348,11 +351,11 @@ func renderWebhook(orgID int64, alerts []Alert, identities map[string]DeviceIden
 		return out
 	}
 	return map[string]any{
-		"organization_id": orgID,
-		"firing":          convert(firing),
-		"resolved":        convert(resolved),
-		"firing_groups":   convertGroups(firing),
-		"resolved_groups": convertGroups(resolved),
+		"organization_id":   orgID,
+		"firing":            convert(firing),
+		alertStatusResolved: convert(resolved),
+		"firing_groups":     convertGroups(firing),
+		"resolved_groups":   convertGroups(resolved),
 	}
 }
 

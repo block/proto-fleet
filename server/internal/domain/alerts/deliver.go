@@ -23,6 +23,8 @@ const perSendTimeout = 10 * time.Second
 // maxDeliveryConcurrency bounds in-flight sends per org so one slow channel can't starve the rest.
 const maxDeliveryConcurrency = 8
 
+const alertStatusResolved = "resolved"
+
 // Alert is one alert instance from a Grafana webhook batch, reduced to what delivery needs.
 type Alert struct {
 	Status      string
@@ -240,7 +242,7 @@ func dropMutedAlerts(alerts []Alert, muted map[string]bool, muteAll bool) []Aler
 		return alerts
 	}
 	isMuted := func(a Alert) bool {
-		if a.Status == "resolved" {
+		if a.Status == alertStatusResolved {
 			return false
 		}
 		return muteAll || (a.RuleUID != "" && muted[a.RuleUID])
@@ -461,7 +463,7 @@ func (d *Deliverer) post(ctx context.Context, rawURL, bearer string, body []byte
 // firing/resolved partition, stable by alertname then device for a deterministic message.
 func partitionAlerts(alerts []Alert) (firing, resolved []Alert) {
 	for _, a := range alerts {
-		if a.Status == "resolved" {
+		if a.Status == alertStatusResolved {
 			resolved = append(resolved, a)
 		} else {
 			firing = append(firing, a)

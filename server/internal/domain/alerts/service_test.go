@@ -135,6 +135,9 @@ func TestValidateChannelNameRejectsTransientPattern(t *testing.T) {
 	err := validateChannelName("test-550e8400-e29b-41d4-a716-446655440000")
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, "destination name may not match the reserved transient test-receiver pattern", fleetErr.DebugMessage)
 }
 
 func TestRedactWebhookURL(t *testing.T) {
@@ -400,6 +403,9 @@ func TestMaintenanceWindowRejectsUnknownChannel(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err), "want InvalidArgument, got %v", err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, `unknown destination id: "999"`, fleetErr.DebugMessage)
 	assert.Empty(t, windows.rows, "window with an unknown channel must not persist")
 }
 

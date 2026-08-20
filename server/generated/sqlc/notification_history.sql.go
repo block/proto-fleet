@@ -479,6 +479,7 @@ LEFT JOIN device d
     AND d.deleted_at IS NULL
 LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
 WHERE nh.organization_id = $1
+  AND nh.status <> 'resolved'
   AND ($2::bigint IS NULL OR nh.id < $2)
 ORDER BY nh.id DESC
 LIMIT $3
@@ -508,6 +509,8 @@ type ListNotificationHistoryRow struct {
 	EndsAt         sql.NullTime
 }
 
+// Resolution rows remain stored so the notification_active trigger can close firing alerts,
+// but the activity feed records only the alert firing event.
 func (q *Queries) ListNotificationHistory(ctx context.Context, arg ListNotificationHistoryParams) ([]ListNotificationHistoryRow, error) {
 	rows, err := q.query(ctx, q.listNotificationHistoryStmt, listNotificationHistory, arg.OrganizationID, arg.BeforeID, arg.PageLimit)
 	if err != nil {

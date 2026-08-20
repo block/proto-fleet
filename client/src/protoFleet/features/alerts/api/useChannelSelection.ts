@@ -35,7 +35,7 @@ export function useChannelSelection(active: boolean): UseChannelSelectionResult 
         // one transient failure. Toggling back into the selected mode retries instead.
         sessionFetchedRef.current = false;
         pushToast({
-          message: getErrorMessage(error, "Failed to load channels"),
+          message: getErrorMessage(error, "Failed to load destinations"),
           status: STATUSES.error,
         });
       });
