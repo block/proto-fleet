@@ -72,3 +72,26 @@ describe("MdkV1Adapter.getTimeSeries", () => {
     ).rejects.toThrow("valid positive interval");
   });
 });
+
+describe("MdkV1Adapter.getCurrentTelemetry", () => {
+  test("passes telemetry levels as an array so the client serializes repeated params", async () => {
+    const getCurrentTelemetry = vi.fn().mockResolvedValue({ data: {} });
+    const adapter = new MdkV1Adapter({ getCurrentTelemetry } as never);
+
+    await adapter.getCurrentTelemetry(["miner", "hashboard"]);
+
+    // Must stay an array: the generated client serializes arrays as repeated
+    // `level=` params. A comma-joined string would send a single value the
+    // server can't match against the enum, silently dropping hashboard data.
+    expect(getCurrentTelemetry).toHaveBeenCalledWith({ level: ["miner", "hashboard"] }, {});
+  });
+
+  test("omits the level param entirely when no levels are requested", async () => {
+    const getCurrentTelemetry = vi.fn().mockResolvedValue({ data: {} });
+    const adapter = new MdkV1Adapter({ getCurrentTelemetry } as never);
+
+    await adapter.getCurrentTelemetry([]);
+
+    expect(getCurrentTelemetry).toHaveBeenCalledWith({ level: undefined }, {});
+  });
+});

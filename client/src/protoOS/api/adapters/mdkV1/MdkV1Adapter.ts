@@ -94,10 +94,7 @@ export class MdkV1Adapter implements MinerAdapter {
   }
 
   async getCurrentTelemetry(levels: TelemetryLevel[] = [], params: AdapterRequestOptions = {}) {
-    const response = await this.client.getCurrentTelemetry(
-      { level: levels.length ? (levels.join(",") as never) : undefined },
-      params,
-    );
+    const response = await this.client.getCurrentTelemetry({ level: levels.length ? levels : undefined }, params);
     return toCanonicalTelemetry(response.data);
   }
 
