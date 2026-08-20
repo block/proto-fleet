@@ -635,7 +635,7 @@ const Updates = () => {
               <div className="text-heading-300 text-text-primary">Fleet {release.version} available</div>
               {!currentStatus?.oneClickAvailable ? (
                 <p className="text-300 text-text-primary-70">
-                  In-app updates aren't available for this release. Install it manually instead.
+                  In-app updates aren't available on this Fleet. Install it manually instead.
                 </p>
               ) : null}
               {release.releaseNotesUrl ? (

@@ -226,7 +226,7 @@ describe("Updates", () => {
     expect(screen.getByTestId("available-update-lockup")).toBeInTheDocument();
     expect(screen.getByTestId("available-update-animation")).toBeInTheDocument();
     expect(
-      getByText("In-app updates aren't available for this release. Install it manually instead."),
+      getByText("In-app updates aren't available on this Fleet. Install it manually instead."),
     ).toBeInTheDocument();
     expect(screen.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
     expect(
