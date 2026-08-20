@@ -225,7 +225,9 @@ describe("Updates", () => {
     expect(getByText("Fleet v1.3.0 available")).toBeInTheDocument();
     expect(screen.getByTestId("available-update-lockup")).toBeInTheDocument();
     expect(screen.getByTestId("available-update-animation").tagName).toBe("CANVAS");
-    expect(getByText("Use manual install to update this Fleet.")).toBeInTheDocument();
+    expect(
+      getByText("In-app updates aren't available for this release. Install it manually instead."),
+    ).toBeInTheDocument();
     expect(screen.queryByText(INSTALL_COMMAND)).not.toBeInTheDocument();
     expect(
       within(screen.getByTestId("available-update-lockup")).getByRole("button", { name: "Install manually" }),
@@ -242,7 +244,7 @@ describe("Updates", () => {
     fireEvent.click(await page.findByRole("button", { name: "Update now" }));
 
     expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent(
-      "Fleet validates this release before restarting.",
+      "Fleet will be unavailable for a few minutes while it updates.",
     );
     expect(upgradeHookMock.current.triggerUpgrade).not.toHaveBeenCalled();
 
@@ -267,7 +269,8 @@ describe("Updates", () => {
 
     expect(await page.findByTestId("active-update-lockup")).toBeInTheDocument();
     expect(page.getByText("Updating Fleet to v1.3.0")).toBeInTheDocument();
-    expect(page.getByText("Validating v1.3.0")).toBeInTheDocument();
+    expect(page.getByText("Checking update")).toBeInTheDocument();
+    expect(page.queryByText("Validating v1.3.0")).not.toBeInTheDocument();
     expect(page.getByTestId("update-status-spinner")).toBeInTheDocument();
     expect(page.getByRole("button", { name: "Updating" })).toBeEnabled();
     expect(page.queryByRole("button", { name: "Update now" })).not.toBeInTheDocument();
@@ -276,7 +279,9 @@ describe("Updates", () => {
 
     expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument();
     fireEvent.click(page.getByRole("button", { name: "Updating" }));
-    expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent("Validating v1.3.0");
+    expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent("Updating Fleet to v1.3.0");
+    expect(page.getByTestId("upgrade-operation-modal")).toHaveTextContent("Checking update");
+    expect(page.getByTestId("upgrade-operation-modal")).not.toHaveTextContent("Validating v1.3.0");
   });
 
   it.each([
@@ -461,7 +466,7 @@ describe("Updates", () => {
 
     expect(upgradeHookMock.current.acknowledgeOperation).toHaveBeenCalledTimes(1);
     expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
-    expect(page.getByText("Update complete")).toBeInTheDocument();
+    expect(within(page.getByTestId("update-status-lockup")).getByText("Update complete")).toBeInTheDocument();
 
     await act(async () => {
       acknowledgement.resolve();
@@ -496,7 +501,7 @@ describe("Updates", () => {
       ),
     );
     expect(upgradeHookMock.current.reloadFleet).not.toHaveBeenCalled();
-    expect(page.getByText("Update complete")).toBeInTheDocument();
+    expect(within(page.getByTestId("update-status-lockup")).getByText("Update complete")).toBeInTheDocument();
     expect(page.getByRole("button", { name: "Relaunch" })).toBeEnabled();
   });
 
@@ -533,7 +538,7 @@ describe("Updates", () => {
     const page = render(<Updates />);
 
     expect(await page.findByText("v1.2.0")).toBeInTheDocument();
-    expect(page.getByText("No action needed. We're confirming that the host started the update.")).toBeInTheDocument();
+    expect(page.getByText("We're checking whether the update started.")).toBeInTheDocument();
     expect(page.queryByRole("button", { name: "Install manually" })).not.toBeInTheDocument();
     expect(page.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeDisabled();
     expect(page.queryByRole("button", { name: "View update details" })).not.toBeInTheDocument();
@@ -549,7 +554,7 @@ describe("Updates", () => {
     mockGetUpdateStatus.mockReturnValueOnce(refreshedStatus.promise);
 
     const page = render(<Updates />);
-    expect(await page.findByText("Update needs host confirmation")).toBeInTheDocument();
+    expect(await page.findByText("Checking update status")).toBeInTheDocument();
     fireEvent.click(page.getByRole("button", { name: "Use manual install" }));
     expect(upgradeHookMock.current.useManualFallback).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
@@ -652,8 +657,8 @@ describe("Updates", () => {
 
     const page = render(<Updates />);
 
-    expect(await page.findByText("Confirming update with host")).toBeInTheDocument();
-    expect(page.getByText("No action needed. We're confirming that the host started the update.")).toBeInTheDocument();
+    expect(await page.findByText("Checking update status")).toBeInTheDocument();
+    expect(page.getByText("We're checking whether the update started.")).toBeInTheDocument();
     expect(page.queryByTestId("upgrade-operation-modal")).not.toBeInTheDocument();
   });
 
@@ -666,7 +671,7 @@ describe("Updates", () => {
       .mockReturnValueOnce(refreshedStatus.promise);
 
     const page = render(<Updates />);
-    expect(await page.findByText("Confirming update with host")).toBeInTheDocument();
+    expect(await page.findByText("Checking update status")).toBeInTheDocument();
 
     upgradeHookMock.current = { ...upgradeHookMock.current, reconciling: false };
     page.rerender(<Updates />);
@@ -701,7 +706,7 @@ describe("Updates", () => {
       .mockReturnValueOnce(failedRefresh.promise);
 
     const page = render(<Updates />);
-    expect(await page.findByText("Confirming update with host")).toBeInTheDocument();
+    expect(await page.findByText("Checking update status")).toBeInTheDocument();
 
     upgradeHookMock.current = { ...upgradeHookMock.current, reconciling: false };
     page.rerender(<Updates />);
@@ -860,7 +865,7 @@ describe("Updates", () => {
     );
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith({
-        message: "Release channel saved",
+        message: "Release candidates turned on",
         status: "success",
       }),
     );
@@ -883,6 +888,10 @@ describe("Updates", () => {
       { timeoutMs: RELEASE_CHANNEL_SAVE_TIMEOUT_MS },
     );
     await waitFor(() => expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked());
+    expect(mockPushToast).toHaveBeenCalledWith({
+      message: "Release candidates turned off",
+      status: "success",
+    });
   });
 
   it("refetches the update status after a successful channel change", async () => {
@@ -1142,7 +1151,7 @@ describe("Updates", () => {
     expect(await remountedPage.findByText("Fleet v1.4.0-rc.1 available")).toBeInTheDocument();
     expect(remountedPage.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked();
     expect(mockPushToast).not.toHaveBeenCalledWith({
-      message: "Release channel saved",
+      message: "Release candidates turned on",
       status: "success",
     });
   });
@@ -1218,11 +1227,11 @@ describe("Updates", () => {
     expect(await findByText("We couldn't load update status")).toBeInTheDocument();
     expect(await findByText("refresh failed after save")).toBeInTheDocument();
     expect(mockPushToast).toHaveBeenCalledWith({
-      message: "Release channel saved",
+      message: "Release candidates turned on",
       status: "success",
     });
     expect(mockPushToast).not.toHaveBeenCalledWith({
-      message: "We couldn't update the release channel",
+      message: "We couldn't update the release candidate setting",
       status: "error",
     });
   });

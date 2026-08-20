@@ -1,3 +1,4 @@
+import { getUpgradeProgressCopy } from "./upgradeProgressCopy";
 import {
   type ReleaseInfo,
   type UpgradeOperation,
@@ -33,22 +34,26 @@ export interface UpgradeOperationModalProps {
 const ReconciliationPanel = () => (
   <div role="alert" aria-live="polite" aria-atomic="true" className="space-y-3">
     <p className="text-300 text-text-primary">
-      We couldn't confirm whether the update started. Check the host and make sure no update is running before you use
-      manual install.
+      We couldn't confirm whether the update started. Before installing manually, check whether the host is already
+      updating.
     </p>
   </div>
 );
 
 interface ActiveUpgradePanelProps {
   connectionLost: boolean;
+  phase: UpgradePhase;
 }
 
-const ActiveUpgradePanel = ({ connectionLost }: ActiveUpgradePanelProps) => (
+const ActiveUpgradePanel = ({ connectionLost, phase }: ActiveUpgradePanelProps) => (
   <div role="status" aria-live="polite" aria-atomic="true" className="space-y-3">
+    <p className="text-300 text-text-primary-70">{getUpgradeProgressCopy(phase)}…</p>
     {connectionLost ? (
-      <p className="text-300 text-text-primary-70">Fleet will reconnect after services restart.</p>
+      <p className="text-300 text-text-primary-70">Fleet will reconnect when the update finishes.</p>
     ) : (
-      <p className="text-300 text-text-primary-70">You can close this dialog while the update runs.</p>
+      <p className="text-300 text-text-primary-70">
+        This may take a few minutes. You can close this dialog while it runs.
+      </p>
     )}
   </div>
 );
@@ -103,16 +108,9 @@ const SucceededUpgradePanel = ({ operation }: { operation: UpgradeOperation }) =
 
 const UpgradeConfirmationPanel = ({ release }: { release: ReleaseInfo }) => (
   <div className="space-y-3">
-    <p className="text-300 text-text-primary-70">
-      Fleet validates this release before restarting. The instance will be offline for a few minutes while services
-      restart and database migrations run.
-    </p>
+    <p className="text-300 text-text-primary-70">Fleet will be unavailable for a few minutes while it updates.</p>
     {release.prerelease ? (
-      <Callout
-        intent="danger"
-        prefixIcon={<Alert />}
-        title="You can't return to an earlier release after this update."
-      />
+      <p className="text-300 text-text-primary-70">You can't return to an earlier release after this update.</p>
     ) : null}
   </div>
 );
@@ -136,7 +134,7 @@ const UpgradeOperationContent = ({
     if (manualFallbackReady) {
       return <ReconciliationPanel />;
     }
-    return operation ? <ActiveUpgradePanel connectionLost={connectionLost} /> : null;
+    return operation ? <ActiveUpgradePanel connectionLost={connectionLost} phase={operation.phase} /> : null;
   }
   if (!operation) {
     return release ? <UpgradeConfirmationPanel release={release} /> : null;
@@ -147,7 +145,7 @@ const UpgradeOperationContent = ({
   if (operation.phase === UpgradePhase.SUCCEEDED) {
     return <SucceededUpgradePanel operation={operation} />;
   }
-  return <ActiveUpgradePanel connectionLost={connectionLost} />;
+  return <ActiveUpgradePanel connectionLost={connectionLost} phase={operation.phase} />;
 };
 
 interface GetModalButtonsOptions {
@@ -296,9 +294,10 @@ const getDialogVisual = ({
       title: "Update complete",
     };
   }
+  const version = operation.targetVersion || targetVersion;
   return {
     icon: <ProgressCircular indeterminate />,
-    title: operation.message || `Updating Fleet to ${operation.targetVersion || targetVersion}`,
+    title: version ? `Updating Fleet to ${version}` : "Updating Fleet",
   };
 };
 

@@ -86,10 +86,13 @@ describe("UpgradeOperationModal", () => {
     await waitFor(() => expect(onUpgrade).toHaveBeenCalledWith("v1.3.0"));
   });
 
-  it("gives release candidates a strong forward-only migration warning", () => {
+  it("renders the release-candidate warning as supporting text", () => {
     renderModal({ release: release("v1.3.0-rc.2", true) });
 
-    expect(screen.getByTestId("callout")).toHaveTextContent(/return to an earlier release/);
+    expect(screen.getByText("You can't return to an earlier release after this update.")).toHaveClass(
+      "text-text-primary-70",
+    );
+    expect(screen.queryByTestId("callout")).not.toBeInTheDocument();
   });
 
   it("keeps a long-running upgrade dismissible", () => {
@@ -99,7 +102,12 @@ describe("UpgradeOperationModal", () => {
       operation: operation(UpgradePhase.PREFLIGHT, { message: "Validating the new stack" }),
     });
 
-    expect(screen.getByRole("status")).toHaveTextContent("You can close this dialog while the update runs.");
+    expect(screen.getByTestId("upgrade-operation-modal")).toHaveTextContent("Updating Fleet to v1.3.0");
+    expect(screen.getByRole("status")).toHaveTextContent("Checking update…");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This may take a few minutes. You can close this dialog while it runs.",
+    );
+    expect(screen.getByTestId("upgrade-operation-modal")).not.toHaveTextContent("Validating the new stack");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(onDismiss).toHaveBeenCalledOnce();
   });
@@ -111,7 +119,10 @@ describe("UpgradeOperationModal", () => {
     });
 
     expect(screen.getByTestId("upgrade-operation-modal")).toHaveTextContent("Checking update to v1.3.0");
-    expect(screen.getByRole("status")).toHaveTextContent("You can close this dialog while the update runs.");
+    expect(screen.getByRole("status")).toHaveTextContent("Checking update…");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "This may take a few minutes. You can close this dialog while it runs.",
+    );
   });
 
   it("announces the expected reconnect state", () => {
@@ -122,7 +133,8 @@ describe("UpgradeOperationModal", () => {
 
     const status = screen.getByRole("status");
     expect(status).toHaveAttribute("aria-live", "polite");
-    expect(status).toHaveTextContent(/will reconnect after services restart/);
+    expect(status).toHaveTextContent("Restarting Fleet…");
+    expect(status).toHaveTextContent(/will reconnect when the update finishes/);
   });
 
   it("requires explicit host confirmation before unlocking a manual fallback", () => {

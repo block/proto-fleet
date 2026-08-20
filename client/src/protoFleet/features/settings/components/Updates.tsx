@@ -11,6 +11,7 @@ import ManualInstallModal from "@/protoFleet/features/settings/components/Manual
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import UpgradeOperationModal from "@/protoFleet/features/settings/components/UpgradeOperationModal";
+import { getUpgradeProgressCopy } from "@/protoFleet/features/settings/components/upgradeProgressCopy";
 import {
   getUpgradeOperationOutcomeKey,
   isUpgradeActive,
@@ -38,7 +39,8 @@ const INSTANCE_UPDATE_PERMISSION = "instance:update";
 const UPDATE_STATUS_REQUEST_TIMEOUT_MS = 10_000;
 const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
-const UPDATES_PAGE_DESCRIPTION = "View the server version, choose eligible releases, and update this instance.";
+const UPDATES_PAGE_DESCRIPTION =
+  "View your Fleet version, install updates, and choose whether to include release candidates.";
 
 interface UpdateStatusLockupProps {
   action?: ReactNode;
@@ -394,7 +396,7 @@ const Updates = () => {
         const shouldUpdatePage = isMounted.current;
         handleRequestError(err, shouldUpdatePage, () => {
           pushToast({
-            message: getErrorMessage(err, "We couldn't update the release channel"),
+            message: getErrorMessage(err, "We couldn't update the release candidate setting"),
             status: STATUSES.error,
           });
         });
@@ -409,7 +411,7 @@ const Updates = () => {
       if (saveSucceeded) {
         setChannel(nextChannel);
         pushToast({
-          message: "Release channel saved",
+          message: includeRC ? "Release candidates turned on" : "Release candidates turned off",
           status: STATUSES.success,
         });
       }
@@ -468,27 +470,25 @@ const Updates = () => {
       ? undefined
       : release;
   const operationStatusLabel = upgrade.reconciling
-    ? upgrade.manualFallbackReady
-      ? "Update needs host confirmation"
-      : "Confirming update with host"
+    ? "Checking update status"
     : upgrade.operation?.phase === UpgradePhase.FAILED
       ? upgrade.operation.recoveryCommand.trim()
         ? "Update needs recovery"
         : "Update couldn't complete"
       : upgrade.operation?.phase === UpgradePhase.SUCCEEDED
-        ? "Update complete. Relaunch Fleet."
+        ? "Update complete"
         : upgrade.operation
-          ? upgrade.operation.message || `Updating Fleet to ${upgrade.operation.targetVersion}`
+          ? getUpgradeProgressCopy(upgrade.operation.phase)
           : upgrade.triggerError
-            ? "Update needs attention"
+            ? "We couldn't start the update"
             : null;
   const operationStatusDescription = upgrade.reconciling
     ? upgrade.manualFallbackReady
-      ? "Check the host before unlocking manual install."
-      : "No action needed. We're confirming that the host started the update."
+      ? "Before installing manually, check whether the host is already updating."
+      : "We're checking whether the update started."
     : upgrade.operation?.phase === UpgradePhase.FAILED
       ? upgrade.operation.recoveryCommand.trim()
-        ? "Recovery steps are ready."
+        ? undefined
         : "Review the host log before you update again."
       : upgrade.operation?.phase === UpgradePhase.SUCCEEDED
         ? "Relaunch Fleet to use the new version."
@@ -552,7 +552,7 @@ const Updates = () => {
           version={release?.version ?? status.currentVersion}
         />
       ) : null}
-      <SettingsPageHeader title="Updates" description={UPDATES_PAGE_DESCRIPTION} />
+      <SettingsPageHeader title="Software Update" description={UPDATES_PAGE_DESCRIPTION} />
       {loadError && hasUpgradeDetails ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-border-5 p-6">
           <div className="min-w-0">
@@ -599,11 +599,11 @@ const Updates = () => {
               }
             >
               <div className="text-heading-300 text-text-primary">Fleet {release.version} available</div>
-              <p className="text-300 text-text-primary-70">
-                {status?.oneClickAvailable
-                  ? "Fleet validates the release before restarting."
-                  : "Use manual install to update this Fleet."}
-              </p>
+              {!status?.oneClickAvailable ? (
+                <p className="text-300 text-text-primary-70">
+                  In-app updates aren't available for this release. Install it manually instead.
+                </p>
+              ) : null}
               {release.releaseNotesUrl ? (
                 <a
                   href={release.releaseNotesUrl}

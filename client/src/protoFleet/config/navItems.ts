@@ -207,7 +207,7 @@ export const secondaryNavItems: SecondaryNavItem[] = [
   },
   {
     path: "/settings/updates",
-    label: "Updates",
+    label: "Software Update",
     parent: "/settings",
     section: "Admin",
     // The page's backing RPCs (GetUpdateStatus, SetReleaseChannel) are
