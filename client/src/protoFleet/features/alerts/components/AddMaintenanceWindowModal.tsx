@@ -228,7 +228,7 @@ const AddMaintenanceWindowModal = ({
       return;
     }
     if (ruleMode === "all" && channelMode === "all" && !confirmedAllAlertingMute) {
-      setErrorMsg("Confirm that no alerts will be delivered during this window");
+      setErrorMsg("Confirm that no alerts will be delivered during this quiet period");
       return;
     }
     if (ruleMode === "selected" && liveRuleIds.size === 0) {
