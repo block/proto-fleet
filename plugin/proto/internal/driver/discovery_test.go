@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,8 +50,11 @@ var (
 // a Docker daemon (parallel packages, or a public and a downstream checkout on
 // one machine) would otherwise retag the same name and start containers from
 // each other's revision.
+//
+// The suffix is random rather than the PID, because binaries in separate PID
+// namespaces can share a daemon through a mounted socket and collide.
 func simMinerImageTag() string {
-	return fmt.Sprintf("driver-tests-%d", os.Getpid())
+	return "driver-tests-" + uuid.NewString()
 }
 
 // simMinerImage builds the fake-proto-rig image on first use and returns the
