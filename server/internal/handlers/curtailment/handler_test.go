@@ -19,6 +19,7 @@ import (
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
@@ -60,6 +61,33 @@ func TestScopeResourceContextRequirementsTopologyRequiresOrgWide(t *testing.T) {
 	}
 }
 
+func TestAuthorizationEnvelopeResourceContextRequirements(t *testing.T) {
+	t.Parallel()
+
+	requirements, err := authorizationEnvelopeResourceContextRequirements(testAuthorizationEnvelopeJSON(
+		[]int64{7},
+		[]int64{8},
+		false,
+		[]int64{9},
+		false,
+	))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []int64{7, 8, 9}, siteIDsFromResourceContexts(requirements.resource.siteContexts))
+	assert.False(t, requirements.resource.requireOrgWide)
+	assert.Equal(t, []int64{9}, siteIDsFromResourceContexts(requirements.facilityFanRead.siteContexts))
+	assert.False(t, requirements.facilityFanRead.requireOrgWide)
+}
+
+func TestAuthorizationEnvelopeResourceContextRequirementsFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	_, err := authorizationEnvelopeResourceContextRequirements(nil)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+}
+
 func testSiteAssignment(siteID int64, perms ...string) authz.Assignment {
 	return authz.Assignment{
 		AssignmentID: 2,
@@ -74,6 +102,61 @@ func siteScopeJSON(t *testing.T, siteID int64) []byte {
 	out, err := json.Marshal(map[string]int64{"site_id": siteID})
 	require.NoError(t, err)
 	return out
+}
+
+func testAuthorizationEnvelopeJSON(
+	selectedSiteIDs []int64,
+	currentMemberSiteIDs []int64,
+	minerScopeUnbounded bool,
+	facilityFanSiteIDs []int64,
+	facilityFanScopeUnbounded bool,
+) []byte {
+	out, err := json.Marshal(models.AuthorizationEnvelope{
+		SchemaVersion:             models.AuthorizationEnvelopeSchemaVersion,
+		SelectedResourceSiteIDs:   append([]int64{}, selectedSiteIDs...),
+		CurrentMemberSiteIDs:      append([]int64{}, currentMemberSiteIDs...),
+		MinerScopeUnbounded:       minerScopeUnbounded,
+		FacilityFanSiteIDs:        append([]int64{}, facilityFanSiteIDs...),
+		FacilityFanScopeUnbounded: facilityFanScopeUnbounded,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
+
+func ensureTestEventAuthorizationEnvelope(event *models.Event, currentMemberSiteIDs []int64, coverageComplete bool) *models.Event {
+	if event == nil || len(event.AuthorizationEnvelopeJSON) > 0 {
+		return event
+	}
+	var selectedSiteIDs []int64
+	minerScopeUnbounded := false
+	scope, hasScope, err := domainCurtailment.ScopeFromJSON(event.ScopeJSON)
+	if err != nil {
+		panic(err)
+	}
+	switch {
+	case event.ScopeType == models.ScopeTypeWholeOrg || event.ScopeType == "" && !hasScope:
+		minerScopeUnbounded = true
+	case hasScope && scope.Type == models.ScopeTypeSite:
+		selectedSiteIDs = []int64{scope.SiteID}
+	case hasScope && domainCurtailment.IsSiteOnlyScope(scope):
+		selectedSiteIDs = append([]int64(nil), scope.SiteIDs...)
+	case coverageComplete && len(currentMemberSiteIDs) > 0:
+		currentMemberSiteIDs = append([]int64(nil), currentMemberSiteIDs...)
+	default:
+		minerScopeUnbounded = true
+	}
+	fanSiteIDs := append([]int64(nil), event.FacilityFanSiteIDs...)
+	fanScopeUnbounded := len(event.FacilityFanDeviceIDs) > 0 && len(fanSiteIDs) != len(event.FacilityFanDeviceIDs)
+	event.AuthorizationEnvelopeJSON = testAuthorizationEnvelopeJSON(
+		selectedSiteIDs,
+		currentMemberSiteIDs,
+		minerScopeUnbounded,
+		fanSiteIDs,
+		fanScopeUnbounded,
+	)
+	return event
 }
 
 func TestRequestReadLimitOptionRejectsOversizedBody(t *testing.T) {
@@ -715,7 +798,7 @@ func TestHandler_PublicPlanStartStopRequireCurtailmentManage(t *testing.T) {
 	}
 }
 
-func TestHandler_PreviewAndStartRequireOrgPermissionAndSiteContext(t *testing.T) {
+func TestHandler_PreviewAndStartRequireScopedPermissionCapability(t *testing.T) {
 	t.Parallel()
 
 	h := NewHandler(nil)
@@ -749,11 +832,11 @@ func TestHandler_PreviewAndStartRequireOrgPermissionAndSiteContext(t *testing.T)
 	}{
 		{"preview org permission without site narrowing reaches service", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
 		{"preview matching site narrowing reaches service", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
-		{"preview site-only permission fails org gate", previewForSite, []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied},
+		{"preview site-only permission reaches service", previewForSite, []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
 		{"preview site narrowing without manage fails site gate", previewForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
 		{"start org permission without site narrowing reaches service", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
 		{"start matching site narrowing reaches service", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
-		{"start site-only permission fails org gate", startForSite, []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied},
+		{"start site-only permission reaches service", startForSite, []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodeUnimplemented},
 		{"start site narrowing without manage fails site gate", startForSite, []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -3,8 +3,6 @@ package curtailment
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -26,7 +24,6 @@ import (
 const actionSupplyOverrideFields = "supply curtailment override fields"
 const actionAdminTerminateEvents = "admin terminate curtailment events"
 const actionManageMqttSources = "manage MaestroOS curtailment sources"
-const incompleteTargetSiteContextMessage = "curtailment target site context is incomplete"
 const listCurtailmentEventsDefaultPageSize int32 = 50
 const listCurtailmentEventsMaxPageSize int32 = 200
 const listCurtailmentEventsMaxPermissionScanPages = 3
@@ -79,7 +76,7 @@ func NewHandlerWithAutomation(
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
@@ -118,9 +115,31 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
+	}
+	startReq, err := toStartRequest(req.Msg, info)
+	if err != nil {
+		return nil, err
+	}
+	if h.service != nil {
+		replayEvent, err := h.service.LookupStartReplay(ctx, startReq)
+		if err != nil {
+			return nil, err
+		}
+		if replayEvent != nil {
+			if err := h.requirePersistedEventPermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, replayEvent); err != nil {
+				return nil, err
+			}
+			plan, err := h.service.RenderStartReplay(ctx, info.OrganizationID, replayEvent)
+			if err != nil {
+				return nil, err
+			}
+			return connect.NewResponse(&pb.StartCurtailmentResponse{
+				Event: toEventProtoWithTargets(plan.ReplayEvent, plan.ReplayTargets),
+			}), nil
+		}
 	}
 	requirements, err := h.startResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
 	if err != nil {
@@ -148,10 +167,6 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 		return nil, errCurtailmentNotImplemented("StartCurtailment")
 	}
 
-	startReq, err := toStartRequest(req.Msg, info)
-	if err != nil {
-		return nil, err
-	}
 	startReq.AuthorizedDeviceSites = requirements.deviceSites
 	startReq.AuthorizedFanSites = make(map[int64]int64, len(authorizedFans))
 	for deviceID, device := range authorizedFans {
@@ -254,7 +269,7 @@ func (h *Handler) ListActiveCurtailments(ctx context.Context, _ *connect.Request
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("ListActiveCurtailments")
 	}
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentRead)
 	if err != nil {
 		return nil, err
 	}
@@ -266,11 +281,12 @@ func (h *Handler) ListActiveCurtailments(ctx context.Context, _ *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	// Whole-org events stay visible on the plain org grant so narrowed
-	// operators still learn their sites are curtailed, but their live rollup
-	// aggregates target counts across every site — including narrowed ones —
-	// so it requires the same unnarrowed org-wide read that whole-org writes
-	// and incomplete-coverage reads already demand.
+	if err := h.hydrateTargetSiteCoverageByEvents(ctx, info.OrganizationID, events); err != nil {
+		return nil, err
+	}
+	// Envelope filtering removes whole-org events for narrowed callers. Keep the
+	// renderer gate as defense in depth because their live rollups aggregate
+	// target counts across every site.
 	orgWideRead, err := hasOrgWidePermission(ctx, authz.PermCurtailmentRead)
 	if err != nil {
 		return nil, err
@@ -295,7 +311,7 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
 	}
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentRead)
 	if err != nil {
 		return nil, err
 	}
@@ -305,6 +321,9 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 	}
 	events, nextToken, err := h.listPermittedEvents(ctx, listReq)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.hydrateTargetSiteCoverageByEvents(ctx, info.OrganizationID, events); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(toListEventsResponse(events, nextToken)), nil
@@ -320,6 +339,9 @@ func (h *Handler) GetCurtailmentEvent(ctx context.Context, req *connect.Request[
 	}
 	info, permissionEvent, err := h.requireEventPermission(ctx, authz.PermCurtailmentRead, eventUUID)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.hydrateTargetSiteCoverageByEvent(ctx, info.OrganizationID, permissionEvent); err != nil {
 		return nil, err
 	}
 	event, targets, nextTargetPageToken, err := h.service.GetEventWithTargets(ctx, curtailment.GetEventWithTargetsRequest{
@@ -382,10 +404,10 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 
 // ForceReleaseCurtailmentOwnership is an admin recovery path that releases
 // curtailment ownership immediately. It intentionally checks org-level manage
-// permission before loading event site contexts so incomplete target-site
-// coverage cannot block recovery.
+// capability before loading the event envelope so recovery remains scoped to
+// the durable authorization snapshot.
 func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *connect.Request[pb.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[pb.ForceReleaseCurtailmentOwnershipResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
@@ -441,6 +463,84 @@ type scopeResourceContextRequirements struct {
 	siteContexts   []authz.ResourceContext
 	requireOrgWide bool
 	deviceSites    map[string]*int64
+}
+
+type authorizationEnvelopeRequirements struct {
+	resource        scopeResourceContextRequirements
+	facilityFanRead scopeResourceContextRequirements
+}
+
+type authorizationEnvelopePermissionCache struct {
+	resource        resourceContextPermissionCache
+	facilityFanRead resourceContextPermissionCache
+}
+
+func newAuthorizationEnvelopePermissionCache() *authorizationEnvelopePermissionCache {
+	return &authorizationEnvelopePermissionCache{
+		resource:        newResourceContextPermissionCache(),
+		facilityFanRead: newResourceContextPermissionCache(),
+	}
+}
+
+func authorizationEnvelopeResourceContextRequirements(raw []byte) (authorizationEnvelopeRequirements, error) {
+	envelope, err := curtailment.AuthorizationEnvelopeFromJSON(raw)
+	if err != nil {
+		return authorizationEnvelopeRequirements{}, fleeterror.NewInternalErrorf(
+			"invalid persisted curtailment authorization envelope: %v", err,
+		)
+	}
+	minerSiteIDs := append([]int64(nil), envelope.SelectedResourceSiteIDs...)
+	minerSiteIDs = append(minerSiteIDs, envelope.CurrentMemberSiteIDs...)
+	minerContexts := siteResourceContextsForScope(curtailment.Scope{SiteIDs: minerSiteIDs})
+	fanContexts := siteResourceContextsForScope(curtailment.Scope{SiteIDs: envelope.FacilityFanSiteIDs})
+	return authorizationEnvelopeRequirements{
+		resource: scopeResourceContextRequirements{
+			siteContexts:   mergeSiteResourceContexts(minerContexts, fanContexts),
+			requireOrgWide: envelope.MinerScopeUnbounded || envelope.FacilityFanScopeUnbounded,
+		},
+		facilityFanRead: scopeResourceContextRequirements{
+			siteContexts:   fanContexts,
+			requireOrgWide: envelope.FacilityFanScopeUnbounded,
+		},
+	}, nil
+}
+
+func requireAuthorizationEnvelopePermissions(ctx context.Context, permission string, raw []byte) error {
+	requirements, err := authorizationEnvelopeResourceContextRequirements(raw)
+	if err != nil {
+		return err
+	}
+	if err := requireResourceContextPermissions(ctx, permission, requirements.resource); err != nil {
+		return err
+	}
+	return requireResourceContextPermissions(ctx, authz.PermSiteRead, requirements.facilityFanRead)
+}
+
+func authorizationEnvelopeAccessAllowed(
+	ctx context.Context,
+	permission string,
+	raw []byte,
+	cache *authorizationEnvelopePermissionCache,
+) (bool, error) {
+	requirements, err := authorizationEnvelopeResourceContextRequirements(raw)
+	if err != nil {
+		return false, err
+	}
+	allowed, err := resourceContextRequirementsAllowed(
+		ctx,
+		permission,
+		requirements.resource,
+		&cache.resource,
+	)
+	if err != nil || !allowed {
+		return allowed, err
+	}
+	return resourceContextRequirementsAllowed(
+		ctx,
+		authz.PermSiteRead,
+		requirements.facilityFanRead,
+		&cache.facilityFanRead,
+	)
 }
 
 func (h *Handler) previewResourceContextRequirements(
@@ -514,10 +614,9 @@ func (h *Handler) scopeResourceContextRequirements(
 		return out, nil
 	}
 	if len(scope.BuildingIDs) > 0 || len(scope.RackIDs) > 0 || len(scope.GroupIDs) > 0 {
-		// Scoped topology authorization must be bound to the same snapshot used
-		// for candidate resolution. Until the durable authorization envelope and
-		// dispatch-time recheck land, require org-wide permission so membership
-		// changes cannot broaden a site-scoped request after authorization.
+		// The persisted envelope secures later reads and recovery. Live topology
+		// starts still require org-wide access until dispatch-time reauthorization
+		// can bind the resolved membership to every physical command.
 		out.requireOrgWide = true
 		return out, nil
 	}
@@ -602,24 +701,6 @@ func mergeSiteResourceContexts(groups ...[]authz.ResourceContext) []authz.Resour
 	return siteResourceContextsForScope(curtailment.Scope{SiteIDs: siteIDs})
 }
 
-func requireOrgPermissionWithOptionalSiteContexts(ctx context.Context, permission string, siteContexts []authz.ResourceContext) (*session.Info, error) {
-	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
-	if err != nil {
-		return nil, err
-	}
-	for _, rc := range siteContexts {
-		if rc.SiteID == nil {
-			continue
-		}
-		checkedInfo, err := middleware.RequirePermission(ctx, permission, rc)
-		if err != nil {
-			return nil, err
-		}
-		info = checkedInfo
-	}
-	return info, nil
-}
-
 func requireScopeResourceContextPermissions(
 	ctx context.Context,
 	permission string,
@@ -646,6 +727,23 @@ func requireScopeResourceContextPermissions(
 	return info, nil
 }
 
+func requireScopedPermissionCapability(ctx context.Context, permission string) (*session.Info, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	orgWide, siteIDs, err := middleware.SiteScopeForPermission(ctx, permission)
+	if err != nil {
+		return nil, err
+	}
+	if orgWide || len(siteIDs) > 0 {
+		return info, nil
+	}
+	// Preserve the middleware's structured permission-denied response when the
+	// caller has no grant for this capability at any supported scope.
+	return middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
+}
+
 func requireResourceContextPermissions(ctx context.Context, permission string, requirements scopeResourceContextRequirements) error {
 	_, err := requireScopeResourceContextPermissions(ctx, permission, requirements, nil)
 	return err
@@ -662,7 +760,7 @@ func parseEventUUID(raw string) (uuid.UUID, error) {
 }
 
 func (h *Handler) requireEventPermission(ctx context.Context, permission string, eventUUID uuid.UUID) (*session.Info, *models.Event, error) {
-	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
+	info, err := requireScopedPermissionCapability(ctx, permission)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -670,19 +768,7 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 	if err != nil {
 		return nil, nil, err
 	}
-	requirements, err := h.eventResourceContextRequirements(ctx, info.OrganizationID, event)
-	if err != nil {
-		if isIncompleteTargetSiteContextError(err) {
-			info, err = middleware.RequireOrgWidePermission(ctx, permission)
-			if err != nil {
-				return nil, nil, err
-			}
-			return info, event, nil
-		}
-		return nil, nil, err
-	}
-	info, err = requireScopeResourceContextPermissions(ctx, permission, requirements, info)
-	if err != nil {
+	if err := requireAuthorizationEnvelopePermissions(ctx, permission, event.AuthorizationEnvelopeJSON); err != nil {
 		return nil, nil, err
 	}
 	return info, event, nil
@@ -702,15 +788,10 @@ func (h *Handler) requireForceReleasePermission(ctx context.Context, orgID int64
 }
 
 func (h *Handler) requirePersistedEventPermission(ctx context.Context, orgID int64, permission string, event *models.Event) error {
-	requirements, err := h.eventResourceContextRequirements(ctx, orgID, event)
-	if err != nil {
-		if isIncompleteTargetSiteContextError(err) {
-			_, err := middleware.RequireOrgWidePermission(ctx, permission)
-			return err
-		}
-		return err
+	if event == nil || event.OrgID != orgID {
+		return fleeterror.NewNotFoundError("curtailment event not found")
 	}
-	return requireResourceContextPermissions(ctx, permission, requirements)
+	return requireAuthorizationEnvelopePermissions(ctx, permission, event.AuthorizationEnvelopeJSON)
 }
 
 func (h *Handler) filterEventsByPermission(
@@ -719,41 +800,15 @@ func (h *Handler) filterEventsByPermission(
 	permission string,
 	events []*models.Event,
 ) ([]*models.Event, error) {
-	if err := h.hydrateTargetSiteCoverageByEvents(ctx, orgID, events); err != nil {
-		return nil, err
-	}
-	fanDeviceSites, err := h.facilityFanDeviceSitesForEvents(ctx, orgID, events)
-	if err != nil {
-		return nil, err
-	}
 	filtered := make([]*models.Event, 0, len(events))
+	cache := newAuthorizationEnvelopePermissionCache()
 	for _, event := range events {
-		requirements, err := h.eventResourceContextRequirementsWithFanSites(ctx, orgID, event, fanDeviceSites)
-		if err != nil {
-			if isIncompleteTargetSiteContextError(err) {
-				if _, orgWideErr := middleware.RequireOrgWidePermission(ctx, permission); orgWideErr != nil {
-					if fleeterror.IsForbiddenError(orgWideErr) {
-						continue
-					}
-					return nil, orgWideErr
-				}
-				filtered = append(filtered, event)
-				continue
-			}
-			if fleeterror.IsForbiddenError(err) {
-				continue
-			}
-			return nil, err
+		if event == nil || event.OrgID != orgID {
+			continue
 		}
-		permitted := true
-		for _, rc := range requirements.siteContexts {
-			if _, err := middleware.RequirePermission(ctx, permission, rc); err != nil {
-				if fleeterror.IsForbiddenError(err) {
-					permitted = false
-					break
-				}
-				return nil, err
-			}
+		permitted, err := authorizationEnvelopeAccessAllowed(ctx, permission, event.AuthorizationEnvelopeJSON, cache)
+		if err != nil {
+			return nil, err
 		}
 		if permitted {
 			filtered = append(filtered, event)
@@ -762,76 +817,11 @@ func (h *Handler) filterEventsByPermission(
 	return filtered, nil
 }
 
-func (h *Handler) facilityFanDeviceSitesForEvents(
-	ctx context.Context,
-	orgID int64,
-	events []*models.Event,
-) (map[int64]int64, error) {
-	seen := make(map[int64]struct{})
-	deviceIDs := make([]int64, 0)
-	for _, event := range events {
-		if event == nil {
-			continue
-		}
-		if len(event.FacilityFanDeviceIDs) == len(event.FacilityFanSiteIDs) {
-			continue
-		}
-		for _, deviceID := range event.FacilityFanDeviceIDs {
-			if _, ok := seen[deviceID]; ok {
-				continue
-			}
-			seen[deviceID] = struct{}{}
-			deviceIDs = append(deviceIDs, deviceID)
-		}
-	}
-	deviceSites := make(map[int64]int64, len(deviceIDs))
-	if len(deviceIDs) == 0 {
-		return deviceSites, nil
-	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("facility fan event authorization")
-	}
-	if err := h.resolveFacilityFanDeviceSites(ctx, orgID, deviceIDs, deviceSites); err != nil {
-		return nil, err
-	}
-	return deviceSites, nil
-}
-
-// resolveFacilityFanDeviceSites batches the normal list path. If a historical
-// event references a deleted fan, split only the failed batch so other events
-// retain their precise site authorization while the missing reference falls
-// back to the existing org-wide incomplete-context policy.
-func (h *Handler) resolveFacilityFanDeviceSites(
-	ctx context.Context,
-	orgID int64,
-	deviceIDs []int64,
-	out map[int64]int64,
-) error {
-	deviceSites, err := h.responseProfiles.FacilityFanDeviceSites(ctx, orgID, deviceIDs)
-	if err == nil {
-		for deviceID, siteID := range deviceSites {
-			out[deviceID] = siteID
-		}
-		return nil
-	}
-	if !fleeterror.IsNotFoundError(err) {
-		return err
-	}
-	if len(deviceIDs) == 1 {
-		return nil
-	}
-	mid := len(deviceIDs) / 2
-	if err := h.resolveFacilityFanDeviceSites(ctx, orgID, deviceIDs[:mid], out); err != nil {
-		return err
-	}
-	return h.resolveFacilityFanDeviceSites(ctx, orgID, deviceIDs[mid:], out)
-}
-
 func (h *Handler) hydrateTargetSiteCoverageByEvents(ctx context.Context, orgID int64, events []*models.Event) error {
 	eventUUIDs := make([]uuid.UUID, 0, len(events))
 	seen := make(map[uuid.UUID]struct{}, len(events))
 	for _, event := range events {
-		if !shouldBatchHydrateTargetSiteCoverage(event) {
+		if !shouldHydrateTargetSiteCoverage(event) {
 			continue
 		}
 		if _, ok := seen[event.EventUUID]; ok {
@@ -851,16 +841,26 @@ func (h *Handler) hydrateTargetSiteCoverageByEvents(ctx context.Context, orgID i
 		if event == nil {
 			continue
 		}
-		coverage, ok := coverageByEvent[event.EventUUID]
-		if !ok {
-			continue
+		if coverage, ok := coverageByEvent[event.EventUUID]; ok {
+			event.TargetSiteCoverage = &coverage
 		}
-		event.TargetSiteCoverage = &coverage
 	}
 	return nil
 }
 
-func shouldBatchHydrateTargetSiteCoverage(event *models.Event) bool {
+func (h *Handler) hydrateTargetSiteCoverageByEvent(ctx context.Context, orgID int64, event *models.Event) error {
+	if !shouldHydrateTargetSiteCoverage(event) {
+		return nil
+	}
+	coverage, err := h.service.ListTargetSiteCoverageByEvent(ctx, orgID, event.EventUUID)
+	if err != nil {
+		return err
+	}
+	event.TargetSiteCoverage = &coverage
+	return nil
+}
+
+func shouldHydrateTargetSiteCoverage(event *models.Event) bool {
 	if event == nil || event.TargetSiteCoverage != nil {
 		return false
 	}
@@ -868,13 +868,12 @@ func shouldBatchHydrateTargetSiteCoverage(event *models.Event) bool {
 	case models.ScopeTypeDeviceList:
 		return true
 	case models.ScopeTypeMixed:
-		_, handled, err := mixedSiteOnlyEventResourceContexts(event)
-		return !handled && err == nil
-	case models.ScopeTypeWholeOrg, models.ScopeTypeSite:
-		return false
-	default:
+		scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON)
+		return err == nil && (!hasScope || !curtailment.IsSiteOnlyScope(scope))
+	case models.ScopeTypeWholeOrg, models.ScopeTypeSite, "":
 		return false
 	}
+	return false
 }
 
 func (h *Handler) listPermittedEvents(
@@ -924,200 +923,6 @@ func remainingListCurtailmentEventsPageSize(pageSize int32, filteredCount int) i
 		return listCurtailmentEventsMaxPageSize
 	}
 	return int32(remaining) // #nosec G115 -- page size is clamped to <= 200 above.
-}
-
-func requireOrgPermissionWithOptionalSiteContext(ctx context.Context, permission string, rc authz.ResourceContext) (*session.Info, error) {
-	return requireOrgPermissionWithOptionalSiteContexts(ctx, permission, []authz.ResourceContext{rc})
-}
-
-func eventResourceContext(event *models.Event) (authz.ResourceContext, error) {
-	if event == nil || event.ScopeType != models.ScopeTypeSite {
-		return authz.ResourceContext{}, nil
-	}
-	var payload struct {
-		SiteID int64 `json:"site_id"`
-	}
-	if err := json.Unmarshal(event.ScopeJSON, &payload); err != nil {
-		return authz.ResourceContext{}, fleeterror.NewInternalErrorf(
-			"failed to decode site-scoped curtailment event scope: %v", err,
-		)
-	}
-	if payload.SiteID <= 0 {
-		return authz.ResourceContext{}, fleeterror.NewInternalError(
-			"site-scoped curtailment event has invalid site_id",
-		)
-	}
-	return authz.ResourceContext{SiteID: &payload.SiteID}, nil
-}
-
-func (h *Handler) eventResourceContextRequirements(
-	ctx context.Context,
-	orgID int64,
-	event *models.Event,
-) (scopeResourceContextRequirements, error) {
-	return h.eventResourceContextRequirementsWithFanSites(ctx, orgID, event, nil)
-}
-
-func (h *Handler) eventResourceContextRequirementsWithFanSites(
-	ctx context.Context,
-	orgID int64,
-	event *models.Event,
-	fanDeviceSites map[int64]int64,
-) (scopeResourceContextRequirements, error) {
-	targetContexts, err := h.eventTargetSiteResourceContexts(ctx, orgID, event)
-	if err != nil {
-		return scopeResourceContextRequirements{}, err
-	}
-	fanContexts, err := h.eventFacilityFanResourceContexts(ctx, orgID, event, fanDeviceSites)
-	if err != nil {
-		return scopeResourceContextRequirements{}, err
-	}
-	siteContexts := mergeSiteResourceContexts(targetContexts, fanContexts)
-	return scopeResourceContextRequirements{
-		siteContexts: siteContexts,
-		requireOrgWide: event == nil ||
-			event.ScopeType == "" ||
-			event.ScopeType == models.ScopeTypeWholeOrg ||
-			len(siteContexts) == 0,
-	}, nil
-}
-
-func (h *Handler) eventTargetSiteResourceContexts(
-	ctx context.Context,
-	orgID int64,
-	event *models.Event,
-) ([]authz.ResourceContext, error) {
-	rc, err := eventResourceContext(event)
-	if err != nil {
-		return nil, err
-	}
-	if rc.SiteID != nil {
-		return []authz.ResourceContext{rc}, nil
-	}
-	if event == nil || event.ScopeType == "" || event.ScopeType == models.ScopeTypeWholeOrg {
-		return nil, nil
-	}
-	if contexts, handled, err := mixedSiteOnlyEventResourceContexts(event); handled || err != nil {
-		return contexts, err
-	}
-	var coverage models.TargetSiteCoverage
-	if event.TargetSiteCoverage != nil {
-		coverage = *event.TargetSiteCoverage
-	} else {
-		var err error
-		coverage, err = h.service.ListTargetSiteCoverageByEvent(ctx, orgID, event.EventUUID)
-		if err != nil {
-			return nil, err
-		}
-		event.TargetSiteCoverage = &coverage
-	}
-	if !coverage.Complete {
-		return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
-	}
-	if len(coverage.SiteIDs) == 0 {
-		if contexts, handled, err := h.scopeJSONEventResourceContexts(ctx, orgID, event); handled || err != nil {
-			return contexts, err
-		}
-	}
-	contexts := make([]authz.ResourceContext, 0, len(coverage.SiteIDs))
-	for _, siteID := range coverage.SiteIDs {
-		contexts = append(contexts, authz.ResourceContext{SiteID: &siteID})
-	}
-	return contexts, nil
-}
-
-func (h *Handler) eventFacilityFanResourceContexts(
-	ctx context.Context,
-	orgID int64,
-	event *models.Event,
-	deviceSites map[int64]int64,
-) ([]authz.ResourceContext, error) {
-	if event == nil || len(event.FacilityFanDeviceIDs) == 0 {
-		return nil, nil
-	}
-	if len(event.FacilityFanDeviceIDs) == len(event.FacilityFanSiteIDs) {
-		for _, siteID := range event.FacilityFanSiteIDs {
-			if siteID <= 0 {
-				return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
-			}
-		}
-		return siteResourceContextsForScope(curtailment.Scope{
-			SiteIDs: append([]int64(nil), event.FacilityFanSiteIDs...),
-		}), nil
-	}
-	if deviceSites == nil {
-		if h.responseProfiles == nil {
-			return nil, errCurtailmentNotImplemented("facility fan event authorization")
-		}
-		var err error
-		deviceSites, err = h.responseProfiles.FacilityFanDeviceSites(ctx, orgID, event.FacilityFanDeviceIDs)
-		if err != nil {
-			if fleeterror.IsNotFoundError(err) {
-				return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
-			}
-			return nil, err
-		}
-	}
-	siteIDs := make([]int64, 0, len(event.FacilityFanDeviceIDs))
-	for _, deviceID := range event.FacilityFanDeviceIDs {
-		siteID, ok := deviceSites[deviceID]
-		if !ok {
-			return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
-		}
-		siteIDs = append(siteIDs, siteID)
-	}
-	return siteResourceContextsForScope(curtailment.Scope{SiteIDs: siteIDs}), nil
-}
-
-func mixedSiteOnlyEventResourceContexts(event *models.Event) ([]authz.ResourceContext, bool, error) {
-	if event == nil || event.ScopeType != models.ScopeTypeMixed {
-		return nil, false, nil
-	}
-	scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON)
-	if err != nil {
-		return nil, true, fleeterror.NewInternalErrorf(
-			"failed to decode mixed curtailment event scope: %v", err,
-		)
-	}
-	if !hasScope || !curtailment.IsSiteOnlyScope(scope) {
-		return nil, false, nil
-	}
-	contexts := siteResourceContextsForScope(scope)
-	if len(contexts) == 0 {
-		return nil, true, fleeterror.NewInternalError("mixed site-only curtailment event has no site_ids")
-	}
-	return contexts, true, nil
-}
-
-func (h *Handler) scopeJSONEventResourceContexts(
-	ctx context.Context,
-	orgID int64,
-	event *models.Event,
-) ([]authz.ResourceContext, bool, error) {
-	if event == nil || len(event.ScopeJSON) == 0 {
-		return nil, false, nil
-	}
-	scope, hasScope, err := curtailment.ScopeFromJSON(event.ScopeJSON)
-	if err != nil {
-		return nil, true, fleeterror.NewInternalErrorf(
-			"failed to decode curtailment event scope: %v", err,
-		)
-	}
-	if !hasScope {
-		return nil, false, nil
-	}
-	requirements, err := h.scopeResourceContextRequirements(ctx, orgID, scope, nil, false)
-	if err != nil {
-		return nil, true, err
-	}
-	if requirements.requireOrgWide {
-		return nil, true, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
-	}
-	return requirements.siteContexts, true, nil
-}
-
-func isIncompleteTargetSiteContextError(err error) bool {
-	return fleeterror.IsForbiddenError(err) && strings.Contains(err.Error(), incompleteTargetSiteContextMessage)
 }
 
 // requireAdminFromContext returns Forbidden unless the caller has Admin
