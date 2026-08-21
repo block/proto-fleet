@@ -83,6 +83,7 @@
     "postcss": "8.5.26",
     "prettier": "3.9.6",
     "prettier-plugin-tailwindcss": "0.8.1",
+    "rolldown": "1.2.4",
     "storybook": "10.5.9",
     "swagger-typescript-api": "13.12.6",
     "tailwindcss": "4.3.3",
