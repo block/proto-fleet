@@ -40,8 +40,11 @@ stop:
   docker compose down
 
 # run all tests (DB_PASSWORD defaults to 'fleet' for local/CI testing)
+# -timeout 20m: the sqlstores integration package alone runs ~10m against a real
+# Postgres, which exceeds Go's default 600s per-package timeout. See
+# perf/server-test-template-db for the real fix (template-DB reuse).
 test:
-    DB_PASSWORD="${DB_PASSWORD:-fleet}" go test ./... -skip ./generated/...
+    DB_PASSWORD="${DB_PASSWORD:-fleet}" go test ./... -skip ./generated/... -timeout 20m
 
 # run e2e plugin integration test
 test-plugin-integration:
