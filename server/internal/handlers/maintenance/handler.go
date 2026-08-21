@@ -1,18 +1,4 @@
 // Package maintenance is the Connect-RPC surface for MaintenanceService.
-//
-// NOTE: The following permission constants must be added to
-// server/internal/domain/authz/catalog.go before this handler compiles:
-//
-//	const (
-//	    PermMaintenanceRead   = "maintenance:read"
-//	    PermMaintenanceManage = "maintenance:manage"
-//	)
-//	const ResourceMaintenance = "maintenance"
-//
-// And the corresponding catalog entries:
-//
-//	{PermMaintenanceRead, "View repair tickets, comments, parts, and stats.", ResourceMaintenance},
-//	{PermMaintenanceManage, "Create, edit, close, delete, and bulk-update repair tickets. Manage comments and parts.", ResourceMaintenance},
 package maintenance
 
 import (
