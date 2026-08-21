@@ -92,6 +92,10 @@ const (
 	// instance — server-instance administration: seeing release update
 	// prompts, changing the release channel, and triggering upgrades.
 	PermInstanceUpdate = "instance:update"
+
+	// maintenance — organization-wide repair ticket lifecycle.
+	PermMaintenanceRead   = "maintenance:read"
+	PermMaintenanceManage = "maintenance:manage"
 )
 
 // Resource identifiers used to group catalog entries for the admin UI
@@ -113,6 +117,7 @@ const (
 	ResourceUser        = "user"
 	ResourceRole        = "role"
 	ResourceInstance    = "instance"
+	ResourceMaintenance = "maintenance"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -183,6 +188,9 @@ var catalog = []CatalogEntry{
 	{PermRoleManage, "Create, edit, and delete custom roles, and view all roles and permissions. Built-in roles cannot be modified.", ResourceRole},
 
 	{PermInstanceUpdate, "See available server updates, change the release channel, and apply server upgrades.", ResourceInstance},
+
+	{PermMaintenanceRead, "View repair tickets, the maintenance queue, and repair history.", ResourceMaintenance},
+	{PermMaintenanceManage, "Create, assign, update, and close repair tickets.", ResourceMaintenance},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The

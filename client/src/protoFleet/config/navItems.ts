@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Repair, Settings } from "@/shared/assets/icons";
 
 // Runtime-gated features: an entry tagged with one is shown only when the server
 // reports the feature enabled (see SecondaryNavigation). Distinct from
@@ -86,6 +86,12 @@ export const primaryNavItems: NavItem[] = [
     // the page.
     requiredPermission: "rack:read",
     scopable: true,
+  },
+  {
+    path: "/maintenance",
+    label: "Maintenance",
+    icon: Repair,
+    requiredPermission: "maintenance:read",
   },
   {
     path: "/energy",

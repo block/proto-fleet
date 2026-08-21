@@ -1,0 +1,205 @@
+syntax = "proto3";
+
+package inventory.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// InventoryService manages spare parts inventory across sites.
+// Tracks on-hand quantities, allocations to active repairs, reorder
+// points, and bin locations. Supports CSV import for bulk seeding.
+service InventoryService {
+    // ListInventoryParts returns a filtered list of inventory parts.
+    // Supports site, type, and low-stock filters.
+    rpc ListInventoryParts(ListInventoryPartsRequest) returns (ListInventoryPartsResponse);
+
+    // GetInventoryPart returns a single part by id.
+    rpc GetInventoryPart(GetInventoryPartRequest) returns (GetInventoryPartResponse);
+
+    // CreateInventoryPart inserts a new part record.
+    rpc CreateInventoryPart(CreateInventoryPartRequest) returns (CreateInventoryPartResponse);
+
+    // UpdateInventoryPart adjusts stock levels, reorder point, or bin
+    // location. Used for manual adjustments (cycle count, received
+    // shipment, damaged/scrapped).
+    rpc UpdateInventoryPart(UpdateInventoryPartRequest) returns (UpdateInventoryPartResponse);
+
+    // DeleteInventoryPart soft-deletes a part record.
+    rpc DeleteInventoryPart(DeleteInventoryPartRequest) returns (DeleteInventoryPartResponse);
+
+    // GetInventoryInsights returns aggregate stats: total on-hand,
+    // total allocated, low-stock count, and sites count.
+    rpc GetInventoryInsights(GetInventoryInsightsRequest) returns (GetInventoryInsightsResponse);
+
+    // ImportInventoryCsv parses a CSV payload and returns a preview of
+    // rows to import plus any validation errors. Does not persist.
+    rpc ImportInventoryCsv(ImportInventoryCsvRequest) returns (ImportInventoryCsvResponse);
+
+    // ConfirmInventoryImport commits previously previewed rows.
+    rpc ConfirmInventoryImport(ConfirmInventoryImportRequest) returns (ConfirmInventoryImportResponse);
+
+    // ListPartsBySite returns parts at a given site — used by the
+    // ticket completion form's part picker.
+    rpc ListPartsBySite(ListPartsBySiteRequest) returns (ListPartsBySiteResponse);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Domain messages
+// ──────────────────────────────────────────────────────────────────
+
+message InventoryPart {
+    int64  id            = 1;
+    string name          = 2;
+    string type          = 3;
+    string manufacturer  = 4;
+    string part_number   = 5;
+    optional int64 site_id = 6;
+    string site_name     = 7;
+    int32  on_hand       = 8;
+    int32  allocated     = 9;
+    int32  reorder_point = 10;
+    string bin_location  = 11;
+    google.protobuf.Timestamp created_at = 12;
+    google.protobuf.Timestamp updated_at = 13;
+}
+
+message InventoryInsights {
+    int32 total_on_hand   = 1;
+    int32 total_allocated = 2;
+    int32 low_stock_count = 3;
+    int32 sites_count     = 4;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// RPC messages
+// ──────────────────────────────────────────────────────────────────
+
+// ListInventoryParts
+
+message InventoryFilter {
+    repeated int64  site_ids       = 1;
+    repeated string types          = 2;
+    bool            low_stock_only = 3;
+}
+
+message ListInventoryPartsRequest {
+    InventoryFilter filter    = 1;
+    int32           page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 200}];
+    string          page_token = 3 [(buf.validate.field).string.max_len = 2048];
+}
+
+message ListInventoryPartsResponse {
+    repeated InventoryPart parts           = 1;
+    string                 next_page_token = 2;
+}
+
+// GetInventoryPart
+
+message GetInventoryPartRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetInventoryPartResponse {
+    InventoryPart part = 1;
+}
+
+// CreateInventoryPart
+
+message CreateInventoryPartRequest {
+    string name          = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string type          = 2 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+    string manufacturer  = 3 [(buf.validate.field).string.max_len = 255];
+    string part_number   = 4 [(buf.validate.field).string.max_len = 128];
+    optional int64 site_id = 5 [(buf.validate.field).int64.gt = 0];
+    int32  on_hand       = 6 [(buf.validate.field).int32.gte = 0];
+    int32  reorder_point = 7 [(buf.validate.field).int32.gte = 0];
+    string bin_location  = 8 [(buf.validate.field).string.max_len = 64];
+}
+
+message CreateInventoryPartResponse {
+    InventoryPart part = 1;
+}
+
+// UpdateInventoryPart
+
+enum AdjustmentReason {
+    ADJUSTMENT_REASON_UNSPECIFIED        = 0;
+    ADJUSTMENT_REASON_RECEIVED_SHIPMENT  = 1;
+    ADJUSTMENT_REASON_CYCLE_COUNT        = 2;
+    ADJUSTMENT_REASON_DAMAGED_SCRAPPED   = 3;
+    ADJUSTMENT_REASON_RETURNED_FROM_REPAIR = 4;
+    ADJUSTMENT_REASON_OTHER              = 5;
+}
+
+message UpdateInventoryPartRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+
+    optional int32  on_hand       = 2 [(buf.validate.field).int32.gte = 0];
+    optional int32  reorder_point = 3 [(buf.validate.field).int32.gte = 0];
+    optional string bin_location  = 4 [(buf.validate.field).string.max_len = 64];
+
+    AdjustmentReason reason = 5 [(buf.validate.field).enum.defined_only = true];
+    string           notes  = 6 [(buf.validate.field).string.max_len = 4096];
+}
+
+message UpdateInventoryPartResponse {
+    InventoryPart part = 1;
+}
+
+// DeleteInventoryPart
+
+message DeleteInventoryPartRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteInventoryPartResponse {}
+
+// GetInventoryInsights
+
+message GetInventoryInsightsRequest {}
+
+message GetInventoryInsightsResponse {
+    InventoryInsights insights = 1;
+}
+
+// ImportInventoryCsv
+
+message ImportInventoryCsvRequest {
+    bytes csv_data = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 10485760}];
+}
+
+message CsvPreviewRow {
+    string name          = 1;
+    string type          = 2;
+    string site_name     = 3;
+    int32  on_hand       = 4;
+    int32  reorder_point = 5;
+    string bin_location  = 6;
+    string error         = 7;
+}
+
+message ImportInventoryCsvResponse {
+    repeated CsvPreviewRow rows   = 1;
+    int32                  valid_count = 2;
+    int32                  error_count = 3;
+}
+
+// ConfirmInventoryImport
+
+message ConfirmInventoryImportRequest {
+    bytes csv_data = 1 [(buf.validate.field).bytes = {min_len: 1, max_len: 10485760}];
+}
+
+message ConfirmInventoryImportResponse {
+    int32 imported_count = 1;
+}
+
+// ListPartsBySite
+
+message ListPartsBySiteRequest {
+    int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ListPartsBySiteResponse {
+    repeated InventoryPart parts = 1;
+}
