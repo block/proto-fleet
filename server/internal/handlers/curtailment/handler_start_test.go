@@ -767,6 +767,65 @@ func TestHandler_StartCurtailment_IdempotentReplayRequiresPersistedEventPermissi
 	assert.Empty(t, store.lastTargets, "replay denial must not persist a second event")
 }
 
+func TestHandler_StartCurtailment_IdempotentReplayUsesPersistedEnvelopeBeforeLiveScopeAndFanChecks(t *testing.T) {
+	t.Parallel()
+
+	const (
+		requestSite = int64(7)
+		replaySite  = int64(8)
+		fanID       = int64(31)
+	)
+	eventUUID := uuid.New()
+	store := newStartStubStore()
+	store.replayByKey = map[string]*models.Event{
+		"retry-key": {
+			ID:        7,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateActive,
+			Mode:      models.ModeFixedKw,
+			Strategy:  models.StrategyLeastEfficientFirst,
+			Level:     models.LevelFull,
+			Priority:  models.PriorityNormal,
+			ScopeType: models.ScopeTypeSite,
+			ScopeJSON: siteScopeJSON(t, replaySite),
+			AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+				[]int64{replaySite}, nil, false, nil, false,
+			),
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 60,
+			Reason:                  "original persisted reason",
+			CreatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			UpdatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			CreatedByUserID:         9,
+		},
+	}
+	profileStore := newHandlerResponseProfileStore()
+	h := NewHandlerWithResponseProfiles(
+		curtailment.NewService(store),
+		curtailment.NewResponseProfileService(profileStore),
+	)
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-replay-before-live-auth",
+	}, testSiteAssignment(replaySite, authz.PermCurtailmentManage))
+	req := validStartRequestBuilder()
+	req.Scope = &pb.StartCurtailmentRequest_Site{Site: &pb.ScopeSite{SiteId: requestSite}}
+	req.FacilityFanDeviceIds = []int64{fanID}
+	req.IdempotencyKey = "retry-key"
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	assert.Equal(t, eventUUID.String(), resp.Msg.Event.EventUuid)
+	assert.Zero(t, profileStore.infrastructureDeviceListCalls, "replay must not resolve fans from the retry body")
+	assert.Empty(t, store.lastTargets, "replay must not execute the live selector")
+}
+
 // TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor pins the audit
 // attribution: an API-key authenticated session must persist
 // source_actor_type='api_key' even though the override fields aren't

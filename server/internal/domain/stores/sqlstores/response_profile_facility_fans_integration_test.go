@@ -165,6 +165,20 @@ func TestSQLCurtailmentStore_ResponseProfileFacilityFanSettings(t *testing.T) {
 	_, err = service.Get(ctx, orgID, created.ID)
 	require.NoError(t, err)
 
+	err = service.Delete(
+		ctx,
+		orgID,
+		created.ID,
+		replacement.SiteID,
+		replacement.ScopeJSON,
+		replacement.AuthorizationEnvelopeJSON,
+		responseProfileFanSettings(replacement),
+	)
+	require.NoError(t, err)
+	_, err = service.Get(ctx, orgID, created.ID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err))
+
 	otherSiteProfile, err := service.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:                orgID,

@@ -738,6 +738,105 @@ func TestHandler_ListCurtailmentEvents_FiltersEventsByPersistedFacilityFanSite(t
 	assert.Zero(t, profileStore.infrastructureDeviceListCalls, "persisted envelopes must not re-resolve facility fans")
 }
 
+func TestHandler_ListCurtailmentEvents_FailsClosedForMalformedPersistedEnvelope(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := &listStubStore{events: []*models.Event{{
+		ID:                        5,
+		EventUUID:                 uuid.New(),
+		OrgID:                     orgID,
+		State:                     models.EventStateCompleted,
+		ScopeType:                 models.ScopeTypeSite,
+		AuthorizationEnvelopeJSON: []byte(`{"schema_version":`),
+	}}}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ListCurtailmentEvents(
+		sessionCtx(orgID),
+		connect.NewRequest(&pb.ListCurtailmentEventsRequest{}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+}
+
+func TestHandler_ListCurtailmentEvents_RequiresIndependentFacilityFanSiteRead(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID     = int64(42)
+		minerSite = int64(7)
+		fanSite   = int64(8)
+	)
+
+	for _, test := range []struct {
+		name              string
+		fanScopeUnbounded bool
+		assignments       []authz.Assignment
+		wantEvents        int
+	}{
+		{
+			name: "bounded fan site without site read is filtered",
+			assignments: []authz.Assignment{
+				testSiteAssignment(minerSite, authz.PermCurtailmentRead),
+				testSiteAssignment(fanSite, authz.PermCurtailmentRead),
+			},
+		},
+		{
+			name: "bounded fan site with site read is visible",
+			assignments: []authz.Assignment{
+				testSiteAssignment(minerSite, authz.PermCurtailmentRead),
+				testSiteAssignment(fanSite, authz.PermCurtailmentRead, authz.PermSiteRead),
+			},
+			wantEvents: 1,
+		},
+		{
+			name:              "unbounded fan scope requires org-wide site read",
+			fanScopeUnbounded: true,
+			assignments: []authz.Assignment{
+				testOrgAssignment(authz.PermCurtailmentRead),
+				testSiteAssignment(fanSite, authz.PermSiteRead),
+			},
+		},
+		{
+			name:              "unbounded fan scope with org-wide site read is visible",
+			fanScopeUnbounded: true,
+			assignments: []authz.Assignment{
+				testOrgAssignment(authz.PermCurtailmentRead, authz.PermSiteRead),
+			},
+			wantEvents: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			event := &models.Event{
+				ID:        5,
+				EventUUID: uuid.New(),
+				OrgID:     orgID,
+				State:     models.EventStateCompleted,
+				ScopeType: models.ScopeTypeSite,
+				AuthorizationEnvelopeJSON: testAuthorizationEnvelopeJSON(
+					[]int64{minerSite}, nil, false, []int64{fanSite}, test.fanScopeUnbounded,
+				),
+			}
+			store := &listStubStore{events: []*models.Event{event}}
+			h := NewHandler(domainCurtailment.NewService(store))
+			ctx := testSessionCtxWithAssignments(t, &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: orgID,
+				UserID:         9,
+				Role:           "OPERATOR",
+			}, test.assignments...)
+
+			resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
+
+			require.NoError(t, err)
+			assert.Len(t, resp.Msg.Events, test.wantEvents)
+		})
+	}
+}
+
 func TestHandler_ListCurtailmentEvents_UsesPersistedFacilityFanSiteSnapshot(t *testing.T) {
 	t.Parallel()
 	const (

@@ -1,6 +1,7 @@
 package curtailment
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -37,6 +38,11 @@ func AuthorizationEnvelopeFromJSON(raw []byte) (models.AuthorizationEnvelope, er
 	for _, field := range authorizationEnvelopeFields {
 		if _, ok := fields[field]; !ok {
 			return models.AuthorizationEnvelope{}, invalidAuthorizationEnvelope("is missing %q", field)
+		}
+	}
+	for _, field := range [...]string{"miner_scope_unbounded", "facility_fan_scope_unbounded"} {
+		if bytes.Equal(bytes.TrimSpace(fields[field]), []byte("null")) {
+			return models.AuthorizationEnvelope{}, invalidAuthorizationEnvelope("%s must be a boolean", field)
 		}
 	}
 

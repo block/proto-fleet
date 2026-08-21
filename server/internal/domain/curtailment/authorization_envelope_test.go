@@ -55,3 +55,21 @@ func TestAuthorizationEnvelopeFromJSONRejectsInvalidCoverage(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthorizationEnvelopeFromJSONRejectsNullBooleanFields(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"miner_scope_unbounded":        `{"schema_version":1,"selected_resource_site_ids":[7],"current_member_site_ids":[],"miner_scope_unbounded":null,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":false}`,
+		"facility_fan_scope_unbounded": `{"schema_version":1,"selected_resource_site_ids":[7],"current_member_site_ids":[],"miner_scope_unbounded":false,"facility_fan_site_ids":[],"facility_fan_scope_unbounded":null}`,
+	}
+
+	for field, raw := range tests {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+			_, err := AuthorizationEnvelopeFromJSON([]byte(raw))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), field+" must be a boolean")
+		})
+	}
+}

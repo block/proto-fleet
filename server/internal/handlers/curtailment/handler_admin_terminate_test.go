@@ -45,11 +45,13 @@ type adminTerminateStubStore struct {
 	forceReleaseErr                error
 	// Targets returned by ListTargetsByEvent; admin-terminate fetches them
 	// post-terminate so the response shape mirrors the read endpoints.
-	targets             []*models.Target
-	targetsErr          error
-	listTargetsCalls    int
-	targetSiteIDs       []int64
-	targetSitesComplete bool
+	targets                 []*models.Target
+	targetsErr              error
+	listTargetsCalls        int
+	targetSiteIDs           []int64
+	targetSitesComplete     bool
+	targetSiteCoverageErr   error
+	targetSiteCoverageCalls int
 }
 
 func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {
@@ -157,6 +159,10 @@ func (s *adminTerminateStubStore) ListTargetsByEventPage(context.Context, interf
 	panic("ListTargetsByEventPage not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	s.targetSiteCoverageCalls++
+	if s.targetSiteCoverageErr != nil {
+		return models.TargetSiteCoverage{}, s.targetSiteCoverageErr
+	}
 	siteIDs := append([]int64(nil), s.targetSiteIDs...)
 	mappedTargetCount := int64(len(siteIDs))
 	targetCount := mappedTargetCount
@@ -273,6 +279,42 @@ func TestHandler_AdminTerminateEvent_HappyPath(t *testing.T) {
 	assert.Equal(t, "operator escalation", store.lastReason)
 }
 
+func TestHandler_AdminTerminateEvent_DoesNotHydrateDisplayCoverageBeforeControl(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateActive,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		targetSiteCoverageErr: assert.AnError,
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.AdminTerminateEvent(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.AdminTerminateEventRequest{
+			EventUuid:   eventUUID.String(),
+			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
+			Reason:      "operator escalation",
+		}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.calls)
+	assert.Zero(t, store.targetSiteCoverageCalls)
+}
+
 func TestHandler_ForceReleaseCurtailmentOwnership_HappyPath(t *testing.T) {
 	t.Parallel()
 	eventUUID := uuid.New()
@@ -377,6 +419,76 @@ func TestHandler_ForceReleaseCurtailmentOwnership_BypassesIncompleteTargetSiteCo
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_DoesNotHydrateDisplayCoverageBeforeRecovery(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateActive,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		targetSiteCoverageErr: assert.AnError,
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+			EventUuid: eventUUID.String(),
+			Reason:    "operator release",
+		}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+	assert.Zero(t, store.targetSiteCoverageCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_FailsClosedForMalformedPersistedEnvelope(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:                        99,
+			EventUUID:                 eventUUID,
+			OrgID:                     42,
+			State:                     models.EventStateActive,
+			AuthorizationEnvelopeJSON: []byte(`{"schema_version":`),
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+			EventUuid: eventUUID.String(),
+			Reason:    "operator release",
+		}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+	assert.Zero(t, store.forceReleaseCalls)
 }
 
 func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteNarrowedKnownSite(t *testing.T) {

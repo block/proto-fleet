@@ -119,6 +119,28 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
+	startReq, err := toStartRequest(req.Msg, info)
+	if err != nil {
+		return nil, err
+	}
+	if h.service != nil {
+		replayEvent, err := h.service.LookupStartReplay(ctx, startReq)
+		if err != nil {
+			return nil, err
+		}
+		if replayEvent != nil {
+			if err := h.requirePersistedEventPermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, replayEvent); err != nil {
+				return nil, err
+			}
+			plan, err := h.service.RenderStartReplay(ctx, info.OrganizationID, replayEvent)
+			if err != nil {
+				return nil, err
+			}
+			return connect.NewResponse(&pb.StartCurtailmentResponse{
+				Event: toEventProtoWithTargets(plan.ReplayEvent, plan.ReplayTargets),
+			}), nil
+		}
+	}
 	requirements, err := h.startResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
 	if err != nil {
 		return nil, err
@@ -145,10 +167,6 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 		return nil, errCurtailmentNotImplemented("StartCurtailment")
 	}
 
-	startReq, err := toStartRequest(req.Msg, info)
-	if err != nil {
-		return nil, err
-	}
 	startReq.AuthorizedDeviceSites = requirements.deviceSites
 	startReq.AuthorizedFanSites = make(map[int64]int64, len(authorizedFans))
 	for deviceID, device := range authorizedFans {
@@ -321,6 +339,9 @@ func (h *Handler) GetCurtailmentEvent(ctx context.Context, req *connect.Request[
 	}
 	info, permissionEvent, err := h.requireEventPermission(ctx, authz.PermCurtailmentRead, eventUUID)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.hydrateTargetSiteCoverageByEvent(ctx, info.OrganizationID, permissionEvent); err != nil {
 		return nil, err
 	}
 	event, targets, nextTargetPageToken, err := h.service.GetEventWithTargets(ctx, curtailment.GetEventWithTargetsRequest{
@@ -750,9 +771,6 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 	if err := requireAuthorizationEnvelopePermissions(ctx, permission, event.AuthorizationEnvelopeJSON); err != nil {
 		return nil, nil, err
 	}
-	if err := h.hydrateTargetSiteCoverageByEvent(ctx, info.OrganizationID, event); err != nil {
-		return nil, nil, err
-	}
 	return info, event, nil
 }
 
@@ -773,10 +791,7 @@ func (h *Handler) requirePersistedEventPermission(ctx context.Context, orgID int
 	if event == nil || event.OrgID != orgID {
 		return fleeterror.NewNotFoundError("curtailment event not found")
 	}
-	if err := requireAuthorizationEnvelopePermissions(ctx, permission, event.AuthorizationEnvelopeJSON); err != nil {
-		return err
-	}
-	return h.hydrateTargetSiteCoverageByEvent(ctx, orgID, event)
+	return requireAuthorizationEnvelopePermissions(ctx, permission, event.AuthorizationEnvelopeJSON)
 }
 
 func (h *Handler) filterEventsByPermission(

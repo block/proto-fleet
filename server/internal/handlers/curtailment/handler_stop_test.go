@@ -29,12 +29,14 @@ type stopStubStore struct {
 	event   *models.Event
 	targets []*models.Target
 
-	getEventErr           error
-	listTargetsErr        error
-	beginRestoreErr       error
-	beginRestoreCalls     int
-	targetSiteIDs         []int64
-	targetSiteIDsComplete bool
+	getEventErr             error
+	listTargetsErr          error
+	beginRestoreErr         error
+	beginRestoreCalls       int
+	targetSiteIDs           []int64
+	targetSiteIDsComplete   bool
+	targetSiteCoverageErr   error
+	targetSiteCoverageCalls int
 }
 
 func (s *stopStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
@@ -107,6 +109,10 @@ func (s *stopStubStore) ListTargetsByEventPage(context.Context, interfaces.ListT
 	panic("ListTargetsByEventPage not exercised by Stop handler tests")
 }
 func (s *stopStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	s.targetSiteCoverageCalls++
+	if s.targetSiteCoverageErr != nil {
+		return models.TargetSiteCoverage{}, s.targetSiteCoverageErr
+	}
 	siteIDs := append([]int64(nil), s.targetSiteIDs...)
 	mappedTargetCount := int64(len(siteIDs))
 	targetCount := mappedTargetCount
@@ -245,6 +251,24 @@ func TestHandler_StopCurtailment_HappyPath(t *testing.T) {
 	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Pending)
 	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Total)
 	assert.Equal(t, 1, store.beginRestoreCalls)
+}
+
+func TestHandler_StopCurtailment_DoesNotHydrateDisplayCoverageBeforeControl(t *testing.T) {
+	t.Parallel()
+
+	store := newStopStubStore()
+	store.event.ScopeType = models.ScopeTypeDeviceList
+	store.targetSiteCoverageErr = assert.AnError
+	h := NewHandler(curtailment.NewService(store))
+
+	_, err := h.StopCurtailment(
+		stopSessionCtxWithPerms(t, 42, "OPERATOR", authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.StopCurtailmentRequest{EventUuid: store.event.EventUUID.String()}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.beginRestoreCalls)
+	assert.Zero(t, store.targetSiteCoverageCalls)
 }
 
 func TestHandler_StopCurtailment_RequiresCurtailmentManage(t *testing.T) {
